@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import NoReturn
 
 BASE_URL = "https://jules.googleapis.com/v1alpha"
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +20,7 @@ TASK_REGISTRY = ROOT / "config" / "tasks.json"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     raise SystemExit(message)
 
 
@@ -90,10 +91,13 @@ def load_task(task_id: str) -> str:
         fail("Task is not approved")
 
     tasks_root = (ROOT / "tasks").resolve()
-    path = (ROOT / rel).resolve()
+    candidate = ROOT / rel
+    if candidate.is_symlink():
+        fail("Approved task file may not be a symlink")
+    path = candidate.resolve()
     if tasks_root not in path.parents or path.suffix.lower() != ".md":
         fail("Task registry entry violates path policy")
-    if not path.is_file() or path.is_symlink():
+    if not path.is_file():
         fail("Approved task file is unavailable")
     return path.read_text(encoding="utf-8")
 
