@@ -37,6 +37,7 @@ jobs:
         env:
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           JULES_TARGETS_JSON: ${{ secrets.JULES_TARGETS_JSON }}
+          JULES_TARGETS_JSON_EXTRA: ${{ secrets.JULES_TARGETS_JSON_EXTRA }}
           TARGET_ID: ${{ inputs.target }}
           TASK_ID: ${{ inputs.task }}
           CORRELATION_ID: ${{ inputs.correlation }}
