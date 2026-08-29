@@ -1,21 +1,18 @@
 name: Jules Dispatch
+run-name: Jules Dispatch by ${{ github.actor }}
 
 on:
   workflow_dispatch:
     inputs:
-      repository:
-        description: "Authorized Jules target (owner/repo)"
+      target:
+        description: "Approved opaque target ID"
         required: true
+        default: "phase0"
         type: string
-      branch:
-        description: "Starting branch"
+      task:
+        description: "Approved task ID"
         required: true
-        default: "main"
-        type: string
-      task_file:
-        description: "Task file in this dispatcher repo"
-        required: true
-        default: "tasks/phase0-private-repo-smoke-test.md"
+        default: "phase0-private-repo-smoke-test"
         type: string
 
 permissions:
@@ -23,20 +20,23 @@ permissions:
 
 jobs:
   dispatch:
+    # Defense in depth. Configure GitHub Workflow Execution Protection as the
+    # primary actor gate; this check prevents accidental execution by others.
+    if: github.actor == 'mark-e-deyoung'
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    environment: jules-dispatch
     steps:
-      - uses: actions/checkout@v4
-      - name: Dispatch to Jules
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Dispatch approved task to Jules
         env:
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
-          TARGET_REPOSITORY: ${{ inputs.repository }}
-          TARGET_BRANCH: ${{ inputs.branch }}
-          TASK_FILE: ${{ inputs.task_file }}
+          JULES_TARGETS_JSON: ${{ secrets.JULES_TARGETS_JSON }}
+          TARGET_ID: ${{ inputs.target }}
+          TASK_ID: ${{ inputs.task }}
         run: |
-          test -f "$TASK_FILE" || { echo "Task file not found: $TASK_FILE"; exit 2; }
-          TASK_PROMPT="$(cat "$TASK_FILE")"
           python3 scripts/jules.py dispatch \
-            --repository "$TARGET_REPOSITORY" \
-            --branch "$TARGET_BRANCH" \
-            --prompt "$TASK_PROMPT"
+            --target "$TARGET_ID" \
+            --task "$TASK_ID"
