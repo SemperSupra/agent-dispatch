@@ -1,0 +1,24 @@
+name: Jules Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Jules session ID (or sessions/ID)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve Jules status
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          JULES_SESSION: ${{ inputs.session }}
+        run: python3 scripts/jules.py status "$JULES_SESSION"
