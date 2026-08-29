@@ -34,11 +34,7 @@ def request(method: str, path: str, body: dict | None = None) -> dict:
         BASE_URL + path,
         data=data,
         method=method,
-        headers={
-            "x-goog-api-key": key,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+        headers={"x-goog-api-key": key, "Content-Type": "application/json", "Accept": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
@@ -50,17 +46,28 @@ def request(method: str, path: str, body: dict | None = None) -> dict:
         fail("Jules API request failed")
 
 
-def load_targets() -> dict[str, dict]:
-    raw = os.environ.get("JULES_TARGETS_JSON")
+def parse_target_policy(name: str, required: bool) -> dict[str, dict]:
+    raw = os.environ.get(name)
     if not raw:
-        fail("Jules target policy is not configured")
+        if required:
+            fail("Jules target policy is not configured")
+        return {}
     try:
-        targets = json.loads(raw)
+        value = json.loads(raw)
     except json.JSONDecodeError:
-        fail("Jules target policy is invalid JSON")
-    if not isinstance(targets, dict):
-        fail("Jules target policy must be a JSON object")
-    return targets
+        fail(f"{name} is invalid JSON")
+    if not isinstance(value, dict):
+        fail(f"{name} must be a JSON object")
+    return value
+
+
+def load_targets() -> dict[str, dict]:
+    targets = parse_target_policy("JULES_TARGETS_JSON", required=True)
+    extra = parse_target_policy("JULES_TARGETS_JSON_EXTRA", required=False)
+    overlap = set(targets).intersection(extra)
+    if overlap:
+        fail("Extra target policy may not override an existing target alias")
+    return {**targets, **extra}
 
 
 def resolve_target(target_id: str) -> tuple[str, str]:
@@ -88,7 +95,6 @@ def load_task(task_id: str, correlation: str | None = None) -> str:
     rel = registry.get(task_id) if isinstance(registry, dict) else None
     if not isinstance(rel, str):
         fail("Task is not approved")
-
     tasks_root = (ROOT / "tasks").resolve()
     candidate = ROOT / rel
     if candidate.is_symlink():
@@ -99,7 +105,6 @@ def load_task(task_id: str, correlation: str | None = None) -> str:
     if not path.is_file():
         fail("Approved task file is unavailable")
     prompt = path.read_text(encoding="utf-8")
-
     if task_id == PRIVATE_CONTRACT_TASK:
         if correlation is None or not ID_RE.fullmatch(correlation):
             fail("Private-contract task requires a valid opaque correlation identifier")
@@ -144,10 +149,7 @@ def dispatch(args: argparse.Namespace) -> None:
     body = {
         "prompt": prompt,
         "title": f"agent-dispatch:{args.target}:{args.task}",
-        "sourceContext": {
-            "source": source["name"],
-            "githubRepoContext": {"startingBranch": branch},
-        },
+        "sourceContext": {"source": source["name"], "githubRepoContext": {"startingBranch": branch}},
         "requirePlanApproval": False,
         "automationMode": "AUTO_CREATE_PR",
     }
@@ -171,28 +173,20 @@ def status(args: argparse.Namespace) -> None:
         pr = output.get("pullRequest")
         if pr:
             prs.append({"url": pr.get("url"), "title": pr.get("title")})
-    print(json.dumps({
-        "id": result.get("id"),
-        "state": result.get("state"),
-        "url": result.get("url"),
-        "pullRequests": prs,
-    }, indent=2))
+    print(json.dumps({"id": result.get("id"), "state": result.get("state"), "url": result.get("url"), "pullRequests": prs}, indent=2))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-
     p = sub.add_parser("dispatch", help="create an approved Jules session")
     p.add_argument("--target", required=True, help="approved opaque target ID")
     p.add_argument("--task", required=True, help="approved task ID")
     p.add_argument("--correlation", help="opaque private-contract locator")
     p.set_defaults(func=dispatch)
-
     p = sub.add_parser("status", help="retrieve a Jules session result (trusted/local use)")
     p.add_argument("session")
     p.set_defaults(func=status)
-
     args = parser.parse_args()
     args.func(args)
 
