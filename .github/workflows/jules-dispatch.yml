@@ -1,0 +1,39 @@
+name: Jules Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "Authorized Jules target (owner/repo)"
+        required: true
+        type: string
+      branch:
+        description: "Starting branch"
+        required: true
+        default: "main"
+        type: string
+      task:
+        description: "Bounded task prompt"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch to Jules
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          TARGET_BRANCH: ${{ inputs.branch }}
+          TASK_PROMPT: ${{ inputs.task }}
+        run: |
+          python3 scripts/jules.py dispatch \
+            --repository "$TARGET_REPOSITORY" \
+            --branch "$TARGET_BRANCH" \
+            --prompt "$TASK_PROMPT"
