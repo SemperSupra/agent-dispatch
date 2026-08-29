@@ -14,14 +14,17 @@ on:
         required: true
         default: "phase0-private-repo-smoke-test"
         type: string
+      correlation:
+        description: "Opaque private-contract locator; only used by private-contract-v1"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   dispatch:
-    # Defense in depth. Configure GitHub Workflow Execution Protection as the
-    # primary actor gate; this check prevents accidental execution by others.
     if: github.actor == 'mark-e-deyoung'
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -36,7 +39,10 @@ jobs:
           JULES_TARGETS_JSON: ${{ secrets.JULES_TARGETS_JSON }}
           TARGET_ID: ${{ inputs.target }}
           TASK_ID: ${{ inputs.task }}
+          CORRELATION_ID: ${{ inputs.correlation }}
         run: |
-          python3 scripts/jules.py dispatch \
-            --target "$TARGET_ID" \
-            --task "$TASK_ID"
+          args=(dispatch --target "$TARGET_ID" --task "$TASK_ID")
+          if [ -n "$CORRELATION_ID" ]; then
+            args+=(--correlation "$CORRELATION_ID")
+          fi
+          python3 scripts/jules.py "${args[@]}"
