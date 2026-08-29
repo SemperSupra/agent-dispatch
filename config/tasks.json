@@ -1,3 +1,4 @@
 {
-  "phase0-private-repo-smoke-test": "tasks/phase0-private-repo-smoke-test.md"
+  "phase0-private-repo-smoke-test": "tasks/phase0-private-repo-smoke-test.md",
+  "private-contract-v1": "tasks/private-contract-v1.md"
 }
