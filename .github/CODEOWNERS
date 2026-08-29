@@ -1,0 +1,6 @@
+# Security-sensitive control-plane files.
+/.github/workflows/ @mark-e-deyoung
+/scripts/ @mark-e-deyoung
+/config/ @mark-e-deyoung
+/tasks/ @mark-e-deyoung
+/SECURITY.md @mark-e-deyoung
