@@ -12,9 +12,10 @@ on:
         required: true
         default: "main"
         type: string
-      task:
-        description: "Bounded task prompt"
+      task_file:
+        description: "Task file in this dispatcher repo"
         required: true
+        default: "tasks/phase0-private-repo-smoke-test.md"
         type: string
 
 permissions:
@@ -31,8 +32,10 @@ jobs:
           JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
           TARGET_REPOSITORY: ${{ inputs.repository }}
           TARGET_BRANCH: ${{ inputs.branch }}
-          TASK_PROMPT: ${{ inputs.task }}
+          TASK_FILE: ${{ inputs.task_file }}
         run: |
+          test -f "$TASK_FILE" || { echo "Task file not found: $TASK_FILE"; exit 2; }
+          TASK_PROMPT="$(cat "$TASK_FILE")"
           python3 scripts/jules.py dispatch \
             --repository "$TARGET_REPOSITORY" \
             --branch "$TARGET_BRANCH" \
