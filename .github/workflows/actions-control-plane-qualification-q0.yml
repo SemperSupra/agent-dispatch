@@ -1,0 +1,144 @@
+name: Actions Control Plane Qualification Q0
+
+on:
+  push:
+    branches:
+      - exp/actions-env-qualification-q0-control
+
+permissions:
+  contents: read
+
+env:
+  PROBE_ENV_TOP: top-level
+
+jobs:
+  producer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      probe_value: ${{ steps.make-output.outputs.probe_value }}
+    steps:
+      - name: Checkout with no persisted credential
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record runtime identities and least-permission token read
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "job=${GITHUB_JOB}"
+            echo "sha=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            echo "event=${GITHUB_EVENT_NAME}"
+            echo "runner_os=${RUNNER_OS}"
+            echo "runner_arch=${RUNNER_ARCH}"
+            echo "top_env=${PROBE_ENV_TOP}"
+            echo "oidc_request_url_present=$([[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]] && echo yes || echo no)"
+            echo "oidc_request_token_present=$([[ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]] && echo yes || echo no)"
+            printf 'token_repo_read_http='
+            curl -sS -o "$RUNNER_TEMP/repo.json" -w '%{http_code}\n' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY"
+            python3 - <<'PY'
+          import json, os
+          p=os.path.join(os.environ['RUNNER_TEMP'],'repo.json')
+          d=json.load(open(p))
+          print('token_repo_identity='+d.get('full_name','UNKNOWN'))
+          print('token_repo_private='+str(d.get('private','UNKNOWN')).lower())
+          PY
+          } | tee "$RUNNER_TEMP/control-plane-producer.txt"
+      - name: Exercise environment propagation
+        shell: bash
+        run: |
+          echo 'PROBE_ENV_DYNAMIC=dynamic-value' >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/probe-bin"
+          printf '#!/usr/bin/env bash\necho path-command-ok\n' > "$RUNNER_TEMP/probe-bin/probe-command"
+          chmod +x "$RUNNER_TEMP/probe-bin/probe-command"
+          echo "$RUNNER_TEMP/probe-bin" >> "$GITHUB_PATH"
+      - name: Verify environment/path propagation
+        shell: bash
+        run: |
+          test "$PROBE_ENV_DYNAMIC" = dynamic-value
+          test "$(probe-command)" = path-command-ok
+          echo 'env_path_propagation=PASS' >> "$RUNNER_TEMP/control-plane-producer.txt"
+      - name: Make step and job output
+        id: make-output
+        shell: bash
+        run: |
+          echo 'probe_value=job-output-ok' >> "$GITHUB_OUTPUT"
+      - name: Write job summary
+        shell: bash
+        run: |
+          {
+            echo '## Actions Q0 control-plane probe'
+            echo '- step/job output: produced'
+            echo '- environment/path propagation: PASS'
+            echo '- artifact/cache handoff: tested in consumer job'
+            echo '- OIDC permission: intentionally not granted'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Create cross-job artifact payload
+        shell: bash
+        run: |
+          printf 'artifact-handoff-ok\n' > "$RUNNER_TEMP/handoff.txt"
+          mkdir -p "$RUNNER_TEMP/cache-probe"
+          printf 'cache-handoff-ok\n' > "$RUNNER_TEMP/cache-probe/value.txt"
+      - name: Save cache primitive
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/cache-probe
+          key: actions-q0-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload artifact primitive
+        uses: actions/upload-artifact@v4
+        with:
+          name: actions-q0-control-handoff
+          path: ${{ runner.temp }}/handoff.txt
+          retention-days: 7
+
+  consumer:
+    needs: producer
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - name: Verify job output
+        shell: bash
+        env:
+          PRODUCER_VALUE: ${{ needs.producer.outputs.probe_value }}
+        run: |
+          test "$PRODUCER_VALUE" = job-output-ok
+          echo 'job_output_handoff=PASS' > "$RUNNER_TEMP/control-plane-consumer.txt"
+      - name: Download artifact primitive
+        uses: actions/download-artifact@v4
+        with:
+          name: actions-q0-control-handoff
+          path: ${{ runner.temp }}/artifact
+      - name: Verify artifact handoff
+        shell: bash
+        run: |
+          test "$(cat "$RUNNER_TEMP/artifact/handoff.txt")" = artifact-handoff-ok
+          echo 'artifact_handoff=PASS' >> "$RUNNER_TEMP/control-plane-consumer.txt"
+      - name: Restore cache primitive
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/cache-probe
+          key: actions-q0-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Verify cache handoff
+        shell: bash
+        run: |
+          test "$(cat "$RUNNER_TEMP/cache-probe/value.txt")" = cache-handoff-ok
+          echo 'cache_handoff=PASS' >> "$RUNNER_TEMP/control-plane-consumer.txt"
+          echo "consumer_runner_os=${RUNNER_OS}" >> "$RUNNER_TEMP/control-plane-consumer.txt"
+          echo "consumer_runner_arch=${RUNNER_ARCH}" >> "$RUNNER_TEMP/control-plane-consumer.txt"
+          cat "$RUNNER_TEMP/control-plane-consumer.txt"
+      - name: Upload consumer evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: actions-q0-control-consumer
+          path: ${{ runner.temp }}/control-plane-consumer.txt
+          retention-days: 7
