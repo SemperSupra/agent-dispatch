@@ -43,6 +43,8 @@ jobs:
         run: python -c "import json,platform; print(json.dumps({'system':platform.system(),'machine':platform.machine(),'python':platform.python_version()}, indent=2))"
 
       - name: Qualify pinned public artifacts
+        env:
+          QUAL_GITHUB_TOKEN: ${{ github.token }}
         run: python tools/oss-organ-qualify.py
 
       - name: Retain structured qualification evidence
