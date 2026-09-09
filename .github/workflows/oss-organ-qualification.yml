@@ -1,0 +1,55 @@
+name: OSS organ six-family qualification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/oss-organ-qualification.yml"
+      - "tools/oss-organ-qualify.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-24.04
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+          - name: windows-x64
+            runner: windows-2025
+          - name: windows-arm64
+            runner: windows-11-arm
+          - name: macos-x64
+            runner: macos-15-intel
+          - name: macos-arm64
+            runner: macos-15
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out public probe only
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Record runner identity
+        run: python -c "import json,platform; print(json.dumps({'system':platform.system(),'machine':platform.machine(),'python':platform.python_version()}, indent=2))"
+
+      - name: Qualify pinned public artifacts
+        run: python tools/oss-organ-qualify.py
+
+      - name: Retain structured qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oss-organ-${{ matrix.name }}
+          path: qualification-results/*.json
+          if-no-files-found: warn
+          retention-days: 14
