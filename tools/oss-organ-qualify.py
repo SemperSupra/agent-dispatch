@@ -78,14 +78,15 @@ def asset_name(tool: str, system: str, arch: str) -> str:
     raise KeyError(tool)
 
 def request_json(url: str) -> dict:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "agent-dispatch-oss-organ-qualification/1",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "agent-dispatch-oss-organ-qualification/1",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get("QUAL_GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as response:
         return json.load(response)
 
@@ -147,7 +148,17 @@ def find_executable(root: Path, basename: str, system: str) -> Path:
     return exe
 
 def run(argv: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(argv, cwd=cwd, text=True, capture_output=True, timeout=120)
+    clean_env = os.environ.copy()
+    clean_env.pop("QUAL_GITHUB_TOKEN", None)
+    clean_env.pop("GITHUB_TOKEN", None)
+    result = subprocess.run(
+        argv,
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        timeout=120,
+        env=clean_env,
+    )
     if result.returncode != 0:
         raise RuntimeError(
             f"command failed ({result.returncode}): {argv}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
