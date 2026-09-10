@@ -6,6 +6,7 @@ on:
       - ".github/workflows/oss-organ-qualification.yml"
       - "tools/oss-organ-qualify.py"
       - "tools/oss-organ-reps.py"
+      - "tools/oss-organ-followup.py"
       - "lab-fixtures/**"
   workflow_dispatch:
 
@@ -53,6 +54,11 @@ jobs:
         env:
           QUAL_GITHUB_TOKEN: ${{ github.token }}
         run: python tools/oss-organ-reps.py
+
+      - name: Run corrective follow-up reps
+        env:
+          QUAL_GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/oss-organ-followup.py
 
       - name: Retain structured qualification evidence
         if: always()
