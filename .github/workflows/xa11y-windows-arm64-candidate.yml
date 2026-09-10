@@ -17,18 +17,18 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Check out exact public upstream release source
+      - name: Check out exact public release-synchronized source
         uses: actions/checkout@v5
         with:
           repository: xa11y/xa11y
-          ref: 7e623f3d4d24264dd9a56399090a8099020b46ea
+          ref: 44594a9705a3f3213a9b58bc205f4e6335c9606b
           persist-credentials: false
 
       - name: Verify source identity
         shell: pwsh
         run: |
           $sha = (git rev-parse HEAD).Trim()
-          if ($sha -ne '7e623f3d4d24264dd9a56399090a8099020b46ea') { throw "unexpected source $sha" }
+          if ($sha -ne '44594a9705a3f3213a9b58bc205f4e6335c9606b') { throw "unexpected source $sha" }
           Write-Host "source=$sha"
 
       - name: Set up native ARM64 Python
@@ -50,6 +50,7 @@ jobs:
           $wheel = Get-ChildItem xa11y-python/dist/*.whl | Select-Object -First 1
           if (-not $wheel) { throw 'candidate wheel was not produced' }
           Write-Host "wheel=$($wheel.Name)"
+          if ($wheel.Name -notmatch 'win_arm64') { throw "candidate is not a Windows ARM64 wheel: $($wheel.Name)" }
           python -m pip install --disable-pip-version-check --no-index --no-deps --only-binary=:all: --find-links xa11y-python/dist xa11y==0.14.0
           @'
           import importlib.metadata
@@ -58,7 +59,7 @@ jobs:
           import xa11y
 
           evidence = {
-              "source_commit": "7e623f3d4d24264dd9a56399090a8099020b46ea",
+              "source_commit": "44594a9705a3f3213a9b58bc205f4e6335c9606b",
               "package_version": importlib.metadata.version("xa11y"),
               "system": platform.system(),
               "machine": platform.machine(),
