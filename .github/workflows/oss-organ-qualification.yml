@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/oss-organ-qualification.yml"
       - "tools/oss-organ-qualify.py"
+      - "tools/oss-organ-reps.py"
+      - "lab-fixtures/**"
   workflow_dispatch:
 
 permissions:
@@ -46,6 +48,11 @@ jobs:
         env:
           QUAL_GITHUB_TOKEN: ${{ github.token }}
         run: python tools/oss-organ-qualify.py
+
+      - name: Run bounded comparative reps
+        env:
+          QUAL_GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/oss-organ-reps.py
 
       - name: Retain structured qualification evidence
         if: always()
