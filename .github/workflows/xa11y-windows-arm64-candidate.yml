@@ -92,13 +92,13 @@ jobs:
       - name: Install and exercise exact downloaded wheel
         shell: pwsh
         run: |
-          $wheel = Get-ChildItem candidate/*.whl | Select-Object -First 1
+          $wheel = Get-ChildItem candidate -Recurse -Filter *.whl | Select-Object -First 1
           if (-not $wheel) { throw 'candidate wheel was not downloaded' }
           if ($wheel.Name -notmatch 'win_arm64') { throw "candidate is not a Windows ARM64 wheel: $($wheel.Name)" }
           $digest = (Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLowerInvariant()
           $build = Get-Content candidate/build-evidence.json | ConvertFrom-Json
           if ($digest -ne $build.wheel_sha256) { throw "artifact digest changed in transfer" }
-          python -m pip install --disable-pip-version-check --no-index --no-deps --only-binary=:all: --find-links candidate xa11y==0.14.0
+          python -m pip install --disable-pip-version-check --no-index --no-deps --only-binary=:all: $wheel.FullName
           @'
           import importlib.metadata
           import json
@@ -146,7 +146,7 @@ jobs:
         with:
           name: xa11y-0.14.0-windows-arm64-qualified-candidate
           path: |
-            candidate/*.whl
+            candidate/**/*.whl
             candidate/build-evidence.json
             candidate-evidence.json
           if-no-files-found: warn
