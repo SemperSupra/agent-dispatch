@@ -73,7 +73,9 @@ jobs:
               { fixture: 'fixture.exe' },
             );
             await pkg.install(true);
-            console.log(JSON.stringify({ install_resolved: true, exists_after: pkg.exists() }));
+            const existsAfter = pkg.exists();
+            console.log(JSON.stringify({ install_resolved: true, exists_after: existsAfter }));
+            if (!existsAfter) process.exit(91);
           }
 
           main().catch((err) => {
@@ -94,24 +96,21 @@ jobs:
             Remove-Item upstream/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
             node lab/package-install-probe.js upstream/baseline-binary-install.js http://127.0.0.1:8123/valid.zip valid.zip *> baseline.log
             $baselineExit = $LASTEXITCODE
-            $baselineExists = Test-Path upstream/node_modules/.bin_real/fixture.exe
 
             git -C upstream apply ../lab/candidates/cargo-dist-npm-windows-extraction/candidate.patch
-            Remove-Item upstream/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item upstream/cargo-dist/templates/installer/npm/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
             node lab/package-install-probe.js upstream/cargo-dist/templates/installer/npm/binary-install.js http://127.0.0.1:8123/valid.zip valid.zip *> candidate-valid.log
             $candidateExit = $LASTEXITCODE
-            $candidateExists = Test-Path upstream/node_modules/.bin_real/fixture.exe
 
             if ($candidateExit -ne 0) { Get-Content candidate-valid.log; throw "candidate failed under Restricted policy: exit $candidateExit" }
-            if (-not $candidateExists) { Get-Content candidate-valid.log; throw 'candidate reported success but did not extract fixture' }
-            if ($baselineExit -eq 0 -and $baselineExists) { Get-Content baseline.log; throw 'baseline unexpectedly installed successfully under Restricted policy' }
+            if ($baselineExit -eq 0) { Get-Content baseline.log; throw 'baseline unexpectedly installed successfully under Restricted policy' }
 
             @{
               upstream_commit = 'c65a1a932e2661e05d6640716850d36b0f47efd7'
               baseline_exit = $baselineExit
-              baseline_extracted = $baselineExists
+              baseline_silent_success_detected = ($baselineExit -eq 91)
               candidate_exit = $candidateExit
-              candidate_extracted = $candidateExists
+              candidate_install_verified_by_package_exists = $true
               simulated_policy = 'CurrentUser Restricted'
             } | ConvertTo-Json | Set-Content -Encoding utf8 restricted-policy-evidence.json
           }
@@ -126,10 +125,10 @@ jobs:
           $server = Start-Process python -ArgumentList '-m','http.server','8124','--bind','127.0.0.1','--directory','lab/fixture' -PassThru -WindowStyle Hidden
           Start-Sleep -Seconds 2
           try {
-            Remove-Item upstream/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item upstream/cargo-dist/templates/installer/npm/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
             node lab/package-install-probe.js upstream/cargo-dist/templates/installer/npm/binary-install.js http://127.0.0.1:8124/invalid.zip invalid.zip *> corrupt-zip.log
             $exit = $LASTEXITCODE
-            if ($exit -eq 0) { Get-Content corrupt-zip.log; throw 'candidate masked corrupt ZIP extraction failure' }
+            if ($exit -eq 0 -or $exit -eq 91) { Get-Content corrupt-zip.log; throw "candidate did not propagate corrupt ZIP as extraction failure: exit $exit" }
             @{
               corrupt_zip_exit = $exit
               failure_propagated = $true
