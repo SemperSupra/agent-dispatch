@@ -25,7 +25,10 @@ def sha(path: Path) -> str:
 def main() -> int:
     system, arch = qual.platform_key()
     report = {"schema": 1, "system": system, "architecture": arch, "reps": {}}
-    with tempfile.TemporaryDirectory(prefix="oss-organ-followup-") as tmp:
+    # Windows hosted runners can retain a short-lived executable file handle after
+    # Task exits. The runner is disposable, so cleanup failure must not overwrite
+    # successful experiment evidence. Rep assertions still fail normally.
+    with tempfile.TemporaryDirectory(prefix="oss-organ-followup-", ignore_cleanup_errors=True) as tmp:
         root = Path(tmp)
         task, evidence = qual.install_tool("task", root, system, arch)
         work = root / "task"
