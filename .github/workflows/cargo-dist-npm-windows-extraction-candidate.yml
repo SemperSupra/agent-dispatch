@@ -1,0 +1,154 @@
+name: cargo-dist Windows npm extraction candidate
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/cargo-dist-npm-windows-extraction-candidate.yml"
+      - "candidates/cargo-dist-npm-windows-extraction/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restricted-policy-and-error-propagation:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out public lab inputs
+        uses: actions/checkout@v7
+        with:
+          path: lab
+          persist-credentials: false
+
+      - name: Check out exact public cargo-dist source
+        uses: actions/checkout@v7
+        with:
+          repository: axodotdev/cargo-dist
+          ref: c65a1a932e2661e05d6640716850d36b0f47efd7
+          path: upstream
+          persist-credentials: false
+
+      - name: Verify upstream source identity
+        shell: pwsh
+        run: |
+          $sha = (git -C upstream rev-parse HEAD).Trim()
+          if ($sha -ne 'c65a1a932e2661e05d6640716850d36b0f47efd7') { throw "unexpected source $sha" }
+          Copy-Item upstream/cargo-dist/templates/installer/npm/binary-install.js upstream/baseline-binary-install.js
+          git -C upstream apply --check ../lab/candidates/cargo-dist-npm-windows-extraction/candidate.patch
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Set up Python for local fixture server
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          architecture: x64
+
+      - name: Prepare ZIP fixtures and Package.install probe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force lab/fixture/valid | Out-Null
+          Set-Content -Encoding ascii lab/fixture/valid/fixture.exe 'fixture'
+          Compress-Archive -Path lab/fixture/valid/fixture.exe -DestinationPath lab/fixture/valid.zip -Force
+          Set-Content -Encoding ascii lab/fixture/invalid.zip 'not-a-zip'
+          @'
+          const path = require('path');
+
+          async function main() {
+            const modulePath = path.resolve(process.argv[2]);
+            const url = process.argv[3];
+            const filename = process.argv[4];
+            const { Package } = require(modulePath);
+            const pkg = new Package(
+              { artifactName: 'x86_64-pc-windows-msvc' },
+              'fixture',
+              url,
+              filename,
+              '.zip',
+              { fixture: 'fixture.exe' },
+            );
+            await pkg.install(true);
+            console.log(JSON.stringify({ install_resolved: true, exists_after: pkg.exists() }));
+          }
+
+          main().catch((err) => {
+            console.error(err);
+            process.exit(90);
+          });
+          '@ | Set-Content -Encoding utf8 lab/package-install-probe.js
+
+      - name: Exercise baseline and candidate under Restricted policy
+        shell: pwsh
+        run: |
+          $server = Start-Process python -ArgumentList '-m','http.server','8123','--bind','127.0.0.1','--directory','lab/fixture' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          $prior = (powershell.exe -NoProfile -NonInteractive -Command 'Get-ExecutionPolicy -Scope CurrentUser').Trim()
+          try {
+            powershell.exe -NoProfile -NonInteractive -Command 'Set-ExecutionPolicy -Scope CurrentUser Restricted -Force'
+
+            Remove-Item upstream/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
+            node lab/package-install-probe.js upstream/baseline-binary-install.js http://127.0.0.1:8123/valid.zip valid.zip *> baseline.log
+            $baselineExit = $LASTEXITCODE
+            $baselineExists = Test-Path upstream/node_modules/.bin_real/fixture.exe
+
+            git -C upstream apply ../lab/candidates/cargo-dist-npm-windows-extraction/candidate.patch
+            Remove-Item upstream/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
+            node lab/package-install-probe.js upstream/cargo-dist/templates/installer/npm/binary-install.js http://127.0.0.1:8123/valid.zip valid.zip *> candidate-valid.log
+            $candidateExit = $LASTEXITCODE
+            $candidateExists = Test-Path upstream/node_modules/.bin_real/fixture.exe
+
+            if ($candidateExit -ne 0) { Get-Content candidate-valid.log; throw "candidate failed under Restricted policy: exit $candidateExit" }
+            if (-not $candidateExists) { Get-Content candidate-valid.log; throw 'candidate reported success but did not extract fixture' }
+            if ($baselineExit -eq 0 -and $baselineExists) { Get-Content baseline.log; throw 'baseline unexpectedly installed successfully under Restricted policy' }
+
+            @{
+              upstream_commit = 'c65a1a932e2661e05d6640716850d36b0f47efd7'
+              baseline_exit = $baselineExit
+              baseline_extracted = $baselineExists
+              candidate_exit = $candidateExit
+              candidate_extracted = $candidateExists
+              simulated_policy = 'CurrentUser Restricted'
+            } | ConvertTo-Json | Set-Content -Encoding utf8 restricted-policy-evidence.json
+          }
+          finally {
+            powershell.exe -NoProfile -NonInteractive -Command "Set-ExecutionPolicy -Scope CurrentUser $prior -Force"
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Candidate must propagate genuine corrupt-ZIP failure
+        shell: pwsh
+        run: |
+          $server = Start-Process python -ArgumentList '-m','http.server','8124','--bind','127.0.0.1','--directory','lab/fixture' -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          try {
+            Remove-Item upstream/node_modules/.bin_real -Recurse -Force -ErrorAction SilentlyContinue
+            node lab/package-install-probe.js upstream/cargo-dist/templates/installer/npm/binary-install.js http://127.0.0.1:8124/invalid.zip invalid.zip *> corrupt-zip.log
+            $exit = $LASTEXITCODE
+            if ($exit -eq 0) { Get-Content corrupt-zip.log; throw 'candidate masked corrupt ZIP extraction failure' }
+            @{
+              corrupt_zip_exit = $exit
+              failure_propagated = $true
+            } | ConvertTo-Json | Set-Content -Encoding utf8 corrupt-zip-evidence.json
+          }
+          finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Retain public candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-dist-npm-windows-extraction-candidate-evidence
+          path: |
+            restricted-policy-evidence.json
+            corrupt-zip-evidence.json
+            baseline.log
+            candidate-valid.log
+            corrupt-zip.log
+          if-no-files-found: warn
+          retention-days: 14
