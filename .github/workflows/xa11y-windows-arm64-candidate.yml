@@ -1,0 +1,102 @@
+name: xa11y Windows ARM64 Python candidate
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/xa11y-windows-arm64-candidate.yml"
+      - "candidates/xa11y-windows-arm64-python-wheel/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-install-probe:
+    name: native Windows ARM64 wheel
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out exact public upstream release source
+        uses: actions/checkout@v5
+        with:
+          repository: xa11y/xa11y
+          ref: 7e623f3d4d24264dd9a56399090a8099020b46ea
+          persist-credentials: false
+
+      - name: Verify source identity
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          if ($sha -ne '7e623f3d4d24264dd9a56399090a8099020b46ea') { throw "unexpected source $sha" }
+          Write-Host "source=$sha"
+
+      - name: Set up native ARM64 Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          architecture: arm64
+
+      - name: Build candidate wheel using upstream release machinery
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: --release --out dist
+          working-directory: xa11y-python
+
+      - name: Install and exercise the exact generated wheel
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem xa11y-python/dist/*.whl | Select-Object -First 1
+          if (-not $wheel) { throw 'candidate wheel was not produced' }
+          Write-Host "wheel=$($wheel.Name)"
+          python -m pip install --disable-pip-version-check --no-index --no-deps --only-binary=:all: --find-links xa11y-python/dist xa11y==0.14.0
+          @'
+          import importlib.metadata
+          import json
+          import platform
+          import xa11y
+
+          evidence = {
+              "source_commit": "7e623f3d4d24264dd9a56399090a8099020b46ea",
+              "package_version": importlib.metadata.version("xa11y"),
+              "system": platform.system(),
+              "machine": platform.machine(),
+              "python": platform.python_version(),
+              "imported": xa11y.__name__ == "xa11y",
+              "app_api_present": hasattr(xa11y, "App") and hasattr(xa11y.App, "by_name"),
+          }
+          try:
+              xa11y.App.by_name("__agent_dispatch_candidate_missing_app__", timeout=0)
+              evidence["missing_app"] = "unexpected-success"
+          except Exception as exc:
+              evidence["missing_app_exception"] = type(exc).__name__
+              evidence["missing_app_message"] = str(exc)[:1000]
+              evidence["missing_app_is_xa11y_error"] = isinstance(exc, xa11y.XA11yError)
+
+          print(json.dumps(evidence, indent=2, sort_keys=True))
+          if evidence["package_version"] != "0.14.0":
+              raise SystemExit("wrong package version")
+          if not evidence["imported"] or not evidence["app_api_present"]:
+              raise SystemExit("candidate API probe failed")
+          if evidence.get("missing_app") == "unexpected-success":
+              raise SystemExit("missing-app negative control unexpectedly succeeded")
+          if not evidence.get("missing_app_is_xa11y_error", False):
+              raise SystemExit("missing-app failure was not surfaced as xa11y error")
+          with open("candidate-evidence.json", "w", encoding="utf-8") as f:
+              json.dump(evidence, f, indent=2, sort_keys=True)
+              f.write("\n")
+          '@ | Set-Content -Encoding utf8 candidate_probe.py
+          python candidate_probe.py
+          xa11y --help
+
+      - name: Retain installable public candidate and evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xa11y-0.14.0-windows-arm64-candidate
+          path: |
+            xa11y-python/dist/*.whl
+            candidate-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
