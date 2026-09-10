@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  build-install-probe:
-    name: native Windows ARM64 wheel
-    runs-on: windows-11-arm
+  build-wheel:
+    name: cross-build Windows ARM64 wheel
+    runs-on: windows-latest
     timeout-minutes: 45
 
     steps:
@@ -31,27 +31,74 @@ jobs:
           if ($sha -ne '44594a9705a3f3213a9b58bc205f4e6335c9606b') { throw "unexpected source $sha" }
           Write-Host "source=$sha"
 
-      - name: Set up native ARM64 Python
+      - name: Set up host Python
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-          architecture: arm64
+          architecture: x64
 
-      - name: Build candidate wheel using upstream release machinery
+      - name: Cross-build candidate wheel using upstream release machinery
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64
           args: --release --out dist
           working-directory: xa11y-python
 
-      - name: Install and exercise the exact generated wheel
+      - name: Verify and describe produced wheel
         shell: pwsh
         run: |
           $wheel = Get-ChildItem xa11y-python/dist/*.whl | Select-Object -First 1
           if (-not $wheel) { throw 'candidate wheel was not produced' }
-          Write-Host "wheel=$($wheel.Name)"
           if ($wheel.Name -notmatch 'win_arm64') { throw "candidate is not a Windows ARM64 wheel: $($wheel.Name)" }
-          python -m pip install --disable-pip-version-check --no-index --no-deps --only-binary=:all: --find-links xa11y-python/dist xa11y==0.14.0
+          $digest = (Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLowerInvariant()
+          @{
+            source_commit = '44594a9705a3f3213a9b58bc205f4e6335c9606b'
+            build_host = 'windows-latest-x64'
+            maturin_target = 'aarch64'
+            wheel = $wheel.Name
+            wheel_sha256 = $digest
+          } | ConvertTo-Json | Set-Content -Encoding utf8 build-evidence.json
+          Get-Content build-evidence.json
+
+      - name: Publish exact candidate wheel for dogfood job
+        uses: actions/upload-artifact@v7
+        with:
+          name: xa11y-crossbuilt-windows-arm64-wheel
+          path: |
+            xa11y-python/dist/*.whl
+            build-evidence.json
+          if-no-files-found: error
+          retention-days: 14
+
+  dogfood-wheel:
+    name: dogfood exact wheel on native Windows ARM64
+    needs: build-wheel
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+
+    steps:
+      - name: Set up native ARM64 Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          architecture: arm64
+
+      - name: Download exact cross-built candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: xa11y-crossbuilt-windows-arm64-wheel
+          path: candidate
+
+      - name: Install and exercise exact downloaded wheel
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem candidate/*.whl | Select-Object -First 1
+          if (-not $wheel) { throw 'candidate wheel was not downloaded' }
+          if ($wheel.Name -notmatch 'win_arm64') { throw "candidate is not a Windows ARM64 wheel: $($wheel.Name)" }
+          $digest = (Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLowerInvariant()
+          $build = Get-Content candidate/build-evidence.json | ConvertFrom-Json
+          if ($digest -ne $build.wheel_sha256) { throw "artifact digest changed in transfer" }
+          python -m pip install --disable-pip-version-check --no-index --no-deps --only-binary=:all: --find-links candidate xa11y==0.14.0
           @'
           import importlib.metadata
           import json
@@ -78,6 +125,8 @@ jobs:
           print(json.dumps(evidence, indent=2, sort_keys=True))
           if evidence["package_version"] != "0.14.0":
               raise SystemExit("wrong package version")
+          if evidence["machine"].upper() != "ARM64":
+              raise SystemExit("dogfood did not run on native ARM64")
           if not evidence["imported"] or not evidence["app_api_present"]:
               raise SystemExit("candidate API probe failed")
           if evidence.get("missing_app") == "unexpected-success":
@@ -91,13 +140,14 @@ jobs:
           python candidate_probe.py
           xa11y --help
 
-      - name: Retain installable public candidate and evidence
+      - name: Retain qualified installable public candidate and evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: xa11y-0.14.0-windows-arm64-candidate
+          name: xa11y-0.14.0-windows-arm64-qualified-candidate
           path: |
-            xa11y-python/dist/*.whl
+            candidate/*.whl
+            candidate/build-evidence.json
             candidate-evidence.json
           if-no-files-found: warn
           retention-days: 14
