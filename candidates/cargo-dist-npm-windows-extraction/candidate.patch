@@ -1,7 +1,7 @@
 diff --git a/cargo-dist/templates/installer/npm/binary-install.js b/cargo-dist/templates/installer/npm/binary-install.js
 --- a/cargo-dist/templates/installer/npm/binary-install.js
 +++ b/cargo-dist/templates/installer/npm/binary-install.js
-@@
+@@ -1,10 +1,17 @@
                    result = spawnSync("powershell.exe", [
                      "-NoProfile",
                      "-NonInteractive",
@@ -20,4 +20,3 @@ diff --git a/cargo-dist/templates/installer/npm/binary-install.js b/cargo-dist/t
                      }`,
                      tempFile,
                      this.installDirectory,
-                   ]);
