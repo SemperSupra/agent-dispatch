@@ -137,6 +137,9 @@ jobs:
           finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
           }
+          # The non-zero Node status above is the expected oracle. After recording it,
+          # do not let that expected child status become the workflow step status.
+          $global:LASTEXITCODE = 0
 
       - name: Retain public candidate evidence
         if: always()
