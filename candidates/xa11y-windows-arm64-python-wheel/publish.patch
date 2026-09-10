@@ -8,16 +8,11 @@ diff --git a/.github/workflows/publish.yml b/.github/workflows/publish.yml
      needs: [preflight, version-bump]
      if: always() && needs.preflight.result == 'success'
        && (needs.version-bump.result == 'success' || needs.version-bump.result == 'skipped')
--    runs-on: windows-latest
+     runs-on: windows-latest
 +    strategy:
 +      fail-fast: false
 +      matrix:
-+        include:
-+          - runner: windows-latest
-+            target: x86_64
-+          - runner: windows-11-arm
-+            target: aarch64
-+    runs-on: ${{ matrix.runner }}
++        target: [x86_64, aarch64]
      steps:
        - uses: actions/checkout@v7
          with:
