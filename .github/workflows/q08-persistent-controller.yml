@@ -1,0 +1,120 @@
+name: Q0.8 persistent controller surrogate
+
+on:
+  push:
+    branches:
+      - exp/actions-controller-q08-20260913
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create frozen initial state
+        shell: bash
+        run: |
+          mkdir -p out
+          cat > out/state-0.json <<'JSON'
+          {"resource":"q08-controller-demo","worker":"dead","backlog":2,"generation":0}
+          JSON
+      - uses: actions/upload-artifact@v4
+        with:
+          name: state-0
+          path: out/state-0.json
+          if-no-files-found: error
+
+  decision_1:
+    needs: init
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: state-0
+          path: in
+      - name: Fresh decision invocation 1
+        run: |
+          mkdir -p out
+          python experiments/q08_controller.py step --input in/state-0.json --output out/state-1.json --receipt out/receipt-1.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: state-1
+          path: |
+            out/state-1.json
+            out/receipt-1.json
+          if-no-files-found: error
+
+  decision_2:
+    needs: decision_1
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: state-1
+          path: in
+      - name: Fresh decision invocation 2
+        run: |
+          mkdir -p out
+          python experiments/q08_controller.py step --input in/state-1.json --output out/state-2.json --receipt out/receipt-2.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: state-2
+          path: |
+            out/state-2.json
+            out/receipt-2.json
+          if-no-files-found: error
+
+  decision_3:
+    needs: decision_2
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: state-2
+          path: in
+      - name: Fresh decision invocation 3
+        run: |
+          mkdir -p out
+          python experiments/q08_controller.py step --input in/state-2.json --output out/state-3.json --receipt out/receipt-3.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: state-3
+          path: |
+            out/state-3.json
+            out/receipt-3.json
+          if-no-files-found: error
+
+  verify:
+    needs: decision_3
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: state-0
+          path: evidence/state-0
+      - uses: actions/download-artifact@v4
+        with:
+          name: state-1
+          path: evidence/state-1
+      - uses: actions/download-artifact@v4
+        with:
+          name: state-2
+          path: evidence/state-2
+      - uses: actions/download-artifact@v4
+        with:
+          name: state-3
+          path: evidence/state-3
+      - name: Verify durable chain and deterministic replay
+        run: python experiments/q08_controller.py verify-chain --root evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q08-final-receipt
+          path: evidence/q08-final-receipt.json
+          if-no-files-found: error
