@@ -16,10 +16,62 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
       - name: Run dependency-free contract tests
         run: python3 -m unittest -v tests/test_sealed_public_execution.py
+
+      - name: Install age for round-trip test
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+
+      - name: Exercise execute-seal-decrypt round trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sealed-selftest/capsule
+          cat > /tmp/sealed-selftest/capsule/run.sh <<'SH'
+          echo "captured stdout"
+          echo "captured stderr" >&2
+          printf 'round-trip-ok\n' > "$SEALED_RESULT_DIR/out.txt"
+          SH
+          tar -C /tmp/sealed-selftest/capsule -czf /tmp/sealed-selftest/capsule.tar.gz run.sh
+          capsule_sha=$(sha256sum /tmp/sealed-selftest/capsule.tar.gz | awk '{print $1}')
+          capsule_b64=$(base64 -w0 /tmp/sealed-selftest/capsule.tar.gz)
+
+          age-keygen -o /tmp/sealed-selftest/identity.txt >/dev/null 2>&1
+          recipient=$(awk '/# public key:/ {print $4}' /tmp/sealed-selftest/identity.txt)
+          test -n "$recipient"
+
+          python3 scripts/sealed_public_execution.py \
+            --assignment-id selftest-001 \
+            --capsule-b64 "$capsule_b64" \
+            --capsule-sha256 "$capsule_sha" \
+            --recipient "$recipient" \
+            --timeout-seconds 30 \
+            --out-dir /tmp/sealed-selftest/sealed
+
+          age --decrypt \
+            --identity /tmp/sealed-selftest/identity.txt \
+            --output /tmp/sealed-selftest/result.tar.gz \
+            /tmp/sealed-selftest/sealed/result.age
+          mkdir /tmp/sealed-selftest/result
+          tar -C /tmp/sealed-selftest/result -xzf /tmp/sealed-selftest/result.tar.gz
+
+          grep -qx 'captured stdout' /tmp/sealed-selftest/result/stdout.txt
+          grep -qx 'captured stderr' /tmp/sealed-selftest/result/stderr.txt
+          grep -qx 'round-trip-ok' /tmp/sealed-selftest/result/files/out.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          receipt = json.loads(Path('/tmp/sealed-selftest/sealed/receipt.json').read_text())
+          assert receipt['assignment_id'] == 'selftest-001'
+          assert receipt['status'] == 'completed'
+          assert len(receipt['sealed_sha256']) == 64
+          PY
