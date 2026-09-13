@@ -1,0 +1,254 @@
+name: Q0.10 cross-run fresh-observer reacquisition
+
+on:
+  push:
+    branches:
+      - exp/actions-cross-run-reacquire-q010-20260913
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  observe_q08:
+    runs-on: ubuntu-slim
+    env:
+      SOURCE_RUN_ID: "34768395784"
+      SOURCE_HEAD_SHA: "f8d88141ccfc30f9cc458d23dc55fd7f48689ce3"
+      SOURCE_ARTIFACT_NAME: "q08-final-receipt"
+      SOURCE_ARTIFACT_ID: "10320328859"
+      SOURCE_ARTIFACT_DIGEST: "sha256:c5f090e02021a9c092eae3452534260fa0d45de3a5087effeab5edd77a8ad005"
+    steps:
+      - name: Observe prior run through GitHub API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p observation
+          python - <<'PY'
+          import json, os, urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          run_id = os.environ["SOURCE_RUN_ID"]
+          expected_sha = os.environ["SOURCE_HEAD_SHA"]
+          expected_artifact_id = int(os.environ["SOURCE_ARTIFACT_ID"])
+          expected_artifact_name = os.environ["SOURCE_ARTIFACT_NAME"]
+          expected_digest = os.environ["SOURCE_ARTIFACT_DIGEST"]
+          token = os.environ["GH_TOKEN"]
+
+          def get(path):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}{path}",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req) as r:
+                  return json.load(r)
+
+          run = get(f"/actions/runs/{run_id}")
+          jobs = get(f"/actions/runs/{run_id}/jobs?per_page=100")["jobs"]
+          artifacts = get(f"/actions/runs/{run_id}/artifacts?per_page=100")["artifacts"]
+          artifact = next(a for a in artifacts if a["id"] == expected_artifact_id)
+
+          assert run["conclusion"] == "success", run["conclusion"]
+          assert run["head_sha"] == expected_sha, run["head_sha"]
+          assert artifact["name"] == expected_artifact_name, artifact["name"]
+          assert artifact.get("digest") == expected_digest, artifact.get("digest")
+          assert all(j["status"] == "completed" for j in jobs)
+          assert all(j["conclusion"] == "success" for j in jobs)
+
+          out = {
+              "source_run_id": int(run_id),
+              "source_head_sha": run["head_sha"],
+              "source_conclusion": run["conclusion"],
+              "source_jobs": [{"name": j["name"], "conclusion": j["conclusion"]} for j in jobs],
+              "receipt_artifact": {
+                  "id": artifact["id"],
+                  "name": artifact["name"],
+                  "digest": artifact.get("digest"),
+              },
+              "observer_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "observer_job": os.environ["GITHUB_JOB"],
+          }
+          with open("observation/q08-api.json", "w") as f:
+              json.dump(out, f, indent=2, sort_keys=True)
+          PY
+      - name: Reacquire prior final receipt artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: q08-final-receipt
+          path: source-receipt
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 34768395784
+      - name: Verify prior receipt semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p = "source-receipt/q08-final-receipt.json"
+          data = json.load(open(p))
+          assert data["result"] == "PASS"
+          assert data["continuity_in_process_memory_required"] is False
+          assert data["durable_state_medium"] == "github_actions_artifacts"
+          assert data["actions"] == ["restart_worker", "drain_backlog", "no_action"]
+          assert data["final_state"]["worker"] == "alive"
+          assert data["final_state"]["backlog"] == 0
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q010-q08-observation
+          path: |
+            observation/q08-api.json
+            source-receipt/q08-final-receipt.json
+          if-no-files-found: error
+
+  observe_q09:
+    runs-on: ubuntu-slim
+    env:
+      SOURCE_RUN_ID: "34768441782"
+      SOURCE_HEAD_SHA: "7fd552b3a818f89e7bce94f085f421bf51ca63d9"
+      SOURCE_ARTIFACT_NAME: "q09-final-receipt"
+      SOURCE_ARTIFACT_ID: "10320378782"
+      SOURCE_ARTIFACT_DIGEST: "sha256:76f4f53b3e5d872abe4eec0f29cd16c0f0fc03f0825c0a0b55496849ac2f392d"
+    steps:
+      - name: Observe prior run through GitHub API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p observation
+          python - <<'PY'
+          import json, os, urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          run_id = os.environ["SOURCE_RUN_ID"]
+          expected_sha = os.environ["SOURCE_HEAD_SHA"]
+          expected_artifact_id = int(os.environ["SOURCE_ARTIFACT_ID"])
+          expected_artifact_name = os.environ["SOURCE_ARTIFACT_NAME"]
+          expected_digest = os.environ["SOURCE_ARTIFACT_DIGEST"]
+          token = os.environ["GH_TOKEN"]
+
+          def get(path):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}{path}",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req) as r:
+                  return json.load(r)
+
+          run = get(f"/actions/runs/{run_id}")
+          jobs = get(f"/actions/runs/{run_id}/jobs?per_page=100")["jobs"]
+          artifacts = get(f"/actions/runs/{run_id}/artifacts?per_page=100")["artifacts"]
+          artifact = next(a for a in artifacts if a["id"] == expected_artifact_id)
+
+          assert run["conclusion"] == "success", run["conclusion"]
+          assert run["head_sha"] == expected_sha, run["head_sha"]
+          assert artifact["name"] == expected_artifact_name, artifact["name"]
+          assert artifact.get("digest") == expected_digest, artifact.get("digest")
+          assert all(j["status"] == "completed" for j in jobs)
+          assert all(j["conclusion"] == "success" for j in jobs)
+
+          out = {
+              "source_run_id": int(run_id),
+              "source_head_sha": run["head_sha"],
+              "source_conclusion": run["conclusion"],
+              "source_jobs": [{"name": j["name"], "conclusion": j["conclusion"]} for j in jobs],
+              "receipt_artifact": {
+                  "id": artifact["id"],
+                  "name": artifact["name"],
+                  "digest": artifact.get("digest"),
+              },
+              "observer_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "observer_job": os.environ["GITHUB_JOB"],
+          }
+          with open("observation/q09-api.json", "w") as f:
+              json.dump(out, f, indent=2, sort_keys=True)
+          PY
+      - name: Reacquire prior final receipt artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: q09-final-receipt
+          path: source-receipt
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 34768441782
+      - name: Verify prior receipt semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p = "source-receipt/q09-final-receipt.json"
+          data = json.load(open(p))
+          assert data["result"] == "PASS"
+          assert data["unknown_preserved_after_claim_without_receipt"] is True
+          assert data["blind_retry_after_ambiguous_claim"] is False
+          assert data["external_mutation"] is False
+          assert data["model_or_inference"] is False
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q010-q09-observation
+          path: |
+            observation/q09-api.json
+            source-receipt/q09-final-receipt.json
+          if-no-files-found: error
+
+  verify_fresh_reacquisition:
+    needs: [observe_q08, observe_q09]
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: q010-q08-observation
+          path: evidence/q08
+      - uses: actions/download-artifact@v4
+        with:
+          name: q010-q09-observation
+          path: evidence/q09
+      - name: Verify cross-run reacquisition boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python - <<'PY'
+          import json, os
+          q08 = json.load(open("evidence/q08/q08-api.json"))
+          q09 = json.load(open("evidence/q09/q09-api.json"))
+          current = int(os.environ["GITHUB_RUN_ID"])
+          assert q08["observer_run_id"] == current
+          assert q09["observer_run_id"] == current
+          assert q08["source_run_id"] != current
+          assert q09["source_run_id"] != current
+          assert q08["source_run_id"] != q09["source_run_id"]
+          receipt = {
+              "result": "PASS",
+              "claim": "fresh workflow run reacquired and semantically verified prior public Actions evidence using only durable GitHub state/artifacts",
+              "observer_run_id": current,
+              "source_runs": [q08["source_run_id"], q09["source_run_id"]],
+              "hidden_process_memory_required": False,
+              "private_context_required": False,
+              "model_or_inference": False,
+              "external_mutation": False,
+          }
+          json.dump(receipt, open("out/q010-final-receipt.json", "w"), indent=2, sort_keys=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q010-final-receipt
+          path: out/q010-final-receipt.json
+          if-no-files-found: error
