@@ -1,0 +1,123 @@
+name: Q1.0 deterministic organ body-portability
+
+on:
+  push:
+    branches:
+      - exp/actions-organ-portability-q10-20260913
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exercise:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: slim-x64
+            runner: ubuntu-slim
+          - id: full-x64
+            runner: ubuntu-24.04
+          - id: full-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute identical deterministic organ
+        env:
+          BODY_ID: ${{ matrix.id }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python - <<'PY'
+          import hashlib, importlib.util, json, os, platform
+          from pathlib import Path
+
+          module_path = Path("experiments/q08_controller.py")
+          spec = importlib.util.spec_from_file_location("q08_controller", module_path)
+          q = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(q)
+
+          state = {"resource": q.RESOURCE, "worker": "dead", "backlog": 2, "generation": 0}
+          trace = []
+          for _ in range(3):
+              action, next_state = q.decide(state)
+              trace.append({
+                  "input_digest": q.digest(state),
+                  "action": action,
+                  "output_digest": q.digest(next_state),
+                  "output_generation": next_state["generation"],
+              })
+              state = next_state
+
+          semantic = {
+              "trace": trace,
+              "final_state": state,
+          }
+          semantic_bytes = json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode()
+          result = {
+              "result": "PASS",
+              "body_id": os.environ["BODY_ID"],
+              "runner_label": os.environ["RUNNER_LABEL"],
+              "machine": platform.machine(),
+              "python": platform.python_version(),
+              "semantic_trace_digest": "sha256:" + hashlib.sha256(semantic_bytes).hexdigest(),
+              "semantic": semantic,
+          }
+          Path("out/result.json").write_text(json.dumps(result, sort_keys=True, indent=2) + "\n")
+          print(json.dumps(result, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portability-${{ matrix.id }}
+          path: out/result.json
+          if-no-files-found: error
+
+  compare:
+    needs: exercise
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: portability-*
+          path: evidence
+      - name: Compare semantics across bodies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python - <<'PY'
+          import glob, json
+          from pathlib import Path
+
+          paths = sorted(glob.glob("evidence/*/result.json"))
+          assert len(paths) == 3, paths
+          results = [json.load(open(p)) for p in paths]
+          assert all(r["result"] == "PASS" for r in results)
+          digests = {r["semantic_trace_digest"] for r in results}
+          assert len(digests) == 1, digests
+          semantics = [r["semantic"] for r in results]
+          assert all(s == semantics[0] for s in semantics[1:])
+          receipt = {
+              "result": "PASS",
+              "claim": "identical deterministic organ semantics reproduced across three materially different public GitHub Actions bodies",
+              "bodies": [
+                  {"body_id": r["body_id"], "runner_label": r["runner_label"], "machine": r["machine"], "python": r["python"]}
+                  for r in results
+              ],
+              "semantic_trace_digest": next(iter(digests)),
+              "authority_or_private_context_required": False,
+              "model_or_inference": False,
+          }
+          Path("out/q10-portability-receipt.json").write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+          print(json.dumps(receipt, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q10-portability-final-receipt
+          path: out/q10-portability-receipt.json
+          if-no-files-found: error
