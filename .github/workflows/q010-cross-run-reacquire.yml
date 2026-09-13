@@ -30,7 +30,6 @@ jobs:
           mkdir -p observation
           python - <<'PY'
           import json, os, urllib.request
-
           repo = os.environ["REPOSITORY"]
           run_id = os.environ["SOURCE_RUN_ID"]
           expected_sha = os.environ["SOURCE_HEAD_SHA"]
@@ -38,41 +37,29 @@ jobs:
           expected_artifact_name = os.environ["SOURCE_ARTIFACT_NAME"]
           expected_digest = os.environ["SOURCE_ARTIFACT_DIGEST"]
           token = os.environ["GH_TOKEN"]
-
           def get(path):
               req = urllib.request.Request(
                   f"https://api.github.com/repos/{repo}{path}",
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                  },
+                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
               )
               with urllib.request.urlopen(req) as r:
                   return json.load(r)
-
           run = get(f"/actions/runs/{run_id}")
           jobs = get(f"/actions/runs/{run_id}/jobs?per_page=100")["jobs"]
           artifacts = get(f"/actions/runs/{run_id}/artifacts?per_page=100")["artifacts"]
           artifact = next(a for a in artifacts if a["id"] == expected_artifact_id)
-
           assert run["conclusion"] == "success", run["conclusion"]
           assert run["head_sha"] == expected_sha, run["head_sha"]
           assert artifact["name"] == expected_artifact_name, artifact["name"]
           assert artifact.get("digest") == expected_digest, artifact.get("digest")
           assert all(j["status"] == "completed" for j in jobs)
           assert all(j["conclusion"] == "success" for j in jobs)
-
           out = {
               "source_run_id": int(run_id),
               "source_head_sha": run["head_sha"],
               "source_conclusion": run["conclusion"],
               "source_jobs": [{"name": j["name"], "conclusion": j["conclusion"]} for j in jobs],
-              "receipt_artifact": {
-                  "id": artifact["id"],
-                  "name": artifact["name"],
-                  "digest": artifact.get("digest"),
-              },
+              "receipt_artifact": {"id": artifact["id"], "name": artifact["name"], "digest": artifact.get("digest")},
               "observer_run_id": int(os.environ["GITHUB_RUN_ID"]),
               "observer_job": os.environ["GITHUB_JOB"],
           }
@@ -93,8 +80,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json
-          p = "source-receipt/q08-final-receipt.json"
-          data = json.load(open(p))
+          data = json.load(open("source-receipt/q08-final-receipt.json"))
           assert data["result"] == "PASS"
           assert data["continuity_in_process_memory_required"] is False
           assert data["durable_state_medium"] == "github_actions_artifacts"
@@ -129,7 +115,6 @@ jobs:
           mkdir -p observation
           python - <<'PY'
           import json, os, urllib.request
-
           repo = os.environ["REPOSITORY"]
           run_id = os.environ["SOURCE_RUN_ID"]
           expected_sha = os.environ["SOURCE_HEAD_SHA"]
@@ -137,41 +122,29 @@ jobs:
           expected_artifact_name = os.environ["SOURCE_ARTIFACT_NAME"]
           expected_digest = os.environ["SOURCE_ARTIFACT_DIGEST"]
           token = os.environ["GH_TOKEN"]
-
           def get(path):
               req = urllib.request.Request(
                   f"https://api.github.com/repos/{repo}{path}",
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                  },
+                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
               )
               with urllib.request.urlopen(req) as r:
                   return json.load(r)
-
           run = get(f"/actions/runs/{run_id}")
           jobs = get(f"/actions/runs/{run_id}/jobs?per_page=100")["jobs"]
           artifacts = get(f"/actions/runs/{run_id}/artifacts?per_page=100")["artifacts"]
           artifact = next(a for a in artifacts if a["id"] == expected_artifact_id)
-
           assert run["conclusion"] == "success", run["conclusion"]
           assert run["head_sha"] == expected_sha, run["head_sha"]
           assert artifact["name"] == expected_artifact_name, artifact["name"]
           assert artifact.get("digest") == expected_digest, artifact.get("digest")
           assert all(j["status"] == "completed" for j in jobs)
           assert all(j["conclusion"] == "success" for j in jobs)
-
           out = {
               "source_run_id": int(run_id),
               "source_head_sha": run["head_sha"],
               "source_conclusion": run["conclusion"],
               "source_jobs": [{"name": j["name"], "conclusion": j["conclusion"]} for j in jobs],
-              "receipt_artifact": {
-                  "id": artifact["id"],
-                  "name": artifact["name"],
-                  "digest": artifact.get("digest"),
-              },
+              "receipt_artifact": {"id": artifact["id"], "name": artifact["name"], "digest": artifact.get("digest")},
               "observer_run_id": int(os.environ["GITHUB_RUN_ID"]),
               "observer_job": os.environ["GITHUB_JOB"],
           }
@@ -192,8 +165,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           import json
-          p = "source-receipt/q09-final-receipt.json"
-          data = json.load(open(p))
+          data = json.load(open("source-receipt/q09-final-receipt.json"))
           assert data["result"] == "PASS"
           assert data["unknown_preserved_after_claim_without_receipt"] is True
           assert data["blind_retry_after_ambiguous_claim"] is False
@@ -227,8 +199,8 @@ jobs:
           mkdir -p out
           python - <<'PY'
           import json, os
-          q08 = json.load(open("evidence/q08/q08-api.json"))
-          q09 = json.load(open("evidence/q09/q09-api.json"))
+          q08 = json.load(open("evidence/q08/observation/q08-api.json"))
+          q09 = json.load(open("evidence/q09/observation/q09-api.json"))
           current = int(os.environ["GITHUB_RUN_ID"])
           assert q08["observer_run_id"] == current
           assert q09["observer_run_id"] == current
