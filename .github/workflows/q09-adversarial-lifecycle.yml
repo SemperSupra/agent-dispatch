@@ -1,0 +1,76 @@
+name: Q0.9 adversarial lifecycle semantics
+
+on:
+  push:
+    branches:
+      - exp/actions-lifecycle-q09-20260913
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity_matrix:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run identity/replay adversarial matrix
+        run: python experiments/q09_lifecycle.py identity --output out/identity.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q09-identity
+          path: out/identity.json
+          if-no-files-found: error
+
+  interruption_matrix:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run interruption/ambiguity adversarial matrix
+        run: python experiments/q09_lifecycle.py interruptions --output out/interruptions.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q09-interruptions
+          path: out/interruptions.json
+          if-no-files-found: error
+
+  verify:
+    needs: [identity_matrix, interruption_matrix]
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: q09-identity
+          path: evidence/identity
+      - uses: actions/download-artifact@v4
+        with:
+          name: q09-interruptions
+          path: evidence/interruptions
+      - name: Verify both independent matrices reached PASS
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          identity = json.loads(Path('evidence/identity/identity.json').read_text())
+          interruptions = json.loads(Path('evidence/interruptions/interruptions.json').read_text())
+          assert identity['result'] == 'PASS'
+          assert interruptions['result'] == 'PASS'
+          assert len(identity['cases']) >= 7
+          assert len(interruptions['cases']) >= 4
+          assert interruptions['invariant'] == 'ambiguous_after_claim_preserves_UNKNOWN_and_forbids_blind_retry'
+          final = {
+              'result': 'PASS',
+              'identity_cases': len(identity['cases']),
+              'interruption_cases': len(interruptions['cases']),
+              'blind_retry_after_ambiguous_claim': False,
+              'unknown_preserved_after_claim_without_receipt': True,
+              'external_mutation': False,
+              'model_or_inference': False,
+          }
+          Path('evidence/q09-final-receipt.json').write_text(json.dumps(final, sort_keys=True, indent=2) + '\n')
+          print(json.dumps(final, sort_keys=True))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q09-final-receipt
+          path: evidence/q09-final-receipt.json
+          if-no-files-found: error
