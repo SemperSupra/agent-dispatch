@@ -27,7 +27,7 @@ Public runner responsibilities:
 3. capture task stdout/stderr into the private result bundle rather than Actions logs;
 4. collect files written beneath `SEALED_RESULT_DIR`;
 5. package and encrypt the result to the supplied age recipient;
-6. upload only `result.age` plus a minimal `receipt.json` as a one-day Actions artifact;
+6. upload only `result.age` plus a minimal `receipt.json` as a seven-day Actions artifact;
 7. preserve task success/failure in the workflow verdict.
 
 ## Capsule contract
@@ -55,7 +55,7 @@ The public artifact contains only:
 - `result.age` — age-encrypted gzip tar containing execution metadata, captured stdout/stderr, and result files;
 - `receipt.json` — opaque assignment ID, completed/failed status, ciphertext SHA-256/size, public worker revision, and Actions run correlation.
 
-Retention is set to one day. Private reconciliation should normally delete the artifact sooner after successful pickup/decryption.
+Retention is set to seven days. This is a pickup/recovery window, not a durable evidence store. Trusted-side reconciliation should normally retrieve and delete the artifact sooner after successful pickup/decryption.
 
 The artifact is transport, not durable project authority. Durable conclusions, accepted evidence, negative results, or follow-on decisions belong back in the originating private/project-native authority.
 
