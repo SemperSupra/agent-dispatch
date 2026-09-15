@@ -26,11 +26,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ASSIGNMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$")
-AGE_RECIPIENT_RE = re.compile(r"^age1[0-9a-z]+$")
+AGE_RECIPIENT_RE = re.compile(r"^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$")
 MAX_CAPSULE_B64 = 60_000
 MAX_MEMBER_COUNT = 256
 MAX_UNPACKED_BYTES = 16 * 1024 * 1024
 MAX_TIMEOUT_SECONDS = 7_200
+MAX_CAPTURED_STREAM_BYTES = 1 * 1024 * 1024
+MAX_RESULT_FILE_BYTES = 8 * 1024 * 1024
+MAX_RESULT_FILES = 252
+MAX_RESULT_TOTAL_BYTES = 16 * 1024 * 1024
+RESULT_BUDGET_EXIT_CODE = 125
 
 
 class WorkerError(ValueError):
@@ -105,6 +110,97 @@ def safe_extract(capsule: Path, destination: Path) -> None:
         raise WorkerError("capsule must contain a regular top-level run.sh")
 
 
+def _truncate_stream(path: Path, max_bytes: int = MAX_CAPTURED_STREAM_BYTES) -> dict[str, object]:
+    """Bound captured stdout/stderr while retaining both ends for diagnostics."""
+    original_bytes = path.stat().st_size
+    if original_bytes <= max_bytes:
+        return {"original_bytes": original_bytes, "stored_bytes": original_bytes, "truncated": False}
+
+    marker = b"\n...[sealed-public-execution output truncated]...\n"
+    payload_budget = max(0, max_bytes - len(marker))
+    head_bytes = payload_budget // 2
+    tail_bytes = payload_budget - head_bytes
+    with path.open("rb") as fh:
+        head = fh.read(head_bytes)
+        if tail_bytes:
+            fh.seek(-tail_bytes, os.SEEK_END)
+            tail = fh.read(tail_bytes)
+        else:
+            tail = b""
+    path.write_bytes(head + marker + tail)
+    return {
+        "original_bytes": original_bytes,
+        "stored_bytes": path.stat().st_size,
+        "truncated": True,
+    }
+
+
+def enforce_result_budget(result: Path) -> dict[str, object]:
+    """Bound material that will be sealed/uploaded without constraining task scratch data.
+
+    Streams are truncated to a diagnostic head+tail. If substantive result files
+    exceed any hard bound, they are replaced by a small diagnostic rather than
+    uploading a partial result that could be mistaken for complete evidence.
+    """
+    stdout_info = _truncate_stream(result / "stdout.txt")
+    stderr_info = _truncate_stream(result / "stderr.txt")
+    files_root = result / "files"
+
+    violations: list[str] = []
+    file_count = 0
+    file_bytes = 0
+    largest_file_bytes = 0
+
+    for item in sorted(files_root.rglob("*")):
+        if item.is_symlink():
+            violations.append("result files contain a symbolic link")
+            continue
+        if item.is_dir():
+            continue
+        if not item.is_file():
+            violations.append("result files contain a non-regular filesystem entry")
+            continue
+        size = item.stat().st_size
+        file_count += 1
+        file_bytes += size
+        largest_file_bytes = max(largest_file_bytes, size)
+        if size > MAX_RESULT_FILE_BYTES:
+            violations.append("a result file exceeds the per-file byte limit")
+
+    if file_count > MAX_RESULT_FILES:
+        violations.append("result file count exceeds the allowed bound")
+
+    captured_bytes = int(stdout_info["stored_bytes"]) + int(stderr_info["stored_bytes"])
+    if file_bytes + captured_bytes > MAX_RESULT_TOTAL_BYTES:
+        violations.append("result payload exceeds the total byte limit")
+
+    budget = {
+        "limits": {
+            "captured_stream_bytes_each": MAX_CAPTURED_STREAM_BYTES,
+            "result_file_bytes_each": MAX_RESULT_FILE_BYTES,
+            "result_files": MAX_RESULT_FILES,
+            "result_total_bytes": MAX_RESULT_TOTAL_BYTES,
+        },
+        "observed": {
+            "result_files": file_count,
+            "result_file_bytes": file_bytes,
+            "largest_result_file_bytes": largest_file_bytes,
+            "stdout": stdout_info,
+            "stderr": stderr_info,
+        },
+        "exceeded": bool(violations),
+        "violations": sorted(set(violations)),
+    }
+
+    if violations:
+        shutil.rmtree(files_root, ignore_errors=True)
+        files_root.mkdir()
+        (files_root / "result-budget-exceeded.json").write_text(
+            json.dumps(budget, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    return budget
+
+
 def package_result(source: Path, destination: Path) -> None:
     with tarfile.open(destination, mode="w:gz") as tf:
         for item in sorted(source.rglob("*")):
@@ -165,13 +261,20 @@ def run_assignment(
                 exit_code = 124
                 timed_out = True
 
+        task_exit_code = exit_code
+        result_budget = enforce_result_budget(result)
+        if result_budget["exceeded"]:
+            exit_code = RESULT_BUDGET_EXIT_CODE
+
         metadata = {
             "schema_version": 1,
             "assignment_id": assignment_id,
             "started_at": started_at,
             "ended_at": _utc_now(),
             "exit_code": exit_code,
+            "task_exit_code": task_exit_code,
             "timed_out": timed_out,
+            "result_budget": result_budget,
             "capsule_sha256": capsule_sha256,
             "worker_repository": os.getenv("GITHUB_REPOSITORY"),
             "worker_revision": os.getenv("GITHUB_SHA"),
