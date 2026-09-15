@@ -75,7 +75,7 @@ jobs:
             .sealed/result.age
             .sealed/receipt.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
           compression-level: 0
 
       - name: Preserve task verdict
