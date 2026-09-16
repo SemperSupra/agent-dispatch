@@ -4,7 +4,8 @@
 This keeps the same real Ollama model and deterministic file task as the full-worker canary,
 but instantiates OpenWorker's TurnEngine directly with only the two capabilities the actor needs:
 read_file and write_file. The native PermissionEngine remains in the path and the write must be
-explicitly approved by the harness.
+explicitly approved by the harness. Authority and answer correctness are deliberately separate:
+the approver constrains WHERE the actor may write; the postcondition validator judges WHAT it wrote.
 """
 
 from __future__ import annotations
@@ -50,6 +51,17 @@ def tool_names_from_messages(messages: list[dict]) -> list[str]:
     return out
 
 
+def bounded_assistant_text(messages: list[dict]) -> list[str]:
+    texts: list[str] = []
+    for message in messages:
+        if message.get("role") != "assistant":
+            continue
+        text = str(message.get("content") or "").strip()
+        if text:
+            texts.append(text[:500])
+    return texts[-3:]
+
+
 def projected_file_registry(workspace: Path) -> ToolRegistry:
     available = {
         getattr(func, "__name__", ""): func
@@ -89,13 +101,15 @@ async def run_canary(root: Path) -> dict:
         }
         approval_requests.append(snapshot)
 
-        args = request.arguments or {}
-        path = str(args.get("path") or "")
-        content = str(args.get("content") or "")
+        # This is an AUTHORITY decision only. The actor may write exactly RESULT.txt
+        # inside its bounded workspace. Content correctness is tested after execution.
+        raw_path = str((request.arguments or {}).get("path") or "")
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
         allowed = (
             request.tool_name == "write_file"
-            and Path(path).name == "RESULT.txt"
-            and content == EXPECTED
+            and candidate.resolve() == target.resolve()
         )
         return ApprovalOutcome.ONCE if allowed else ApprovalOutcome.DENY
 
@@ -129,15 +143,28 @@ async def run_canary(root: Path) -> dict:
         ) from exc
     elapsed = time.monotonic() - started
 
+    names = tool_names_from_messages(engine.messages)
+    trace = {
+        "tool_calls": names,
+        "approvals": approval_requests,
+        "assistant_text_tail": bounded_assistant_text(engine.messages),
+        "events": events,
+        "target_exists": target.is_file(),
+    }
+    print("PROJECTED_TRACE=" + json.dumps(trace, sort_keys=True))
+
     if not target.is_file():
         raise AssertionError(
-            f"projected model completed without RESULT.txt; events={events[-12:]}"
+            f"projected model completed without RESULT.txt; tool_calls={names}; "
+            f"approvals={approval_requests}; events={events[-12:]}"
         )
     observed = target.read_text(encoding="utf-8")
     if observed != EXPECTED:
-        raise AssertionError(f"RESULT.txt content mismatch: {observed!r}")
+        raise AssertionError(
+            f"RESULT.txt content mismatch: {observed!r}; tool_calls={names}; "
+            f"approvals={approval_requests}"
+        )
 
-    names = tool_names_from_messages(engine.messages)
     if "read_file" not in names:
         raise AssertionError(f"model did not use read_file; observed tools: {names}")
     if "write_file" not in names:
