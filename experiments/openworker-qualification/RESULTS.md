@@ -106,6 +106,33 @@ For a reasoning-only model response that consumes its output budget before produ
 
 This finding is retained as an OpenWorker qualification gap. It is **not patched inside the generation-budget ablation**, because doing so would mix framework-semantics remediation with model-budget measurement.
 
-## Next ablation: 2,048-token actor bound
+## Bounded-generation ablation: 2,048 tokens
 
-Keep every qualified control and the direct ephemeral bootstrap unchanged. Increase only the per-model-call output ceiling from 1,024 to **2,048 tokens**. This exceeds the observed 1,559-token action-bearing long trajectory while still bounding the previously observed 2,546-token pathological first turn. Preserve natural sampling and the strict one-write/one-approval postcondition.
+The next rep increased only the per-model-call output ceiling from 1,024 to **2,048 tokens**. It retained natural sampling, the 180-second ceiling, direct bootstrap, model blob, prompt, projected tools, sequencing membrane, authority projection, permission gate, and strict one-write/one-approval acceptance criterion.
+
+The first rep **failed strict acceptance in 61.763 s**, but not because the 2,048-token ceiling was exhausted. The actor:
+
+1. read `SOURCE.txt`;
+2. produced the exact correct `RESULT.txt` bytes;
+3. received one governed write approval and completed that write;
+4. then proposed the **same `write_file` effect again** with the same path, bytes, and `overwrite=True`;
+5. received a second approval and executed the redundant replacement;
+6. completed with the exact required filesystem postcondition.
+
+The first model round generated only **671 tokens**, well below the 2,048 ceiling. Subsequent rounds generated 360, 365, and 357 tokens. This directly separates the observed failure from output-budget exhaustion: the controlling failure mode in this rep was redundant side-effect execution.
+
+The 2,048 series is therefore paused rather than expanded. More token-cap reps would not address the failure that actually occurred.
+
+## Next ablation: idempotent desired-state effect membrane
+
+A lightweight multilingual concept sweep maps the observed duplicate-write failure to established **idempotency** and **desired-state reconciliation** primitives rather than to a bespoke generic tool-call deduper. The experimental rule is intentionally narrow:
+
+- only `write_file` with explicit `overwrite=True` is considered;
+- only paths contained by the bounded workspace are considered;
+- only when the file already exists with **exactly the requested UTF-8 content** is the proposed effect treated as already satisfied;
+- an already-satisfied effect is suppressed **before authorization and execution** and recorded as evidence;
+- mismatched state, non-overwrite writes, non-file mutations, and paths outside the workspace pass through unchanged to the native permission gate.
+
+The first rep keeps the current 2,048-token configuration fixed so this is a one-variable behavioral ablation. The harness also includes a deterministic witness that forces the already-satisfied path, so the membrane cannot receive credit merely because a stochastic live-model rep happens not to emit a duplicate.
+
+If this combination qualifies, the next question is whether the 2,048-token bound itself earns retention; that should be answered by ablating the bound away while retaining the idempotent-effect membrane, rather than by assuming both are necessary.
