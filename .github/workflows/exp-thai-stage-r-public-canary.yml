@@ -1,0 +1,273 @@
+name: EXP Thai Stage-R public canary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-thai-stage-r-public-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-r-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Execute provenance-closed Wiktionary Stage R
+        shell: bash
+        env:
+          OUT_DIR: /tmp/thai-stage-r-canary
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          import time
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          OUT = Path(os.environ['OUT_DIR'])
+          SEEDS = ['volunteers', 'foundations']
+          SEALED_PLAN = {
+              'repository': 'mark-e-deyoung/concept-search-adapters-private',
+              'revision': 'e11f500a62fc817593999a260d018d553ae6feb0',
+              'path': 'experiments/paired-sweeps/thai-volunteer-civil-society-001/sealed_problem.json',
+              'git_blob': '8b8b42e7af37e77fc6ccaf06c48398f794f5ef0a',
+              'field': 'semantic_intent',
+          }
+
+          def utc_now():
+              return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+          def canon_sha(value):
+              raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+              return hashlib.sha256(raw).hexdigest()
+
+          def fetch_revision(title):
+              params = urllib.parse.urlencode({
+                  'action': 'query',
+                  'prop': 'revisions',
+                  'titles': title,
+                  'rvprop': 'ids|timestamp|sha1|content',
+                  'rvslots': 'main',
+                  'format': 'json',
+                  'formatversion': '2',
+              })
+              url = 'https://en.wiktionary.org/w/api.php?' + params
+              req = urllib.request.Request(url, headers={
+                  'User-Agent': 'SemperSupra-AgentDispatch-StageR-Canary/0.1 (public research canary)'
+              })
+              started = time.monotonic()
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  raw = resp.read()
+                  status = int(resp.status)
+              elapsed = round(time.monotonic() - started, 4)
+              data = json.loads(raw.decode('utf-8'))
+              pages = data.get('query', {}).get('pages', [])
+              if not pages:
+                  raise RuntimeError('Wiktionary returned no page objects')
+              page = pages[0]
+              if page.get('missing') is True:
+                  raise RuntimeError(f'Wiktionary page missing for exact title {title!r}')
+              revisions = page.get('revisions') or []
+              if not revisions:
+                  raise RuntimeError(f'Wiktionary returned no revision for exact title {title!r}')
+              rev = revisions[0]
+              content = rev.get('slots', {}).get('main', {}).get('content')
+              if not isinstance(content, str):
+                  raise RuntimeError(f'Wiktionary returned no main-slot content for {title!r}')
+              return {
+                  'request_url': url,
+                  'http_status': status,
+                  'elapsed_seconds': elapsed,
+                  'requested_title': title,
+                  'source_title': page.get('title'),
+                  'pageid': page.get('pageid'),
+                  'revid': rev.get('revid'),
+                  'parentid': rev.get('parentid'),
+                  'revision_timestamp': rev.get('timestamp'),
+                  'wikimedia_sha1': rev.get('sha1'),
+                  'content_sha256': hashlib.sha256(content.encode('utf-8')).hexdigest(),
+                  'content_bytes': len(content.encode('utf-8')),
+                  'content': content,
+              }
+
+          def source_native_id(obs):
+              return f"wiktionary-page:{obs['pageid']}:rev:{obs['revid']}"
+
+          def extract_source_lemma(content):
+              patterns = [
+                  r'\{\{plural of\|en\|([^|}\n]+)',
+                  r'\{\{inflection of\|en\|([^|}\n]+)[^}]*\|p(?:\||\}\})',
+              ]
+              for pattern in patterns:
+                  match = re.search(pattern, content, flags=re.IGNORECASE)
+                  if match:
+                      value = match.group(1).strip()
+                      if value:
+                          return value
+              return None
+
+          def extract_thai_terms(content):
+              # Terms are admitted only when literally returned by Wiktionary's own
+              # translation templates; no model/translator/lemmatizer is used.
+              pattern = re.compile(r'\{\{(?:t\+?|tt\+?|t-check)\|th\|([^|}\n]+)', re.IGNORECASE)
+              values = []
+              for match in pattern.finditer(content):
+                  term = match.group(1).strip()
+                  if term and term not in values:
+                      values.append(term)
+              return values
+
+          started_at = utc_now()
+          t0 = time.monotonic()
+          requests = []
+          receipts = []
+          chains = []
+
+          for seed in SEEDS:
+              chain = {
+                  'seed_query': seed,
+                  'seed_provenance': {
+                      'status': 'LITERAL_TOKEN_FROM_FROZEN_SEMANTIC_INTENT',
+                      'sealed_plan': SEALED_PLAN,
+                  },
+                  'source_admitted_lemma': None,
+                  'thai_terms': [],
+              }
+              try:
+                  seed_obs = fetch_revision(seed)
+                  requests.append({'query': seed, 'role': 'seed', 'status': 'SUCCESS', **{k: seed_obs[k] for k in seed_obs if k != 'content'}})
+                  lemma = extract_source_lemma(seed_obs['content'])
+                  seed_record = {
+                      'source_native_id': source_native_id(seed_obs),
+                      'uri': 'https://en.wiktionary.org/wiki/' + urllib.parse.quote(seed),
+                      'term': seed,
+                      'forms': [lemma] if lemma else [],
+                      'source_title': seed_obs['source_title'],
+                      'revision_id': seed_obs['revid'],
+                      'content_sha256': seed_obs['content_sha256'],
+                  }
+                  seed_receipt = {
+                      'resource_name': 'en_wiktionary_revision_api',
+                      'lookup_key': seed,
+                      'producer_id': 'public-actions.wiktionary-revision-canary',
+                      'execution_ref': os.getenv('GITHUB_SHA', 'UNKNOWN'),
+                      'version': str(seed_obs['revid']),
+                      'source_lineage': seed_obs['request_url'],
+                      'binding_status': 'DIRECT_EXECUTION',
+                      'execution_status': 'EXECUTED',
+                      'returned_records': [seed_record],
+                      'result_sha256': canon_sha([seed_record]),
+                      'observed_terms': [lemma] if lemma else [],
+                  }
+                  receipts.append(seed_receipt)
+                  chain['source_admitted_lemma'] = lemma
+
+                  if lemma:
+                      try:
+                          lemma_obs = fetch_revision(lemma)
+                          requests.append({'query': lemma, 'role': 'source-admitted-followup', 'status': 'SUCCESS', **{k: lemma_obs[k] for k in lemma_obs if k != 'content'}})
+                          thai_terms = extract_thai_terms(lemma_obs['content'])
+                          lemma_record = {
+                              'source_native_id': source_native_id(lemma_obs),
+                              'uri': 'https://en.wiktionary.org/wiki/' + urllib.parse.quote(lemma),
+                              'term': lemma,
+                              'terms': thai_terms,
+                              'source_title': lemma_obs['source_title'],
+                              'revision_id': lemma_obs['revid'],
+                              'content_sha256': lemma_obs['content_sha256'],
+                          }
+                          receipts.append({
+                              'resource_name': 'en_wiktionary_revision_api',
+                              'lookup_key': lemma,
+                              'producer_id': 'public-actions.wiktionary-revision-canary',
+                              'execution_ref': os.getenv('GITHUB_SHA', 'UNKNOWN'),
+                              'version': str(lemma_obs['revid']),
+                              'source_lineage': lemma_obs['request_url'],
+                              'binding_status': 'DIRECT_EXECUTION',
+                              'execution_status': 'EXECUTED',
+                              'returned_records': [lemma_record],
+                              'result_sha256': canon_sha([lemma_record]),
+                              'observed_terms': thai_terms,
+                          })
+                          chain['thai_terms'] = thai_terms
+                      except Exception as exc:
+                          requests.append({'query': lemma, 'role': 'source-admitted-followup', 'status': 'FAILED', 'error_type': type(exc).__name__, 'error': str(exc)[:500]})
+              except Exception as exc:
+                  requests.append({'query': seed, 'role': 'seed', 'status': 'FAILED', 'error_type': type(exc).__name__, 'error': str(exc)[:500]})
+              chains.append(chain)
+
+          succeeded = sum(1 for r in requests if r['status'] == 'SUCCESS')
+          failed = sum(1 for r in requests if r['status'] == 'FAILED')
+          thai_yield = sorted({term for c in chains for term in c['thai_terms']})
+          if thai_yield and failed == 0:
+              terminal = 'STAGE_R_CANARY_FROZEN'
+          elif succeeded:
+              terminal = 'PARTIAL_SOURCE_COVERAGE'
+          else:
+              terminal = 'RESOURCE_BINDING_FAIL'
+
+          packet = {
+              'schema_version': 1,
+              'experiment_role': 'mechanically_blind_stage_r_public_canary',
+              'terminal_state': terminal,
+              'sealed_plan_binding': SEALED_PLAN,
+              'blindness': {
+                  'disposition': 'MECHANICALLY_RESTRICTED_PUBLIC_ACTIONS',
+                  'enforceable_for_private_reference_material': True,
+                  'reason': 'Job runs in public SemperSupra/agent-dispatch with contents:read only and receives only literal neutral-seed tokens plus public resource responses; no private-repository credential or reference packet is supplied.',
+              },
+              'worker': {
+                  'repository': os.getenv('GITHUB_REPOSITORY'),
+                  'sha': os.getenv('GITHUB_SHA'),
+                  'run_id': os.getenv('GITHUB_RUN_ID'),
+                  'run_attempt': os.getenv('GITHUB_RUN_ATTEMPT'),
+                  'event_name': os.getenv('GITHUB_EVENT_NAME'),
+              },
+              'timestamps': {
+                  'started_at': started_at,
+                  'ended_at': utc_now(),
+                  'elapsed_seconds': round(time.monotonic() - t0, 4),
+              },
+              'request_accounting': {
+                  'planned_seed_requests': len(SEEDS),
+                  'planned_max_requests': len(SEEDS) * 2,
+                  'attempted_requests': len(requests),
+                  'succeeded_requests': succeeded,
+                  'failed_requests': failed,
+                  'requests': requests,
+              },
+              'query_chains': chains,
+              'resource_receipts': receipts,
+              'observed_thai_terms': thai_yield,
+              'claim_ceiling': 'Retrieval evidence only. Returned Thai strings are source observations, not validated concepts or semantic proposals.',
+          }
+          packet['packet_sha256_without_self'] = canon_sha(packet)
+          (OUT / 'stage_r_packet.json').write_text(json.dumps(packet, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps({
+              'terminal_state': terminal,
+              'attempted': len(requests),
+              'succeeded': succeeded,
+              'failed': failed,
+              'thai_term_count': len(thai_yield),
+              'packet_sha256': packet['packet_sha256_without_self'],
+          }, sort_keys=True))
+          PY
+
+      - name: Upload Stage-R evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: thai-stage-r-canary-${{ github.run_id }}
+          path: /tmp/thai-stage-r-canary/stage_r_packet.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
