@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Qualify a semantic, zero-argument deterministic transform capability.
+"""Qualify a bounded semantic deterministic-transform capability.
 
-This follows the three-rep shell-literal failure series. The deterministic operation is
-unchanged, but the model no longer authors shell syntax. It receives one read-only semantic
-tool, `render_result_payload`, whose implementation invokes one fixed command in OpenWorker's
-LocalExecutor and returns its stdout. `write_file` remains the only consequential capability.
+The model does not author shell syntax. It receives one semantic read capability,
+`render_result_payload(source_name)`, with exactly one permitted selector: SOURCE.txt.
+The tool invokes one fixed deterministic command in OpenWorker's LocalExecutor and returns
+its stdout. `write_file` remains the only consequential capability.
 
 The outer workcell remains the disposable GitHub-hosted VM. Provider-controlled no-thinking,
 provider-default generation ceiling, non-parallel sequencing, one bounded completion
@@ -41,6 +41,7 @@ base = qualified.base
 MODEL = base.MODEL
 MODEL_SETTINGS = base.MODEL_SETTINGS
 EXPECTED = base.EXPECTED
+SOURCE_NAME = "SOURCE.txt"
 SOURCE_CONTENT = "left=17\nright=25\nnonce=quartz-5819\n"
 FIXED_COMMAND = (
     "awk -F= '{v[$1]=$2} END {printf \"sum=%d\\nnonce=%s\\n\", "
@@ -48,10 +49,11 @@ FIXED_COMMAND = (
 )
 PROMPT = (
     "This is a bounded semantic-transform qualification task. "
-    "Use render_result_payload exactly once. It deterministically reads SOURCE.txt and returns "
-    "the complete desired RESULT.txt payload. Do not calculate, infer, or reformat the payload. "
-    "RESULT.txt is the only permitted write target. Copy the returned payload to RESULT.txt "
-    "exactly with write_file, then briefly report completion."
+    "Call render_result_payload exactly once with source_name set exactly to SOURCE.txt. "
+    "It deterministically reads that source and returns the complete desired RESULT.txt payload. "
+    "Do not calculate, infer, or reformat the returned payload. RESULT.txt is the only permitted "
+    "write target. Copy the returned payload to RESULT.txt exactly with write_file, then briefly "
+    "report completion."
 )
 
 if "max_tokens" in MODEL_SETTINGS:
@@ -61,23 +63,38 @@ if "max_tokens" in MODEL_SETTINGS:
 async def run_canary(root: Path) -> dict[str, Any]:
     workspace = (root / "workspace").resolve()
     workspace.mkdir(parents=True)
-    source = workspace / "SOURCE.txt"
+    source = workspace / SOURCE_NAME
     target = workspace / "RESULT.txt"
     source.write_text(SOURCE_CONTENT, encoding="utf-8")
 
     executor = LocalExecutor(cwd=workspace, default_timeout=30)
     semantic_calls: list[dict[str, Any]] = []
 
-    def render_result_payload() -> str:
-        """Return the exact desired RESULT.txt payload derived from the fixed source."""
-        result = executor.run(FIXED_COMMAND, timeout=30)
-        record = {
-            "command": FIXED_COMMAND,
-            "exit_code": result.get("exit_code"),
-            "timed_out": bool(result.get("timed_out")),
-            "output": result.get("output", ""),
-        }
+    def render_result_payload(source_name: str) -> str:
+        """Return the exact desired result payload for the named bounded source.
+
+        Args:
+            source_name: Source file name; this capability accepts only SOURCE.txt.
+        """
+        record: dict[str, Any] = {"source_name": source_name}
         semantic_calls.append(record)
+        if source_name != SOURCE_NAME:
+            record["allowed"] = False
+            raise ValueError("source_name outside semantic capability authority")
+        record["allowed"] = True
+        record["command"] = FIXED_COMMAND
+        try:
+            result = executor.run(FIXED_COMMAND, timeout=30)
+        except Exception as exc:
+            record["executor_error"] = f"{type(exc).__name__}: {exc}"
+            raise
+        record.update(
+            {
+                "exit_code": result.get("exit_code"),
+                "timed_out": bool(result.get("timed_out")),
+                "output": result.get("output", ""),
+            }
+        )
         if result.get("exit_code") != 0 or result.get("timed_out"):
             raise RuntimeError(f"deterministic transform failed: {record}")
         return str(result.get("output") or "")
@@ -145,7 +162,10 @@ async def run_canary(root: Path) -> dict[str, Any]:
             payload = dict(event.data or {})
             if event_type not in {"EventType.REASONING_DELTA", "EventType.ASSISTANT_DELTA"}:
                 compact: dict[str, Any] = {"type": event_type}
-                for key in ("tool_calls", "status", "error", "error_type", "iterations"):
+                for key in (
+                    "tool_calls", "status", "reason", "result_preview",
+                    "error", "error_type", "iterations",
+                ):
                     if key in payload:
                         compact[key] = payload[key]
                 salient_events.append(compact)
@@ -188,7 +208,10 @@ async def run_canary(root: Path) -> dict[str, Any]:
         raise AssertionError("SOURCE.txt changed inside semantic workcell")
     if len(semantic_calls) != 1:
         raise AssertionError(f"expected exactly one semantic transform call: {semantic_calls}")
-    returned = str(semantic_calls[0].get("output") or "")
+    call = semantic_calls[0]
+    if call.get("source_name") != SOURCE_NAME or call.get("allowed") is not True:
+        raise AssertionError(f"semantic source scope violated: {call}")
+    returned = str(call.get("output") or "")
     if returned not in {EXPECTED, EXPECTED.rstrip("\n")}:
         raise AssertionError(f"deterministic transform returned wrong payload: {returned!r}")
     if not target.is_file():
