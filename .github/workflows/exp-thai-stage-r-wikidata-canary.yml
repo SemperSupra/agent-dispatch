@@ -21,20 +21,13 @@ jobs:
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           python3 - <<'PY'
-          from __future__ import annotations
-
-          import hashlib
-          import json
-          import os
-          import time
-          import urllib.parse
-          import urllib.request
+          import hashlib, json, os, time, urllib.parse, urllib.request
           from datetime import datetime, timezone
           from pathlib import Path
 
           OUT = Path(os.environ['OUT_DIR'])
           SEEDS = ['volunteers', 'foundations', 'nonprofit', 'organizations']
-          SEALED_PLAN = {
+          PLAN = {
               'repository': 'mark-e-deyoung/concept-search-adapters-private',
               'revision': 'e11f500a62fc817593999a260d018d553ae6feb0',
               'path': 'experiments/paired-sweeps/thai-volunteer-civil-society-001/sealed_problem.json',
@@ -42,215 +35,71 @@ jobs:
               'field': 'semantic_intent',
           }
 
-          def utc_now():
-              return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-
-          def canon_sha(value):
-              raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+          def now(): return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+          def digest(value):
+              raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
               return hashlib.sha256(raw).hexdigest()
+          def get(url):
+              req = urllib.request.Request(url, headers={'User-Agent':'SemperSupra-AgentDispatch-StageR-Wikidata/0.2'})
+              t = time.monotonic()
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  raw = r.read(); status = int(r.status)
+              return json.loads(raw), status, round(time.monotonic()-t,4), hashlib.sha256(raw).hexdigest()
+          def search(seed):
+              q = urllib.parse.urlencode({'action':'wbsearchentities','search':seed,'language':'en','uselang':'en','type':'item','limit':'3','format':'json'})
+              url = 'https://www.wikidata.org/w/api.php?' + q
+              data,status,elapsed,sha = get(url)
+              return url,data,status,elapsed,sha
+          def entity(qid):
+              url = 'https://www.wikidata.org/wiki/Special:EntityData/' + qid + '.json'
+              data,status,elapsed,sha = get(url)
+              e = data.get('entities',{}).get(qid)
+              if not isinstance(e,dict): raise RuntimeError('missing entity '+qid)
+              return url,e,status,elapsed,sha
 
-          def get_json(url):
-              req = urllib.request.Request(url, headers={
-                  'User-Agent': 'SemperSupra-AgentDispatch-StageR-Wikidata/0.1 (public research canary)'
-              })
-              started = time.monotonic()
-              with urllib.request.urlopen(req, timeout=15) as resp:
-                  raw = resp.read()
-                  status = int(resp.status)
-              return json.loads(raw.decode('utf-8')), status, round(time.monotonic() - started, 4), hashlib.sha256(raw).hexdigest()
-
-          def search_entities(seed):
-              params = urllib.parse.urlencode({
-                  'action': 'wbsearchentities',
-                  'search': seed,
-                  'language': 'en',
-                  'uselang': 'en',
-                  'type': 'item',
-                  'limit': '3',
-                  'format': 'json',
-              })
-              url = 'https://www.wikidata.org/w/api.php?' + params
-              data, status, elapsed, raw_sha = get_json(url)
-              return url, data, status, elapsed, raw_sha
-
-          def fetch_entity(qid):
-              url = 'https://www.wikidata.org/wiki/Special:EntityData/' + urllib.parse.quote(qid) + '.json'
-              data, status, elapsed, raw_sha = get_json(url)
-              entity = data.get('entities', {}).get(qid)
-              if not isinstance(entity, dict):
-                  raise RuntimeError(f'Wikidata entity payload missing {qid}')
-              return url, entity, status, elapsed, raw_sha
-
-          started_at = utc_now()
-          t0 = time.monotonic()
-          requests = []
-          receipts = []
-          chains = []
-
+          start = now(); t0=time.monotonic(); requests=[]; receipts=[]; chains=[]
           for seed in SEEDS:
-              chain = {
-                  'seed_query': seed,
-                  'seed_provenance': {
-                      'status': 'LITERAL_TOKEN_FROM_FROZEN_SEMANTIC_INTENT',
-                      'sealed_plan': SEALED_PLAN,
-                  },
-                  'source_native_candidates': [],
-                  'thai_observations': [],
-              }
+              chain={'seed_query':seed,'seed_provenance':{'status':'LITERAL_TOKEN_FROM_FROZEN_SEMANTIC_INTENT','sealed_plan':PLAN},'source_native_candidates':[],'thai_observations':[]}
               try:
-                  search_url, search_data, status, elapsed, raw_sha = search_entities(seed)
-                  search_items = search_data.get('search', [])
-                  candidates = []
-                  for item in search_items[:3]:
-                      qid = item.get('id')
-                      if not isinstance(qid, str) or not qid.startswith('Q'):
-                          continue
-                      candidates.append({
-                          'source_native_id': qid,
-                          'uri': 'https://www.wikidata.org/wiki/' + qid,
-                          'term': item.get('label') or seed,
-                          'description': item.get('description') or '',
-                          'match_text': (item.get('match') or {}).get('text'),
-                      })
-                  requests.append({
-                      'query': seed,
-                      'role': 'literal-seed-search',
-                      'status': 'SUCCESS',
-                      'request_url': search_url,
-                      'http_status': status,
-                      'elapsed_seconds': elapsed,
-                      'raw_response_sha256': raw_sha,
-                      'candidate_ids': [c['source_native_id'] for c in candidates],
-                  })
-                  receipts.append({
-                      'resource_name': 'wikidata_wbsearchentities',
-                      'lookup_key': seed,
-                      'producer_id': 'public-actions.wikidata-canary',
-                      'execution_ref': os.getenv('GITHUB_SHA', 'UNKNOWN'),
-                      'version': 'live-search-response',
-                      'source_lineage': search_url,
-                      'binding_status': 'DIRECT_EXECUTION',
-                      'execution_status': 'EXECUTED',
-                      'returned_records': candidates,
-                      'result_sha256': canon_sha(candidates),
-                      'observed_terms': [c['term'] for c in candidates if c.get('term')],
-                  })
-                  chain['source_native_candidates'] = [c['source_native_id'] for c in candidates]
-
-                  for candidate in candidates:
-                      qid = candidate['source_native_id']
+                  url,data,status,elapsed,raw_sha = search(seed)
+                  candidates=[]
+                  for item in data.get('search',[])[:3]:
+                      qid=item.get('id')
+                      if not isinstance(qid,str) or not qid.startswith('Q'): continue
+                      candidates.append({'source_native_id':qid,'uri':'https://www.wikidata.org/wiki/'+qid,'term':item.get('label') or seed,'definition':item.get('description') or ''})
+                  requests.append({'query':seed,'role':'literal-seed-search','status':'SUCCESS','request_url':url,'http_status':status,'elapsed_seconds':elapsed,'raw_response_sha256':raw_sha,'candidate_ids':[c['source_native_id'] for c in candidates]})
+                  receipts.append({'resource_name':'wikidata_wbsearchentities','lookup_key':seed,'producer_id':'public-actions.wikidata-canary','execution_ref':os.getenv('GITHUB_SHA','UNKNOWN'),'version':'live-search-response','source_lineage':url,'binding_status':'DIRECT_EXECUTION','execution_status':'EXECUTED','returned_records':candidates,'result_sha256':digest(candidates),'observed_terms':[c['term'] for c in candidates]})
+                  chain['source_native_candidates']=[c['source_native_id'] for c in candidates]
+                  for c in candidates:
+                      qid=c['source_native_id']
                       try:
-                          entity_url, entity, e_status, e_elapsed, e_raw_sha = fetch_entity(qid)
-                          th_label = ((entity.get('labels') or {}).get('th') or {}).get('value')
-                          th_description = ((entity.get('descriptions') or {}).get('th') or {}).get('value')
-                          th_aliases = [a.get('value') for a in ((entity.get('aliases') or {}).get('th') or []) if isinstance(a, dict) and a.get('value')]
-                          thai_terms = []
-                          for value in [th_label, *th_aliases]:
-                              if isinstance(value, str) and value and value not in thai_terms:
-                                  thai_terms.append(value)
-                          record = {
-                              'source_native_id': qid,
-                              'uri': 'https://www.wikidata.org/wiki/' + qid,
-                              'revision_id': entity.get('lastrevid'),
-                              'label': th_label or '',
-                              'aliases': th_aliases,
-                              'definition': th_description or '',
-                              'entity_type': entity.get('type'),
-                          }
-                          requests.append({
-                              'query': qid,
-                              'role': 'source-native-id-followup',
-                              'status': 'SUCCESS',
-                              'request_url': entity_url,
-                              'http_status': e_status,
-                              'elapsed_seconds': e_elapsed,
-                              'raw_response_sha256': e_raw_sha,
-                              'revision_id': entity.get('lastrevid'),
-                          })
-                          receipts.append({
-                              'resource_name': 'wikidata_entitydata',
-                              'lookup_key': qid,
-                              'producer_id': 'public-actions.wikidata-canary',
-                              'execution_ref': os.getenv('GITHUB_SHA', 'UNKNOWN'),
-                              'version': str(entity.get('lastrevid') or 'UNKNOWN'),
-                              'source_lineage': entity_url,
-                              'binding_status': 'DIRECT_EXECUTION',
-                              'execution_status': 'EXECUTED',
-                              'returned_records': [record],
-                              'result_sha256': canon_sha([record]),
-                              'observed_terms': thai_terms,
-                          })
-                          chain['thai_observations'].append({
-                              'qid': qid,
-                              'english_search_label': candidate.get('term'),
-                              'english_search_description': candidate.get('description'),
-                              'thai_label': th_label,
-                              'thai_aliases': th_aliases,
-                              'thai_description': th_description,
-                              'revision_id': entity.get('lastrevid'),
-                          })
+                          eurl,e,estatus,eelapsed,eraw_sha = entity(qid)
+                          label=((e.get('labels') or {}).get('th') or {}).get('value')
+                          desc=((e.get('descriptions') or {}).get('th') or {}).get('value')
+                          aliases=[a.get('value') for a in ((e.get('aliases') or {}).get('th') or []) if isinstance(a,dict) and a.get('value')]
+                          terms=[]
+                          for v in [label,*aliases]:
+                              if isinstance(v,str) and v and v not in terms: terms.append(v)
+                          # `labels` is intentionally the admitted provenance term field.
+                          # `source_aliases` preserves the source's alias role without making
+                          # the validator depend on an unrecognized semantic key.
+                          record={'source_native_id':qid,'uri':'https://www.wikidata.org/wiki/'+qid,'revision_id':e.get('lastrevid'),'labels':terms,'source_aliases':aliases,'definition':desc or '','entity_type':e.get('type')}
+                          requests.append({'query':qid,'role':'source-native-id-followup','status':'SUCCESS','request_url':eurl,'http_status':estatus,'elapsed_seconds':eelapsed,'raw_response_sha256':eraw_sha,'revision_id':e.get('lastrevid')})
+                          receipts.append({'resource_name':'wikidata_entitydata','lookup_key':qid,'producer_id':'public-actions.wikidata-canary','execution_ref':os.getenv('GITHUB_SHA','UNKNOWN'),'version':str(e.get('lastrevid') or 'UNKNOWN'),'source_lineage':eurl,'binding_status':'DIRECT_EXECUTION','execution_status':'EXECUTED','returned_records':[record],'result_sha256':digest([record]),'observed_terms':terms})
+                          chain['thai_observations'].append({'qid':qid,'english_search_label':c['term'],'english_search_description':c['definition'],'thai_label':label,'thai_aliases':aliases,'thai_description':desc,'revision_id':e.get('lastrevid')})
                       except Exception as exc:
-                          requests.append({'query': qid, 'role': 'source-native-id-followup', 'status': 'FAILED', 'error_type': type(exc).__name__, 'error': str(exc)[:500]})
+                          requests.append({'query':qid,'role':'source-native-id-followup','status':'FAILED','error_type':type(exc).__name__,'error':str(exc)[:500]})
               except Exception as exc:
-                  requests.append({'query': seed, 'role': 'literal-seed-search', 'status': 'FAILED', 'error_type': type(exc).__name__, 'error': str(exc)[:500]})
+                  requests.append({'query':seed,'role':'literal-seed-search','status':'FAILED','error_type':type(exc).__name__,'error':str(exc)[:500]})
               chains.append(chain)
 
-          succeeded = sum(1 for r in requests if r['status'] == 'SUCCESS')
-          failed = sum(1 for r in requests if r['status'] == 'FAILED')
-          thai_terms = sorted({
-              value
-              for chain in chains
-              for obs in chain['thai_observations']
-              for value in ([obs.get('thai_label')] + list(obs.get('thai_aliases') or []))
-              if isinstance(value, str) and value
-          })
-          terminal = 'STAGE_R_CANARY_FROZEN' if thai_terms and failed == 0 else ('PARTIAL_SOURCE_COVERAGE' if succeeded else 'RESOURCE_BINDING_FAIL')
-
-          packet = {
-              'schema_version': 1,
-              'experiment_role': 'mechanically_blind_stage_r_wikidata_canary',
-              'terminal_state': terminal,
-              'sealed_plan_binding': SEALED_PLAN,
-              'blindness': {
-                  'disposition': 'MECHANICALLY_RESTRICTED_PUBLIC_ACTIONS',
-                  'enforceable_for_private_reference_material': True,
-                  'reason': 'Public Actions job has contents:read only in SemperSupra/agent-dispatch and receives literal frozen-intent tokens plus source-native Wikidata IDs; no private credential or reference packet is supplied.',
-              },
-              'worker': {
-                  'repository': os.getenv('GITHUB_REPOSITORY'),
-                  'sha': os.getenv('GITHUB_SHA'),
-                  'run_id': os.getenv('GITHUB_RUN_ID'),
-                  'run_attempt': os.getenv('GITHUB_RUN_ATTEMPT'),
-                  'event_name': os.getenv('GITHUB_EVENT_NAME'),
-              },
-              'timestamps': {
-                  'started_at': started_at,
-                  'ended_at': utc_now(),
-                  'elapsed_seconds': round(time.monotonic() - t0, 4),
-              },
-              'request_accounting': {
-                  'literal_seed_count': len(SEEDS),
-                  'candidate_limit_per_seed': 3,
-                  'attempted_requests': len(requests),
-                  'succeeded_requests': succeeded,
-                  'failed_requests': failed,
-                  'requests': requests,
-              },
-              'query_chains': chains,
-              'resource_receipts': receipts,
-              'observed_thai_terms': thai_terms,
-              'claim_ceiling': 'Retrieval evidence only. Search candidates and Thai labels/aliases/descriptions are source observations, not validated concepts, relevance judgments, or semantic proposals.',
-          }
-          packet['packet_sha256_without_self'] = canon_sha(packet)
-          (OUT / 'stage_r_wikidata_packet.json').write_text(json.dumps(packet, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-          print(json.dumps({
-              'terminal_state': terminal,
-              'attempted': len(requests),
-              'succeeded': succeeded,
-              'failed': failed,
-              'thai_term_count': len(thai_terms),
-              'packet_sha256': packet['packet_sha256_without_self'],
-          }, sort_keys=True))
+          succeeded=sum(r['status']=='SUCCESS' for r in requests); failed=sum(r['status']=='FAILED' for r in requests)
+          thai=sorted({v for c in chains for o in c['thai_observations'] for v in ([o.get('thai_label')]+list(o.get('thai_aliases') or [])) if isinstance(v,str) and v})
+          terminal='STAGE_R_CANARY_FROZEN' if thai and failed==0 else ('PARTIAL_SOURCE_COVERAGE' if succeeded else 'RESOURCE_BINDING_FAIL')
+          packet={'schema_version':2,'experiment_role':'mechanically_blind_stage_r_wikidata_canary','terminal_state':terminal,'sealed_plan_binding':PLAN,'blindness':{'disposition':'MECHANICALLY_RESTRICTED_PUBLIC_ACTIONS','enforceable_for_private_reference_material':True,'reason':'Public Actions job has contents:read only in SemperSupra/agent-dispatch and receives literal frozen-intent tokens plus source-native Wikidata IDs; no private credential or reference packet is supplied.'},'worker':{'repository':os.getenv('GITHUB_REPOSITORY'),'sha':os.getenv('GITHUB_SHA'),'run_id':os.getenv('GITHUB_RUN_ID'),'run_attempt':os.getenv('GITHUB_RUN_ATTEMPT'),'event_name':os.getenv('GITHUB_EVENT_NAME')},'timestamps':{'started_at':start,'ended_at':now(),'elapsed_seconds':round(time.monotonic()-t0,4)},'request_accounting':{'literal_seed_count':len(SEEDS),'candidate_limit_per_seed':3,'attempted_requests':len(requests),'succeeded_requests':succeeded,'failed_requests':failed,'requests':requests},'query_chains':chains,'resource_receipts':receipts,'observed_thai_terms':thai,'claim_ceiling':'Retrieval evidence only. Search candidates and Thai labels/aliases/descriptions are source observations, not validated concepts, relevance judgments, or semantic proposals.'}
+          packet['packet_sha256_without_self']=digest(packet)
+          (OUT/'stage_r_wikidata_packet.json').write_text(json.dumps(packet,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print(json.dumps({'terminal_state':terminal,'attempted':len(requests),'succeeded':succeeded,'failed':failed,'thai_term_count':len(thai),'packet_sha256':packet['packet_sha256_without_self']},sort_keys=True))
           PY
 
       - name: Upload Wikidata Stage-R evidence
