@@ -82,7 +82,6 @@ async def _run_until_pending(manager: SessionManager, sid: str, engine):
         task.cancel()
         raise AssertionError("approval never became a durable Inbox item")
 
-    # Simulate the process/session disappearing while human attention is pending.
     task.cancel()
     try:
         await task
@@ -94,6 +93,7 @@ async def _run_until_pending(manager: SessionManager, sid: str, engine):
 
 
 async def check_durable_approval_resume(root: Path) -> dict:
+    root.mkdir(parents=True, exist_ok=True)
     workspace = root / "workspace"
     workspace.mkdir()
     target = workspace / "qualification-marker.txt"
@@ -150,6 +150,7 @@ async def check_durable_approval_resume(root: Path) -> dict:
 
 
 async def check_scheduler(root: Path) -> dict:
+    root.mkdir(parents=True, exist_ok=True)
     store = TaskStore(root / "automation.db")
     task = ScheduledTask(
         title="Qualification automation",
@@ -185,6 +186,7 @@ async def check_scheduler(root: Path) -> dict:
 
 
 def check_rest_surface(root: Path) -> dict:
+    root.mkdir(parents=True, exist_ok=True)
     os.environ["COWORKER_STATE_DIR"] = str(root / "rest-state")
     manager = SessionManager(
         workspace=root,
@@ -243,9 +245,7 @@ async def main() -> int:
         with tempfile.TemporaryDirectory(prefix="openworker-qualification-") as td:
             root = Path(td)
             evidence["checks"]["durable_approval_resume"] = await check_durable_approval_resume(root / "durable")
-            (root / "scheduler").mkdir()
             evidence["checks"]["scheduler"] = await check_scheduler(root / "scheduler")
-            (root / "rest").mkdir()
             evidence["checks"]["rest"] = check_rest_surface(root / "rest")
         evidence["result"] = "PASS"
         return_code = 0
