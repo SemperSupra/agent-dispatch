@@ -70,6 +70,21 @@ Neither replaces the OpenWorker permission gate. The gate remains the authority 
 
 Do not infer a population success probability from eight reps. The result is a qualification signal sufficient to continue bounded experimentation, not a production-reliability estimate.
 
-## Next ablation: ephemeral Ollama bootstrap
+## Ephemeral Ollama bootstrap ablation
 
-The current pinned Ollama installer repeatedly spends tens of seconds on user/group/systemd setup that the ephemeral CPU runner does not use. The next experiment changes only bootstrap mechanics: download the pinned Linux release archive directly, verify its release SHA-256, extract it under `RUNNER_TEMP`, and run Ollama from that private path. Model/runtime/task/authority acceptance criteria remain unchanged.
+The installer was replaced with a direct download of Ollama v0.34.1's `ollama-linux-amd64.tar.zst` into `RUNNER_TEMP`, verified against the release SHA-256 `f361dc3992ec07e4ad429f4bb2d10d4663ba2c295f9a9a688c7d52f4ba650034`, then extracted and executed from that private path. No host user/group/systemd configuration is performed.
+
+The immediately preceding installer-based rep spent approximately **36.33 s** in the Ollama install step. Two direct-archive reps spent approximately **14.26 s** and **8.68 s** respectively. Mean observed direct-bootstrap install time: **11.47 s**, about **24.86 s / 68% lower** than that immediate installer reference. These are runner samples, not a benchmark distribution.
+
+Bootstrap/hydration outcome: **2/2 operational**. Both reps verified the archive, started Ollama, pulled the same pinned `qwen3:1.7b` model, and verified the expected model digest.
+
+The strict actor canary was **0/2 PASS** in these two bootstrap reps, for reasons after bootstrap:
+
+1. **180.009 s timeout after correct side effect.** The actor completed `read_file` and the correct governed `write_file`, but did not finish the turn before the unchanged 180-second ceiling. Ollama timing shows the first generation alone consumed about 163.5 s and generated about 2,546 tokens.
+2. **Duplicate governed write.** The actor completed with the exact correct `RESULT.txt`, but emitted the identical correct `write_file` twice, causing two approval requests. The harness intentionally requires exactly one governed write/approval and therefore failed the rep. Total turn time was 165.946 s; the first generation took about 99.6 s and generated about 1,559 tokens.
+
+These failures do not justify reverting the bootstrap optimization: the optimized bootstrap independently passed twice and retained the same Ollama version, model digest, task, authority gate, and actor projection. They expose a separate model/runtime issue: unbounded first-turn generation and redundant postcondition-preserving actions can consume the unattended execution budget.
+
+## Next ablation: bounded actor generation
+
+Keep the direct ephemeral bootstrap. Before changing the 180-second task ceiling or seeding sampling, determine which output-budget controls the pinned OpenWorker/Ollama provider path actually supports. Then test the smallest supported per-model-call output bound that prevents multi-thousand-token first turns while preserving valid tool calls, exact postconditions, the sequencing membrane, and the permission gate.
