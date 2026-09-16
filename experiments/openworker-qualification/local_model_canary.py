@@ -19,7 +19,7 @@ from pathlib import Path
 
 from coworker.server.manager import SessionManager
 
-MODEL = os.environ.get("OPENWORKER_LOCAL_MODEL", "ollama:qwen3:0.6b")
+MODEL = os.environ.get("OPENWORKER_LOCAL_MODEL", "ollama:qwen3:1.7b")
 EXPECTED = "sum=42\nnonce=quartz-5819\n"
 
 
@@ -36,6 +36,15 @@ def tool_names_from_messages(messages: list[dict]) -> list[str]:
     return out
 
 
+def assistant_tail(messages: list[dict], *, limit: int = 3) -> list[str]:
+    texts = [
+        str(m.get("content") or "")[:600]
+        for m in messages
+        if m.get("role") == "assistant" and m.get("content")
+    ]
+    return texts[-limit:]
+
+
 async def run_canary(root: Path) -> dict:
     workspace = root / "workspace"
     workspace.mkdir(parents=True)
@@ -43,7 +52,6 @@ async def run_canary(root: Path) -> dict:
     target = workspace / "RESULT.txt"
     source.write_text("left=17\nright=25\nnonce=quartz-5819\n", encoding="utf-8")
 
-    # Keep all OpenWorker state ephemeral and separate from the checked-out public repository.
     os.environ["COWORKER_STATE_DIR"] = str(root / "state")
     manager = SessionManager(
         workspace=workspace,
@@ -70,7 +78,6 @@ async def run_canary(root: Path) -> dict:
     async def consume() -> None:
         async for event in engine.run(prompt):
             payload = dict(event.data or {})
-            # Keep evidence compact: event type and tool names/status/error only.
             compact = {"type": str(event.type)}
             for key in ("tool_calls", "status", "error", "error_type"):
                 if key in payload:
@@ -82,7 +89,9 @@ async def run_canary(root: Path) -> dict:
     while not task.done():
         if time.monotonic() > deadline:
             task.cancel()
-            raise AssertionError("local-model OpenWorker turn exceeded 180 seconds")
+            raise AssertionError(
+                f"local-model OpenWorker turn exceeded 180 seconds; events={events[-8:]}"
+            )
 
         for item in manager.inbox.pending(sid):
             if item.id in seen_items:
@@ -121,13 +130,22 @@ async def run_canary(root: Path) -> dict:
     await task
     manager.save(sid, engine)
 
+    names = tool_names_from_messages(engine.messages)
+    tail = assistant_tail(engine.messages)
+    terminal_errors = [e for e in events if "error" in e or "error_type" in e]
+
     if not target.is_file():
-        raise AssertionError("real model completed without producing RESULT.txt")
+        raise AssertionError(
+            "real model completed without producing RESULT.txt; "
+            f"tools={names}; terminal_errors={terminal_errors[-3:]}; "
+            f"events_tail={events[-8:]}; assistant_tail={tail}"
+        )
     observed = target.read_text(encoding="utf-8")
     if observed != EXPECTED:
-        raise AssertionError(f"RESULT.txt content mismatch: {observed!r}")
+        raise AssertionError(
+            f"RESULT.txt content mismatch: {observed!r}; tools={names}; assistant_tail={tail}"
+        )
 
-    names = tool_names_from_messages(engine.messages)
     if "read_file" not in names:
         raise AssertionError(f"model did not use read_file; observed tools: {names}")
     if "write_file" not in names:
@@ -139,9 +157,10 @@ async def run_canary(root: Path) -> dict:
         "model": MODEL,
         "tool_calls": names,
         "approval_count": approval_count,
-        "result_sha256_source": "validated exact bytes",
+        "result_validation": "exact bytes",
         "result": "PASS",
         "unexpected_attention": unexpected_attention,
+        "events_tail": events[-8:],
     }
 
 
