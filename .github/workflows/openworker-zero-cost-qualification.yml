@@ -67,10 +67,10 @@ jobs:
             tests/test_approval_integrity.py
 
   local-model-canary:
-    # The full SessionManager/coworker baseline has already been measured and its
-    # failing harness remains in local_model_canary.py. Do not spend another rep on
-    # that known result for every PR update: this gate tests the actor projection.
-    name: projected-legible-authority-canary
+    # The full SessionManager/coworker baseline and prior actor ablations remain in
+    # experiments/openworker-qualification. This gate tests the current single-variable
+    # bounded-generation ablation on top of the already-qualified controls.
+    name: projected-bounded-generation-canary
     needs: qualify
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -163,12 +163,12 @@ jobs:
           print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
           PY
 
-      - name: Run projected legible-authority local-model canary
+      - name: Run projected bounded-generation local-model canary
         shell: bash
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/openworker-venv/bin/activate"
-          python experiments/openworker-qualification/projected_legible_authority_canary.py
+          python experiments/openworker-qualification/projected_bounded_generation_canary.py
 
       - name: Show bounded Ollama diagnostics on failure
         if: failure()
