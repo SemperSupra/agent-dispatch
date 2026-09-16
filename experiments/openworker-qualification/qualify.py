@@ -161,26 +161,38 @@ async def check_scheduler(root: Path) -> dict:
     store.save(task)
 
     async def runner(scheduled_task, trigger):
-        return TaskRun(
+        # OpenWorker's scheduler deliberately injects execution. The execution runner owns
+        # successful TaskRun history persistence; Scheduler owns overlap control and advances
+        # the durable task counters/status/next-run state after the runner returns.
+        run = TaskRun(
             task_id=scheduled_task.id,
             status="ok",
             trigger=trigger,
             result_text="scheduled qualification executed",
         )
+        store.add_run(run)
+        return run
 
     scheduler = Scheduler(store, runner)
     result = await scheduler.run_task(task, trigger="manual")
     if result is None or result.status != "ok":
-        raise AssertionError("scheduler did not execute the fake-backed task")
+        raise AssertionError("scheduler did not execute the injected task runner")
 
     saved = store.get(task.id)
     runs = store.runs(task.id)
-    if saved is None or saved.run_count != 1 or not runs:
-        raise AssertionError("scheduler execution was not durably recorded")
+    if (
+        saved is None
+        or saved.run_count != 1
+        or saved.last_status != "ok"
+        or len(runs) != 1
+        or runs[0].status != "ok"
+    ):
+        raise AssertionError("scheduler/runner state was not durably recorded as contracted")
 
     return {
         "sqlite_state": True,
-        "run_recorded": True,
+        "runner_result_persisted": True,
+        "scheduler_state_advanced": True,
         "run_count": saved.run_count,
     }
 
@@ -221,7 +233,7 @@ def append_summary(evidence: dict) -> None:
         fh.write("- paid model/API calls: **0**\n")
         fh.write("- provider credentials supplied: **no**\n")
         fh.write(f"- elapsed seconds: `{evidence['elapsed_seconds']}`\n")
-        fh.write("- proved: installed CLI surfaces; durable approval/restart/resume/write; SQLite scheduler persistence; automation REST surface\n")
+        fh.write("- proved: installed CLI surfaces; durable approval/restart/resume/write; scheduler/runner persistence contract; automation REST surface\n")
 
 
 async def main() -> int:
