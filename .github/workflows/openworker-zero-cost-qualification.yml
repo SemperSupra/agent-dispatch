@@ -67,7 +67,10 @@ jobs:
             tests/test_approval_integrity.py
 
   local-model-canary:
-    name: local-model-canary
+    # The full SessionManager/coworker baseline has already been measured and its
+    # failing harness remains in local_model_canary.py. Do not spend another rep on
+    # that known result for every PR update: this gate tests the actor projection.
+    name: projected-local-model-canary
     needs: qualify
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -156,12 +159,12 @@ jobs:
           print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
           PY
 
-      - name: Run real local-model OpenWorker canary
+      - name: Run projected real local-model OpenWorker canary
         shell: bash
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/openworker-venv/bin/activate"
-          python experiments/openworker-qualification/local_model_canary.py
+          python experiments/openworker-qualification/projected_local_model_canary.py
 
       - name: Show bounded Ollama diagnostics on failure
         if: failure()
