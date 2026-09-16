@@ -85,6 +85,27 @@ The strict actor canary was **0/2 PASS** in these two bootstrap reps, for reason
 
 These failures do not justify reverting the bootstrap optimization: the optimized bootstrap independently passed twice and retained the same Ollama version, model digest, task, authority gate, and actor projection. They expose a separate model/runtime issue: unbounded first-turn generation and redundant postcondition-preserving actions can consume the unattended execution budget.
 
-## Next ablation: bounded actor generation
+## Bounded-generation ablation: 1,024 tokens
 
-Keep the direct ephemeral bootstrap. Before changing the 180-second task ceiling or seeding sampling, determine which output-budget controls the pinned OpenWorker/Ollama provider path actually supports. Then test the smallest supported per-model-call output bound that prevents multi-thousand-token first turns while preserving valid tool calls, exact postconditions, the sequencing membrane, and the permission gate.
+Pinned OpenWorker routes Ollama through its OpenAI-compatible provider. That path accepts per-call `max_tokens`; absent an override OpenWorker uses a 32,000-token default. The first bounded-generation test therefore added only `max_tokens=1024`, leaving natural unseeded sampling, the 180-second turn ceiling, direct bootstrap, model blob, prompt, projected tools, sequencing membrane, authority projection, permission gate, and validators unchanged.
+
+The series was intentionally stopped after two reps because the second rep directly falsified the candidate bound.
+
+Observed strict result: **1/2 PASS**.
+
+1. **PASS, 77.559 s.** Exact `read_file → write_file → complete`, one governed approval, exact postcondition, no speculative siblings.
+2. **FAIL, 63.440 s.** No tool call, no approval, no side effect. Ollama generated exactly **1,024 completion tokens** (about 55.79 s of token evaluation) and stopped. The OpenWorker trace contained 1,017 reasoning deltas, one assistant message with no tool calls, and `TURN_END status=completed` after one iteration.
+
+Conclusion: **1,024 is too low** for this model/task under natural sampling. It can constrain a successful trajectory, but another trajectory consumes the entire budget in reasoning before producing the first action. Spending two additional identical reps would not change that falsification, so the series was stopped.
+
+## OpenWorker runtime-semantic finding: length exhaustion without a tool
+
+The 1,024-token failure exposed a separate framework behavior. In the pinned OpenWorker engine, `turn.finish_reason == "length"` sets the turn-truncated flag. However, when the turn contains no parsed tool calls, the no-tool branch only raises an error if visible assistant text looks like an unparsed tool call; otherwise it emits normal `TURN_END status=completed`.
+
+For a reasoning-only model response that consumes its output budget before producing text or a tool call, this can therefore present as a completed turn rather than an explicit output-budget failure. The deterministic postcondition validator caught it in this experiment, but an integration that trusted only the turn status could misclassify the run.
+
+This finding is retained as an OpenWorker qualification gap. It is **not patched inside the generation-budget ablation**, because doing so would mix framework-semantics remediation with model-budget measurement.
+
+## Next ablation: 2,048-token actor bound
+
+Keep every qualified control and the direct ephemeral bootstrap unchanged. Increase only the per-model-call output ceiling from 1,024 to **2,048 tokens**. This exceeds the observed 1,559-token action-bearing long trajectory while still bounding the previously observed 2,546-token pathological first turn. Preserve natural sampling and the strict one-write/one-approval postcondition.
