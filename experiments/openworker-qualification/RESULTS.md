@@ -155,11 +155,14 @@ The prompt had always included `/no_think`, but observed long reasoning traces s
 
 The experiment therefore kept the model, 2,048-token ceiling, natural sampling, authority projection, sequencing membrane, idempotent-effect membrane, permission gate, exact postcondition, direct bootstrap, and 180-second deadline fixed, changing only **`reasoning_effort="none"`**.
 
-First two fresh-runner results: **2/2 strict PASS**.
+First three fresh-runner results: **3/3 strict PASS**.
 
 1. **9.617 s** — exact `read_file → write_file → complete`, one approval, exact postcondition, no speculative sibling batch, zero reasoning deltas. Model settings recorded `reasoning_effort="none"`. The live idempotent-effect membrane was not needed.
 2. **16.094 s** — exact `read_file → write_file → complete`, one approval, exact postcondition, no speculative sibling batch, zero reasoning deltas. Model settings again recorded `reasoning_effort="none"`. The live idempotent-effect membrane was not needed.
+3. **17.509 s** — exact `read_file → write_file → complete`, one approval, exact postcondition, no speculative sibling batch, zero reasoning deltas. The model chose `overwrite=false` for the first creation of `RESULT.txt`; because the target did not yet exist, that remained within the task and permission envelope. The live idempotent-effect membrane was again not needed.
 
-These reps ran on different fresh hosted runners/regions and eliminated the runaway reasoning stream while preserving tool behavior. The observed turn latency is an order of magnitude below the prior thinking-heavy tail, but two reps are only a qualification signal, not a population estimate.
+Mean turn time across these three reps: **14.407 s**. Median: **16.094 s**. Range: **9.617–17.509 s**.
 
-Continue to four unchanged unseeded reps before retaining the provider control. If that sample remains clean, the next ablation is to remove the 2,048-token ceiling while keeping no-thinking and the other qualified controls fixed. That determines whether `max_tokens=2048` still earns its keep once the actual reasoning-mode cause is controlled.
+These reps ran on different fresh hosted runners/regions and eliminated the runaway reasoning stream while preserving tool behavior. Three reps are still a qualification signal, not a population estimate.
+
+Take one final unchanged unseeded rep before retaining the provider control. If the four-rep sample remains clean, the next ablation is to remove the experiment's 2,048-token ceiling while keeping no-thinking and the other qualified controls fixed. That determines whether `max_tokens=2048` still earns its keep once the actual reasoning-mode cause is controlled.
