@@ -68,9 +68,10 @@ jobs:
 
   local-model-canary:
     # The full SessionManager/coworker baseline and prior actor ablations remain in
-    # experiments/openworker-qualification. This gate tests the current single-variable
-    # bounded-generation ablation on top of the already-qualified controls.
-    name: projected-bounded-generation-2048-canary
+    # experiments/openworker-qualification. This gate changes only one behavioral primitive
+    # relative to the 2,048-token rep: exact already-satisfied idempotent file replacements
+    # are suppressed before approval/execution and retained as evidence.
+    name: projected-idempotent-effect-canary
     needs: qualify
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -163,12 +164,12 @@ jobs:
           print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
           PY
 
-      - name: Run projected 2048-token bounded-generation local-model canary
+      - name: Run projected idempotent desired-state local-model canary
         shell: bash
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/openworker-venv/bin/activate"
-          python experiments/openworker-qualification/projected_bounded_generation_2048_canary.py
+          python experiments/openworker-qualification/projected_idempotent_effect_canary.py
 
       - name: Show bounded Ollama diagnostics on failure
         if: failure()
