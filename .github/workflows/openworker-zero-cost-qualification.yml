@@ -67,9 +67,10 @@ jobs:
             tests/test_approval_integrity.py
 
   local-model-canary:
-    # Test whether the experiment's 2,048-token override earns its keep. All qualified
-    # controls remain; only max_tokens falls back to pinned OpenWorker's 32,000 default.
-    name: projected-provider-default-generation-canary
+    # Qualify OpenWorker's shell as a bounded actuator inside the disposable hosted VM.
+    # The actor sees only run_shell + write_file; the executor accepts one exact read-only
+    # command, while the native PermissionEngine and exact-state validator remain in path.
+    name: projected-shell-workcell-canary
     needs: qualify
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -162,12 +163,12 @@ jobs:
           print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
           PY
 
-      - name: Run provider-default generation-ceiling canary
+      - name: Run bounded shell/workcell canary
         shell: bash
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/openworker-venv/bin/activate"
-          python experiments/openworker-qualification/projected_provider_default_generation_canary.py
+          python experiments/openworker-qualification/projected_shell_workcell_canary.py
 
       - name: Show bounded Ollama diagnostics on failure
         if: failure()
