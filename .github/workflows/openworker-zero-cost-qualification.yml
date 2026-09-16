@@ -73,10 +73,10 @@ jobs:
     timeout-minutes: 20
     env:
       OPENWORKER_UPSTREAM_SHA: 5bc10d928e0b64aae74313349a3b17bd19643ae2
-      OPENWORKER_LOCAL_MODEL: ollama:qwen3:0.6b
+      OPENWORKER_LOCAL_MODEL: ollama:qwen3:1.7b
       OLLAMA_VERSION: 0.34.1
-      OLLAMA_MODEL_TAG: qwen3:0.6b
-      OLLAMA_MODEL_DIGEST_PREFIX: 7df6b6e09427
+      OLLAMA_MODEL_TAG: qwen3:1.7b
+      OLLAMA_MODEL_DIGEST_PREFIX: 8f68893c685c
       OLLAMA_HOST: 127.0.0.1:11434
       OLLAMA_MODELS: /tmp/openworker-ollama-models
       OLLAMA_NUM_PARALLEL: '1'
@@ -121,12 +121,18 @@ jobs:
           echo "$installed"
           grep -F "$OLLAMA_VERSION" <<<"$installed"
 
-      - name: Start Ollama and hydrate pinned model
+      - name: Start isolated Ollama and hydrate pinned model
         shell: bash
         run: |
           set -euo pipefail
+          sudo systemctl stop ollama.service || true
           mkdir -p "$OLLAMA_MODELS"
-          nohup ollama serve >"$RUNNER_TEMP/ollama.log" 2>&1 &
+          nohup env \
+            OLLAMA_HOST="$OLLAMA_HOST" \
+            OLLAMA_MODELS="$OLLAMA_MODELS" \
+            OLLAMA_NUM_PARALLEL="$OLLAMA_NUM_PARALLEL" \
+            OLLAMA_MAX_LOADED_MODELS="$OLLAMA_MAX_LOADED_MODELS" \
+            ollama serve >"$RUNNER_TEMP/ollama.log" 2>&1 &
           for attempt in $(seq 1 60); do
             if curl --fail --silent "http://${OLLAMA_HOST}/api/tags" >/dev/null; then
               break
