@@ -123,9 +123,9 @@ The first model round generated only **671 tokens**, well below the 2,048 ceilin
 
 The 2,048 series is therefore paused rather than expanded. More token-cap reps would not address the failure that actually occurred.
 
-## Next ablation: idempotent desired-state effect membrane
+## Idempotent desired-state effect membrane
 
-A lightweight multilingual concept sweep maps the observed duplicate-write failure to established **idempotency** and **desired-state reconciliation** primitives rather than to a bespoke generic tool-call deduper. The experimental rule is intentionally narrow:
+A lightweight multilingual concept sweep mapped the duplicate-write failure to established **idempotency** and **desired-state reconciliation** primitives rather than to a bespoke generic tool-call deduper. The experimental rule is intentionally narrow:
 
 - only `write_file` with explicit `overwrite=True` is considered;
 - only paths contained by the bounded workspace are considered;
@@ -133,6 +133,26 @@ A lightweight multilingual concept sweep maps the observed duplicate-write failu
 - an already-satisfied effect is suppressed **before authorization and execution** and recorded as evidence;
 - mismatched state, non-overwrite writes, non-file mutations, and paths outside the workspace pass through unchanged to the native permission gate.
 
-The first rep keeps the current 2,048-token configuration fixed so this is a one-variable behavioral ablation. The harness also includes a deterministic witness that forces the already-satisfied path, so the membrane cannot receive credit merely because a stochastic live-model rep happens not to emit a duplicate.
+The deterministic membrane witness **PASSed**: with the exact requested `RESULT.txt` state already present, an identical replacement proposal was suppressed without mutation. This proves the narrow mechanism independently of stochastic model behavior.
 
-If this combination qualifies, the next question is whether the 2,048-token bound itself earns retention; that should be answered by ablating the bound away while retaining the idempotent-effect membrane, rather than by assuming both are necessary.
+The first live rep did **not** reach the membrane. It failed at **180.008 s** with only `TURN_START` plus 1,802 reasoning deltas and no assistant tool call, approval, or side effect. Ollama ultimately reported that the first request generated exactly **2,048 tokens**, consuming about **206.12 s** of token evaluation and **208.12 s** total request time. The host-side 180-second resource envelope therefore expired before the backend completed the model round.
+
+This live failure does **not** falsify the idempotent-effect membrane: the deterministic witness passed and no live effect was proposed. It does falsify the assumption that a fixed token bound also provides a dependable wall-clock execution bound on heterogeneous public CPU runners. Earlier samples generated around 30 tokens/s; this runner decayed to about 9.93 tokens/s over the same model and pinned runtime.
+
+## Resource-envelope finding: tokens are not time
+
+The experiment now has three distinct controls that must not be conflated:
+
+1. **semantic/output budget** — `max_tokens` limits how much a model round may generate;
+2. **authority/effect budget** — capability projection, permission enforcement, sequencing, and idempotent effect reconciliation constrain what may happen;
+3. **wall-clock/resource budget** — the 180-second turn deadline constrains unattended compute consumption.
+
+The public hosted CPU population is heterogeneous enough that (1) cannot substitute for (3). Raising the 180-second deadline would make the current sample pass later but would weaken the intended unattended resource invariant, so the deadline remains unchanged.
+
+## Next ablation: disable Qwen thinking through the actual provider control
+
+The current prompt has always included `/no_think`, but observed long reasoning traces show that prompt text is not a reliable control through the Ollama OpenAI-compatible endpoint. Ollama v0.34.1's own `openai/openai.go` maps `reasoning_effort="none"` to an internal `Think=false` value and places that on the translated chat request.
+
+The next experiment therefore keeps the model, 2,048-token ceiling, natural sampling, authority projection, sequencing membrane, idempotent-effect membrane, permission gate, exact postcondition, direct bootstrap, and 180-second deadline fixed. It changes only one provider setting: add **`reasoning_effort="none"`**.
+
+Acceptance requires the ordinary strict postcondition plus observable elimination of the runaway reasoning path. If the provider control is ineffective on the pinned model/runtime, the failure is retained rather than compensated for by raising the deadline.
