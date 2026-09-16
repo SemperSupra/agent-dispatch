@@ -6,11 +6,16 @@ but instantiates OpenWorker's TurnEngine directly with only the two capabilities
 read_file and write_file. The native PermissionEngine remains in the path and the write must be
 explicitly approved by the harness. Authority and answer correctness are deliberately separate:
 the approver constrains WHERE the actor may write; the postcondition validator judges WHAT it wrote.
+
+OpenWorker's own capability table declares Ollama models as parallel_tool_calls=False because many
+local models fake or mishandle parallel calls. TurnEngine only forwards caller model_settings, so
+this qualification explicitly applies that declared contract and records it as an ablation.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import json
 import os
 import platform
@@ -27,6 +32,7 @@ from coworker.providers.router import ProviderRouter
 from coworker.tools import ToolRegistry
 
 MODEL = os.environ.get("OPENWORKER_LOCAL_MODEL", "ollama:qwen3:1.7b")
+MODEL_SETTINGS = {"parallel_tool_calls": False}
 EXPECTED = "sum=42\nnonce=quartz-5819\n"
 PROMPT = (
     "/no_think\n"
@@ -120,18 +126,26 @@ async def run_canary(root: Path) -> dict:
         model=MODEL,
         approver=approver,
         max_iterations=6,
+        model_settings=MODEL_SETTINGS,
     )
 
-    events: list[dict] = []
+    event_counts: Counter[str] = Counter()
+    salient_events: list[dict] = []
 
     async def consume() -> None:
         async for event in engine.run(PROMPT):
+            event_type = str(event.type)
+            event_counts[event_type] += 1
             payload = dict(event.data or {})
-            compact = {"type": str(event.type)}
-            for key in ("tool_calls", "status", "error", "error_type", "iterations"):
-                if key in payload:
-                    compact[key] = payload[key]
-            events.append(compact)
+            if event_type not in {
+                "EventType.REASONING_DELTA",
+                "EventType.ASSISTANT_DELTA",
+            }:
+                compact = {"type": event_type}
+                for key in ("tool_calls", "status", "error", "error_type", "iterations"):
+                    if key in payload:
+                        compact[key] = payload[key]
+                salient_events.append(compact)
 
     started = time.monotonic()
     task = asyncio.create_task(consume())
@@ -139,24 +153,28 @@ async def run_canary(root: Path) -> dict:
         await asyncio.wait_for(task, timeout=180)
     except asyncio.TimeoutError as exc:
         raise AssertionError(
-            f"projected local-model turn exceeded 180 seconds; events={events[-12:]}"
+            f"projected local-model turn exceeded 180 seconds; "
+            f"event_counts={dict(event_counts)}; salient={salient_events[-12:]}"
         ) from exc
     elapsed = time.monotonic() - started
 
     names = tool_names_from_messages(engine.messages)
     trace = {
+        "model_settings": MODEL_SETTINGS,
         "tool_calls": names,
         "approvals": approval_requests,
         "assistant_text_tail": bounded_assistant_text(engine.messages),
-        "events": events,
+        "event_counts": dict(event_counts),
+        "salient_events": salient_events,
         "target_exists": target.is_file(),
+        "target_content": target.read_text(encoding="utf-8") if target.is_file() else None,
     }
     print("PROJECTED_TRACE=" + json.dumps(trace, sort_keys=True))
 
     if not target.is_file():
         raise AssertionError(
             f"projected model completed without RESULT.txt; tool_calls={names}; "
-            f"approvals={approval_requests}; events={events[-12:]}"
+            f"approvals={approval_requests}; salient={salient_events[-12:]}"
         )
     observed = target.read_text(encoding="utf-8")
     if observed != EXPECTED:
@@ -180,6 +198,7 @@ async def run_canary(root: Path) -> dict:
 
     return {
         "model": MODEL,
+        "model_settings": MODEL_SETTINGS,
         "projection": registry.names(),
         "tool_schema_count": len(registry.schemas()),
         "tool_schema_chars": len(json.dumps(registry.schemas(), sort_keys=True)),
@@ -187,6 +206,7 @@ async def run_canary(root: Path) -> dict:
         "tool_calls": names,
         "approval_count": len(approval_requests),
         "turn_elapsed_seconds": round(elapsed, 3),
+        "event_counts": dict(event_counts),
         "result": "PASS",
     }
 
@@ -199,6 +219,7 @@ def append_summary(evidence: dict) -> None:
         fh.write("\n## OpenWorker projected local-model canary\n\n")
         fh.write(f"- model: `{evidence.get('model')}`\n")
         fh.write(f"- result: **{evidence.get('result')}**\n")
+        fh.write(f"- model settings: `{evidence.get('model_settings')}`\n")
         fh.write(f"- actor capabilities: `{evidence.get('projection', [])}`\n")
         fh.write(f"- tool schema chars: `{evidence.get('tool_schema_chars')}`\n")
         fh.write(f"- observed tool calls: `{evidence.get('tool_calls', [])}`\n")
@@ -232,6 +253,7 @@ async def main() -> int:
     except Exception as exc:
         evidence["result"] = "FAIL"
         evidence["error"] = f"{type(exc).__name__}: {exc}"
+        evidence["model_settings"] = MODEL_SETTINGS
         code = 1
     finally:
         evidence["elapsed_seconds"] = round(time.monotonic() - started, 3)
