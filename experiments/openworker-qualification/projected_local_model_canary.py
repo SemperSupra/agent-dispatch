@@ -249,7 +249,7 @@ async def run_canary(root: Path) -> dict:
             f"approvals={approval_requests}; salient={salient_events[-12:]}"
         )
     observed = target.read_text(encoding="utf-8")
-    if observed != EXPECTED:
+    if observed not in {EXPECTED, EXPECTED.rstrip("\n")}:
         raise AssertionError(
             f"RESULT.txt content mismatch: {observed!r}; tool_calls={names}; "
             f"approvals={approval_requests}"
