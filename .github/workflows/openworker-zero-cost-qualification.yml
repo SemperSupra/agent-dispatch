@@ -67,9 +67,9 @@ jobs:
             tests/test_approval_integrity.py
 
   local-model-canary:
-    # Retain provider-controlled no-thinking and add one bounded desired-state
-    # reconciliation when a no-tool completion claim precedes the exact postcondition.
-    name: projected-completion-gate-canary
+    # Test whether the experiment's 2,048-token override earns its keep. All qualified
+    # controls remain; only max_tokens falls back to pinned OpenWorker's 32,000 default.
+    name: projected-provider-default-generation-canary
     needs: qualify
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -162,12 +162,12 @@ jobs:
           print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
           PY
 
-      - name: Run projected completion-gated no-thinking local-model canary
+      - name: Run provider-default generation-ceiling canary
         shell: bash
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/openworker-venv/bin/activate"
-          python experiments/openworker-qualification/projected_completion_gate_canary.py
+          python experiments/openworker-qualification/projected_provider_default_generation_canary.py
 
       - name: Show bounded Ollama diagnostics on failure
         if: failure()
