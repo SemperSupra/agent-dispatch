@@ -3,8 +3,9 @@
 
 The model does not author shell syntax. It receives one semantic read capability,
 `render_result_payload(source_name)`, with exactly one permitted selector: SOURCE.txt.
-The tool invokes one fixed deterministic command in OpenWorker's LocalExecutor and returns
-its stdout. `write_file` remains the only consequential capability.
+The tool invokes one fixed deterministic command in OpenWorker's LocalExecutor, removes
+exactly one known executor-framing newline when present, and returns the semantic payload.
+`write_file` remains the only consequential capability.
 
 The outer workcell remains the disposable GitHub-hosted VM. Provider-controlled no-thinking,
 provider-default generation ceiling, non-parallel sequencing, one bounded completion
@@ -60,6 +61,19 @@ if "max_tokens" in MODEL_SETTINGS:
     raise RuntimeError(f"semantic lane unexpectedly restored max_tokens: {MODEL_SETTINGS!r}")
 
 
+def normalize_executor_framing(raw_output: str) -> tuple[str, bool]:
+    """Remove exactly one LocalExecutor marker-separator newline when observable.
+
+    The fixed command itself ends with one newline. LocalExecutor writes a leading newline
+    before its private completion marker; that protocol byte can therefore appear as a second
+    trailing newline in captured command output. This adapter owns that transport framing.
+    It removes at most one newline and preserves all semantic payload bytes otherwise.
+    """
+    if raw_output.endswith("\n\n"):
+        return raw_output[:-1], True
+    return raw_output, False
+
+
 async def run_canary(root: Path) -> dict[str, Any]:
     workspace = (root / "workspace").resolve()
     workspace.mkdir(parents=True)
@@ -88,16 +102,23 @@ async def run_canary(root: Path) -> dict[str, Any]:
         except Exception as exc:
             record["executor_error"] = f"{type(exc).__name__}: {exc}"
             raise
+
+        raw_output = str(result.get("output") or "")
+        semantic_output, framing_removed = normalize_executor_framing(raw_output)
         record.update(
             {
                 "exit_code": result.get("exit_code"),
                 "timed_out": bool(result.get("timed_out")),
-                "output": result.get("output", ""),
+                "raw_output": raw_output,
+                "framing_newline_removed": framing_removed,
+                "output": semantic_output,
             }
         )
         if result.get("exit_code") != 0 or result.get("timed_out"):
             raise RuntimeError(f"deterministic transform failed: {record}")
-        return str(result.get("output") or "")
+        if semantic_output not in {EXPECTED, EXPECTED.rstrip("\n")}:
+            raise RuntimeError(f"semantic adapter produced unexpected payload: {record}")
+        return semantic_output
 
     registry = ToolRegistry()
     registry.register(render_result_payload)
@@ -236,6 +257,7 @@ async def run_canary(root: Path) -> dict[str, Any]:
         "model_settings": MODEL_SETTINGS,
         "projection": registry.names(),
         "semantic_call_count": len(semantic_calls),
+        "framing_newline_removed": bool(semantic_calls[0].get("framing_newline_removed")),
         "tool_calls": names,
         "approval_count": len(approval_requests),
         "completion_reconciliation_count": len(reconciliations),
@@ -256,6 +278,7 @@ def append_summary(evidence: dict[str, Any]) -> None:
         fh.write(f"- model: `{evidence.get('model')}`\n")
         fh.write(f"- actor capabilities: `{evidence.get('projection', [])}`\n")
         fh.write(f"- semantic calls: `{evidence.get('semantic_call_count')}`\n")
+        fh.write(f"- executor framing newline removed: `{evidence.get('framing_newline_removed')}`\n")
         fh.write(f"- approvals: `{evidence.get('approval_count')}`\n")
         fh.write(f"- reconciliations: `{evidence.get('completion_reconciliation_count')}`\n")
         fh.write(f"- turn seconds: `{evidence.get('turn_elapsed_seconds')}`\n")
