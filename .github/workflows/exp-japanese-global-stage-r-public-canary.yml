@@ -1,0 +1,459 @@
+name: EXP Japanese/global Stage-R public canary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-japanese-global-stage-r-public-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-r-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Execute provenance-closed multilingual Stage R
+        shell: bash
+        env:
+          OUT_DIR: /tmp/japanese-global-stage-r-canary
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          import time
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          OUT = Path(os.environ['OUT_DIR'])
+
+          # Every seed below occurs literally in the prospectively frozen neutral semantic intent.
+          # No term discovered by the private/reference arm is supplied to this worker.
+          SEEDS = [
+              'entertainment',
+              'modeling',
+              'promotional',
+              'performer',
+              'fashion',
+              'aesthetic',
+              'fandom',
+              'media',
+              'fictional',
+              'commercial',
+              'event',
+          ]
+
+          # Required coverage projection. Absence is recorded as an observation/coverage gap,
+          # never as semantic absence.
+          LANGUAGE_GROUPS = {
+              'Japanese': ['ja'],
+              'Korean': ['ko'],
+              'Chinese Simplified': ['zh', 'zh-hans', 'zh-cn'],
+              'Chinese Traditional/Taiwan': ['zh-hant', 'zh-tw'],
+              'Thai': ['th'],
+              'Indonesian or Malay': ['id', 'ms'],
+              'Spanish/Latin America': ['es'],
+              'Brazilian Portuguese': ['pt-br', 'pt'],
+              'German': ['de'],
+              'French': ['fr'],
+              'Russian or Ukrainian': ['ru', 'uk'],
+              'Arabic': ['ar'],
+              'Hindi': ['hi'],
+              'additional South Asian': ['bn', 'ta'],
+          }
+          WIKTIONARY_LANGS = {'ja','ko','zh','th','id','ms','es','pt','de','fr','ru','uk','ar','hi','bn','ta'}
+
+          SEALED_PLAN = {
+              'repository': 'mark-e-deyoung/concept-search-adapters-private',
+              'revision': '504ac01025297289a9428946a63b205e2262002e',
+              'path': 'experiments/paired-sweeps/japanese-human-presentation-age-coded-001/sealed_problem.json',
+              'field': 'semantic_intent',
+              'semantic_intent_sha256': 'fe0875f7374418d1c1a4831b387e16b838fc7d99706def32aa1ce7b509b365e2',
+          }
+
+          def utc_now():
+              return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+          def canon_sha(value):
+              raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+              return hashlib.sha256(raw).hexdigest()
+
+          def request_json(url, user_agent='SemperSupra-AgentDispatch-StageR-Canary/0.2 (public research canary)'):
+              req = urllib.request.Request(url, headers={'User-Agent': user_agent})
+              started = time.monotonic()
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  raw = resp.read()
+                  status = int(resp.status)
+              elapsed = round(time.monotonic() - started, 4)
+              return status, elapsed, raw, json.loads(raw.decode('utf-8'))
+
+          def fetch_wiktionary_revision(title):
+              params = urllib.parse.urlencode({
+                  'action': 'query',
+                  'prop': 'revisions',
+                  'titles': title,
+                  'rvprop': 'ids|timestamp|sha1|content',
+                  'rvslots': 'main',
+                  'format': 'json',
+                  'formatversion': '2',
+              })
+              url = 'https://en.wiktionary.org/w/api.php?' + params
+              status, elapsed, raw, data = request_json(url)
+              pages = data.get('query', {}).get('pages', [])
+              if not pages:
+                  raise RuntimeError('Wiktionary returned no page objects')
+              page = pages[0]
+              if page.get('missing') is True:
+                  raise RuntimeError(f'Wiktionary page missing for exact title {title!r}')
+              revisions = page.get('revisions') or []
+              if not revisions:
+                  raise RuntimeError(f'Wiktionary returned no revision for exact title {title!r}')
+              rev = revisions[0]
+              content = rev.get('slots', {}).get('main', {}).get('content')
+              if not isinstance(content, str):
+                  raise RuntimeError(f'Wiktionary returned no main-slot content for {title!r}')
+              return {
+                  'request_url': url,
+                  'http_status': status,
+                  'elapsed_seconds': elapsed,
+                  'requested_title': title,
+                  'source_title': page.get('title'),
+                  'pageid': page.get('pageid'),
+                  'revid': rev.get('revid'),
+                  'parentid': rev.get('parentid'),
+                  'revision_timestamp': rev.get('timestamp'),
+                  'wikimedia_sha1': rev.get('sha1'),
+                  'content_sha256': hashlib.sha256(content.encode('utf-8')).hexdigest(),
+                  'content_bytes': len(content.encode('utf-8')),
+                  'content': content,
+              }
+
+          def source_native_id(obs):
+              return f"wiktionary-page:{obs['pageid']}:rev:{obs['revid']}"
+
+          def extract_source_lemma(content):
+              # Follow-up vocabulary is admitted only when Wiktionary explicitly supplies
+              # a base form/lemma relationship in the returned source revision.
+              patterns = [
+                  r'\{\{plural of\|en\|([^|}\n]+)',
+                  r'\{\{inflection of\|en\|([^|}\n]+)',
+                  r'\{\{present participle of\|en\|([^|}\n]+)',
+                  r'\{\{gerund of\|en\|([^|}\n]+)',
+                  r'\{\{alternative form of\|en\|([^|}\n]+)',
+              ]
+              for pattern in patterns:
+                  match = re.search(pattern, content, flags=re.IGNORECASE)
+                  if match:
+                      value = match.group(1).strip()
+                      if value:
+                          return value
+              return None
+
+          def extract_translations(content):
+              # Source observations only. We preserve exactly what Wiktionary translation
+              # templates return and do not treat these strings as validated equivalents.
+              pattern = re.compile(r'\{\{(?:t\+?|tt\+?|t-check)\|([a-z][a-z0-9-]*)\|([^|}\n]+)', re.IGNORECASE)
+              out = {}
+              for match in pattern.finditer(content):
+                  lang = match.group(1).lower().strip()
+                  term = match.group(2).strip()
+                  if lang in WIKTIONARY_LANGS and term:
+                      out.setdefault(lang, [])
+                      if term not in out[lang]:
+                          out[lang].append(term)
+              return out
+
+          def wikidata_search(term):
+              params = urllib.parse.urlencode({
+                  'action': 'wbsearchentities',
+                  'search': term,
+                  'language': 'en',
+                  'uselang': 'en',
+                  'type': 'item',
+                  'limit': '3',
+                  'format': 'json',
+              })
+              url = 'https://www.wikidata.org/w/api.php?' + params
+              status, elapsed, raw, data = request_json(url)
+              rows = []
+              for item in data.get('search', [])[:3]:
+                  qid = item.get('id')
+                  if isinstance(qid, str) and qid.startswith('Q'):
+                      rows.append({
+                          'qid': qid,
+                          'label': item.get('label'),
+                          'description': item.get('description'),
+                          'concepturi': item.get('concepturi'),
+                      })
+              return url, status, elapsed, hashlib.sha256(raw).hexdigest(), rows
+
+          def wikidata_entity(qid):
+              url = f'https://www.wikidata.org/wiki/Special:EntityData/{urllib.parse.quote(qid)}.json'
+              status, elapsed, raw, data = request_json(url)
+              entity = data.get('entities', {}).get(qid)
+              if not isinstance(entity, dict):
+                  raise RuntimeError(f'Wikidata EntityData missing {qid}')
+              labels = entity.get('labels') or {}
+              aliases = entity.get('aliases') or {}
+              descriptions = entity.get('descriptions') or {}
+              claims = entity.get('claims') or {}
+              revision_id = entity.get('lastrevid')
+
+              language_values = {}
+              for group, codes in LANGUAGE_GROUPS.items():
+                  observed = []
+                  for code in codes:
+                      label = labels.get(code, {}).get('value') if isinstance(labels.get(code), dict) else None
+                      desc = descriptions.get(code, {}).get('value') if isinstance(descriptions.get(code), dict) else None
+                      alias_values = []
+                      raw_aliases = aliases.get(code)
+                      if isinstance(raw_aliases, list):
+                          alias_values = [a.get('value') for a in raw_aliases if isinstance(a, dict) and isinstance(a.get('value'), str)]
+                      if label or desc or alias_values:
+                          observed.append({
+                              'language_code': code,
+                              'label': label,
+                              'aliases': alias_values,
+                              'description': desc,
+                          })
+                  language_values[group] = observed
+
+              # Preserve only source-native relation identifiers for one bounded graph hop.
+              relation_qids = []
+              for prop in ('P31', 'P279'):
+                  for claim in claims.get(prop, [])[:6]:
+                      value = (((claim.get('mainsnak') or {}).get('datavalue') or {}).get('value'))
+                      if isinstance(value, dict):
+                          rid = value.get('id')
+                          if isinstance(rid, str) and rid.startswith('Q') and rid not in relation_qids:
+                              relation_qids.append(rid)
+
+              return {
+                  'request_url': url,
+                  'http_status': status,
+                  'elapsed_seconds': elapsed,
+                  'raw_sha256': hashlib.sha256(raw).hexdigest(),
+                  'qid': qid,
+                  'revision_id': revision_id,
+                  'language_values': language_values,
+                  'relation_qids_p31_p279': relation_qids,
+              }
+
+          started_at = utc_now()
+          t0 = time.monotonic()
+          requests = []
+          receipts = []
+          wiktionary_chains = []
+          admitted_query_terms = []
+
+          for seed in SEEDS:
+              if seed not in admitted_query_terms:
+                  admitted_query_terms.append(seed)
+              chain = {
+                  'seed_query': seed,
+                  'seed_provenance': {
+                      'status': 'LITERAL_TOKEN_FROM_FROZEN_SEMANTIC_INTENT',
+                      'sealed_plan': SEALED_PLAN,
+                  },
+                  'source_admitted_lemma': None,
+                  'translations_by_language_code': {},
+              }
+              try:
+                  obs = fetch_wiktionary_revision(seed)
+                  requests.append({'resource':'wiktionary','query':seed,'role':'literal-seed','status':'SUCCESS', **{k:obs[k] for k in obs if k != 'content'}})
+                  lemma = extract_source_lemma(obs['content'])
+                  translations = extract_translations(obs['content'])
+                  record = {
+                      'source_native_id': source_native_id(obs),
+                      'uri': 'https://en.wiktionary.org/wiki/' + urllib.parse.quote(seed),
+                      'term': seed,
+                      'forms': [lemma] if lemma else [],
+                      'terms': sorted({v for values in translations.values() for v in values}),
+                      'translation_observations': translations,
+                      'source_title': obs['source_title'],
+                      'revision_id': obs['revid'],
+                      'content_sha256': obs['content_sha256'],
+                  }
+                  receipts.append({
+                      'resource_name':'en_wiktionary_revision_api',
+                      'lookup_key':seed,
+                      'producer_id':'public-actions.japanese-global-stage-r',
+                      'execution_ref':os.getenv('GITHUB_SHA','UNKNOWN'),
+                      'version':str(obs['revid']),
+                      'source_lineage':obs['request_url'],
+                      'binding_status':'DIRECT_EXECUTION',
+                      'execution_status':'EXECUTED',
+                      'returned_records':[record],
+                      'result_sha256':canon_sha([record]),
+                      'observed_terms':sorted(set(([lemma] if lemma else []) + record['terms'])),
+                  })
+                  chain['source_admitted_lemma'] = lemma
+                  chain['translations_by_language_code'] = translations
+                  if lemma and lemma not in admitted_query_terms:
+                      admitted_query_terms.append(lemma)
+              except Exception as exc:
+                  requests.append({'resource':'wiktionary','query':seed,'role':'literal-seed','status':'FAILED','error_type':type(exc).__name__,'error':str(exc)[:500]})
+              wiktionary_chains.append(chain)
+
+          # Wikidata receives only literal neutral terms or Wiktionary-source-admitted lemmas.
+          # It may return unrelated/polysemous candidates; that is preserved as Stage-R evidence.
+          wikidata_observations = []
+          seen_qids = set()
+          for term in admitted_query_terms:
+              try:
+                  url, status, elapsed, raw_sha, rows = wikidata_search(term)
+                  requests.append({'resource':'wikidata_search','query':term,'role':'literal-or-source-admitted','status':'SUCCESS','request_url':url,'http_status':status,'elapsed_seconds':elapsed,'raw_sha256':raw_sha,'result_count':len(rows)})
+                  search_record = {
+                      'source_native_id': f'wikidata-search:{hashlib.sha256((term+raw_sha).encode()).hexdigest()[:24]}',
+                      'term': term,
+                      'labels': [r.get('label') for r in rows if isinstance(r.get('label'), str)],
+                      'candidate_qids': [r['qid'] for r in rows],
+                  }
+                  receipts.append({
+                      'resource_name':'wikidata_wbsearchentities',
+                      'lookup_key':term,
+                      'producer_id':'public-actions.japanese-global-stage-r',
+                      'execution_ref':os.getenv('GITHUB_SHA','UNKNOWN'),
+                      'version':'live',
+                      'source_lineage':url,
+                      'binding_status':'DIRECT_EXECUTION',
+                      'execution_status':'EXECUTED',
+                      'returned_records':[search_record],
+                      'result_sha256':canon_sha([search_record]),
+                      'observed_terms':search_record['labels'],
+                  })
+                  for row in rows:
+                      qid = row['qid']
+                      if qid in seen_qids:
+                          continue
+                      seen_qids.add(qid)
+                      try:
+                          entity = wikidata_entity(qid)
+                          requests.append({'resource':'wikidata_entity','query':qid,'role':'source-native-followup','status':'SUCCESS','request_url':entity['request_url'],'http_status':entity['http_status'],'elapsed_seconds':entity['elapsed_seconds'],'raw_sha256':entity['raw_sha256']})
+                          all_terms = []
+                          for values in entity['language_values'].values():
+                              for v in values:
+                                  if v.get('label'):
+                                      all_terms.append(v['label'])
+                                  all_terms.extend(v.get('aliases') or [])
+                          entity_record = {
+                              'source_native_id': f"wikidata-item:{qid}:rev:{entity.get('revision_id')}",
+                              'qid':qid,
+                              'revision_id':entity.get('revision_id'),
+                              'labels':sorted(set(all_terms)),
+                              'language_values':entity['language_values'],
+                              'relation_qids_p31_p279':entity['relation_qids_p31_p279'],
+                          }
+                          receipts.append({
+                              'resource_name':'wikidata_entitydata',
+                              'lookup_key':qid,
+                              'producer_id':'public-actions.japanese-global-stage-r',
+                              'execution_ref':os.getenv('GITHUB_SHA','UNKNOWN'),
+                              'version':str(entity.get('revision_id')),
+                              'source_lineage':entity['request_url'],
+                              'binding_status':'DIRECT_EXECUTION',
+                              'execution_status':'EXECUTED',
+                              'returned_records':[entity_record],
+                              'result_sha256':canon_sha([entity_record]),
+                              'observed_terms':entity_record['labels'],
+                          })
+                          wikidata_observations.append({
+                              'source_query':term,
+                              'search_candidate':row,
+                              'entity':entity,
+                          })
+                      except Exception as exc:
+                          requests.append({'resource':'wikidata_entity','query':qid,'role':'source-native-followup','status':'FAILED','error_type':type(exc).__name__,'error':str(exc)[:500]})
+              except Exception as exc:
+                  requests.append({'resource':'wikidata_search','query':term,'role':'literal-or-source-admitted','status':'FAILED','error_type':type(exc).__name__,'error':str(exc)[:500]})
+
+          # Coverage is purely observational: did any source-returned label/alias/translation
+          # exist for a language group? No presence/absence semantic conclusion is made.
+          coverage = {group:{'observed_terms':[], 'status':'UNKNOWN_COVERAGE_GAP'} for group in LANGUAGE_GROUPS}
+          for chain in wiktionary_chains:
+              trans = chain.get('translations_by_language_code') or {}
+              for group,codes in LANGUAGE_GROUPS.items():
+                  for code in codes:
+                      if code in trans:
+                          coverage[group]['observed_terms'].extend(trans[code])
+          for obs in wikidata_observations:
+              entity = obs['entity']
+              for group, values in entity.get('language_values', {}).items():
+                  for v in values:
+                      if v.get('label'):
+                          coverage[group]['observed_terms'].append(v['label'])
+                      coverage[group]['observed_terms'].extend(v.get('aliases') or [])
+          for group in coverage:
+              coverage[group]['observed_terms'] = sorted(set(coverage[group]['observed_terms']))
+              if coverage[group]['observed_terms']:
+                  coverage[group]['status'] = 'SOURCE_NATIVE_TERMS_OBSERVED'
+
+          succeeded = sum(1 for r in requests if r['status']=='SUCCESS')
+          failed = sum(1 for r in requests if r['status']=='FAILED')
+          groups_with_terms = sum(1 for v in coverage.values() if v['status']=='SOURCE_NATIVE_TERMS_OBSERVED')
+          if succeeded == 0:
+              terminal = 'RESOURCE_BINDING_FAIL'
+          elif groups_with_terms == len(coverage):
+              terminal = 'STAGE_R_CANARY_FROZEN'
+          else:
+              terminal = 'PARTIAL_SOURCE_COVERAGE'
+
+          packet = {
+              'schema_version':1,
+              'experiment_id':'japanese-human-presentation-age-coded-001',
+              'experiment_role':'mechanically_blind_stage_r_public_canary',
+              'terminal_state':terminal,
+              'sealed_plan_binding':SEALED_PLAN,
+              'blindness':{
+                  'disposition':'MECHANICALLY_RESTRICTED_PUBLIC_ACTIONS',
+                  'enforceable_for_private_reference_material':True,
+                  'reason':'Job runs in public SemperSupra/agent-dispatch with contents:read only. It receives only literal neutral-intent tokens, mechanically source-admitted follow-up terms/IDs, and public resource responses; no private repository credential, reference packet, reference findings, Stage-P material, or reconciliation state is supplied.',
+              },
+              'worker':{
+                  'repository':os.getenv('GITHUB_REPOSITORY'),
+                  'sha':os.getenv('GITHUB_SHA'),
+                  'run_id':os.getenv('GITHUB_RUN_ID'),
+                  'run_attempt':os.getenv('GITHUB_RUN_ATTEMPT'),
+                  'event_name':os.getenv('GITHUB_EVENT_NAME'),
+              },
+              'timestamps':{'started_at':started_at,'ended_at':utc_now(),'elapsed_seconds':round(time.monotonic()-t0,4)},
+              'query_seed_provenance':{
+                  'literal_seeds':SEEDS,
+                  'source_admitted_terms':admitted_query_terms,
+                  'rule':'Only tokens literal in frozen neutral intent or terms explicitly returned as a source lemma may seed requests.',
+              },
+              'request_accounting':{
+                  'attempted_requests':len(requests),
+                  'succeeded_requests':succeeded,
+                  'failed_requests':failed,
+                  'requests':requests,
+              },
+              'wiktionary_chains':wiktionary_chains,
+              'wikidata_observations':wikidata_observations,
+              'language_coverage':coverage,
+              'resource_receipts':receipts,
+              'stage_p_state':'STAGE_P_NOT_QUALIFIED',
+              'claim_ceiling':'Stage-R retrieval/source observations only. Returned strings, QIDs and source relations are not validated concepts, synonymy, translations, policy findings, age determinations, reality-status determinations, or semantic proposals.',
+          }
+          packet['packet_sha256_without_self'] = canon_sha(packet)
+          (OUT/'stage_r_packet.json').write_text(json.dumps(packet, ensure_ascii=False, indent=2, sort_keys=True)+'\n', encoding='utf-8')
+          print(json.dumps({'terminal_state':terminal,'attempted':len(requests),'succeeded':succeeded,'failed':failed,'language_groups_with_terms':groups_with_terms,'total_language_groups':len(coverage),'packet_sha256':packet['packet_sha256_without_self']}, sort_keys=True))
+          PY
+
+      - name: Upload Stage-R evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: japanese-global-stage-r-canary-${{ github.run_id }}
+          path: /tmp/japanese-global-stage-r-canary/stage_r_packet.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
