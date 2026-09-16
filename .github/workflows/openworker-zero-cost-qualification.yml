@@ -1,0 +1,67 @@
+name: OpenWorker Zero-Cost Qualification
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/openworker-qualification/**'
+      - '.github/workflows/openworker-zero-cost-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openworker-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    # Standard GitHub-hosted runners are free for public repositories. Do not change
+    # this experiment to a larger/paid runner without a new qualification decision.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENWORKER_UPSTREAM_SHA: 5bc10d928e0b64aae74313349a3b17bd19643ae2
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout qualification harness
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Clone immutable OpenWorker source
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$RUNNER_TEMP/openworker"
+          git clone --quiet --no-checkout https://github.com/andrewyng/openworker.git "$upstream"
+          git -C "$upstream" checkout --quiet --detach "$OPENWORKER_UPSTREAM_SHA"
+          test "$(git -C "$upstream" rev-parse HEAD)" = "$OPENWORKER_UPSTREAM_SHA"
+
+      - name: Install OpenWorker in isolated environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/openworker-venv"
+          source "$RUNNER_TEMP/openworker-venv/bin/activate"
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet -e "$RUNNER_TEMP/openworker[dev]"
+
+      - name: Run independent consumer qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/openworker-venv/bin/activate"
+          python experiments/openworker-qualification/qualify.py
+
+      - name: Run upstream regression witnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/openworker-venv/bin/activate"
+          cd "$RUNNER_TEMP/openworker"
+          python -m pytest -q \
+            tests/test_durable_resume.py \
+            tests/test_automation.py \
+            tests/test_approval_integrity.py
