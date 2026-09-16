@@ -1,0 +1,221 @@
+name: EXP Japanese/global Stage-R Wikidata canary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-japanese-global-stage-r-wikidata-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-r-wikidata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Execute paced provenance-closed Wikidata Stage R
+        shell: bash
+        env:
+          OUT_DIR: /tmp/japanese-global-stage-r-wikidata
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          OUT = Path(os.environ['OUT_DIR'])
+          SEEDS = [
+              'entertainment','modeling','promotional','performer','fashion','aesthetic',
+              'fandom','media','fictional','commercial','event'
+          ]
+          LANGUAGE_GROUPS = {
+              'Japanese':['ja'], 'Korean':['ko'],
+              'Chinese Simplified':['zh','zh-hans','zh-cn'],
+              'Chinese Traditional/Taiwan':['zh-hant','zh-tw'],
+              'Thai':['th'], 'Indonesian or Malay':['id','ms'],
+              'Spanish/Latin America':['es'], 'Brazilian Portuguese':['pt-br','pt'],
+              'German':['de'], 'French':['fr'], 'Russian or Ukrainian':['ru','uk'],
+              'Arabic':['ar'], 'Hindi':['hi'], 'additional South Asian':['bn','ta'],
+          }
+          ALL_LANGUAGE_CODES = []
+          for codes in LANGUAGE_GROUPS.values():
+              for code in codes:
+                  if code not in ALL_LANGUAGE_CODES:
+                      ALL_LANGUAGE_CODES.append(code)
+
+          SEALED_PLAN = {
+              'repository':'mark-e-deyoung/concept-search-adapters-private',
+              'revision':'504ac01025297289a9428946a63b205e2262002e',
+              'path':'experiments/paired-sweeps/japanese-human-presentation-age-coded-001/sealed_problem.json',
+              'field':'semantic_intent',
+              'semantic_intent_sha256':'fe0875f7374418d1c1a4831b387e16b838fc7d99706def32aa1ce7b509b365e2',
+          }
+
+          UA = 'SemperSupra-AgentDispatch-StageR-Wikidata-Canary/0.2 (public research canary; https://github.com/SemperSupra/agent-dispatch)'
+
+          def utc_now():
+              return datetime.now(timezone.utc).isoformat().replace('+00:00','Z')
+
+          def canon_sha(value):
+              raw=json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+              return hashlib.sha256(raw).hexdigest()
+
+          def request_json(url, *, attempts=5, pace=1.15):
+              last=None
+              for attempt in range(1, attempts+1):
+                  req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'application/json'})
+                  started=time.monotonic()
+                  try:
+                      with urllib.request.urlopen(req,timeout=25) as resp:
+                          raw=resp.read(); status=int(resp.status)
+                      elapsed=round(time.monotonic()-started,4)
+                      time.sleep(pace)
+                      return status,elapsed,raw,json.loads(raw.decode('utf-8')),attempt
+                  except urllib.error.HTTPError as exc:
+                      last=exc
+                      if exc.code != 429 or attempt == attempts:
+                          raise
+                      retry=exc.headers.get('Retry-After')
+                      try: delay=float(retry) if retry else min(2**attempt,12)
+                      except Exception: delay=min(2**attempt,12)
+                      time.sleep(max(delay, pace))
+              raise last or RuntimeError('request failed')
+
+          def search(term):
+              params=urllib.parse.urlencode({
+                  'action':'wbsearchentities','search':term,'language':'en','uselang':'en',
+                  'type':'item','limit':'2','format':'json','formatversion':'2','maxlag':'5'
+              })
+              url='https://www.wikidata.org/w/api.php?'+params
+              status,elapsed,raw,data,attempt=request_json(url)
+              rows=[]
+              for item in data.get('search',[])[:2]:
+                  qid=item.get('id')
+                  if isinstance(qid,str) and qid.startswith('Q'):
+                      rows.append({'qid':qid,'label':item.get('label'),'description':item.get('description'),'concepturi':item.get('concepturi')})
+              return url,status,elapsed,hashlib.sha256(raw).hexdigest(),rows,attempt
+
+          def fetch_entities(qids):
+              params=urllib.parse.urlencode({
+                  'action':'wbgetentities','ids':'|'.join(qids),
+                  'props':'labels|aliases|descriptions|claims',
+                  'languages':'|'.join(ALL_LANGUAGE_CODES),
+                  'languagefallback':'0','format':'json','formatversion':'2','maxlag':'5'
+              })
+              url='https://www.wikidata.org/w/api.php?'+params
+              status,elapsed,raw,data,attempt=request_json(url)
+              return url,status,elapsed,hashlib.sha256(raw).hexdigest(),data.get('entities',{}),attempt
+
+          def project_entity(qid, entity):
+              labels=entity.get('labels') or {}; aliases=entity.get('aliases') or {}; descriptions=entity.get('descriptions') or {}; claims=entity.get('claims') or {}
+              language_values={}
+              for group,codes in LANGUAGE_GROUPS.items():
+                  vals=[]
+                  for code in codes:
+                      label=(labels.get(code) or {}).get('value') if isinstance(labels.get(code),dict) else None
+                      desc=(descriptions.get(code) or {}).get('value') if isinstance(descriptions.get(code),dict) else None
+                      alias_values=[]
+                      if isinstance(aliases.get(code),list):
+                          alias_values=[a.get('value') for a in aliases[code] if isinstance(a,dict) and isinstance(a.get('value'),str)]
+                      if label or desc or alias_values:
+                          vals.append({'language_code':code,'label':label,'aliases':alias_values,'description':desc})
+                  language_values[group]=vals
+              relation_qids=[]
+              relation_edges=[]
+              for prop in ('P31','P279'):
+                  for claim in (claims.get(prop) or [])[:8]:
+                      dv=(((claim.get('mainsnak') or {}).get('datavalue') or {}).get('value'))
+                      if isinstance(dv,dict):
+                          rid=dv.get('id')
+                          if isinstance(rid,str) and rid.startswith('Q'):
+                              relation_edges.append({'property':prop,'target_qid':rid})
+                              if rid not in relation_qids: relation_qids.append(rid)
+              terms=[]
+              for vals in language_values.values():
+                  for v in vals:
+                      if v.get('label'): terms.append(v['label'])
+                      terms.extend(v.get('aliases') or [])
+              return {
+                  'source_native_id':f"wikidata-item:{qid}:rev:{entity.get('lastrevid')}",
+                  'qid':qid,'revision_id':entity.get('lastrevid'),'labels':sorted(set(terms)),
+                  'language_values':language_values,'relation_edges_p31_p279':relation_edges,
+                  'relation_qids_p31_p279':relation_qids,
+              }
+
+          started_at=utc_now(); t0=time.monotonic(); requests=[]; receipts=[]; searches=[]; ordered_qids=[]
+          for seed in SEEDS:
+              try:
+                  url,status,elapsed,raw_sha,rows,attempt=search(seed)
+                  requests.append({'resource':'wikidata_search','query':seed,'role':'literal-seed','status':'SUCCESS','request_url':url,'http_status':status,'elapsed_seconds':elapsed,'raw_sha256':raw_sha,'result_count':len(rows),'attempt':attempt})
+                  rec={'source_native_id':f"wikidata-search:{hashlib.sha256((seed+raw_sha).encode()).hexdigest()[:24]}",'term':seed,'labels':[r['label'] for r in rows if isinstance(r.get('label'),str)],'candidate_qids':[r['qid'] for r in rows]}
+                  receipts.append({'resource_name':'wikidata_wbsearchentities','lookup_key':seed,'producer_id':'public-actions.japanese-global-stage-r-wikidata','execution_ref':os.getenv('GITHUB_SHA','UNKNOWN'),'version':'live','source_lineage':url,'binding_status':'DIRECT_EXECUTION','execution_status':'EXECUTED','returned_records':[rec],'result_sha256':canon_sha([rec]),'observed_terms':rec['labels']})
+                  searches.append({'seed':seed,'rows':rows})
+                  for row in rows:
+                      if row['qid'] not in ordered_qids: ordered_qids.append(row['qid'])
+              except Exception as exc:
+                  requests.append({'resource':'wikidata_search','query':seed,'role':'literal-seed','status':'FAILED','error_type':type(exc).__name__,'error':str(exc)[:500]})
+
+          entities_projected=[]
+          for i in range(0,len(ordered_qids),20):
+              batch=ordered_qids[i:i+20]
+              if not batch: continue
+              try:
+                  url,status,elapsed,raw_sha,entities,attempt=fetch_entities(batch)
+                  requests.append({'resource':'wikidata_entities','query':'|'.join(batch),'role':'source-native-followup-batch','status':'SUCCESS','request_url':url,'http_status':status,'elapsed_seconds':elapsed,'raw_sha256':raw_sha,'entity_count':len(entities),'attempt':attempt})
+                  for qid in batch:
+                      entity=entities.get(qid)
+                      if not isinstance(entity,dict) or entity.get('missing') is not None: continue
+                      rec=project_entity(qid,entity)
+                      receipts.append({'resource_name':'wikidata_wbgetentities','lookup_key':qid,'producer_id':'public-actions.japanese-global-stage-r-wikidata','execution_ref':os.getenv('GITHUB_SHA','UNKNOWN'),'version':str(rec.get('revision_id')),'source_lineage':url,'binding_status':'DIRECT_EXECUTION','execution_status':'EXECUTED','returned_records':[rec],'result_sha256':canon_sha([rec]),'observed_terms':rec['labels']})
+                      entities_projected.append(rec)
+              except Exception as exc:
+                  requests.append({'resource':'wikidata_entities','query':'|'.join(batch),'role':'source-native-followup-batch','status':'FAILED','error_type':type(exc).__name__,'error':str(exc)[:500]})
+
+          coverage={g:{'observed_terms':[],'status':'UNKNOWN_COVERAGE_GAP'} for g in LANGUAGE_GROUPS}
+          for rec in entities_projected:
+              for group,vals in rec['language_values'].items():
+                  for v in vals:
+                      if v.get('label'): coverage[group]['observed_terms'].append(v['label'])
+                      coverage[group]['observed_terms'].extend(v.get('aliases') or [])
+          for group in coverage:
+              coverage[group]['observed_terms']=sorted(set(coverage[group]['observed_terms']))
+              if coverage[group]['observed_terms']: coverage[group]['status']='SOURCE_NATIVE_TERMS_OBSERVED'
+
+          succeeded=sum(1 for r in requests if r['status']=='SUCCESS'); failed=sum(1 for r in requests if r['status']=='FAILED')
+          groups=sum(1 for v in coverage.values() if v['status']=='SOURCE_NATIVE_TERMS_OBSERVED')
+          terminal='RESOURCE_BINDING_FAIL' if succeeded==0 else ('STAGE_R_CANARY_FROZEN' if groups==len(coverage) else 'PARTIAL_SOURCE_COVERAGE')
+          packet={
+              'schema_version':1,'experiment_id':'japanese-human-presentation-age-coded-001','experiment_role':'mechanically_blind_stage_r_public_wikidata_canary','terminal_state':terminal,
+              'sealed_plan_binding':SEALED_PLAN,
+              'blindness':{'disposition':'MECHANICALLY_RESTRICTED_PUBLIC_ACTIONS','enforceable_for_private_reference_material':True,'reason':'Public worker has contents:read only, no private-repository credentials, and receives only literal neutral-intent seeds plus public Wikidata source observations.'},
+              'worker':{'repository':os.getenv('GITHUB_REPOSITORY'),'sha':os.getenv('GITHUB_SHA'),'run_id':os.getenv('GITHUB_RUN_ID'),'run_attempt':os.getenv('GITHUB_RUN_ATTEMPT'),'event_name':os.getenv('GITHUB_EVENT_NAME')},
+              'timestamps':{'started_at':started_at,'ended_at':utc_now(),'elapsed_seconds':round(time.monotonic()-t0,4)},
+              'literal_seed_provenance':{'seeds':SEEDS,'rule':'Every seed is a literal token in the frozen neutral semantic intent; no reference-arm term is supplied.'},
+              'request_accounting':{'attempted_requests':len(requests),'succeeded_requests':succeeded,'failed_requests':failed,'requests':requests},
+              'search_observations':searches,'entity_observations':entities_projected,'language_coverage':coverage,'resource_receipts':receipts,
+              'stage_p_state':'STAGE_P_NOT_QUALIFIED','claim_ceiling':'Stage-R source observations only. Returned labels, aliases, descriptions, QIDs and P31/P279 relation edges are not validated concepts, synonymy, translations, policy findings, or semantic proposals.'
+          }
+          packet['packet_sha256_without_self']=canon_sha(packet)
+          (OUT/'stage_r_wikidata_packet.json').write_text(json.dumps(packet,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print(json.dumps({'terminal_state':terminal,'attempted':len(requests),'succeeded':succeeded,'failed':failed,'qids':len(ordered_qids),'entities':len(entities_projected),'language_groups_with_terms':groups,'total_language_groups':len(coverage),'packet_sha256':packet['packet_sha256_without_self']},sort_keys=True))
+          PY
+
+      - name: Upload Wikidata Stage-R evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: japanese-global-stage-r-wikidata-${{ github.run_id }}
+          path: /tmp/japanese-global-stage-r-wikidata/stage_r_wikidata_packet.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
