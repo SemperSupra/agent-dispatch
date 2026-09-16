@@ -67,10 +67,9 @@ jobs:
             tests/test_approval_integrity.py
 
   local-model-canary:
-    # Ablation: keep the bounded shell/workcell envelope but move deterministic parsing,
-    # arithmetic, and formatting into the single allowlisted shell actuator. The actor
-    # only copies the actuator's exact stdout into RESULT.txt via the governed file tool.
-    name: projected-shell-deterministic-transform-canary
+    # Same deterministic transform as the shell-literal phase, but exposed as a semantic
+    # zero-argument capability. The model selects the operation rather than authoring shell syntax.
+    name: projected-semantic-transform-canary
     needs: qualify
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -163,12 +162,12 @@ jobs:
           print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
           PY
 
-      - name: Run deterministic-transform shell/workcell canary
+      - name: Run semantic deterministic-transform canary
         shell: bash
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/openworker-venv/bin/activate"
-          python experiments/openworker-qualification/projected_shell_deterministic_transform_canary.py
+          python experiments/openworker-qualification/projected_semantic_transform_canary.py
 
       - name: Show bounded Ollama diagnostics on failure
         if: failure()
