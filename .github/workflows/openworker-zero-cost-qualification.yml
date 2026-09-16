@@ -65,3 +65,100 @@ jobs:
             tests/test_durable_resume.py \
             tests/test_automation.py \
             tests/test_approval_integrity.py
+
+  local-model-canary:
+    name: local-model-canary
+    needs: qualify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENWORKER_UPSTREAM_SHA: 5bc10d928e0b64aae74313349a3b17bd19643ae2
+      OPENWORKER_LOCAL_MODEL: ollama:qwen3:0.6b
+      OLLAMA_VERSION: 0.34.1
+      OLLAMA_MODEL_TAG: qwen3:0.6b
+      OLLAMA_MODEL_DIGEST_PREFIX: 7df6b6e09427
+      OLLAMA_HOST: 127.0.0.1:11434
+      OLLAMA_MODELS: ${{ runner.temp }}/ollama-models
+      OLLAMA_NUM_PARALLEL: '1'
+      OLLAMA_MAX_LOADED_MODELS: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout qualification harness
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Clone immutable OpenWorker source
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$RUNNER_TEMP/openworker"
+          git clone --quiet --no-checkout https://github.com/andrewyng/openworker.git "$upstream"
+          git -C "$upstream" checkout --quiet --detach "$OPENWORKER_UPSTREAM_SHA"
+          test "$(git -C "$upstream" rev-parse HEAD)" = "$OPENWORKER_UPSTREAM_SHA"
+
+      - name: Install OpenWorker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/openworker-venv"
+          source "$RUNNER_TEMP/openworker-venv/bin/activate"
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet -e "$RUNNER_TEMP/openworker"
+
+      - name: Install pinned Ollama
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer="$RUNNER_TEMP/ollama-install.sh"
+          curl --fail --location --silent --show-error --retry 3 \
+            "https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/install.sh" \
+            --output "$installer"
+          echo "25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f  $installer" | sha256sum -c -
+          OLLAMA_VERSION="$OLLAMA_VERSION" sh "$installer"
+          installed="$(ollama --version 2>&1)"
+          echo "$installed"
+          grep -F "$OLLAMA_VERSION" <<<"$installed"
+
+      - name: Start Ollama and hydrate pinned model
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$OLLAMA_MODELS"
+          nohup ollama serve >"$RUNNER_TEMP/ollama.log" 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "http://${OLLAMA_HOST}/api/tags" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent "http://${OLLAMA_HOST}/api/tags" >/dev/null
+          ollama pull "$OLLAMA_MODEL_TAG"
+          python3 - <<'PY'
+          import json, os, urllib.request
+          with urllib.request.urlopen(f"http://{os.environ['OLLAMA_HOST']}/api/tags", timeout=10) as r:
+              data = json.load(r)
+          wanted = os.environ['OLLAMA_MODEL_TAG']
+          row = next((m for m in data.get('models', []) if m.get('name') == wanted), None)
+          if row is None:
+              raise SystemExit(f"pulled model not present in /api/tags: {wanted}")
+          digest = str(row.get('digest') or '').removeprefix('sha256:')
+          expected = os.environ['OLLAMA_MODEL_DIGEST_PREFIX']
+          if not digest.startswith(expected):
+              raise SystemExit(f"model digest drift: expected prefix {expected}, got {digest}")
+          print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
+          PY
+
+      - name: Run real local-model OpenWorker canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/openworker-venv/bin/activate"
+          python experiments/openworker-qualification/local_model_canary.py
+
+      - name: Show bounded Ollama diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          tail -n 200 "$RUNNER_TEMP/ollama.log" || true
