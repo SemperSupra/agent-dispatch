@@ -149,10 +149,17 @@ The experiment now has three distinct controls that must not be conflated:
 
 The public hosted CPU population is heterogeneous enough that (1) cannot substitute for (3). Raising the 180-second deadline would make the current sample pass later but would weaken the intended unattended resource invariant, so the deadline remains unchanged.
 
-## Next ablation: disable Qwen thinking through the actual provider control
+## Provider-controlled no-thinking ablation
 
-The current prompt has always included `/no_think`, but observed long reasoning traces show that prompt text is not a reliable control through the Ollama OpenAI-compatible endpoint. Ollama v0.34.1's own `openai/openai.go` maps `reasoning_effort="none"` to an internal `Think=false` value and places that on the translated chat request.
+The prompt had always included `/no_think`, but observed long reasoning traces showed that prompt text was not a reliable control through the Ollama OpenAI-compatible endpoint. Ollama v0.34.1's own `openai/openai.go` maps `reasoning_effort="none"` to internal `Think=false` and places it on the translated chat request.
 
-The next experiment therefore keeps the model, 2,048-token ceiling, natural sampling, authority projection, sequencing membrane, idempotent-effect membrane, permission gate, exact postcondition, direct bootstrap, and 180-second deadline fixed. It changes only one provider setting: add **`reasoning_effort="none"`**.
+The experiment therefore kept the model, 2,048-token ceiling, natural sampling, authority projection, sequencing membrane, idempotent-effect membrane, permission gate, exact postcondition, direct bootstrap, and 180-second deadline fixed, changing only **`reasoning_effort="none"`**.
 
-Acceptance requires the ordinary strict postcondition plus observable elimination of the runaway reasoning path. If the provider control is ineffective on the pinned model/runtime, the failure is retained rather than compensated for by raising the deadline.
+First two fresh-runner results: **2/2 strict PASS**.
+
+1. **9.617 s** — exact `read_file → write_file → complete`, one approval, exact postcondition, no speculative sibling batch, zero reasoning deltas. Model settings recorded `reasoning_effort="none"`. The live idempotent-effect membrane was not needed.
+2. **16.094 s** — exact `read_file → write_file → complete`, one approval, exact postcondition, no speculative sibling batch, zero reasoning deltas. Model settings again recorded `reasoning_effort="none"`. The live idempotent-effect membrane was not needed.
+
+These reps ran on different fresh hosted runners/regions and eliminated the runaway reasoning stream while preserving tool behavior. The observed turn latency is an order of magnitude below the prior thinking-heavy tail, but two reps are only a qualification signal, not a population estimate.
+
+Continue to four unchanged unseeded reps before retaining the provider control. If that sample remains clean, the next ablation is to remove the 2,048-token ceiling while keeping no-thinking and the other qualified controls fixed. That determines whether `max_tokens=2048` still earns its keep once the actual reasoning-mode cause is controlled.
