@@ -78,6 +78,7 @@ jobs:
       OPENWORKER_UPSTREAM_SHA: 5bc10d928e0b64aae74313349a3b17bd19643ae2
       OPENWORKER_LOCAL_MODEL: ollama:qwen3:1.7b
       OLLAMA_VERSION: 0.34.1
+      OLLAMA_ARCHIVE_SHA256: f361dc3992ec07e4ad429f4bb2d10d4663ba2c295f9a9a688c7d52f4ba650034
       OLLAMA_MODEL_TAG: qwen3:1.7b
       OLLAMA_MODEL_DIGEST_PREFIX: 8f68893c685c
       OLLAMA_HOST: 127.0.0.1:11434
@@ -110,17 +111,21 @@ jobs:
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet -e "$RUNNER_TEMP/openworker"
 
-      - name: Install pinned Ollama
+      - name: Install pinned Ollama ephemerally
         shell: bash
         run: |
           set -euo pipefail
-          installer="$RUNNER_TEMP/ollama-install.sh"
+          archive="$RUNNER_TEMP/ollama-linux-amd64.tar.zst"
+          runtime="$RUNNER_TEMP/ollama-runtime"
           curl --fail --location --silent --show-error --retry 3 \
-            "https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/install.sh" \
-            --output "$installer"
-          echo "25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f  $installer" | sha256sum -c -
-          OLLAMA_VERSION="$OLLAMA_VERSION" sh "$installer"
-          installed="$(ollama --version 2>&1)"
+            "https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst" \
+            --output "$archive"
+          echo "$OLLAMA_ARCHIVE_SHA256  $archive" | sha256sum -c -
+          mkdir -p "$runtime"
+          zstd -d --stdout "$archive" | tar -xf - -C "$runtime"
+          test -x "$runtime/bin/ollama"
+          echo "$runtime/bin" >> "$GITHUB_PATH"
+          installed="$("$runtime/bin/ollama" --version 2>&1)"
           echo "$installed"
           grep -F "$OLLAMA_VERSION" <<<"$installed"
 
@@ -128,7 +133,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo systemctl stop ollama.service || true
           mkdir -p "$OLLAMA_MODELS"
           nohup env \
             OLLAMA_HOST="$OLLAMA_HOST" \
