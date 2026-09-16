@@ -8,14 +8,18 @@ explicitly approved by the harness. Authority and answer correctness are deliber
 the approver constrains WHERE the actor may write; the postcondition validator judges WHAT it wrote.
 
 OpenWorker's own capability table declares Ollama models as parallel_tool_calls=False because many
-local models fake or mishandle parallel calls. TurnEngine only forwards caller model_settings, so
-this qualification explicitly applies that declared contract and records it as an ablation.
+local models fake or mishandle parallel calls. Ollama's Chat Completions compatibility request does
+not implement the parallel_tool_calls parameter, so this rep adds the smallest capability-enforcing
+membrane at OpenWorker's provider boundary: when a model is declared non-parallel, expose only the
+first proposed tool call to the engine, return that observation, and let the next model turn choose
+the next action. Suppressed speculative calls are retained as evidence, never executed.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from dataclasses import replace
 import json
 import os
 import platform
@@ -23,11 +27,13 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any, Optional
 
 import aisuite as ai
 
 from coworker.engine import ApprovalOutcome, PermissionRequest, TurnEngine
 from coworker.permissions import PermissionEngine
+from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient, StreamChunk
 from coworker.providers.router import ProviderRouter
 from coworker.tools import ToolRegistry
 
@@ -42,6 +48,63 @@ PROMPT = (
     "second `nonce=<the nonce from SOURCE.txt>`. Do not add Markdown fences, commentary, or "
     "any other bytes to RESULT.txt. After the file is written, briefly report completion."
 )
+
+
+class CapabilityEnforcingProvider(ProviderClient):
+    """Honor OpenWorker's non-parallel capability even when a compat endpoint cannot."""
+
+    def __init__(self, delegate: ProviderClient) -> None:
+        self.delegate = delegate
+        self.suppressed_batches: list[dict[str, Any]] = []
+
+    def capabilities(self, model: str) -> ModelCapabilities:
+        return self.delegate.capabilities(model)
+
+    def _enforce(self, model: str, turn: AssistantTurn) -> AssistantTurn:
+        calls = list(turn.tool_calls or [])
+        if self.capabilities(model).parallel_tool_calls or len(calls) <= 1:
+            return turn
+        kept = calls[0]
+        suppressed = calls[1:]
+        self.suppressed_batches.append(
+            {
+                "kept": {"name": kept.name, "arguments": kept.arguments},
+                "suppressed": [
+                    {"name": call.name, "arguments": call.arguments}
+                    for call in suppressed
+                ],
+            }
+        )
+        return replace(turn, tool_calls=[kept])
+
+    def complete(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: Optional[list[dict[str, Any]]] = None,
+        **settings: Any,
+    ) -> AssistantTurn:
+        turn = self.delegate.complete(
+            model=model, messages=messages, tools=tools, **settings
+        )
+        return self._enforce(model, turn)
+
+    def stream(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: Optional[list[dict[str, Any]]] = None,
+        **settings: Any,
+    ):
+        for chunk in self.delegate.stream(
+            model=model, messages=messages, tools=tools, **settings
+        ):
+            if chunk.turn is None:
+                yield chunk
+            else:
+                yield replace(chunk, turn=self._enforce(model, chunk.turn))
 
 
 def tool_names_from_messages(messages: list[dict]) -> list[str]:
@@ -95,7 +158,14 @@ async def run_canary(root: Path) -> dict:
 
     registry = projected_file_registry(workspace)
     permissions = PermissionEngine(workspace_root=workspace)
-    provider = ProviderRouter(secrets=None, default_provider="openai")
+    provider = CapabilityEnforcingProvider(
+        ProviderRouter(secrets=None, default_provider="openai")
+    )
+
+    if provider.capabilities(MODEL).parallel_tool_calls:
+        raise AssertionError(
+            f"qualification expects OpenWorker to declare {MODEL} non-parallel"
+        )
 
     approval_requests: list[dict] = []
 
@@ -161,6 +231,8 @@ async def run_canary(root: Path) -> dict:
     names = tool_names_from_messages(engine.messages)
     trace = {
         "model_settings": MODEL_SETTINGS,
+        "declared_parallel_tool_calls": provider.capabilities(MODEL).parallel_tool_calls,
+        "suppressed_speculative_batches": provider.suppressed_batches,
         "tool_calls": names,
         "approvals": approval_requests,
         "assistant_text_tail": bounded_assistant_text(engine.messages),
@@ -199,6 +271,8 @@ async def run_canary(root: Path) -> dict:
     return {
         "model": MODEL,
         "model_settings": MODEL_SETTINGS,
+        "declared_parallel_tool_calls": provider.capabilities(MODEL).parallel_tool_calls,
+        "suppressed_batch_count": len(provider.suppressed_batches),
         "projection": registry.names(),
         "tool_schema_count": len(registry.schemas()),
         "tool_schema_chars": len(json.dumps(registry.schemas(), sort_keys=True)),
@@ -220,6 +294,8 @@ def append_summary(evidence: dict) -> None:
         fh.write(f"- model: `{evidence.get('model')}`\n")
         fh.write(f"- result: **{evidence.get('result')}**\n")
         fh.write(f"- model settings: `{evidence.get('model_settings')}`\n")
+        fh.write(f"- declared parallel tool calls: `{evidence.get('declared_parallel_tool_calls')}`\n")
+        fh.write(f"- suppressed speculative batches: `{evidence.get('suppressed_batch_count')}`\n")
         fh.write(f"- actor capabilities: `{evidence.get('projection', [])}`\n")
         fh.write(f"- tool schema chars: `{evidence.get('tool_schema_chars')}`\n")
         fh.write(f"- observed tool calls: `{evidence.get('tool_calls', [])}`\n")
