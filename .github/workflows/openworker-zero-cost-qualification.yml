@@ -67,9 +67,9 @@ jobs:
             tests/test_approval_integrity.py
 
   local-model-canary:
-    # Same deterministic transform as the shell-literal phase, but exposed as a semantic
-    # zero-argument capability. The model selects the operation rather than authoring shell syntax.
-    name: projected-semantic-transform-canary
+    # Same qualified semantic capability, but SOURCE values/nonce vary reproducibly by
+    # GitHub run attempt. This tests interface generalization rather than memorizing one payload.
+    name: projected-semantic-generalization-canary
     needs: qualify
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -162,12 +162,12 @@ jobs:
           print(json.dumps({'model': wanted, 'digest': row.get('digest'), 'size': row.get('size')}, sort_keys=True))
           PY
 
-      - name: Run semantic deterministic-transform canary
+      - name: Run semantic input-generalization canary
         shell: bash
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/openworker-venv/bin/activate"
-          python experiments/openworker-qualification/projected_semantic_transform_canary.py
+          python experiments/openworker-qualification/projected_semantic_generalization_canary.py
 
       - name: Show bounded Ollama diagnostics on failure
         if: failure()
