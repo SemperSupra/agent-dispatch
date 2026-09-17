@@ -1,0 +1,404 @@
+name: EXP Reasoning crystallization Stage-R 001
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-reasoning-crystallization-stage-r-001.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-r-treatment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Execute bounded blind multilingual prior-art harvest
+        shell: bash
+        env:
+          OUT_DIR: /tmp/reasoning-crystallization-stage-r-001
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          OUT = Path(os.environ['OUT_DIR'])
+
+          # All English seeds below are copied from the public-safe semantic neighborhoods
+          # already stated in treatment issue #142. No reference-arm findings are supplied.
+          SEEDS = [
+              'knowledge compilation',
+              'incremental view maintenance',
+              'truth maintenance system',
+              'ontology evolution',
+              'knowledge graph completion',
+              'knowledge distillation',
+              'retrieval augmented generation',
+              'provenance',
+          ]
+          LANGS = ['en', 'ja', 'zh', 'ko', 'de', 'fr', 'es', 'th']
+          NEGATIVE_SEEDS = [
+              'knowledge compilation limitations',
+              'incremental view maintenance limitations',
+              'knowledge graph completion failure',
+              'retrieval augmented generation limitations',
+          ]
+          WHITE_SPACE_PAIRS = [
+              ('knowledge compilation', 'ontology evolution'),
+              ('incremental view maintenance', 'knowledge graph'),
+              ('knowledge distillation', 'provenance'),
+              ('retrieval augmented generation', 'truth maintenance'),
+          ]
+          QUESTION = (
+              'Can reasoning agents maintain and evolve durable, reusable knowledge representations '
+              'by using expensive stochastic search/reasoning at the frontier, then compiling or '
+              'crystallizing stable findings into cheaper deterministic or low-variance artifacts '
+              'for repeated querying, with provenance, drift detection, selective re-harvest, and '
+              'fallback to fresh retrieval/reasoning when needed?'
+          )
+          SPEC = {
+              'spec_id': 'reasoning-crystallization-001-treatment',
+              'research_question': QUESTION,
+              'planned_method': 'public_stage_r_wikidata_openalex',
+              'exploration_intent': ['POSITIVE', 'NEGATIVE', 'LATENT_WHITE_SPACE', 'PRIOR_ART'],
+              'paired_experiment_id': 'reasoning-crystallization-001',
+              'arm': 'TREATMENT',
+              'blindness_status': 'BLIND_PRE_FREEZE',
+              'coverage_obligations': {
+                  'language_lanes': LANGS,
+                  'source_lanes': ['Wikidata', 'OpenAlex'],
+                  'preserve_failures_and_no_results': True,
+                  'no_manufactured_equivalents': True,
+              },
+              'locale_lanes': LANGS,
+              'source_lanes': ['wikidata', 'openalex'],
+              'authority_status': 'PROPOSAL_ONLY',
+          }
+
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+
+          def digest(value):
+              return 'sha256:' + hashlib.sha256(canonical(value).encode('utf-8')).hexdigest()
+
+          def stable_slug(text):
+              return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')[:64] or 'term'
+
+          requests = []
+          records = []
+          planned_requests = 0
+          attempted_requests = 0
+          successful_requests = 0
+
+          def request_json(url, role, query, timeout=20):
+              global attempted_requests, successful_requests
+              attempted_requests += 1
+              started = time.monotonic()
+              req = urllib.request.Request(
+                  url,
+                  headers={'User-Agent': 'SemperSupra-AgentDispatch-Scout/0.1 (bounded public research experiment)'},
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as resp:
+                      raw = resp.read()
+                      status = int(resp.status)
+                  elapsed = round(time.monotonic() - started, 4)
+                  data = json.loads(raw.decode('utf-8'))
+                  successful_requests += 1
+                  receipt = {
+                      'role': role,
+                      'query': query,
+                      'url': url,
+                      'http_status': status,
+                      'elapsed_seconds': elapsed,
+                      'response_sha256': hashlib.sha256(raw).hexdigest(),
+                      'response_bytes': len(raw),
+                      'status': 'SUCCESS',
+                  }
+                  requests.append(receipt)
+                  return data, receipt
+              except Exception as exc:
+                  elapsed = round(time.monotonic() - started, 4)
+                  receipt = {
+                      'role': role,
+                      'query': query,
+                      'url': url,
+                      'elapsed_seconds': elapsed,
+                      'status': 'FAILURE',
+                      'error_type': type(exc).__name__,
+                      'error': str(exc)[:400],
+                  }
+                  requests.append(receipt)
+                  records.append({
+                      'record_id': f"failure:{role}:{stable_slug(query)}:{attempted_requests}",
+                      'kind': 'FAILURE',
+                      'authority_status': 'RESEARCH_EVIDENCE',
+                      'source': role.split(':', 1)[0],
+                      'query': query,
+                      'receipt': receipt,
+                  })
+                  return None, receipt
+
+          def wikidata_search(seed):
+              nonlocal_marker = None
+              params = urllib.parse.urlencode({
+                  'action': 'wbsearchentities',
+                  'search': seed,
+                  'language': 'en',
+                  'uselang': 'en',
+                  'type': 'item',
+                  'limit': '1',
+                  'format': 'json',
+              })
+              url = 'https://www.wikidata.org/w/api.php?' + params
+              data, receipt = request_json(url, 'wikidata:search', seed)
+              if not data:
+                  return None
+              hits = data.get('search') or []
+              if not hits:
+                  records.append({
+                      'record_id': f"no-result:wikidata:{stable_slug(seed)}",
+                      'kind': 'NO_RESULT',
+                      'authority_status': 'RESEARCH_EVIDENCE',
+                      'source': 'Wikidata',
+                      'query': seed,
+                      'scout_intent': 'PRIOR_ART',
+                  })
+                  return None
+              qid = hits[0].get('id')
+              if not isinstance(qid, str) or not qid.startswith('Q'):
+                  return None
+              return qid
+
+          def wikidata_entity(seed, qid):
+              url = f'https://www.wikidata.org/wiki/Special:EntityData/{urllib.parse.quote(qid)}.json'
+              data, receipt = request_json(url, 'wikidata:entity', qid)
+              if not data:
+                  return {}
+              entity = (data.get('entities') or {}).get(qid) or {}
+              labels = entity.get('labels') or {}
+              descriptions = entity.get('descriptions') or {}
+              claims = entity.get('claims') or {}
+              admitted = {'en': seed}
+              source_labels = {}
+              for lang in LANGS:
+                  label = labels.get(lang, {}).get('value') if isinstance(labels.get(lang), dict) else None
+                  desc = descriptions.get(lang, {}).get('value') if isinstance(descriptions.get(lang), dict) else None
+                  source_labels[lang] = {'label': label, 'description': desc}
+                  if lang != 'en' and isinstance(label, str) and label.strip():
+                      admitted[lang] = label.strip()
+                  elif lang != 'en':
+                      records.append({
+                          'record_id': f"no-equivalent:wikidata:{stable_slug(seed)}:{lang}",
+                          'kind': 'NO_EQUIVALENT',
+                          'authority_status': 'RESEARCH_EVIDENCE',
+                          'source': 'Wikidata',
+                          'query': seed,
+                          'language': lang,
+                          'reason': 'No source-native label observed on the selected Wikidata entity; not treated as semantic absence.',
+                      })
+              relations = []
+              for prop in ('P31', 'P279'):
+                  for claim in (claims.get(prop) or [])[:6]:
+                      value = (((claim.get('mainsnak') or {}).get('datavalue') or {}).get('value'))
+                      if isinstance(value, dict) and isinstance(value.get('id'), str):
+                          relations.append({'predicate': prop, 'object_qid': value['id']})
+              records.append({
+                  'record_id': f'wikidata:{qid}',
+                  'kind': 'OBSERVATION',
+                  'authority_status': 'RESEARCH_EVIDENCE',
+                  'scout_intent': 'PRIOR_ART',
+                  'source': 'Wikidata',
+                  'seed': seed,
+                  'qid': qid,
+                  'revision_id': entity.get('lastrevid'),
+                  'labels_and_descriptions': source_labels,
+                  'source_relations': relations,
+                  'claim_ceiling': 'Source labels/descriptions/relations are retrieval evidence, not accepted semantic equivalence or authority.',
+              })
+              return admitted
+
+          def openalex_search(query, lang, scout_intent, provenance):
+              params = urllib.parse.urlencode({'search': query, 'per-page': '3'})
+              url = 'https://api.openalex.org/works?' + params
+              data, receipt = request_json(url, 'openalex:works', query)
+              time.sleep(0.25)
+              if not data:
+                  return
+              results = data.get('results') or []
+              if not results:
+                  records.append({
+                      'record_id': f"no-result:openalex:{scout_intent.lower()}:{lang}:{stable_slug(query)}",
+                      'kind': 'NO_RESULT',
+                      'authority_status': 'RESEARCH_EVIDENCE',
+                      'source': 'OpenAlex',
+                      'query': query,
+                      'language_lane': lang,
+                      'scout_intent': scout_intent,
+                      'query_provenance': provenance,
+                  })
+                  return
+              for work in results[:3]:
+                  wid = str(work.get('id') or '')
+                  rid = wid.rsplit('/', 1)[-1] or digest(work).split(':', 1)[1][:16]
+                  topics = []
+                  for topic in (work.get('topics') or [])[:5]:
+                      if isinstance(topic, dict):
+                          topics.append({
+                              'id': topic.get('id'),
+                              'display_name': topic.get('display_name'),
+                              'score': topic.get('score'),
+                          })
+                  primary = work.get('primary_location') or {}
+                  source = primary.get('source') or {} if isinstance(primary, dict) else {}
+                  records.append({
+                      'record_id': f'openalex:{rid}:{lang}:{scout_intent.lower()}',
+                      'kind': 'OBSERVATION',
+                      'authority_status': 'RESEARCH_EVIDENCE',
+                      'scout_intent': scout_intent,
+                      'source': 'OpenAlex',
+                      'query': query,
+                      'query_provenance': provenance,
+                      'language_lane': lang,
+                      'work_id': wid,
+                      'doi': work.get('doi'),
+                      'title': work.get('display_name') or work.get('title'),
+                      'publication_year': work.get('publication_year'),
+                      'cited_by_count': work.get('cited_by_count'),
+                      'work_language': work.get('language'),
+                      'work_type': work.get('type'),
+                      'source_name': source.get('display_name') if isinstance(source, dict) else None,
+                      'topics': topics,
+                      'claim_ceiling': 'Search-index metadata is candidate prior-art evidence, not a validated conceptual claim.',
+                  })
+
+          # Planned count is bounded and known from the fixed plan: per seed 2 Wikidata requests,
+          # plus at most one OpenAlex request per admitted language label, plus negative and white-space lanes.
+          admitted_by_seed = {}
+          for seed in SEEDS:
+              planned_requests += 2
+              qid = wikidata_search(seed)
+              if not qid:
+                  continue
+              admitted = wikidata_entity(seed, qid)
+              admitted_by_seed[seed] = admitted
+              for lang, term in sorted(admitted.items()):
+                  planned_requests += 1
+                  openalex_search(
+                      term,
+                      lang,
+                      'PRIOR_ART',
+                      {'type': 'ISSUE_SEED' if lang == 'en' else 'WIKIDATA_SOURCE_ADMITTED_LABEL', 'seed': seed, 'qid': qid},
+                  )
+
+          for query in NEGATIVE_SEEDS:
+              planned_requests += 1
+              openalex_search(query, 'en', 'NEGATIVE', {'type': 'ISSUE_SEED_COMPOSITION', 'components': query.split()})
+
+          for left, right in WHITE_SPACE_PAIRS:
+              query = f'{left} {right}'
+              planned_requests += 1
+              openalex_search(query, 'en', 'LATENT_WHITE_SPACE', {'type': 'ISSUE_SEED_PAIR', 'components': [left, right]})
+
+          records = sorted(records, key=lambda r: (str(r.get('record_id', '')), canonical(r)))
+          spec_digest = digest(SPEC)
+          input_digest = digest(records)
+          execution_metadata = {
+              'adapter_family': 'public-stage-r:wikidata+openalex',
+              'worker_revision': os.environ.get('GITHUB_SHA'),
+              'planned_requests': planned_requests,
+              'attempted_requests': attempted_requests,
+              'successful_requests': successful_requests,
+              'failed_requests': attempted_requests - successful_requests,
+              'request_receipts': requests,
+              'provider_concurrency': 1,
+              'batch_policy': 'sequential bounded source requests; no retries beyond one attempt per planned request',
+          }
+          scout_context = {
+              'exploration_intent': SPEC['exploration_intent'],
+              'paired_experiment_id': SPEC['paired_experiment_id'],
+              'arm': SPEC['arm'],
+              'blindness_status': SPEC['blindness_status'],
+              'coverage_obligations': SPEC['coverage_obligations'],
+          }
+          run_core = {
+              'schema_version': 'harvest-run-v0',
+              'spec_id': SPEC['spec_id'],
+              'spec_digest': spec_digest,
+              'runtime_identity': 'agent-dispatch:public-stage-r-reasoning-crystallization:v1',
+              'input_digest': input_digest,
+              'planned_method': SPEC['planned_method'],
+              'executed_method': 'live_scout_public_stage_r',
+              'locale_lanes': sorted(SPEC['locale_lanes']),
+              'source_lanes': sorted(SPEC['source_lanes']),
+              'scout_context': scout_context,
+              'execution_metadata': execution_metadata,
+              'authority_status': 'RESEARCH_EVIDENCE',
+              'records': records,
+          }
+          run_id = 'harvest-run:' + digest(run_core).split(':', 1)[1]
+          harvest_run = {'run_id': run_id, **run_core}
+          run_digest = digest(harvest_run)
+          terminal = {'FAILURE', 'NO_RESULT', 'NO_EQUIVALENT'}
+          packet_core = {
+              'schema_version': 'evidence-packet-v0',
+              'packet_id': f"evidence:{run_id.split(':', 1)[1]}",
+              'harvest_run_id': run_id,
+              'harvest_run_digest': run_digest,
+              'spec_id': SPEC['spec_id'],
+              'spec_digest': spec_digest,
+              'runtime_identity': run_core['runtime_identity'],
+              'executed_method': run_core['executed_method'],
+              'scout_context': scout_context,
+              'execution_metadata': execution_metadata,
+              'authority_status': 'RESEARCH_EVIDENCE',
+              'observations': [r for r in records if r.get('kind') not in terminal],
+              'failures': [r for r in records if r.get('kind') == 'FAILURE'],
+              'no_results': [r for r in records if r.get('kind') == 'NO_RESULT'],
+              'no_equivalent': [r for r in records if r.get('kind') == 'NO_EQUIVALENT'],
+              'record_digests': {str(r['record_id']): digest(r) for r in records},
+          }
+          packet = {**packet_core, 'packet_digest': digest(packet_core)}
+          output = {
+              'status': 'TREATMENT_FROZEN_STAGE_R_RESEARCH_EVIDENCE',
+              'problem_statement': QUESTION,
+              'harvest_spec': SPEC,
+              'harvest_run': harvest_run,
+              'evidence_packet': packet,
+              'claim_ceiling': 'Stage-R retrieval/source evidence only; no comparison to reference arm and no Concept Authority promotion.',
+          }
+          (OUT / 'treatment-evidence.json').write_text(json.dumps(output, ensure_ascii=False, sort_keys=True, indent=2), encoding='utf-8')
+          summary = {
+              'packet_digest': packet['packet_digest'],
+              'run_id': run_id,
+              'records': len(records),
+              'observations': len(packet['observations']),
+              'failures': len(packet['failures']),
+              'no_results': len(packet['no_results']),
+              'no_equivalent': len(packet['no_equivalent']),
+              'attempted_requests': attempted_requests,
+              'successful_requests': successful_requests,
+          }
+          (OUT / 'summary.json').write_text(json.dumps(summary, sort_keys=True, indent=2), encoding='utf-8')
+          print(json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Upload bounded treatment packet
+        uses: actions/upload-artifact@v4
+        with:
+          name: reasoning-crystallization-stage-r-001
+          path: |
+            /tmp/reasoning-crystallization-stage-r-001/treatment-evidence.json
+            /tmp/reasoning-crystallization-stage-r-001/summary.json
+          if-no-files-found: error
+          retention-days: 7
