@@ -27,8 +27,20 @@ def case_for_attempt(attempt: int) -> tuple[int, int, str]:
 def main() -> int:
     attempt = int(os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
     left, right, nonce = case_for_attempt(attempt)
+    expected = f"sum={left + right}\nnonce={nonce}\n"
+
     qualified.SOURCE_CONTENT = f"left={left}\nright={right}\nnonce={nonce}\n"
-    qualified.EXPECTED = f"sum={left + right}\nnonce={nonce}\n"
+    qualified.EXPECTED = expected
+
+    # The completion-gate experiment intentionally reads the lower-layer base.EXPECTED
+    # rather than this semantic adapter's module alias. Keep the desired-state witness
+    # dynamically bound to the same independently calculated postcondition so a correct
+    # generalized result is not falsely reconciled against the historical sum=42 case.
+    qualified.base.EXPECTED = expected
+    qualified.completion_gate.base.EXPECTED = expected
+    if qualified.EXPECTED != qualified.completion_gate.base.EXPECTED:
+        raise RuntimeError("generalization expected-state binding drift")
+
     print(
         "GENERALIZATION_CASE="
         + json.dumps(
