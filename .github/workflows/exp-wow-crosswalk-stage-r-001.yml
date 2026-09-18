@@ -1,0 +1,164 @@
+name: EXP Way-of-Working blind Stage-R 001
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-wow-crosswalk-stage-r-001.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-r-treatment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Execute bounded definition-first Scout treatment
+        shell: bash
+        env:
+          OUT_DIR: /tmp/wow-crosswalk-stage-r-001
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os, re, time, urllib.parse, urllib.request
+          from collections import defaultdict
+          from pathlib import Path
+
+          OUT = Path(os.environ["OUT_DIR"])
+          INTENTS = [["W1","A superior specifies purpose, responsibility or end state, constraints and reserved decisions; a subordinate chooses tactics and may adapt to changed circumstances inside the same bounded authority."],["W2","Responsibility may be delegated with enough tactical freedom to act, but downstream authority is equal or narrower; authentication, reachability or capability never silently grant mutation, publication, disclosure, spending or acceptance authority."],["W3","Separate what an actor is permitted to do, can do, can do now or with endurance, and what evidence is required before the outcome becomes accepted."],["W4","Canonical work state remains project-native; queues, dashboards, sessions, prompts, batons, portfolio views and provider objects are replaceable projections rather than competing truth systems."],["W5","Material state and handoff are durable and discoverable so a human does not manually relay prompts, hidden context or long status between capable actors."],["W6","A safe inability to complete is valuable when it returns evidence, blocker class, safe partial state and bounded next options without widening authority or fabricating success."],["W7","Hard problems can be rerouted to more capable actors automatically inside unchanged authority; genuine decision, priority, disclosure or acceptance boundaries rise to the proper authority."],["W8","The producer of a candidate is not sufficient evidence of correctness; consequential claims cross an independent verification or acceptance boundary."],["W9","Repeated expensive reasoning should, when economics and validity justify it, become a cheaper durable primitive such as a deterministic rule, test, validator, script, constraint, mapping, specialized solver or model; general reasoning remains fallback for novelty or drift."],["W10","Repair or govern the smallest mechanism or boundary that prevents or detects the demonstrated failure; do not solve local failures with global frameworks by default."],["W11","Before bespoke machinery, search native, standard, maintained open-source or already-local capabilities; prefer adoption, composition or thin adapters when they preserve required authority, evidence and lifecycle boundaries."],["W12","Working system then observed failure or cost then smallest reusable control; abstractions are earned by repeated materially different cases and decision value, not architecture completeness."],["W13","When an assumption required for normal continuation becomes false or undecidable, temporarily raise a narrower child question, gather evidence, reconcile into the parent, then resume, stop or escalate; the interrupt is not a second workflow authority."],["W14","Reproducible, repeatable, reversible where economical, and idempotent or convergent behavior scale with consequence rather than becoming paperwork for all work."],["W15","Retain decision-changing evidence, variance, failures, provenance and acceptance receipts; avoid duplicate clerical records for routine success when resulting authoritative state already establishes the fact."],["W16","A fresh qualified participant can cheaply recover intended outcome, authority, accepted versus candidate state, material evidence and unknowns, current responsibility, next bounded action, verification condition and reserved authority without transcript archaeology."],["W17","Adapt tactics, actor body, cognitive organ, actor topology, workset or organization at the smallest level that resolves the mismatch; preserve rollback when the specialization no longer holds."],["W18","Project-local authorities or subgraphs own local sequencing; higher coordination exposes only interface, dependency or release edges and should not flatten all work into a central scheduler."],["W19","Give an actor broad tactical freedom inside an isolated, owned, reversible candidate surface; consequential promotion out of that surface remains separately controlled."],["W20","Work identity, authority, evidence and continuation survive replacement of chat, session, provider or executor; actor or session identity is provenance and capability evidence, not work authority."]]
+          NATIVE_SAMPLE = {"W1":"de","W3":"fr","W6":"es","W9":"ja","W12":"ko","W15":"zh","W18":"th","W20":"pt"}
+          STOP = set("""a an and are as at be been but by can do does for from had has have if in into is it its may more not of on or our should so such than that the their them then there these they this to under was we were what when where which while who will with without work actor state system outcome authority evidence local current same become becomes becoming remains remain enough inside outside before after between through rather rather than""".split())
+          MAX_REQUESTS = 64
+          requests, records = [], []
+          attempted = successful = 0
+
+          def canonical(v):
+              return json.dumps(v, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+          def digest(v):
+              return "sha256:" + hashlib.sha256(canonical(v).encode()).hexdigest()
+          def slug(s):
+              return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:72] or "term"
+          def toks(s):
+              return [w for w in re.findall(r"[a-z0-9]+", s.lower()) if len(w)>2 and w not in STOP]
+          def query_from_definition(s):
+              seen=[]
+              for w in toks(s):
+                  if w not in seen: seen.append(w)
+              return " ".join(seen[:12])
+          def request_json(url, role, query, timeout=20):
+              global attempted, successful
+              if attempted >= MAX_REQUESTS:
+                  records.append({"record_id":f"ceiling:{attempted}","kind":"RESOURCE_CEILING","authority_status":"RESEARCH_EVIDENCE","source":role.split(":",1)[0],"query":query})
+                  return None, None
+              attempted += 1
+              start=time.monotonic()
+              req=urllib.request.Request(url,headers={"User-Agent":"SemperSupra-AgentDispatch-Scout/0.2 (bounded public research experiment)"})
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as resp:
+                      raw=resp.read(); status=int(resp.status)
+                  receipt={"role":role,"query":query,"url":url,"http_status":status,"elapsed_seconds":round(time.monotonic()-start,4),"response_sha256":hashlib.sha256(raw).hexdigest(),"response_bytes":len(raw),"status":"SUCCESS"}
+                  requests.append(receipt); successful += 1
+                  return json.loads(raw.decode("utf-8")), receipt
+              except Exception as exc:
+                  receipt={"role":role,"query":query,"url":url,"elapsed_seconds":round(time.monotonic()-start,4),"status":"FAILURE","error_type":type(exc).__name__,"error":str(exc)[:300]}
+                  requests.append(receipt)
+                  records.append({"record_id":f"failure:{role}:{slug(query)}:{attempted}","kind":"FAILURE","authority_status":"RESEARCH_EVIDENCE","source":role.split(":",1)[0],"query":query,"receipt":receipt})
+                  return None, receipt
+
+          def fit(definition, title, topics):
+              q=set(toks(definition)); d=set(toks((title or "")+" "+" ".join(topics)))
+              if not q: return 0.0
+              return round(len(q & d)/len(q),4)
+
+          def openalex(wid, definition, query, scout_intent, provenance, lang="en"):
+              params=urllib.parse.urlencode({"search":query,"per-page":"3"})
+              data,_=request_json("https://api.openalex.org/works?"+params,"openalex:works",query)
+              time.sleep(0.25)
+              if not data: return []
+              results=data.get("results") or []
+              if not results:
+                  records.append({"record_id":f"no-result:openalex:{wid}:{scout_intent}:{lang}","kind":"NO_RESULT","authority_status":"RESEARCH_EVIDENCE","source":"OpenAlex","intent_id":wid,"query":query,"language_lane":lang,"scout_intent":scout_intent,"query_provenance":provenance})
+                  return []
+              obs=[]
+              for work in results[:3]:
+                  topics=[t.get("display_name") for t in (work.get("topics") or [])[:5] if isinstance(t,dict) and t.get("display_name")]
+                  title=work.get("display_name") or work.get("title")
+                  score=fit(definition,title,topics)
+                  rec={"record_id":f"openalex:{wid}:{scout_intent}:{lang}:{str(work.get('id') or digest(work)).rsplit('/',1)[-1]}","kind":"OBSERVATION","authority_status":"RESEARCH_EVIDENCE","source":"OpenAlex","intent_id":wid,"scout_intent":scout_intent,"query":query,"query_provenance":provenance,"language_lane":lang,"work_id":work.get("id"),"doi":work.get("doi"),"title":title,"publication_year":work.get("publication_year"),"cited_by_count":work.get("cited_by_count"),"work_language":work.get("language"),"topics":topics,"query_fit_ratio":score,"query_fit_class":"LOW" if score < 0.10 else "NONTRIVIAL","claim_ceiling":"Search metadata is candidate evidence only; query fit is a noise diagnostic, not semantic validation."}
+                  records.append(rec); obs.append(rec)
+              return obs
+
+          def top_source_topics(obs):
+              agg=defaultdict(float)
+              for r in obs:
+                  for i,t in enumerate(r.get("topics") or []):
+                      agg[t]+=1.0/(i+1)
+              return [k for k,_ in sorted(agg.items(),key=lambda kv:(-kv[1],kv[0]))[:2]]
+
+          def wikidata_term(topic, lang, wid):
+              p=urllib.parse.urlencode({"action":"wbsearchentities","search":topic,"language":"en","uselang":"en","type":"item","limit":"1","format":"json"})
+              data,_=request_json("https://www.wikidata.org/w/api.php?"+p,"wikidata:search",topic)
+              if not data or not (data.get("search") or []): return None,None,None
+              qid=data["search"][0].get("id")
+              if not isinstance(qid,str) or not qid.startswith("Q"): return None,None,None
+              ent,_=request_json(f"https://www.wikidata.org/wiki/Special:EntityData/{urllib.parse.quote(qid)}.json","wikidata:entity",qid)
+              if not ent: return None,qid,None
+              e=(ent.get("entities") or {}).get(qid) or {}
+              label=((e.get("labels") or {}).get(lang) or {}).get("value")
+              origin="WIKIDATA_LABEL"
+              if not label:
+                  title=((e.get("sitelinks") or {}).get(lang+"wiki") or {}).get("title")
+                  if title: label=title; origin="WIKIPEDIA_SITELINK_TITLE"
+              if not label:
+                  records.append({"record_id":f"no-equivalent:{wid}:{lang}:{qid}","kind":"NO_EQUIVALENT","authority_status":"RESEARCH_EVIDENCE","source":"Wikidata/Wikipedia","intent_id":wid,"language":lang,"qid":qid,"reason":"No source-admitted native label or native Wikipedia sitelink title for the selected source-derived topic; not semantic absence."})
+                  return None,qid,None
+              records.append({"record_id":f"native-term:{wid}:{lang}:{qid}","kind":"OBSERVATION","authority_status":"RESEARCH_EVIDENCE","source":"Wikidata/Wikipedia","intent_id":wid,"scout_intent":"NATIVE_TERM_ADMISSION","language_lane":lang,"qid":qid,"source_topic":topic,"native_term":label,"term_origin":origin,"claim_ceiling":"Source-admitted search vocabulary only; not accepted translation/equivalence."})
+              return label,qid,origin
+
+          per_intent={}
+          for wid,definition in INTENTS:
+              q=query_from_definition(definition)
+              primary=openalex(wid,definition,q,"PRIOR_ART",{"type":"SEALED_DEFINITION_QUERY","intent_id":wid})
+              topics=top_source_topics(primary)
+              comp=[]
+              if len(topics)>=2:
+                  cq=" ".join(topics[:2])
+                  comp=openalex(wid,definition,cq,"LATENT_COMPOSITION",{"type":"SOURCE_DERIVED_TOPIC_PAIR","intent_id":wid,"components":topics[:2]})
+              else:
+                  records.append({"record_id":f"no-composition:{wid}","kind":"NO_RESULT","authority_status":"RESEARCH_EVIDENCE","source":"local-treatment","intent_id":wid,"scout_intent":"LATENT_COMPOSITION","reason":"Fewer than two source-returned topics were available; no composition query manufactured."})
+              native_count=0
+              if wid in NATIVE_SAMPLE and topics:
+                  lang=NATIVE_SAMPLE[wid]
+                  term,qid,origin=wikidata_term(topics[0],lang,wid)
+                  if term:
+                      native=openalex(wid,definition,term,"NATIVE_PRIOR_ART",{"type":"SOURCE_ADMITTED_NATIVE_TERM","intent_id":wid,"source_topic":topics[0],"qid":qid,"origin":origin},lang)
+                      native_count=len(native)
+              per_intent[wid]={"definition_query":q,"primary_observations":len(primary),"source_topics":topics,"composition_observations":len(comp),"native_observations":native_count}
+
+          records=sorted(records,key=lambda r:(str(r.get("record_id","")),canonical(r)))
+          SPEC={"schema_version":"wow-crosswalk-treatment-v0","paired_experiment_id":"wow-crosswalk-001","arm":"TREATMENT","blindness_status":"BLIND_TO_REFERENCE_FINDINGS","sealed_problem_commit":"a690eaf78672b4bc3f1205a744bf1a178fe8a3c3","method_deltas":["SOURCE_DERIVED_COMPOSITION","QUERY_FIT_TAGGING","SOURCE_ADMITTED_NATIVE_FANOUT"],"resource_ceiling":{"max_requests":MAX_REQUESTS,"provider_concurrency":1,"retries":0},"authority_status":"PROPOSAL_ONLY"}
+          execution={"worker_revision":os.environ.get("GITHUB_SHA"),"planned_max_requests":MAX_REQUESTS,"attempted_requests":attempted,"successful_requests":successful,"failed_requests":attempted-successful,"provider_concurrency":1,"retries":0,"request_receipts":requests,"per_intent":per_intent}
+          run_core={"schema_version":"harvest-run-v0","spec_digest":digest(SPEC),"runtime_identity":"agent-dispatch:public-stage-r-wow-crosswalk:v1","planned_method":"definition-first + source-derived composition + query-fit + native source admission","executed_method":"live_scout_public_stage_r","scout_context":SPEC,"execution_metadata":execution,"authority_status":"RESEARCH_EVIDENCE","records":records}
+          run_id="harvest-run:"+digest(run_core).split(":",1)[1]
+          run={"run_id":run_id,**run_core}; run_digest=digest(run)
+          terminal={"FAILURE","NO_RESULT","NO_EQUIVALENT","RESOURCE_CEILING"}
+          packet_core={"schema_version":"evidence-packet-v0","packet_id":"evidence:"+run_id.split(":",1)[1],"harvest_run_id":run_id,"harvest_run_digest":run_digest,"runtime_identity":run_core["runtime_identity"],"scout_context":SPEC,"execution_metadata":execution,"authority_status":"RESEARCH_EVIDENCE","observations":[r for r in records if r.get("kind") not in terminal],"failures":[r for r in records if r.get("kind")=="FAILURE"],"no_results":[r for r in records if r.get("kind")=="NO_RESULT"],"no_equivalent":[r for r in records if r.get("kind")=="NO_EQUIVALENT"],"record_digests":{r["record_id"]:digest(r) for r in records if r.get("record_id")}}
+          packet={**packet_core,"packet_digest":digest(packet_core)}
+          out={"status":"TREATMENT_FROZEN_STAGE_R_RESEARCH_EVIDENCE","harvest_spec":SPEC,"harvest_run":run,"evidence_packet":packet,"claim_ceiling":"Blind Stage-R retrieval evidence only; no reference comparison or Concept Authority promotion."}
+          (OUT/"treatment-evidence.json").write_text(json.dumps(out,ensure_ascii=False,sort_keys=True,indent=2),encoding="utf-8")
+          summary={"packet_digest":packet["packet_digest"],"run_id":run_id,"attempted_requests":attempted,"successful_requests":successful,"records":len(records),"observations":len(packet["observations"]),"failures":len(packet["failures"]),"no_results":len(packet["no_results"]),"no_equivalent":len(packet["no_equivalent"]),"low_fit_observations":sum(1 for r in packet["observations"] if r.get("query_fit_class")=="LOW")}
+          (OUT/"summary.json").write_text(json.dumps(summary,sort_keys=True,indent=2),encoding="utf-8")
+          print(json.dumps(summary,sort_keys=True))
+          PY
+
+      - name: Upload bounded treatment packet
+        uses: actions/upload-artifact@v4
+        with:
+          name: wow-crosswalk-stage-r-001
+          path: |
+            /tmp/wow-crosswalk-stage-r-001/treatment-evidence.json
+            /tmp/wow-crosswalk-stage-r-001/summary.json
+          if-no-files-found: error
+          retention-days: 7
