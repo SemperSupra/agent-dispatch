@@ -1,0 +1,352 @@
+name: EXP Reproductive maturity Stage-R 001
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-reproductive-maturity-stage-r-001.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-r-treatment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Execute bounded blind multilingual Stage-R harvest
+        shell: bash
+        env:
+          OUT_DIR: /tmp/reproductive-maturity-stage-r-001
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          import time
+          import urllib.parse
+          import urllib.request
+          from collections import defaultdict
+          from pathlib import Path
+
+          OUT = Path(os.environ['OUT_DIR'])
+
+          QUESTION = (
+              'Across humans, non-human animals, plants, and person-directed interpersonal language, '
+              'independently concept-mine native semantic terrain involving reproductive development and maturity; '
+              'reproductive capability/readiness versus current reproductive state; person-directed attractiveness '
+              'and source-domain metaphor; courtship, flirtation, seduction and invitation; sexual suggestiveness; '
+              'appearance, expression, pose or gesture language associated with sexual acts without presuming that '
+              'an act occurred; and sex/reproduction euphemism versus actual reproductive intent.'
+          )
+
+          SEEDS = [
+              'reproductive maturity',
+              'fertility',
+              'courtship',
+              'flirting',
+              'seduction',
+              'sexual suggestiveness',
+              'body language',
+              'metaphor',
+          ]
+          BIO_SEEDS = ['reproductive maturity', 'fertility']
+          SIGNAL_SEEDS = ['courtship', 'flirting', 'seduction', 'sexual suggestiveness', 'body language', 'metaphor']
+          LANES = [
+              ('JA', 'ja', 'jawiki'), ('KO', 'ko', 'kowiki'),
+              ('zh-Hans', 'zh-hans', 'zhwiki'), ('zh-Hant/TW', 'zh-hant', 'zhwiki'),
+              ('TH', 'th', 'thwiki'), ('ID', 'id', 'idwiki'), ('MS', 'ms', 'mswiki'),
+              ('ES', 'es', 'eswiki'), ('PT-BR', 'pt-br', 'ptwiki'), ('DE', 'de', 'dewiki'),
+              ('FR', 'fr', 'frwiki'), ('IT', 'it', 'itwiki'), ('RU', 'ru', 'ruwiki'),
+              ('UK', 'uk', 'ukwiki'), ('AR', 'ar', 'arwiki'), ('FA', 'fa', 'fawiki'),
+              ('HI', 'hi', 'hiwiki'), ('BN', 'bn', 'bnwiki'), ('SW', 'sw', 'swwiki'),
+          ]
+          NEGATIVE_QUERIES = [
+              'reproductive maturity ambiguity terminology',
+              'fertility terminology polysemy nonsexual use',
+              'flirting detection ambiguity false positive',
+              'body language sexual inference limitations',
+          ]
+          NEGATIVE_MARKERS = {
+              'ambiguity','ambiguous','polysemy','polysemous','limitation','limitations','failure','failures',
+              'false','misclass','misclassification','bias','pitfall','nonsexual','non-sexual','uncertainty'
+          }
+
+          SPEC = {
+              'spec_id': 'reproductive-maturity-person-signaling-001-stage-r',
+              'sealed_problem_commit': '7dc307af2ab398e7318b7389c1302a606e234f08',
+              'research_question': QUESTION,
+              'planned_method': 'public_stage_r_wikidata_openalex_v2',
+              'paired_experiment_id': 'reproductive-maturity-person-signaling-001',
+              'arm': 'TREATMENT',
+              'blindness_status': 'BLIND_PRE_FREEZE',
+              'exploration_intent': ['POSITIVE', 'NEGATIVE', 'LATENT_WHITE_SPACE', 'PRIOR_ART'],
+              'method_changes': [
+                  'source_admitted_sitelink_fallback',
+                  'source_derived_composition_probes',
+                  'negative_query_intent_alignment',
+              ],
+              'coverage_obligations': {
+                  'native_first_lanes': [x[0] for x in LANES],
+                  'domain_lanes': ['human', 'non-human animal', 'plant'],
+                  'preserve_failures_no_results_no_equivalent': True,
+                  'no_manufactured_translation': True,
+              },
+              'authority_status': 'RESEARCH_EVIDENCE',
+          }
+
+          def canonical(value):
+              return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+
+          def digest(value):
+              return 'sha256:' + hashlib.sha256(canonical(value).encode('utf-8')).hexdigest()
+
+          def slug(text):
+              return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')[:72] or 'term'
+
+          def word_tokens(text):
+              return set(re.findall(r'[a-z]+', (text or '').lower()))
+
+          receipts = []
+          records = []
+          attempted = 0
+          succeeded = 0
+          topic_counts_by_seed = defaultdict(lambda: defaultdict(int))
+          entity_by_seed = {}
+
+          def request_json(url, role, query, timeout=20, delay=0.0):
+              nonlocal attempted, succeeded
+              attempted += 1
+              started = time.monotonic()
+              req = urllib.request.Request(url, headers={
+                  'User-Agent': 'SemperSupra-AgentDispatch-Scout/0.2 (bounded public research experiment)'
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as resp:
+                      raw = resp.read()
+                      status = int(resp.status)
+                  elapsed = round(time.monotonic() - started, 4)
+                  data = json.loads(raw.decode('utf-8'))
+                  succeeded += 1
+                  rec = {
+                      'role': role, 'query': query, 'url': url, 'http_status': status,
+                      'elapsed_seconds': elapsed, 'response_sha256': hashlib.sha256(raw).hexdigest(),
+                      'response_bytes': len(raw), 'status': 'SUCCESS'
+                  }
+                  receipts.append(rec)
+                  if delay:
+                      time.sleep(delay)
+                  return data, rec
+              except Exception as exc:
+                  elapsed = round(time.monotonic() - started, 4)
+                  rec = {
+                      'role': role, 'query': query, 'url': url, 'elapsed_seconds': elapsed,
+                      'status': 'FAILURE', 'error_type': type(exc).__name__, 'error': str(exc)[:400]
+                  }
+                  receipts.append(rec)
+                  records.append({
+                      'record_id': f'failure:{role}:{slug(query)}:{attempted}', 'kind': 'FAILURE',
+                      'source': role.split(':',1)[0], 'query': query, 'receipt': rec,
+                      'authority_status': 'RESEARCH_EVIDENCE'
+                  })
+                  if delay:
+                      time.sleep(delay)
+                  return None, rec
+
+          def wikidata_search(seed):
+              params = urllib.parse.urlencode({
+                  'action':'wbsearchentities','search':seed,'language':'en','uselang':'en',
+                  'type':'item','limit':'1','format':'json'
+              })
+              data, _ = request_json('https://www.wikidata.org/w/api.php?' + params, 'wikidata:search', seed, delay=0.10)
+              hits = (data or {}).get('search') or []
+              if not hits:
+                  records.append({'record_id':f'no-result:wikidata:{slug(seed)}','kind':'NO_RESULT','source':'Wikidata','query':seed,'authority_status':'RESEARCH_EVIDENCE'})
+                  return None
+              qid = hits[0].get('id')
+              return qid if isinstance(qid,str) and qid.startswith('Q') else None
+
+          def wikidata_entity(seed, qid):
+              url = f'https://www.wikidata.org/wiki/Special:EntityData/{urllib.parse.quote(qid)}.json'
+              data, _ = request_json(url, 'wikidata:entity', qid, delay=0.10)
+              ent = ((data or {}).get('entities') or {}).get(qid) or {}
+              labels = ent.get('labels') or {}
+              descriptions = ent.get('descriptions') or {}
+              sitelinks = ent.get('sitelinks') or {}
+              entity_by_seed[seed] = {'qid': qid, 'entity': ent}
+              records.append({
+                  'record_id':f'wikidata:{qid}','kind':'OBSERVATION','source':'Wikidata','seed':seed,'qid':qid,
+                  'revision_id':ent.get('lastrevid'),
+                  'labels':{k:v.get('value') for k,v in labels.items() if isinstance(v,dict) and v.get('value')},
+                  'descriptions':{k:v.get('value') for k,v in descriptions.items() if isinstance(v,dict) and v.get('value')},
+                  'sitelinks':{k:v.get('title') for k,v in sitelinks.items() if isinstance(v,dict) and v.get('title')},
+                  'authority_status':'RESEARCH_EVIDENCE',
+                  'claim_ceiling':'Source metadata only; no semantic equivalence or policy conclusion.'
+              })
+
+          def admitted_term(seed, lane, lang, site):
+              entry = entity_by_seed.get(seed) or {}
+              ent = entry.get('entity') or {}
+              labels = ent.get('labels') or {}
+              sitelinks = ent.get('sitelinks') or {}
+              label = labels.get(lang, {}).get('value') if isinstance(labels.get(lang), dict) else None
+              if not label and lang == 'pt-br':
+                  label = labels.get('pt', {}).get('value') if isinstance(labels.get('pt'), dict) else None
+              if isinstance(label,str) and label.strip():
+                  return label.strip(), 'WIKIDATA_NATIVE_LABEL'
+              title = sitelinks.get(site, {}).get('title') if isinstance(sitelinks.get(site), dict) else None
+              if isinstance(title,str) and title.strip():
+                  return title.strip(), 'WIKIDATA_NATIVE_SITELINK_TITLE'
+              records.append({
+                  'record_id':f'no-equivalent:wikidata:{slug(seed)}:{lane}','kind':'NO_EQUIVALENT','source':'Wikidata',
+                  'query':seed,'language_lane':lane,
+                  'reason':'No source-native label or native Wikipedia sitelink title observed on selected Wikidata entity; not semantic absence.',
+                  'authority_status':'RESEARCH_EVIDENCE'
+              })
+              return None, None
+
+          def openalex_search(query, lane, intent, provenance, seed=None):
+              params = urllib.parse.urlencode({'search': query, 'per-page':'3'})
+              data, _ = request_json('https://api.openalex.org/works?' + params, 'openalex:works', query, delay=0.25)
+              results = (data or {}).get('results') or []
+              if not results:
+                  records.append({
+                      'record_id':f'no-result:openalex:{intent.lower()}:{lane}:{slug(query)}','kind':'NO_RESULT','source':'OpenAlex',
+                      'query':query,'language_lane':lane,'scout_intent':intent,'query_provenance':provenance,
+                      'authority_status':'RESEARCH_EVIDENCE'
+                  })
+                  return []
+              out=[]
+              for work in results[:3]:
+                  wid=str(work.get('id') or '')
+                  rid=wid.rsplit('/',1)[-1] or digest(work).split(':',1)[1][:16]
+                  topics=[]
+                  for topic in (work.get('topics') or [])[:5]:
+                      if not isinstance(topic,dict):
+                          continue
+                      name=topic.get('display_name')
+                      topics.append({'id':topic.get('id'),'display_name':name,'score':topic.get('score')})
+                      if seed and isinstance(name,str) and name.strip():
+                          topic_counts_by_seed[seed][name.strip()] += 1
+                  title=work.get('display_name') or work.get('title') or ''
+                  negative_alignment=None
+                  if intent == 'NEGATIVE':
+                      tt=word_tokens(title)
+                      negative_alignment=bool(tt & NEGATIVE_MARKERS)
+                  rec={
+                      'record_id':f'openalex:{rid}:{lane}:{intent.lower()}:{slug(query)}','kind':'OBSERVATION','source':'OpenAlex',
+                      'query':query,'query_provenance':provenance,'language_lane':lane,'scout_intent':intent,
+                      'work_id':wid,'doi':work.get('doi'),'title':title,'publication_year':work.get('publication_year'),
+                      'work_language':work.get('language'),'work_type':work.get('type'),'cited_by_count':work.get('cited_by_count'),
+                      'topics':topics,'authority_status':'RESEARCH_EVIDENCE',
+                      'claim_ceiling':'Search-index metadata only; candidate evidence, not validated semantics.'
+                  }
+                  if negative_alignment is not None:
+                      rec['negative_query_intent_alignment'] = 'ALIGNED_CANDIDATE' if negative_alignment else 'NOISE_CANDIDATE'
+                  records.append(rec); out.append(rec)
+              return out
+
+          for seed in SEEDS:
+              qid = wikidata_search(seed)
+              if qid:
+                  wikidata_entity(seed, qid)
+                  openalex_search(seed, 'EN', 'PRIOR_ART', {'type':'SEALED_INTENT_SEED','seed':seed}, seed=seed)
+
+          for idx, (lane, lang, site) in enumerate(LANES):
+              bio = BIO_SEEDS[idx % len(BIO_SEEDS)]
+              sig = SIGNAL_SEEDS[idx % len(SIGNAL_SEEDS)]
+              for seed in (bio, sig):
+                  term, admission = admitted_term(seed, lane, lang, site)
+                  if term:
+                      openalex_search(term, lane, 'PRIOR_ART', {
+                          'type': admission, 'seed':seed, 'qid':(entity_by_seed.get(seed) or {}).get('qid'), 'language_lane':lane
+                      }, seed=seed)
+
+          for query in NEGATIVE_QUERIES:
+              openalex_search(query, 'EN', 'NEGATIVE', {'type':'SEALED_INTENT_NEGATIVE_PROBE','query':query})
+
+          bio_topics=[]; signal_topics=[]
+          for seed in BIO_SEEDS:
+              bio_topics += [x[0] for x in sorted(topic_counts_by_seed[seed].items(), key=lambda kv:(-kv[1],kv[0]))[:3]]
+          for seed in SIGNAL_SEEDS:
+              signal_topics += [x[0] for x in sorted(topic_counts_by_seed[seed].items(), key=lambda kv:(-kv[1],kv[0]))[:2]]
+          pairs=[]; seen=set()
+          for left in bio_topics:
+              for right in signal_topics:
+                  key=(left.lower(),right.lower())
+                  if key in seen or left.lower()==right.lower():
+                      continue
+                  seen.add(key); pairs.append((left,right))
+                  if len(pairs) >= 6: break
+              if len(pairs) >= 6: break
+          for left,right in pairs:
+              query=f'"{left}" "{right}"'
+              openalex_search(query, 'EN', 'LATENT_WHITE_SPACE', {
+                  'type':'SOURCE_DERIVED_TOPIC_PAIR','components':[left,right],
+                  'derivation':'top OpenAlex topics from sealed-intent seed probes'
+              })
+
+          records=sorted(records,key=lambda r:(str(r.get('record_id','')),canonical(r)))
+          spec_digest=digest(SPEC)
+          run_core={
+              'schema_version':'harvest-run-v0','spec_id':SPEC['spec_id'],'spec_digest':spec_digest,
+              'runtime_identity':'agent-dispatch:public-stage-r-reproductive-maturity:v2',
+              'input_digest':digest(records),'planned_method':SPEC['planned_method'],'executed_method':'live_scout_public_stage_r',
+              'scout_context':{
+                  'paired_experiment_id':SPEC['paired_experiment_id'],'arm':'TREATMENT','blindness_status':'BLIND_PRE_FREEZE',
+                  'exploration_intent':SPEC['exploration_intent'],'method_changes':SPEC['method_changes'],
+                  'coverage_obligations':SPEC['coverage_obligations']
+              },
+              'execution_metadata':{
+                  'worker_revision':os.environ.get('GITHUB_SHA'),'attempted_requests':attempted,'successful_requests':succeeded,
+                  'failed_requests':attempted-succeeded,'request_receipts':receipts,'provider_concurrency':1,
+                  'retry_policy':'single bounded attempt; failures retained','composition_probe_count':len(pairs)
+              },
+              'authority_status':'RESEARCH_EVIDENCE','records':records
+          }
+          run_id='harvest-run:'+digest(run_core).split(':',1)[1]
+          harvest_run={'run_id':run_id,**run_core}
+          terminal={'FAILURE','NO_RESULT','NO_EQUIVALENT'}
+          packet_core={
+              'schema_version':'evidence-packet-v0','packet_id':f"evidence:{run_id.split(':',1)[1]}",
+              'harvest_run_id':run_id,'harvest_run_digest':digest(harvest_run),'spec_id':SPEC['spec_id'],'spec_digest':spec_digest,
+              'runtime_identity':run_core['runtime_identity'],'executed_method':run_core['executed_method'],
+              'scout_context':run_core['scout_context'],'execution_metadata':run_core['execution_metadata'],
+              'authority_status':'RESEARCH_EVIDENCE',
+              'observations':[r for r in records if r.get('kind') not in terminal],
+              'failures':[r for r in records if r.get('kind')=='FAILURE'],
+              'no_results':[r for r in records if r.get('kind')=='NO_RESULT'],
+              'no_equivalent':[r for r in records if r.get('kind')=='NO_EQUIVALENT'],
+              'record_digests':{str(r['record_id']):digest(r) for r in records}
+          }
+          packet={**packet_core,'packet_digest':digest(packet_core)}
+          output={
+              'status':'TREATMENT_FROZEN_STAGE_R_RESEARCH_EVIDENCE','sealed_problem_commit':SPEC['sealed_problem_commit'],
+              'problem_statement':QUESTION,'harvest_spec':SPEC,'harvest_run':harvest_run,'evidence_packet':packet,
+              'claim_ceiling':'Stage-R retrieval/source evidence only. No reference-arm access, semantic promotion, chronological/legal age inference, consent inference, sexual-history inference, or performed-act inference.'
+          }
+          (OUT/'treatment-evidence.json').write_text(json.dumps(output,ensure_ascii=False,sort_keys=True,indent=2),encoding='utf-8')
+          summary={
+              'packet_digest':packet['packet_digest'],'run_id':run_id,'records':len(records),'observations':len(packet['observations']),
+              'failures':len(packet['failures']),'no_results':len(packet['no_results']),'no_equivalent':len(packet['no_equivalent']),
+              'attempted_requests':attempted,'successful_requests':succeeded,'composition_probes':len(pairs),
+              'negative_aligned_candidates':sum(1 for r in records if r.get('negative_query_intent_alignment')=='ALIGNED_CANDIDATE'),
+              'negative_noise_candidates':sum(1 for r in records if r.get('negative_query_intent_alignment')=='NOISE_CANDIDATE')
+          }
+          (OUT/'summary.json').write_text(json.dumps(summary,sort_keys=True,indent=2),encoding='utf-8')
+          print(json.dumps(summary,sort_keys=True))
+          PY
+
+      - name: Upload bounded Stage-R treatment packet
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproductive-maturity-stage-r-001
+          path: |
+            /tmp/reproductive-maturity-stage-r-001/treatment-evidence.json
+            /tmp/reproductive-maturity-stage-r-001/summary.json
+          if-no-files-found: error
+          retention-days: 7
