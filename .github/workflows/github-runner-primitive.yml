@@ -1,11 +1,6 @@
 name: GitHub Runner Primitive Oracles
 
 on:
-  pull_request:
-    paths:
-      - 'scripts/github_runner_primitive.py'
-      - 'tests/test_github_runner_primitive.py'
-      - '.github/workflows/github-runner-primitive.yml'
   workflow_dispatch:
 
 permissions:

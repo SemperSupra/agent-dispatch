@@ -1,0 +1,66 @@
+name: GitHub Runner Frontier Oracles
+
+on:
+  push:
+    branches:
+      - experiment/github-runner-capability-census
+    paths:
+      - 'scripts/github_runner_frontier.py'
+      - 'tests/test_github_runner_frontier.py'
+      - '.github/workflows/github-runner-frontier.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test frontier oracle semantics
+        run: python3 -m unittest -v tests/test_github_runner_frontier.py
+
+  frontier:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            probe: kvm-vcpu-nonce
+          - runner: ubuntu-26.04
+            probe: kvm-vcpu-nonce
+          - runner: macos-26
+            probe: simulator-state
+          - runner: macos-26-intel
+            probe: simulator-state
+          - runner: xcode-27
+            probe: simulator-state
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise one frontier oracle chain
+        env:
+          CENSUS_REQUESTED_LABEL: ${{ matrix.runner }}
+          CENSUS_REPOSITORY_VISIBILITY: public
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/runner-frontier"
+          python3 scripts/github_runner_frontier.py --label "${{ matrix.runner }}" --probe "${{ matrix.probe }}" --out "${RUNNER_TEMP}/runner-frontier/receipt.json"
+      - name: Upload public-safe frontier receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-frontier-${{ matrix.runner }}-${{ matrix.probe }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-frontier/receipt.json
+          if-no-files-found: error
+          retention-days: 7
