@@ -45,7 +45,7 @@ jobs:
           image=""
           digest=""
           if [ "$MODE" = native ]; then
-            python3 -m unittest discover -s tests -p 'test_*.py' >"$RUNNER_TEMP/runner-workload/stdout.txt" 2>"$RUNNER_TEMP/runner-workload/stderr.txt"
+            python3 -m unittest -v tests/test_sealed_public_execution.py >"$RUNNER_TEMP/runner-workload/stdout.txt" 2>"$RUNNER_TEMP/runner-workload/stderr.txt"
             rc=$?
           else
             image="python:3.13-alpine"
@@ -53,7 +53,7 @@ jobs:
             pull_rc=$?
             if [ "$pull_rc" -eq 0 ]; then
               digest=$(docker image inspect --format '{{join .RepoDigests ","}}' "$image" 2>/dev/null)
-              docker run --rm --network none --read-only                 --tmpfs /tmp:rw,nosuid,nodev,size=64m                 --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/src,readonly"                 -w /src "$image"                 python -m unittest discover -s tests -p 'test_*.py'                 >"$RUNNER_TEMP/runner-workload/stdout.txt" 2>"$RUNNER_TEMP/runner-workload/stderr.txt"
+              docker run --rm --network none --read-only                 --tmpfs /tmp:rw,nosuid,nodev,size=64m                 --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/src,readonly"                 -w /src "$image"                 python -m unittest -v tests/test_sealed_public_execution.py                 >"$RUNNER_TEMP/runner-workload/stdout.txt" 2>"$RUNNER_TEMP/runner-workload/stderr.txt"
               rc=$?
               docker image rm --force "$image" >/dev/null 2>&1 || true
             else
@@ -77,9 +77,9 @@ jobs:
               "run_attempt":os.environ.get("GITHUB_RUN_ATTEMPT",""),
             },
             "workload":{
-              "id":"agent-dispatch-public-unittest-suite",
+              "id":"agent-dispatch-sealed-public-execution-contract",
               "mode":os.environ["MODE"],
-              "command":"python -m unittest discover -s tests -p test_*.py",
+              "command":"python -m unittest -v tests/test_sealed_public_execution.py",
               "network_during_workload":False,
               "repository_mount_read_only":os.environ["MODE"]=="docker",
               "container_root_read_only":os.environ["MODE"]=="docker",
