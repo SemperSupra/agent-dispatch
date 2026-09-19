@@ -138,10 +138,13 @@ def _latest_ios_and_iphone(xcrun: str):
     ios=[r for r in runtimes if r.get("isAvailable") and
          str(r.get("identifier","")).startswith("com.apple.CoreSimulator.SimRuntime.iOS-")]
     iphones=[d for d in devtypes if str(d.get("identifier","")).startswith("com.apple.CoreSimulator.SimDeviceType.iPhone-")]
-    def key(r): return tuple(int(x) for x in re.findall(r"\d+",str(r.get("version","0"))))
+    def key(r): return tuple(int(x) for x in re.findall(r"\\d+",str(r.get("version","0"))))
+    def device_key(d):
+        min_runtime=tuple(int(x) for x in re.findall(r"\\d+",str(d.get("minRuntimeVersionString","0"))))
+        model=tuple(int(x) for x in re.findall(r"\\d+",str(d.get("modelIdentifier","0"))))
+        return (min_runtime,model,str(d.get("name","")))
     return (sorted(ios,key=key)[-1] if ios else None,
-            sorted(iphones,key=lambda d:str(d.get("identifier","")))[-1] if iphones else None,ev)
-
+            sorted(iphones,key=device_key)[-1] if iphones else None,ev)
 def _device_state(xcrun: str, udid: str):
     code,out,err=_run([xcrun,"simctl","list","devices","-j"],15)
     if code!=0 or not out: return None,err or f"list devices exit={code}"

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import unittest
 from unittest import mock
@@ -36,5 +37,19 @@ class FrontierTests(unittest.TestCase):
         with mock.patch.dict(MOD.PROBES,{"kvm-vcpu-nonce":lambda:[]}):
             receipt=MOD.build_receipt("kvm-vcpu-nonce","ubuntu-26.04")
         self.assertIn("frontier result proves only",receipt["warnings"][-1])
+
+    def test_device_selection_prefers_newest_runtime_family(self):
+        runtimes={"runtimes":[{"isAvailable":True,
+            "identifier":"com.apple.CoreSimulator.SimRuntime.iOS-26-5","version":"26.5"}]}
+        devtypes={"devicetypes":[
+            {"identifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-XS-Max",
+             "name":"iPhone XS Max","modelIdentifier":"iPhone11,4","minRuntimeVersionString":"12.0.0"},
+            {"identifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+             "name":"iPhone 17 Pro","modelIdentifier":"iPhone18,1","minRuntimeVersionString":"26.0.0"}]}
+        with mock.patch.object(MOD,"_run",side_effect=[
+            (0,json.dumps(runtimes),""),(0,json.dumps(devtypes),"")]):
+            runtime,device,_=MOD._latest_ios_and_iphone("/usr/bin/xcrun")
+        self.assertEqual(runtime["version"],"26.5")
+        self.assertEqual(device["identifier"],"com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro")
 
 if __name__=="__main__": unittest.main()

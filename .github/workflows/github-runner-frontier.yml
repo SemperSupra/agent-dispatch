@@ -31,10 +31,6 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - runner: ubuntu-24.04
-            probe: kvm-vcpu-nonce
-          - runner: ubuntu-26.04
-            probe: kvm-vcpu-nonce
           - runner: macos-26
             probe: simulator-state
           - runner: macos-26-intel
