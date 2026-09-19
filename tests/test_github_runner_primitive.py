@@ -36,5 +36,24 @@ class PrimitiveTests(unittest.TestCase):
             cap = MOD.probe_rosetta()
         self.assertEqual(cap["classification"], "SKIPPED_GUARDRAIL")
 
+    def test_privileged_kvm_control_wrong_platform_skips(self):
+        with mock.patch.object(MOD.platform, "system", return_value="Darwin"):
+            cap = MOD.probe_kvm_sudo_api()
+        self.assertEqual(cap["classification"], "SKIPPED_GUARDRAIL")
+
+    def test_container_nonce_stops_if_daemon_gate_fails(self):
+        with mock.patch.object(MOD.shutil, "which", return_value="/usr/bin/docker"),              mock.patch.object(MOD, "_run", return_value=(1, "", "no daemon")):
+            cap = MOD.probe_docker_container()
+        self.assertEqual(cap["classification"], "SKIPPED_GUARDRAIL")
+        self.assertFalse(cap["exercised"])
+
+    def test_simulator_wrong_platform_skips(self):
+        with mock.patch.object(MOD.platform, "system", return_value="Linux"):
+            cap = MOD.probe_simulator_boot()
+        self.assertEqual(cap["classification"], "SKIPPED_GUARDRAIL")
+
+    def test_version_key_orders_numeric_versions(self):
+        self.assertGreater(MOD._version_key("27.0"), MOD._version_key("26.5"))
+
 if __name__ == "__main__":
     unittest.main()
