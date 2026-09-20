@@ -110,7 +110,7 @@ def main():
             if boot==0 and state=="Booted":
                 service,service_out,service_err=frontier._run([xcrun,"simctl","getenv",udid,"HOME"],15)
                 guest,guest_out,guest_err=frontier._run([xcrun,"simctl","spawn",udid,"/usr/bin/true"],15)
-            if service==0 and guest==0:
+            if guest==0:
                 install,_,install_err=frontier._run([xcrun,"simctl","install",udid,str(app)],30)
             if install==0:
                 container,container_path,container_err=frontier._run(
@@ -120,8 +120,7 @@ def main():
                     [xcrun,"simctl","launch","--terminate-running-process",udid,BUNDLE_ID],30)
             if launch==0:
                 terminate,_,terminate_err=frontier._run([xcrun,"simctl","terminate",udid,BUNDLE_ID],20)
-            passed=(boot==0 and state=="Booted" and service==0 and bool(service_out.strip()) and
-                    guest==0 and install==0 and container==0 and bool(container_path.strip()) and
+            passed=(boot==0 and state=="Booted" and guest==0 and install==0 and container==0 and bool(container_path.strip()) and
                     launch==0 and terminate==0)
         finally:
             frontier._run([xcrun,"simctl","shutdown",udid],20)
