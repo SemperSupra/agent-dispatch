@@ -1,0 +1,115 @@
+name: GitHub Runner Representative Workload
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-26.04
+          - ubuntu-24.04-arm
+          - ubuntu-26.04-arm
+        mode:
+          - native
+          - docker
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Execute repository workload
+        id: workload
+        shell: bash
+        env:
+          MODE: ${{ matrix.mode }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/runner-workload"
+          started=$(python3 -c 'import time; print(time.monotonic_ns())')
+          image=""
+          digest=""
+          if [ "$MODE" = native ]; then
+            python3 -m unittest -v tests/test_sealed_public_execution.py >"$RUNNER_TEMP/runner-workload/stdout.txt" 2>"$RUNNER_TEMP/runner-workload/stderr.txt"
+            rc=$?
+          else
+            image="python:3.13-alpine"
+            docker pull --quiet "$image" >"$RUNNER_TEMP/runner-workload/pull.txt" 2>"$RUNNER_TEMP/runner-workload/pull-stderr.txt"
+            pull_rc=$?
+            if [ "$pull_rc" -eq 0 ]; then
+              digest=$(docker image inspect --format '{{join .RepoDigests ","}}' "$image" 2>/dev/null)
+              docker run --rm --network none --read-only                 --tmpfs /tmp:rw,nosuid,nodev,size=64m                 --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/src,readonly"                 -w /src "$image"                 python -m unittest -v tests/test_sealed_public_execution.py                 >"$RUNNER_TEMP/runner-workload/stdout.txt" 2>"$RUNNER_TEMP/runner-workload/stderr.txt"
+              rc=$?
+              docker image rm --force "$image" >/dev/null 2>&1 || true
+            else
+              rc=125
+              cp "$RUNNER_TEMP/runner-workload/pull-stderr.txt" "$RUNNER_TEMP/runner-workload/stderr.txt"
+              : > "$RUNNER_TEMP/runner-workload/stdout.txt"
+            fi
+          fi
+          ended=$(python3 -c 'import time; print(time.monotonic_ns())')
+          elapsed_ns=$((ended-started))
+          export RC="$rc" ELAPSED_NS="$elapsed_ns" IMAGE="$image" DIGEST="$digest"
+          python3 - <<'PY'
+          import json, os, pathlib, platform
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"runner-workload"
+          receipt={
+            "schema":"github-runner-workload-qualification/v1",
+            "provenance":{
+              "requested_label":os.environ["RUNNER_LABEL"],
+              "workflow_sha":os.environ.get("GITHUB_SHA",""),
+              "run_id":os.environ.get("GITHUB_RUN_ID",""),
+              "run_attempt":os.environ.get("GITHUB_RUN_ATTEMPT",""),
+            },
+            "workload":{
+              "id":"agent-dispatch-sealed-public-execution-contract",
+              "mode":os.environ["MODE"],
+              "command":"python -m unittest -v tests/test_sealed_public_execution.py",
+              "network_during_workload":False,
+              "repository_mount_read_only":os.environ["MODE"]=="docker",
+              "container_root_read_only":os.environ["MODE"]=="docker",
+            },
+            "runner":{
+              "system":platform.system(),
+              "machine":platform.machine(),
+              "runner_arch":os.environ.get("RUNNER_ARCH"),
+              "image_os":os.environ.get("ImageOS"),
+              "image_version":os.environ.get("ImageVersion"),
+            },
+            "result":{
+              "exit_code":int(os.environ["RC"]),
+              "passed":int(os.environ["RC"])==0,
+              "elapsed_seconds":int(os.environ["ELAPSED_NS"])/1e9,
+            },
+            "container":{
+              "image":os.environ["IMAGE"] or None,
+              "digest":os.environ["DIGEST"] or None,
+            },
+          }
+          (p/"receipt.json").write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n")
+          PY
+          cat "$RUNNER_TEMP/runner-workload/stdout.txt"
+          cat "$RUNNER_TEMP/runner-workload/stderr.txt" >&2
+          exit "$rc"
+
+      - name: Upload workload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-workload-${{ matrix.runner }}-${{ matrix.mode }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/runner-workload/receipt.json
+            ${{ runner.temp }}/runner-workload/stdout.txt
+            ${{ runner.temp }}/runner-workload/stderr.txt
+          if-no-files-found: error
+          retention-days: 7

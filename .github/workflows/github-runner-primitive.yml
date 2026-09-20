@@ -1,0 +1,67 @@
+name: GitHub Runner Primitive Oracles
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test primitive oracle semantics
+        run: python3 -m unittest -v tests/test_github_runner_primitive.py
+
+  primitive:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-26.04
+            probe: kvm-sudo
+          - runner: ubuntu-24.04
+            probe: kvm-sudo
+          - runner: ubuntu-26.04
+            probe: docker-container
+          - runner: ubuntu-24.04
+            probe: docker-container
+          - runner: ubuntu-26.04-arm
+            probe: docker-container
+          - runner: ubuntu-24.04-arm
+            probe: docker-container
+          - runner: macos-26
+            probe: simulator-boot
+          - runner: macos-26-intel
+            probe: simulator-boot
+          - runner: xcode-27
+            probe: simulator-boot
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise one earned primitive oracle
+        env:
+          CENSUS_REQUESTED_LABEL: ${{ matrix.runner }}
+          CENSUS_REPOSITORY_VISIBILITY: public
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/runner-primitive"
+          python3 scripts/github_runner_primitive.py --label "${{ matrix.runner }}" --probe "${{ matrix.probe }}" --out "${RUNNER_TEMP}/runner-primitive/receipt.json"
+      - name: Upload public-safe primitive receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-primitive-${{ matrix.runner }}-${{ matrix.probe }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-primitive/receipt.json
+          if-no-files-found: error
+          retention-days: 7

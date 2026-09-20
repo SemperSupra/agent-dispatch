@@ -1,0 +1,58 @@
+name: GitHub Runner Frontier Workloads
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test workload qualification semantics
+        run: python3 -m unittest -v tests/test_github_runner_workload_frontier.py
+
+  qualify:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            workload: android-emulator
+          - runner: ubuntu-26.04
+            workload: android-emulator
+          - runner: macos-26
+            workload: ios-sdk-compile
+          - runner: macos-26-intel
+            workload: ios-sdk-compile
+          - runner: xcode-27
+            workload: ios-sdk-compile
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute frontier workload
+        shell: bash
+        env:
+          CENSUS_REPOSITORY_VISIBILITY: public
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/runner-frontier-workload"
+          python3 scripts/github_runner_workload_frontier.py             --label "${{ matrix.runner }}"             --workload "${{ matrix.workload }}"             --out "${RUNNER_TEMP}/runner-frontier-workload/receipt.json"
+      - name: Upload public-safe workload receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-frontier-workload-${{ matrix.runner }}-${{ matrix.workload }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-frontier-workload/receipt.json
+          if-no-files-found: error
+          retention-days: 7
