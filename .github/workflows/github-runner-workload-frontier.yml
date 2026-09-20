@@ -1,13 +1,6 @@
 name: GitHub Runner Frontier Workloads
 
 on:
-  push:
-    branches:
-      - experiment/github-runner-capability-census
-    paths:
-      - 'scripts/github_runner_workload_frontier.py'
-      - 'tests/test_github_runner_workload_frontier.py'
-      - '.github/workflows/github-runner-workload-frontier.yml'
   workflow_dispatch:
 
 permissions:
