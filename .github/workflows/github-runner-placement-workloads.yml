@@ -1,0 +1,58 @@
+name: GitHub Runner Lightweight and ARM Workloads
+
+on:
+  push:
+    branches:
+      - experiment/github-runner-capability-census
+    paths:
+      - 'scripts/github_runner_placement_workloads.py'
+      - 'tests/test_github_runner_placement_workloads.py'
+      - '.github/workflows/github-runner-placement-workloads.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_github_runner_placement_workloads.py
+
+  qualify:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-slim
+            workload: slim-contract
+          - runner: ubuntu-24.04-arm
+            workload: arm-native-artifact
+          - runner: ubuntu-26.04-arm
+            workload: arm-native-artifact
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute placement workload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/placement-workload"
+          python3 scripts/github_runner_placement_workloads.py             --label "${{ matrix.runner }}"             --workload "${{ matrix.workload }}"             --out "${RUNNER_TEMP}/placement-workload/receipt.json"
+      - name: Upload public-safe workload receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-placement-${{ matrix.runner }}-${{ matrix.workload }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/placement-workload/receipt.json
+          if-no-files-found: error
+          retention-days: 7
