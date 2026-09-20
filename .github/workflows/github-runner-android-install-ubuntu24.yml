@@ -1,11 +1,6 @@
 name: GitHub Runner Android Install Qualification Ubuntu 24
 
 on:
-  push:
-    branches:
-      - experiment/github-runner-capability-census
-    paths:
-      - '.github/workflows/github-runner-android-install-ubuntu24.yml'
   workflow_dispatch:
 
 permissions:
