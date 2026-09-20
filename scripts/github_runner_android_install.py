@@ -61,7 +61,7 @@ def main():
     if code!=0 or not emulator.exists() or not image.is_dir():
         return finish("ENVIRONMENT_FAILURE",False,"bounded Android SDK package installation did not satisfy entry gate",
                       {**install_ev,"emulator_present":emulator.exists(),"system_image_present":image.is_dir()})
-    with tempfile.TemporaryDirectory(prefix="runner-android-install-") as td:
+    with tempfile.TemporaryDirectory(prefix="runner-android-install-", ignore_cleanup_errors=True) as td:
         root=pathlib.Path(td); avd_home=root/"avd"; avd_home.mkdir(); home=root/"home";home.mkdir()
         env=os.environ.copy();env.update({"ANDROID_AVD_HOME":str(avd_home),"ANDROID_USER_HOME":str(root/"android-home"),"HOME":str(home)})
         pathlib.Path(env["ANDROID_USER_HOME"]).mkdir()
@@ -107,6 +107,10 @@ def main():
                 try: proc.kill()
                 except Exception: pass
             run([sudo,"-n",str(adb),"kill-server"],timeout=10,env=env)
+            # The emulator runs under sudo to consume the already-proven KVM boundary
+            # and may leave root-owned state under the disposable AVD/home paths.
+            # Remove only those experiment-owned paths before TemporaryDirectory cleanup.
+            run([sudo,"-n","rm","-rf",str(avd_home),str(pathlib.Path(env["ANDROID_USER_HOME"])),str(home)],timeout=20,env=env)
         ev={**install_ev,"accel_check":(accel_out+"\n"+accel_err).strip()[-1500:],
             "serial":serial,"boot_completed":boot or None,"boot_elapsed_seconds":round(boot_s,3),
             "guest_abi":qout.strip() if qcode==0 else None,"adb_error":last_err[-800:] or None}
