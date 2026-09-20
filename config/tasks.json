@@ -1,4 +1,7 @@
 {
   "phase0-private-repo-smoke-test": "tasks/phase0-private-repo-smoke-test.md",
-  "reconcile-repository-state": "tasks/reconcile-repository-state.md"
+  "reconcile-repository-state": "tasks/reconcile-repository-state.md",
+  "qualify-exact-head": "tasks/qualify-exact-head.md",
+  "advance-cloud-safe-work": "tasks/advance-cloud-safe-work.md",
+  "reduce-experiment-evidence": "tasks/reduce-experiment-evidence.md"
 }
