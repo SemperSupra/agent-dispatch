@@ -64,6 +64,32 @@ This establishes a cheap disposable Windows user-space execution cell. It does
 not establish interactive-desktop, device/driver, full VM lifecycle, or native
 WinBot acceptance.
 
+
+### PowerShell/.NET on Nano Server
+
+A smaller PowerShell-capable Windows cell was qualified using
+`mcr.microsoft.com/dotnet/sdk:10.0-nanoserver-ltsc2025`.
+
+Observed on run `35509241703`:
+
+- resolved image digest:
+  `sha256:fb909bd5c26908d9e45bae873a279695867e0270ad0a86dc84ae0e3006e80ad6`;
+- observed image size: 1,525,644,762 bytes;
+- pull time on that allocation: 60.523 seconds;
+- PowerShell 7.6.6 and .NET SDK 10.0.401 executed under both process isolation
+  and Hyper-V isolation;
+- each cell produced a distinct in-container GUID nonce.
+
+Receipt artifact: `10604738980`
+(`sha256:ca246bbf0261325a0d13a916e6f1de754b3505bb5a05c9b25b43c3b2b83138b5`).
+
+Prefer this cell for bounded PowerShell/.NET/user-space Windows work when the
+workload does not require Server Core-only APIs, desktop/session semantics,
+devices/drivers, servicing, or full VM lifecycle. A Server Core LTSC 2025
+candidate was observed at about 5.62 GB with about a 289 second pull on one
+allocation; it is therefore an explicit workload-earned fallback rather than
+the default PowerShell substrate.
+
 ### Placement consequence
 
 Prefer the least expensive qualified substrate that preserves the workload's
