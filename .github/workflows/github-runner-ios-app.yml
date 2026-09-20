@@ -1,13 +1,6 @@
 name: GitHub Runner iOS Simulator App Qualification
 
 on:
-  push:
-    branches:
-      - experiment/github-runner-capability-census
-    paths:
-      - 'scripts/github_runner_ios_app.py'
-      - 'tests/test_github_runner_ios_app.py'
-      - '.github/workflows/github-runner-ios-app.yml'
   workflow_dispatch:
 
 permissions:
