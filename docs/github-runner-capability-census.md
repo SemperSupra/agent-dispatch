@@ -20,3 +20,64 @@ advertised -> observed -> installed -> callable -> exercised -> oracleSatisfied
 
 A negative observation is data and must not be converted into a harness failure.
 Observed capacity describes one job and is not a GitHub service guarantee.
+
+
+## Qualified Windows hosted frontier
+
+Current decision-grade evidence from the public `windows-2025` lane is tracked
+as exercised workload evidence rather than as a static inventory promise.
+
+### Hyper-V L2
+
+WinInspect PR #32 qualified a bounded Generation-2 Hyper-V Linux guest on
+GitHub-hosted `windows-2025`.
+
+Observed/exercised:
+
+- Hyper-V VM creation/start and guest heartbeat;
+- guest-generated nonce/boot identity;
+- controlled internal vSwitch + WinNAT;
+- L1-to-L2 reachability by ICMP and TCP/22;
+- guest DNS through the runner-provided Azure resolver;
+- guest HTTPS/TCP egress and exact artifact fetch.
+
+Run: `35506233566`.
+Artifact: `10604485131`
+(`sha256:1a0545602bede66c566cde379fc03320d8709cb5b4b9ede4f02913e466d483b8`).
+
+ICMP to `1.1.1.1` was blocked in that allocation, but DNS + HTTPS succeeded.
+Therefore Internet-install/download workflows must use an application-level
+oracle rather than requiring public ICMP.
+
+### Windows containers
+
+The same public runner class also qualified the official
+`mcr.microsoft.com/windows/nanoserver:ltsc2025` image under both Windows
+process isolation and Hyper-V isolation. Each cell produced a distinct
+container-generated identity and nonce.
+
+Run: `35508693383`.
+Resolved image digest:
+`sha256:15760261db306980fd96acf7e2c73779eaaeefdff289339b9526295c88957e56`.
+
+This establishes a cheap disposable Windows user-space execution cell. It does
+not establish interactive-desktop, device/driver, full VM lifecycle, or native
+WinBot acceptance.
+
+### Placement consequence
+
+Prefer the least expensive qualified substrate that preserves the workload's
+required semantics:
+
+1. ordinary hosted Windows process execution for non-isolation-sensitive tests;
+2. Hyper-V-isolated Windows containers for disposable Windows user-space,
+   service, and package experiments when the required API surface is present;
+3. full Hyper-V L2 only for VM lifecycle, boot/install, network-appliance,
+   desktop/session, or device/driver semantics that containers cannot supply;
+4. prepared native Windows/native WinBot executors for acceptance claims that
+   require those exact evidence classes.
+
+Do not infer substrate availability from a command alone. Runner allocation and
+service state can vary between otherwise identical `windows-2025` jobs; active
+work should retain bounded preflight/recovery and preserve the distinction
+between unavailable capability and product failure.
