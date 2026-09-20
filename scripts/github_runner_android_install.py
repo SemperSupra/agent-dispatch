@@ -36,8 +36,8 @@ def main():
         return 0
     if platform.system()!="Linux" or platform.machine() not in {"x86_64","amd64"}:
         return finish("SKIPPED_GUARDRAIL",False,"x86_64 Linux-only workload",{})
-    if a.label!="ubuntu-26.04":
-        return finish("SKIPPED_GUARDRAIL",False,"first setup-cost rep intentionally limited to ubuntu-26.04",{})
+    if a.label not in {"ubuntu-24.04","ubuntu-26.04"}:
+        return finish("SKIPPED_GUARDRAIL",False,"setup-cost workload limited to qualified x64 Ubuntu generations",{})
     sdk=pathlib.Path(os.environ.get("ANDROID_HOME") or "/usr/local/lib/android/sdk")
     sdkmanager=sdk/"cmdline-tools"/"latest"/"bin"/"sdkmanager"
     avdmanager=sdk/"cmdline-tools"/"latest"/"bin"/"avdmanager"
