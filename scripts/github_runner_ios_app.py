@@ -68,9 +68,11 @@ def main():
         plist={
           "CFBundleDevelopmentRegion":"en","CFBundleExecutable":"RunnerFrontier",
           "CFBundleIdentifier":BUNDLE_ID,"CFBundleInfoDictionaryVersion":"6.0",
-          "CFBundleName":"RunnerFrontier","CFBundlePackageType":"APPL",
+          "CFBundleName":"RunnerFrontier","CFBundleDisplayName":"RunnerFrontier","CFBundlePackageType":"APPL",
           "CFBundleShortVersionString":"1.0","CFBundleVersion":"1",
+          "CFBundleSupportedPlatforms":["iPhoneSimulator"],"DTPlatformName":"iphonesimulator",
           "LSRequiresIPhoneOS":True,"MinimumOSVersion":"18.0","UIDeviceFamily":[1],
+          "UILaunchScreen":{},
         }
         with (app/"Info.plist").open("wb") as fh: plistlib.dump(plist,fh)
         build_start=time.monotonic()
@@ -81,9 +83,12 @@ def main():
             return finish("HARNESS_FAILURE",False,"minimal Simulator app failed to compile",
                           {"compile_exit":bc,"stderr":be[-1500:],"sdk":sdk,"clang":clang})
         signc,signo,signe=frontier._run([codesign,"--force","--sign","-","--timestamp=none",str(app)],30)
-        if signc!=0:
-            return finish("HARNESS_FAILURE",False,"ad-hoc signing failed",
-                          {"codesign_exit":signc,"stderr":signe[-1200:]})
+        verifyc,verifyo,verifye=frontier._run([codesign,"--verify","--strict","--deep",str(app)],20)
+        plistc,plisto,pliste=frontier._run(["/usr/bin/plutil","-lint",str(app/"Info.plist")],10)
+        if signc!=0 or verifyc!=0 or plistc!=0:
+            return finish("HARNESS_FAILURE",False,"app bundle signing/structure validation failed",
+                          {"codesign_exit":signc,"verify_exit":verifyc,"plist_exit":plistc,
+                           "stderr":"\n".join(x for x in (signe,verifye,pliste) if x)[-1600:]})
         name="RunnerApp-"+uuid.uuid4().hex[:8]
         create,udid,create_err=frontier._run([xcrun,"simctl","create",name,devtype["identifier"],runtime["identifier"]],30)
         udid=udid.strip()
@@ -92,8 +97,8 @@ def main():
                           {"create_exit":create,"stderr":create_err[-1200:],"runtime":runtime.get("identifier"),
                            "device_type":devtype.get("identifier")})
         boot=None;state=None;state_err=None;polls=0
-        install=container=launch=terminate=None
-        install_err=container_err=launch_err=terminate_err=""
+        service=guest=install=container=launch=terminate=None
+        service_out=guest_out=install_err=container_err=launch_err=terminate_err=""
         container_path=launch_out=""
         try:
             boot,_,boot_err=frontier._run([xcrun,"simctl","boot",udid],30)
@@ -103,6 +108,9 @@ def main():
                 if state=="Booted":break
                 time.sleep(2)
             if boot==0 and state=="Booted":
+                service,service_out,service_err=frontier._run([xcrun,"simctl","getenv",udid,"HOME"],15)
+                guest,guest_out,guest_err=frontier._run([xcrun,"simctl","spawn",udid,"/usr/bin/true"],15)
+            if service==0 and guest==0:
                 install,_,install_err=frontier._run([xcrun,"simctl","install",udid,str(app)],30)
             if install==0:
                 container,container_path,container_err=frontier._run(
@@ -112,18 +120,21 @@ def main():
                     [xcrun,"simctl","launch","--terminate-running-process",udid,BUNDLE_ID],30)
             if launch==0:
                 terminate,_,terminate_err=frontier._run([xcrun,"simctl","terminate",udid,BUNDLE_ID],20)
-            passed=(boot==0 and state=="Booted" and install==0 and container==0 and
-                    bool(container_path.strip()) and launch==0 and terminate==0)
+            passed=(boot==0 and state=="Booted" and service==0 and bool(service_out.strip()) and
+                    guest==0 and install==0 and container==0 and bool(container_path.strip()) and
+                    launch==0 and terminate==0)
         finally:
             frontier._run([xcrun,"simctl","shutdown",udid],20)
             frontier._run([xcrun,"simctl","delete",udid],20)
         ev={"runtime":runtime.get("identifier"),"runtime_version":runtime.get("version"),
             "device_type":devtype.get("identifier"),"sdk":sdk,"build_elapsed_seconds":round(build_s,3),
             "boot_exit":boot,"final_state":state,"state_polls":polls,"state_error":state_err,
-            "install_exit":install,"container_exit":container,
+            "service_exit":service,"service_value_nonempty":bool(service_out.strip()),
+            "guest_spawn_exit":guest,"install_exit":install,"container_exit":container,
             "container_path_nonempty":bool(container_path.strip()),"launch_exit":launch,
             "launch_output":launch_out[:500] if launch_out else None,"terminate_exit":terminate,
-            "stderr":"\n".join(x for x in (install_err,container_err,launch_err,terminate_err) if x)[:1800] or None}
+            "stderr":"\n".join(x for x in (locals().get("service_err",""),locals().get("guest_err",""),
+                install_err,container_err,launch_err,terminate_err) if x)[:1800] or None}
         return finish("SUPPORTED" if passed else "ORACLE_FAILURE",passed,
                       "built, installed, launched, observed, and terminated a disposable iOS Simulator app"
                       if passed else "iOS Simulator app lifecycle oracle failed",ev)
