@@ -1,13 +1,6 @@
 name: GitHub Runner Android Install Qualification
 
 on:
-  push:
-    branches:
-      - experiment/github-runner-capability-census
-    paths:
-      - 'scripts/github_runner_android_install.py'
-      - 'tests/test_github_runner_android_install.py'
-      - '.github/workflows/github-runner-android-install.yml'
   workflow_dispatch:
 
 permissions:
