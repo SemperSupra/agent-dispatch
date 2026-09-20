@@ -1,13 +1,6 @@
 name: GitHub Runner Android Setup Inventory
 
 on:
-  push:
-    branches:
-      - experiment/github-runner-capability-census
-    paths:
-      - 'scripts/github_runner_android_setup.py'
-      - 'tests/test_github_runner_android_setup.py'
-      - '.github/workflows/github-runner-android-setup.yml'
   workflow_dispatch:
 
 permissions:
