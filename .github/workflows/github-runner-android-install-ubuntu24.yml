@@ -1,0 +1,35 @@
+name: GitHub Runner Android Install Qualification Ubuntu 24
+
+on:
+  push:
+    branches:
+      - experiment/github-runner-capability-census
+    paths:
+      - '.github/workflows/github-runner-android-install-ubuntu24.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install bounded Android emulator workload and boot one AVD
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/android-install"
+          python3 scripts/github_runner_android_install.py             --label ubuntu-24.04             --out "${RUNNER_TEMP}/android-install/receipt.json"
+      - name: Upload public-safe qualification receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-android-install-ubuntu-24.04-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-install/receipt.json
+          if-no-files-found: error
+          retention-days: 7
