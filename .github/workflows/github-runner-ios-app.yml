@@ -1,0 +1,47 @@
+name: GitHub Runner iOS Simulator App Qualification
+
+on:
+  push:
+    branches:
+      - experiment/github-runner-capability-census
+    paths:
+      - 'scripts/github_runner_ios_app.py'
+      - 'tests/test_github_runner_ios_app.py'
+      - '.github/workflows/github-runner-ios-app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_github_runner_ios_app.py
+
+  qualify:
+    needs: contract
+    runs-on: macos-26-intel
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build install launch and terminate one disposable Simulator app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/ios-app"
+          python3 scripts/github_runner_ios_app.py             --label macos-26-intel             --out "${RUNNER_TEMP}/ios-app/receipt.json"
+      - name: Upload public-safe qualification receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-ios-app-macos-26-intel-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-app/receipt.json
+          if-no-files-found: error
+          retention-days: 7
