@@ -1,11 +1,6 @@
 name: GitHub Runner Representative Workload
 
 on:
-  push:
-    branches:
-      - experiment/github-runner-capability-census
-    paths:
-      - '.github/workflows/github-runner-workload.yml'
   workflow_dispatch:
 
 permissions:
