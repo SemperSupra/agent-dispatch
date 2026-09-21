@@ -75,3 +75,115 @@ jobs:
           assert receipt['status'] == 'completed'
           assert len(receipt['sealed_sha256']) == 64
           PY
+
+      - name: Exercise AAR public-safe recovery validation through sealed executor
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/tmp/aar-sealed-proof
+          rm -rf "$root"
+          mkdir -p "$root/capsule"
+
+          curl -fL --retry 3 \
+            https://raw.githubusercontent.com/SemperSupra/android-artifact-recovery/b5b62e8e6068e210c4555dfb8d5ea27a41c78ea2/tools/summarize_recovery_evidence.py \
+            -o "$root/capsule/summarize_recovery_evidence.py"
+
+          cat > "$root/capsule/static.json" <<'JSON'
+          {
+            "schema": "aar-static-recovery/v0",
+            "artifact": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "status": "PARTIAL",
+            "tools": {
+              "jadx": {"returncode": 0, "stdout": "1.5.6"}
+            }
+          }
+          JSON
+
+          cat > "$root/capsule/rebuild.json" <<'JSON'
+          {
+            "schema": "aar-rebuild-feasibility/v0",
+            "status": "NOT-REBUILDABLE-AS-EXPORTED",
+            "command": ["gradle", "--no-daemon", "assembleDebug"]
+          }
+          JSON
+
+          cat > "$root/capsule/behavior.json" <<'JSON'
+          {
+            "schema": "aar-behavior-comparison/v0",
+            "status": "BEHAVIOR-MATCH",
+            "candidate_state": "executed"
+          }
+          JSON
+
+          cat > "$root/capsule/run.sh" <<'SH'
+          set -euo pipefail
+          python3 summarize_recovery_evidence.py \
+            --artifact-sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            --static static.json \
+            --rebuild rebuild.json \
+            --behavior behavior.json \
+            --out "$SEALED_RESULT_DIR/aar-summary.json"
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["SEALED_RESULT_DIR"])
+          summary = json.loads((out / "aar-summary.json").read_text())
+          receipt = {
+              "schema": "aar-agent-dispatch-proof/v0",
+              "task_class": "aar.recovery.validate",
+              "authority_owner": "android-artifact-recovery",
+              "executor": "agent-dispatch/sealed-public-execution",
+              "artifact_sha256": summary["artifact"]["sha256"],
+              "claim_ids": [x["id"] for x in summary["claims"]],
+              "unknown_ids": [x["id"] for x in summary["unknowns"]],
+          }
+          (out / "aar-dispatch-receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          PY
+          SH
+
+          chmod 700 "$root/capsule/run.sh"
+          tar -C "$root/capsule" -czf "$root/capsule.tar.gz" \
+            run.sh summarize_recovery_evidence.py static.json rebuild.json behavior.json
+          capsule_sha=$(sha256sum "$root/capsule.tar.gz" | awk '{print $1}')
+          capsule_b64=$(base64 -w0 "$root/capsule.tar.gz")
+
+          age-keygen -o "$root/identity.txt" >/dev/null 2>&1
+          recipient=$(awk '/# public key:/ {print $4}' "$root/identity.txt")
+          test -n "$recipient"
+
+          python3 scripts/sealed_public_execution.py \
+            --assignment-id aar-golden-qualify-001 \
+            --capsule-b64 "$capsule_b64" \
+            --capsule-sha256 "$capsule_sha" \
+            --recipient "$recipient" \
+            --timeout-seconds 60 \
+            --out-dir "$root/sealed"
+
+          age --decrypt \
+            --identity "$root/identity.txt" \
+            --output "$root/result.tar.gz" \
+            "$root/sealed/result.age"
+          mkdir "$root/result"
+          tar -C "$root/result" -xzf "$root/result.tar.gz"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("/tmp/aar-sealed-proof")
+          execution = json.loads((root / "result/execution.json").read_text())
+          summary = json.loads((root / "result/files/aar-summary.json").read_text())
+          aar = json.loads((root / "result/files/aar-dispatch-receipt.json").read_text())
+          sealed = json.loads((root / "sealed/receipt.json").read_text())
+
+          assert execution["assignment_id"] == "aar-golden-qualify-001"
+          assert execution["exit_code"] == 0
+          assert sealed["status"] == "completed"
+          assert aar["task_class"] == "aar.recovery.validate"
+          assert aar["authority_owner"] == "android-artifact-recovery"
+          assert aar["executor"] == "agent-dispatch/sealed-public-execution"
+          assert "artifact.identity" in aar["claim_ids"]
+          assert "static.representations" in aar["claim_ids"]
+          assert "rebuild.feasibility" in aar["claim_ids"]
+          assert "behavior.declared-vector" in aar["claim_ids"]
+          assert summary["artifact"]["sha256"] == "a" * 64
+          assert any(x["id"] == "execution-environment" for x in summary["unknowns"])
+          PY
