@@ -1,14 +1,6 @@
 name: Firecracker R2 Outbound Network
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest/r2-network-probe.go"
-      - "scripts/github_runner_firecracker_r2_network.py"
-      - "tests/test_github_runner_firecracker_r2_network.py"
-      - ".github/workflows/github-runner-firecracker-r2-network.yml"
   workflow_dispatch:
 
 permissions:
