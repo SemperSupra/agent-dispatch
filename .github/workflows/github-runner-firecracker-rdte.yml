@@ -46,3 +46,48 @@ jobs:
           path: ${{ runner.temp }}/firecracker-rdte/receipt.json
           if-no-files-found: error
           retention-days: 7
+
+  f1-kernel-discovery:
+    needs: f0
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Resolve one exact official Firecracker CI kernel candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/firecracker-kernel-discovery"
+          mkdir -p "$out"
+          S3="https://s3.amazonaws.com/spec.ccfc.min"
+          prefix="$(curl -fsSL "$S3?list-type=2&prefix=firecracker-ci/&delimiter=/" \
+            | grep -oP '(?<=<Prefix>)firecracker-ci/[0-9]{8}-[^/]+/(?=</Prefix>)' \
+            | sort | tail -1)"
+          test -n "$prefix"
+          key="$(curl -fsSL "$S3?list-type=2&prefix=${prefix}x86_64/vmlinux-" \
+            | grep -oP "(?<=<Key>)(${prefix}x86_64/vmlinux-[0-9]+\.[0-9]+\.[0-9]{1,3})(?=</Key>)" \
+            | sort -V | tail -1)"
+          test -n "$key"
+          curl -fsSL --retry 2 -o "$out/kernel" "$S3/$key"
+          sha="$(sha256sum "$out/kernel" | awk '{print $1}')"
+          size="$(stat -c '%s' "$out/kernel")"
+          PREFIX="$prefix" KEY="$key" SHA="$sha" SIZE="$size" python3 - <<'PY' > "$out/candidate.json"
+          import json, os
+          print(json.dumps({
+              "schema": "github-runner-firecracker-kernel-discovery/v1",
+              "result": "DISCOVERY_ONLY",
+              "source": "official Firecracker CI demonstration artifacts",
+              "ci_prefix": os.environ["PREFIX"],
+              "object_key": os.environ["KEY"],
+              "sha256": os.environ["SHA"],
+              "size_bytes": int(os.environ["SIZE"]),
+              "claim": "candidate identity only; not F1 boot evidence"
+          }, indent=2, sort_keys=True))
+          PY
+          cat "$out/candidate.json"
+      - name: Upload discovery receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-rdte-f1-kernel-discovery-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-kernel-discovery/candidate.json
+          if-no-files-found: error
+          retention-days: 7
