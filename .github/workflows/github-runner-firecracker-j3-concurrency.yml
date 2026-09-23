@@ -1,13 +1,6 @@
 name: Firecracker J3 Jailed Concurrency
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_j3_concurrency.py"
-      - "tests/test_github_runner_firecracker_j3_concurrency.py"
-      - ".github/workflows/github-runner-firecracker-j3-concurrency.yml"
   workflow_dispatch:
 
 permissions:
