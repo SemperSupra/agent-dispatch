@@ -1,13 +1,6 @@
 name: Firecracker J2 Jailer Controls
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_j2_jailer_controls.py"
-      - "tests/test_github_runner_firecracker_j2_jailer_controls.py"
-      - ".github/workflows/github-runner-firecracker-j2-jailer-controls.yml"
   workflow_dispatch:
 
 permissions:

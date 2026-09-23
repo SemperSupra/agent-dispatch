@@ -1,13 +1,6 @@
 name: Firecracker R0a Guest Shape Envelope
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_r0a_shape_envelope.py"
-      - "tests/test_github_runner_firecracker_r0a_shape_envelope.py"
-      - ".github/workflows/github-runner-firecracker-r0a-shape.yml"
   workflow_dispatch:
 
 permissions:
