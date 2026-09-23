@@ -1,15 +1,6 @@
 name: Firecracker GHA RDTE F2 Input Result
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "experiments/firecracker/guest/f2-input.txt"
-      - "experiments/firecracker/guest/f2-init-x86_64.c"
-      - "scripts/github_runner_firecracker_f2_input_result.py"
-      - "tests/test_github_runner_firecracker_f2_input_result.py"
-      - ".github/workflows/github-runner-firecracker-f2-input-result.yml"
   workflow_dispatch:
 
 permissions:
