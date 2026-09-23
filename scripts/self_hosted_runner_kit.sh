@@ -153,8 +153,7 @@ stage() {
   mkdir -p "$parent"
   tmp="$(mktemp -d "$parent/.runner-stage.XXXXXX")"
   archive="$tmp/runner.tar.gz"
-  cleanup_stage() { rm -rf -- "$tmp"; }
-  trap cleanup_stage RETURN
+  trap "rm -rf -- '$tmp'" EXIT
 
   curl --fail --location --retry 3 --silent --show-error "$url" -o "$archive"
   actual="$(sha256sum "$archive" | awk '{print $1}')"
@@ -172,6 +171,8 @@ stage() {
   [[ "$observed" == "$version" ]] || { echo "runner package version oracle failed" >&2; return 5; }
   printf '%s %s\n' "$version" "$sha256" > "$tmp/root/.runner-kit-stage"
   mv "$tmp/root" "$work_dir"
+  rm -rf -- "$tmp"
+  trap - EXIT
 
   STAGE_CONTRACT="$CONTRACT_VERSION" STAGE_VERSION="$version" STAGE_SHA="$sha256" STAGE_ARCH="$arch" STAGE_DIR="$work_dir" STAGE_OBSERVED="$observed" STAGE_REUSED=false python3 -c 'import json,os; print(json.dumps({"contract":os.environ["STAGE_CONTRACT"],"version":os.environ["STAGE_VERSION"],"sha256":os.environ["STAGE_SHA"],"arch":os.environ["STAGE_ARCH"],"work_dir":os.environ["STAGE_DIR"],"observed_version":os.environ["STAGE_OBSERVED"],"reused":os.environ["STAGE_REUSED"]=="true"},sort_keys=True))'
 }
