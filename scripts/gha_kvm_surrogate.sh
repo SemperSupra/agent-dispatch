@@ -117,7 +117,7 @@ sudo -n qemu-system-x86_64 \
   -drive "file=$STATE_DIR/seed.img,if=virtio,format=raw,readonly=on" \
   -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:${PORT}-:22" \
   -device virtio-net-pci,netdev=net0 \
-  -nographic -monitor none \
+  -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
   -daemonize -pidfile "$STATE_DIR/qemu.pid"
 QEMU_PID="$(sudo -n cat "$STATE_DIR/qemu.pid")"
