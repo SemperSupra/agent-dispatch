@@ -57,6 +57,7 @@ def run_probe(label:str)->dict:
             point=r0b._run_point(
                 mode="mem",firecracker=fc,kernel=kernel,init_bin=init_bin,candidate_bin=candidate_bin,
                 work=work,vcpus=1,guest_mem_mib=GUEST_MEM_MIB,config_text=f"mode=mem\nmib={WORKING_SET_MIB}\n",expected_meta=meta,
+                vm_timeout_seconds=40,
             )
         point["working_set_mib"]=WORKING_SET_MIB
         return {
