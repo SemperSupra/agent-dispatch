@@ -9,7 +9,7 @@ import platform
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import github_runner_firecracker_f0 as f0
+import firecracker_execution_adapter as exec_adapter
 
 
 def fingerprint() -> dict:
@@ -32,7 +32,7 @@ def fingerprint() -> dict:
     except OSError:
         pass
 
-    kvm = f0._kvm_sudo_probe()
+    kvm = exec_adapter.select_kvm_access()
     flags_text = " ".join(flags)
     return {
         "architecture": platform.machine(),
@@ -44,7 +44,7 @@ def fingerprint() -> dict:
         "host_kernel_release": platform.release(),
         "image_os": os.environ.get("ImageOS"),
         "image_version": os.environ.get("ImageVersion"),
-        "kvm_api_version": kvm.get("api_version"),
+        "kvm_api_version": kvm.get("kvm_api_version"),
     }
 
 
