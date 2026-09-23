@@ -49,6 +49,8 @@ F3_CAPSULE_SCHEMA = "firecracker-rdte-capsule/v0"
 F3_RESULT_SCHEMA = "firecracker-rdte-result/v0"
 F3_PAYLOAD = b"portable sovereign transfer\nmicrovm capsule\n"
 F3_NONCE = "FC_RDTE_F3_NONCE=c0def33e"
+F4_NONCE = "FC_RDTE_F4_NONCE=c0def44e"
+F4_MUTATION = "FC_RDTE_F4_MUTATION=created"
 
 
 def sha256_file(path: Path) -> str:
@@ -425,6 +427,107 @@ int main(void) {
     return initrd, build
 
 
+
+def compile_f4_init(temp: Path) -> tuple[Path, dict[str, Any]]:
+    source = temp / "init-f4.c"
+    binary = temp / "init-f4"
+    source.write_text(
+        r'''#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/mount.h>
+#include <sys/reboot.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static int fail(const char *msg) {
+    dprintf(STDERR_FILENO, "FC_RDTE_F4_ERROR=%s\n", msg);
+    sync();
+    reboot(RB_AUTOBOOT);
+    _exit(132);
+}
+
+static uint32_t crc32_step(uint32_t crc, const unsigned char *buf, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        crc ^= buf[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            uint32_t mask = -(crc & 1u);
+            crc = (crc >> 1) ^ (0xedb88320u & mask);
+        }
+    }
+    return crc;
+}
+
+int main(void) {
+    const char expected_manifest[] =
+        "{\"schema\":\"firecracker-rdte-capsule/v0\",\"operation\":\"crc32\",\"input\":\"payload.bin\"}\n";
+    const char mutation[] = "FC_RDTE_F4_MUTATION=created\n";
+    const char nonce[] = "FC_RDTE_F4_NONCE=c0def44e\n";
+    char manifest[512] = {0};
+    unsigned char buf[4096];
+
+    mkdir("/dev", 0755);
+    if (mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) != 0) return fail("mount-devtmpfs");
+    mkdir("/input", 0755);
+    mkdir("/output", 0755);
+    mkdir("/scratch", 0755);
+    if (mount("/dev/vda", "/input", "ext4", MS_RDONLY, NULL) != 0) return fail("mount-input");
+    if (mount("/dev/vdb", "/output", "ext4", 0, NULL) != 0) return fail("mount-output");
+    if (mount("/dev/vdc", "/scratch", "ext4", 0, NULL) != 0) return fail("mount-scratch");
+
+    int mf = open("/input/capsule.json", O_RDONLY);
+    if (mf < 0) return fail("open-capsule");
+    ssize_t mn = read(mf, manifest, sizeof(manifest) - 1);
+    close(mf);
+    if (mn < 0 || strcmp(manifest, expected_manifest) != 0) return fail("capsule-mismatch");
+
+    int sm = open("/scratch/guest-mutation.txt", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (sm < 0) return fail("open-scratch");
+    if (write(sm, mutation, sizeof(mutation) - 1) != (ssize_t)(sizeof(mutation) - 1)) return fail("write-scratch");
+    fsync(sm);
+    close(sm);
+
+    int in = open("/input/payload.bin", O_RDONLY);
+    if (in < 0) return fail("open-payload");
+    uint32_t crc = 0xffffffffu;
+    unsigned long long total = 0;
+    for (;;) {
+        ssize_t n = read(in, buf, sizeof(buf));
+        if (n < 0) return fail("read-payload");
+        if (n == 0) break;
+        crc = crc32_step(crc, buf, (size_t)n);
+        total += (unsigned long long)n;
+    }
+    close(in);
+    crc ^= 0xffffffffu;
+
+    int out = open("/output/result.json", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (out < 0) return fail("open-result");
+    if (dprintf(
+            out,
+            "{\"schema\":\"firecracker-rdte-result/v0\",\"status\":\"ok\",\"operation\":\"crc32\",\"bytes\":%llu,\"crc32\":\"%08x\"}\n",
+            total,
+            crc) < 0) return fail("write-result");
+    fsync(out);
+    close(out);
+    sync();
+    (void)write(STDOUT_FILENO, nonce, sizeof(nonce) - 1);
+    reboot(RB_AUTOBOOT);
+    _exit(133);
+}
+'''
+    )
+    build = command(["cc", "-static", "-Os", "-s", "-o", str(binary), str(source)], timeout=30)
+    if build.get("returncode") != 0 or not binary.exists():
+        raise RuntimeError(f"static F4 guest init build failed: {build}")
+
+    initrd = temp / "initrd-f4.cpio"
+    initrd.write_bytes(build_newc_single_file("init", binary.read_bytes()))
+    return initrd, build
+
+
 def make_receipt(rung: str) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
@@ -442,9 +545,9 @@ def make_receipt(rung: str) -> dict[str, Any]:
                 "version_command": None,
             },
             "guest_kernel": {
-                "object_key": KERNEL_OBJECT_KEY if rung in {"F1", "F2", "F3"} else None,
-                "url": KERNEL_URL if rung in {"F1", "F2", "F3"} else None,
-                "sha256_expected": KERNEL_SHA256 if rung in {"F1", "F2", "F3"} else None,
+                "object_key": KERNEL_OBJECT_KEY if rung in {"F1", "F2", "F3", "F4"} else None,
+                "url": KERNEL_URL if rung in {"F1", "F2", "F3", "F4"} else None,
+                "sha256_expected": KERNEL_SHA256 if rung in {"F1", "F2", "F3", "F4"} else None,
                 "sha256_observed": None,
             },
             "initrd": None,
@@ -945,12 +1048,217 @@ def run_f3(out: Path) -> int:
     return 0
 
 
+
+def run_f4(out: Path) -> int:
+    receipt = make_receipt("F4")
+    early = preflight(receipt)
+    if early is not None:
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return early
+
+    retained_result: dict[str, Any] | None = None
+    retained_result_sha256: str | None = None
+    scratch_observed = False
+    temp_path: Path | None = None
+    boot: dict[str, Any] | None = None
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="fc-rdte-f4-") as td:
+            temp = Path(td)
+            temp_path = temp
+
+            binary, fc_sha, version = materialize_firecracker(temp)
+            receipt["portable_evidence"]["vmm"]["sha256_observed"] = fc_sha
+            receipt["portable_evidence"]["vmm"]["version_command"] = version
+            receipt["claims"]["firecracker_acquisition_callable"] = True
+
+            kernel = temp / "vmlinux-6.18.48"
+            kernel_sha = download_verified(KERNEL_URL, KERNEL_SHA256, kernel)
+            receipt["portable_evidence"]["guest_kernel"]["sha256_observed"] = kernel_sha
+
+            initrd, build = compile_f4_init(temp)
+            receipt["portable_evidence"]["initrd"] = {
+                "format": "newc",
+                "contents": ["/init"],
+                "build_command": build,
+                "sha256": sha256_file(initrd),
+            }
+
+            input_dir = temp / "input-dir"
+            empty_dir = temp / "empty-dir"
+            input_dir.mkdir()
+            empty_dir.mkdir()
+            request = {
+                "schema": F3_CAPSULE_SCHEMA,
+                "operation": "crc32",
+                "input": "payload.bin",
+            }
+            request_bytes = (
+                json.dumps(request, separators=(",", ":"), sort_keys=False) + "\n"
+            ).encode("utf-8")
+            (input_dir / "capsule.json").write_bytes(request_bytes)
+            (input_dir / "payload.bin").write_bytes(F3_PAYLOAD)
+
+            input_image = temp / "input.ext4"
+            output_image = temp / "output.ext4"
+            scratch_image = temp / "scratch.ext4"
+            mk_ext4_image(input_image, input_dir, "55555555-5555-5555-5555-555555555555")
+            mk_ext4_image(output_image, empty_dir, "66666666-6666-6666-6666-666666666666")
+            mk_ext4_image(scratch_image, empty_dir, "77777777-7777-7777-7777-777777777777")
+
+            config = temp / "vm-f4.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "boot-source": {
+                            "kernel_image_path": str(kernel),
+                            "initrd_path": str(initrd),
+                            "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
+                        },
+                        "drives": [
+                            f2_drive("input", input_image, True),
+                            f2_drive("output", output_image, False),
+                            f2_drive("scratch", scratch_image, False),
+                        ],
+                        "machine-config": {
+                            "vcpu_count": 1,
+                            "mem_size_mib": 128,
+                            "smt": False,
+                            "track_dirty_pages": False,
+                            "huge_pages": "None",
+                        },
+                        "cpu-config": None,
+                        "balloon": None,
+                        "network-interfaces": [],
+                        "vsock": None,
+                        "logger": None,
+                        "metrics": None,
+                        "mmds-config": None,
+                        "entropy": None,
+                        "pmem": [],
+                        "memory-hotplug": None,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+
+            boot = command(
+                ["sudo", "-n", str(binary), "--no-api", "--config-file", str(config)],
+                timeout=20,
+                keep=16384,
+            )
+            serial = (boot.get("stdout") or "") + "\n" + (boot.get("stderr") or "")
+            if F4_NONCE not in serial:
+                raise RuntimeError("F4 guest serial nonce not observed")
+
+            result_readback = command(
+                ["debugfs", "-R", "cat /result.json", str(output_image)],
+                timeout=10,
+                keep=4096,
+            )
+            mutation_readback = command(
+                ["debugfs", "-R", "cat /guest-mutation.txt", str(scratch_image)],
+                timeout=10,
+                keep=4096,
+            )
+            raw_result = result_readback.get("stdout", "").strip()
+            retained_result_sha256 = hashlib.sha256(raw_result.encode("utf-8")).hexdigest()
+            retained_result = json.loads(raw_result)
+            scratch_observed = mutation_readback.get("stdout", "").strip() == F4_MUTATION
+
+            expected_crc32 = f"{zlib.crc32(F3_PAYLOAD) & 0xffffffff:08x}"
+            expected_result = {
+                "schema": F3_RESULT_SCHEMA,
+                "status": "ok",
+                "operation": "crc32",
+                "bytes": len(F3_PAYLOAD),
+                "crc32": expected_crc32,
+            }
+            if retained_result != expected_result or not scratch_observed:
+                raise RuntimeError("F4 result or scratch mutation oracle failed")
+
+            receipt["portable_evidence"]["guest_boot"] = {
+                "expected_serial_nonce": F4_NONCE,
+                "command": boot,
+                "network_interfaces_configured": 0,
+            }
+            receipt["portable_evidence"]["work_capsule"] = {
+                "request": request,
+                "payload_sha256": hashlib.sha256(F3_PAYLOAD).hexdigest(),
+                "retained_result": retained_result,
+                "retained_result_sha256": retained_result_sha256,
+            }
+
+        embodiment_absent = temp_path is not None and not temp_path.exists()
+        retained_still_valid = (
+            retained_result is not None
+            and retained_result_sha256
+            == hashlib.sha256(
+                json.dumps(retained_result, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+        )
+        # JSON normalization changes whitespace relative to the raw guest result, so
+        # semantic validity is checked separately below.
+        expected_crc32 = f"{zlib.crc32(F3_PAYLOAD) & 0xffffffff:08x}"
+        semantic_result_valid = retained_result == {
+            "schema": F3_RESULT_SCHEMA,
+            "status": "ok",
+            "operation": "crc32",
+            "bytes": len(F3_PAYLOAD),
+            "crc32": expected_crc32,
+        }
+
+        receipt["portable_evidence"]["guest_destruction"] = {
+            "guest_process_exited": boot is not None and boot.get("returncode") == 0,
+            "scratch_mutation_observed_before_destroy": scratch_observed,
+            "experiment_directory_absent_after_destroy": embodiment_absent,
+            "retained_result_semantically_valid_after_destroy": semantic_result_valid,
+            "retained_raw_result_sha256": retained_result_sha256,
+        }
+        receipt["portable_evidence"]["network_policy"] = "NO_GUEST_NETWORK_INTERFACE_CONFIGURED"
+
+        if not (
+            boot is not None
+            and boot.get("returncode") == 0
+            and scratch_observed
+            and embodiment_absent
+            and semantic_result_valid
+        ):
+            receipt["result"] = "ORACLE_FAILURE"
+            receipt["notes"].append("F4 destruction/result-retention oracle failed.")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+
+    except Exception as exc:
+        receipt["result"] = "HARNESS_FAILURE"
+        receipt["notes"].append(f"F4 harness failed: {type(exc).__name__}: {exc}")
+        if temp_path is not None:
+            receipt["portable_evidence"]["guest_destruction"] = {
+                "experiment_directory_absent_after_failure": not temp_path.exists()
+            }
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return 2
+
+    receipt["result"] = "SUPPORTED"
+    receipt["claims"]["guest_boot_supported"] = True
+    receipt["claims"]["experiment_capsule_supported"] = True
+    receipt["notes"].append(
+        "F4 proves declared guest scratch mutation, external result retention, and removal of all experiment-owned embodiment files after guest/VMM exit. Sovereign operational readiness remains unproven."
+    )
+    out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rung", choices=["f0", "f1", "f2", "f3"], default="f0")
+    parser.add_argument("--rung", choices=["f0", "f1", "f2", "f3", "f4"], default="f0")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    if args.rung == "f4":
+        return run_f4(args.out)
     if args.rung == "f3":
         return run_f3(args.out)
     if args.rung == "f2":

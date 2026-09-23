@@ -31,7 +31,7 @@ class FirecrackerRdteContractTests(unittest.TestCase):
         )
 
     def test_no_rung_can_claim_sovereign_readiness_by_default(self):
-        for rung in ("F0", "F1", "F2", "F3"):
+        for rung in ("F0", "F1", "F2", "F3", "F4"):
             receipt = rdte.make_receipt(rung)
             self.assertFalse(receipt["claims"]["sovereign_operational_ready"])
             self.assertFalse(receipt["claims"]["microvm_workload_supported"])
@@ -48,6 +48,12 @@ class FirecrackerRdteContractTests(unittest.TestCase):
         self.assertTrue(a.startswith(b"070701"))
         self.assertIn(b"init\0", a)
         self.assertIn(b"TRAILER!!!\0", a)
+
+    def test_f4_still_withholds_operational_promotion(self):
+        receipt = rdte.make_receipt("F4")
+        self.assertFalse(receipt["claims"]["microvm_workload_supported"])
+        self.assertFalse(receipt["claims"]["sovereign_operational_ready"])
+        self.assertEqual(receipt["portable_evidence"]["guest_destruction"], "UNTESTED")
 
     def test_f3_is_experiment_local_not_generic_workcell(self):
         self.assertEqual(rdte.F3_CAPSULE_SCHEMA, "firecracker-rdte-capsule/v0")

@@ -22,7 +22,7 @@ jobs:
       - name: Validate Firecracker RDTE contract
         run: python3 -m unittest -v tests/test_github_runner_firecracker_rdte.py
 
-  f3:
+  f4:
     needs: contract
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -30,22 +30,22 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Execute experiment-local versioned capsule
+      - name: Prove destructive disposability with retained result
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/firecracker-rdte-f3"
+          mkdir -p "${RUNNER_TEMP}/firecracker-rdte-f4"
           rc=0
           python3 scripts/github_runner_firecracker_rdte.py \
-            --rung f3 \
-            --out "${RUNNER_TEMP}/firecracker-rdte-f3/receipt.json" || rc=$?
-          python3 -m json.tool "${RUNNER_TEMP}/firecracker-rdte-f3/receipt.json"
+            --rung f4 \
+            --out "${RUNNER_TEMP}/firecracker-rdte-f4/receipt.json" || rc=$?
+          python3 -m json.tool "${RUNNER_TEMP}/firecracker-rdte-f4/receipt.json"
           exit "$rc"
-      - name: Upload public-safe F3 receipt
+      - name: Upload public-safe F4 receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: firecracker-rdte-f3-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/firecracker-rdte-f3/receipt.json
+          name: firecracker-rdte-f4-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-rdte-f4/receipt.json
           if-no-files-found: error
           retention-days: 7
