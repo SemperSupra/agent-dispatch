@@ -18,6 +18,7 @@ import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_runner_firecracker_f0 as f0
+import firecracker_execution_adapter as exec_adapter
 from firecracker_host_fingerprint import fingerprint, compare_for_initial_snapshot_restore
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -79,20 +80,24 @@ def _docker_state() -> dict:
 
 def build_receipt(compare_to: pathlib.Path | None = None) -> dict:
     host = fingerprint()
-    direct_kvm = f0._kvm_user_probe()
-    sudo_kvm = f0._kvm_sudo_probe() if direct_kvm.get("present") else {
+    access = exec_adapter.select_kvm_access()
+    direct_kvm = access.get("user_probe") or {
+        "present": False,
+        "callable": False,
+        "api_version": None,
+        "error": "direct KVM probe unavailable",
+    }
+    sudo_kvm = access.get("sudo_probe") or {
         "available": bool(shutil.which("sudo")),
         "callable": False,
         "api_version": None,
-        "error": "KVM absent; sudo probe not attempted",
+        "error": "sudo fallback not selected",
     }
 
-    if direct_kvm.get("callable"):
-        kvm_access = "direct-user"
-    elif sudo_kvm.get("callable"):
-        kvm_access = "passwordless-sudo"
-    else:
-        kvm_access = "unavailable"
+    kvm_access = {
+        "direct": "direct-user",
+        "sudo": "passwordless-sudo",
+    }.get(access.get("mode"), "unavailable")
 
     required_tools = {name: _tool_state(name) for name in REQUIRED_TOOLS}
     optional_tools = {"docker": _docker_state()}
@@ -111,10 +116,7 @@ def build_receipt(compare_to: pathlib.Path | None = None) -> dict:
     core_checks = {
         "linux": platform.system() == "Linux",
         "x86_64": platform.machine() in {"x86_64", "amd64"},
-        "kvm_api_12_callable": (
-            direct_kvm.get("api_version") == f0.EXPECTED_KVM_API_VERSION
-            or sudo_kvm.get("api_version") == f0.EXPECTED_KVM_API_VERSION
-        ),
+        "kvm_api_12_callable": access.get("kvm_api_version") == f0.EXPECTED_KVM_API_VERSION,
         "required_tools_available": all(item["available"] for item in required_tools.values()),
         "portable_scripts_present": all(item["exists"] for item in scripts.values()),
         "pinned_vmm_manifest_present": VMM_MANIFEST.exists(),
