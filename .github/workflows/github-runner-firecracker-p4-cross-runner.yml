@@ -1,0 +1,79 @@
+name: Firecracker P4 Cross-Runner Snapshot
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/firecracker_host_fingerprint.py"
+      - "tests/test_firecracker_host_fingerprint.py"
+      - "scripts/github_runner_firecracker_p4_*.py"
+      - "tests/test_github_runner_firecracker_p4.py"
+      - ".github/workflows/github-runner-firecracker-p4-cross-runner.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test P4 host gate and producer/consumer contract
+        run: |
+          python3 -m unittest -v             tests/test_firecracker_host_fingerprint.py             tests/test_github_runner_firecracker_p4.py
+
+  producer:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Create stopped-source snapshot bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-p4-bundle"
+          python3 scripts/github_runner_firecracker_p4_producer.py             --out-dir "${RUNNER_TEMP}/firecracker-p4-bundle"
+      - name: Publish snapshot bundle for consumer job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p4-snapshot
+          path: ${{ runner.temp }}/firecracker-p4-bundle/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  consumer:
+    needs: producer
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Receive snapshot bundle from producer job
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: firecracker-p4-snapshot
+          path: ${{ runner.temp }}/firecracker-p4-bundle
+      - name: Gate compatibility and attempt bounded restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-p4-result"
+          python3 scripts/github_runner_firecracker_p4_consumer.py             --bundle "${RUNNER_TEMP}/firecracker-p4-bundle"             --out "${RUNNER_TEMP}/firecracker-p4-result/consumer.json"
+      - name: Upload consumer receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p4-consumer-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-p4-result/consumer.json
+          if-no-files-found: error
+          retention-days: 7
