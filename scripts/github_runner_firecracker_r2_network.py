@@ -87,10 +87,13 @@ def _default_uplink()->str|None:
     m=re.search(r"\bdev\s+(\S+)",out)
     return m.group(1) if m else None
 
+def _iptables_bin()->str|None:
+    return shutil.which("iptables-nft") or shutil.which("iptables")
+
 def _network_preflight()->dict:
     return {
         "ip":shutil.which("ip"),
-        "nft":shutil.which("nft"),
+        "iptables":_iptables_bin(),
         "sudo":shutil.which("sudo"),
         "go":shutil.which("go"),
         "ca_bundle":CA_BUNDLE.exists(),
@@ -98,13 +101,17 @@ def _network_preflight()->dict:
         "uplink":_default_uplink(),
     }
 
+def _ipt(binary:str,args:list[str],timeout:int=20)->dict:
+    return _sudo([binary,*args],timeout=timeout)
+
 def _setup_network(work:pathlib.Path)->dict:
     pf=_network_preflight()
-    if not all([pf["ip"],pf["nft"],pf["sudo"],pf["tun_present"],pf["uplink"]]):
+    if not all([pf["ip"],pf["iptables"],pf["sudo"],pf["tun_present"],pf["uplink"]]):
         raise RuntimeError(f"network preflight failed: {pf}")
     pid=os.getpid()
     tap=f"fcr2{pid}"[:15]
-    table=f"fcr2_{pid}"
+    chain=f"FCR2_{pid}"[:28]
+    ipt=pf["iptables"]
     original_forward=pathlib.Path("/proc/sys/net/ipv4/ip_forward").read_text().strip()
 
     for argv in [
@@ -113,62 +120,82 @@ def _setup_network(work:pathlib.Path)->dict:
         ["ip","link","set",tap,"up"],
         ["sysctl","-w","net.ipv4.ip_forward=1"],
     ]:
-        r=_sudo(argv)
-        if not r["ok"]:
-            raise RuntimeError(f"network setup failed: {argv}: {r['stderr']}")
+        rr=_sudo(argv)
+        if not rr["ok"]:
+            raise RuntimeError(f"network setup failed: {argv}: {rr['stderr']}")
 
-    rules=work/"r2.nft"
-    rules.write_text(f'''table ip {table} {{
- chain input {{
-  type filter hook input priority -10; policy accept;
-  iifname "{tap}" counter drop
- }}
- chain forward {{
-  type filter hook forward priority -10; policy accept;
-  iifname "{tap}" ip daddr 0.0.0.0/8 counter drop
-  iifname "{tap}" ip daddr 10.0.0.0/8 counter drop
-  iifname "{tap}" ip daddr 100.64.0.0/10 counter drop
-  iifname "{tap}" ip daddr 127.0.0.0/8 counter drop
-  iifname "{tap}" ip daddr 169.254.0.0/16 counter drop
-  iifname "{tap}" ip daddr 172.16.0.0/12 counter drop
-  iifname "{tap}" ip daddr 192.168.0.0/16 counter drop
-  iifname "{tap}" ip daddr 224.0.0.0/4 counter drop
-  iifname "{tap}" ip daddr 240.0.0.0/4 counter drop
-  iifname "{tap}" oifname "{pf["uplink"]}" counter accept
- }}
- chain postrouting {{
-  type nat hook postrouting priority srcnat; policy accept;
-  ip saddr {GUEST_IP} oifname "{pf["uplink"]}" counter masquerade
- }}
-}}
-''')
-    r=_sudo(["nft","-f",str(rules)])
-    if not r["ok"]:
-        _sudo(["ip","link","del",tap])
-        _sudo(["sysctl","-w",f"net.ipv4.ip_forward={original_forward}"])
-        raise RuntimeError(f"nft setup failed: {r['stderr']}")
-    return {"tap":tap,"table":table,"uplink":pf["uplink"],"original_ip_forward":original_forward,"preflight":pf}
+    created=[]
+    def apply(args:list[str]):
+        rr=_ipt(ipt,args)
+        if not rr["ok"]:
+            raise RuntimeError(f"iptables setup failed: {args}: {rr['stderr']}")
+        created.append(args)
+
+    try:
+        apply(["-N",chain])
+        for cidr in [
+            "0.0.0.0/8","10.0.0.0/8","100.64.0.0/10","127.0.0.0/8",
+            "169.254.0.0/16","172.16.0.0/12","192.168.0.0/16",
+            "224.0.0.0/4","240.0.0.0/4",
+        ]:
+            apply(["-A",chain,"-d",cidr,"-j","DROP"])
+        apply(["-A",chain,"-o",pf["uplink"],"-j","ACCEPT"])
+        apply(["-A",chain,"-j","DROP"])
+        apply(["-I","FORWARD","1","-i",tap,"-j",chain])
+        apply(["-I","FORWARD","1","-o",tap,"-m","conntrack","--ctstate","RELATED,ESTABLISHED","-j","ACCEPT"])
+        apply(["-I","INPUT","1","-i",tap,"-j","DROP"])
+        apply(["-t","nat","-A","POSTROUTING","-s",f"{GUEST_IP}/32","-o",pf["uplink"],"-j","MASQUERADE"])
+    except Exception:
+        _cleanup_network({
+            "tap":tap,"chain":chain,"uplink":pf["uplink"],"iptables":ipt,
+            "original_ip_forward":original_forward,
+        })
+        raise
+
+    return {
+        "tap":tap,"chain":chain,"uplink":pf["uplink"],"iptables":ipt,
+        "original_ip_forward":original_forward,"preflight":pf,
+    }
 
 def _network_ruleset(state:dict)->str:
-    r=_sudo(["nft","list","table","ip",state["table"]])
-    return r["stdout"] if r["ok"] else r["stderr"]
+    ipt=state["iptables"]
+    parts=[]
+    for args in [
+        ["-L",state["chain"],"-v","-n","-x"],
+        ["-t","nat","-L","POSTROUTING","-v","-n","-x"],
+        ["-L","INPUT","-v","-n","-x"],
+    ]:
+        rr=_ipt(ipt,args)
+        parts.append(rr["stdout"] if rr["ok"] else rr["stderr"])
+    return "\n---\n".join(parts)
 
 def _cleanup_network(state:dict|None)->dict:
     if not state:
         return {"ok":True}
+    ipt=state.get("iptables") or _iptables_bin()
     actions=[]
-    for argv in [
-        ["nft","delete","table","ip",state["table"]],
+    commands=[
+        [ipt,"-t","nat","-D","POSTROUTING","-s",f"{GUEST_IP}/32","-o",state["uplink"],"-j","MASQUERADE"],
+        [ipt,"-D","INPUT","-i",state["tap"],"-j","DROP"],
+        [ipt,"-D","FORWARD","-o",state["tap"],"-m","conntrack","--ctstate","RELATED,ESTABLISHED","-j","ACCEPT"],
+        [ipt,"-D","FORWARD","-i",state["tap"],"-j",state["chain"]],
+        [ipt,"-F",state["chain"]],
+        [ipt,"-X",state["chain"]],
         ["ip","link","del",state["tap"]],
         ["sysctl","-w",f"net.ipv4.ip_forward={state['original_ip_forward']}"],
-    ]:
+    ]
+    for argv in commands:
+        if not argv[0]:
+            continue
         actions.append({"argv":argv,**_sudo(argv)})
-    return {"ok":all(a["ok"] for a in actions),"actions":actions}
+    # Missing rules during partial-setup cleanup are tolerated; link/sysctl restoration must succeed.
+    essential=[a for a in actions if a["argv"][0] in {"ip","sysctl"}]
+    return {"ok":all(a["ok"] for a in essential),"actions":actions}
 
 def _counter_for(ruleset:str,needle:str)->int:
     for line in ruleset.splitlines():
         if needle in line:
-            m=re.search(r"counter packets (\d+)",line)
+            m=re.match(r"\s*(\d+)\s+",line)
             if m:
                 return int(m.group(1))
     return 0
@@ -235,7 +262,7 @@ def run_probe(label:str)->dict:
                 "elapsed_ms":int(m.group(7)),
             }
         metadata_counter=_counter_for(ruleset,"169.254.0.0/16")
-        nat_counter=_counter_for(ruleset,"masquerade")
+        nat_counter=_counter_for(ruleset,"MASQUERADE")
         oracle=bool(observed) and (
             observed["dns_ipv4"]>0
             and 200<=observed["https_status"]<400
