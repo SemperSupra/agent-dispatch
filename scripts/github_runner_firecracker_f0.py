@@ -20,6 +20,8 @@ import tarfile
 import tempfile
 import urllib.request
 
+from firecracker_lifecycle_timing import LifecycleTimer
+
 PROBE_VERSION = "firecracker-f0/1"
 RECEIPT_SCHEMA = "firecracker-f0-receipt/v1"
 KVM_GET_API_VERSION = 0xAE00
@@ -163,6 +165,7 @@ def _classify(
 
 
 def run_probe(label: str, manifest_path: pathlib.Path) -> dict:
+    timer = LifecycleTimer()
     manifest = json.loads(manifest_path.read_text())
     expected_arch = manifest["architecture"]
     expected_digest = manifest["archive_sha256"]
@@ -173,13 +176,15 @@ def run_probe(label: str, manifest_path: pathlib.Path) -> dict:
     runner_arch = platform.machine()
     linux_x64 = runner_os == "Linux" and runner_arch in {"x86_64", "amd64"}
 
-    user_kvm = _kvm_user_probe()
-    sudo_kvm = _kvm_sudo_probe() if user_kvm["present"] else {
+    with timer.stage("kvm_user_preflight", "venue"):
+        user_kvm = _kvm_user_probe()
+    with timer.stage("kvm_sudo_preflight", "venue"):
+        sudo_kvm = _kvm_sudo_probe() if user_kvm["present"] else {
         "available": bool(shutil.which("sudo")),
         "callable": False,
         "api_version": None,
         "error": "KVM absent; sudo KVM oracle not attempted",
-    }
+        }
 
     digest_ok = False
     version_ok = False
@@ -195,17 +200,21 @@ def run_probe(label: str, manifest_path: pathlib.Path) -> dict:
                 archive = td_path / "firecracker.tgz"
                 extract_dir = td_path / "extract"
                 extract_dir.mkdir()
-                _download(manifest["archive_url"], archive)
-                actual_digest = _sha256(archive)
-                digest_ok = actual_digest == expected_digest
+                with timer.stage("vmm_download", "venue"):
+                    _download(manifest["archive_url"], archive)
+                with timer.stage("vmm_digest_verify", "portable"):
+                    actual_digest = _sha256(archive)
+                    digest_ok = actual_digest == expected_digest
                 if digest_ok:
-                    _safe_extract(archive, extract_dir)
-                    binary = _find_firecracker_binary(extract_dir, version, expected_arch)
-                    binary.chmod(binary.stat().st_mode | 0o111)
-                    binary_path = str(binary.relative_to(extract_dir))
-                    code, out, err = _run([str(binary), "--version"], timeout=15)
-                    version_output = (out or err)[:2000] or None
-                    version_ok = code == 0 and bool(version_output) and expected_version in version_output
+                    with timer.stage("vmm_extract", "portable"):
+                        _safe_extract(archive, extract_dir)
+                        binary = _find_firecracker_binary(extract_dir, version, expected_arch)
+                        binary.chmod(binary.stat().st_mode | 0o111)
+                        binary_path = str(binary.relative_to(extract_dir))
+                    with timer.stage("vmm_version_oracle", "portable"):
+                        code, out, err = _run([str(binary), "--version"], timeout=15)
+                        version_output = (out or err)[:2000] or None
+                        version_ok = code == 0 and bool(version_output) and expected_version in version_output
         except Exception as exc:
             acquisition_error = f"{type(exc).__name__}: {exc}"
 
@@ -263,6 +272,7 @@ def run_probe(label: str, manifest_path: pathlib.Path) -> dict:
                 "sudo_boundary_is_venue_specific": True,
             },
         },
+        "lifecycle_timing": timer.receipt(),
         "sovereign_transfer": {
             "portable_contract_depends_on_github_actions": False,
             "gha_specific_facts": [
