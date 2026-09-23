@@ -1,14 +1,6 @@
 name: Firecracker P5 Two-Runner Coordination
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "experiments/firecracker/p5/**"
-      - "scripts/github_runner_firecracker_p5_*.py"
-      - "tests/test_github_runner_firecracker_p5.py"
-      - ".github/workflows/github-runner-firecracker-p5-coordination.yml"
   workflow_dispatch:
 
 permissions:
