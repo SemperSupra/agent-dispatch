@@ -31,7 +31,7 @@ class FirecrackerRdteContractTests(unittest.TestCase):
         )
 
     def test_no_rung_can_claim_sovereign_readiness_by_default(self):
-        for rung in ("F0", "F1"):
+        for rung in ("F0", "F1", "F2"):
             receipt = rdte.make_receipt(rung)
             self.assertFalse(receipt["claims"]["sovereign_operational_ready"])
             self.assertFalse(receipt["claims"]["microvm_workload_supported"])
@@ -48,6 +48,14 @@ class FirecrackerRdteContractTests(unittest.TestCase):
         self.assertTrue(a.startswith(b"070701"))
         self.assertIn(b"init\0", a)
         self.assertIn(b"TRAILER!!!\0", a)
+
+    def test_f2_drive_contract_has_no_root_device(self):
+        ro = rdte.f2_drive("input", Path("/tmp/input.ext4"), True)
+        rw = rdte.f2_drive("output", Path("/tmp/output.ext4"), False)
+        self.assertFalse(ro["is_root_device"])
+        self.assertFalse(rw["is_root_device"])
+        self.assertTrue(ro["is_read_only"])
+        self.assertFalse(rw["is_read_only"])
 
     def test_sha256_helper(self):
         with tempfile.TemporaryDirectory() as td:
