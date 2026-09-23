@@ -295,14 +295,9 @@ if let device = MTLCreateSystemDefaultDevice() {
     result["name"] = device.name
     do {
         let library = try device.makeLibrary(source: kernelSource, options: nil)
-        guard let function = library.makeFunction(name: "add_one") else {
-            result["error"] = "kernel function missing"
-            let data = try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
-            print(String(data: data, encoding: .utf8)!)
-            exit(0)
-        }
-        let pipeline = try device.makeComputePipelineState(function: function)
-        if let queue = device.makeCommandQueue(),
+        if let function = library.makeFunction(name: "add_one") {
+            let pipeline = try device.makeComputePipelineState(function: function)
+            if let queue = device.makeCommandQueue(),
            let src = device.makeBuffer(length: 4, options: .storageModeShared),
            let dst = device.makeBuffer(length: 4, options: .storageModeShared),
            let command = queue.makeCommandBuffer(),
@@ -325,6 +320,9 @@ if let device = MTLCreateSystemDefaultDevice() {
             result["expected"] = UInt64(nonce) + 1
             result["observed"] = UInt64(got)
             result["oracle"] = (got == nonce + 1 && command.status == .completed)
+            }
+        } else {
+            result["error"] = "kernel function missing"
         }
     } catch {
         result["error"] = String(describing: error)
