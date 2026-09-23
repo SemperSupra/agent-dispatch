@@ -137,10 +137,12 @@ resolved_revision=snapshot_path.name
 
 files={}
 for p in sorted(snapshot_path.rglob("*")):
-    if p.is_file() and not p.is_symlink():
+    if p.is_file():
+        target=p.resolve()
         files[str(p.relative_to(snapshot_path))]={
-            "size":p.stat().st_size,
-            "sha256":sha256_file(p),
+            "size":target.stat().st_size,
+            "sha256":sha256_file(target),
+            "symlink":p.is_symlink(),
         }
 
 model,tokenizer=load(str(snapshot_path))
