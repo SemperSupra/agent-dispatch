@@ -200,6 +200,22 @@ Cross-runner snapshot files can be transported, but actual restore is compatibil
 
 Do not treat GitHub-hosted runners as a homogeneous migration pool.
 
+## Normal Linux userspace
+
+Run `35886922626` qualified the pinned official Firecracker CI Ubuntu 24.04 userspace behind the same microVM boundary:
+
+- Ubuntu 24.04 squashfs: 108,204,032 B, SHA-256 `9820d05b360b5838bfdf3c6d5bc6dc71adfa966075dc7fcd824172134746be21`;
+- root userspace remained read-only and retained the exact pre/post SHA-256;
+- separate 256 MiB ext4 scratch device mounted over `/tmp`;
+- Python 3.12.3 executed successfully;
+- `/bin/sh` subprocess behavior passed;
+- curl, fio, iproute2 and strace were present and discoverable;
+- deterministic scratch payload persisted and was independently recovered by the host after VM exit;
+- Firecracker userspace lifecycle: about 1.03 s;
+- post-VM scratch reconciliation: about 4.7 ms.
+
+This establishes that Firecracker on the qualified GHA x64 path is not limited to tiny freestanding/initramfs probes. A normal Linux CLI/runtime environment suitable for Python-based tooling can execute inside the microVM while keeping the authoritative root image immutable.
+
 ## Native-resource boundary
 
 Firecracker does not make arbitrary host-native devices automatically available to the guest. For the qualified GHA path, assume the portable guest resource vocabulary is limited to deliberately exposed virtual resources such as:
