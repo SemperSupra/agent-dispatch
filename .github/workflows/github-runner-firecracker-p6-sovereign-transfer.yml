@@ -1,0 +1,77 @@
+name: Firecracker P6 Sovereign Transfer Contract
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/firecracker_execution_adapter.py"
+      - "scripts/firecracker_host_fingerprint.py"
+      - "scripts/firecracker_sovereign_preflight.py"
+      - "scripts/firecracker_sovereign_transfer.py"
+      - "scripts/github_runner_firecracker_f3_useful_work.py"
+      - "scripts/github_runner_firecracker_p3_same_host_handoff.py"
+      - "tests/test_firecracker_host_fingerprint.py"
+      - "tests/test_firecracker_sovereign_preflight.py"
+      - "tests/test_firecracker_sovereign_transfer.py"
+      - "docs/experiments/firecracker-sovereign-transfer.md"
+      - ".github/workflows/github-runner-firecracker-p6-sovereign-transfer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test sovereign transfer contracts
+        run: |
+          python3 -m unittest -v \
+            tests/test_firecracker_host_fingerprint.py \
+            tests/test_firecracker_sovereign_preflight.py \
+            tests/test_firecracker_sovereign_transfer.py
+
+  reproduce-without-github-env:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Preflight with GitHub-specific environment removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-p6"
+          env -u GITHUB_ACTIONS -u GITHUB_RUN_ID -u GITHUB_REPOSITORY -u ImageOS -u ImageVersion \
+            python3 scripts/firecracker_sovereign_transfer.py preflight \
+              --out "${RUNNER_TEMP}/firecracker-p6/preflight.json"
+      - name: Reproduce F3 with GitHub-specific environment removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u GITHUB_ACTIONS -u GITHUB_RUN_ID -u GITHUB_REPOSITORY -u ImageOS -u ImageVersion \
+            python3 scripts/firecracker_sovereign_transfer.py f3 \
+              --input experiments/firecracker/guest/f3-input.txt \
+              --out "${RUNNER_TEMP}/firecracker-p6/f3.json"
+      - name: Reproduce P3 with GitHub-specific environment removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u GITHUB_ACTIONS -u GITHUB_RUN_ID -u GITHUB_REPOSITORY -u ImageOS -u ImageVersion \
+            python3 scripts/firecracker_sovereign_transfer.py p3 \
+              --out "${RUNNER_TEMP}/firecracker-p6/p3.json"
+      - name: Upload P6 receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p6-sovereign-transfer-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-p6/*.json
+          if-no-files-found: error
+          retention-days: 7
