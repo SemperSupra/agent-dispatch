@@ -1,14 +1,6 @@
 name: Firecracker P3 Same-Host Handoff
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "experiments/firecracker/p3/**"
-      - "scripts/github_runner_firecracker_p3_same_host_handoff.py"
-      - "tests/test_github_runner_firecracker_p3_same_host_handoff.py"
-      - ".github/workflows/github-runner-firecracker-p3-handoff.yml"
   workflow_dispatch:
 
 permissions:
