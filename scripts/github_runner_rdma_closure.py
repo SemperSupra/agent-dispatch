@@ -13,7 +13,7 @@ import tempfile
 from typing import Any
 
 SCHEMA = "github-runner-rdma-closure/v1"
-PROBE_VERSION = "public-rdma-verbs-closure/1"
+PROBE_VERSION = "public-rdma-verbs-closure/2"
 
 C_SOURCE = r'''
 #include <infiniband/verbs.h>
@@ -76,32 +76,46 @@ static int poll_one(struct ibv_cq *cq) {
     return -2;
 }
 
-int main(void) {
-    int num = 0, gid_index = -1, stage_rc = 0;
+int main(int argc, char **argv) {
+    int num = 0, selected = 0, gid_index = -1, stage_rc = 0;
+    const char *requested_device = argc > 1 ? argv[1] : NULL;
     int ok_context=0, ok_pd=0, ok_mr=0, ok_cq=0, ok_qp=0;
     int ok_states=0, ok_sendrecv=0, ok_write=0, ok_read=0;
     uint8_t port = 1; const char *stage = "device-list";
     struct ibv_device **list = NULL; struct ibv_context *ctx = NULL;
     struct ibv_pd *pd = NULL; struct endpoint a={0}, b={0};
     struct ibv_mr *mr_send=NULL, *mr_recv=NULL, *mr_read=NULL;
-    struct ibv_port_attr pa; union ibv_gid gid;
+    struct ibv_port_attr pa; struct ibv_device_attr da; union ibv_gid gid;
     uint64_t send_value = UINT64_C(0x1122334455667788), recv_value = 0, read_value = 0;
-    memset(&pa,0,sizeof(pa)); memset(&gid,0,sizeof(gid));
+    memset(&pa,0,sizeof(pa)); memset(&da,0,sizeof(da)); memset(&gid,0,sizeof(gid));
 
     list=ibv_get_device_list(&num); if(!list || num<1){stage_rc=errno?errno:1;goto out;}
-    stage="open-device"; ctx=ibv_open_device(list[0]); if(!ctx){stage_rc=errno?errno:1;goto out;} ok_context=1;
+    if(requested_device){
+        int found=0;
+        for(int i=0;i<num;i++){
+            if(strcmp(ibv_get_device_name(list[i]),requested_device)==0){selected=i;found=1;break;}
+        }
+        if(!found){stage="select-device";stage_rc=6;goto out;}
+    }
+    stage="open-device"; ctx=ibv_open_device(list[selected]); if(!ctx){stage_rc=errno?errno:1;goto out;} ok_context=1;
+    stage="query-device"; if(ibv_query_device(ctx,&da)){stage_rc=errno?errno:1;goto out;}
     stage="query-port"; if(ibv_query_port(ctx,port,&pa)){stage_rc=errno?errno:1;goto out;}
     if(pa.state!=IBV_PORT_ACTIVE){stage_rc=2;goto out;}
     for(int i=0;i<32;i++){ union ibv_gid c; memset(&c,0,sizeof(c));
         if(ibv_query_gid(ctx,port,i,&c)==0 && !gid_is_zero(&c)){gid=c;gid_index=i;break;}}
 
     stage="alloc-pd"; pd=ibv_alloc_pd(ctx); if(!pd){stage_rc=errno?errno:1;goto out;} ok_pd=1;
-    stage="create-cq"; a.cq=ibv_create_cq(ctx,8,NULL,NULL,0); b.cq=ibv_create_cq(ctx,8,NULL,NULL,0);
+    int cq_entries = da.max_cqe >= 4 ? 4 : da.max_cqe;
+    if(cq_entries < 1){stage="device-caps";stage_rc=7;goto out;}
+    stage="create-cq"; a.cq=ibv_create_cq(ctx,cq_entries,NULL,NULL,0); b.cq=ibv_create_cq(ctx,cq_entries,NULL,NULL,0);
     if(!a.cq||!b.cq){stage_rc=errno?errno:1;goto out;} ok_cq=1;
 
+    int wr = da.max_qp_wr >= 2 ? 2 : da.max_qp_wr;
+    int sge = da.max_sge >= 1 ? 1 : da.max_sge;
+    if(wr < 1 || sge < 1){stage="device-caps";stage_rc=8;goto out;}
     struct ibv_qp_init_attr qia; memset(&qia,0,sizeof(qia));
-    qia.qp_type=IBV_QPT_RC; qia.cap.max_send_wr=8; qia.cap.max_recv_wr=8;
-    qia.cap.max_send_sge=1; qia.cap.max_recv_sge=1;
+    qia.qp_type=IBV_QPT_RC; qia.cap.max_send_wr=wr; qia.cap.max_recv_wr=wr;
+    qia.cap.max_send_sge=sge; qia.cap.max_recv_sge=sge;
     stage="create-qp"; qia.send_cq=a.cq; qia.recv_cq=a.cq; a.qp=ibv_create_qp(pd,&qia);
     qia.send_cq=b.cq; qia.recv_cq=b.cq; b.qp=ibv_create_qp(pd,&qia);
     if(!a.qp||!b.qp){stage_rc=errno?errno:1;goto out;} ok_qp=1;
@@ -149,11 +163,12 @@ int main(void) {
     stage="complete"; stage_rc=0;
 out:
     printf("{\"device_count\":%d,\"device\":\"%s\",\"port\":%u,\"port_state\":%u,"
-           "\"link_layer\":%u,\"gid_index\":%d,\"context\":%s,\"pd\":%s,\"mr\":%s,"
-           "\"cq\":%s,\"qp\":%s,\"qp_states\":%s,\"send_recv\":%s,\"rdma_write\":%s,"
-           "\"rdma_read\":%s,\"stage\":\"%s\",\"stage_rc\":%d}\n",
-           num,(list&&num>0)?ibv_get_device_name(list[0]):"",(unsigned)port,(unsigned)pa.state,
-           (unsigned)pa.link_layer,gid_index,ok_context?"true":"false",ok_pd?"true":"false",
+           "\"link_layer\":%u,\"gid_index\":%d,\"max_qp_wr\":%d,\"max_sge\":%d,\"max_cqe\":%d,"
+           "\"context\":%s,\"pd\":%s,\"mr\":%s,\"cq\":%s,\"qp\":%s,\"qp_states\":%s,"
+           "\"send_recv\":%s,\"rdma_write\":%s,\"rdma_read\":%s,\"stage\":\"%s\",\"stage_rc\":%d}\n",
+           num,(list&&num>0)?ibv_get_device_name(list[selected]):"",(unsigned)port,(unsigned)pa.state,
+           (unsigned)pa.link_layer,gid_index,da.max_qp_wr,da.max_sge,da.max_cqe,
+           ok_context?"true":"false",ok_pd?"true":"false",
            ok_mr?"true":"false",ok_cq?"true":"false",ok_qp?"true":"false",ok_states?"true":"false",
            ok_sendrecv?"true":"false",ok_write?"true":"false",ok_read?"true":"false",stage,stage_rc);
     if(mr_read)ibv_dereg_mr(mr_read); if(mr_recv)ibv_dereg_mr(mr_recv); if(mr_send)ibv_dereg_mr(mr_send);
@@ -173,12 +188,33 @@ def run(argv: list[str], timeout: int = 120, env: dict[str, str] | None = None):
 
 def package_versions() -> dict[str,str]:
     out={}
-    for package in ("libibverbs-dev","libibverbs1","ibverbs-providers"):
+    for package in ("libibverbs-dev","libibverbs1","ibverbs-providers","ibverbs-utils"):
         code,stdout,_=run(["dpkg-query","-W",package],timeout=15)
         if code==0 and stdout:
             parts=stdout.split()
             out[package]=parts[-1] if len(parts)>1 else stdout
     return out
+
+
+def rdma_candidates() -> list[dict[str,Any]]:
+    root=pathlib.Path("/sys/class/infiniband")
+    rows=[]
+    if not root.exists(): return rows
+    for dev in sorted(root.iterdir()):
+        states=[]; nets=[]; uverbs=[]
+        ports=dev/"ports"
+        if ports.exists():
+            for port in sorted(ports.iterdir()):
+                try: states.append((port/"state").read_text().strip())
+                except OSError: pass
+        netroot=dev/"device"/"net"
+        if netroot.exists(): nets=[p.name for p in sorted(netroot.iterdir())]
+        verbsroot=dev/"device"/"infiniband_verbs"
+        if verbsroot.exists(): uverbs=[p.name for p in sorted(verbsroot.iterdir())]
+        active=any("ACTIVE" in state for state in states)
+        score=(100 if active else 0)+(20 if nets else 0)+(10 if uverbs else 0)+(0 if dev.name.startswith("manae") else 5)
+        rows.append({"device":dev.name,"states":states,"netdevs":nets,"uverbs":uverbs,"score":score})
+    return sorted(rows,key=lambda x:(x["score"],x["device"]),reverse=True)
 
 def main() -> int:
     p=argparse.ArgumentParser(); p.add_argument("--label",required=True); p.add_argument("--out",required=True)
@@ -200,6 +236,10 @@ def main() -> int:
     elif not pathlib.Path("/dev/infiniband").exists():
         receipt["classification"]="NEGATIVE_OBSERVATION"; receipt["reason"]="/dev/infiniband is absent"
     else:
+        candidates=rdma_candidates()
+        receipt["device_candidates"]=candidates
+        selected=candidates[0]["device"] if candidates else None
+        receipt["selected_device"]=selected
         sudo=shutil.which("sudo")
         if not sudo:
             receipt["classification"]="HARNESS_FAILURE"; receipt["reason"]="sudo unavailable for ephemeral dependency preparation"
@@ -209,7 +249,7 @@ def main() -> int:
             ic=None;io=ie=""
             if uc==0:
                 ic,io,ie=run([sudo,"-n","apt-get","install","-y","-qq","--no-install-recommends",
-                    "libibverbs-dev","ibverbs-providers"],timeout=180,env=env)
+                    "libibverbs-dev","ibverbs-providers","ibverbs-utils"],timeout=180,env=env)
             receipt["dependency_preparation"]={"apt_update_exit":uc,"apt_install_exit":ic,
                 "stderr":(ue+"\n"+ie)[-3000:] or None,"versions":package_versions()}
             if uc!=0 or ic!=0:
@@ -227,7 +267,9 @@ def main() -> int:
                         if cc_rc!=0:
                             receipt["classification"]="HARNESS_FAILURE";receipt["reason"]="libibverbs oracle failed to compile"
                         else:
-                            rc,stdout,stderr=run([str(exe)],timeout=45)
+                            devinfo_rc,devinfo_out,devinfo_err=run(["ibv_devinfo","-d",selected,"-v"],timeout=30) if selected else (None,"","no selected device")
+                            receipt["ibv_devinfo"]={"exit_code":devinfo_rc,"stdout":devinfo_out[-6000:] or None,"stderr":devinfo_err[-2000:] or None}
+                            rc,stdout,stderr=run([str(exe),selected],timeout=45) if selected else (None,"","no selected device")
                             receipt["execution"]={"exit_code":rc,"stderr":stderr[-3000:] or None}
                             try: oracle=json.loads(stdout.splitlines()[-1]) if stdout else None
                             except (json.JSONDecodeError,IndexError): oracle=None
