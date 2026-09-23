@@ -212,21 +212,24 @@ def _run_firecracker(binary: pathlib.Path, config: pathlib.Path) -> dict:
         "20s",
         str(binary),
         "--no-api",
-        f"--config-file={config}",
+        "--config-file",
+        str(config),
     ]
     code, out, err = f0._run(command, timeout=25)
     combined = "\n".join(x for x in [out, err] if x)
     nonce_seen = NONCE in combined
     clean_exit = code == 0 and "Firecracker exiting successfully" in combined
-    preboot_path_failure = (
+    preboot_harness_failure = (
         "Unable to open or read from the configuration file" in combined
-        or "No such file or directory" in combined and not nonce_seen
+        or ("No such file or directory" in combined and not nonce_seen)
+        or "Arguments parsing error" in combined
+        or "ParseArguments(" in combined
     )
     classification = (
         "SUPPORTED"
         if nonce_seen and clean_exit
         else "HARNESS_FAILURE"
-        if preboot_path_failure
+        if preboot_harness_failure
         else "ORACLE_FAILURE"
     )
     return {
@@ -235,8 +238,8 @@ def _run_firecracker(binary: pathlib.Path, config: pathlib.Path) -> dict:
         "reason": (
             "guest serial nonce observed and Firecracker exited cleanly"
             if nonce_seen and clean_exit
-            else "pre-boot file handoff failed before a guest oracle"
-            if preboot_path_failure
+            else "pre-boot harness/argument handoff failed before a guest oracle"
+            if preboot_harness_failure
             else "guest serial nonce and clean VMM exit were not both observed"
         ),
         "exit_code": code,
@@ -244,7 +247,7 @@ def _run_firecracker(binary: pathlib.Path, config: pathlib.Path) -> dict:
         "clean_vmm_exit_observed": clean_exit,
         "sudo_readable": sudo_readable,
         "output_tail": combined[-6000:],
-        "command_shape": "sudo -n timeout 20s firecracker --no-api --config-file=<resolved-config>",
+        "command_shape": "sudo -n timeout 20s firecracker --no-api --config-file <resolved-config>",
     }
 
 
