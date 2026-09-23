@@ -237,7 +237,7 @@ def compile_f2_init(temp: Path) -> tuple[Path, dict[str, Any]]:
 #include <unistd.h>
 
 static int fail(const char *msg) {
-    dprintf(STDERR_FILENO, "FC_RDTE_F2_ERROR=%s\\n", msg);
+    dprintf(STDERR_FILENO, "FC_RDTE_F2_ERROR=%s\n", msg);
     sync();
     reboot(RB_AUTOBOOT);
     _exit(112);
@@ -245,9 +245,9 @@ static int fail(const char *msg) {
 
 int main(void) {
     char buf[256] = {0};
-    const char expected[] = "FC_RDTE_F2_INPUT=portable-block-contract\\n";
-    const char result[] = "FC_RDTE_F2_RESULT=portable-block-contract\\n";
-    const char nonce[] = "FC_RDTE_F2_NONCE=c0def22e\\n";
+    const char expected[] = "FC_RDTE_F2_INPUT=portable-block-contract\n";
+    const char result[] = "FC_RDTE_F2_RESULT=portable-block-contract\n";
+    const char nonce[] = "FC_RDTE_F2_NONCE=c0def22e\n";
 
     mkdir("/dev", 0755);
     if (mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) != 0) return fail("mount-devtmpfs");
