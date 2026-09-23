@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import pathlib
 import platform
+import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_runner_firecracker_f0 as f0
 
 
