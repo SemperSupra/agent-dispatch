@@ -51,6 +51,11 @@ F3_PAYLOAD = b"portable sovereign transfer\nmicrovm capsule\n"
 F3_NONCE = "FC_RDTE_F3_NONCE=c0def33e"
 F4_NONCE = "FC_RDTE_F4_NONCE=c0def44e"
 F4_MUTATION = "FC_RDTE_F4_MUTATION=created"
+F5_NONCE = "FC_RDTE_F5_NONCE=c0def55e"
+F5_WORKLOAD_REPOSITORY = "SemperSupra/garm-provider-truenas"
+F5_WORKLOAD_REVISION = "6a28ea5c614dce67efb16ca004271ff01e9bff61"
+F5_WORKLOAD_PACKAGE = "./internal/truenasstore"
+F5_TEST_NAME = "TestComposeBootstrapEscapesShellDollarsForRuntimeExpansion"
 
 
 def sha256_file(path: Path) -> str:
@@ -528,6 +533,102 @@ int main(void) {
     return initrd, build
 
 
+
+def compile_f5_init(temp: Path) -> tuple[Path, dict[str, Any]]:
+    source = temp / "init-f5.c"
+    binary = temp / "init-f5"
+    source.write_text(
+        r'''#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/mount.h>
+#include <sys/reboot.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+static int fail(const char *msg) {
+    dprintf(STDERR_FILENO, "FC_RDTE_F5_ERROR=%s\n", msg);
+    sync();
+    reboot(RB_AUTOBOOT);
+    _exit(142);
+}
+
+int main(void) {
+    const char nonce[] = "FC_RDTE_F5_NONCE=c0def55e\n";
+    mkdir("/dev", 0755);
+    if (mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) != 0) return fail("mount-devtmpfs");
+    mkdir("/proc", 0555);
+    if (mount("proc", "/proc", "proc", 0, NULL) != 0) return fail("mount-proc");
+    mkdir("/tmp", 01777);
+    chmod("/tmp", 01777);
+    mkdir("/input", 0755);
+    mkdir("/output", 0755);
+    if (mount("/dev/vda", "/input", "ext4", MS_RDONLY, NULL) != 0) return fail("mount-input");
+    if (mount("/dev/vdb", "/output", "ext4", 0, NULL) != 0) return fail("mount-output");
+
+    int out = open("/output/stdout.log", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    int err = open("/output/stderr.log", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (out < 0 || err < 0) return fail("open-logs");
+
+    pid_t pid = fork();
+    if (pid < 0) return fail("fork");
+    if (pid == 0) {
+        if (dup2(out, STDOUT_FILENO) < 0) _exit(126);
+        if (dup2(err, STDERR_FILENO) < 0) _exit(126);
+        close(out);
+        close(err);
+        if (chdir("/input") != 0) _exit(126);
+        char *const argv[] = {
+            (char *)"/input/workload",
+            (char *)"-test.run",
+            (char *)"^TestComposeBootstrapEscapesShellDollarsForRuntimeExpansion$",
+            (char *)"-test.v",
+            NULL
+        };
+        char *const envp[] = {
+            (char *)"PATH=/usr/bin:/bin",
+            (char *)"HOME=/tmp",
+            (char *)"TMPDIR=/tmp",
+            NULL
+        };
+        execve("/input/workload", argv, envp);
+        _exit(127);
+    }
+
+    close(out);
+    close(err);
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) return fail("waitpid");
+    int exit_code = 255;
+    if (WIFEXITED(status)) exit_code = WEXITSTATUS(status);
+    else if (WIFSIGNALED(status)) exit_code = 128 + WTERMSIG(status);
+
+    int result = open("/output/result.json", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (result < 0) return fail("open-result");
+    if (dprintf(
+            result,
+            "{\"schema\":\"firecracker-rdte-real-workload/v0\",\"workload_id\":\"garm-provider-truenas:compose-bootstrap-escaping\",\"exit_code\":%d}\n",
+            exit_code) < 0) return fail("write-result");
+    fsync(result);
+    close(result);
+    sync();
+    (void)write(STDOUT_FILENO, nonce, sizeof(nonce) - 1);
+    reboot(RB_AUTOBOOT);
+    _exit(143);
+}
+'''
+    )
+    build = command(["cc", "-static", "-Os", "-s", "-o", str(binary), str(source)], timeout=30)
+    if build.get("returncode") != 0 or not binary.exists():
+        raise RuntimeError(f"static F5 guest init build failed: {build}")
+
+    initrd = temp / "initrd-f5.cpio"
+    initrd.write_bytes(build_newc_single_file("init", binary.read_bytes()))
+    return initrd, build
+
+
 def make_receipt(rung: str) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
@@ -545,9 +646,9 @@ def make_receipt(rung: str) -> dict[str, Any]:
                 "version_command": None,
             },
             "guest_kernel": {
-                "object_key": KERNEL_OBJECT_KEY if rung in {"F1", "F2", "F3", "F4"} else None,
-                "url": KERNEL_URL if rung in {"F1", "F2", "F3", "F4"} else None,
-                "sha256_expected": KERNEL_SHA256 if rung in {"F1", "F2", "F3", "F4"} else None,
+                "object_key": KERNEL_OBJECT_KEY if rung in {"F1", "F2", "F3", "F4", "F5"} else None,
+                "url": KERNEL_URL if rung in {"F1", "F2", "F3", "F4", "F5"} else None,
+                "sha256_expected": KERNEL_SHA256 if rung in {"F1", "F2", "F3", "F4", "F5"} else None,
                 "sha256_observed": None,
             },
             "initrd": None,
@@ -570,6 +671,7 @@ def make_receipt(rung: str) -> dict[str, Any]:
             "firecracker_acquisition_callable": False,
             "guest_boot_supported": False,
             "experiment_capsule_supported": False,
+            "real_portfolio_workload_supported": False,
             "microvm_workload_supported": False,
             "sovereign_operational_ready": False,
         },
@@ -1251,12 +1353,228 @@ def run_f4(out: Path) -> int:
     return 0
 
 
+
+def run_f5(out: Path, workload: Path | None) -> int:
+    receipt = make_receipt("F5")
+    early = preflight(receipt)
+    if early is not None:
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return early
+
+    if workload is None or not workload.is_file():
+        receipt["result"] = "HARNESS_FAILURE"
+        receipt["notes"].append("F5 requires the prebuilt pinned public workload binary.")
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return 2
+
+    workload_sha = sha256_file(workload)
+    file_info = command(["file", str(workload)], timeout=10)
+    if file_info.get("returncode") != 0 or "ELF 64-bit" not in file_info.get("stdout", ""):
+        receipt["result"] = "HARNESS_FAILURE"
+        receipt["notes"].append(f"F5 workload is not the expected Linux/x86-64 ELF: {file_info}")
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return 2
+
+    test_pattern = f"^{F5_TEST_NAME}$"
+    native = command(
+        [str(workload), "-test.run", test_pattern, "-test.v"],
+        timeout=30,
+        keep=8192,
+    )
+    native_pass = (
+        native.get("returncode") == 0
+        and f"--- PASS: {F5_TEST_NAME}" in native.get("stdout", "")
+        and "PASS" in native.get("stdout", "")
+    )
+    if not native_pass:
+        receipt["result"] = "WORKLOAD_BASELINE_FAILURE"
+        receipt["notes"].append("Exact workload binary did not satisfy the native L1 control.")
+        receipt["portable_evidence"]["work_capsule"] = {
+            "workload_repository": F5_WORKLOAD_REPOSITORY,
+            "workload_revision": F5_WORKLOAD_REVISION,
+            "workload_package": F5_WORKLOAD_PACKAGE,
+            "test_name": F5_TEST_NAME,
+            "binary_sha256": workload_sha,
+            "file": file_info,
+            "native_control": native,
+        }
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return 2
+
+    with tempfile.TemporaryDirectory(prefix="fc-rdte-f5-") as td:
+        temp = Path(td)
+        try:
+            binary, fc_sha, version = materialize_firecracker(temp)
+            receipt["portable_evidence"]["vmm"]["sha256_observed"] = fc_sha
+            receipt["portable_evidence"]["vmm"]["version_command"] = version
+            receipt["claims"]["firecracker_acquisition_callable"] = True
+
+            kernel = temp / "vmlinux-6.18.48"
+            kernel_sha = download_verified(KERNEL_URL, KERNEL_SHA256, kernel)
+            receipt["portable_evidence"]["guest_kernel"]["sha256_observed"] = kernel_sha
+
+            initrd, build = compile_f5_init(temp)
+            receipt["portable_evidence"]["initrd"] = {
+                "format": "newc",
+                "contents": ["/init"],
+                "build_command": build,
+                "sha256": sha256_file(initrd),
+            }
+
+            input_dir = temp / "input-dir"
+            output_dir = temp / "output-dir"
+            input_dir.mkdir()
+            output_dir.mkdir()
+            guest_workload = input_dir / "workload"
+            shutil.copy2(workload, guest_workload)
+            guest_workload.chmod(0o755)
+
+            input_image = temp / "input.ext4"
+            output_image = temp / "output.ext4"
+            input_build = mk_ext4_image(
+                input_image,
+                input_dir,
+                "88888888-8888-8888-8888-888888888888",
+            )
+            mk_ext4_image(
+                output_image,
+                output_dir,
+                "99999999-9999-9999-9999-999999999999",
+            )
+
+            config = temp / "vm-f5.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "boot-source": {
+                            "kernel_image_path": str(kernel),
+                            "initrd_path": str(initrd),
+                            "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
+                        },
+                        "drives": [
+                            f2_drive("input", input_image, True),
+                            f2_drive("output", output_image, False),
+                        ],
+                        "machine-config": {
+                            "vcpu_count": 1,
+                            "mem_size_mib": 256,
+                            "smt": False,
+                            "track_dirty_pages": False,
+                            "huge_pages": "None",
+                        },
+                        "cpu-config": None,
+                        "balloon": None,
+                        "network-interfaces": [],
+                        "vsock": None,
+                        "logger": None,
+                        "metrics": None,
+                        "mmds-config": None,
+                        "entropy": None,
+                        "pmem": [],
+                        "memory-hotplug": None,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+
+            boot = command(
+                ["sudo", "-n", str(binary), "--no-api", "--config-file", str(config)],
+                timeout=30,
+                keep=16384,
+            )
+            serial = (boot.get("stdout") or "") + "\n" + (boot.get("stderr") or "")
+            result_readback = command(
+                ["debugfs", "-R", "cat /result.json", str(output_image)],
+                timeout=10,
+                keep=4096,
+            )
+            stdout_readback = command(
+                ["debugfs", "-R", "cat /stdout.log", str(output_image)],
+                timeout=10,
+                keep=8192,
+            )
+            stderr_readback = command(
+                ["debugfs", "-R", "cat /stderr.log", str(output_image)],
+                timeout=10,
+                keep=8192,
+            )
+            try:
+                guest_result = json.loads(result_readback.get("stdout", "").strip())
+            except json.JSONDecodeError:
+                guest_result = None
+
+            guest_stdout = stdout_readback.get("stdout", "")
+            guest_pass = (
+                F5_NONCE in serial
+                and isinstance(guest_result, dict)
+                and guest_result.get("exit_code") == 0
+                and f"--- PASS: {F5_TEST_NAME}" in guest_stdout
+                and "PASS" in guest_stdout
+            )
+            semantic_equivalent = native_pass and guest_pass
+
+            receipt["portable_evidence"]["guest_boot"] = {
+                "expected_serial_nonce": F5_NONCE,
+                "command": boot,
+                "network_interfaces_configured": 0,
+            }
+            receipt["portable_evidence"]["io_contract"] = {
+                "input_format": "ext4-read-only",
+                "output_format": "ext4-read-write",
+                "input_image_sha256": input_build["sha256_after_format"],
+                "output_image_sha256_after_guest": sha256_file(output_image),
+            }
+            receipt["portable_evidence"]["work_capsule"] = {
+                "scope": "one pinned real public portfolio workload",
+                "workload_repository": F5_WORKLOAD_REPOSITORY,
+                "workload_revision": F5_WORKLOAD_REVISION,
+                "workload_package": F5_WORKLOAD_PACKAGE,
+                "test_name": F5_TEST_NAME,
+                "binary_sha256": workload_sha,
+                "file": file_info,
+                "native_control": native,
+                "guest_result": guest_result,
+                "guest_stdout": guest_stdout[-4096:],
+                "guest_stderr": stderr_readback.get("stdout", "")[-4096:],
+                "semantic_equivalent_to_native": semantic_equivalent,
+            }
+
+            if not semantic_equivalent:
+                receipt["result"] = "ORACLE_FAILURE"
+                receipt["notes"].append(
+                    "F5 guest execution did not preserve the bounded real workload's native PASS semantics."
+                )
+                out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+                return 2
+
+        except Exception as exc:
+            receipt["result"] = "HARNESS_FAILURE"
+            receipt["notes"].append(f"F5 harness failed: {type(exc).__name__}: {exc}")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+
+    receipt["result"] = "SUPPORTED"
+    receipt["claims"]["guest_boot_supported"] = True
+    receipt["claims"]["real_portfolio_workload_supported"] = True
+    receipt["portable_evidence"]["network_policy"] = "NO_GUEST_NETWORK_INTERFACE_CONFIGURED"
+    receipt["notes"].append(
+        "F5 proves the exact pinned GARM-provider test artifact preserves native PASS semantics when executed inside the Firecracker envelope. This does not establish that microVM placement is preferable for the workload class."
+    )
+    out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rung", choices=["f0", "f1", "f2", "f3", "f4"], default="f0")
+    parser.add_argument("--rung", choices=["f0", "f1", "f2", "f3", "f4", "f5"], default="f0")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--workload", type=Path)
     args = parser.parse_args()
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    if args.rung == "f5":
+        return run_f5(args.out, args.workload)
     if args.rung == "f4":
         return run_f4(args.out)
     if args.rung == "f3":

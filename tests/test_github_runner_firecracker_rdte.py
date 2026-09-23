@@ -31,7 +31,7 @@ class FirecrackerRdteContractTests(unittest.TestCase):
         )
 
     def test_no_rung_can_claim_sovereign_readiness_by_default(self):
-        for rung in ("F0", "F1", "F2", "F3", "F4"):
+        for rung in ("F0", "F1", "F2", "F3", "F4", "F5"):
             receipt = rdte.make_receipt(rung)
             self.assertFalse(receipt["claims"]["sovereign_operational_ready"])
             self.assertFalse(receipt["claims"]["microvm_workload_supported"])
@@ -48,6 +48,15 @@ class FirecrackerRdteContractTests(unittest.TestCase):
         self.assertTrue(a.startswith(b"070701"))
         self.assertIn(b"init\0", a)
         self.assertIn(b"TRAILER!!!\0", a)
+
+    def test_f5_workload_is_exactly_bound(self):
+        self.assertEqual(rdte.F5_WORKLOAD_REPOSITORY, "SemperSupra/garm-provider-truenas")
+        self.assertEqual(rdte.F5_WORKLOAD_REVISION, "6a28ea5c614dce67efb16ca004271ff01e9bff61")
+        self.assertEqual(rdte.F5_TEST_NAME, "TestComposeBootstrapEscapesShellDollarsForRuntimeExpansion")
+        receipt = rdte.make_receipt("F5")
+        self.assertFalse(receipt["claims"]["real_portfolio_workload_supported"])
+        self.assertFalse(receipt["claims"]["microvm_workload_supported"])
+        self.assertFalse(receipt["claims"]["sovereign_operational_ready"])
 
     def test_f4_still_withholds_operational_promotion(self):
         receipt = rdte.make_receipt("F4")
