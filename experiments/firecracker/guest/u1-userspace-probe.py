@@ -52,6 +52,10 @@ with open(result_path, "w", encoding="utf-8") as fh:
     fh.flush()
     os.fsync(fh.fileno())
 
+# Ensure file data and directory metadata on the scratch filesystem are durable
+# before PID1 reboots the guest.
+os.sync()
+
 tool_text = ",".join(f"{name}:{1 if ok else 0}" for name, ok in sorted(tools.items()))
 print(
     "FIRECRACKER_U1_USERSPACE "
