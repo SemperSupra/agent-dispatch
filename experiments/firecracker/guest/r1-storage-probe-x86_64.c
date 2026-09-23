@@ -48,7 +48,9 @@ void _start(void){
         for(usize i=0;i<CHUNK;i++)observed+=buffer[i];
     }
     sc2(SYS_clock_gettime,CLOCK_MONOTONIC,(long)&c);
+    if(sc1(306,fd)<0)emit_error(8); /* syncfs */
     sc1(SYS_close,fd);
+    if(sc2(166,(long)scratch,0)<0)emit_error(9); /* umount2 */
     expected*=64ULL;
 
     char out[256];usize at=0;
