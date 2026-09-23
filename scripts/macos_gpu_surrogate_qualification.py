@@ -13,7 +13,7 @@ import tempfile
 from typing import Any
 
 SCHEMA = "macos-gpu-surrogate-qualification/v1"
-PROBE_VERSION = "public-macos-gpu-surrogate/1"
+PROBE_VERSION = "public-macos-gpu-surrogate/2"
 TORCH_VERSION = "2.14.0"
 MLX_VERSION = "0.32.2"
 LLAMA_TAG = "v0.4.1"
@@ -110,8 +110,8 @@ print(json.dumps(r,sort_keys=True))
 '''
 
 MLX_TEST = r'''
-import json, mlx, mlx.core as mx
-r={"version":mlx.__version__,"oracle":False}
+import json, importlib.metadata, mlx.core as mx
+r={"version":importlib.metadata.version("mlx"),"oracle":False}
 mx.set_default_device(mx.gpu)
 a=mx.array([[1.,2.],[3.,4.]])
 b=mx.array([[5.,6.],[7.,8.]])
@@ -174,17 +174,21 @@ def llama_interview(root: pathlib.Path) -> dict[str,Any]:
     if rc!=0: return result("HARNESS_FAILURE","llama.cpp Metal backend test failed to build",commit=commit,stderr=err[-4000:])
     exe=src/"build"/"bin"/"test-backend-ops"
     attempts=[
-        [str(exe),"test","-b","Metal","-o","MUL_MAT"],
-        [str(exe),"-b","Metal","-o","MUL_MAT"],
+        [str(exe),"test","-b","MTL0","-o","MUL_MAT"],
+        [str(exe),"-b","MTL0","-o","MUL_MAT"],
     ]
     evidence=[]
     for argv in attempts:
         rc,out,err=run(argv,cwd=str(src),timeout=300)
-        evidence.append({"argv":argv[1:],"exit_code":rc,"stdout":out[-5000:] or None,"stderr":err[-3000:] or None})
-        if rc==0:
-            return result("SUPPORTED","llama.cpp Metal backend MUL_MAT reference-comparison test passed",
+        skipped=("Backend 1/3: MTL0" in out and "Skipping" in out)
+        executed=("Backend 1/3: MTL0" in out and not skipped)
+        passed=(rc==0 and executed and ("OK" in out or "tests passed" in out))
+        evidence.append({"argv":argv[1:],"exit_code":rc,"executed_mtl0":executed,
+                         "skipped_mtl0":skipped,"stdout":out[-7000:] or None,"stderr":err[-4000:] or None})
+        if passed:
+            return result("SUPPORTED","llama.cpp MTL0 MUL_MAT reference-comparison test executed and passed",
                           tag=LLAMA_TAG,commit=commit,attempts=evidence)
-    return result("ORACLE_FAILURE","llama.cpp built with Metal but backend operator oracle did not pass",
+    return result("ORACLE_FAILURE","llama.cpp built with Metal but no MTL0 operator test was proven to execute and pass",
                   tag=LLAMA_TAG,commit=commit,attempts=evidence)
 
 def main() -> int:
