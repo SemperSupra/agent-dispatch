@@ -169,11 +169,13 @@ printf '%s' 'synthetic-not-a-credential' > /home/runnerlab/.runner-jit-lab
 test ! -e /home/runnerlab/.runner-jit-lab
 EOF
 
-GUEST_FACTS="$("${SSH[@]}" sh -c 'printf "%s|%s|%s" "$(uname -s)" "$(uname -m)" "$(sed -n "s/^PRETTY_NAME=//p" /etc/os-release | tr -d "\"")"')"
+GUEST_OS="$("${SSH[@]}" uname -s)"
+GUEST_ARCH="$("${SSH[@]}" uname -m)"
+GUEST_OS_RELEASE="$("${SSH[@]}" cat /etc/os-release)"
 QEMU_VERSION="$(qemu-system-x86_64 --version | head -n1)"
 END_NS="$(date +%s%N)"
 
-export LAB_OUT="$OUT" LAB_PREFLIGHT="$PREFLIGHT" LAB_GUEST_FACTS="$GUEST_FACTS"
+export LAB_OUT="$OUT" LAB_PREFLIGHT="$PREFLIGHT" LAB_GUEST_OS="$GUEST_OS" LAB_GUEST_ARCH="$GUEST_ARCH"\nexport LAB_GUEST_OS_RELEASE="$GUEST_OS_RELEASE"
 export LAB_IMAGE="$IMAGE" LAB_IMAGE_SHA="$ACTUAL_SHA" LAB_QEMU_VERSION="$QEMU_VERSION"
 export LAB_BOOT_START_NS="$BOOT_START_NS" LAB_BOOT_READY_NS="$BOOT_READY_NS"
 export LAB_START_NS="$START_NS" LAB_END_NS="$END_NS"
@@ -181,7 +183,11 @@ python3 - <<'PY'
 import json, os, pathlib
 out=pathlib.Path(os.environ["LAB_OUT"])
 preflight=json.loads(os.environ["LAB_PREFLIGHT"])
-facts=os.environ["LAB_GUEST_FACTS"].split("|",2)
+pretty_name = ""
+for line in os.environ["LAB_GUEST_OS_RELEASE"].splitlines():
+    if line.startswith("PRETTY_NAME="):
+        pretty_name = line.split("=",1)[1].strip().strip(chr(34))
+        break
 payload={
   "contract": "gha-kvm-surrogate/v1",
   "classification": "SUPPORTED",
@@ -191,7 +197,7 @@ payload={
   "image": os.environ["LAB_IMAGE"],
   "image_sha256": os.environ["LAB_IMAGE_SHA"],
   "qemu_version": os.environ["LAB_QEMU_VERSION"],
-  "guest": {"os": facts[0], "arch": facts[1], "pretty_name": facts[2]},
+  "guest": {"os": os.environ["LAB_GUEST_OS"], "arch": os.environ["LAB_GUEST_ARCH"], "pretty_name": pretty_name},
   "oracles": {
     "ssh_ready": True,
     "host_to_guest_nonce": True,
