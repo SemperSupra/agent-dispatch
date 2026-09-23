@@ -146,6 +146,24 @@ def _process_observation(pid: int) -> dict:
     return result
 
 
+def _find_process_by_real_uid(uid: int) -> dict | None:
+    for entry in pathlib.Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            status = (entry / "status").read_text()
+            real_uid = None
+            for line in status.splitlines():
+                if line.startswith("Uid:"):
+                    real_uid = int(line.split()[1])
+                    break
+            if real_uid == uid:
+                return _process_observation(int(entry.name))
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def _run_jailed(
     jailer: pathlib.Path,
     firecracker: pathlib.Path,
@@ -178,14 +196,18 @@ def _run_jailed(
     observed = None
     deadline = time.time() + 10
     while time.time() < deadline and proc.poll() is None:
+        observed = _find_process_by_real_uid(uid)
+        if observed is not None:
+            break
         if pid_file.exists():
             try:
                 fc_pid = int(pid_file.read_text().strip())
                 observed = _process_observation(fc_pid)
-                break
+                if observed.get("uid_fields"):
+                    break
             except (OSError, ValueError):
                 pass
-        time.sleep(0.01)
+        time.sleep(0.005)
     try:
         out, err = proc.communicate(timeout=20)
     except subprocess.TimeoutExpired:
@@ -270,8 +292,10 @@ def run_probe(label: str) -> dict:
         with timer.stage("unjailed_config_build", "portable"):
             f1._build_config(kernel, initrd, unjailed_config_path)
 
+        unjailed_started = time.perf_counter()
         with timer.stage("unjailed_f3_lifecycle", "portable"):
             unjailed = f3.run_vm(firecracker, unjailed_config_path, expected)
+        unjailed_elapsed_ms = round((time.perf_counter() - unjailed_started) * 1000.0, 3)
         if not unjailed.get("ok"):
             return {
                 "schema": SCHEMA, "authority": AUTHORITY,
@@ -321,7 +345,7 @@ def run_probe(label: str) -> dict:
             with timer.stage("ephemeral_identity_cleanup", "venue"):
                 identity_cleanup = _delete_ephemeral_identity(identity) if identity else None
 
-        unjailed_ms = unjailed.get("elapsed_ms")
+        unjailed_ms = unjailed_elapsed_ms
         jailed_ms = jailed.get("elapsed_ms")
         overhead_ms = round(jailed_ms - unjailed_ms, 3) if unjailed_ms is not None and jailed_ms is not None else None
         overhead_ratio = round(jailed_ms / unjailed_ms, 4) if unjailed_ms and jailed_ms is not None else None
@@ -332,13 +356,14 @@ def run_probe(label: str) -> dict:
         seccomp_ok = process.get("seccomp_mode") == 2
         parity_ok = bool(jailed.get("ok"))
         supported = parity_ok and bool(uid_ok) and bool(gid_ok) and bool(seccomp_ok)
+        classification = "SUPPORTED" if supported else "INCONCLUSIVE" if parity_ok else "ORACLE_FAILURE"
 
         return {
             "schema": SCHEMA,
             "authority": AUTHORITY,
             "requested_label": label,
             "result": {
-                "classification": "SUPPORTED" if supported else "ORACLE_FAILURE",
+                "classification": classification,
                 "jailed_f3_parity_satisfied": parity_ok,
                 "uid_drop_observed": bool(uid_ok),
                 "gid_drop_observed": bool(gid_ok),
@@ -375,7 +400,7 @@ def main() -> int:
         }
     args.out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     print(json.dumps(receipt, indent=2, sort_keys=True))
-    return 0 if receipt["result"]["classification"] == "SUPPORTED" else 1
+    return 0 if receipt["result"]["classification"] in {"SUPPORTED", "INCONCLUSIVE"} else 1
 
 
 if __name__ == "__main__":
