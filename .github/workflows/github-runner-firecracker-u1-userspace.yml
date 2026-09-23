@@ -1,16 +1,6 @@
 name: Firecracker U1 Normal Userspace
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest-userspace-ubuntu-24.04-x86_64.json"
-      - "experiments/firecracker/guest/u1-bridge-init-x86_64.c"
-      - "experiments/firecracker/guest/u1-userspace-probe.py"
-      - "scripts/github_runner_firecracker_u1_userspace.py"
-      - "tests/test_github_runner_firecracker_u1_userspace.py"
-      - ".github/workflows/github-runner-firecracker-u1-userspace.yml"
   workflow_dispatch:
 
 permissions:
