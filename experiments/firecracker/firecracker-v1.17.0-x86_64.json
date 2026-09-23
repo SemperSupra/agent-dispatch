@@ -1,0 +1,13 @@
+{
+  "schema": "firecracker-artifact/v1",
+  "name": "firecracker",
+  "version": "v1.17.0",
+  "architecture": "x86_64",
+  "release_url": "https://github.com/firecracker-microvm/firecracker/releases/tag/v1.17.0",
+  "archive_url": "https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/firecracker-v1.17.0-x86_64.tgz",
+  "archive_sha256": "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558",
+  "expected_version_fragment": "Firecracker v1.17.0",
+  "release_published_at": "2026-09-10T14:19:40Z",
+  "authority": "SemperSupra/agent-dispatch-private#280",
+  "purpose": "Exact public VMM identity for the F0 acquisition/version oracle. This manifest is portable and contains no GitHub Actions runner assumptions."
+}
