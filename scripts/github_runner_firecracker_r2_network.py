@@ -193,18 +193,20 @@ def _cleanup_network(state:dict|None)->dict:
     return {"ok":all(a["ok"] for a in essential),"actions":actions}
 
 def _counter_for(ruleset:str,needle:str)->int:
+    total=0
     for line in ruleset.splitlines():
         if needle not in line:
             continue
         # iptables-nft verbose list: packets is the first numeric column.
         m=re.match(r"\s*(\d+)\s+",line)
         if m:
-            return int(m.group(1))
+            total+=int(m.group(1))
+            continue
         # Retain compatibility with earlier native-nft receipt text.
         m=re.search(r"counter packets (\d+)",line)
         if m:
-            return int(m.group(1))
-    return 0
+            total+=int(m.group(1))
+    return total
 
 def run_probe(label:str)->dict:
     timer=LifecycleTimer()
