@@ -1,15 +1,6 @@
 name: Firecracker GHA RDTE F1 Boot
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "experiments/firecracker/guest-kernel-6.18.48-x86_64.json"
-      - "experiments/firecracker/guest/f1-init-x86_64.c"
-      - "scripts/github_runner_firecracker_f1_boot.py"
-      - "tests/test_github_runner_firecracker_f1_boot.py"
-      - ".github/workflows/github-runner-firecracker-f1-boot.yml"
   workflow_dispatch:
 
 permissions:
