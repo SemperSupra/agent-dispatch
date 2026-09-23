@@ -1,12 +1,6 @@
 name: macOS Memory and Privilege Envelope
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - scripts/macos_memory_privilege.py
-      - .github/workflows/macos-memory-privilege.yml
   workflow_dispatch:
 
 permissions:
