@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import pathlib
 import platform
 import shutil
@@ -16,7 +17,7 @@ from typing import Any
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_runner_census as passive
 
-PROBE_VERSION = "public-latent-hardware/1"
+PROBE_VERSION = "public-latent-hardware/2"
 
 
 def _run(argv: list[str], timeout: int = 30) -> tuple[int | None, str, str]:
@@ -180,6 +181,65 @@ def probe_linux_surfaces() -> list[dict[str, Any]]:
     return caps
 
 
+
+def probe_linux_rdma_uverbs() -> dict[str, Any]:
+    if platform.system() != "Linux":
+        return _cap("linux:rdma-uverbs-active-port", observed=False, installed=False,
+                    callable_=False, exercised=False, oracle=False,
+                    classification="SKIPPED_GUARDRAIL", reason="RDMA uverbs probe is Linux-only")
+    devices = _existing(["/dev/infiniband/uverbs*"])
+    if not devices:
+        return _cap("linux:rdma-uverbs-active-port", observed=False, installed=False,
+                    callable_=False, exercised=False, oracle=False,
+                    classification="NEGATIVE_OBSERVATION", reason="no uverbs device observed")
+
+    opens: dict[str, str] = {}
+    for path in devices:
+        try:
+            fd = os.open(path, os.O_RDWR | getattr(os, "O_CLOEXEC", 0))
+            os.close(fd)
+            opens[path] = "OPEN"
+        except OSError as exc:
+            opens[path] = f"{type(exc).__name__}:{exc.errno}"
+
+    ports: list[dict[str, str | None]] = []
+    root = pathlib.Path("/sys/class/infiniband")
+    if root.exists():
+        for dev in sorted(root.iterdir()):
+            port_root = dev / "ports"
+            if not port_root.exists():
+                continue
+            for port in sorted(port_root.iterdir()):
+                def read(name: str) -> str | None:
+                    try:
+                        return (port / name).read_text(errors="replace").strip()
+                    except OSError:
+                        return None
+                ports.append({
+                    "device": dev.name,
+                    "port": port.name,
+                    "state": read("state"),
+                    "phys_state": read("phys_state"),
+                })
+
+    opened = any(value == "OPEN" for value in opens.values())
+    active = any(
+        item.get("state") and "ACTIVE" in str(item.get("state"))
+        for item in ports
+    )
+    ok = opened and active
+    return _cap(
+        "linux:rdma-uverbs-active-port",
+        observed=True, installed=True, callable_=opened, exercised=True, oracle=ok,
+        classification="SUPPORTED" if ok else "ORACLE_FAILURE",
+        reason=("ordinary runner user opened uverbs and an RDMA port reports ACTIVE; "
+                "this proves control-path access, not RDMA data transfer")
+               if ok else
+               "uverbs device exists but ordinary-user open + active-port oracle was not satisfied",
+        evidence={"uverbs": opens, "ports": ports},
+    )
+
+
 _METAL_SWIFT = r'''
 import Foundation
 import Metal
@@ -207,6 +267,67 @@ if let device = MTLCreateSystemDefaultDevice() {
         let got = dst.contents().bindMemory(to: UInt64.self, capacity: 1).pointee
         result["commandStatus"] = command.status.rawValue
         result["oracle"] = (got == nonce && command.status == .completed)
+    }
+}
+let data = try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
+print(String(data: data, encoding: .utf8)!)
+'''
+
+
+_METAL_COMPUTE_SWIFT = r'''
+import Foundation
+import Metal
+import CoreGraphics
+
+let kernelSource = """
+#include <metal_stdlib>
+using namespace metal;
+kernel void add_one(device const uint *input [[buffer(0)]],
+                    device uint *output [[buffer(1)]],
+                    uint id [[thread_position_in_grid]]) {
+    output[id] = input[id] + 1;
+}
+"""
+
+var result: [String: Any] = ["metal_device": false, "oracle": false]
+if let device = MTLCreateSystemDefaultDevice() {
+    result["metal_device"] = true
+    result["name"] = device.name
+    do {
+        let library = try device.makeLibrary(source: kernelSource, options: nil)
+        guard let function = library.makeFunction(name: "add_one") else {
+            result["error"] = "kernel function missing"
+            let data = try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
+            print(String(data: data, encoding: .utf8)!)
+            exit(0)
+        }
+        let pipeline = try device.makeComputePipelineState(function: function)
+        if let queue = device.makeCommandQueue(),
+           let src = device.makeBuffer(length: 4, options: .storageModeShared),
+           let dst = device.makeBuffer(length: 4, options: .storageModeShared),
+           let command = queue.makeCommandBuffer(),
+           let encoder = command.makeComputeCommandEncoder() {
+            let nonce: UInt32 = 0x13572468
+            src.contents().bindMemory(to: UInt32.self, capacity: 1).pointee = nonce
+            dst.contents().bindMemory(to: UInt32.self, capacity: 1).pointee = 0
+            encoder.setComputePipelineState(pipeline)
+            encoder.setBuffer(src, offset: 0, index: 0)
+            encoder.setBuffer(dst, offset: 0, index: 1)
+            encoder.dispatchThreads(
+                MTLSize(width: 1, height: 1, depth: 1),
+                threadsPerThreadgroup: MTLSize(width: 1, height: 1, depth: 1)
+            )
+            encoder.endEncoding()
+            command.commit()
+            command.waitUntilCompleted()
+            let got = dst.contents().bindMemory(to: UInt32.self, capacity: 1).pointee
+            result["commandStatus"] = command.status.rawValue
+            result["expected"] = UInt64(nonce) + 1
+            result["observed"] = UInt64(got)
+            result["oracle"] = (got == nonce + 1 && command.status == .completed)
+        }
+    } catch {
+        result["error"] = String(describing: error)
     }
 }
 let data = try! JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
@@ -319,6 +440,34 @@ def probe_macos_metal() -> dict[str, Any]:
                 reason=reason, evidence=evidence)
 
 
+
+def probe_macos_metal_compute() -> dict[str, Any]:
+    if platform.system() != "Darwin":
+        return _cap("macos:metal-compute-nonce", observed=False, installed=False,
+                    callable_=False, exercised=False, oracle=False,
+                    classification="SKIPPED_GUARDRAIL", reason="Metal compute probe is macOS-only")
+    state, evidence = _compile_run_macos(
+        _METAL_COMPUTE_SWIFT, ".swift",
+        ["--sdk", "macosx", "swiftc", "-O", "-framework", "Metal", "-framework", "CoreGraphics"],
+    )
+    if state != "OK":
+        return _cap("macos:metal-compute-nonce", observed=None, installed=True, callable_=False,
+                    exercised=state == "ORACLE_FAILURE", oracle=False, classification=state,
+                    reason="Metal compute probe could not complete", evidence=evidence)
+    has_device = bool(evidence.get("metal_device"))
+    oracle = bool(evidence.get("oracle"))
+    if not has_device:
+        classification, reason = "NEGATIVE_OBSERVATION", "no default MTLDevice exposed"
+    elif oracle:
+        classification, reason = "SUPPORTED", "Metal compute kernel transformed a nonce correctly"
+    else:
+        classification, reason = "ORACLE_FAILURE", "Metal device exists but compute-kernel oracle failed"
+    return _cap(
+        "macos:metal-compute-nonce", observed=has_device, installed=True, callable_=has_device,
+        exercised=has_device, oracle=oracle, classification=classification,
+        reason=reason, evidence=evidence,
+    )
+
 def probe_macos_coreml_devices() -> list[dict[str, Any]]:
     if platform.system() != "Darwin":
         return []
@@ -368,12 +517,21 @@ def probe_macos_videotoolbox() -> dict[str, Any]:
                     callable_=False, exercised=state == "ORACLE_FAILURE", oracle=False,
                     classification=state, reason="VideoToolbox capability query could not complete",
                     evidence=evidence)
+    query_ok = evidence.get("encoder_status") == 0
     observed = bool(evidence.get("hardware_encoder_count")) or bool(evidence.get("h264_hw_decode")) or bool(evidence.get("hevc_hw_decode"))
+    if not query_ok:
+        classification, oracle = "ORACLE_FAILURE", False
+        reason = "VideoToolbox hardware capability query returned an error"
+    elif observed:
+        classification, oracle = "SUPPORTED", True
+        reason = "VideoToolbox reports hardware encode/decode capability; codec execution not yet proven"
+    else:
+        classification, oracle = "NEGATIVE_OBSERVATION", False
+        reason = "VideoToolbox query succeeded but reported no hardware encode/decode capability"
     return _cap(
-        "macos:videotoolbox-hardware-surface", observed=observed, installed=True, callable_=True,
-        exercised=True, oracle=True, classification="SUPPORTED",
-        reason="VideoToolbox hardware capability query completed; codec execution not yet proven",
-        evidence=evidence,
+        "macos:videotoolbox-hardware-surface", observed=observed, installed=True, callable_=query_ok,
+        exercised=True, oracle=oracle, classification=classification,
+        reason=reason, evidence=evidence,
     )
 
 
@@ -383,8 +541,10 @@ def build_receipt(label: str | None = None) -> dict[str, Any]:
     receipt["capabilities"].append(probe_cpu_features())
     if platform.system() == "Linux":
         receipt["capabilities"].extend(probe_linux_surfaces())
+        receipt["capabilities"].append(probe_linux_rdma_uverbs())
     elif platform.system() == "Darwin":
         receipt["capabilities"].append(probe_macos_metal())
+        receipt["capabilities"].append(probe_macos_metal_compute())
         receipt["capabilities"].extend(probe_macos_coreml_devices())
         receipt["capabilities"].append(probe_macos_videotoolbox())
     receipt["warnings"].extend([
