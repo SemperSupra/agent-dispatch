@@ -1,14 +1,6 @@
 name: Firecracker P6 Sovereign Transfer Contract
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "scripts/firecracker_sovereign_preflight.py"
-      - "tests/test_firecracker_sovereign_preflight.py"
-      - "docs/experiments/firecracker-sovereign-transfer.md"
-      - ".github/workflows/github-runner-firecracker-p6-transfer.yml"
   workflow_dispatch:
 
 permissions:
