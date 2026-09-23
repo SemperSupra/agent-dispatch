@@ -177,6 +177,32 @@ def _run_firecracker(binary: pathlib.Path, config: pathlib.Path) -> dict:
     if not timeout:
         return {"ok": False, "classification": "SETUP_REQUIRED", "reason": "timeout not found"}
 
+    binary = binary.resolve()
+    config = config.resolve()
+    config_payload = json.loads(config.read_text())
+    required_paths = {
+        "firecracker": binary,
+        "config": config,
+        "kernel": pathlib.Path(config_payload["boot-source"]["kernel_image_path"]).resolve(),
+        "initrd": pathlib.Path(config_payload["boot-source"]["initrd_path"]).resolve(),
+    }
+    sudo_readable = {}
+    for name, path in required_paths.items():
+        code, _, err = f0._run([sudo, "-n", "test", "-r", str(path)], timeout=10)
+        sudo_readable[name] = {
+            "path": str(path),
+            "readable": code == 0,
+            "exit_code": code,
+            "error": err[:1000] if err else None,
+        }
+    if not all(item["readable"] for item in sudo_readable.values()):
+        return {
+            "ok": False,
+            "classification": "HARNESS_FAILURE",
+            "reason": "sudo launch context cannot read all F1 input paths",
+            "sudo_readable": sudo_readable,
+        }
+
     command = [
         sudo,
         "-n",
@@ -186,26 +212,39 @@ def _run_firecracker(binary: pathlib.Path, config: pathlib.Path) -> dict:
         "20s",
         str(binary),
         "--no-api",
-        "--config-file",
-        str(config),
+        f"--config-file={config}",
     ]
     code, out, err = f0._run(command, timeout=25)
     combined = "\n".join(x for x in [out, err] if x)
     nonce_seen = NONCE in combined
     clean_exit = code == 0 and "Firecracker exiting successfully" in combined
+    preboot_path_failure = (
+        "Unable to open or read from the configuration file" in combined
+        or "No such file or directory" in combined and not nonce_seen
+    )
+    classification = (
+        "SUPPORTED"
+        if nonce_seen and clean_exit
+        else "HARNESS_FAILURE"
+        if preboot_path_failure
+        else "ORACLE_FAILURE"
+    )
     return {
         "ok": nonce_seen and clean_exit,
-        "classification": "SUPPORTED" if nonce_seen and clean_exit else "ORACLE_FAILURE",
+        "classification": classification,
         "reason": (
             "guest serial nonce observed and Firecracker exited cleanly"
             if nonce_seen and clean_exit
+            else "pre-boot file handoff failed before a guest oracle"
+            if preboot_path_failure
             else "guest serial nonce and clean VMM exit were not both observed"
         ),
         "exit_code": code,
         "serial_nonce_observed": nonce_seen,
         "clean_vmm_exit_observed": clean_exit,
+        "sudo_readable": sudo_readable,
         "output_tail": combined[-6000:],
-        "command_shape": "sudo -n timeout 20s firecracker --no-api --config-file <config>",
+        "command_shape": "sudo -n timeout 20s firecracker --no-api --config-file=<resolved-config>",
     }
 
 
