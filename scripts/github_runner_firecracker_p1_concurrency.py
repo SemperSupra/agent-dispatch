@@ -183,8 +183,9 @@ def _run_point(n: int, firecracker: pathlib.Path, config_path: pathlib.Path, exp
     }
 
 
-def run_probe(label: str) -> dict:
+def run_probe(label: str, points: tuple[int, ...] = POINTS) -> dict:
     timer = LifecycleTimer()
+    planned_count = len(points)
     if platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
         return {"schema": SCHEMA, "result": {"classification": "SETUP_REQUIRED"}}
 
@@ -220,8 +221,8 @@ def run_probe(label: str) -> dict:
             config = f1._build_config(kernel, initrd, config_path)
 
         points = []
-        for n in POINTS:
-            with timer.stage(f"concurrency_n{n}", "portable"):
+        for rep_index, n in enumerate(points):
+            with timer.stage(f"concurrency_rep{rep_index}_n{n}", "portable"):
                 point = _run_point(n, fc, config_path, expected)
             points.append(point)
             if not point["all_oracles_satisfied"]:
@@ -240,7 +241,7 @@ def run_probe(label: str) -> dict:
                 else None
             )
 
-        all_passed = len(points) == len(POINTS) and all(p["all_oracles_satisfied"] for p in points)
+        all_passed = len(points) == planned_count and all(p["all_oracles_satisfied"] for p in points)
         largest_stable = max((p["n"] for p in points if p["all_oracles_satisfied"]), default=0)
         first_unstable = next((p["n"] for p in points if not p["all_oracles_satisfied"]), None)
 
@@ -291,10 +292,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--label", required=True)
     parser.add_argument("--out", type=pathlib.Path, required=True)
+    parser.add_argument("--points", default="1,2,4", help="comma-separated bounded concurrency points")
     args = parser.parse_args()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     try:
-        receipt = run_probe(args.label)
+        points = tuple(int(value) for value in args.points.split(",") if value.strip())
+        if not points or any(value < 1 or value > 8 for value in points):
+            raise ValueError("points must contain integers in the range 1..8")
+        receipt = run_probe(args.label, points)
     except Exception as exc:
         receipt = {
             "schema": SCHEMA,
