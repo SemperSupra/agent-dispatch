@@ -1,14 +1,6 @@
 name: Firecracker P2 Coexistence
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "experiments/firecracker/p2/**"
-      - "scripts/github_runner_firecracker_p2_coexistence.py"
-      - "tests/test_github_runner_firecracker_p2_coexistence.py"
-      - ".github/workflows/github-runner-firecracker-p2-coexistence.yml"
   workflow_dispatch:
 
 permissions:
