@@ -10,10 +10,11 @@ import platform
 import shutil
 import subprocess
 import tempfile
+import time
 from typing import Any
 
 SCHEMA = "github-runner-rdma-closure/v1"
-PROBE_VERSION = "public-rdma-verbs-closure/2"
+PROBE_VERSION = "public-rdma-verbs-closure/3"
 
 C_SOURCE = r'''
 #include <infiniband/verbs.h>
@@ -28,6 +29,9 @@ struct endpoint { struct ibv_cq *cq; struct ibv_qp *qp; };
 static int gid_is_zero(const union ibv_gid *gid) {
     static const unsigned char zero[16] = {0};
     return memcmp(gid->raw, zero, 16) == 0;
+}
+static int gid_is_link_local(const union ibv_gid *gid) {
+    return gid->raw[0] == 0xfe && gid->raw[1] == 0x80;
 }
 
 static int modify_init(struct ibv_qp *qp, uint8_t port) {
@@ -102,7 +106,10 @@ int main(int argc, char **argv) {
     stage="query-port"; if(ibv_query_port(ctx,port,&pa)){stage_rc=errno?errno:1;goto out;}
     if(pa.state!=IBV_PORT_ACTIVE){stage_rc=2;goto out;}
     for(int i=0;i<32;i++){ union ibv_gid c; memset(&c,0,sizeof(c));
-        if(ibv_query_gid(ctx,port,i,&c)==0 && !gid_is_zero(&c)){gid=c;gid_index=i;break;}}
+        if(ibv_query_gid(ctx,port,i,&c)==0 && !gid_is_zero(&c)){
+            if(gid_index<0){gid=c;gid_index=i;}
+            if(!gid_is_link_local(&c)){gid=c;gid_index=i;break;}
+        }}
 
     stage="alloc-pd"; pd=ibv_alloc_pd(ctx); if(!pd){stage_rc=errno?errno:1;goto out;} ok_pd=1;
     int cq_entries = da.max_cqe >= 4 ? 4 : da.max_cqe;
@@ -216,6 +223,29 @@ def rdma_candidates() -> list[dict[str,Any]]:
         rows.append({"device":dev.name,"states":states,"netdevs":nets,"uverbs":uverbs,"score":score})
     return sorted(rows,key=lambda x:(x["score"],x["device"]),reverse=True)
 
+
+def pingpong_diagnostic(device: str | None, gid_index: int | None) -> dict[str,Any]:
+    exe=shutil.which("ibv_rc_pingpong")
+    if not exe or not device:
+        return {"classification":"SKIPPED_GUARDRAIL","reason":"ibv_rc_pingpong or selected device unavailable"}
+    base=[exe,"-d",device,"-i","1","-s","8","-n","4","-p","19415"]
+    if isinstance(gid_index,int) and gid_index>=0: base += ["-g",str(gid_index)]
+    server=subprocess.Popen(base,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    time.sleep(1)
+    client_rc,client_out,client_err=run(base+["127.0.0.1"],timeout=30)
+    try:
+        server_out,server_err=server.communicate(timeout=30)
+        server_rc=server.returncode
+    except subprocess.TimeoutExpired:
+        server.kill();server_out,server_err=server.communicate();server_rc=None
+    passed=(client_rc==0 and server_rc==0)
+    return {"classification":"SUPPORTED" if passed else "ORACLE_FAILURE",
+            "reason":"stock ibv_rc_pingpong same-host RC SEND/RECV passed" if passed else "stock ibv_rc_pingpong also failed",
+            "server_exit":server_rc,"client_exit":client_rc,
+            "server_stdout":server_out[-3000:] or None,"server_stderr":server_err[-3000:] or None,
+            "client_stdout":client_out[-3000:] or None,"client_stderr":client_err[-3000:] or None,
+            "argv":base[1:]}
+
 def main() -> int:
     p=argparse.ArgumentParser(); p.add_argument("--label",required=True); p.add_argument("--out",required=True)
     args=p.parse_args()
@@ -274,6 +304,8 @@ def main() -> int:
                             try: oracle=json.loads(stdout.splitlines()[-1]) if stdout else None
                             except (json.JSONDecodeError,IndexError): oracle=None
                             receipt["oracle"]=oracle
+                            if isinstance(oracle,dict):
+                                receipt["independent_pingpong"]=pingpong_diagnostic(selected,oracle.get("gid_index"))
                             if rc!=0 or not isinstance(oracle,dict):
                                 receipt["classification"]="HARNESS_FAILURE";receipt["reason"]="verbs oracle returned no parseable result"
                                 receipt["execution"]["stdout"]=stdout[-3000:] or None
