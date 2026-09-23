@@ -174,11 +174,14 @@ evidence={
     "nonempty":bool(a.strip()),
     "repeat_equal":a==b,
 }
+evidence["model_digest_present"]=("model.safetensors" in files and bool(files["model.safetensors"].get("sha256")))
 evidence["oracle"]=(
     evidence["mlx_lm_version"]=="''' + MLX_LM_VERSION + r'''" and
     "gpu" in evidence["default_device"].lower() and
     evidence["nonempty"] and
-    evidence["repeat_equal"]
+    evidence["repeat_equal"] and
+    evidence["model_digest_present"] and
+    bool(evidence["resolved_revision"])
 )
 print(json.dumps(evidence,sort_keys=True))
 ''',encoding="utf-8")
