@@ -7,7 +7,7 @@ CONTRACT_VERSION="gha-kvm-surrogate/v1"
 usage() {
   cat <<'EOF'
 Usage:
-  gha_kvm_surrogate.sh --kit PATH --out RECEIPT [--state-dir DIR] [--image-url URL]
+  gha_kvm_surrogate.sh --kit PATH --out RECEIPT [--state-dir DIR] [--image-url URL] [--runner-version VERSION --runner-sha256 SHA256]
 
 Creates one disposable ordinary Ubuntu QEMU/KVM guest, proves SSH nonce exchange,
 guest outbound HTTPS, generic runner-kit preflight, opaque-input handling, and cleanup.
@@ -19,6 +19,8 @@ KIT=""
 OUT=""
 STATE_DIR=""
 IMAGE_URL="$IMAGE_URL_DEFAULT"
+RUNNER_VERSION=""
+RUNNER_SHA256=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -26,12 +28,17 @@ while [[ $# -gt 0 ]]; do
     --out) OUT="$2"; shift 2 ;;
     --state-dir) STATE_DIR="$2"; shift 2 ;;
     --image-url) IMAGE_URL="$2"; shift 2 ;;
+    --runner-version) RUNNER_VERSION="$2"; shift 2 ;;
+    --runner-sha256) RUNNER_SHA256="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
 [[ -f "$KIT" && -n "$OUT" ]] || { usage >&2; exit 2; }
+if [[ -n "$RUNNER_VERSION" || -n "$RUNNER_SHA256" ]]; then
+  [[ -n "$RUNNER_VERSION" && "$RUNNER_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "runner version and SHA256 must be supplied together" >&2; exit 2; }
+fi
 STATE_DIR="${STATE_DIR:-$(mktemp -d -t gha-kvm-surrogate.XXXXXX)}"
 mkdir -p "$(dirname "$OUT")" "$STATE_DIR"
 STATE_DIR="$(realpath "$STATE_DIR")"
@@ -160,6 +167,15 @@ GUEST_NONCE="$("${SSH[@]}" cat /proc/sys/kernel/random/uuid)"
 PREFLIGHT="$("${SSH[@]}" /home/runnerlab/self_hosted_runner_kit.sh preflight --work-dir /home/runnerlab/actions-runner)"
 "${SSH[@]}" "curl --fail --silent --show-error --max-time 20 https://api.github.com/meta >/dev/null"
 
+RUNNER_STAGE=""
+if [[ -n "$RUNNER_VERSION" ]]; then
+  RUNNER_STAGE="$("${SSH[@]}" /home/runnerlab/self_hosted_runner_kit.sh stage \
+    --version "$RUNNER_VERSION" \
+    --sha256 "$RUNNER_SHA256" \
+    --arch x64 \
+    --work-dir /home/runnerlab/actions-runner)"
+fi
+
 "${SSH[@]}" bash -s <<'EOF'
 set -euo pipefail
 umask 077
@@ -175,7 +191,7 @@ GUEST_OS_RELEASE="$("${SSH[@]}" cat /etc/os-release)"
 QEMU_VERSION="$(qemu-system-x86_64 --version | head -n1)"
 END_NS="$(date +%s%N)"
 
-export LAB_OUT="$OUT" LAB_PREFLIGHT="$PREFLIGHT" LAB_GUEST_OS="$GUEST_OS" LAB_GUEST_ARCH="$GUEST_ARCH"
+export LAB_OUT="$OUT" LAB_PREFLIGHT="$PREFLIGHT" LAB_RUNNER_STAGE="$RUNNER_STAGE" LAB_GUEST_OS="$GUEST_OS" LAB_GUEST_ARCH="$GUEST_ARCH"
 export LAB_GUEST_OS_RELEASE="$GUEST_OS_RELEASE"
 export LAB_IMAGE="$IMAGE" LAB_IMAGE_SHA="$ACTUAL_SHA" LAB_QEMU_VERSION="$QEMU_VERSION"
 export LAB_BOOT_START_NS="$BOOT_START_NS" LAB_BOOT_READY_NS="$BOOT_READY_NS"
@@ -184,6 +200,7 @@ python3 - <<'PY'
 import json, os, pathlib
 out=pathlib.Path(os.environ["LAB_OUT"])
 preflight=json.loads(os.environ["LAB_PREFLIGHT"])
+runner_stage=json.loads(os.environ["LAB_RUNNER_STAGE"]) if os.environ["LAB_RUNNER_STAGE"] else None
 if os.environ["LAB_GUEST_ARCH"] != preflight.get("arch"):
     raise SystemExit("guest architecture disagrees with runner-kit preflight")
 pretty_name = ""
@@ -207,6 +224,7 @@ payload={
     "guest_to_host_nonce": True,
     "guest_outbound_https": True,
     "runner_kit_preflight": len(preflight.get("missing",[])) == 0,
+    "runner_package_staged": runner_stage is not None and runner_stage.get("observed_version") == runner_stage.get("version"),
     "opaque_input_consumed_without_disclosure": True,
     "opaque_input_sanitized": True
   },
@@ -215,6 +233,7 @@ payload={
     "total_before_cleanup": (int(os.environ["LAB_END_NS"])-int(os.environ["LAB_START_NS"]))//1_000_000
   },
   "runner_kit_preflight": preflight,
+  "runner_package_stage": runner_stage,
   "warnings": [
     "This proves only the provider-neutral surrogate host and runner-kit seam.",
     "No GitHub self-hosted runner was registered and no runner-registration credential was used."

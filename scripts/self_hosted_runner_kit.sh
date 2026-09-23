@@ -9,6 +9,7 @@ Usage:
   self_hosted_runner_kit.sh contract
   self_hosted_runner_kit.sh preflight [--work-dir PATH]
   self_hosted_runner_kit.sh plan --version VERSION --sha256 SHA256 [--arch x64|arm64] [--work-dir PATH] [--mode jit|persistent] [--labels CSV]
+  self_hosted_runner_kit.sh stage --version VERSION --sha256 SHA256 [--arch x64|arm64] [--work-dir PATH]
   self_hosted_runner_kit.sh consume-opaque-input PATH
   self_hosted_runner_kit.sh sanitize-input PATH
 
@@ -109,6 +110,65 @@ print(json.dumps({
 PY
 }
 
+
+stage() {
+  local version="" sha256="" arch="" work_dir="/opt/actions-runner"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version) version="$2"; shift 2 ;;
+      --sha256) sha256="$2"; shift 2 ;;
+      --arch) arch="$2"; shift 2 ;;
+      --work-dir) work_dir="$2"; shift 2 ;;
+      *) echo "unknown argument: $1" >&2; return 2 ;;
+    esac
+  done
+  [[ -n "$version" && "$sha256" =~ ^[0-9a-fA-F]{64}$ ]] || {
+    echo "version and a 64-hex SHA256 are required" >&2
+    return 2
+  }
+  if [[ -z "$arch" ]]; then
+    case "$(uname -m)" in
+      x86_64) arch="x64" ;;
+      aarch64|arm64) arch="arm64" ;;
+      *) echo "unsupported architecture" >&2; return 2 ;;
+    esac
+  fi
+
+  local url="https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-$arch-$version.tar.gz"
+  local marker="$work_dir/.runner-kit-stage"
+  local observed=""
+  if [[ -d "$work_dir" && -f "$marker" ]] && grep -Fxq "$version $sha256" "$marker"; then
+    observed="$(cd "$work_dir" && ./bin/Runner.Listener --version)"
+    [[ "$observed" == "$version" ]] || { echo "staged runner version oracle failed" >&2; return 5; }
+    STAGE_CONTRACT="$CONTRACT_VERSION" STAGE_VERSION="$version" STAGE_SHA="$sha256" STAGE_ARCH="$arch" STAGE_DIR="$work_dir" STAGE_OBSERVED="$observed" STAGE_REUSED=true python3 -c 'import json,os; print(json.dumps({"contract":os.environ["STAGE_CONTRACT"],"version":os.environ["STAGE_VERSION"],"sha256":os.environ["STAGE_SHA"],"arch":os.environ["STAGE_ARCH"],"work_dir":os.environ["STAGE_DIR"],"observed_version":os.environ["STAGE_OBSERVED"],"reused":os.environ["STAGE_REUSED"]=="true"},sort_keys=True))'
+    return 0
+  fi
+  if [[ -e "$work_dir" ]]; then
+    echo "refusing to stage into existing unowned or mismatched work directory" >&2
+    return 3
+  fi
+
+  local parent tmp archive actual
+  parent="$(dirname "$work_dir")"
+  mkdir -p "$parent"
+  tmp="$(mktemp -d "$parent/.runner-stage.XXXXXX")"
+  archive="$tmp/runner.tar.gz"
+  cleanup_stage() { rm -rf -- "$tmp"; }
+  trap cleanup_stage RETURN
+
+  curl --fail --location --retry 3 --silent --show-error "$url" -o "$archive"
+  actual="$(sha256sum "$archive" | awk '{print $1}')"
+  [[ "$actual" == "$sha256" ]] || { echo "runner package checksum mismatch" >&2; return 4; }
+  mkdir "$tmp/root"
+  tar -xzf "$archive" -C "$tmp/root"
+  observed="$(cd "$tmp/root" && ./bin/Runner.Listener --version)"
+  [[ "$observed" == "$version" ]] || { echo "runner package version oracle failed" >&2; return 5; }
+  printf '%s %s\n' "$version" "$sha256" > "$tmp/root/.runner-kit-stage"
+  mv "$tmp/root" "$work_dir"
+
+  STAGE_CONTRACT="$CONTRACT_VERSION" STAGE_VERSION="$version" STAGE_SHA="$sha256" STAGE_ARCH="$arch" STAGE_DIR="$work_dir" STAGE_OBSERVED="$observed" STAGE_REUSED=false python3 -c 'import json,os; print(json.dumps({"contract":os.environ["STAGE_CONTRACT"],"version":os.environ["STAGE_VERSION"],"sha256":os.environ["STAGE_SHA"],"arch":os.environ["STAGE_ARCH"],"work_dir":os.environ["STAGE_DIR"],"observed_version":os.environ["STAGE_OBSERVED"],"reused":os.environ["STAGE_REUSED"]=="true"},sort_keys=True))'
+}
+
 consume_opaque_input() {
   local path="$1"
   [[ -f "$path" ]] || { echo "opaque input is not a regular file" >&2; return 2; }
@@ -144,6 +204,7 @@ main() {
     contract) contract "$@" ;;
     preflight) preflight "$@" ;;
     plan) plan "$@" ;;
+    stage) stage "$@" ;;
     consume-opaque-input) [[ $# -eq 1 ]] || return 2; consume_opaque_input "$1" ;;
     sanitize-input) [[ $# -eq 1 ]] || return 2; sanitize_input "$1" ;;
     -h|--help|help) usage ;;

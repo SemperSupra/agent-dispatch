@@ -58,6 +58,15 @@ class SelfHostedRunnerLabTests(unittest.TestCase):
             cp = run("bash", str(KIT), "consume-opaque-input", str(path), check=False)
             self.assertNotEqual(cp.returncode, 0)
 
+
+    def test_stage_rejects_unpinned_checksum_before_network(self):
+        cp = run("bash", str(KIT), "stage", "--version", "2.337.0", "--sha256", "not-a-digest", "--work-dir", "/tmp/never-created", check=False)
+        self.assertNotEqual(cp.returncode, 0)
+
+    def test_provider_receipt_has_architecture_consistency_guard(self):
+        text = PROVIDER.read_text(encoding="utf-8")
+        self.assertIn("guest architecture disagrees with runner-kit preflight", text)
+
     def test_provider_has_no_registration_control_plane(self):
         text = PROVIDER.read_text(encoding="utf-8")
         forbidden = ["config.sh --url", "registration-token", "jitconfig", "ACTIONS_RUNNER_INPUT_TOKEN"]

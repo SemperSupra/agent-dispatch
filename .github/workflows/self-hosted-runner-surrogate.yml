@@ -69,8 +69,21 @@ jobs:
           scripts/gha_kvm_surrogate.sh \
             --kit scripts/self_hosted_runner_kit.sh \
             --state-dir "${RUNNER_TEMP}/self-hosted-runner-lab/state" \
-            --out "${RUNNER_TEMP}/self-hosted-runner-lab/surrogate-receipt.json"
+            --out "${RUNNER_TEMP}/self-hosted-runner-lab/surrogate-receipt.json" \
+            --runner-version "2.337.0" \
+            --runner-sha256 "70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
           test ! -e "${RUNNER_TEMP}/self-hosted-runner-lab/state"
+          python3 - "${RUNNER_TEMP}/self-hosted-runner-lab/surrogate-receipt.json" <<'PY'
+          import json, pathlib, sys
+          receipt=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          assert receipt['classification'] == 'SUPPORTED'
+          assert receipt['oracleSatisfied'] is True
+          assert receipt['guest']['arch'] == 'x86_64'
+          assert receipt['runner_kit_preflight']['arch'] == 'x86_64'
+          assert receipt['runner_package_stage']['version'] == '2.337.0'
+          assert receipt['runner_package_stage']['observed_version'] == '2.337.0'
+          assert all(receipt['oracles'].values())
+          PY
       - name: Upload public-safe surrogate receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
