@@ -1,15 +1,6 @@
 name: Firecracker GHA RDTE F0
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "experiments/firecracker/**"
-      - "docs/experiments/firecracker-gha-rdte.md"
-      - "scripts/github_runner_firecracker_f0.py"
-      - "tests/test_github_runner_firecracker_f0.py"
-      - ".github/workflows/github-runner-firecracker-f0.yml"
   workflow_dispatch:
 
 permissions:
