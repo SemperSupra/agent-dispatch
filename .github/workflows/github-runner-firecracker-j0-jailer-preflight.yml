@@ -1,13 +1,6 @@
 name: Firecracker J0 Jailer Preflight
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_j0_jailer_preflight.py"
-      - "tests/test_github_runner_firecracker_j0_jailer_preflight.py"
-      - ".github/workflows/github-runner-firecracker-j0-jailer-preflight.yml"
   workflow_dispatch:
 
 permissions:
