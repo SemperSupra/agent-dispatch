@@ -1,13 +1,6 @@
 name: Firecracker GHA RDTE F1 Kernel Discovery
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "scripts/github_runner_firecracker_f1_kernel_discovery.py"
-      - "tests/test_github_runner_firecracker_f1_kernel_discovery.py"
-      - ".github/workflows/github-runner-firecracker-f1-kernel-discovery.yml"
   workflow_dispatch:
 
 permissions:
