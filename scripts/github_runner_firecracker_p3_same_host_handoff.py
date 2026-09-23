@@ -222,6 +222,7 @@ def run_probe(label: str) -> dict:
 
         source_pid=_actual_firecracker_pid(source_sock)
 
+        handoff_started=time.perf_counter()
         with timer.stage("pause_api","portable"):
             pause=_api(source_sock,"PATCH","/vm",{"state":"Paused"})
         if not pause["ok"]:
@@ -245,8 +246,6 @@ def run_probe(label: str) -> dict:
         snapshot_meta={
             "state_size_bytes":state_file.stat().st_size,
             "mem_size_bytes":mem_file.stat().st_size,
-            "state_sha256":_sha256(state_file),
-            "mem_sha256":_sha256(mem_file),
         }
 
         with timer.stage("source_termination","portable"):
@@ -288,6 +287,7 @@ def run_probe(label: str) -> dict:
         resume_to_output_ms=round((time.perf_counter()-resume_started)*1000.0,3) if first_dest_hb else None
         if resume_to_output_ms is not None:
             timer.add("resume_to_first_guest_output","portable",resume_to_output_ms,derived=True)
+            timer.add("source_pause_request_to_destination_output","portable",(time.perf_counter()-handoff_started)*1000.0,derived=True)
 
         try:
             dest_rc=dest.wait(timeout=5)
@@ -301,6 +301,10 @@ def run_probe(label: str) -> dict:
         dest_heartbeats=_all_heartbeat_values(dest_lines)
         dest_first_counter=dest_heartbeats[0] if dest_heartbeats else None
         done_values=[int(m.group(1)) for line in dest_lines if (m:=DONE_RE.search(line))]
+        with timer.stage("snapshot_hash_receipt","portable"):
+            snapshot_meta["state_sha256"]=_sha256(state_file)
+            snapshot_meta["mem_sha256"]=_sha256(mem_file)
+
         continuity_ok=(
             source_pid is not None
             and dest_pid is not None
