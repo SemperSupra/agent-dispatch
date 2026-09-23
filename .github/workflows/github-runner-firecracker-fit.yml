@@ -1,13 +1,6 @@
 name: Firecracker GHA Runner Fit
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_fit.py"
-      - "tests/test_github_runner_firecracker_fit.py"
-      - ".github/workflows/github-runner-firecracker-fit.yml"
   workflow_dispatch:
 
 permissions:
