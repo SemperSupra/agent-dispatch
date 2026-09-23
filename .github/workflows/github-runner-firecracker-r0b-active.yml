@@ -1,14 +1,6 @@
 name: Firecracker R0b Active Resource Envelope
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest/r0b-resource-probe-x86_64.c"
-      - "scripts/github_runner_firecracker_r0b_active_resources.py"
-      - "tests/test_github_runner_firecracker_r0b_active_resources.py"
-      - ".github/workflows/github-runner-firecracker-r0b-active.yml"
   workflow_dispatch:
 
 permissions:
