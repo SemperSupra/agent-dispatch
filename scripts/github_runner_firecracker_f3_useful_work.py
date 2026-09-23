@@ -77,7 +77,7 @@ def build_initramfs(init_bin: pathlib.Path, candidate_bin: pathlib.Path, data: b
     out.write_bytes(payload)
 
 
-def run_vm(binary: pathlib.Path, config: pathlib.Path, expected: dict) -> dict:
+def run_vm(binary: pathlib.Path, config: pathlib.Path, expected: dict, timeout_seconds: int = 20) -> dict:
     timeout = shutil.which("timeout")
     access = exec_adapter.select_kvm_access()
     if not timeout or access.get("classification") != "SUPPORTED":
@@ -89,11 +89,11 @@ def run_vm(binary: pathlib.Path, config: pathlib.Path, expected: dict) -> dict:
         }
 
     command = exec_adapter.privileged_command(
-        [timeout, "--signal=TERM", "--kill-after=2s", "20s",
+        [timeout, "--signal=TERM", "--kill-after=2s", f"{timeout_seconds}s",
          str(binary.resolve()), "--no-api", "--config-file", str(config.resolve())],
         access,
     )
-    code, out, err = f0._run(command, timeout=25)
+    code, out, err = f0._run(command, timeout=timeout_seconds + 5)
     combined = "\n".join(x for x in (out, err) if x)
     rm = RESULT_RE.search(combined)
     em = EXIT_RE.search(combined)
