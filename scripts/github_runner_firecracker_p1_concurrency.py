@@ -84,8 +84,8 @@ def _vm_rss_snapshot(binary_name: str) -> tuple[int, int]:
         if not entry.name.isdigit():
             continue
         try:
-            cmdline = (entry / "cmdline").read_bytes().decode("utf-8", errors="ignore").replace("\0", " ")
-            if binary_name not in cmdline:
+            exe_name = (entry / "exe").resolve().name
+            if exe_name != binary_name:
                 continue
             status = (entry / "status").read_text()
             rss_kib = 0
