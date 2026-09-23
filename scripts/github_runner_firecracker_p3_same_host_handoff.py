@@ -19,6 +19,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_runner_firecracker_f0 as f0
 import github_runner_firecracker_f1_boot as f1
+import firecracker_execution_adapter as exec_adapter
 from firecracker_lifecycle_timing import LifecycleTimer
 
 SCHEMA = "firecracker-p3-same-host-handoff-receipt/v1"
@@ -41,20 +42,24 @@ def _sha256(path: pathlib.Path) -> str:
 
 def _api(socket_path: pathlib.Path, method: str, endpoint: str, payload: dict) -> dict:
     curl = shutil.which("curl")
-    sudo = shutil.which("sudo")
-    if not curl or not sudo:
-        return {"ok": False, "reason": "curl or sudo unavailable"}
+    access = exec_adapter.select_kvm_access()
+    if not curl or access.get("classification") != "SUPPORTED":
+        return {"ok": False, "reason": "curl or qualified KVM execution boundary unavailable", "kvm_access": access}
     body = json.dumps(payload, separators=(",", ":"))
     started = time.perf_counter()
     cp = subprocess.run(
-        [
-            sudo, "-n", curl, "-sS", "--fail-with-body",
-            "--unix-socket", str(socket_path),
-            "-X", method,
-            "-H", "Content-Type: application/json",
-            "-d", body,
-            f"http://localhost{endpoint}",
-        ],
+        exec_adapter.api_command(
+            curl,
+            socket_path,
+            [
+                "-sS", "--fail-with-body",
+                "-X", method,
+                "-H", "Content-Type: application/json",
+                "-d", body,
+                f"http://localhost{endpoint}",
+            ],
+            access,
+        ),
         capture_output=True,
         text=True,
         timeout=20,
@@ -114,12 +119,13 @@ def _all_heartbeat_values(lines: list[str]) -> list[int]:
 
 
 def _launch(binary: pathlib.Path, api_socket: pathlib.Path, config: pathlib.Path | None = None) -> subprocess.Popen:
-    sudo = shutil.which("sudo")
-    if not sudo:
-        raise RuntimeError("sudo unavailable")
-    argv = [sudo, "-n", str(binary.resolve()), "--api-sock", str(api_socket.resolve())]
+    access = exec_adapter.select_kvm_access()
+    if access.get("classification") != "SUPPORTED":
+        raise RuntimeError("qualified KVM execution boundary unavailable")
+    args = ["--api-sock", str(api_socket.resolve())]
     if config is not None:
-        argv += ["--config-file", str(config.resolve())]
+        args += ["--config-file", str(config.resolve())]
+    argv = exec_adapter.firecracker_command(binary, args, access)
     return subprocess.Popen(
         argv,
         stdout=subprocess.PIPE,
