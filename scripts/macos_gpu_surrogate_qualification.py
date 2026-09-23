@@ -14,7 +14,7 @@ import tempfile
 from typing import Any
 
 SCHEMA = "macos-gpu-surrogate-qualification/v1"
-PROBE_VERSION = "public-macos-gpu-surrogate/3"
+PROBE_VERSION = "public-macos-gpu-surrogate/4"
 TORCH_VERSION = "2.14.0"
 MLX_VERSION = "0.32.2"
 LLAMA_TAG = "v0.4.1"
@@ -132,9 +132,9 @@ COREML_TEST = r'''
 import json, os, tempfile
 import numpy as np
 import coremltools as ct
-from coremltools.converters.mil import Builder as mb, types
+from coremltools.converters.mil import Builder as mb
 
-@mb.program(input_specs=[mb.TensorSpec(shape=(1,), dtype=types.fp32)])
+@mb.program(input_specs=[mb.TensorSpec(shape=(1,))])
 def prog(x):
     one = mb.const(val=np.array([1.0], dtype=np.float32))
     return mb.add(x=x, y=one)
