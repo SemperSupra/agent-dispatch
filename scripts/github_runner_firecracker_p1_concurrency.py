@@ -183,9 +183,9 @@ def _run_point(n: int, firecracker: pathlib.Path, config_path: pathlib.Path, exp
     }
 
 
-def run_probe(label: str, points: tuple[int, ...] = POINTS) -> dict:
+def run_probe(label: str, requested_points: tuple[int, ...] = POINTS) -> dict:
     timer = LifecycleTimer()
-    planned_count = len(points)
+    planned_count = len(requested_points)
     if platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
         return {"schema": SCHEMA, "result": {"classification": "SETUP_REQUIRED"}}
 
@@ -220,16 +220,16 @@ def run_probe(label: str, points: tuple[int, ...] = POINTS) -> dict:
         with timer.stage("vm_config_build", "portable"):
             config = f1._build_config(kernel, initrd, config_path)
 
-        points = []
-        for rep_index, n in enumerate(points):
+        point_results = []
+        for rep_index, n in enumerate(requested_points):
             with timer.stage(f"concurrency_rep{rep_index}_n{n}", "portable"):
                 point = _run_point(n, fc, config_path, expected)
-            points.append(point)
+            point_results.append(point)
             if not point["all_oracles_satisfied"]:
                 break
 
-        baseline = points[0]["aggregate_makespan_ms"] if points else None
-        for point in points:
+        baseline = point_results[0]["aggregate_makespan_ms"] if point_results else None
+        for point in point_results:
             point["slowdown_vs_n1"] = (
                 round(point["aggregate_makespan_ms"] / baseline, 4)
                 if baseline and baseline > 0
@@ -241,9 +241,9 @@ def run_probe(label: str, points: tuple[int, ...] = POINTS) -> dict:
                 else None
             )
 
-        all_passed = len(points) == planned_count and all(p["all_oracles_satisfied"] for p in points)
-        largest_stable = max((p["n"] for p in points if p["all_oracles_satisfied"]), default=0)
-        first_unstable = next((p["n"] for p in points if not p["all_oracles_satisfied"]), None)
+        all_passed = len(point_results) == planned_count and all(p["all_oracles_satisfied"] for p in point_results)
+        largest_stable = max((p["n"] for p in point_results if p["all_oracles_satisfied"]), default=0)
+        first_unstable = next((p["n"] for p in point_results if not p["all_oracles_satisfied"]), None)
 
         return {
             "schema": SCHEMA,
@@ -279,7 +279,7 @@ def run_probe(label: str, points: tuple[int, ...] = POINTS) -> dict:
                 "kernel_release": platform.release(),
                 "memory": _meminfo(),
             },
-            "points": points,
+            "points": point_results,
             "lifecycle_timing": timer.receipt(),
             "sovereign_transfer": {
                 "portable_contract_depends_on_github_actions": False,
