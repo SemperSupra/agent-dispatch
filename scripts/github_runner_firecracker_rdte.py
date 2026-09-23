@@ -19,6 +19,7 @@ import subprocess
 import tarfile
 import tempfile
 import urllib.request
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,10 @@ F1_NONCE = "FC_RDTE_F1_NONCE=c0def11e"
 F2_INPUT = "FC_RDTE_F2_INPUT=portable-block-contract"
 F2_RESULT = "FC_RDTE_F2_RESULT=portable-block-contract"
 F2_NONCE = "FC_RDTE_F2_NONCE=c0def22e"
+F3_CAPSULE_SCHEMA = "firecracker-rdte-capsule/v0"
+F3_RESULT_SCHEMA = "firecracker-rdte-result/v0"
+F3_PAYLOAD = b"portable sovereign transfer\nmicrovm capsule\n"
+F3_NONCE = "FC_RDTE_F3_NONCE=c0def33e"
 
 
 def sha256_file(path: Path) -> str:
@@ -328,6 +333,98 @@ def f2_drive(drive_id: str, path: Path, read_only: bool) -> dict[str, Any]:
     }
 
 
+
+def compile_f3_init(temp: Path) -> tuple[Path, dict[str, Any]]:
+    source = temp / "init-f3.c"
+    binary = temp / "init-f3"
+    source.write_text(
+        r'''#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/mount.h>
+#include <sys/reboot.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static int fail(const char *msg) {
+    dprintf(STDERR_FILENO, "FC_RDTE_F3_ERROR=%s\n", msg);
+    sync();
+    reboot(RB_AUTOBOOT);
+    _exit(122);
+}
+
+static uint32_t crc32_step(uint32_t crc, const unsigned char *buf, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        crc ^= buf[i];
+        for (int bit = 0; bit < 8; ++bit) {
+            uint32_t mask = -(crc & 1u);
+            crc = (crc >> 1) ^ (0xedb88320u & mask);
+        }
+    }
+    return crc;
+}
+
+int main(void) {
+    const char expected_manifest[] =
+        "{\"schema\":\"firecracker-rdte-capsule/v0\",\"operation\":\"crc32\",\"input\":\"payload.bin\"}\n";
+    const char nonce[] = "FC_RDTE_F3_NONCE=c0def33e\n";
+    char manifest[512] = {0};
+    unsigned char buf[4096];
+
+    mkdir("/dev", 0755);
+    if (mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) != 0) return fail("mount-devtmpfs");
+    mkdir("/input", 0755);
+    mkdir("/output", 0755);
+    if (mount("/dev/vda", "/input", "ext4", MS_RDONLY, NULL) != 0) return fail("mount-input");
+    if (mount("/dev/vdb", "/output", "ext4", 0, NULL) != 0) return fail("mount-output");
+
+    int mf = open("/input/capsule.json", O_RDONLY);
+    if (mf < 0) return fail("open-capsule");
+    ssize_t mn = read(mf, manifest, sizeof(manifest) - 1);
+    close(mf);
+    if (mn < 0 || strcmp(manifest, expected_manifest) != 0) return fail("capsule-mismatch");
+
+    int in = open("/input/payload.bin", O_RDONLY);
+    if (in < 0) return fail("open-payload");
+    uint32_t crc = 0xffffffffu;
+    unsigned long long total = 0;
+    for (;;) {
+        ssize_t n = read(in, buf, sizeof(buf));
+        if (n < 0) return fail("read-payload");
+        if (n == 0) break;
+        crc = crc32_step(crc, buf, (size_t)n);
+        total += (unsigned long long)n;
+    }
+    close(in);
+    crc ^= 0xffffffffu;
+
+    int out = open("/output/result.json", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (out < 0) return fail("open-result");
+    if (dprintf(
+            out,
+            "{\"schema\":\"firecracker-rdte-result/v0\",\"status\":\"ok\",\"operation\":\"crc32\",\"bytes\":%llu,\"crc32\":\"%08x\"}\n",
+            total,
+            crc) < 0) return fail("write-result");
+    fsync(out);
+    close(out);
+    sync();
+    (void)write(STDOUT_FILENO, nonce, sizeof(nonce) - 1);
+    reboot(RB_AUTOBOOT);
+    _exit(123);
+}
+'''
+    )
+    build = command(["cc", "-static", "-Os", "-s", "-o", str(binary), str(source)], timeout=30)
+    if build.get("returncode") != 0 or not binary.exists():
+        raise RuntimeError(f"static F3 guest init build failed: {build}")
+
+    initrd = temp / "initrd-f3.cpio"
+    initrd.write_bytes(build_newc_single_file("init", binary.read_bytes()))
+    return initrd, build
+
+
 def make_receipt(rung: str) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
@@ -345,9 +442,9 @@ def make_receipt(rung: str) -> dict[str, Any]:
                 "version_command": None,
             },
             "guest_kernel": {
-                "object_key": KERNEL_OBJECT_KEY if rung in {"F1", "F2"} else None,
-                "url": KERNEL_URL if rung in {"F1", "F2"} else None,
-                "sha256_expected": KERNEL_SHA256 if rung in {"F1", "F2"} else None,
+                "object_key": KERNEL_OBJECT_KEY if rung in {"F1", "F2", "F3"} else None,
+                "url": KERNEL_URL if rung in {"F1", "F2", "F3"} else None,
+                "sha256_expected": KERNEL_SHA256 if rung in {"F1", "F2", "F3"} else None,
                 "sha256_observed": None,
             },
             "initrd": None,
@@ -369,6 +466,7 @@ def make_receipt(rung: str) -> dict[str, Any]:
         "claims": {
             "firecracker_acquisition_callable": False,
             "guest_boot_supported": False,
+            "experiment_capsule_supported": False,
             "microvm_workload_supported": False,
             "sovereign_operational_ready": False,
         },
@@ -673,12 +771,188 @@ def run_f2(out: Path) -> int:
     return 0
 
 
+
+def run_f3(out: Path) -> int:
+    receipt = make_receipt("F3")
+    early = preflight(receipt)
+    if early is not None:
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return early
+
+    with tempfile.TemporaryDirectory(prefix="fc-rdte-f3-") as td:
+        temp = Path(td)
+        try:
+            binary, fc_sha, version = materialize_firecracker(temp)
+            receipt["portable_evidence"]["vmm"]["sha256_observed"] = fc_sha
+            receipt["portable_evidence"]["vmm"]["version_command"] = version
+            receipt["claims"]["firecracker_acquisition_callable"] = True
+
+            kernel = temp / "vmlinux-6.18.48"
+            kernel_sha = download_verified(KERNEL_URL, KERNEL_SHA256, kernel)
+            receipt["portable_evidence"]["guest_kernel"]["sha256_observed"] = kernel_sha
+
+            initrd, build = compile_f3_init(temp)
+            receipt["portable_evidence"]["initrd"] = {
+                "format": "newc",
+                "contents": ["/init"],
+                "build_command": build,
+                "sha256": sha256_file(initrd),
+            }
+
+            input_dir = temp / "input-dir"
+            output_dir = temp / "output-dir"
+            input_dir.mkdir()
+            output_dir.mkdir()
+            request = {
+                "schema": F3_CAPSULE_SCHEMA,
+                "operation": "crc32",
+                "input": "payload.bin",
+            }
+            request_bytes = (
+                json.dumps(request, separators=(",", ":"), sort_keys=False) + "\n"
+            ).encode("utf-8")
+            (input_dir / "capsule.json").write_bytes(request_bytes)
+            (input_dir / "payload.bin").write_bytes(F3_PAYLOAD)
+
+            input_image = temp / "input.ext4"
+            output_image = temp / "output.ext4"
+            input_build = mk_ext4_image(
+                input_image,
+                input_dir,
+                "33333333-3333-3333-3333-333333333333",
+            )
+            mk_ext4_image(
+                output_image,
+                output_dir,
+                "44444444-4444-4444-4444-444444444444",
+            )
+
+            config = temp / "vm-f3.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "boot-source": {
+                            "kernel_image_path": str(kernel),
+                            "initrd_path": str(initrd),
+                            "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
+                        },
+                        "drives": [
+                            f2_drive("input", input_image, True),
+                            f2_drive("output", output_image, False),
+                        ],
+                        "machine-config": {
+                            "vcpu_count": 1,
+                            "mem_size_mib": 128,
+                            "smt": False,
+                            "track_dirty_pages": False,
+                            "huge_pages": "None",
+                        },
+                        "cpu-config": None,
+                        "balloon": None,
+                        "network-interfaces": [],
+                        "vsock": None,
+                        "logger": None,
+                        "metrics": None,
+                        "mmds-config": None,
+                        "entropy": None,
+                        "pmem": [],
+                        "memory-hotplug": None,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+
+            boot = command(
+                ["sudo", "-n", str(binary), "--no-api", "--config-file", str(config)],
+                timeout=20,
+                keep=16384,
+            )
+            serial = (boot.get("stdout") or "") + "\n" + (boot.get("stderr") or "")
+            readback = command(
+                ["debugfs", "-R", "cat /result.json", str(output_image)],
+                timeout=10,
+                keep=4096,
+            )
+            raw_result = readback.get("stdout", "").strip()
+            try:
+                parsed_result = json.loads(raw_result)
+            except json.JSONDecodeError:
+                parsed_result = None
+
+            expected_crc32 = f"{zlib.crc32(F3_PAYLOAD) & 0xffffffff:08x}"
+            expected_result = {
+                "schema": F3_RESULT_SCHEMA,
+                "status": "ok",
+                "operation": "crc32",
+                "bytes": len(F3_PAYLOAD),
+                "crc32": expected_crc32,
+            }
+            receipt["portable_evidence"]["guest_boot"] = {
+                "expected_serial_nonce": F3_NONCE,
+                "command": boot,
+                "network_interfaces_configured": 0,
+            }
+            receipt["portable_evidence"]["io_contract"] = {
+                "input_format": "ext4-read-only",
+                "output_format": "ext4-read-write",
+                "input_image_sha256": input_build["sha256_after_format"],
+                "output_image_sha256_after_guest": sha256_file(output_image),
+            }
+            receipt["portable_evidence"]["work_capsule"] = {
+                "scope": "experiment-local; not a generic microVM work-cell contract",
+                "request": request,
+                "request_sha256": hashlib.sha256(request_bytes).hexdigest(),
+                "payload": {
+                    "path": "payload.bin",
+                    "bytes": len(F3_PAYLOAD),
+                    "sha256": hashlib.sha256(F3_PAYLOAD).hexdigest(),
+                },
+                "expected_result": expected_result,
+                "observed_result": parsed_result,
+                "readback_command": readback,
+                "independently_validated_on_l1": parsed_result == expected_result,
+            }
+
+            if F3_NONCE not in serial or parsed_result != expected_result:
+                receipt["result"] = "ORACLE_FAILURE"
+                receipt["notes"].append(
+                    "F3 capsule oracle did not satisfy both guest serial and independent structured-result validation."
+                )
+                out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+                return 2
+
+        except ValueError as exc:
+            receipt["result"] = "ORACLE_FAILURE"
+            receipt["notes"].append(f"Pinned artifact integrity oracle failed: {exc}")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+        except Exception as exc:
+            receipt["result"] = "HARNESS_FAILURE"
+            receipt["notes"].append(f"F3 harness failed: {type(exc).__name__}: {exc}")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+
+    receipt["result"] = "SUPPORTED"
+    receipt["claims"]["guest_boot_supported"] = True
+    receipt["claims"]["experiment_capsule_supported"] = True
+    receipt["portable_evidence"]["network_policy"] = "NO_GUEST_NETWORK_INTERFACE_CONFIGURED"
+    receipt["notes"].append(
+        "F3 proves an experiment-local versioned capsule can request deterministic work and return a structured independently validated result. No generic microVM work-cell or sovereign readiness claim is made."
+    )
+    out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rung", choices=["f0", "f1", "f2"], default="f0")
+    parser.add_argument("--rung", choices=["f0", "f1", "f2", "f3"], default="f0")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    if args.rung == "f3":
+        return run_f3(args.out)
     if args.rung == "f2":
         return run_f2(args.out)
     if args.rung == "f1":
