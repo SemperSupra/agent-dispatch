@@ -66,33 +66,53 @@ class FirecrackerF1BootTests(unittest.TestCase):
         self.assertEqual(config["machine-config"]["mem_size_mib"], 128)
         self.assertIn("console=ttyS0", config["boot-source"]["boot_args"])
 
+    def _fake_launch_paths(self, root: pathlib.Path):
+        firecracker = root / "firecracker"
+        kernel = root / "vmlinux"
+        initrd = root / "initrd.cpio"
+        config = root / "config.json"
+        firecracker.write_bytes(b"fc")
+        kernel.write_bytes(b"kernel")
+        initrd.write_bytes(b"initrd")
+        config.write_text(json.dumps({
+            "boot-source": {
+                "kernel_image_path": str(kernel),
+                "initrd_path": str(initrd),
+            }
+        }))
+        return firecracker, config
+
     def test_boot_oracle_requires_nonce_and_clean_exit(self):
-        with (
-            mock.patch.object(MOD.shutil, "which", side_effect=lambda n: f"/usr/bin/{n}"),
-            mock.patch.object(
-                MOD.f0,
-                "_run",
-                return_value=(
-                    0,
-                    MOD.NONCE + "\nFirecracker exiting successfully. exit_code=0",
-                    "",
+        with tempfile.TemporaryDirectory() as td:
+            firecracker, config = self._fake_launch_paths(pathlib.Path(td))
+            with (
+                mock.patch.object(MOD.shutil, "which", side_effect=lambda n: f"/usr/bin/{n}"),
+                mock.patch.object(
+                    MOD.f0,
+                    "_run",
+                    return_value=(
+                        0,
+                        MOD.NONCE + "\nFirecracker exiting successfully. exit_code=0",
+                        "",
+                    ),
                 ),
-            ),
-        ):
-            result = MOD._run_firecracker(pathlib.Path("/tmp/firecracker"), pathlib.Path("/tmp/config"))
+            ):
+                result = MOD._run_firecracker(firecracker, config)
         self.assertTrue(result["ok"])
         self.assertEqual(result["classification"], "SUPPORTED")
 
     def test_boot_oracle_rejects_clean_exit_without_guest_nonce(self):
-        with (
-            mock.patch.object(MOD.shutil, "which", side_effect=lambda n: f"/usr/bin/{n}"),
-            mock.patch.object(
-                MOD.f0,
-                "_run",
-                return_value=(0, "Firecracker exiting successfully. exit_code=0", ""),
-            ),
-        ):
-            result = MOD._run_firecracker(pathlib.Path("/tmp/firecracker"), pathlib.Path("/tmp/config"))
+        with tempfile.TemporaryDirectory() as td:
+            firecracker, config = self._fake_launch_paths(pathlib.Path(td))
+            with (
+                mock.patch.object(MOD.shutil, "which", side_effect=lambda n: f"/usr/bin/{n}"),
+                mock.patch.object(
+                    MOD.f0,
+                    "_run",
+                    return_value=(0, "Firecracker exiting successfully. exit_code=0", ""),
+                ),
+            ):
+                result = MOD._run_firecracker(firecracker, config)
         self.assertFalse(result["ok"])
         self.assertEqual(result["classification"], "ORACLE_FAILURE")
 
