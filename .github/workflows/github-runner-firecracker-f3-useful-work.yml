@@ -1,16 +1,6 @@
 name: Firecracker GHA RDTE F3 Useful Work
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "scripts/firecracker_lifecycle_timing.py"
-      - "tests/test_firecracker_lifecycle_timing.py"
-      - "experiments/firecracker/guest/f3-**"
-      - "scripts/github_runner_firecracker_f3_useful_work.py"
-      - "tests/test_github_runner_firecracker_f3_useful_work.py"
-      - ".github/workflows/github-runner-firecracker-f3-useful-work.yml"
   workflow_dispatch:
 
 permissions:
