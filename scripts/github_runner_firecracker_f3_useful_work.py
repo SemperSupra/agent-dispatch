@@ -16,6 +16,7 @@ import tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_runner_firecracker_f0 as f0
 import github_runner_firecracker_f1_boot as f1
+import firecracker_execution_adapter as exec_adapter
 from firecracker_lifecycle_timing import LifecycleTimer
 
 VMM_MANIFEST = pathlib.Path("experiments/firecracker/firecracker-v1.17.0-x86_64.json")
@@ -77,13 +78,21 @@ def build_initramfs(init_bin: pathlib.Path, candidate_bin: pathlib.Path, data: b
 
 
 def run_vm(binary: pathlib.Path, config: pathlib.Path, expected: dict) -> dict:
-    sudo = shutil.which("sudo")
     timeout = shutil.which("timeout")
-    if not sudo or not timeout:
-        return {"classification": "SETUP_REQUIRED", "ok": False, "reason": "sudo or timeout unavailable"}
+    access = exec_adapter.select_kvm_access()
+    if not timeout or access.get("classification") != "SUPPORTED":
+        return {
+            "classification": "SETUP_REQUIRED",
+            "ok": False,
+            "reason": "timeout or qualified KVM execution boundary unavailable",
+            "kvm_access": access,
+        }
 
-    command = [sudo, "-n", timeout, "--signal=TERM", "--kill-after=2s", "20s",
-               str(binary.resolve()), "--no-api", "--config-file", str(config.resolve())]
+    command = exec_adapter.privileged_command(
+        [timeout, "--signal=TERM", "--kill-after=2s", "20s",
+         str(binary.resolve()), "--no-api", "--config-file", str(config.resolve())],
+        access,
+    )
     code, out, err = f0._run(command, timeout=25)
     combined = "\n".join(x for x in (out, err) if x)
     rm = RESULT_RE.search(combined)
@@ -116,6 +125,7 @@ def run_vm(binary: pathlib.Path, config: pathlib.Path, expected: dict) -> dict:
         "kernel_to_init_ms": float(im.group(1))*1000.0 if im else None,
         "clean_vmm_exit_observed": vmm_ok,
         "output_tail": combined[-8000:],
+        "kvm_access_mode": access.get("mode"),
     }
 
 
