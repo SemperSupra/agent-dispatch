@@ -113,18 +113,34 @@ def _run_variant(
     }
     started=time.perf_counter()
     proc=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    pid_file=jail_base/firecracker.name/vm_id/"root"/f"{firecracker.name}.pid"
     latest=None
     deadline=time.time()+10
     while time.time()<deadline and proc.poll() is None:
-        obs=_observe_uid(uid)
+        obs=None
+        if pid_file.exists():
+            try:
+                obs=j1._process_observation(int(pid_file.read_text().strip()))
+                if obs.get("pid"):
+                    obs["limits"]=_limits(obs["pid"])
+                    obs["cgroup"]=_cgroup_state(obs["pid"])
+            except (OSError,ValueError):
+                obs=None
+        if obs is None:
+            obs=_observe_uid(uid)
         if obs is not None:
             latest=obs
             if obs.get("seccomp_mode")==2:
-                # Continue a little to ensure requested limits/cgroup files are visible.
                 time.sleep(0.02)
-                obs2=_observe_uid(uid)
-                if obs2 is not None:
-                    latest=obs2
+                if pid_file.exists():
+                    try:
+                        obs2=j1._process_observation(int(pid_file.read_text().strip()))
+                        if obs2.get("pid"):
+                            obs2["limits"]=_limits(obs2["pid"])
+                            obs2["cgroup"]=_cgroup_state(obs2["pid"])
+                        latest=obs2
+                    except (OSError,ValueError):
+                        pass
                 break
         time.sleep(0.005)
     try:
