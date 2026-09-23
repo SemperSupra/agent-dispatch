@@ -104,7 +104,7 @@ def _network_preflight()->dict:
 def _ipt(binary:str,args:list[str],timeout:int=20)->dict:
     return _sudo([binary,*args],timeout=timeout)
 
-def _setup_network(work:pathlib.Path)->dict:
+def _setup_network(work:pathlib.Path,tap_owner_uid:int|None=None)->dict:
     pf=_network_preflight()
     if not all([pf["ip"],pf["iptables"],pf["sudo"],pf["tun_present"],pf["uplink"]]):
         raise RuntimeError(f"network preflight failed: {pf}")
@@ -114,8 +114,11 @@ def _setup_network(work:pathlib.Path)->dict:
     ipt=pf["iptables"]
     original_forward=pathlib.Path("/proc/sys/net/ipv4/ip_forward").read_text().strip()
 
+    tap_create=["ip","tuntap","add","dev",tap,"mode","tap"]
+    if tap_owner_uid is not None:
+        tap_create += ["user",str(tap_owner_uid)]
     for argv in [
-        ["ip","tuntap","add","dev",tap,"mode","tap"],
+        tap_create,
         ["ip","addr","add",f"{TAP_IP}/{CIDR}","dev",tap],
         ["ip","link","set",tap,"up"],
         ["sysctl","-w","net.ipv4.ip_forward=1"],
@@ -154,6 +157,7 @@ def _setup_network(work:pathlib.Path)->dict:
 
     return {
         "tap":tap,"chain":chain,"uplink":pf["uplink"],"iptables":ipt,
+        "tap_owner_uid":tap_owner_uid,
         "original_ip_forward":original_forward,"preflight":pf,
     }
 
