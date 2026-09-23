@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 SCHEMA = "github-runner-rdma-closure/v1"
-PROBE_VERSION = "public-rdma-verbs-closure/3"
+PROBE_VERSION = "public-rdma-verbs-closure/4"
 
 C_SOURCE = r'''
 #include <infiniband/verbs.h>
@@ -186,6 +186,61 @@ out:
 }
 '''
 
+
+QP_CENSUS_SOURCE = r'''
+#include <infiniband/verbs.h>
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+
+static void try_type(struct ibv_pd *pd, struct ibv_cq *cq, enum ibv_qp_type type, const char *name) {
+    struct ibv_qp_init_attr qia;
+    memset(&qia, 0, sizeof(qia));
+    qia.qp_type = type;
+    qia.send_cq = cq;
+    qia.recv_cq = cq;
+    qia.cap.max_send_wr = 1;
+    qia.cap.max_recv_wr = 1;
+    qia.cap.max_send_sge = 1;
+    qia.cap.max_recv_sge = 1;
+    errno = 0;
+    struct ibv_qp *qp = ibv_create_qp(pd, &qia);
+    printf("%s:%s:%d\n", name, qp ? "OK" : "FAIL", qp ? 0 : errno);
+    if (qp) ibv_destroy_qp(qp);
+}
+
+int main(int argc, char **argv) {
+    if (argc < 2) return 2;
+    int n = 0, selected = -1;
+    struct ibv_device **list = ibv_get_device_list(&n);
+    if (!list) return 3;
+    for (int i = 0; i < n; ++i) {
+        if (strcmp(ibv_get_device_name(list[i]), argv[1]) == 0) { selected = i; break; }
+    }
+    if (selected < 0) { ibv_free_device_list(list); return 4; }
+    struct ibv_context *ctx = ibv_open_device(list[selected]);
+    if (!ctx) { ibv_free_device_list(list); return 5; }
+    struct ibv_pd *pd = ibv_alloc_pd(ctx);
+    if (!pd) { ibv_close_device(ctx); ibv_free_device_list(list); return 6; }
+    struct ibv_cq *cq = ibv_create_cq(ctx, 4, NULL, NULL, 0);
+    if (!cq) { ibv_dealloc_pd(pd); ibv_close_device(ctx); ibv_free_device_list(list); return 7; }
+
+    try_type(pd, cq, IBV_QPT_RC, "RC");
+    try_type(pd, cq, IBV_QPT_UC, "UC");
+    try_type(pd, cq, IBV_QPT_UD, "UD");
+#ifdef IBV_QPT_RAW_PACKET
+    try_type(pd, cq, IBV_QPT_RAW_PACKET, "RAW_PACKET");
+#endif
+
+    ibv_destroy_cq(cq);
+    ibv_dealloc_pd(pd);
+    ibv_close_device(ctx);
+    ibv_free_device_list(list);
+    return 0;
+}
+'''
+
+
 def run(argv: list[str], timeout: int = 120, env: dict[str, str] | None = None):
     try:
         cp=subprocess.run(argv,check=False,capture_output=True,text=True,timeout=timeout,env=env)
@@ -222,6 +277,49 @@ def rdma_candidates() -> list[dict[str,Any]]:
         score=(100 if active else 0)+(20 if nets else 0)+(10 if uverbs else 0)+(0 if dev.name.startswith("manae") else 5)
         rows.append({"device":dev.name,"states":states,"netdevs":nets,"uverbs":uverbs,"score":score})
     return sorted(rows,key=lambda x:(x["score"],x["device"]),reverse=True)
+
+
+
+def qp_type_census(cc: str, selected: str, root: pathlib.Path) -> dict[str,Any]:
+    src=root/"qp_type_census.c"; exe=root/"qp_type_census"
+    src.write_text(QP_CENSUS_SOURCE,encoding="utf-8")
+    crc,cout,cerr=run([cc,"-O2","-Wall","-Wextra",str(src),"-libverbs","-o",str(exe)],timeout=60)
+    if crc!=0:
+        return {"classification":"HARNESS_FAILURE","reason":"QP-type census failed to compile",
+                "compile_exit":crc,"stderr":cerr[-3000:] or None}
+    rc,out,err=run([str(exe),selected],timeout=30)
+    rows={}
+    for line in out.splitlines():
+        parts=line.strip().split(":")
+        if len(parts)==3:
+            rows[parts[0]]={"created":parts[1]=="OK","errno":int(parts[2]) if parts[2].isdigit() else None}
+    return {"classification":"SUPPORTED" if rc==0 else "ORACLE_FAILURE",
+            "reason":"QP-type creation census completed" if rc==0 else "QP-type census execution failed",
+            "exit_code":rc,"types":rows,"stderr":err[-2000:] or None}
+
+
+def stock_pingpong(program: str, device: str | None, gid_index: int | None, port: int) -> dict[str,Any]:
+    exe=shutil.which(program)
+    if not exe or not device:
+        return {"classification":"SKIPPED_GUARDRAIL","reason":f"{program} or selected device unavailable"}
+    base=[exe,"-d",device,"-i","1","-s","8","-n","4","-p",str(port)]
+    if isinstance(gid_index,int) and gid_index>=0:
+        base += ["-g",str(gid_index)]
+    server=subprocess.Popen(base,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    time.sleep(1)
+    client_rc,client_out,client_err=run(base+["127.0.0.1"],timeout=30)
+    try:
+        server_out,server_err=server.communicate(timeout=30)
+        server_rc=server.returncode
+    except subprocess.TimeoutExpired:
+        server.kill();server_out,server_err=server.communicate();server_rc=None
+    passed=(client_rc==0 and server_rc==0)
+    return {"classification":"SUPPORTED" if passed else "ORACLE_FAILURE",
+            "reason":f"stock {program} same-host exchange passed" if passed else f"stock {program} failed",
+            "server_exit":server_rc,"client_exit":client_rc,
+            "server_stdout":server_out[-2500:] or None,"server_stderr":server_err[-2500:] or None,
+            "client_stdout":client_out[-2500:] or None,"client_stderr":client_err[-2500:] or None,
+            "argv":base[1:]}
 
 
 def pingpong_diagnostic(device: str | None, gid_index: int | None) -> dict[str,Any]:
@@ -297,6 +395,8 @@ def main() -> int:
                         if cc_rc!=0:
                             receipt["classification"]="HARNESS_FAILURE";receipt["reason"]="libibverbs oracle failed to compile"
                         else:
+                            receipt["qp_type_census"]=qp_type_census(cc,selected,pathlib.Path(td)) if selected else {
+                                "classification":"SKIPPED_GUARDRAIL","reason":"no selected RDMA device"}
                             devinfo_rc,devinfo_out,devinfo_err=run(["ibv_devinfo","-d",selected,"-v"],timeout=30) if selected else (None,"","no selected device")
                             receipt["ibv_devinfo"]={"exit_code":devinfo_rc,"stdout":devinfo_out[-6000:] or None,"stderr":devinfo_err[-2000:] or None}
                             rc,stdout,stderr=run([str(exe),selected],timeout=45) if selected else (None,"","no selected device")
@@ -305,7 +405,13 @@ def main() -> int:
                             except (json.JSONDecodeError,IndexError): oracle=None
                             receipt["oracle"]=oracle
                             if isinstance(oracle,dict):
-                                receipt["independent_pingpong"]=pingpong_diagnostic(selected,oracle.get("gid_index"))
+                                gid_index=oracle.get("gid_index")
+                                receipt["independent_pingpong"]=pingpong_diagnostic(selected,gid_index)
+                                receipt["stock_transport_pingpong"]={
+                                    "rc": stock_pingpong("ibv_rc_pingpong",selected,gid_index,19415),
+                                    "uc": stock_pingpong("ibv_uc_pingpong",selected,gid_index,19416),
+                                    "ud": stock_pingpong("ibv_ud_pingpong",selected,gid_index,19417),
+                                }
                             if rc!=0 or not isinstance(oracle,dict):
                                 receipt["classification"]="HARNESS_FAILURE";receipt["reason"]="verbs oracle returned no parseable result"
                                 receipt["execution"]["stdout"]=stdout[-3000:] or None
