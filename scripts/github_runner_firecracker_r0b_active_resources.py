@@ -92,6 +92,7 @@ def _run_point(
     guest_mem_mib:int,
     config_text:str,
     expected_meta:dict,
+    vm_timeout_seconds:int=20,
 )->dict:
     initrd=work/f"{mode}-{vcpus}-{guest_mem_mib}.cpio"
     _build_initramfs(init_bin,candidate_bin,config_text,initrd)
@@ -107,7 +108,10 @@ def _run_point(
     monitor=threading.Thread(target=p1._monitor,args=(firecracker.name,stop,sample),daemon=True)
     monitor.start()
     started=time.perf_counter()
-    result=f3.run_vm(firecracker,config_path,{"bytes":0,"lines":0,"words":0,"fnv1a64":""})
+    result=f3.run_vm(
+        firecracker,config_path,{"bytes":0,"lines":0,"words":0,"fnv1a64":""},
+        timeout_seconds=vm_timeout_seconds,
+    )
     # f3.run_vm cannot validate R0b output, but preserves launch/KVM handling.
     ended=time.perf_counter()
     stop.set(); monitor.join(timeout=1.0)
