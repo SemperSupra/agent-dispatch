@@ -192,7 +192,7 @@ def run_probe(label:str)->dict:
             with timer.stage(f"active_cpu_{workers}","portable"):
                 point=_run_point(
                     mode="cpu",firecracker=fc,kernel=kernel,init_bin=init_bin,candidate_bin=candidate_bin,
-                    work=work,vcpu_count=workers,guest_mem_mib=256,config_text=text,expected_meta=meta,
+                    work=work,vcpus=workers,guest_mem_mib=256,config_text=text,expected_meta=meta,
                 )
             cpu_results.append(point)
             if not point["oracle_satisfied"]:
@@ -215,7 +215,7 @@ def run_probe(label:str)->dict:
             with timer.stage(f"active_mem_{mib}","portable"):
                 point=_run_point(
                     mode="mem",firecracker=fc,kernel=kernel,init_bin=init_bin,candidate_bin=candidate_bin,
-                    work=work,vcpu_count=1,guest_mem_mib=guest_mem,config_text=text,expected_meta=meta,
+                    work=work,vcpus=1,guest_mem_mib=guest_mem,config_text=text,expected_meta=meta,
                 )
             point["working_set_mib"]=mib
             mem_results.append(point)
