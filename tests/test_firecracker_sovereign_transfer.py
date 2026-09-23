@@ -56,23 +56,21 @@ class FirecrackerSovereignTransferTests(unittest.TestCase):
         self.assertEqual(result["mode"], "unavailable")
 
     def test_preflight_declares_no_github_dependency(self):
-        with (
-            mock.patch.object(TRANSFER.exec_adapter, "select_kvm_access", return_value={
-                "classification": "SUPPORTED",
-                "mode": "direct",
-                "kvm_api_version": 12,
-                "user_probe": {"callable": True},
-                "sudo_probe": None,
-            }),
-            mock.patch.object(TRANSFER.hostfp, "fingerprint", return_value={"architecture": "x86_64"}),
-            mock.patch.object(TRANSFER.platform, "system", return_value="Linux"),
-            mock.patch.object(TRANSFER.platform, "machine", return_value="x86_64"),
-            mock.patch.object(TRANSFER.shutil, "which", return_value="/usr/bin/tool"),
+        fake = {
+            "result": {
+                "host_admission_prerequisites_pass": True,
+                "classification": "ADMISSION_PREREQUISITES_PASS",
+                "operationally_qualified": False,
+            }
+        }
+        with mock.patch.object(
+            TRANSFER.detailed_preflight, "build_receipt", return_value=fake
         ):
             result = TRANSFER.preflight()
         self.assertEqual(result["result"]["classification"], "SUPPORTED")
         self.assertFalse(result["github_actions_environment_required"])
-        self.assertEqual(result["kvm_execution"]["mode"], "direct")
+        self.assertFalse(result["result"]["operationally_qualified"])
+        self.assertIs(result["detailed_preflight"], fake)
 
 
 if __name__ == "__main__":
