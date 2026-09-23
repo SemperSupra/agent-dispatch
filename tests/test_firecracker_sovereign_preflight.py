@@ -50,9 +50,15 @@ class FirecrackerSovereignPreflightTests(unittest.TestCase):
         with (
             mock.patch.object(MOD, "fingerprint", return_value=fake_host),
             mock.patch.object(
-                MOD.f0,
-                "_kvm_user_probe",
-                return_value={"present": True, "callable": True, "api_version": 12, "error": None},
+                MOD.exec_adapter,
+                "select_kvm_access",
+                return_value={
+                    "classification": "SUPPORTED",
+                    "mode": "direct",
+                    "kvm_api_version": 12,
+                    "user_probe": {"present": True, "callable": True, "api_version": 12, "error": None},
+                    "sudo_probe": None,
+                },
             ),
             mock.patch.object(MOD, "_tool_state", return_value={"available": True, "path": "/bin/test"}),
             mock.patch.object(
