@@ -295,10 +295,17 @@ int main(void) {
     return initrd, build
 
 
-def mk_ext4_image(path: Path, source_dir: Path, uuid: str) -> dict[str, Any]:
+def mk_ext4_image(
+    path: Path,
+    source_dir: Path,
+    uuid: str,
+    size_mib: int = 8,
+) -> dict[str, Any]:
+    if size_mib < 8:
+        raise ValueError("ext4 image size must be at least 8 MiB")
     path.write_bytes(b"")
     with path.open("r+b") as handle:
-        handle.truncate(8 * 1024 * 1024)
+        handle.truncate(size_mib * 1024 * 1024)
     result = command(
         [
             "mkfs.ext4",
@@ -1103,6 +1110,7 @@ def run_f3(out: Path) -> int:
                 "input_format": "ext4-read-only",
                 "output_format": "ext4-read-write",
                 "input_image_sha256": input_build["sha256_after_format"],
+                "input_image_size_mib": input_size_mib,
                 "output_image_sha256_after_guest": sha256_file(output_image),
             }
             receipt["portable_evidence"]["work_capsule"] = {
@@ -1431,10 +1439,13 @@ def run_f5(out: Path, workload: Path | None) -> int:
 
             input_image = temp / "input.ext4"
             output_image = temp / "output.ext4"
+            workload_mib = (guest_workload.stat().st_size + (1024 * 1024 - 1)) // (1024 * 1024)
+            input_size_mib = max(16, workload_mib + 8)
             input_build = mk_ext4_image(
                 input_image,
                 input_dir,
                 "88888888-8888-8888-8888-888888888888",
+                size_mib=input_size_mib,
             )
             mk_ext4_image(
                 output_image,
