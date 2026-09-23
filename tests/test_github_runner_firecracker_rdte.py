@@ -13,8 +13,16 @@ class FirecrackerRdteContractTests(unittest.TestCase):
         self.assertRegex(rdte.FIRECRACKER_SHA256, r"^[0-9a-f]{64}$")
         self.assertIn("/v1.17.0/", rdte.FIRECRACKER_URL)
 
+    def test_f1_kernel_is_exactly_pinned(self):
+        self.assertEqual(
+            rdte.KERNEL_OBJECT_KEY,
+            "firecracker-ci/20260923-6f82ac4cf331-0/x86_64/vmlinux-6.18.48",
+        )
+        self.assertRegex(rdte.KERNEL_SHA256, r"^[0-9a-f]{64}$")
+        self.assertNotIn("latest", rdte.KERNEL_URL.lower())
+
     def test_receipt_separates_portable_and_gha_evidence(self):
-        receipt = rdte.make_receipt()
+        receipt = rdte.make_receipt("F0")
         self.assertIn("portable_evidence", receipt)
         self.assertIn("gha_adapter_evidence", receipt)
         self.assertNotEqual(
@@ -22,12 +30,24 @@ class FirecrackerRdteContractTests(unittest.TestCase):
             receipt["gha_adapter_evidence"],
         )
 
-    def test_f0_cannot_claim_guest_or_sovereign_readiness(self):
-        receipt = rdte.make_receipt()
+    def test_no_rung_can_claim_sovereign_readiness_by_default(self):
+        for rung in ("F0", "F1"):
+            receipt = rdte.make_receipt(rung)
+            self.assertFalse(receipt["claims"]["sovereign_operational_ready"])
+            self.assertFalse(receipt["claims"]["microvm_workload_supported"])
+
+    def test_f0_cannot_claim_guest_readiness(self):
+        receipt = rdte.make_receipt("F0")
         self.assertFalse(receipt["claims"]["guest_boot_supported"])
-        self.assertFalse(receipt["claims"]["microvm_workload_supported"])
-        self.assertFalse(receipt["claims"]["sovereign_operational_ready"])
         self.assertEqual(receipt["portable_evidence"]["guest_boot"], "UNTESTED")
+
+    def test_newc_builder_is_deterministic_and_contains_init(self):
+        a = rdte.build_newc_single_file("init", b"abc")
+        b = rdte.build_newc_single_file("init", b"abc")
+        self.assertEqual(a, b)
+        self.assertTrue(a.startswith(b"070701"))
+        self.assertIn(b"init\0", a)
+        self.assertIn(b"TRAILER!!!\0", a)
 
     def test_sha256_helper(self):
         with tempfile.TemporaryDirectory() as td:
@@ -43,7 +63,7 @@ class FirecrackerRdteContractTests(unittest.TestCase):
              mock.patch.object(rdte.platform, "machine", return_value="aarch64"), \
              mock.patch.object(rdte, "observe_kvm", return_value={"exists": False}):
             out = Path(td) / "receipt.json"
-            rc = rdte.run(out)
+            rc = rdte.run_f0(out)
             receipt = json.loads(out.read_text())
             self.assertEqual(rc, 0)
             self.assertEqual(receipt["result"], "SKIPPED_GUARDRAIL")
