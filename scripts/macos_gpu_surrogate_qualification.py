@@ -8,15 +8,17 @@ import os
 import pathlib
 import platform
 import shutil
+import re
 import subprocess
 import tempfile
 from typing import Any
 
 SCHEMA = "macos-gpu-surrogate-qualification/v1"
-PROBE_VERSION = "public-macos-gpu-surrogate/2"
+PROBE_VERSION = "public-macos-gpu-surrogate/3"
 TORCH_VERSION = "2.14.0"
 MLX_VERSION = "0.32.2"
 LLAMA_TAG = "v0.4.1"
+COREMLTOOLS_VERSION = "9.0"
 
 def run(argv: list[str], timeout: int = 300, cwd: str | None = None, env: dict[str,str] | None = None):
     try:
@@ -125,6 +127,43 @@ r["oracle"]=(out==[[19.0,22.0],[43.0,50.0]] and grad==[2.0,4.0,6.0] and "gpu" in
 print(json.dumps(r,sort_keys=True))
 '''
 
+
+COREML_TEST = r'''
+import json, os, tempfile
+import numpy as np
+import coremltools as ct
+from coremltools.converters.mil import Builder as mb, types
+
+@mb.program(input_specs=[mb.TensorSpec(shape=(1,), dtype=types.fp32)])
+def prog(x):
+    one = mb.const(val=np.array([1.0], dtype=np.float32))
+    return mb.add(x=x, y=one)
+
+r={"version":ct.__version__,"oracle":False,"compute_units":"CPU_AND_GPU"}
+with tempfile.TemporaryDirectory(prefix="coreml-gpu-interview-") as td:
+    model=ct.convert(
+        prog,
+        convert_to="mlprogram",
+        minimum_deployment_target=ct.target.macOS13,
+        compute_units=ct.ComputeUnit.CPU_AND_GPU,
+    )
+    path=os.path.join(td,"Tiny.mlpackage")
+    model.save(path)
+    loaded=ct.models.MLModel(path,compute_units=ct.ComputeUnit.CPU_AND_GPU)
+    pred=loaded.predict({"x":np.array([41.0],dtype=np.float32)})
+    values=[]
+    for value in pred.values():
+        try:
+            values.extend(np.array(value).astype(np.float32).reshape(-1).tolist())
+        except Exception:
+            pass
+    r["outputs"]=values
+    r["output_keys"]=sorted(pred.keys())
+    r["oracle"]=any(abs(float(v)-42.0)<1e-5 for v in values)
+print(json.dumps(r,sort_keys=True))
+'''
+
+
 def compile_run_swift(source: str) -> dict[str,Any]:
     xcrun=shutil.which("xcrun")
     if not xcrun: return result("NEGATIVE_OBSERVATION","xcrun unavailable")
@@ -159,6 +198,24 @@ def run_python_interview(vpy: pathlib.Path, program: str, env: dict[str,str] | N
     if ev.get("oracle"): return result("SUPPORTED","runtime GPU oracle passed",**ev)
     return result("ORACLE_FAILURE","runtime installed but GPU oracle failed",**ev,stderr=err[-2000:] or None)
 
+
+def coreml_interview(root: pathlib.Path) -> dict[str,Any]:
+    py=shutil.which("python3.13")
+    if not py:
+        return result("SKIPPED_GUARDRAIL","python3.13 unavailable for pinned coremltools 9.0 wheel")
+    venv=root/"coreml-venv"
+    rc,out,err=run([py,"-m","venv",str(venv)],timeout=90)
+    if rc!=0:
+        return result("HARNESS_FAILURE","Core ML venv creation failed",exit_code=rc,stderr=err[-2500:] or None)
+    vpy=venv/"bin"/"python"
+    rc,out,err=run([str(vpy),"-m","pip","install","--disable-pip-version-check","--no-cache-dir",
+                    f"coremltools=={COREMLTOOLS_VERSION}","numpy<3"],timeout=360)
+    if rc!=0:
+        return result("ENVIRONMENT_FAILURE","pinned coremltools installation failed",
+                      exit_code=rc,stdout=out[-2500:] or None,stderr=err[-3000:] or None)
+    return run_python_interview(vpy,COREML_TEST)
+
+
 def llama_interview(root: pathlib.Path) -> dict[str,Any]:
     git=shutil.which("git");cmake=shutil.which("cmake")
     if not git or not cmake: return result("HARNESS_FAILURE","git/cmake unavailable",git=git,cmake=cmake)
@@ -173,23 +230,29 @@ def llama_interview(root: pathlib.Path) -> dict[str,Any]:
                    cwd=str(src),timeout=600)
     if rc!=0: return result("HARNESS_FAILURE","llama.cpp Metal backend test failed to build",commit=commit,stderr=err[-4000:])
     exe=src/"build"/"bin"/"test-backend-ops"
-    attempts=[
-        [str(exe),"test","-b","MTL0","-o","MUL_MAT"],
-        [str(exe),"-b","MTL0","-o","MUL_MAT"],
-    ]
-    evidence=[]
-    for argv in attempts:
+    help_rc,help_out,help_err=run([str(exe),"--help"],cwd=str(src),timeout=30)
+    attempts=[]
+    # Start with the desired matrix primitive, then fall back only to simple generic
+    # operators that still prove ggml -> Metal execution against the CPU reference.
+    for op in ("MUL_MAT","ADD","MUL","SQR","SCALE"):
+        argv=[str(exe),"test","-b","MTL0","-o",op]
         rc,out,err=run(argv,cwd=str(src),timeout=300)
-        skipped=("Backend 1/3: MTL0" in out and "Skipping" in out)
-        executed=("Backend 1/3: MTL0" in out and not skipped)
-        passed=(rc==0 and executed and ("OK" in out or "tests passed" in out))
-        evidence.append({"argv":argv[1:],"exit_code":rc,"executed_mtl0":executed,
-                         "skipped_mtl0":skipped,"stdout":out[-7000:] or None,"stderr":err[-4000:] or None})
+        counts=re.findall(r"(\\d+)/(\\d+) tests passed",out)
+        executed_cases=max((int(total) for passed,total in counts),default=0)
+        passed_cases=max((int(passed) for passed,total in counts),default=0)
+        backend_seen=("Backend 1/3: MTL0" in out or "MTL0" in err)
+        passed=(rc==0 and backend_seen and executed_cases>0 and passed_cases==executed_cases)
+        attempts.append({"op":op,"argv":argv[1:],"exit_code":rc,
+                         "executed_cases":executed_cases,"passed_cases":passed_cases,
+                         "stdout":out[-6000:] or None,"stderr":err[-3500:] or None})
         if passed:
-            return result("SUPPORTED","llama.cpp MTL0 MUL_MAT reference-comparison test executed and passed",
-                          tag=LLAMA_TAG,commit=commit,attempts=evidence)
-    return result("ORACLE_FAILURE","llama.cpp built with Metal but no MTL0 operator test was proven to execute and pass",
-                  tag=LLAMA_TAG,commit=commit,attempts=evidence)
+            return result("SUPPORTED",f"llama.cpp MTL0 {op} reference-comparison tests executed and passed",
+                          tag=LLAMA_TAG,commit=commit,operator=op,attempts=attempts,
+                          help_exit=help_rc,help_stdout=help_out[-2500:] or None,
+                          help_stderr=help_err[-1500:] or None)
+    return result("ORACLE_FAILURE","llama.cpp initialized Metal but no selected backend operator test both executed and passed",
+                  tag=LLAMA_TAG,commit=commit,attempts=attempts,
+                  help_exit=help_rc,help_stdout=help_out[-2500:] or None,help_stderr=help_err[-1500:] or None)
 
 def main() -> int:
     p=argparse.ArgumentParser();p.add_argument("--label",required=True);p.add_argument("--out",required=True);args=p.parse_args()
@@ -199,7 +262,7 @@ def main() -> int:
         "run_attempt":os.environ.get("GITHUB_RUN_ATTEMPT",""),"workflow_sha":os.environ.get("GITHUB_SHA",""),
         "image_os":os.environ.get("ImageOS"),"image_version":os.environ.get("ImageVersion")},
       "runner":{"system":platform.system(),"machine":platform.machine()},
-      "pins":{"torch":TORCH_VERSION,"mlx":MLX_VERSION,"llama_cpp":LLAMA_TAG},
+      "pins":{"torch":TORCH_VERSION,"mlx":MLX_VERSION,"llama_cpp":LLAMA_TAG,"coremltools":COREMLTOOLS_VERSION},
       "interviews":{},
       "warnings":["GHA paravirtual GPU results are methodology/capability evidence, not local Apple-silicon performance evidence",
                   "local sovereign qualification must mint a distinct environment/configuration identity and rerun the same oracles"]}
@@ -230,6 +293,7 @@ def main() -> int:
                 receipt["interviews"]["pytorch-mps"]=result("SKIPPED_GUARDRAIL","current pinned PyTorch macOS wheel lane is Apple-silicon only")
                 receipt["interviews"]["mlx-gpu"]=result("SKIPPED_GUARDRAIL","MLX Apple-silicon transfer interview is ARM64-only")
             receipt["interviews"]["llama-cpp-metal"]=llama_interview(root)
+            receipt["interviews"]["coreml-cpu-gpu-policy"]=coreml_interview(root)
 
         classes=[v.get("classification") for v in receipt["interviews"].values()]
         if all(c in {"SUPPORTED","SKIPPED_GUARDRAIL"} for c in classes) and "SUPPORTED" in classes:
