@@ -1,13 +1,6 @@
 name: Firecracker R0c Active Memory Headroom
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_r0c_memory_headroom.py"
-      - "tests/test_github_runner_firecracker_r0c_memory_headroom.py"
-      - ".github/workflows/github-runner-firecracker-r0c-memory.yml"
   workflow_dispatch:
 
 permissions:
