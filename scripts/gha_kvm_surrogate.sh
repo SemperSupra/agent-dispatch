@@ -175,7 +175,8 @@ GUEST_OS_RELEASE="$("${SSH[@]}" cat /etc/os-release)"
 QEMU_VERSION="$(qemu-system-x86_64 --version | head -n1)"
 END_NS="$(date +%s%N)"
 
-export LAB_OUT="$OUT" LAB_PREFLIGHT="$PREFLIGHT" LAB_GUEST_OS="$GUEST_OS" LAB_GUEST_ARCH="$GUEST_ARCH"\nexport LAB_GUEST_OS_RELEASE="$GUEST_OS_RELEASE"
+export LAB_OUT="$OUT" LAB_PREFLIGHT="$PREFLIGHT" LAB_GUEST_OS="$GUEST_OS" LAB_GUEST_ARCH="$GUEST_ARCH"
+export LAB_GUEST_OS_RELEASE="$GUEST_OS_RELEASE"
 export LAB_IMAGE="$IMAGE" LAB_IMAGE_SHA="$ACTUAL_SHA" LAB_QEMU_VERSION="$QEMU_VERSION"
 export LAB_BOOT_START_NS="$BOOT_START_NS" LAB_BOOT_READY_NS="$BOOT_READY_NS"
 export LAB_START_NS="$START_NS" LAB_END_NS="$END_NS"
@@ -183,6 +184,8 @@ python3 - <<'PY'
 import json, os, pathlib
 out=pathlib.Path(os.environ["LAB_OUT"])
 preflight=json.loads(os.environ["LAB_PREFLIGHT"])
+if os.environ["LAB_GUEST_ARCH"] != preflight.get("arch"):
+    raise SystemExit("guest architecture disagrees with runner-kit preflight")
 pretty_name = ""
 for line in os.environ["LAB_GUEST_OS_RELEASE"].splitlines():
     if line.startswith("PRETTY_NAME="):
