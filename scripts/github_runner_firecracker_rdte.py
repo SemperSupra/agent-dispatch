@@ -41,6 +41,9 @@ KERNEL_URL = f"https://s3.amazonaws.com/spec.ccfc.min/{KERNEL_OBJECT_KEY}"
 KERNEL_SHA256 = "9204218e8bcca6ac23848d74f45df2eb19d7f31e8277840a7d145a0df8b078d2"
 
 F1_NONCE = "FC_RDTE_F1_NONCE=c0def11e"
+F2_INPUT = "FC_RDTE_F2_INPUT=portable-block-contract"
+F2_RESULT = "FC_RDTE_F2_RESULT=portable-block-contract"
+F2_NONCE = "FC_RDTE_F2_NONCE=c0def22e"
 
 
 def sha256_file(path: Path) -> str:
@@ -220,6 +223,111 @@ int main(void) {
     return initrd, build
 
 
+def compile_f2_init(temp: Path) -> tuple[Path, dict[str, Any]]:
+    source = temp / "init-f2.c"
+    binary = temp / "init-f2"
+    source.write_text(
+        r'''#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/mount.h>
+#include <sys/reboot.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static int fail(const char *msg) {
+    dprintf(STDERR_FILENO, "FC_RDTE_F2_ERROR=%s\\n", msg);
+    sync();
+    reboot(RB_AUTOBOOT);
+    _exit(112);
+}
+
+int main(void) {
+    char buf[256] = {0};
+    const char expected[] = "FC_RDTE_F2_INPUT=portable-block-contract\\n";
+    const char result[] = "FC_RDTE_F2_RESULT=portable-block-contract\\n";
+    const char nonce[] = "FC_RDTE_F2_NONCE=c0def22e\\n";
+
+    mkdir("/dev", 0755);
+    if (mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) != 0) return fail("mount-devtmpfs");
+    mkdir("/input", 0755);
+    mkdir("/output", 0755);
+    if (mount("/dev/vda", "/input", "ext4", MS_RDONLY, NULL) != 0) return fail("mount-input");
+    if (mount("/dev/vdb", "/output", "ext4", 0, NULL) != 0) return fail("mount-output");
+
+    int in = open("/input/input.txt", O_RDONLY);
+    if (in < 0) return fail("open-input");
+    ssize_t n = read(in, buf, sizeof(buf) - 1);
+    close(in);
+    if (n < 0 || strcmp(buf, expected) != 0) return fail("input-mismatch");
+
+    int out = open("/output/result.txt", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (out < 0) return fail("open-output");
+    if (write(out, result, sizeof(result) - 1) != (ssize_t)(sizeof(result) - 1)) return fail("write-output");
+    fsync(out);
+    close(out);
+    sync();
+    (void)write(STDOUT_FILENO, nonce, sizeof(nonce) - 1);
+    reboot(RB_AUTOBOOT);
+    _exit(113);
+}
+'''
+    )
+    build = command(["cc", "-static", "-Os", "-s", "-o", str(binary), str(source)], timeout=30)
+    if build.get("returncode") != 0 or not binary.exists():
+        raise RuntimeError(f"static F2 guest init build failed: {build}")
+
+    initrd = temp / "initrd-f2.cpio"
+    initrd.write_bytes(build_newc_single_file("init", binary.read_bytes()))
+    return initrd, build
+
+
+def mk_ext4_image(path: Path, source_dir: Path, uuid: str) -> dict[str, Any]:
+    path.write_bytes(b"")
+    with path.open("r+b") as handle:
+        handle.truncate(8 * 1024 * 1024)
+    result = command(
+        [
+            "mkfs.ext4",
+            "-q",
+            "-F",
+            "-U",
+            uuid,
+            "-d",
+            str(source_dir),
+            str(path),
+        ],
+        timeout=30,
+    )
+    if result.get("returncode") != 0:
+        raise RuntimeError(f"mkfs.ext4 failed: {result}")
+    result["sha256_after_format"] = sha256_file(path)
+    return result
+
+
+def f2_drive(drive_id: str, path: Path, read_only: bool) -> dict[str, Any]:
+    return {
+        "drive_id": drive_id,
+        "partuuid": None,
+        "is_root_device": False,
+        "cache_type": "Unsafe",
+        "is_read_only": read_only,
+        "discard": False,
+        "path_on_host": str(path),
+        "io_engine": "Sync",
+        "rate_limiter": None,
+        "blk_size": 512,
+        "topology": {
+            "physical_block_exp": 0,
+            "alignment_offset": 0,
+            "min_io_size": 0,
+            "opt_io_size": 128,
+        },
+        "socket": None,
+    }
+
+
 def make_receipt(rung: str) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
@@ -237,12 +345,13 @@ def make_receipt(rung: str) -> dict[str, Any]:
                 "version_command": None,
             },
             "guest_kernel": {
-                "object_key": KERNEL_OBJECT_KEY if rung == "F1" else None,
-                "url": KERNEL_URL if rung == "F1" else None,
-                "sha256_expected": KERNEL_SHA256 if rung == "F1" else None,
+                "object_key": KERNEL_OBJECT_KEY if rung in {"F1", "F2"} else None,
+                "url": KERNEL_URL if rung in {"F1", "F2"} else None,
+                "sha256_expected": KERNEL_SHA256 if rung in {"F1", "F2"} else None,
                 "sha256_observed": None,
             },
             "initrd": None,
+            "io_contract": None,
             "guest_boot": "UNTESTED",
             "work_capsule": "UNTESTED",
             "network_policy": "UNTESTED",
@@ -415,12 +524,163 @@ def run_f1(out: Path) -> int:
     return 0
 
 
+
+def run_f2(out: Path) -> int:
+    receipt = make_receipt("F2")
+    early = preflight(receipt)
+    if early is not None:
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return early
+
+    with tempfile.TemporaryDirectory(prefix="fc-rdte-f2-") as td:
+        temp = Path(td)
+        try:
+            binary, fc_sha, version = materialize_firecracker(temp)
+            receipt["portable_evidence"]["vmm"]["sha256_observed"] = fc_sha
+            receipt["portable_evidence"]["vmm"]["version_command"] = version
+            receipt["claims"]["firecracker_acquisition_callable"] = True
+
+            kernel = temp / "vmlinux-6.18.48"
+            kernel_sha = download_verified(KERNEL_URL, KERNEL_SHA256, kernel)
+            receipt["portable_evidence"]["guest_kernel"]["sha256_observed"] = kernel_sha
+
+            initrd, build = compile_f2_init(temp)
+            receipt["portable_evidence"]["initrd"] = {
+                "format": "newc",
+                "contents": ["/init"],
+                "build_command": build,
+                "sha256": sha256_file(initrd),
+            }
+
+            input_dir = temp / "input-dir"
+            output_dir = temp / "output-dir"
+            input_dir.mkdir()
+            output_dir.mkdir()
+            (input_dir / "input.txt").write_text(F2_INPUT + "\n")
+            input_image = temp / "input.ext4"
+            output_image = temp / "output.ext4"
+            input_build = mk_ext4_image(
+                input_image,
+                input_dir,
+                "11111111-1111-1111-1111-111111111111",
+            )
+            output_build = mk_ext4_image(
+                output_image,
+                output_dir,
+                "22222222-2222-2222-2222-222222222222",
+            )
+
+            config = temp / "vm-f2.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "boot-source": {
+                            "kernel_image_path": str(kernel),
+                            "initrd_path": str(initrd),
+                            "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
+                        },
+                        "drives": [
+                            f2_drive("input", input_image, True),
+                            f2_drive("output", output_image, False),
+                        ],
+                        "machine-config": {
+                            "vcpu_count": 1,
+                            "mem_size_mib": 128,
+                            "smt": False,
+                            "track_dirty_pages": False,
+                            "huge_pages": "None",
+                        },
+                        "cpu-config": None,
+                        "balloon": None,
+                        "network-interfaces": [],
+                        "vsock": None,
+                        "logger": None,
+                        "metrics": None,
+                        "mmds-config": None,
+                        "entropy": None,
+                        "pmem": [],
+                        "memory-hotplug": None,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+
+            boot = command(
+                ["sudo", "-n", str(binary), "--no-api", "--config-file", str(config)],
+                timeout=20,
+                keep=16384,
+            )
+            serial = (boot.get("stdout") or "") + "\n" + (boot.get("stderr") or "")
+            readback = command(
+                ["debugfs", "-R", "cat /result.txt", str(output_image)],
+                timeout=10,
+                keep=4096,
+            )
+            observed_result = readback.get("stdout", "").strip()
+
+            receipt["portable_evidence"]["guest_boot"] = {
+                "expected_serial_nonce": F2_NONCE,
+                "command": boot,
+                "network_interfaces_configured": 0,
+            }
+            receipt["portable_evidence"]["io_contract"] = {
+                "input": {
+                    "format": "ext4",
+                    "mount_intent": "read-only",
+                    "path": "/input/input.txt",
+                    "value": F2_INPUT,
+                    "image_sha256": input_build["sha256_after_format"],
+                },
+                "output": {
+                    "format": "ext4",
+                    "mount_intent": "read-write",
+                    "path": "/output/result.txt",
+                    "expected": F2_RESULT,
+                    "observed": observed_result,
+                    "readback_command": readback,
+                    "image_sha256_after_guest": sha256_file(output_image),
+                },
+            }
+
+            if F2_NONCE not in serial or observed_result != F2_RESULT:
+                receipt["result"] = "ORACLE_FAILURE"
+                receipt["notes"].append(
+                    "F2 boot/input/output oracle did not satisfy both serial and independent result-readback checks."
+                )
+                out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+                return 2
+
+        except ValueError as exc:
+            receipt["result"] = "ORACLE_FAILURE"
+            receipt["notes"].append(f"Pinned artifact integrity oracle failed: {exc}")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+        except Exception as exc:
+            receipt["result"] = "HARNESS_FAILURE"
+            receipt["notes"].append(f"F2 harness failed: {type(exc).__name__}: {exc}")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+
+    receipt["result"] = "SUPPORTED"
+    receipt["claims"]["guest_boot_supported"] = True
+    receipt["portable_evidence"]["network_policy"] = "NO_GUEST_NETWORK_INTERFACE_CONFIGURED"
+    receipt["notes"].append(
+        "F2 proves a read-only input block can be consumed by the guest and a deterministic result recovered from a separate writable block without guest networking. Useful workload and sovereign operational readiness remain unproven."
+    )
+    out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rung", choices=["f0", "f1"], default="f0")
+    parser.add_argument("--rung", choices=["f0", "f1", "f2"], default="f0")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    if args.rung == "f2":
+        return run_f2(args.out)
     if args.rung == "f1":
         return run_f1(args.out)
     return run_f0(args.out)
