@@ -136,6 +136,8 @@ def _process_observation(pid: int) -> dict:
                 result["no_new_privs"] = int(line.split()[1])
             elif line.startswith("Seccomp:"):
                 result["seccomp_mode"] = int(line.split()[1])
+            elif line.startswith("NSpid:"):
+                result["nspid"] = [int(x) for x in line.split()[1:]]
     else:
         result["status_error"] = status_result["stderr"] or "status read failed"
     for ns in ("mnt", "pid", "net", "user"):
