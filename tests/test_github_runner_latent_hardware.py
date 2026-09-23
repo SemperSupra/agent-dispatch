@@ -58,5 +58,41 @@ class LatentHardwareTests(unittest.TestCase):
         self.assertEqual(caps["linux:gpu-dri-render-surface"]["classification"], "NEGATIVE_OBSERVATION")
 
 
+    @mock.patch.object(m.platform, "system", return_value="Darwin")
+    @mock.patch.object(m, "_compile_run_macos")
+    def test_metal_compute_requires_real_kernel_oracle(self, compile_run, _system):
+        compile_run.return_value = (
+            "OK",
+            {"metal_device": True, "oracle": True, "name": "Test GPU", "observed": 2, "expected": 2},
+        )
+        cap = m.probe_macos_metal_compute()
+        self.assertEqual(cap["classification"], "SUPPORTED")
+        self.assertTrue(cap["oracleSatisfied"])
+
+    @mock.patch.object(m.platform, "system", return_value="Darwin")
+    @mock.patch.object(m, "_compile_run_macos")
+    def test_videotoolbox_no_hardware_is_negative(self, compile_run, _system):
+        compile_run.return_value = (
+            "OK",
+            {
+                "encoder_status": 0,
+                "encoder_count": 15,
+                "hardware_encoder_count": 0,
+                "h264_hw_decode": 0,
+                "hevc_hw_decode": 0,
+            },
+        )
+        cap = m.probe_macos_videotoolbox()
+        self.assertEqual(cap["classification"], "NEGATIVE_OBSERVATION")
+        self.assertFalse(cap["oracleSatisfied"])
+
+    @mock.patch.object(m.platform, "system", return_value="Linux")
+    @mock.patch.object(m, "_existing", return_value=[])
+    def test_rdma_uverbs_absence_is_negative(self, existing, _system):
+        cap = m.probe_linux_rdma_uverbs()
+        self.assertEqual(cap["classification"], "NEGATIVE_OBSERVATION")
+        self.assertFalse(cap["oracleSatisfied"])
+
+
 if __name__ == "__main__":
     unittest.main()
