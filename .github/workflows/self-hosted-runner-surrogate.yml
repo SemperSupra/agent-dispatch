@@ -1,0 +1,81 @@
+name: Self-hosted runner KVM surrogate lab
+
+on:
+  push:
+    branches:
+      - exp/self-hosted-runner-lab
+    paths:
+      - ".github/workflows/self-hosted-runner-surrogate.yml"
+      - "scripts/self_hosted_runner_kit.sh"
+      - "scripts/gha_kvm_surrogate.sh"
+      - "tests/test_self_hosted_runner_lab.py"
+      - "docs/self-hosted-runner-lab.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-hosted-runner-surrogate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate provider-neutral contract
+        run: |
+          set -euo pipefail
+          bash -n scripts/self_hosted_runner_kit.sh
+          bash -n scripts/gha_kvm_surrogate.sh
+          python3 -m unittest -v tests/test_self_hosted_runner_lab.py
+
+  surrogate:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Confirm bounded KVM entry gate
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          test -e /dev/kvm
+          sudo -n test -r /dev/kvm
+          sudo -n test -w /dev/kvm
+      - name: Ensure disposable surrogate prerequisites
+        run: |
+          set -euo pipefail
+          missing=0
+          command -v qemu-system-x86_64 >/dev/null || missing=1
+          command -v qemu-img >/dev/null || missing=1
+          command -v cloud-localds >/dev/null || missing=1
+          if [ "$missing" -eq 1 ]; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              qemu-system-x86 qemu-utils cloud-image-utils
+          fi
+      - name: Exercise ordinary Linux KVM surrogate and runner-kit seam
+        run: |
+          set -euo pipefail
+          chmod +x scripts/self_hosted_runner_kit.sh scripts/gha_kvm_surrogate.sh
+          mkdir -p "${RUNNER_TEMP}/self-hosted-runner-lab"
+          scripts/gha_kvm_surrogate.sh \
+            --kit scripts/self_hosted_runner_kit.sh \
+            --state-dir "${RUNNER_TEMP}/self-hosted-runner-lab/state" \
+            --out "${RUNNER_TEMP}/self-hosted-runner-lab/surrogate-receipt.json"
+          test ! -e "${RUNNER_TEMP}/self-hosted-runner-lab/state"
+      - name: Upload public-safe surrogate receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: self-hosted-runner-surrogate-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/self-hosted-runner-lab/surrogate-receipt.json
+          if-no-files-found: warn
+          retention-days: 7
