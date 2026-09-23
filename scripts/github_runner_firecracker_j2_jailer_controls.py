@@ -115,16 +115,20 @@ def _run_variant(
     proc=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     pid_file=jail_base/firecracker.name/vm_id/"root"/f"{firecracker.name}.pid"
     latest=None
+    observed_pid_file=None
     deadline=time.time()+10
     while time.time()<deadline and proc.poll() is None:
         obs=None
-        if pid_file.exists():
+        pid_read=_sudo_text(["cat",str(pid_file)],timeout=5)
+        if pid_read["ok"]:
             try:
-                obs=j1._process_observation(int(pid_file.read_text().strip()))
+                host_pid=int(pid_read["stdout"].strip())
+                observed_pid_file={"path":str(pid_file),"host_pid":host_pid}
+                obs=j1._process_observation(host_pid)
                 if obs.get("pid"):
                     obs["limits"]=_limits(obs["pid"])
                     obs["cgroup"]=_cgroup_state(obs["pid"])
-            except (OSError,ValueError):
+            except (ValueError,TypeError):
                 obs=None
         if obs is None:
             obs=_observe_uid(uid)
@@ -164,12 +168,17 @@ def _run_variant(
     expected_match=bool(candidate) and all(candidate[k]==expected[k] for k in ("bytes","lines","words","fnv1a64"))
     guest_ok=expected_match and bool(child) and child["exit_code"]==0 and proc.returncode==0 and "Firecracker exiting successfully" in combined
 
-    evidence={"process":latest,"host_namespaces":host_ns}
+    evidence={"process":latest,"host_namespaces":host_ns,"pid_file":observed_pid_file}
     control_ok=False
     reason=None
     if name=="new_pid_ns":
-        control_ok=bool(latest) and latest.get("pid_ns") not in {None,host_ns["pid"]}
-        reason="PID namespace differs from host" if control_ok else "PID namespace difference not observed"
+        nspid=(latest or {}).get("nspid") or []
+        control_ok=(len(nspid)>=2 and nspid[-1]==1)
+        reason=(
+            f"nested PID namespace observed via NSpid={nspid}"
+            if control_ok
+            else f"nested NSpid evidence not observed; NSpid={nspid}"
+        )
     elif name=="no_file_128":
         parsed=((latest or {}).get("limits") or {}).get("parsed") or {}
         control_ok=parsed.get("no_file_soft")=="128" and parsed.get("no_file_hard")=="128"
