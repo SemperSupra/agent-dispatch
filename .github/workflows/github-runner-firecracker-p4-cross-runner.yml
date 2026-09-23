@@ -2,15 +2,6 @@ name: Firecracker P4 Cross-Runner Snapshot
 # bounded pairing sample 2
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "scripts/firecracker_host_fingerprint.py"
-      - "tests/test_firecracker_host_fingerprint.py"
-      - "scripts/github_runner_firecracker_p4_*.py"
-      - "tests/test_github_runner_firecracker_p4.py"
-      - ".github/workflows/github-runner-firecracker-p4-cross-runner.yml"
   workflow_dispatch:
 
 permissions:
