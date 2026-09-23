@@ -84,8 +84,8 @@ def _vm_rss_snapshot(binary_name: str) -> tuple[int, int]:
         if not entry.name.isdigit():
             continue
         try:
-            exe_name = (entry / "exe").resolve().name
-            if exe_name != binary_name:
+            comm = (entry / "comm").read_text().strip()
+            if not comm.startswith("firecracker"):
                 continue
             status = (entry / "status").read_text()
             rss_kib = 0
