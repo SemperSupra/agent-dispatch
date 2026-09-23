@@ -125,9 +125,9 @@ def _stage_jail_files(
 def _process_observation(pid: int) -> dict:
     proc = pathlib.Path("/proc") / str(pid)
     result = {"pid": pid}
-    try:
-        status = (proc / "status").read_text()
-        for line in status.splitlines():
+    status_result = _sudo(["cat", str(proc / "status")], timeout=5)
+    if status_result["ok"]:
+        for line in status_result["stdout"].splitlines():
             if line.startswith("Uid:"):
                 result["uid_fields"] = [int(x) for x in line.split()[1:]]
             elif line.startswith("Gid:"):
@@ -136,15 +136,12 @@ def _process_observation(pid: int) -> dict:
                 result["no_new_privs"] = int(line.split()[1])
             elif line.startswith("Seccomp:"):
                 result["seccomp_mode"] = int(line.split()[1])
-    except OSError as exc:
-        result["status_error"] = f"{type(exc).__name__}: {exc}"
+    else:
+        result["status_error"] = status_result["stderr"] or "status read failed"
     for ns in ("mnt", "pid", "net", "user"):
-        try:
-            result[f"{ns}_ns"] = os.readlink(proc / "ns" / ns)
-        except OSError:
-            result[f"{ns}_ns"] = None
+        ns_result = _sudo(["readlink", str(proc / "ns" / ns)], timeout=5)
+        result[f"{ns}_ns"] = ns_result["stdout"].strip() if ns_result["ok"] else None
     return result
-
 
 def _find_process_by_real_uid(uid: int) -> dict | None:
     for entry in pathlib.Path("/proc").iterdir():
@@ -196,17 +193,16 @@ def _run_jailed(
     observed = None
     deadline = time.time() + 10
     while time.time() < deadline and proc.poll() is None:
-        observed = _find_process_by_real_uid(uid)
-        if observed is not None:
-            break
-        if pid_file.exists():
+        candidate = _find_process_by_real_uid(uid)
+        if candidate is None and pid_file.exists():
             try:
-                fc_pid = int(pid_file.read_text().strip())
-                observed = _process_observation(fc_pid)
-                if observed.get("uid_fields"):
-                    break
+                candidate = _process_observation(int(pid_file.read_text().strip()))
             except (OSError, ValueError):
-                pass
+                candidate = None
+        if candidate is not None:
+            observed = candidate
+            if candidate.get("seccomp_mode") == 2:
+                break
         time.sleep(0.005)
     try:
         out, err = proc.communicate(timeout=20)
