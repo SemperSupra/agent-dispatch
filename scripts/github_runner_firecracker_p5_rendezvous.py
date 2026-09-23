@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """GitHub-native bounded offer/ack rendezvous for P5 live-runner coordination."""
 from __future__ import annotations
-import argparse,hashlib,json,os,pathlib,time,urllib.request,zipfile
+import argparse,hashlib,json,os,pathlib,time,urllib.error,urllib.request,zipfile
 
 API="https://api.github.com"
 
 def _headers()->dict:
     token=os.environ.get("GITHUB_TOKEN")
     if not token: raise RuntimeError("GITHUB_TOKEN unavailable")
-    return {"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","User-Agent":"SemperSupra-firecracker-p5"}
+    return {"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","User-Agent":"SemperSupra-firecracker-p5"}
 
 def _get_json(url:str)->dict:
     req=urllib.request.Request(url,headers=_headers())
@@ -28,9 +28,23 @@ def wait_artifact(name:str,out_dir:pathlib.Path,timeout_s:int)->dict:
     if not artifact:raise RuntimeError(f"artifact {name} not visible within {timeout_s}s")
     visible_ms=(time.perf_counter()-started)*1000
     out_dir.mkdir(parents=True,exist_ok=True); zpath=out_dir/"artifact.zip"
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
     req=urllib.request.Request(artifact["archive_download_url"],headers=_headers())
     dl=time.perf_counter()
-    with urllib.request.urlopen(req,timeout=30) as r:zpath.write_bytes(r.read())
+    try:
+        urllib.request.build_opener(_NoRedirect).open(req,timeout=15)
+        raise RuntimeError("artifact API unexpectedly returned without redirect")
+    except urllib.error.HTTPError as exc:
+        if exc.code not in {301,302,303,307,308}:
+            raise
+        location=exc.headers.get("Location")
+        if not location:
+            raise RuntimeError("artifact redirect omitted Location")
+    blob_req=urllib.request.Request(location,headers={"User-Agent":"SemperSupra-firecracker-p5"})
+    with urllib.request.urlopen(blob_req,timeout=30) as response:
+        zpath.write_bytes(response.read())
     download_ms=(time.perf_counter()-dl)*1000
     digest=hashlib.sha256(zpath.read_bytes()).hexdigest()
     with zipfile.ZipFile(zpath) as z:z.extractall(out_dir)
