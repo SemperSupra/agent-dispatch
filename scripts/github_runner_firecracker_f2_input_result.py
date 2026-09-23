@@ -22,6 +22,7 @@ import tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import github_runner_firecracker_f0 as f0
 import github_runner_firecracker_f1_boot as f1
+from firecracker_lifecycle_timing import LifecycleTimer
 
 RECEIPT_SCHEMA = "firecracker-f2-input-result-receipt/v1"
 PROBE_VERSION = "firecracker-f2-input-result/1"
@@ -172,6 +173,7 @@ def _run_firecracker(
 
 
 def run_probe(label: str, input_path: pathlib.Path) -> dict:
+    timer = LifecycleTimer()
     runner_os = platform.system()
     runner_arch = platform.machine()
     if runner_os != "Linux" or runner_arch not in {"x86_64", "amd64"}:
@@ -199,24 +201,28 @@ def run_probe(label: str, input_path: pathlib.Path) -> dict:
         initrd = work / "initrd.cpio"
         config_path = work / "vm-config.json"
 
-        vmm_verify = f1._download_and_verify(
-            vmm_manifest["archive_url"], vmm_manifest["archive_sha256"], vmm_archive
-        )
+        with timer.stage("vmm_download_and_verify", "venue"):
+            vmm_verify = f1._download_and_verify(
+                vmm_manifest["archive_url"], vmm_manifest["archive_sha256"], vmm_archive
+            )
         if not vmm_verify["verified"]:
             return _failure(label, "ORACLE_FAILURE", "Firecracker archive digest mismatch")
 
-        f0._safe_extract(vmm_archive, vmm_extract)
-        firecracker = f1._find_firecracker(
-            vmm_extract, vmm_manifest["version"], vmm_manifest["architecture"]
-        )
+        with timer.stage("vmm_extract", "portable"):
+            f0._safe_extract(vmm_archive, vmm_extract)
+            firecracker = f1._find_firecracker(
+                vmm_extract, vmm_manifest["version"], vmm_manifest["architecture"]
+            )
 
-        kernel_verify = f1._download_and_verify(
-            kernel_manifest["kernel_url"], kernel_manifest["kernel_sha256"], kernel
-        )
+        with timer.stage("kernel_download_and_verify", "venue"):
+            kernel_verify = f1._download_and_verify(
+                kernel_manifest["kernel_url"], kernel_manifest["kernel_sha256"], kernel
+            )
         if not kernel_verify["verified"]:
             return _failure(label, "ORACLE_FAILURE", "guest kernel digest mismatch")
 
-        compile_result = f1._compile_init(INIT_SOURCE, init_binary)
+        with timer.stage("guest_init_compile", "portable"):
+            compile_result = f1._compile_init(INIT_SOURCE, init_binary)
         if not compile_result["ok"]:
             return _failure(
                 label,
@@ -224,9 +230,12 @@ def run_probe(label: str, input_path: pathlib.Path) -> dict:
                 "F2 guest init did not compile",
             )
 
-        _build_initramfs(init_binary, input_bytes, initrd)
-        config = f1._build_config(kernel, initrd, config_path)
-        execution = _run_firecracker(firecracker, config_path, expected_marker)
+        with timer.stage("initramfs_build", "portable"):
+            _build_initramfs(init_binary, input_bytes, initrd)
+        with timer.stage("vm_config_build", "portable"):
+            config = f1._build_config(kernel, initrd, config_path)
+        with timer.stage("firecracker_guest_lifecycle", "portable"):
+            execution = _run_firecracker(firecracker, config_path, expected_marker)
 
         return {
             "schema": RECEIPT_SCHEMA,
@@ -283,6 +292,7 @@ def run_probe(label: str, input_path: pathlib.Path) -> dict:
                 "kvm_boundary": "existing passwordless sudo; venue-specific",
             },
             "execution_oracle": execution,
+            "lifecycle_timing": timer.receipt(),
             "sovereign_transfer": {
                 "portable_contract_depends_on_github_actions": False,
                 "transfer_test": (
