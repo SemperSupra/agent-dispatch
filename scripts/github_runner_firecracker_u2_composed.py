@@ -229,6 +229,10 @@ def run_probe(label:str)->dict:
 
             cfg=f1._build_config(kernel,initrd,config)
             cfg["machine-config"]["mem_size_mib"]=512
+            # Firecracker runs after jailer chroot, so all guest artifact paths in
+            # the JSON contract must be expressed inside the jail root.
+            cfg["boot-source"]["kernel_image_path"]="/vmlinux"
+            cfg["boot-source"]["initrd_path"]="/initrd.cpio"
             cfg["boot-source"]["boot_args"] += f" ip={r2.GUEST_IP}::{r2.TAP_IP}:255.255.255.252::eth0:off"
             cfg["drives"]=[
                 {"drive_id":"userspace","path_on_host":"/ubuntu.squashfs","is_root_device":False,"is_read_only":True},
