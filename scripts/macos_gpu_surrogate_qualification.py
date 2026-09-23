@@ -237,7 +237,7 @@ def llama_interview(root: pathlib.Path) -> dict[str,Any]:
     for op in ("MUL_MAT","ADD","MUL","SQR","SCALE"):
         argv=[str(exe),"test","-b","MTL0","-o",op]
         rc,out,err=run(argv,cwd=str(src),timeout=300)
-        counts=re.findall(r"(\\d+)/(\\d+) tests passed",out)
+        counts=re.findall(r"(\d+)/(\d+) tests passed",out)
         executed_cases=max((int(total) for passed,total in counts),default=0)
         passed_cases=max((int(passed) for passed,total in counts),default=0)
         backend_seen=("Backend 1/3: MTL0" in out or "MTL0" in err)
