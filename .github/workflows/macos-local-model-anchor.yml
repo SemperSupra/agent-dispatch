@@ -1,0 +1,49 @@
+name: macOS Local Model Qualification Anchor
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - exp/macos-gpu-surrogate-qualification
+    paths:
+      - scripts/macos_local_model_anchor.py
+      - scripts/validate_macos_local_model_anchor.py
+      - .github/workflows/macos-local-model-anchor.yml
+
+permissions:
+  contents: read
+
+jobs:
+  local-model-anchor:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner:
+          - macos-26
+          - xcode-27
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Produce raw local-model receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/mac-local-model-anchor"
+          python3 scripts/macos_local_model_anchor.py             --label "${{ matrix.runner }}"             --out "${RUNNER_TEMP}/mac-local-model-anchor/raw.json"
+      - name: Validate independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_macos_local_model_anchor.py             --raw "${RUNNER_TEMP}/mac-local-model-anchor/raw.json"             --out "${RUNNER_TEMP}/mac-local-model-anchor/validation.json"
+      - name: Upload anchor evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mac-local-model-anchor-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mac-local-model-anchor/
+          if-no-files-found: error
+          retention-days: 7
