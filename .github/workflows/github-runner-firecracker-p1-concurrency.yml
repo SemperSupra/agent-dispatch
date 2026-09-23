@@ -1,13 +1,6 @@
 name: Firecracker P1 Same-Host Concurrency
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "scripts/github_runner_firecracker_p1_concurrency.py"
-      - "tests/test_github_runner_firecracker_p1_concurrency.py"
-      - ".github/workflows/github-runner-firecracker-p1-concurrency.yml"
   workflow_dispatch:
 
 permissions:
