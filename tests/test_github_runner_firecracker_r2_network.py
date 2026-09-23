@@ -4,8 +4,15 @@ SPEC=importlib.util.spec_from_file_location("r2",ROOT/"scripts"/"github_runner_f
 MOD=importlib.util.module_from_spec(SPEC); assert SPEC.loader; SPEC.loader.exec_module(MOD)
 class R2Tests(unittest.TestCase):
     def test_counter_parser(self):
-        text='ip daddr 169.254.0.0/16 counter packets 3 bytes 180 drop'
-        self.assertEqual(MOD._counter_for(text,"169.254.0.0/16"),3)
+        nft='ip daddr 169.254.0.0/16 counter packets 3 bytes 180 drop'
+        ipt='       4      264 MASQUERADE  all  --  *  eth0  192.0.2.2  0.0.0.0/0'
+        self.assertEqual(MOD._counter_for(nft,"169.254.0.0/16"),3)
+        self.assertEqual(MOD._counter_for(ipt,"MASQUERADE"),4)
+
+    def test_counter_parser_aggregates_matching_rules(self):
+        text='''       0        0 MASQUERADE all -- * !docker0 172.17.0.0/16 0.0.0.0/0
+       4      264 MASQUERADE all -- * eth0 192.0.2.2 0.0.0.0/0'''
+        self.assertEqual(MOD._counter_for(text,"MASQUERADE"),4)
     def test_initramfs_includes_ca(self):
         with tempfile.TemporaryDirectory() as td:
             root=pathlib.Path(td)
