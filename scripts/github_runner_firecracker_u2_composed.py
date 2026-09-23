@@ -41,6 +41,22 @@ EXIT_RE=re.compile(r"FIRECRACKER_U2_EXIT code=(\d+)")
 def _sha256(path:pathlib.Path)->str:
     return u1._sha256(path)
 
+def _sudo_sha256(path:pathlib.Path)->str:
+    rr=j1._sudo(["sha256sum",str(path)],timeout=60)
+    if not rr["ok"]:
+        raise RuntimeError(f"sudo sha256sum failed for {path}: {rr['stderr']}")
+    return rr["stdout"].split()[0]
+
+def _export_from_jail(src:pathlib.Path,dst:pathlib.Path)->None:
+    for argv in [
+        ["cp","--sparse=always",str(src),str(dst)],
+        ["chown",f"{os.getuid()}:{os.getgid()}",str(dst)],
+        ["chmod","0600",str(dst)],
+    ]:
+        rr=j1._sudo(argv,timeout=60)
+        if not rr["ok"]:
+            raise RuntimeError(f"jail export failed {argv}: {rr['stderr']}")
+
 def _build_initramfs(init_bin:pathlib.Path,probe:pathlib.Path,out:pathlib.Path)->None:
     import stat
     resolv=b"nameserver 1.1.1.1\noptions timeout:1 attempts:2\n"
@@ -229,7 +245,7 @@ def run_probe(label:str)->dict:
                     uid=identity["uid"],gid=identity["gid"],
                 )
             staged_root=pathlib.Path(staged["rootfs"]); staged_scratch=pathlib.Path(staged["scratch"])
-            root_before=_sha256(staged_root)
+            root_before=_sudo_sha256(staged_root)
 
             with timer.stage("jailed_connected_userspace_lifecycle","portable"):
                 execution=_run_jailed(
@@ -239,8 +255,10 @@ def run_probe(label:str)->dict:
             ruleset=r2._network_ruleset(network)
             metadata_counter=r2._counter_for(ruleset,"169.254.0.0/16")
             nat_counter=r2._counter_for(ruleset,"MASQUERADE")
-            with timer.stage("post_vm_scratch_reconciliation","portable"): scratch_result=_inspect_scratch(staged_scratch,w)
-            root_after=_sha256(staged_root)
+            exported_scratch=w/"exported-scratch.ext4"
+            with timer.stage("post_vm_scratch_export","venue"): _export_from_jail(staged_scratch,exported_scratch)
+            with timer.stage("post_vm_scratch_reconciliation","portable"): scratch_result=_inspect_scratch(exported_scratch,w)
+            root_after=_sudo_sha256(staged_root)
             root_immutable=root_before==root_after==um["rootfs_sha256"]
         finally:
             with timer.stage("host_network_cleanup","venue"): cleanup_network=r2._cleanup_network(network)
