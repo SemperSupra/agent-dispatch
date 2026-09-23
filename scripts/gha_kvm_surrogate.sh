@@ -7,7 +7,7 @@ CONTRACT_VERSION="gha-kvm-surrogate/v1"
 usage() {
   cat <<'EOF'
 Usage:
-  gha_kvm_surrogate.sh --kit PATH --out RECEIPT [--state-dir DIR] [--image-url URL] [--runner-version VERSION --runner-sha256 SHA256]
+  gha_kvm_surrogate.sh --kit PATH --out RECEIPT [--state-dir DIR] [--image-url URL] [--disk-size SIZE] [--runner-version VERSION --runner-sha256 SHA256]
 
 Creates one disposable ordinary Ubuntu QEMU/KVM guest, proves SSH nonce exchange,
 guest outbound HTTPS, generic runner-kit preflight, opaque-input handling, and cleanup.
@@ -21,6 +21,7 @@ STATE_DIR=""
 IMAGE_URL="$IMAGE_URL_DEFAULT"
 RUNNER_VERSION=""
 RUNNER_SHA256=""
+DISK_SIZE="12G"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,12 +31,14 @@ while [[ $# -gt 0 ]]; do
     --image-url) IMAGE_URL="$2"; shift 2 ;;
     --runner-version) RUNNER_VERSION="$2"; shift 2 ;;
     --runner-sha256) RUNNER_SHA256="$2"; shift 2 ;;
+    --disk-size) DISK_SIZE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
 [[ -f "$KIT" && -n "$OUT" ]] || { usage >&2; exit 2; }
+[[ "$DISK_SIZE" =~ ^[1-9][0-9]*[GM]$ ]] || { echo "disk size must be an integer followed by G or M" >&2; exit 2; }
 if [[ -n "$RUNNER_VERSION" || -n "$RUNNER_SHA256" ]]; then
   [[ -n "$RUNNER_VERSION" && "$RUNNER_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "runner version and SHA256 must be supplied together" >&2; exit 2; }
 fi
@@ -107,6 +110,7 @@ local-hostname: runner-lab
 EOF
 cloud-localds "$STATE_DIR/seed.img" "$STATE_DIR/user-data" "$STATE_DIR/meta-data"
 qemu-img create -q -f qcow2 -F qcow2 -b "$BASE" "$STATE_DIR/overlay.qcow2"
+qemu-img resize -q "$STATE_DIR/overlay.qcow2" "$DISK_SIZE"
 
 PORT="$(python3 - <<'PY'
 import socket
@@ -188,11 +192,12 @@ EOF
 GUEST_OS="$("${SSH[@]}" uname -s)"
 GUEST_ARCH="$("${SSH[@]}" uname -m)"
 GUEST_OS_RELEASE="$("${SSH[@]}" cat /etc/os-release)"
+GUEST_DF="$("${SSH[@]}" df -B1 -P /)"
 QEMU_VERSION="$(qemu-system-x86_64 --version | head -n1)"
 END_NS="$(date +%s%N)"
 
 export LAB_OUT="$OUT" LAB_PREFLIGHT="$PREFLIGHT" LAB_RUNNER_STAGE="$RUNNER_STAGE" LAB_GUEST_OS="$GUEST_OS" LAB_GUEST_ARCH="$GUEST_ARCH"
-export LAB_GUEST_OS_RELEASE="$GUEST_OS_RELEASE"
+export LAB_GUEST_OS_RELEASE="$GUEST_OS_RELEASE" LAB_GUEST_DF="$GUEST_DF" LAB_DISK_SIZE="$DISK_SIZE"
 export LAB_IMAGE="$IMAGE" LAB_IMAGE_SHA="$ACTUAL_SHA" LAB_QEMU_VERSION="$QEMU_VERSION"
 export LAB_BOOT_START_NS="$BOOT_START_NS" LAB_BOOT_READY_NS="$BOOT_READY_NS"
 export LAB_START_NS="$START_NS" LAB_END_NS="$END_NS"
@@ -203,6 +208,9 @@ preflight=json.loads(os.environ["LAB_PREFLIGHT"])
 runner_stage=json.loads(os.environ["LAB_RUNNER_STAGE"]) if os.environ["LAB_RUNNER_STAGE"] else None
 if os.environ["LAB_GUEST_ARCH"] != preflight.get("arch"):
     raise SystemExit("guest architecture disagrees with runner-kit preflight")
+df_fields=os.environ["LAB_GUEST_DF"].splitlines()[-1].split()
+root_size_bytes=int(df_fields[1])
+root_available_bytes=int(df_fields[3])
 pretty_name = ""
 for line in os.environ["LAB_GUEST_OS_RELEASE"].splitlines():
     if line.startswith("PRETTY_NAME="):
@@ -217,7 +225,8 @@ payload={
   "image": os.environ["LAB_IMAGE"],
   "image_sha256": os.environ["LAB_IMAGE_SHA"],
   "qemu_version": os.environ["LAB_QEMU_VERSION"],
-  "guest": {"os": os.environ["LAB_GUEST_OS"], "arch": os.environ["LAB_GUEST_ARCH"], "pretty_name": pretty_name},
+  "guest": {"os": os.environ["LAB_GUEST_OS"], "arch": os.environ["LAB_GUEST_ARCH"], "pretty_name": pretty_name, "root_size_bytes": root_size_bytes, "root_available_bytes": root_available_bytes},
+  "requested_disk_size": os.environ["LAB_DISK_SIZE"],
   "oracles": {
     "ssh_ready": True,
     "host_to_guest_nonce": True,

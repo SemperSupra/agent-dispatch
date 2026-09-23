@@ -20,7 +20,7 @@ EOF
 
 contract() {
   cat <<EOF
-{"contract":"${CONTRACT_VERSION}","provider_neutral":true,"credential_acquisition":"control-side","opaque_input_only":true,"supported_modes":["jit","persistent"],"requires":["linux","bash","curl","tar"],"optional":["systemd"]}
+{"contract":"${CONTRACT_VERSION}","provider_neutral":true,"credential_acquisition":"control-side","opaque_input_only":true,"supported_modes":["jit","persistent"],"requires":["linux","bash","curl","tar","python3","sha256sum","awk","df","stat"],"optional":["systemd"]}
 EOF
 }
 
@@ -38,7 +38,7 @@ preflight() {
   os="$(uname -s)"
   arch="$(uname -m)"
   user="$(id -un)"
-  for cmd in bash curl tar python3; do
+  for cmd in bash curl tar python3 sha256sum awk df stat; do
     command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
   done
   if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
@@ -148,7 +148,7 @@ stage() {
     return 3
   fi
 
-  local parent tmp archive actual
+  local parent tmp archive actual archive_bytes avail_bytes required_bytes
   parent="$(dirname "$work_dir")"
   mkdir -p "$parent"
   tmp="$(mktemp -d "$parent/.runner-stage.XXXXXX")"
@@ -159,6 +159,13 @@ stage() {
   curl --fail --location --retry 3 --silent --show-error "$url" -o "$archive"
   actual="$(sha256sum "$archive" | awk '{print $1}')"
   [[ "$actual" == "$sha256" ]] || { echo "runner package checksum mismatch" >&2; return 4; }
+  archive_bytes="$(stat -c %s "$archive")"
+  avail_bytes="$(df -B1 --output=avail "$tmp" | awk 'NR==2 {print $1}')"
+  required_bytes="$((archive_bytes * 4))"
+  if (( avail_bytes < required_bytes )); then
+    echo "insufficient staging disk: available=$avail_bytes required_at_least=$required_bytes archive=$archive_bytes" >&2
+    return 6
+  fi
   mkdir "$tmp/root"
   tar -xzf "$archive" -C "$tmp/root"
   observed="$(cd "$tmp/root" && ./bin/Runner.Listener --version)"
