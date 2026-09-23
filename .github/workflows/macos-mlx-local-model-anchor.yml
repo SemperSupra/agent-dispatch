@@ -2,12 +2,6 @@ name: macOS MLX Local Model Anchor
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - exp/macos-gpu-surrogate-qualification
-    paths:
-      - scripts/macos_mlx_local_model_anchor.py
-      - .github/workflows/macos-mlx-local-model-anchor.yml
 
 permissions:
   contents: read
