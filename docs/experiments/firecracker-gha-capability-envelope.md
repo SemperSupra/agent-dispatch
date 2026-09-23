@@ -174,7 +174,19 @@ A functional R2 rep demonstrated:
 - guest NAT and allowed-forward counters incremented;
 - clean Firecracker exit and networking teardown.
 
-At the time this document was created, the final rerun was pending only a corrected evidence-counter parser; do not mark **NETWORK_SUPPORTED** until that receipt is green.
+Final run `35885788404` classified **SUPPORTED** and established **NETWORK_SUPPORTED** for the bounded Ubuntu 26.04 x64 path:
+
+- DNS returned two IPv4 addresses;
+- verified HTTPS returned status 200 and 559 bytes;
+- TLS version 772 (TLS 1.3);
+- guest probe to `169.254.169.254:80` was blocked;
+- guest probe to host gateway `192.0.2.1:80` was blocked;
+- metadata drop counter: 1 packet;
+- guest NAT counter: 4 packets;
+- Firecracker exited cleanly;
+- scoped TAP/firewall rules were removed and the original `ip_forward` state was restored.
+
+The guest-side DNS+HTTPS+negative-policy phase took about 1.04 s; the Firecracker network guest lifecycle wrapper was about 2.23 s in that rep.
 
 ## Mobility and snapshots
 
