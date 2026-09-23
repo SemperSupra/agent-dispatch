@@ -310,7 +310,7 @@ def run_probe(label: str) -> dict:
 
         _build_initramfs(init_binary, initrd)
         config = _build_config(kernel, initrd, config_path)
-        boot = _run_firecracker(firecracker, config)
+        boot = _run_firecracker(firecracker, config_path)
 
         return {
             "schema": RECEIPT_SCHEMA,
