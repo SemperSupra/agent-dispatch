@@ -1,0 +1,60 @@
+name: Firecracker P6 Sovereign Transfer Contract
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/firecracker_sovereign_preflight.py"
+      - "tests/test_firecracker_sovereign_preflight.py"
+      - "docs/experiments/firecracker-sovereign-transfer.md"
+      - ".github/workflows/github-runner-firecracker-p6-transfer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test sovereign transfer contract
+        run: python3 -m unittest -v tests/test_firecracker_sovereign_preflight.py
+
+  rdte-preflight:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise host-admission preflight on GHA without claiming sovereign qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-p6"
+          python3 scripts/firecracker_sovereign_preflight.py             --out "${RUNNER_TEMP}/firecracker-p6/preflight.json"
+          python3 - "${RUNNER_TEMP}/firecracker-p6/preflight.json" <<'PY'
+          import json
+          import pathlib
+          import sys
+          receipt = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          assert receipt["result"]["host_admission_prerequisites_pass"] is True
+          assert receipt["result"]["operationally_qualified"] is False
+          assert receipt["venue"]["github_actions_detected"] is True
+          assert receipt["venue"]["classification"] == "github-actions-rdte"
+          print("P6_RDTE_PREFLIGHT_CONTRACT=PASS")
+          PY
+      - name: Upload P6 preflight contract receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p6-rdte-preflight-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-p6/preflight.json
+          if-no-files-found: error
+          retention-days: 7
