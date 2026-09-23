@@ -1,13 +1,6 @@
 name: Firecracker J1 Jailed F3 Parity
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_j1_jailed_f3.py"
-      - "tests/test_github_runner_firecracker_j1_jailed_f3.py"
-      - ".github/workflows/github-runner-firecracker-j1-jailed-f3.yml"
   workflow_dispatch:
 
 permissions:
