@@ -8,8 +8,8 @@ import json
 import pathlib
 from typing import Any
 
-RAW_SCHEMA = "macos-local-model-anchor/raw-v1"
-VALIDATION_SCHEMA = "macos-local-model-anchor/validation-v1"
+RAW_SCHEMA = "macos-local-model-anchor/raw-v2"
+VALIDATION_SCHEMA = "macos-local-model-anchor/validation-v2"
 EXPECTED_MODEL_SHA256 = "8030f04528538d47bda434f6f0bdf3952c40a58123e4d5e755332f23731a8684"
 EXPECTED_MODEL_SIZE = 105454144
 EXPECTED_LLAMA_COMMIT = "b29c606e28a01b1bc8c1351026a0fa6e616bf6c4"
@@ -29,6 +29,7 @@ def check(raw: dict[str, Any]) -> tuple[bool, list[str], list[str]]:
     task = raw.get("task") or {}
     host = raw.get("host_profile") or {}
     preflight = raw.get("metal_preflight") or {}
+    hygiene = raw.get("memory_hygiene") or {}
     reps = raw.get("repetitions") or []
 
     if model.get("expected_sha256") != EXPECTED_MODEL_SHA256:
@@ -46,6 +47,15 @@ def check(raw: dict[str, Any]) -> tuple[bool, list[str], list[str]]:
         errors.append("task-class-mismatch")
     if task.get("evidence_mode") != "anchor":
         errors.append("evidence-mode-mismatch")
+    if task.get("frontend") != "llama-completion":
+        errors.append("frontend-mismatch")
+    treatment = task.get("memory_hygiene_treatment")
+    if treatment not in ("control", "purge"):
+        errors.append("memory-hygiene-treatment-invalid")
+    if hygiene.get("mode") != treatment:
+        errors.append("memory-hygiene-evidence-mismatch")
+    if treatment == "purge" and ((hygiene.get("result") or {}).get("exit_code") != 0):
+        errors.append("purge-treatment-failed")
 
     if host.get("machine") != "arm64":
         errors.append("not-arm64")
@@ -66,6 +76,8 @@ def check(raw: dict[str, Any]) -> tuple[bool, list[str], list[str]]:
         for i, rep in enumerate(reps):
             if rep.get("exit_code") != 0:
                 errors.append(f"rep-{i}-nonzero-exit")
+            if "HARNESS_TIMEOUT_AFTER=" in str(rep.get("stderr_tail") or ""):
+                errors.append(f"rep-{i}-timeout")
             candidate = rep.get("candidate")
             if not isinstance(candidate, str) or not candidate.strip():
                 errors.append(f"rep-{i}-empty-candidate")
