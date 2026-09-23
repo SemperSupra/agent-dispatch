@@ -86,7 +86,7 @@ def physmem_line() -> str | None:
 
 
 def top_processes(limit: int = 25) -> list[dict[str, Any]]:
-    r = run(["ps", "-axo", "pid=,user=,rss=,comm=", "-r"], timeout=15)
+    r = run(["ps", "-axo", "pid=,user=,rss=,comm="], timeout=15)
     if r.get("exit_code") != 0:
         return []
     out: list[dict[str, Any]] = []
@@ -99,9 +99,8 @@ def top_processes(limit: int = 25) -> list[dict[str, Any]]:
         except ValueError:
             continue
         out.append({"pid": pid, "user": user, "rss_kib": rss_kib, "command": command})
-        if len(out) >= limit:
-            break
-    return out
+    out.sort(key=lambda p: p["rss_kib"], reverse=True)
+    return out[:limit]
 
 
 def memory_snapshot(stage: str) -> dict[str, Any]:
@@ -122,6 +121,7 @@ def memory_snapshot(stage: str) -> dict[str, Any]:
         "pressure_level": pressure_level,
         "root_df_k": df.get("stdout"),
         "top_processes": top_processes(),
+        "process_count": len(run(["ps", "-axo", "pid="], timeout=10).get("stdout", "").splitlines()),
     }
 
 
