@@ -1,14 +1,6 @@
 name: Firecracker R1 Writable Storage
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest/r1-storage-probe-x86_64.c"
-      - "scripts/github_runner_firecracker_r1_storage.py"
-      - "tests/test_github_runner_firecracker_r1_storage.py"
-      - ".github/workflows/github-runner-firecracker-r1-storage.yml"
   workflow_dispatch:
 
 permissions:
