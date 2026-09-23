@@ -1,15 +1,6 @@
 name: Self-hosted runner KVM surrogate lab
 
 on:
-  push:
-    branches:
-      - exp/self-hosted-runner-lab
-    paths:
-      - ".github/workflows/self-hosted-runner-surrogate.yml"
-      - "scripts/self_hosted_runner_kit.sh"
-      - "scripts/gha_kvm_surrogate.sh"
-      - "tests/test_self_hosted_runner_lab.py"
-      - "docs/self-hosted-runner-lab.md"
   workflow_dispatch:
 
 permissions:
