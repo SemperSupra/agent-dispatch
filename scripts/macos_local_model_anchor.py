@@ -17,8 +17,8 @@ from typing import Any
 
 from macos_gpu_surrogate_qualification import METAL_SWIFT, compile_run_swift, mac_host_profile
 
-SCHEMA = "macos-local-model-anchor/raw-v1"
-PROBE_VERSION = "public-macos-local-model-anchor/1"
+SCHEMA = "macos-local-model-anchor/raw-v2"
+PROBE_VERSION = "public-macos-local-model-anchor/2"
 
 LLAMA_TAG = "v0.4.1"
 LLAMA_EXPECTED_COMMIT = "b29c606e28a01b1bc8c1351026a0fa6e616bf6c4"
@@ -36,6 +36,8 @@ MODEL_URL = (
 PROMPT = "Answer with one short sentence: What comes after the number 41?"
 GENERATION_ARGS = [
     "-n", "16",
+    "-c", "512",
+    "-no-cnv",
     "--temp", "0",
     "--top-k", "1",
     "--seed", "4242",
@@ -48,7 +50,11 @@ def run(argv: list[str], timeout: int = 300, cwd: str | None = None):
     try:
         cp = subprocess.run(argv, check=False, capture_output=True, text=True, timeout=timeout, cwd=cwd)
         return cp.returncode, cp.stdout, cp.stderr
-    except (OSError, subprocess.SubprocessError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        out = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        err = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return None, out, (err + f"\nHARNESS_TIMEOUT_AFTER={timeout}s").strip()
+    except OSError as exc:
         return None, "", f"{type(exc).__name__}: {exc}"
 
 def sha256_file(path: pathlib.Path) -> str:
@@ -109,9 +115,36 @@ def clean_candidate(stdout: str) -> str:
     # Preserve candidate semantics while removing only terminal whitespace.
     return stdout.strip()
 
+def physmem_line() -> str | None:
+    rc, out, _ = run(["top", "-l", "1", "-s", "0", "-n", "0"], timeout=20)
+    if rc != 0:
+        return None
+    for line in out.splitlines():
+        if line.startswith("PhysMem:"):
+            return line.strip()
+    return None
+
+def apply_memory_hygiene(mode: str) -> dict[str, Any]:
+    evidence: dict[str, Any] = {"mode": mode, "before_physmem": physmem_line()}
+    if mode == "control":
+        evidence["action"] = "none"
+        evidence["after_physmem"] = evidence["before_physmem"]
+        return evidence
+    purge = shutil.which("purge")
+    if not purge:
+        evidence["action"] = "purge"
+        evidence["result"] = {"exit_code": None, "error": "purge unavailable"}
+        evidence["after_physmem"] = physmem_line()
+        return evidence
+    rc, out, err = run(["sudo", "-n", purge], timeout=120)
+    evidence["action"] = "purge"
+    evidence["result"] = {"exit_code": rc, "stdout": out[-1000:] or None, "stderr": err[-2000:] or None}
+    evidence["after_physmem"] = physmem_line()
+    return evidence
+
 def inference_rep(exe: pathlib.Path, model: pathlib.Path) -> dict[str, Any]:
     argv = [str(exe), "-m", str(model), "-p", PROMPT, *GENERATION_ARGS]
-    rc, out, err = run(argv, timeout=180)
+    rc, out, err = run(argv, timeout=90)
     return {
         "exit_code": rc,
         "candidate": clean_candidate(out),
@@ -125,6 +158,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--label", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--memory-hygiene", choices=("control", "purge"), default="control")
     args = p.parse_args()
 
     receipt: dict[str, Any] = {
@@ -159,7 +193,10 @@ def main() -> int:
             "prompt": PROMPT,
             "generation_args": GENERATION_ARGS,
             "repetitions": 2,
+            "frontend": "llama-completion",
+            "memory_hygiene_treatment": args.memory_hygiene,
         },
+        "memory_hygiene": None,
         "metal_preflight": None,
         "download": None,
         "build": None,
@@ -227,7 +264,7 @@ def main() -> int:
                                 if rc == 0:
                                     rc2, out2, err2 = run(
                                         [cmake, "--build", "build", "--config", "Release", "-j", "2",
-                                         "--target", "llama-cli"],
+                                         "--target", "llama-completion"],
                                         cwd=str(src), timeout=600,
                                     )
                                     receipt["build"].update({
@@ -238,7 +275,7 @@ def main() -> int:
                                 else:
                                     rc2 = None
 
-                                exe = src / "build" / "bin" / "llama-cli"
+                                exe = src / "build" / "bin" / "llama-completion"
                                 if rc != 0 or rc2 != 0 or not exe.exists():
                                     receipt["producer_status"] = "RUNTIME_BUILD_FAILURE"
                                     receipt["producer_reason"] = "pinned llama.cpp Metal runtime failed to build"
@@ -248,6 +285,7 @@ def main() -> int:
                                     receipt["runtime"]["help_sha256"] = hashlib.sha256(
                                         help_out.encode("utf-8")
                                     ).hexdigest()
+                                    receipt["memory_hygiene"] = apply_memory_hygiene(args.memory_hygiene)
                                     receipt["repetitions"] = [
                                         inference_rep(exe, model),
                                         inference_rep(exe, model),
