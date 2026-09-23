@@ -1,13 +1,6 @@
 name: Firecracker U1 Rootfs Discovery
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "scripts/github_runner_firecracker_u1_rootfs_discovery.py"
-      - "tests/test_github_runner_firecracker_u1_rootfs_discovery.py"
-      - ".github/workflows/github-runner-firecracker-u1-rootfs-discovery.yml"
   workflow_dispatch:
 
 permissions:
