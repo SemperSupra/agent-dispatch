@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Bounded Firecracker F0 RDTE probe for public GitHub-hosted runners.
+"""Bounded Firecracker RDTE probes for public GitHub-hosted runners.
 
-F0 proves only:
-- the expected KVM device/sudo boundary is observable;
-- one exact Firecracker archive is acquired and SHA-256 verified;
-- the Firecracker binary is callable and self-identifies as the pinned version.
-
-It does NOT prove guest boot, workload execution, isolation strength, or sovereign
-operational readiness.
+GHA is the disposable learning/proving substrate. Operational readiness for
+private workloads is intentionally withheld until the same portable contract is
+reproduced on sovereign/local resources.
 """
 
 from __future__ import annotations
@@ -27,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "github-runner-firecracker-rdte/v1"
-RUNG = "F0"
+
 FIRECRACKER_VERSION = "1.17.0"
 FIRECRACKER_ARCHIVE = f"firecracker-v{FIRECRACKER_VERSION}-x86_64.tgz"
 FIRECRACKER_URL = (
@@ -35,6 +31,16 @@ FIRECRACKER_URL = (
     f"v{FIRECRACKER_VERSION}/{FIRECRACKER_ARCHIVE}"
 )
 FIRECRACKER_SHA256 = "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558"
+
+# Resolved by a discovery-only rep on 2026-09-23 from Firecracker's official CI
+# demonstration-artifact bucket. F1 never follows a floating "latest" pointer.
+KERNEL_OBJECT_KEY = (
+    "firecracker-ci/20260923-6f82ac4cf331-0/x86_64/vmlinux-6.18.48"
+)
+KERNEL_URL = f"https://s3.amazonaws.com/spec.ccfc.min/{KERNEL_OBJECT_KEY}"
+KERNEL_SHA256 = "9204218e8bcca6ac23848d74f45df2eb19d7f31e8277840a7d145a0df8b078d2"
+
+F1_NONCE = "FC_RDTE_F1_NONCE=c0def11e"
 
 
 def sha256_file(path: Path) -> str:
@@ -45,7 +51,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def command(argv: list[str], timeout: int = 20) -> dict[str, Any]:
+def command(argv: list[str], timeout: int = 20, keep: int = 4096) -> dict[str, Any]:
     try:
         proc = subprocess.run(
             argv,
@@ -58,11 +64,32 @@ def command(argv: list[str], timeout: int = 20) -> dict[str, Any]:
         return {
             "argv": argv,
             "returncode": proc.returncode,
-            "stdout": proc.stdout.strip()[:4096],
-            "stderr": proc.stderr.strip()[:4096],
+            "stdout": proc.stdout[-keep:].strip(),
+            "stderr": proc.stderr[-keep:].strip(),
         }
-    except Exception as exc:  # receipt, not traceback, is the public evidence
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        return {
+            "argv": argv,
+            "timeout": True,
+            "stdout": stdout[-keep:].strip(),
+            "stderr": stderr[-keep:].strip(),
+        }
+    except Exception as exc:
         return {"argv": argv, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def download_verified(url: str, expected_sha256: str, destination: Path) -> str:
+    with urllib.request.urlopen(url, timeout=60) as response:
+        with destination.open("wb") as handle:
+            shutil.copyfileobj(response, handle)
+    observed = sha256_file(destination)
+    if observed != expected_sha256:
+        raise ValueError(
+            f"SHA-256 mismatch for {url}: expected {expected_sha256}, observed {observed}"
+        )
+    return observed
 
 
 def observe_kvm() -> dict[str, Any]:
@@ -121,10 +148,82 @@ def safe_extract_firecracker(archive: Path, destination: Path) -> Path:
         return binary
 
 
-def make_receipt() -> dict[str, Any]:
+def materialize_firecracker(temp: Path) -> tuple[Path, str, dict[str, Any]]:
+    archive = temp / FIRECRACKER_ARCHIVE
+    observed = download_verified(FIRECRACKER_URL, FIRECRACKER_SHA256, archive)
+    binary = safe_extract_firecracker(archive, temp / "extract")
+    version = command([str(binary), "--version"])
+    identity = (version.get("stdout") or "") + "\n" + (version.get("stderr") or "")
+    if version.get("returncode") != 0 or f"v{FIRECRACKER_VERSION}" not in identity:
+        raise RuntimeError(f"Firecracker version oracle failed: {version}")
+    return binary, observed, version
+
+
+def _pad4(data: bytearray) -> None:
+    while len(data) % 4:
+        data.append(0)
+
+
+def build_newc_single_file(name: str, payload: bytes, mode: int = 0o100755) -> bytes:
+    """Build a deterministic newc initramfs containing one regular file."""
+    out = bytearray()
+
+    def add(entry_name: str, content: bytes, entry_mode: int, ino: int) -> None:
+        name_bytes = entry_name.encode("utf-8") + b"\0"
+        fields = [
+            ino,
+            entry_mode,
+            0,  # uid
+            0,  # gid
+            1,  # nlink
+            0,  # mtime
+            len(content),
+            0, 0, 0, 0,
+            len(name_bytes),
+            0,
+        ]
+        header = ("070701" + "".join(f"{field:08x}" for field in fields)).encode("ascii")
+        if len(header) != 110:
+            raise AssertionError("invalid newc header length")
+        out.extend(header)
+        out.extend(name_bytes)
+        _pad4(out)
+        out.extend(content)
+        _pad4(out)
+
+    add(name, payload, mode, 1)
+    add("TRAILER!!!", b"", 0, 2)
+    return bytes(out)
+
+
+def compile_f1_init(temp: Path) -> tuple[Path, dict[str, Any]]:
+    source = temp / "init.c"
+    binary = temp / "init"
+    source.write_text(
+        r'''#include <unistd.h>
+#include <sys/reboot.h>
+int main(void) {
+    const char msg[] = "FC_RDTE_F1_NONCE=c0def11e\n";
+    (void)write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+    sync();
+    reboot(RB_AUTOBOOT);
+    _exit(111);
+}
+'''
+    )
+    build = command(["cc", "-static", "-Os", "-s", "-o", str(binary), str(source)], timeout=30)
+    if build.get("returncode") != 0 or not binary.exists():
+        raise RuntimeError(f"static guest init build failed: {build}")
+
+    initrd = temp / "initrd.cpio"
+    initrd.write_bytes(build_newc_single_file("init", binary.read_bytes()))
+    return initrd, build
+
+
+def make_receipt(rung: str) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
-        "rung": RUNG,
+        "rung": rung,
         "purpose": "public-GHA RDTE for later sovereign/local microVM execution",
         "result": "INCONCLUSIVE",
         "portable_evidence": {
@@ -137,6 +236,13 @@ def make_receipt() -> dict[str, Any]:
                 "sha256_observed": None,
                 "version_command": None,
             },
+            "guest_kernel": {
+                "object_key": KERNEL_OBJECT_KEY if rung == "F1" else None,
+                "url": KERNEL_URL if rung == "F1" else None,
+                "sha256_expected": KERNEL_SHA256 if rung == "F1" else None,
+                "sha256_observed": None,
+            },
+            "initrd": None,
             "guest_boot": "UNTESTED",
             "work_capsule": "UNTESTED",
             "network_policy": "UNTESTED",
@@ -161,63 +267,42 @@ def make_receipt() -> dict[str, Any]:
     }
 
 
-def run(out: Path) -> int:
-    receipt = make_receipt()
+def preflight(receipt: dict[str, Any]) -> int | None:
     receipt["gha_adapter_evidence"]["kvm"] = observe_kvm()
-
     if platform.machine() not in {"x86_64", "AMD64"}:
         receipt["result"] = "SKIPPED_GUARDRAIL"
-        receipt["notes"].append("F0 is pinned to x86_64 only.")
-        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        receipt["notes"].append("This experiment rung is pinned to x86_64 only.")
         return 0
-
     if not Path("/dev/kvm").exists():
         receipt["result"] = "ENVIRONMENT_FAILURE"
         receipt["notes"].append("/dev/kvm is absent; prerequisite drift from #223.")
-        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
         return 2
+    sudo_test = receipt["gha_adapter_evidence"]["kvm"].get("sudo_rw_test", {})
+    if sudo_test.get("returncode") != 0:
+        receipt["result"] = "ENVIRONMENT_FAILURE"
+        receipt["notes"].append("Existing passwordless-sudo KVM boundary is unavailable.")
+        return 2
+    return None
+
+
+def run_f0(out: Path) -> int:
+    receipt = make_receipt("F0")
+    early = preflight(receipt)
+    if early is not None:
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return early
 
     with tempfile.TemporaryDirectory(prefix="fc-rdte-f0-") as td:
-        temp = Path(td)
-        archive = temp / FIRECRACKER_ARCHIVE
         try:
-            with urllib.request.urlopen(FIRECRACKER_URL, timeout=60) as response:
-                with archive.open("wb") as handle:
-                    shutil.copyfileobj(response, handle)
+            _, observed, version = materialize_firecracker(Path(td))
         except Exception as exc:
-            receipt["result"] = "ENVIRONMENT_FAILURE"
-            receipt["notes"].append(
-                f"Firecracker release acquisition failed: {type(exc).__name__}: {exc}"
-            )
+            receipt["result"] = "ORACLE_FAILURE"
+            receipt["notes"].append(f"F0 VMM oracle failed: {type(exc).__name__}: {exc}")
             out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
             return 2
 
-        observed = sha256_file(archive)
         receipt["portable_evidence"]["vmm"]["sha256_observed"] = observed
-        if observed != FIRECRACKER_SHA256:
-            receipt["result"] = "ORACLE_FAILURE"
-            receipt["notes"].append("Pinned Firecracker archive SHA-256 mismatch.")
-            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-            return 2
-
-        try:
-            binary = safe_extract_firecracker(archive, temp / "extract")
-        except Exception as exc:
-            receipt["result"] = "HARNESS_FAILURE"
-            receipt["notes"].append(
-                f"Verified archive extraction failed: {type(exc).__name__}: {exc}"
-            )
-            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-            return 2
-
-        version = command([str(binary), "--version"])
         receipt["portable_evidence"]["vmm"]["version_command"] = version
-        identity = (version.get("stdout") or "") + "\n" + (version.get("stderr") or "")
-        if version.get("returncode") != 0 or f"v{FIRECRACKER_VERSION}" not in identity:
-            receipt["result"] = "ORACLE_FAILURE"
-            receipt["notes"].append("Firecracker binary did not self-identify as pinned version.")
-            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-            return 2
 
     receipt["result"] = "SUPPORTED"
     receipt["claims"]["firecracker_acquisition_callable"] = True
@@ -228,12 +313,103 @@ def run(out: Path) -> int:
     return 0
 
 
+def run_f1(out: Path) -> int:
+    receipt = make_receipt("F1")
+    early = preflight(receipt)
+    if early is not None:
+        out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+        return early
+
+    with tempfile.TemporaryDirectory(prefix="fc-rdte-f1-") as td:
+        temp = Path(td)
+        try:
+            binary, fc_sha, version = materialize_firecracker(temp)
+            receipt["portable_evidence"]["vmm"]["sha256_observed"] = fc_sha
+            receipt["portable_evidence"]["vmm"]["version_command"] = version
+
+            kernel = temp / "vmlinux-6.18.48"
+            kernel_sha = download_verified(KERNEL_URL, KERNEL_SHA256, kernel)
+            receipt["portable_evidence"]["guest_kernel"]["sha256_observed"] = kernel_sha
+
+            initrd, build = compile_f1_init(temp)
+            receipt["portable_evidence"]["initrd"] = {
+                "format": "newc",
+                "contents": ["/init"],
+                "build_command": build,
+                "sha256": sha256_file(initrd),
+            }
+
+            config = temp / "vm.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "boot-source": {
+                            "kernel_image_path": str(kernel),
+                            "initrd_path": str(initrd),
+                            "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
+                        },
+                        "machine-config": {
+                            "vcpu_count": 1,
+                            "mem_size_mib": 128,
+                            "smt": False,
+                        },
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+
+            boot = command(
+                ["sudo", "-n", str(binary), "--no-api", "--config-file", str(config)],
+                timeout=20,
+                keep=16384,
+            )
+            receipt["portable_evidence"]["guest_boot"] = {
+                "expected_serial_nonce": F1_NONCE,
+                "command": boot,
+                "network_interfaces_configured": 0,
+            }
+            serial = (boot.get("stdout") or "") + "\n" + (boot.get("stderr") or "")
+            if F1_NONCE not in serial:
+                receipt["result"] = "ORACLE_FAILURE"
+                receipt["notes"].append(
+                    "Firecracker started but deterministic F1 serial nonce was not observed."
+                )
+                out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+                return 2
+
+        except ValueError as exc:
+            receipt["result"] = "ORACLE_FAILURE"
+            receipt["notes"].append(f"Pinned artifact integrity oracle failed: {exc}")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+        except Exception as exc:
+            receipt["result"] = "HARNESS_FAILURE"
+            receipt["notes"].append(f"F1 harness failed: {type(exc).__name__}: {exc}")
+            out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+            return 2
+
+    receipt["result"] = "SUPPORTED"
+    receipt["claims"]["firecracker_acquisition_callable"] = True
+    receipt["claims"]["guest_boot_supported"] = True
+    receipt["portable_evidence"]["network_policy"] = "NO_GUEST_NETWORK_INTERFACE_CONFIGURED"
+    receipt["notes"].append(
+        "F1 proves a pinned kernel + deterministic custom initrd can execute a serial nonce in a Firecracker guest. Workload/capsule and sovereign operational readiness remain unproven."
+    )
+    out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--rung", choices=["f0", "f1"], default="f0")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    return run(args.out)
+    if args.rung == "f1":
+        return run_f1(args.out)
+    return run_f0(args.out)
 
 
 if __name__ == "__main__":
