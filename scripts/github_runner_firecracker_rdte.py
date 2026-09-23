@@ -326,6 +326,7 @@ def run_f1(out: Path) -> int:
             binary, fc_sha, version = materialize_firecracker(temp)
             receipt["portable_evidence"]["vmm"]["sha256_observed"] = fc_sha
             receipt["portable_evidence"]["vmm"]["version_command"] = version
+            receipt["claims"]["firecracker_acquisition_callable"] = True
 
             kernel = temp / "vmlinux-6.18.48"
             kernel_sha = download_verified(KERNEL_URL, KERNEL_SHA256, kernel)
@@ -348,11 +349,24 @@ def run_f1(out: Path) -> int:
                             "initrd_path": str(initrd),
                             "boot_args": "console=ttyS0 reboot=k panic=1 pci=off",
                         },
+                        "drives": [],
                         "machine-config": {
                             "vcpu_count": 1,
                             "mem_size_mib": 128,
                             "smt": False,
+                            "track_dirty_pages": False,
+                            "huge_pages": "None",
                         },
+                        "cpu-config": None,
+                        "balloon": None,
+                        "network-interfaces": [],
+                        "vsock": None,
+                        "logger": None,
+                        "metrics": None,
+                        "mmds-config": None,
+                        "entropy": None,
+                        "pmem": [],
+                        "memory-hotplug": None,
                     },
                     indent=2,
                     sort_keys=True,
