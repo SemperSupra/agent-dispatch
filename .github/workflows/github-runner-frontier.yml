@@ -2,56 +2,43 @@ name: GitHub Runner Frontier Oracles
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - exp/macos-gpu-surrogate-qualification
+    paths:
+      - scripts/macos_gpu_surrogate_qualification.py
+      - .github/workflows/github-runner-frontier.yml
 
 permissions:
   contents: read
 
 jobs:
-  contract:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - name: Test frontier and latent-hardware semantics
-        run: |
-          python3 -m unittest -v tests/test_github_runner_frontier.py
-          python3 -m unittest -v tests/test_github_runner_latent_hardware.py
-
-  latent-hardware-followup:
-    needs: contract
+  mac-gpu-v3:
     strategy:
       fail-fast: false
       max-parallel: 2
       matrix:
         runner:
-          - ubuntu-26.04
-          - ubuntu-24.04-arm
-          - ubuntu-26.04-arm
           - macos-26
-          - macos-26-intel
           - xcode-27
+          - macos-26-intel
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Probe earned latent-hardware frontiers
-        env:
-          CENSUS_REQUESTED_LABEL: ${{ matrix.runner }}
-          CENSUS_REPOSITORY_VISIBILITY: public
+      - name: Run Mac GPU v3 transfer interviews
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/runner-latent-hardware"
-          python3 scripts/github_runner_latent_hardware.py             --label "${{ matrix.runner }}"             --out "${RUNNER_TEMP}/runner-latent-hardware/receipt.json"
-      - name: Upload public-safe receipt
+          mkdir -p "${RUNNER_TEMP}/mac-gpu-qualification"
+          python3 scripts/macos_gpu_surrogate_qualification.py             --label "${{ matrix.runner }}"             --out "${RUNNER_TEMP}/mac-gpu-qualification/receipt.json"
+      - name: Upload receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: runner-latent-hardware-followup-${{ matrix.runner }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/runner-latent-hardware/receipt.json
+          name: mac-gpu-v3-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mac-gpu-qualification/receipt.json
           if-no-files-found: error
           retention-days: 7
