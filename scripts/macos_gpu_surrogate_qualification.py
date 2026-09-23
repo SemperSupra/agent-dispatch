@@ -53,6 +53,17 @@ if let device = MTLCreateSystemDefaultDevice() {
     r["name"] = device.name
     r["unifiedMemory"] = device.hasUnifiedMemory
     r["maxBufferLength"] = UInt64(device.maxBufferLength)
+    r["recommendedMaxWorkingSetSize"] = UInt64(device.recommendedMaxWorkingSetSize)
+    let familyChecks: [(String, MTLGPUFamily)] = [
+        ("apple1", .apple1), ("apple2", .apple2), ("apple3", .apple3), ("apple4", .apple4),
+        ("apple5", .apple5), ("apple6", .apple6), ("apple7", .apple7), ("apple8", .apple8),
+        ("apple9", .apple9), ("apple10", .apple10),
+        ("mac1", .mac1), ("mac2", .mac2),
+        ("common1", .common1), ("common2", .common2), ("common3", .common3)
+    ]
+    var families: [String: Bool] = [:]
+    for (name, family) in familyChecks { families[name] = device.supportsFamily(family) }
+    r["families"] = families
     do {
         let library = try device.makeLibrary(source: source, options: nil)
         if let fn = library.makeFunction(name: "axpy") {
@@ -164,6 +175,29 @@ print(json.dumps(r,sort_keys=True))
 '''
 
 
+
+def _one(argv: list[str], timeout: int = 20) -> str | None:
+    code,out,_=run(argv,timeout=timeout)
+    return out.strip() if code==0 and out.strip() else None
+
+
+def mac_host_profile() -> dict[str,Any]:
+    profile: dict[str,Any]={
+        "machine":platform.machine(),
+        "processor":platform.processor() or None,
+        "cpu_brand":_one(["sysctl","-n","machdep.cpu.brand_string"]),
+        "hw_model":_one(["sysctl","-n","hw.model"]),
+        "os_product":_one(["sw_vers","-productName"]),
+        "os_version":_one(["sw_vers","-productVersion"]),
+        "os_build":_one(["sw_vers","-buildVersion"]),
+        "xcode":_one(["xcodebuild","-version"]),
+        "sdk_path":_one(["xcrun","--sdk","macosx","--show-sdk-path"]),
+        "sdk_version":_one(["xcrun","--sdk","macosx","--show-sdk-version"]),
+    }
+    # Intentionally omit serial number, hardware UUID, MAC addresses, and other host-unique identifiers.
+    return profile
+
+
 def compile_run_swift(source: str) -> dict[str,Any]:
     xcrun=shutil.which("xcrun")
     if not xcrun: return result("NEGATIVE_OBSERVATION","xcrun unavailable")
@@ -262,9 +296,13 @@ def main() -> int:
         "run_attempt":os.environ.get("GITHUB_RUN_ATTEMPT",""),"workflow_sha":os.environ.get("GITHUB_SHA",""),
         "image_os":os.environ.get("ImageOS"),"image_version":os.environ.get("ImageVersion")},
       "runner":{"system":platform.system(),"machine":platform.machine()},
+      "hardware_profile": mac_host_profile() if platform.system()=="Darwin" else {},
       "pins":{"torch":TORCH_VERSION,"mlx":MLX_VERSION,"llama_cpp":LLAMA_TAG,"coremltools":COREMLTOOLS_VERSION},
       "interviews":{},
       "warnings":["GHA paravirtual GPU results are methodology/capability evidence, not local Apple-silicon performance evidence",
+                  "host silicon generation and guest-visible Metal GPU family are separate identity dimensions",
+                  "Apple Metal family numbers are feature-family identifiers, not M-series generation numbers",
+                  "future Apple generations enter through capability discovery and interview requirements, not a fixed M1/M2 allowlist",
                   "local sovereign qualification must mint a distinct environment/configuration identity and rerun the same oracles"]}
 
     if platform.system()!="Darwin":
