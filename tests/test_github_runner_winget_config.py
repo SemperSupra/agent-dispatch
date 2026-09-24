@@ -21,6 +21,7 @@ class WinGetConfigPreflightTests(unittest.TestCase):
         self.assertIn("properties:\n  resources:", text)
         self.assertIn("resource: Microsoft.WinGet.DSC/WinGetPackage", text)
         self.assertIn("id: Git.Git", text)
+        self.assertIn("source: winget", text)
         self.assertNotIn("WinBot", text)
         self.assertNotIn("SemperSupra", text)
 
