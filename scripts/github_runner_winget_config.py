@@ -23,17 +23,16 @@ SCHEMA = "github-runner-winget-config-preflight/v1"
 PROBE_VERSION = "winget-config-preflight/1"
 
 SYNTHETIC_CONFIGURATION = """\
-$schema: https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2023/08/config/document.json
-metadata:
-  winget:
-    processor:
-      identifier: dscv3
+# yaml-language-server: $schema=https://aka.ms/winget-configuration.schema.json
+properties:
+  configurationVersion: 0.2.0
 resources:
-  - type: Microsoft.WinGet/Package
-    name: Git
-    properties:
+  - resource: Microsoft.WinGet.DSC/WinGetPackage
+    id: git
+    directives:
+      description: Public synthetic Git package presence check
+    settings:
       id: Git.Git
-      source: winget
 """
 
 
@@ -74,7 +73,7 @@ def _base(label: str) -> dict[str, Any]:
             "runner_arch": os.environ.get("RUNNER_ARCH"),
         },
         "configuration": {
-            "resource_type": "Microsoft.WinGet/Package",
+            "resource_type": "Microsoft.WinGet.DSC/WinGetPackage",
             "package_id": "Git.Git",
             "configuration_sha256": hashlib.sha256(SYNTHETIC_CONFIGURATION.encode("utf-8")).hexdigest(),
             "desired_state_apply_performed": False,
@@ -186,8 +185,8 @@ def qualify_winget_config_preflight(label: str) -> dict[str, Any]:
                     "winget_path": winget,
                     "winget_version": version_out,
                     "validate_exit": validate_code,
-                    "validate_stdout": validate_out[:4000],
-                    "validate_stderr": validate_err[:4000],
+                    "validate_stdout": validate_out[-6000:],
+                    "validate_stderr": validate_err[-4000:],
                     "validate_elapsed_seconds": round(validate_elapsed, 3),
                 },
             )
@@ -210,12 +209,12 @@ def qualify_winget_config_preflight(label: str) -> dict[str, Any]:
         "configure_help_excerpt": (help_out or help_err)[:1600],
         "configure_help_elapsed_seconds": round(help_elapsed, 3),
         "validate_exit": validate_code,
-        "validate_stdout": validate_out[:4000],
-        "validate_stderr": validate_err[:4000],
+        "validate_stdout": validate_out[-6000:],
+        "validate_stderr": validate_err[-4000:],
         "validate_elapsed_seconds": round(validate_elapsed, 3),
         "test_exit": test_code,
-        "test_stdout": test_out[:6000],
-        "test_stderr": test_err[:6000],
+        "test_stdout": test_out[-6000:],
+        "test_stderr": test_err[-4000:],
         "test_elapsed_seconds": round(test_elapsed, 3),
     }
 
