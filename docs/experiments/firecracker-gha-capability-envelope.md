@@ -216,6 +216,155 @@ Run `35886922626` qualified the pinned official Firecracker CI Ubuntu 24.04 user
 
 This establishes that Firecracker on the qualified GHA x64 path is not limited to tiny freestanding/initramfs probes. A normal Linux CLI/runtime environment suitable for Python-based tooling can execute inside the microVM while keeping the authoritative root image immutable.
 
+## Composed jailed normal userspace
+
+Run \`35955263741\` qualified the complete execution envelope as one unit:
+
+- Firecracker v1.17.0;
+- matching jailer;
+- dedicated ephemeral UID/GID;
+- new PID namespace and separate mount namespace;
+- Firecracker seccomp filters;
+- pinned Ubuntu 24.04 / Python 3.12.3 userspace;
+- immutable squashfs root;
+- writable ext4 scratch;
+- one TAP-backed virtio-net interface;
+- bounded DNS/HTTPS egress;
+- host/private/link-local/metadata access denied;
+- exact network cleanup.
+
+Observed jailed connected-userspace lifecycle was about **2.70 s**. The guest returned HTTPS 200 over TLS 1.3, persisted scratch state, preserved the exact rootfs hash, and satisfied all jailer/process-boundary oracles.
+
+This closes the composition question: these features are not merely individually compatible; they have been exercised together on \`ubuntu-26.04\` x64.
+
+## Representative Agent Dispatch workload
+
+Run \`35955796457\` executed the actual public Agent Dispatch sealed-execution contract inside a jailed normal-userspace Firecracker guest.
+
+The trusted host staged the exact public bytes of:
+
+- \`scripts/sealed_public_execution.py\`;
+- \`tests/test_sealed_public_execution.py\`.
+
+The guest had no repository checkout, no network and no credentials.
+
+Results:
+
+- native contract: **9/9 tests PASS**;
+- guest contract: **9/9 tests PASS**;
+- exact source SHA reconciled before/inside/after guest execution;
+- exact test SHA reconciled before/inside/after guest execution;
+- immutable rootfs preserved;
+- UID/GID drop, seccomp, PID namespace and mount namespace all observed.
+
+Matched timing in that rep:
+
+- native unittest wall: **105.314 ms**;
+- same unittest work inside guest: **237.681 ms**;
+- full jailed microVM lifecycle: **1181.012 ms**.
+
+For a trusted ~100 ms task, Firecracker does **not** earn its keep on performance. The extra boundary is justified only when isolation, destructive disposability, machine semantics or warm/stateful behavior materially matters.
+
+The validated architecture is:
+
+\`trusted host authority -> exact bounded work capsule -> jailed Firecracker executor -> reconciled bounded result\`.
+
+## Minimum-authority inference seam
+
+Run \`35958097407\` qualified the credential boundary needed for a guest-side thin harness without putting a reusable model-provider key in the microVM.
+
+The guest could reach exactly one TAP-local host broker endpoint:
+
+\`192.0.2.1:38080/v1/infer\`
+
+The broker:
+
+- accepted one bounded request schema;
+- used one random per-run bearer capability;
+- accepted exactly one call;
+- rejected capability replay with HTTP 409;
+- exposed no generic proxy/destination field;
+- had no provider credential;
+- preserved exact request/response hashes;
+- retained only the token SHA in evidence, not the token value.
+
+The guest also proved:
+
+- another host port was blocked;
+- metadata was blocked;
+- general forwarding was blocked;
+- the one-use capability configuration was removed from scratch after consumption.
+
+This qualifies the seam:
+
+\`jailed guest thin harness -> one-use capability -> narrow host broker -> allowlisted backend\`.
+
+A real-provider backend is **NOT_REACHED / CREDENTIAL_OR_BACKEND_PLACEMENT_GATE** on the current public Agent Dispatch surface because no already-authorized host-side provider binding has been established. Do not weaken the boundary by injecting a reusable provider key into the guest.
+
+## Warm normal-userspace snapshots
+
+### W1 — warm-start economics
+
+Run \`35962047767\` snapshotted a live Ubuntu/Python workcell after Python initialization and restored it in a fresh Firecracker process on the same host.
+
+Observed:
+
+- cold boot -> Python READY: **709.196 ms**;
+- full 512 MiB snapshot create: **376.203 ms**;
+- destination process start: **24.660 ms**;
+- snapshot-load stage: **28.663 ms**;
+- resume -> first guest output: **44.011 ms**;
+- load start -> first guest output: **72.694 ms**;
+- cold-ready / warm-first-output ratio: **9.7559x**;
+- post-resume Python work completed and persisted correctly.
+
+Warm restore therefore materially reduces response latency when a prepared snapshot already exists. Creating a new snapshot for every tiny task does not automatically beat cold boot because snapshot creation itself is material.
+
+### W2 — raw template reuse duplicates user-space state
+
+Run \`35962360077\` restored the same paused warm snapshot twice sequentially.
+
+The clones shared exactly the same snapshotted:
+
+- application session identifier;
+- next Python stdlib PRNG output.
+
+At the same time, both restores logged Linux VM-fork CRNG reseeding and produced different:
+
+- \`os.urandom\` output;
+- \`secrets\` output.
+
+Therefore a raw warm snapshot is **not equivalent to a fresh application instance**. Kernel randomness is refreshed, but arbitrary cached/user-space random, identity, token and session state remains cloned.
+
+### W3 — qualified post-restore reinitialization barrier
+
+Run \`35962683812\` turned the W2 warning into an executable template contract.
+
+The template is snapshotted at a named \`TEMPLATE_READY\` barrier. The source is never resumed. Every restored clone's next application phase must:
+
+1. obtain fresh kernel randomness;
+2. reseed application PRNG state;
+3. regenerate workcell/session identity;
+4. regenerate ephemeral capabilities;
+5. only then accept or perform work.
+
+Two sequential restores from the same 512 MiB snapshot preserved the same template nonce while producing unique reset state:
+
+- reset seed: unique;
+- application session: unique;
+- Python PRNG output: unique;
+- one-shot capability: unique;
+- post-reset work digest: valid and clone-specific.
+
+Warm availability remained fast:
+
+- clone 1 load-start -> reset-ready: **81.278 ms**;
+- clone 2 load-start -> reset-ready: **93.156 ms**;
+- clone 1 resume -> reset-ready: **47.890 ms**;
+- clone 2 resume -> reset-ready: **59.655 ms**.
+
+For the currently pinned Linux 6.18.48 guest, the qualified reusable-template rule is therefore explicit application reinitialization after restore. Do not assume all libraries/runtimes automatically detect snapshot cloning.
+
 ## Native-resource boundary
 
 Firecracker does not make arbitrary host-native devices automatically available to the guest. For the qualified GHA path, assume the portable guest resource vocabulary is limited to deliberately exposed virtual resources such as:
@@ -255,6 +404,27 @@ Weak fit:
 - ARM64 GHA while KVM is absent;
 - tasks where reconstructing a tiny environment is cheaper than snapshot transport;
 - very low-latency cross-runner coordination.
+
+## Current placement decision table
+
+| Workload property | Native | Docker | Jailed Firecracker on qualified GHA x64 |
+| --- | --- | --- | --- |
+| Trusted short process/tool work | Preferred when reproducibility/isolation needs are low | Good when packaging matters | Usually unnecessary lifecycle cost |
+| Reproducible trusted build/toolchain | Viable | Usually preferred | Use only when separate guest kernel materially matters |
+| Generated/unfamiliar Linux code | Weaker containment | Shares host kernel | **Strong current fit** |
+| Normal Python/CLI runtime needed | Yes | Yes | **Qualified** with immutable Ubuntu root + scratch |
+| Host kernel must not be shared with candidate | No | No | **Qualified property** |
+| Bounded writable storage | Host filesystem | Container mount/volume | **Qualified virtio-block + rate limiting** |
+| Bounded outbound HTTPS | Host network | Container network | **Qualified TAP/firewall policy** |
+| Reusable provider credential inside workload | Possible but authority-sensitive | Possible but authority-sensitive | **Do not place in guest; use narrow broker seam** |
+| Warm prepared state / checkpoint | Process-specific | Container-specific | **Qualified snapshot path with reset barrier** |
+| Same-host state handoff | Process-specific | Not VM state | **Qualified** |
+| Cross-runner state movement | N/A | Reconstruct/image pull usually easier | Transport works; restore remains CPU/host compatibility-gated |
+| Host GPU/USB/FPGA/direct device access | Strong | Often possible with explicit pass-through | **Poor fit / not exposed by current qualified path** |
+| ARM64 GitHub-hosted runner | Native works | Docker works | **Blocked: no /dev/kvm observed** |
+| ubuntu-slim | Native works | venue-specific | **Blocked: no /dev/kvm observed** |
+
+This table is descriptive evidence, not automatic placement authority.
 
 ## Placement invariant
 
