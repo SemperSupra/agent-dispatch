@@ -1,0 +1,58 @@
+name: Firecracker GHA Runner Fit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_github_runner_firecracker_fit.py
+
+  fit:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - label: ubuntu-24.04
+            mode: full
+          - label: ubuntu-26.04
+            mode: full
+          - label: ubuntu-slim
+            mode: preflight
+          - label: ubuntu-24.04-arm
+            mode: preflight
+          - label: ubuntu-26.04-arm
+            mode: preflight
+    runs-on: ${{ matrix.label }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Probe Firecracker runner fit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-fit"
+          python3 scripts/github_runner_firecracker_fit.py \
+            --label "${{ matrix.label }}" \
+            --mode "${{ matrix.mode }}" \
+            --out "${RUNNER_TEMP}/firecracker-fit/${{ matrix.label }}.json"
+      - name: Upload runner-fit receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-fit-${{ matrix.label }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-fit/*.json
+          if-no-files-found: error
+          retention-days: 7

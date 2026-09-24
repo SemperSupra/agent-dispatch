@@ -1,0 +1,42 @@
+name: Firecracker R3a Representative Contract
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_github_runner_firecracker_r3a_sealed_contract.py
+
+  representative-work:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run real Agent Dispatch contract in jailed Firecracker guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-r3a"
+          python3 scripts/github_runner_firecracker_r3a_sealed_contract.py \
+            --label ubuntu-26.04 \
+            --out "${RUNNER_TEMP}/firecracker-r3a/receipt.json"
+      - name: Upload R3a receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-r3a-sealed-contract-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-r3a/receipt.json
+          if-no-files-found: error
+          retention-days: 7

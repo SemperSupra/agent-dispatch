@@ -1,0 +1,14 @@
+{
+  "schema": "firecracker-guest-kernel/v1",
+  "source": "official-firecracker-ci",
+  "firecracker_ci_prefix": "firecracker-ci/20260923-6f82ac4cf331-0/",
+  "architecture": "x86_64",
+  "kernel_version": "6.18.48",
+  "kernel_key": "firecracker-ci/20260923-6f82ac4cf331-0/x86_64/vmlinux-6.18.48",
+  "kernel_url": "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20260923-6f82ac4cf331-0/x86_64/vmlinux-6.18.48",
+  "kernel_sha256": "9204218e8bcca6ac23848d74f45df2eb19d7f31e8277840a7d145a0df8b078d2",
+  "kernel_size_bytes": 27846792,
+  "discovered_by_run": 35824214213,
+  "authority": "SemperSupra/agent-dispatch-private#280",
+  "purpose": "Exact guest-kernel identity for the F1 Firecracker serial-nonce boot oracle. The boot workflow must not perform moving latest-selection."
+}
