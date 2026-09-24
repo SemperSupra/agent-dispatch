@@ -1,0 +1,51 @@
+name: Firecracker W3 Post-Restore Reinitialization
+
+on:
+  pull_request:
+    branches:
+      - experiment/firecracker-microvm-f0
+    paths:
+      - "experiments/firecracker/guest/w3-bridge-init-x86_64.c"
+      - "experiments/firecracker/guest/w3-post-restore-reset.py"
+      - "scripts/github_runner_firecracker_w3_post_restore_reset.py"
+      - "tests/test_github_runner_firecracker_w3_post_restore_reset.py"
+      - ".github/workflows/github-runner-firecracker-w3-post-restore-reset.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_github_runner_firecracker_w3_post_restore_reset.py
+
+  reset-barrier:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Restore reusable template twice with mandatory reset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/firecracker-w3"
+          python3 scripts/github_runner_firecracker_w3_post_restore_reset.py \
+            --label ubuntu-26.04 \
+            --out "$RUNNER_TEMP/firecracker-w3/receipt.json"
+      - name: Upload W3 receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-w3-post-restore-reset-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-w3/receipt.json
+          if-no-files-found: error
+          retention-days: 7
