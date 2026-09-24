@@ -1,15 +1,6 @@
 name: Firecracker W3 Post-Restore Reinitialization
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest/w3-bridge-init-x86_64.c"
-      - "experiments/firecracker/guest/w3-post-restore-reset.py"
-      - "scripts/github_runner_firecracker_w3_post_restore_reset.py"
-      - "tests/test_github_runner_firecracker_w3_post_restore_reset.py"
-      - ".github/workflows/github-runner-firecracker-w3-post-restore-reset.yml"
   workflow_dispatch:
 
 permissions:
