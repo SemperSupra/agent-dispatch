@@ -17,8 +17,8 @@ from typing import Any
 
 from macos_gpu_surrogate_qualification import METAL_SWIFT, compile_run_swift, mac_host_profile
 
-SCHEMA = "macos-local-model-anchor/raw-v1"
-PROBE_VERSION = "public-macos-local-model-anchor/1"
+SCHEMA = "macos-local-model-anchor/raw-v2"
+PROBE_VERSION = "public-macos-local-model-anchor/2"
 
 LLAMA_TAG = "v0.4.1"
 LLAMA_EXPECTED_COMMIT = "b29c606e28a01b1bc8c1351026a0fa6e616bf6c4"
@@ -41,6 +41,7 @@ GENERATION_ARGS = [
     "--seed", "4242",
     "--no-display-prompt",
     "--no-warmup",
+    "--single-turn",
     "-ngl", "all",
 ]
 
