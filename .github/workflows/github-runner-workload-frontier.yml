@@ -2,6 +2,11 @@ name: GitHub Runner Frontier Workloads
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/github_runner_winget_config.py
+      - tests/test_github_runner_winget_config.py
+      - .github/workflows/github-runner-workload-frontier.yml
 
 permissions:
   contents: read
@@ -15,10 +20,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Test workload qualification semantics
-        run: python3 -m unittest -v tests/test_github_runner_workload_frontier.py
+        run: python3 -m unittest -v tests/test_github_runner_workload_frontier.py tests/test_github_runner_winget_config.py
 
   qualify:
     needs: contract
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       max-parallel: 2
