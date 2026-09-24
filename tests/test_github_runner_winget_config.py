@@ -15,10 +15,10 @@ SPEC.loader.exec_module(MOD)
 
 
 class WinGetConfigPreflightTests(unittest.TestCase):
-    def test_synthetic_configuration_is_public_v3_package_resource(self):
+    def test_synthetic_configuration_matches_qualified_legacy_generation(self):
         text = MOD.SYNTHETIC_CONFIGURATION
-        self.assertIn("identifier: dscv3", text)
-        self.assertIn("type: Microsoft.WinGet/Package", text)
+        self.assertIn("configurationVersion: 0.2.0", text)
+        self.assertIn("resource: Microsoft.WinGet.DSC/WinGetPackage", text)
         self.assertIn("id: Git.Git", text)
         self.assertNotIn("WinBot", text)
         self.assertNotIn("SemperSupra", text)
@@ -58,6 +58,7 @@ class WinGetConfigPreflightTests(unittest.TestCase):
         self.assertTrue(receipt["result"]["passed"])
         self.assertEqual(receipt["result"]["classification"], "SUPPORTED")
         self.assertEqual(receipt["configuration"]["package_id"], "Git.Git")
+        self.assertEqual(receipt["configuration"]["resource_type"], "Microsoft.WinGet.DSC/WinGetPackage")
         self.assertFalse(receipt["configuration"]["desired_state_apply_performed"])
         self.assertEqual(len(calls), 4)
         self.assertFalse(any(call[1:] and call[1:] == ["configure"] for call in calls))
