@@ -1,15 +1,6 @@
 name: Firecracker W1 Warm Userspace Snapshot
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest/w1-bridge-init-x86_64.c"
-      - "experiments/firecracker/guest/w1-warm-userspace.py"
-      - "scripts/github_runner_firecracker_w1_warm_snapshot.py"
-      - "tests/test_github_runner_firecracker_w1_warm_snapshot.py"
-      - ".github/workflows/github-runner-firecracker-w1-warm-snapshot.yml"
   workflow_dispatch:
 
 permissions:
