@@ -32,6 +32,7 @@ properties:
         description: Public synthetic Git package presence check
       settings:
         id: Git.Git
+      source: winget
   configurationVersion: 0.2.0
 """
 
