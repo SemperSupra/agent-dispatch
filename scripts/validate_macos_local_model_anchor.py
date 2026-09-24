@@ -8,8 +8,8 @@ import json
 import pathlib
 from typing import Any
 
-RAW_SCHEMA = "macos-local-model-anchor/raw-v1"
-VALIDATION_SCHEMA = "macos-local-model-anchor/validation-v1"
+RAW_SCHEMA = "macos-local-model-anchor/raw-v2"
+VALIDATION_SCHEMA = "macos-local-model-anchor/validation-v2"
 EXPECTED_MODEL_SHA256 = "8030f04528538d47bda434f6f0bdf3952c40a58123e4d5e755332f23731a8684"
 EXPECTED_MODEL_SIZE = 105454144
 EXPECTED_LLAMA_COMMIT = "b29c606e28a01b1bc8c1351026a0fa6e616bf6c4"
@@ -46,6 +46,8 @@ def check(raw: dict[str, Any]) -> tuple[bool, list[str], list[str]]:
         errors.append("task-class-mismatch")
     if task.get("evidence_mode") != "anchor":
         errors.append("evidence-mode-mismatch")
+    if "--single-turn" not in (task.get("generation_args") or []):
+        errors.append("single-turn-lifecycle-missing")
 
     if host.get("machine") != "arm64":
         errors.append("not-arm64")
