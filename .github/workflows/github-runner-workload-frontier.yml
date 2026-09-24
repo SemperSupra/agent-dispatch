@@ -2,6 +2,11 @@ name: GitHub Runner Frontier Workloads
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/github_runner_winget_config.py
+      - tests/test_github_runner_winget_config.py
+      - .github/workflows/github-runner-workload-frontier.yml
 
 permissions:
   contents: read
@@ -15,10 +20,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Test workload qualification semantics
-        run: python3 -m unittest -v tests/test_github_runner_workload_frontier.py
+        run: python3 -m unittest -v tests/test_github_runner_workload_frontier.py tests/test_github_runner_winget_config.py
 
   qualify:
     needs: contract
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -54,5 +60,30 @@ jobs:
         with:
           name: runner-frontier-workload-${{ matrix.runner }}-${{ matrix.workload }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/runner-frontier-workload/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  winget-config-preflight:
+    needs: contract
+    runs-on: windows-2025
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test WinGet configuration preflight semantics
+        shell: pwsh
+        run: python -m unittest -v tests/test_github_runner_winget_config.py
+      - name: Execute public-safe WinGet configuration preflight
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\winget-config-preflight" | Out-Null
+          python scripts/github_runner_winget_config.py --label windows-2025 --out "$env:RUNNER_TEMP\winget-config-preflight\receipt.json"
+      - name: Upload WinGet configuration receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-winget-config-preflight-windows-2025-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\winget-config-preflight\receipt.json
           if-no-files-found: error
           retention-days: 7
