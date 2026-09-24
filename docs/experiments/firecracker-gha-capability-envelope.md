@@ -4,6 +4,8 @@ Authority: \`SemperSupra/agent-dispatch-private#287\`
 
 This document records empirical Firecracker capability on GitHub-hosted runners. It is a placement aid and RDTE record, not a statement that GitHub Actions is the intended operational microVM platform.
 
+Machine-readable companion: `experiments/firecracker/gha-capability-envelope-v1.json`.
+
 ## Evidence classes
 
 Use these classes instead of a single \`firecracker=true\` flag:
