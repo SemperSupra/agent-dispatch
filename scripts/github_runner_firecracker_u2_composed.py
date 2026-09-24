@@ -157,13 +157,32 @@ def _run_jailed(*,jailer,firecracker,jail_base,vm_id,uid,gid)->dict:
     host_ns={ns:os.readlink(f"/proc/self/ns/{ns}") for ns in ("mnt","pid")}
     started=time.perf_counter()
     proc=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    pid_file=jail_base/firecracker.name/vm_id/"root"/f"{firecracker.name}.pid"
     observation=None
+    observed_pid_file=None
     deadline=time.time()+12
-    while time.time()<deadline and proc.poll() is None:
-        obs=j1._find_process_by_real_uid(uid)
+    while time.time()<deadline:
+        obs=None
+        pid_read=j1._sudo(["cat",str(pid_file)],timeout=5)
+        if pid_read["ok"]:
+            try:
+                host_pid=int(pid_read["stdout"].strip())
+                observed_pid_file={"path":str(pid_file),"host_pid":host_pid}
+                obs=j1._process_observation(host_pid)
+            except (ValueError,TypeError):
+                obs=None
+        if obs is None:
+            obs=j1._find_process_by_real_uid(uid)
         if obs is not None:
             observation=obs
-            if obs.get("seccomp_mode")==2: break
+            if obs.get("seccomp_mode")==2:
+                break
+        if proc.poll() is not None and observed_pid_file is None:
+            # The jailer parent can exit after spawning the jailed child. Give
+            # the root-owned PID file a short grace period before concluding
+            # there is no child to observe.
+            if time.time()+0.1>=deadline:
+                break
         time.sleep(0.005)
     try: out,err=proc.communicate(timeout=30)
     except subprocess.TimeoutExpired:
@@ -193,7 +212,7 @@ def _run_jailed(*,jailer,firecracker,jail_base,vm_id,uid,gid)->dict:
         "uid_drop_observed":uid_ok,"gid_drop_observed":gid_ok,"seccomp_filter_observed":seccomp_ok,
         "new_pid_namespace_observed":pidns_ok,"mount_namespace_observed":mntns_ok,
         "elapsed_ms":elapsed,"return_code":proc.returncode,"u2_exit_code":exit_code,
-        "observed":observed,"process_observation":observation,"clean_vmm_exit_observed":clean,
+        "observed":observed,"process_observation":observation,"pid_file_observation":observed_pid_file,"clean_vmm_exit_observed":clean,
         "output_tail":combined[-12000:],
     }
 
