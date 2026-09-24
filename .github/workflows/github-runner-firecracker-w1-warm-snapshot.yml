@@ -1,0 +1,51 @@
+name: Firecracker W1 Warm Userspace Snapshot
+
+on:
+  pull_request:
+    branches:
+      - experiment/firecracker-microvm-f0
+    paths:
+      - "experiments/firecracker/guest/w1-bridge-init-x86_64.c"
+      - "experiments/firecracker/guest/w1-warm-userspace.py"
+      - "scripts/github_runner_firecracker_w1_warm_snapshot.py"
+      - "tests/test_github_runner_firecracker_w1_warm_snapshot.py"
+      - ".github/workflows/github-runner-firecracker-w1-warm-snapshot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_github_runner_firecracker_w1_warm_snapshot.py
+
+  warm-snapshot:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run warm normal-userspace snapshot handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/firecracker-w1"
+          python3 scripts/github_runner_firecracker_w1_warm_snapshot.py \
+            --label ubuntu-26.04 \
+            --out "$RUNNER_TEMP/firecracker-w1/receipt.json"
+      - name: Upload W1 receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-w1-warm-snapshot-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-w1/receipt.json
+          if-no-files-found: error
+          retention-days: 7
