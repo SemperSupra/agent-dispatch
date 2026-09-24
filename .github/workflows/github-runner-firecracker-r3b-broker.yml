@@ -1,15 +1,6 @@
 name: Firecracker R3b-0 One-Use Inference Broker
 
 on:
-  push:
-    branches:
-      - experiment/firecracker-jailer-resource-envelope
-    paths:
-      - '.github/workflows/github-runner-firecracker-r3b-broker.yml'
-      - 'scripts/github_runner_firecracker_r3b_broker.py'
-      - 'experiments/firecracker/guest/r3b-bridge-init-x86_64.c'
-      - 'experiments/firecracker/guest/r3b-broker-probe.py'
-      - 'tests/test_github_runner_firecracker_r3b_broker.py'
   workflow_dispatch:
 
 permissions:
