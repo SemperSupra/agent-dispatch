@@ -17,8 +17,8 @@ from typing import Any
 
 from macos_gpu_surrogate_qualification import METAL_SWIFT, compile_run_swift, mac_host_profile
 
-SCHEMA = "macos-local-model-anchor/raw-v2"
-PROBE_VERSION = "public-macos-local-model-anchor/2"
+SCHEMA = "macos-local-model-anchor/raw-v3"
+PROBE_VERSION = "public-macos-local-model-anchor/3"
 
 LLAMA_TAG = "v0.4.1"
 LLAMA_EXPECTED_COMMIT = "b29c606e28a01b1bc8c1351026a0fa6e616bf6c4"
@@ -42,6 +42,8 @@ GENERATION_ARGS = [
     "--no-display-prompt",
     "--no-warmup",
     "--single-turn",
+    "--simple-io",
+    "--no-show-timings",
     "-ngl", "all",
 ]
 
@@ -110,15 +112,33 @@ def clean_candidate(stdout: str) -> str:
     # Preserve candidate semantics while removing only terminal whitespace.
     return stdout.strip()
 
-def inference_rep(exe: pathlib.Path, model: pathlib.Path) -> dict[str, Any]:
-    argv = [str(exe), "-m", str(model), "-p", PROMPT, *GENERATION_ARGS]
+def inference_rep(exe: pathlib.Path, model: pathlib.Path, rep_index: int) -> dict[str, Any]:
+    candidate_file = model.parent / f"candidate-{rep_index}.txt"
+    log_file = model.parent / f"runtime-{rep_index}.log"
+    argv = [
+        str(exe), "-m", str(model), "-p", PROMPT, *GENERATION_ARGS,
+        "--log-file", str(log_file),
+        "-o", str(candidate_file),
+    ]
     rc, out, err = run(argv, timeout=180)
+    candidate = clean_candidate(
+        candidate_file.read_text(encoding="utf-8", errors="replace")
+        if candidate_file.exists() else ""
+    )
+    runtime_log = (
+        log_file.read_text(encoding="utf-8", errors="replace")
+        if log_file.exists() else ""
+    )
+    combined_runtime = "\n".join(x for x in (runtime_log, err, out) if x)
     return {
         "exit_code": rc,
-        "candidate": clean_candidate(out),
-        "candidate_sha256": hashlib.sha256(clean_candidate(out).encode("utf-8")).hexdigest(),
-        "gpu": parse_gpu_evidence(err),
-        "stderr_tail": err[-8000:] or None,
+        "candidate": candidate,
+        "candidate_sha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
+        "gpu": parse_gpu_evidence(combined_runtime),
+        "runtime_log_sha256": hashlib.sha256(runtime_log.encode("utf-8")).hexdigest() if runtime_log else None,
+        "runtime_log_tail": runtime_log[-8000:] or None,
+        "stderr_tail": err[-4000:] or None,
+        "stdout_tail": out[-4000:] or None,
         "argv": argv[1:],
     }
 
@@ -250,8 +270,8 @@ def main() -> int:
                                         help_out.encode("utf-8")
                                     ).hexdigest()
                                     receipt["repetitions"] = [
-                                        inference_rep(exe, model),
-                                        inference_rep(exe, model),
+                                        inference_rep(exe, model, 0),
+                                        inference_rep(exe, model, 1),
                                     ]
                                     receipt["producer_status"] = "PRODUCED"
                                     receipt["producer_reason"] = "raw anchor evidence produced; independent validator required"
