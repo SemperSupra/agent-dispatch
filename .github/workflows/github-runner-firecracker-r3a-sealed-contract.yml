@@ -1,15 +1,6 @@
 name: Firecracker R3a Representative Contract
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest/r3a-bridge-init-x86_64.c"
-      - "experiments/firecracker/guest/r3a-sealed-contract-driver.py"
-      - "scripts/github_runner_firecracker_r3a_sealed_contract.py"
-      - "tests/test_github_runner_firecracker_r3a_sealed_contract.py"
-      - ".github/workflows/github-runner-firecracker-r3a-sealed-contract.yml"
   workflow_dispatch:
 
 permissions:
