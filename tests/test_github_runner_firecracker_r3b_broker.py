@@ -62,7 +62,11 @@ class R3bBrokerTests(unittest.TestCase):
     def test_workflow_and_script_remain_credential_free(self):
         workflow=(ROOT/".github/workflows/github-runner-firecracker-r3b-broker.yml").read_text()
         source=SCRIPT.read_text()
-        for needle in ("secrets.","OPENAI_API_KEY","ANTHROPIC_API_KEY","GEMINI_API_KEY","NVIDIA_API_KEY"):
+        # GitHub secret interpolation is prohibited. The Python source deliberately
+        # uses the stdlib secrets module only to mint the per-run bearer capability.
+        self.assertNotIn("secrets.",workflow)
+        self.assertIn("secrets.token_urlsafe",source)
+        for needle in ("OPENAI_API_KEY","ANTHROPIC_API_KEY","GEMINI_API_KEY","NVIDIA_API_KEY"):
             self.assertNotIn(needle,workflow)
             self.assertNotIn(needle,source)
 
