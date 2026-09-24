@@ -18,6 +18,7 @@ class WinGetConfigPreflightTests(unittest.TestCase):
     def test_synthetic_configuration_matches_qualified_legacy_generation(self):
         text = MOD.SYNTHETIC_CONFIGURATION
         self.assertIn("configurationVersion: 0.2.0", text)
+        self.assertIn("properties:\n  resources:", text)
         self.assertIn("resource: Microsoft.WinGet.DSC/WinGetPackage", text)
         self.assertIn("id: Git.Git", text)
         self.assertNotIn("WinBot", text)
