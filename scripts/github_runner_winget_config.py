@@ -23,16 +23,16 @@ SCHEMA = "github-runner-winget-config-preflight/v1"
 PROBE_VERSION = "winget-config-preflight/1"
 
 SYNTHETIC_CONFIGURATION = """\
-# yaml-language-server: $schema=https://aka.ms/winget-configuration.schema.json
+# yaml-language-server: $schema=https://aka.ms/configuration-dsc-schema/0.2
 properties:
+  resources:
+    - resource: Microsoft.WinGet.DSC/WinGetPackage
+      id: git
+      directives:
+        description: Public synthetic Git package presence check
+      settings:
+        id: Git.Git
   configurationVersion: 0.2.0
-resources:
-  - resource: Microsoft.WinGet.DSC/WinGetPackage
-    id: git
-    directives:
-      description: Public synthetic Git package presence check
-    settings:
-      id: Git.Git
 """
 
 
