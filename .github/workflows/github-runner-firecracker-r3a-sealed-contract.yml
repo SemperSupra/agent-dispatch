@@ -37,15 +37,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "\${RUNNER_TEMP}/firecracker-r3a"
+          mkdir -p "${RUNNER_TEMP}/firecracker-r3a"
           python3 scripts/github_runner_firecracker_r3a_sealed_contract.py \
             --label ubuntu-26.04 \
-            --out "\${RUNNER_TEMP}/firecracker-r3a/receipt.json"
+            --out "${RUNNER_TEMP}/firecracker-r3a/receipt.json"
       - name: Upload R3a receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: firecracker-r3a-sealed-contract-\${{ github.run_attempt }}
-          path: \${{ runner.temp }}/firecracker-r3a/receipt.json
+          name: firecracker-r3a-sealed-contract-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-r3a/receipt.json
           if-no-files-found: error
           retention-days: 7
