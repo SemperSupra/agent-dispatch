@@ -1,15 +1,6 @@
 name: Firecracker W2 Snapshot Clone State
 
 on:
-  pull_request:
-    branches:
-      - experiment/firecracker-microvm-f0
-    paths:
-      - "experiments/firecracker/guest/w2-bridge-init-x86_64.c"
-      - "experiments/firecracker/guest/w2-clone-state.py"
-      - "scripts/github_runner_firecracker_w2_clone_state.py"
-      - "tests/test_github_runner_firecracker_w2_clone_state.py"
-      - ".github/workflows/github-runner-firecracker-w2-clone-state.yml"
   workflow_dispatch:
 
 permissions:
