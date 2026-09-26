@@ -102,6 +102,14 @@ def create_avd(root):
  c,o,e=run([str(p["avdmanager"]),"create","avd","--force","--name",AVD_NAME,"--package",image_package(*host()),"--device","pixel_7"],env=env,stdin="no\n",timeout=90)
  if c!=0: raise RuntimeError(f"AVD create failed {c}: {(e or o)[-1600:]}")
  return True
+def can_elevate_kvm():
+ if platform.system()!="Linux" or not pathlib.Path("/dev/kvm").exists(): return False
+ sudo=shutil.which("sudo")
+ if not sudo: return False
+ code,_,_=run([sudo,"-n","test","-r","/dev/kvm"],timeout=10)
+ code2,_,_=run([sudo,"-n","test","-w","/dev/kvm"],timeout=10)
+ return code==0 and code2==0
+
 def emulator_command(root,accel):
  p=paths(root); env=environment(root)
  args=[str(p["emulator"]),"-avd",AVD_NAME,"-port","5556","-no-window","-no-audio","-no-boot-anim","-no-snapshot-load","-no-snapshot-save","-gpu","swiftshader_indirect","-no-metrics",*accel]
@@ -145,7 +153,7 @@ def verify(root,boot=True):
  o=observe(root); base=desired_ok(o); r={"schema":SCHEMA,"operation":"verify","base_ready":base,"boot_requested":boot,"passed":False,"observation":o}
  if not base:return r
  if not boot:r.update({"passed":True,"classification":"TOOLS_READY"}); return r
- p=paths(root); env=environment(root); create_avd(root); native=o["virtualization"].get("status")=="usable"; attempts=[("native",["-accel","on"])] if native else []; attempts.append(("software",["-accel","off"])); records=[]
+ p=paths(root); env=environment(root); create_avd(root); native=o["virtualization"].get("status")=="usable" or can_elevate_kvm(); attempts=[("native",["-accel","on"])] if native else []; attempts.append(("software",["-accel","off"])); records=[]
  for mode,accel in attempts:
   cmd,elevated=emulator_command(root,accel)
   proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding="utf-8",errors="replace",env=env)
