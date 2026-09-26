@@ -8,6 +8,8 @@ on:
       - '.github/workflows/sealed-public-execution.yml'
       - '.github/workflows/sealed-public-execution-contract.yml'
       - 'docs/sealed-public-execution.md'
+      - 'scripts/aar_play_host_qualification.py'
+      - '.github/workflows/aar-play-host-qualification.yml'
   workflow_dispatch:
 
 permissions:
@@ -75,3 +77,81 @@ jobs:
           assert receipt['status'] == 'completed'
           assert len(receipt['sealed_sha256']) == 64
           PY
+
+
+  aar-play-host-bootstrap:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-26.04
+            expect: supported
+            rep: 1
+          - runner: ubuntu-26.04
+            expect: supported
+            rep: 2
+          - runner: windows-2025
+            expect: supported
+            rep: 1
+          - runner: windows-2025
+            expect: supported
+            rep: 2
+          - runner: macos-26-intel
+            expect: supported
+            rep: 1
+          - runner: macos-26-intel
+            expect: supported
+            rep: 2
+          - runner: macos-26
+            expect: supported
+            rep: 1
+          - runner: macos-26
+            expect: supported
+            rep: 2
+          - runner: ubuntu-26.04-arm
+            expect: unsupported
+            rep: guard
+          - runner: windows-11-arm
+            expect: unsupported
+            rep: guard
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Checkout public AAR qualification branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/android-artifact-recovery
+          ref: qual/play-host-cross-platform-20260926
+          path: aar
+          persist-credentials: false
+
+      - name: Validate public AAR host contract
+        working-directory: aar
+        shell: bash
+        run: python3 -m unittest -v tests/test_aar_play_host.py
+
+      - name: Execute AAR host lifecycle
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "${RUNNER_TEMP}/aar-play-host"
+          python3 scripts/aar_play_host_qualification.py \
+            --aar-root "${GITHUB_WORKSPACE}/aar" \
+            --expect "${{ matrix.expect }}" \
+            --out "${RUNNER_TEMP}/aar-play-host/receipt.json"
+          rc=$?
+          exit "$rc"
+
+      - name: Upload public-safe AAR qualification receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aar-play-host-bootstrap-${{ matrix.runner }}-${{ matrix.rep }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aar-play-host/receipt.json
+          if-no-files-found: error
+          retention-days: 14
