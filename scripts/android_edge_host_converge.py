@@ -32,10 +32,10 @@ GOOGLE_USB_DRIVER_URL = "https://dl.google.com/android/repository/usb_driver_r13
 # Populated only from independently observed successful qualification evidence.
 # Once set, a mutable transport locator is rejected if its bytes drift.
 EXPECTED_SHA256: dict[str, str] = {
-    # "Windows:platform-tools": "...",
-    # "Linux:platform-tools": "...",
-    # "Darwin:platform-tools": "...",
-    # "Windows:google-usb-driver": "...",
+    "Windows:platform-tools": "45f4d63113e895ebde0c90f194099a4676b6ac653bd28d54314a9e022bbc1a99",
+    "Linux:platform-tools": "d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1",
+    "Darwin:platform-tools": "ee39ad5967e95c2a07f04dbcbde96b1a0c916ba376096db5d2f498b7727a5d1d",
+    "Windows:google-usb-driver": "360b01d3dfb6c41621a3a64ae570dfac2c9a40cca1b5a1f136ae90d02f5e9e0b"
 }
 
 @dataclass
