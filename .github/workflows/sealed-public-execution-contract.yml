@@ -126,7 +126,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SemperSupra/android-artifact-recovery
-          ref: 54964119e968760a8f9aaf461ec66739fe08df6d
+          ref: 71d7958efd2eaf5da9c318b76657c8df50990444
           path: aar
           persist-credentials: false
 
