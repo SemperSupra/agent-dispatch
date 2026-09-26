@@ -1,0 +1,58 @@
+name: AAR Runtime Qualification
+run-name: sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      workset_id: {required: false, default: manual}
+      delegation_id: {required: false, default: qualification}
+      assignment_id: {required: false, default: manual}
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - run: python3 -m unittest -v tests/test_aar_runtime_qualify.py
+  qualify:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, python: python3}
+          - {runner: windows-2025, python: python}
+          - {runner: macos-26-intel, python: python3}
+          - {runner: macos-26, python: python3}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Show audience contract
+        shell: pwsh
+        run: '& "${{ matrix.python }}" scripts/aar_runtime_qualify.py contract --output json'
+      - name: Execute full cycle
+        id: cycle
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "aar-runtime"
+          & "${{ matrix.python }}" scripts/aar_runtime_qualify.py cycle --root $root --output json |
+            Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "aar-runtime-receipt.json")
+          exit $LASTEXITCODE
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aar-runtime-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aar-runtime-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce live readiness
+        if: always()
+        shell: pwsh
+        run: 'if ("${{ steps.cycle.outcome }}" -ne "success") { throw "AAR runtime cycle did not qualify on ${{ matrix.runner }}" }'
