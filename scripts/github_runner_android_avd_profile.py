@@ -29,27 +29,33 @@ def main():
     if platform.system()!="Linux" or platform.machine().lower() not in {"x86_64","amd64"}:
         return finish("SKIPPED","x64 Linux only",{})
     host=pathlib.Path(os.environ.get("ANDROID_HOME") or "/usr/local/lib/android/sdk")
-    sdkmanager=host/"cmdline-tools"/"latest"/"bin"/"sdkmanager"
-    avdmanager=host/"cmdline-tools"/"latest"/"bin"/"avdmanager"
-    adb=host/"platform-tools"/"adb"
-    if not all(x.exists() for x in (sdkmanager,avdmanager,adb)):
+    host_cmdline=host/"cmdline-tools"/"latest"
+    host_sdkmanager=host_cmdline/"bin"/"sdkmanager"
+    host_avdmanager=host_cmdline/"bin"/"avdmanager"
+    host_adb=host/"platform-tools"/"adb"
+    if not all(x.exists() for x in (host_sdkmanager,host_avdmanager,host_adb)):
         return finish("BLOCKED","required read-only host SDK bootstrap tools missing",
-                      {"sdkmanager":sdkmanager.exists(),"avdmanager":avdmanager.exists(),"adb":adb.exists()})
+                      {"sdkmanager":host_sdkmanager.exists(),"avdmanager":host_avdmanager.exists(),"adb":host_adb.exists()})
     base=pathlib.Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir())/"android-avd-disposable"
     if base.exists(): shutil.rmtree(base,ignore_errors=True)
     sdk=base/"sdk"; avdhome=base/"avd"; userhome=base/"android-user"; home=base/"home"
     for p in (sdk,avdhome,userhome,home): p.mkdir(parents=True,exist_ok=True)
     if (host/"licenses").is_dir(): shutil.copytree(host/"licenses",sdk/"licenses",dirs_exist_ok=True)
+    shutil.copytree(host_cmdline,sdk/"cmdline-tools"/"latest",dirs_exist_ok=True)
+    sdkmanager=sdk/"cmdline-tools"/"latest"/"bin"/"sdkmanager"
+    avdmanager=sdk/"cmdline-tools"/"latest"/"bin"/"avdmanager"
     env=os.environ.copy(); env.update({"ANDROID_SDK_ROOT":str(sdk),"ANDROID_HOME":str(sdk),
         "ANDROID_AVD_HOME":str(avdhome),"ANDROID_USER_HOME":str(userhome),"HOME":str(home)})
     try:
         before=set(str(p.relative_to(base)) for p in base.rglob("*"))
-        code,so,se=run([str(sdkmanager),f"--sdk_root={sdk}","--install","emulator",a.package],360,env,"y\n"*200)
+        code,so,se=run([str(sdkmanager),f"--sdk_root={sdk}","--install","platform-tools","emulator",a.package],360,env,"y\n"*200)
         if code!=0: return finish("BLOCKED","disposable emulator/system-image install failed",{"stderr":se[-2000:],"stdout":so[-2000:]})
         emulator=sdk/"emulator"/"emulator"
         if not emulator.exists(): return finish("BLOCKED","disposable emulator package missing after install",{"stderr":se[-2000:]})
         cc,co,ce=run([str(avdmanager),"create","avd","--force","--name","profilequal","--package",a.package,"--device",a.profile],60,env,"no\n")
         if cc!=0: return finish("BLOCKED","AVD creation failed",{"stderr":ce[-2000:],"stdout":co[-1000:]})
+        adb=sdk/"platform-tools"/"adb"
+        if not adb.exists(): return finish("BLOCKED","disposable platform-tools missing after install",{})
         accel=run([str(emulator),"-accel-check"],20,env)
         sudo=shutil.which("sudo")
         prefix=[sudo,"-n","env",f"ANDROID_SDK_ROOT={sdk}",f"ANDROID_HOME={sdk}",f"ANDROID_AVD_HOME={avdhome}",
