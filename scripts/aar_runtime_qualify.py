@@ -16,8 +16,13 @@ def exe(name):
  if platform.system()=="Windows" and name in {"sdkmanager","avdmanager"}: return name+".bat"
  return name+".exe" if platform.system()=="Windows" else name
 def run(argv,env=None,stdin=None,timeout=180):
- try: cp=subprocess.run(argv,input=stdin,text=True,capture_output=True,env=env,timeout=timeout,check=False); return cp.returncode,cp.stdout,cp.stderr
- except subprocess.TimeoutExpired as e: return 124,e.stdout or "",e.stderr or "timeout"
+ try:
+  cp=subprocess.run(argv,input=stdin,text=True,capture_output=True,env=env,timeout=timeout,check=False,encoding="utf-8",errors="replace")
+  return cp.returncode,cp.stdout,cp.stderr
+ except subprocess.TimeoutExpired as e:
+  out=e.stdout.decode("utf-8","replace") if isinstance(e.stdout,bytes) else (e.stdout or "")
+  err=e.stderr.decode("utf-8","replace") if isinstance(e.stderr,bytes) else (e.stderr or "timeout")
+  return 124,out,err
 def sha256(path):
  h=hashlib.sha256()
  with path.open("rb") as f:
@@ -97,22 +102,40 @@ def create_avd(root):
  c,o,e=run([str(p["avdmanager"]),"create","avd","--force","--name",AVD_NAME,"--package",image_package(*host()),"--device","pixel_7"],env=env,stdin="no\n",timeout=90)
  if c!=0: raise RuntimeError(f"AVD create failed {c}: {(e or o)[-1600:]}")
  return True
+def stop_emulator(proc,adb,serial,env,avd_root):
+ if serial:
+  run([str(adb),"-s",serial,"emu","kill"],env=env,timeout=20)
+ try:
+  proc.wait(timeout=20)
+ except Exception:
+  if platform.system()=="Windows":
+   taskkill=shutil.which("taskkill")
+   if taskkill: run([taskkill,"/PID",str(proc.pid),"/T","/F"],timeout=30)
+  else:
+   try: proc.terminate(); proc.wait(timeout=8)
+   except Exception:
+    try: proc.kill()
+    except Exception: pass
+ run([str(adb),"kill-server"],env=env,timeout=15)
+ deadline=time.monotonic()+30
+ while time.monotonic()<deadline:
+  locks=list(avd_root.rglob("*.lock"))+list(avd_root.rglob("*.lock/*"))
+  if not any(x.exists() for x in locks): break
+  time.sleep(1)
+
 def verify(root,boot=True):
  o=observe(root); base=desired_ok(o); r={"schema":SCHEMA,"operation":"verify","base_ready":base,"boot_requested":boot,"passed":False,"observation":o}
  if not base:return r
  if not boot:r.update({"passed":True,"classification":"TOOLS_READY"}); return r
  p=paths(root); env=environment(root); create_avd(root); native=o["virtualization"].get("status")=="usable"; attempts=[("native",["-accel","on"])] if native else []; attempts.append(("software",["-accel","off"])); records=[]
  for mode,accel in attempts:
-  proc=subprocess.Popen([str(p["emulator"]),"-avd",AVD_NAME,"-no-window","-no-audio","-no-boot-anim","-no-snapshot-load","-no-snapshot-save","-gpu","swiftshader_indirect","-no-metrics",*accel],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env)
-  serial=None; booted=False; start=time.monotonic()
+  proc=subprocess.Popen([str(p["emulator"]),"-avd",AVD_NAME,"-port","5556","-no-window","-no-audio","-no-boot-anim","-no-snapshot-load","-no-snapshot-save","-gpu","swiftshader_indirect","-no-metrics",*accel],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding="utf-8",errors="replace",env=env)
+  serial="emulator-5556"; booted=False; start=time.monotonic()
   try:
    deadline=time.monotonic()+(180 if mode=="native" else 300)
    while time.monotonic()<deadline and proc.poll() is None:
     c,o2,e=run([str(p["adb"]),"devices"],env=env,timeout=10)
-    if c==0:
-     for ln in o2.splitlines():
-      if ln.startswith("emulator-") and "\tdevice" in ln: serial=ln.split("\t")[0]; break
-    if serial:
+    if c==0 and any(ln.startswith(serial+"\tdevice") for ln in o2.splitlines()):
      c,o2,e=run([str(p["adb"]),"-s",serial,"shell","getprop","sys.boot_completed"],env=env,timeout=10)
      if c==0 and o2.strip()=="1": booted=True; break
     time.sleep(2)
@@ -123,11 +146,7 @@ def verify(root,boot=True):
    records.append({"mode":mode,"boot_completed":booted,"play_store_present":play if booted else False,"api":(api or "").strip() or None,"abi":(abi or "").strip() or None,"elapsed_seconds":round(time.monotonic()-start,2),"exit_code":proc.poll()})
    if booted and play:r.update({"passed":True,"classification":"LIVE_READY","boot":records}); return r
   finally:
-   if serial: run([str(p["adb"]),"-s",serial,"emu","kill"],env=env,timeout=20)
-   try: proc.terminate(); proc.wait(timeout=8)
-   except Exception:
-    try: proc.kill()
-    except Exception: pass
+   stop_emulator(proc,p["adb"],serial,env,p["avd_home"])
  r.update({"classification":"VENUE_ACCELERATION_UNAVAILABLE" if not native else "BOOT_FAILED","boot":records}); return r
 def apply(root):
  p=plan(root)
