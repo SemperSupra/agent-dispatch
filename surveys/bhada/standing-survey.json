@@ -20,13 +20,10 @@
       "providers": [
         "miruro",
         "allanime",
-        "animepahe",
         "nineanime",
         "kickassanime",
         "kawaiifu",
         "gogoanime",
-        "zoro",
-        "hahomoe",
         "animeout"
       ]
     }
