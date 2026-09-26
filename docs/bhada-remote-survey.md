@@ -17,11 +17,11 @@ The workflow runs once per week at 03:17 UTC on Sunday.
 `auto` alternates:
 
 - **core** on odd ISO weeks: Miruro, AllAnime, 9anime, KickAssAnime.
-- **broad** on even ISO weeks: the core set plus AnimePahe, Kawaiifu, GogoAnime, Zoro, Haho, and AnimeOut.
+- **broad** on even ISO weeks: the core set plus Kawaiifu, GogoAnime, and AnimeOut.
 
 This gives a weekly signal on important/high-churn paths and approximately biweekly broader coverage. Manual `core` and `broad` runs remain available.
 
-The cadence is an experimental starting point, not a permanent SLA. Freshness evidence should decide later whether components need shorter, longer, or refresh-on-use horizons.
+The cadence is an experimental starting point, not a permanent SLA. Freshness evidence should decide later whether components need shorter, longer, or refresh-on-use horizons. Browser/cookie-dependent or key-gated providers such as AnimePahe and Zoro are intentionally excluded from the generic remote profile until their required execution capabilities are separately available and qualified; otherwise their failures would be execution-context confounds rather than provider-health evidence.
 
 ## Authority
 
