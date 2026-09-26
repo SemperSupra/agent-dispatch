@@ -2,8 +2,6 @@ name: Android Edge Host Converger Qualification
 run-name: sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}
 
 on:
-  push:
-    branches: [feat/android-edge-host-converger-final-20260926]
   workflow_dispatch:
     inputs:
       workset_id:
