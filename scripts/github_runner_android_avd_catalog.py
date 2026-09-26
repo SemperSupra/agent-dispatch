@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only catalog census for Android system images usable by hosted x64 runners."""
+"""Read-only catalog census for Android system images usable by hosted x64 runners.\nNo packages are installed and no SDK state is mutated.\n"""
 from __future__ import annotations
 import argparse, json, os, pathlib, platform, re, subprocess
 
