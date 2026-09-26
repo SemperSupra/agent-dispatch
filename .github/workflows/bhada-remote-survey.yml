@@ -49,15 +49,18 @@ jobs:
     timeout-minutes: 45
     env:
       SURVEY_CONFIG: surveys/bhada/standing-survey.json
-      RAW_RESULT: ${{ runner.temp }}/bhada-provider-status.json
-      PUBLIC_RECEIPT: ${{ runner.temp }}/bhada-provider-survey-receipt.json
-      SEALED_RESULT: ${{ runner.temp }}/bhada-provider-status.json.age
+      RAW_RESULT: ${{ github.workspace }}/.survey/bhada-provider-status.json
+      PUBLIC_RECEIPT: ${{ github.workspace }}/.survey/bhada-provider-survey-receipt.json
+      SEALED_RESULT: ${{ github.workspace }}/.survey/bhada-provider-status.json.age
 
     steps:
       - name: Checkout Agent Dispatch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
+      - name: Prepare ephemeral survey workspace
+        run: mkdir -p .survey
 
       - name: Resolve standing survey profile
         id: survey
