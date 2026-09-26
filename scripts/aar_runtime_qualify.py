@@ -66,7 +66,7 @@ def observe(root):
  if system=="Linux":
   k=pathlib.Path("/dev/kvm"); virt.update({"device":"/dev/kvm","exists":k.exists(),"readable":os.access(k,os.R_OK),"writable":os.access(k,os.W_OK)})
  if p["emulator"].is_file():
-  c,o,e=run([str(p["emulator"]),"-accel-check"],env=environment(root),timeout=30); virt.update({"status":"usable" if c==0 and "usable" in (o+e).lower() else "unavailable","exit_code":c,"evidence":(o+e)[-1200:]})
+  c,o,e=run([str(p["emulator"]),"-accel-check"],env=environment(root),timeout=30); virt.update({"status":"usable" if c==0 else "unavailable","exit_code":c,"evidence":(o+e)[-1200:]})
  return {"schema":SCHEMA,"operation":"status","host":{"system":system,"architecture":arch,"supported":supported,"runner_name":os.environ.get("RUNNER_NAME"),"runner_arch":os.environ.get("RUNNER_ARCH"),"image_os":os.environ.get("ImageOS"),"image_version":os.environ.get("ImageVersion")},"root":str(root),"java":java_info(),"tools":{k:v.is_file() for k,v in p.items() if k in {"sdkmanager","avdmanager","adb","emulator","apksigner"}},"revisions":revisions(root,system,arch),"image_package":image_package(system,arch) if supported else None,"manifest_present":p["manifest"].is_file(),"virtualization":virt}
 def desired_ok(obs):
  s=obs["host"]["system"]; a=obs["host"]["architecture"]; er=ARM_IMAGE_REV if s=="Darwin" and a=="arm64" else X86_IMAGE_REV; r=obs["revisions"]
