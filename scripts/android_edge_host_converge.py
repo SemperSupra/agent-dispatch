@@ -177,7 +177,7 @@ def plan(root: pathlib.Path, windows_driver_policy: str = "required") -> Plan:
     driver_package_needed = obs.system == "Windows" and not obs.managed_windows_usb_driver_inf_present
     driver_store_needed = (
         obs.system == "Windows"
-        and not obs.hosted_ci
+        and windows_driver_policy == "required"
         and not bool(obs.windows_usb_driver_records)
     )
     changed = tools_needed or driver_package_needed or driver_store_needed or not obs.manifest_present
@@ -283,12 +283,12 @@ def _install_windows_usb_driver(root: pathlib.Path, temp_root: pathlib.Path, win
     if not inf.is_file():
         raise RuntimeError("managed Google Android USB driver package is incomplete")
 
-    if _is_hosted_ci():
+    if windows_driver_policy == "stage-ok":
         return {
             "kind": "google-usb-driver",
             "changed": package_changed,
             "package_ready": True,
-            "driver_store_mode": "not-applicable-hosted-ci",
+            "driver_store_mode": "stage-ok",
             "url": url,
             "sha256": digest,
             "owned_driver_names": [],
@@ -397,7 +397,11 @@ def verify(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[
     )
     fastboot_ok = fastboot_path.is_file() and fastboot_code == 0 and PLATFORM_TOOLS_VERSION in fastboot_out
     driver_package_ok = obs.system != "Windows" or obs.managed_windows_usb_driver_inf_present
-    driver_store_ok = obs.system != "Windows" or obs.hosted_ci or bool(obs.windows_usb_driver_records)
+    driver_store_ok = (
+        obs.system != "Windows"
+        or windows_driver_policy == "stage-ok"
+        or bool(obs.windows_usb_driver_records)
+    )
     passed = bool(adb_ok and fastboot_ok and driver_package_ok and driver_store_ok and obs.manifest_present)
     reason = (
         "managed adb/fastboot, manifest, and platform-specific host requirements satisfy desired state"
