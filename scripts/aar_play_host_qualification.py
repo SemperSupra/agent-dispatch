@@ -16,12 +16,8 @@ def run_stage(
     tool: pathlib.Path,
     state: pathlib.Path,
     command: list[str],
-    *,
-    privileged: bool = False,
 ) -> tuple[int, dict[str, Any], str]:
     argv = [sys.executable, str(tool), "--state-root", str(state), "--format", "json", *command]
-    if privileged:
-        argv = ["sudo", "-n", "-E", *argv]
     cp = subprocess.run(
         argv,
         text=True,
@@ -65,8 +61,8 @@ def main() -> int:
 
     privileged_runtime = False
 
-    def stage(name: str, argv: list[str], *, privileged: bool = False) -> tuple[int, dict[str, Any]]:
-        rc, receipt, stderr = run_stage(tool, state, argv, privileged=privileged)
+    def stage(name: str, argv: list[str]) -> tuple[int, dict[str, Any]]:
+        rc, receipt, stderr = run_stage(tool, state, argv)
         result["stages"].append({
             "name": name,
             "exit_code": rc,
@@ -83,7 +79,7 @@ def main() -> int:
             privileged_runtime = sudo.returncode == 0
             result["linux_kvm_venue_adapter"] = {
                 "required": True,
-                "selected": "sudo -n -E" if privileged_runtime else None,
+                "selected": "sudo -n env <explicit Android vars> <emulator> only" if privileged_runtime else None,
                 "reason": "GitHub runner exposes /dev/kvm but the runner account lacks direct write access",
             }
     if args.expect == "unsupported":
@@ -116,9 +112,7 @@ def main() -> int:
                 result["profile"] = observe.get("host", {}).get("profile")
                 if verify_rc == 3 and verify.get("status") == "venue_limitation":
                     result["venue_failure_type"] = verify.get("failure_type")
-                    cleanup_rc, _ = stage(
-                        "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
-                    )
+                    cleanup_rc, _ = stage("cleanup", ["cleanup", "--plan", str(plan_path)])
                     result["cleanup_passed"] = cleanup_rc == 0
                     expected_negative = args.expect == "venue-limited" and cleanup_rc == 0
                     result["classification"] = "EXPECTED_VENUE_LIMITATION" if expected_negative else "VENUE_LIMITATION"
@@ -127,18 +121,14 @@ def main() -> int:
                 elif verify_rc != 0:
                     result["classification"] = "VERIFY_FAILED"
                     # Cleanup is best effort after a failed verification.
-                    cleanup_rc, _ = stage(
-                        "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
-                    )
+                    cleanup_rc, _ = stage("cleanup", ["cleanup", "--plan", str(plan_path)])
                     result["cleanup_passed"] = cleanup_rc == 0
                     final_rc = 1
                 else:
                     noop_rc, noop = stage(
                         "second-apply", ["apply", "--plan", str(plan_path)]
                     )
-                    cleanup_rc, cleanup = stage(
-                        "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
-                    )
+                    cleanup_rc, cleanup = stage("cleanup", ["cleanup", "--plan", str(plan_path)])
                     ok = (
                         noop_rc == 0
                         and noop.get("status") == "no-op"
