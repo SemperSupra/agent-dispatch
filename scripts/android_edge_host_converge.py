@@ -52,6 +52,8 @@ class Observation:
     system_adb: str | None
     system_fastboot: str | None
     windows_usb_driver_records: list[dict[str, str]]
+    managed_windows_usb_driver_inf_present: bool
+    hosted_ci: bool
 
 @dataclass
 class Plan:
@@ -63,7 +65,8 @@ class Plan:
     root: str
     managed_dir: str
     platform_tools_needed: bool
-    windows_usb_driver_needed: bool
+    windows_usb_driver_package_needed: bool
+    windows_driver_store_needed: bool
 
 def _default_root() -> pathlib.Path:
     system = platform.system()
@@ -137,6 +140,9 @@ def _windows_driver_package_records() -> list[dict[str, str]]:
             if isinstance(item, dict):
                 records.append({str(k): str(v) for k, v in item.items() if v is not None})
     return records
+def _is_hosted_ci() -> bool:
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+
 def observe(root: pathlib.Path) -> Observation:
     managed = root / "platform-tools"
     manifest = root / "manifest.json"
@@ -155,6 +161,8 @@ def observe(root: pathlib.Path) -> Observation:
         system_adb=shutil.which("adb"),
         system_fastboot=shutil.which("fastboot"),
         windows_usb_driver_records=_windows_driver_records(),
+        managed_windows_usb_driver_inf_present=(root / "usb_driver" / "android_winusb.inf").is_file(),
+        hosted_ci=_is_hosted_ci(),
     )
 
 def plan(root: pathlib.Path) -> Plan:
@@ -164,13 +172,20 @@ def plan(root: pathlib.Path) -> Plan:
         and obs.managed_fastboot_present
         and obs.managed_adb_version == PLATFORM_TOOLS_VERSION
     )
-    driver_needed = obs.system == "Windows" and not bool(obs.windows_usb_driver_records)
-    changed = tools_needed or driver_needed or not obs.manifest_present
+    driver_package_needed = obs.system == "Windows" and not obs.managed_windows_usb_driver_inf_present
+    driver_store_needed = (
+        obs.system == "Windows"
+        and not obs.hosted_ci
+        and not bool(obs.windows_usb_driver_records)
+    )
+    changed = tools_needed or driver_package_needed or driver_store_needed or not obs.manifest_present
     reason_parts = []
     if tools_needed:
         reason_parts.append("managed platform-tools absent or not at desired version")
-    if driver_needed:
-        reason_parts.append("Google Android USB driver absent")
+    if driver_package_needed:
+        reason_parts.append("managed Google Android USB driver package absent")
+    if driver_store_needed:
+        reason_parts.append("Google Android USB Driver Store package absent")
     if not obs.manifest_present:
         reason_parts.append("managed manifest absent")
     return Plan(
@@ -182,7 +197,8 @@ def plan(root: pathlib.Path) -> Plan:
         str(root),
         obs.managed_dir,
         tools_needed,
-        driver_needed,
+        driver_package_needed,
+        driver_store_needed,
     )
 
 def _download(url: str, dest: pathlib.Path, expected_sha256: str | None = None) -> str:
@@ -238,57 +254,83 @@ def _install_platform_tools(root: pathlib.Path, temp_root: pathlib.Path) -> dict
 def _install_windows_usb_driver(root: pathlib.Path, temp_root: pathlib.Path) -> dict[str, Any] | None:
     if platform.system() != "Windows":
         return None
-    before = _windows_driver_records()
-    if before:
+    before_store = _windows_driver_records()
+    driver_dir = root / "usb_driver"
+    inf = driver_dir / "android_winusb.inf"
+    digest = None
+    url = GOOGLE_USB_DRIVER_URL
+    package_changed = False
+    if not inf.is_file():
+        archive = temp_root / "google-usb-driver.zip"
+        digest = _download(
+            url,
+            archive,
+            EXPECTED_SHA256.get("Windows:google-usb-driver"),
+        )
+        extract = temp_root / "driver-extract"
+        extract.mkdir()
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(extract)
+        inf_candidates = list(extract.rglob("android_winusb.inf"))
+        if len(inf_candidates) != 1:
+            raise RuntimeError(f"expected one android_winusb.inf, found {len(inf_candidates)}")
+        if driver_dir.exists():
+            shutil.rmtree(driver_dir)
+        shutil.copytree(inf_candidates[0].parent, driver_dir)
+        package_changed = True
+    if not inf.is_file():
+        raise RuntimeError("managed Google Android USB driver package is incomplete")
+
+    if _is_hosted_ci():
         return {
             "kind": "google-usb-driver",
-            "changed": False,
-            "preexisting": True,
-            "preexisting_records": before,
+            "changed": package_changed,
+            "package_ready": True,
+            "driver_store_mode": "not-applicable-hosted-ci",
+            "url": url,
+            "sha256": digest,
             "owned_driver_names": [],
+            "driver_store_before": before_store,
         }
-    archive = temp_root / "google-usb-driver.zip"
-    digest = _download(
-        GOOGLE_USB_DRIVER_URL,
-        archive,
-        EXPECTED_SHA256.get("Windows:google-usb-driver"),
-    )
-    extract = temp_root / "driver-extract"
-    extract.mkdir()
-    with zipfile.ZipFile(archive) as zf:
-        zf.extractall(extract)
-    inf_candidates = list(extract.rglob("android_winusb.inf"))
-    if len(inf_candidates) != 1:
-        raise RuntimeError(f"expected one android_winusb.inf, found {len(inf_candidates)}")
-    driver_dir = root / "usb_driver"
-    if driver_dir.exists():
-        shutil.rmtree(driver_dir)
-    shutil.copytree(inf_candidates[0].parent, driver_dir)
-    inf = driver_dir / "android_winusb.inf"
+
+    if before_store:
+        return {
+            "kind": "google-usb-driver",
+            "changed": package_changed,
+            "package_ready": True,
+            "driver_store_mode": "preexisting",
+            "url": url,
+            "sha256": digest,
+            "owned_driver_names": [],
+            "driver_store_before": before_store,
+        }
+
     pnputil = shutil.which("pnputil")
     if not pnputil:
-        raise RuntimeError("pnputil is required to install the Google Android USB driver")
+        raise RuntimeError("pnputil is required to stage the Google Android USB driver on a physical Windows host")
     code, out, err = _run([pnputil, "/add-driver", str(inf)], timeout=90)
-    if code != 0:
-        raise RuntimeError(f"pnputil driver staging failed ({code}): {out} {err}")
     after_store = _windows_driver_records()
+    if code != 0 and not after_store:
+        raise RuntimeError(f"pnputil driver staging failed ({code}): {out} {err}")
     if not after_store:
-        raise RuntimeError("Google Android USB driver staging returned success but verification found no Driver Store payload")
+        raise RuntimeError("Google Android USB driver staging did not produce a Driver Store payload")
     after = _windows_driver_package_records()
     if not after:
         raise RuntimeError("Google Android USB driver payload is present but its published INF identity could not be resolved")
     owned = sorted(x.get("Driver") for x in after if x.get("Driver"))
     return {
         "kind": "google-usb-driver",
-        "changed": bool(owned),
-        "preexisting": False,
-        "url": GOOGLE_USB_DRIVER_URL,
+        "changed": True,
+        "package_ready": True,
+        "driver_store_mode": "owned",
+        "staging_exit_code": code,
+        "staging_stderr": err or None,
+        "url": url,
         "sha256": digest,
         "owned_driver_names": owned,
         "records_after": after,
         "driver_store_after": after_store,
     }
-
 def _read_manifest(root: pathlib.Path) -> dict[str, Any]:
     path = root / "manifest.json"
     if not path.is_file():
@@ -352,8 +394,9 @@ def verify(root: pathlib.Path) -> dict[str, Any]:
         _run([str(fastboot_path), "--version"]) if fastboot_path.is_file() else (None, "", "missing")
     )
     fastboot_ok = fastboot_path.is_file() and fastboot_code == 0 and PLATFORM_TOOLS_VERSION in fastboot_out
-    driver_ok = obs.system != "Windows" or bool(obs.windows_usb_driver_records)
-    passed = bool(adb_ok and fastboot_ok and driver_ok and obs.manifest_present)
+    driver_package_ok = obs.system != "Windows" or obs.managed_windows_usb_driver_inf_present
+    driver_store_ok = obs.system != "Windows" or obs.hosted_ci or bool(obs.windows_usb_driver_records)
+    passed = bool(adb_ok and fastboot_ok and driver_package_ok and driver_store_ok and obs.manifest_present)
     reason = (
         "managed adb/fastboot, manifest, and platform-specific host requirements satisfy desired state"
         if passed
@@ -364,7 +407,12 @@ def verify(root: pathlib.Path) -> dict[str, Any]:
         "operation": "verify",
         "passed": passed,
         "reason": reason,
-        "checks": {"adb": adb_ok, "fastboot": fastboot_ok, "windows_usb_driver": driver_ok},
+        "checks": {
+            "adb": adb_ok,
+            "fastboot": fastboot_ok,
+            "windows_usb_driver_package": driver_package_ok,
+            "windows_driver_store": driver_store_ok,
+        },
         "observation": asdict(obs),
         "fastboot": {"exit_code": fastboot_code, "stdout": fastboot_out, "stderr": fastboot_err},
         "manifest": _read_manifest(root),
