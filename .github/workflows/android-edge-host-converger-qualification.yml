@@ -52,7 +52,7 @@ jobs:
         shell: pwsh
         run: |
           $root = Join-Path $env:RUNNER_TEMP "android-edge-host"
-          $args = @("scripts/android_edge_host_converge.py","cycle","--root",$root,"--output","json")
+          $args = @("scripts/android_edge_host_converge.py","cycle","--root",$root,"--output","json","--windows-driver-policy","stage-ok")
           if ("${{ inputs.allow_latest_fallback }}" -eq "true") { $args += "--allow-latest-fallback" }
           python @args | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "android-edge-host-receipt.json")
       - name: Validate human PowerShell tool discovery UX
