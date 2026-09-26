@@ -7,6 +7,8 @@ class T(unittest.TestCase):
   c=M.contract(); self.assertEqual(set(c["audiences"]),{"human","automation","agent"}); self.assertEqual(c["lifecycle"],"observe -> plan -> apply -> verify")
  def test_matrix(self):
   self.assertEqual(set(M.CLT),{("Windows","x86_64"),("Linux","x86_64"),("Darwin","x86_64"),("Darwin","arm64")})
+ def test_jdk_matrix_matches_host_matrix(self):
+  self.assertEqual(set(M.JDK),set(M.CLT)); self.assertEqual(M.contract()["runtime"]["jdk"],M.JDK_VERSION)
  def test_image_mapping(self):
   self.assertTrue(M.image_package("Darwin","arm64").endswith("arm64-v8a")); self.assertTrue(M.image_package("Linux","x86_64").endswith("x86_64"))
  def test_accel_check_zero_means_usable(self):
