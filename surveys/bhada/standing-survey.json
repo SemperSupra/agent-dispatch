@@ -1,0 +1,55 @@
+{
+  "schema": "agent-dispatch-remote-survey/v1",
+  "id": "bhada-provider-backend-health-v0",
+  "intent": "Maintain current provider/backend health evidence without depending on local sovereign compute or private-repository GitHub-hosted minutes.",
+  "cadence": {
+    "schedule": "weekly",
+    "broad_every_weeks": 2,
+    "default_profile": "auto"
+  },
+  "profiles": {
+    "core": {
+      "providers": [
+        "miruro",
+        "allanime",
+        "nineanime",
+        "kickassanime"
+      ]
+    },
+    "broad": {
+      "providers": [
+        "miruro",
+        "allanime",
+        "animepahe",
+        "nineanime",
+        "kickassanime",
+        "kawaiifu",
+        "gogoanime",
+        "zoro",
+        "hahomoe",
+        "animeout"
+      ]
+    }
+  },
+  "authority": {
+    "allowed": [
+      "read BHADA source",
+      "perform bounded live provider health observation",
+      "write ephemeral survey output",
+      "seal detailed output",
+      "publish sanitized survey receipt"
+    ],
+    "prohibited": [
+      "modify BHADA source",
+      "download full media",
+      "modify user libraries",
+      "publish releases",
+      "change secrets",
+      "write back to BHADA"
+    ]
+  },
+  "privacy": {
+    "raw_output": "sealed-only",
+    "public_receipt": "stage-status-and-counts-only"
+  }
+}
