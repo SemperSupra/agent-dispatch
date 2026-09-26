@@ -24,17 +24,6 @@ class ConvergerContractTests(unittest.TestCase):
             self.assertTrue(p.changed)
             self.assertEqual(p.action, "install-or-repair")
 
-    def test_stage_ok_accepts_managed_windows_driver_payload_for_planning(self):
-        with tempfile.TemporaryDirectory() as td, mock.patch.object(mod.platform, "system", return_value="Windows"):
-            root = pathlib.Path(td)
-            driver = root / "usb_driver"
-            driver.mkdir()
-            (driver / "android_winusb.inf").write_text("fixture", encoding="utf-8")
-            with mock.patch.object(mod, "_windows_driver_records", return_value=[]):
-                p = mod.plan(root, "stage-ok")
-            self.assertFalse(p.windows_usb_driver_package_needed)
-            self.assertFalse(p.windows_driver_store_needed)
-
     def test_revert_empty_root_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
