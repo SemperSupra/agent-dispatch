@@ -2,6 +2,13 @@ name: BHADA Remote Provider Survey
 run-name: BHADA remote survey ${{ inputs.profile || 'auto' }} ${{ github.run_id }}
 
 on:
+  pull_request:
+    paths:
+      - 'surveys/bhada/**'
+      - 'scripts/bhada_remote_survey.py'
+      - 'tests/test_bhada_remote_survey.py'
+      - '.github/workflows/bhada-remote-survey.yml'
+      - 'docs/bhada-remote-survey.md'
   schedule:
     - cron: '17 3 * * 0'
   workflow_dispatch:
@@ -24,7 +31,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Agent Dispatch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate remote survey contract
+        run: python3 -m unittest -v tests/test_bhada_remote_survey.py
+
   survey:
+    if: github.event_name != 'pull_request'
+    needs: contract
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -38,9 +58,6 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-
-      - name: Contract tests
-        run: python3 -m unittest -v tests/test_bhada_remote_survey.py
 
       - name: Resolve standing survey profile
         id: survey
@@ -87,7 +104,6 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
-          cache: pip
 
       - name: Install bounded survey runtime
         working-directory: bhada
@@ -112,7 +128,6 @@ jobs:
         shell: bash
         env:
           PROFILE: ${{ steps.survey.outputs.profile }}
-          BHADA_SHA: ${{ hashFiles('bhada/.git/HEAD') }}
         run: |
           set -euo pipefail
           source_revision="$(git -C bhada rev-parse HEAD)"
@@ -143,13 +158,13 @@ jobs:
           rm -f "$RAW_RESULT"
 
       - name: Upload bounded survey evidence
-        if: always() && hashFiles(format('{0}', env.PUBLIC_RECEIPT)) != ''
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: bhada-remote-survey-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.PUBLIC_RECEIPT }}
             ${{ env.SEALED_RESULT }}
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
           compression-level: 0
