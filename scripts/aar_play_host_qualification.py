@@ -106,11 +106,10 @@ def main() -> int:
                 result["classification"] = "APPLY_FAILED"
                 final_rc = 1
             else:
-                verify_rc, verify = stage(
-                    "verify",
-                    ["verify", "--plan", str(plan_path), "--boot-timeout", "300"],
-                    privileged=privileged_runtime,
-                )
+                verify_args = ["verify", "--plan", str(plan_path), "--boot-timeout", "300"]
+                if privileged_runtime:
+                    verify_args.append("--emulator-sudo")
+                verify_rc, verify = stage("verify", verify_args)
                 identity = apply_receipt.get("evidence", {}).get("toolchain_identity", {})
                 result["toolchain_identity_sha256"] = identity.get("identity_sha256")
                 result["profile"] = observe.get("host", {}).get("profile")
@@ -132,7 +131,7 @@ def main() -> int:
                     final_rc = 1
                 else:
                     noop_rc, noop = stage(
-                        "second-apply", ["apply", "--plan", str(plan_path)], privileged=privileged_runtime
+                        "second-apply", ["apply", "--plan", str(plan_path)]
                     )
                     cleanup_rc, cleanup = stage(
                         "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
