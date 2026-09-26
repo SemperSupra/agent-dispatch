@@ -52,7 +52,6 @@ class Observation:
     system_adb: str | None
     system_fastboot: str | None
     windows_usb_driver_records: list[dict[str, str]]
-    managed_windows_usb_driver_present: bool
     managed_windows_usb_driver_inf_present: bool
     hosted_ci: bool
 
@@ -162,12 +161,11 @@ def observe(root: pathlib.Path) -> Observation:
         system_adb=shutil.which("adb"),
         system_fastboot=shutil.which("fastboot"),
         windows_usb_driver_records=_windows_driver_records(),
-        managed_windows_usb_driver_present=(root / "usb_driver" / "android_winusb.inf").is_file(),
         managed_windows_usb_driver_inf_present=(root / "usb_driver" / "android_winusb.inf").is_file(),
         hosted_ci=_is_hosted_ci(),
     )
 
-def plan(root: pathlib.Path, windows_driver_policy: str = "required") -> Plan:
+def plan(root: pathlib.Path) -> Plan:
     obs = observe(root)
     tools_needed = not (
         obs.managed_adb_present
@@ -253,7 +251,7 @@ def _install_platform_tools(root: pathlib.Path, temp_root: pathlib.Path) -> dict
     temp_target.replace(managed)
     return {"kind": "platform-tools", "url": url, "sha256": digest, "version": version}
 
-def _install_windows_usb_driver(root: pathlib.Path, temp_root: pathlib.Path, windows_driver_policy: str) -> dict[str, Any] | None:
+def _install_windows_usb_driver(root: pathlib.Path, temp_root: pathlib.Path) -> dict[str, Any] | None:
     if platform.system() != "Windows":
         return None
     before_store = _windows_driver_records()
@@ -343,8 +341,8 @@ def _read_manifest(root: pathlib.Path) -> dict[str, Any]:
     except Exception:
         return {}
 
-def apply(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[str, Any]:
-    p = plan(root, windows_driver_policy)
+def apply(root: pathlib.Path) -> dict[str, Any]:
+    p = plan(root)
     if not p.changed:
         return {
             "schema": SCHEMA,
@@ -352,7 +350,7 @@ def apply(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[s
             "changed": False,
             "plan": asdict(p),
             "manifest": _read_manifest(root),
-            "verification": verify(root, windows_driver_policy),
+            "verification": verify(root),
         }
     root.mkdir(parents=True, exist_ok=True)
     downloads: list[dict[str, Any]] = []
@@ -360,7 +358,7 @@ def apply(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[s
         temp_root = pathlib.Path(td)
         if p.platform_tools_needed:
             downloads.append(_install_platform_tools(root, temp_root))
-        driver_result = _install_windows_usb_driver(root, temp_root, windows_driver_policy)
+        driver_result = _install_windows_usb_driver(root, temp_root)
         if driver_result is not None:
             downloads.append(driver_result)
     prior = _read_manifest(root)
@@ -376,7 +374,7 @@ def apply(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[s
         ),
     }
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    verification = verify(root, windows_driver_policy)
+    verification = verify(root)
     if not verification["passed"]:
         raise RuntimeError("post-apply verification failed: " + verification["reason"])
     return {
@@ -388,7 +386,7 @@ def apply(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[s
         "verification": verification,
     }
 
-def verify(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[str, Any]:
+def verify(root: pathlib.Path) -> dict[str, Any]:
     obs = observe(root)
     adb_ok = obs.managed_adb_present and obs.managed_adb_version == PLATFORM_TOOLS_VERSION
     fastboot_path = pathlib.Path(obs.managed_dir) / _exe("fastboot")
@@ -462,18 +460,18 @@ def revert(root: pathlib.Path) -> dict[str, Any]:
         "observation": asdict(obs),
     }
 
-def cycle(root: pathlib.Path, windows_driver_policy: str = "required") -> dict[str, Any]:
+def cycle(root: pathlib.Path) -> dict[str, Any]:
     before = asdict(observe(root))
-    first_plan = asdict(plan(root, windows_driver_policy))
-    first_apply = apply(root, windows_driver_policy)
-    first_verify = verify(root, windows_driver_policy)
-    second_plan = asdict(plan(root, windows_driver_policy))
-    second_apply = apply(root, windows_driver_policy)
-    second_verify = verify(root, windows_driver_policy)
+    first_plan = asdict(plan(root))
+    first_apply = apply(root)
+    first_verify = verify(root)
+    second_plan = asdict(plan(root))
+    second_apply = apply(root)
+    second_verify = verify(root)
     reverted = revert(root)
     after_revert = asdict(observe(root))
-    reapplied = apply(root, windows_driver_policy)
-    final_verify = verify(root, windows_driver_policy)
+    reapplied = apply(root)
+    final_verify = verify(root)
     passed = (
         first_verify["passed"]
         and second_plan["action"] == "noop"
@@ -528,7 +526,6 @@ def contract() -> dict[str, Any]:
         "desired": {
             "platform_tools_version": PLATFORM_TOOLS_VERSION,
             "windows_google_usb_driver": "r13",
-            "windows_driver_policy": {"live_default": "required", "hosted_qualification": "stage-ok"},
             "managed_scope": "tool-owned root plus an explicitly recorded Windows Driver Store package",
             "host_os": ["Windows", "Linux", "Darwin"],
         },
@@ -559,21 +556,20 @@ def main() -> int:
     ap.add_argument("command", choices=["status", "plan", "apply", "verify", "revert", "cycle", "contract"])
     ap.add_argument("--root", type=pathlib.Path, default=_default_root())
     ap.add_argument("--output", choices=["human", "json"], default="human")
-    ap.add_argument("--windows-driver-policy", choices=["required", "stage-ok"], default="required")
     args = ap.parse_args()
     try:
         if args.command == "status":
             value = asdict(observe(args.root))
         elif args.command == "plan":
-            value = asdict(plan(args.root, args.windows_driver_policy))
+            value = asdict(plan(args.root))
         elif args.command == "apply":
-            value = apply(args.root, args.windows_driver_policy)
+            value = apply(args.root)
         elif args.command == "verify":
-            value = verify(args.root, args.windows_driver_policy)
+            value = verify(args.root)
         elif args.command == "revert":
             value = revert(args.root)
         elif args.command == "cycle":
-            value = cycle(args.root, args.windows_driver_policy)
+            value = cycle(args.root)
         else:
             value = contract()
     except Exception as exc:
