@@ -1,0 +1,108 @@
+name: AAR Play Host Qualification
+
+run-name: sidecar:${{ inputs.workset_id || 'manual' }}:${{ inputs.delegation_id || 'manual' }}:${{ inputs.assignment_id || github.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      workset_id:
+        description: Durable workset correlation ID
+        required: false
+        default: manual
+        type: string
+      delegation_id:
+        description: Bounded delegation correlation ID
+        required: false
+        default: manual
+        type: string
+      assignment_id:
+        description: Stable assignment/idempotency ID
+        required: false
+        default: manual
+        type: string
+      aar_ref:
+        description: Public AAR ref to qualify
+        required: false
+        default: 0f8f39bcadbc945f64d88948d8c42117aa715a9a
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-26.04
+            expect: supported
+            rep: 1
+          - runner: ubuntu-26.04
+            expect: supported
+            rep: 2
+          - runner: windows-2025
+            expect: supported
+            rep: 1
+          - runner: windows-2025
+            expect: supported
+            rep: 2
+          - runner: macos-26-intel
+            expect: supported
+            rep: 1
+          - runner: macos-26-intel
+            expect: supported
+            rep: 2
+          - runner: macos-26
+            expect: venue-limited
+            rep: 1
+          - runner: macos-26
+            expect: venue-limited
+            rep: 2
+          - runner: ubuntu-26.04-arm
+            expect: unsupported
+            rep: guard
+          - runner: windows-11-arm
+            expect: unsupported
+            rep: guard
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Agent Dispatch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Checkout public AAR implementation
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/android-artifact-recovery
+          ref: ${{ inputs.aar_ref || '0f8f39bcadbc945f64d88948d8c42117aa715a9a' }}
+          path: aar
+          persist-credentials: false
+
+      - name: Validate public AAR host contract
+        working-directory: aar
+        shell: bash
+        run: python3 -m unittest -v tests/test_aar_play_host.py
+
+      - name: Execute observe-plan-apply-verify lifecycle
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "${RUNNER_TEMP}/aar-play-host"
+          python3 scripts/aar_play_host_qualification.py             --aar-root "${GITHUB_WORKSPACE}/aar"             --expect "${{ matrix.expect }}"             --out "${RUNNER_TEMP}/aar-play-host/receipt.json"
+          rc=$?
+          echo "qualification_exit=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+        id: qualify
+
+      - name: Upload public-safe qualification receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aar-play-host-${{ matrix.runner }}-${{ matrix.rep }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aar-play-host/receipt.json
+          if-no-files-found: error
+          retention-days: 14
