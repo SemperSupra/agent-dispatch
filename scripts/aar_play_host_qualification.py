@@ -42,7 +42,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--aar-root", type=pathlib.Path, required=True)
     p.add_argument("--out", type=pathlib.Path, required=True)
-    p.add_argument("--expect", choices=("supported", "unsupported"), default="supported")
+    p.add_argument("--expect", choices=("supported", "unsupported", "venue-limited"), default="supported")
     args = p.parse_args()
 
     aar = args.aar_root.resolve()
@@ -106,7 +106,8 @@ def main() -> int:
                 result["classification"] = "APPLY_FAILED"
                 final_rc = 1
             else:
-                verify_args = ["verify", "--plan", str(plan_path), "--boot-timeout", "300"]
+                boot_timeout = "600" if platform.system() == "Darwin" and platform.machine().casefold() in {"x86_64", "amd64"} else "300"
+                verify_args = ["verify", "--plan", str(plan_path), "--boot-timeout", boot_timeout]
                 if privileged_runtime:
                     verify_args.append("--emulator-sudo")
                 verify_rc, verify = stage("verify", verify_args)
@@ -114,13 +115,15 @@ def main() -> int:
                 result["toolchain_identity_sha256"] = identity.get("identity_sha256")
                 result["profile"] = observe.get("host", {}).get("profile")
                 if verify_rc == 3 and verify.get("status") == "venue_limitation":
-                    result["classification"] = "VENUE_LIMITATION"
                     result["venue_failure_type"] = verify.get("failure_type")
                     cleanup_rc, _ = stage(
                         "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
                     )
                     result["cleanup_passed"] = cleanup_rc == 0
-                    final_rc = 3
+                    expected_negative = args.expect == "venue-limited" and cleanup_rc == 0
+                    result["classification"] = "EXPECTED_VENUE_LIMITATION" if expected_negative else "VENUE_LIMITATION"
+                    result["passed"] = expected_negative
+                    final_rc = 0 if expected_negative else 3
                 elif verify_rc != 0:
                     result["classification"] = "VERIFY_FAILED"
                     # Cleanup is best effort after a failed verification.
