@@ -1,7 +1,14 @@
 name: Android Edge Host Converger Qualification
-run-name: sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}
+run-name: sidecar:${{ inputs.workset_id || 'push' }}:${{ inputs.delegation_id || 'qualification' }}:${{ inputs.assignment_id || github.sha }}
 
 on:
+  push:
+    branches: [fix/android-edge-host-four-cell-20260926]
+    paths:
+      - scripts/android_edge_host_converge.py
+      - scripts/Resolve-AndroidHostTools.ps1
+      - tests/test_android_edge_host_converge.py
+      - .github/workflows/android-edge-host-converger-qualification.yml
   workflow_dispatch:
     inputs:
       workset_id:
@@ -34,20 +41,33 @@ jobs:
     needs: contract
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        runner: [ubuntu-24.04, windows-2025, macos-26]
+        include:
+          - runner: ubuntu-24.04
+            python: python3
+          - runner: windows-2025
+            python: python
+          - runner: macos-26
+            python: python3
+          - runner: macos-26-intel
+            python: python3
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Run full observe-plan-apply-verify-revert cycle
+      - name: Show human automation agent contract
+        shell: pwsh
+        run: '& "${{ matrix.python }}" scripts/android_edge_host_converge.py contract --output json'
+      - name: Run observe plan apply verify revert reapply cycle
         shell: pwsh
         run: |
           $root = Join-Path $env:RUNNER_TEMP "android-edge-host"
-          $args = @("scripts/android_edge_host_converge.py","cycle","--root",$root,"--output","json","--windows-driver-policy","stage-ok")
-          python @args | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "android-edge-host-receipt.json")
+          & "${{ matrix.python }}" scripts/android_edge_host_converge.py cycle --root $root --output json |
+            Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "android-edge-host-receipt.json")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate human PowerShell tool discovery UX
         shell: pwsh
         run: |

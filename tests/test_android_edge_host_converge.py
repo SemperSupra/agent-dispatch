@@ -12,6 +12,7 @@ assert spec and spec.loader
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
 
+# Qualification branch trigger: workflow is present before this push.
 class ConvergerContractTests(unittest.TestCase):
     def test_contract_covers_three_audiences(self):
         c = mod.contract()
