@@ -1,0 +1,47 @@
+name: Android Device Capability Lifecycle Qualification
+on:
+  push:
+    branches: [exp/android-device-capability-lifecycle-20260926]
+    paths:
+      - scripts/android_edge_device_capability_lifecycle.py
+      - .github/workflows/android-device-capability-lifecycle-qualification.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            python: python3
+          - runner: windows-2025
+            python: python
+          - runner: macos-26
+            python: python3
+          - runner: macos-26-intel
+            python: python3
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Discover contract and host
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "android-edge-capabilities"
+          & "${{ matrix.python }}" scripts/android_edge_device_capability_lifecycle.py --state-root $root contract
+          & "${{ matrix.python }}" scripts/android_edge_device_capability_lifecycle.py --state-root $root discover
+      - name: Plan explicit primitives without target assumptions
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "android-edge-capabilities"
+          & "${{ matrix.python }}" scripts/android_edge_device_capability_lifecycle.py --state-root $root plan --require adb --require fastboot --require usb-android --require ble
+      - name: Clean generated state
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "android-edge-capabilities"
+          & "${{ matrix.python }}" scripts/android_edge_device_capability_lifecycle.py --state-root $root clean
+          if (Test-Path $root) { throw "disposable state root remains after clean" }
