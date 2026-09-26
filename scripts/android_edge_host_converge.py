@@ -86,8 +86,12 @@ def _adb_version(path: pathlib.Path) -> str | None:
     code, out, _ = _run([str(path), "version"])
     if code != 0:
         return None
-    first = out.splitlines()[0] if out else ""
-    return first or None
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("Version "):
+            token = line.split()[1].split("-", 1)[0]
+            return token
+    return None
 
 def observe(root: pathlib.Path) -> Observation:
     managed = root / "platform-tools"
@@ -110,7 +114,7 @@ def observe(root: pathlib.Path) -> Observation:
 
 def plan(root: pathlib.Path) -> Plan:
     obs = observe(root)
-    desired = f"Android Debug Bridge version {PLATFORM_TOOLS_VERSION}"
+    desired = PLATFORM_TOOLS_VERSION
     if obs.managed_adb_present and obs.managed_fastboot_present and obs.managed_adb_version == desired:
         return Plan(SCHEMA, "noop", False, "managed platform-tools already match desired version",
                     PLATFORM_TOOLS_VERSION, str(root), obs.managed_dir)
@@ -162,7 +166,7 @@ def apply(root: pathlib.Path, allow_latest_fallback: bool = False) -> dict[str, 
         if not (staged / _exe("adb")).is_file() or not (staged / _exe("fastboot")).is_file():
             raise RuntimeError("downloaded archive did not contain adb and fastboot")
         version = _adb_version(staged / _exe("adb"))
-        expected = f"Android Debug Bridge version {PLATFORM_TOOLS_VERSION}"
+        expected = PLATFORM_TOOLS_VERSION
         if version != expected:
             raise RuntimeError(f"downloaded adb version mismatch: expected {expected!r}, got {version!r}")
         if previous.exists():
@@ -189,7 +193,7 @@ def apply(root: pathlib.Path, allow_latest_fallback: bool = False) -> dict[str, 
 
 def verify(root: pathlib.Path) -> dict[str, Any]:
     obs = observe(root)
-    expected = f"Android Debug Bridge version {PLATFORM_TOOLS_VERSION}"
+    expected = PLATFORM_TOOLS_VERSION
     adb_ok = obs.managed_adb_present and obs.managed_adb_version == expected
     fastboot_path = pathlib.Path(obs.managed_dir) / _exe("fastboot")
     fastboot_code, fastboot_out, fastboot_err = _run([str(fastboot_path), "--version"]) if fastboot_path.is_file() else (None, "", "missing")
