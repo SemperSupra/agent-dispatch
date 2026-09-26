@@ -25,18 +25,9 @@ PLATFORM_TOOLS_VERSION = "37.0.1"
 SCHEMA = "android-edge-host-converger/v1"
 
 ARCHIVES = {
-    "Windows": [
-        f"https://dl.google.com/android/repository/platform-tools_r{PLATFORM_TOOLS_VERSION}-windows.zip",
-        "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
-    ],
-    "Linux": [
-        f"https://dl.google.com/android/repository/platform-tools_r{PLATFORM_TOOLS_VERSION}-linux.zip",
-        "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
-    ],
-    "Darwin": [
-        f"https://dl.google.com/android/repository/platform-tools_r{PLATFORM_TOOLS_VERSION}-darwin.zip",
-        "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
-    ],
+    "Windows": ["https://dl.google.com/android/repository/platform-tools-latest-windows.zip"],
+    "Linux": ["https://dl.google.com/android/repository/platform-tools-latest-linux.zip"],
+    "Darwin": ["https://dl.google.com/android/repository/platform-tools-latest-darwin.zip"],
 }
 
 @dataclass
@@ -137,7 +128,7 @@ def _download_archive(dest: pathlib.Path, allow_latest_fallback: bool) -> tuple[
     if system not in ARCHIVES:
         raise RuntimeError(f"unsupported operating system: {system}")
     urls = ARCHIVES[system]
-    attempts = urls if allow_latest_fallback else urls[:1]
+    attempts = urls
     errors: list[str] = []
     for url in attempts:
         try:
@@ -163,6 +154,10 @@ def apply(root: pathlib.Path, allow_latest_fallback: bool = False) -> dict[str, 
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(extract)
         staged = extract / "platform-tools"
+        if platform.system() != "Windows":
+            for executable in (staged / "adb", staged / "fastboot"):
+                if executable.is_file():
+                    executable.chmod(executable.stat().st_mode | 0o111)
         if not (staged / _exe("adb")).is_file() or not (staged / _exe("fastboot")).is_file():
             raise RuntimeError("downloaded archive did not contain adb and fastboot")
         version = _adb_version(staged / _exe("adb"))
