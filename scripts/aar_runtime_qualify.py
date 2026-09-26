@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Public-safe cross-platform AAR Android runtime converger."""
 from __future__ import annotations
-import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, time, urllib.request, zipfile
+import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, tarfile, time, urllib.request, zipfile
 from typing import Any
 SCHEMA="aar-runtime-qualification/v1"; API="35"; BUILD_TOOLS="35.0.0"; PLATFORM_TOOLS="37.0.1"; EMULATOR="37.1.11"; X86_IMAGE_REV="9"; ARM_IMAGE_REV="9"; AVD_NAME="aar-runtime-qual"
 CLT={
@@ -9,6 +9,13 @@ CLT={
  ("Linux","x86_64"):("https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip","4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583"),
  ("Darwin","x86_64"):("https://dl.google.com/android/repository/commandlinetools-mac_x86_64-15859902_latest.zip","c5a6378ab5cf7e0d5701921405115befff13e9ff7417fb588389338f8bd050f3"),
  ("Darwin","arm64"):("https://dl.google.com/android/repository/commandlinetools-mac_arm64-15859902_latest.zip","835b62a26162b229b441d1f6d4680383815a270809eb33522c0d480fa5002c4e"),
+}
+JDK_VERSION="17.0.20.1+1"
+JDK={
+ ("Windows","x86_64"):("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip","e53a79c3c3d86865bd7e787903884331068e71321714ffd44f145785affc7cb0"),
+ ("Linux","x86_64"):("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz","3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e"),
+ ("Darwin","x86_64"):("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_mac_hotspot_17.0.20.1_1.tar.gz","c01975da12ed4235250ff891fe8bba73a9e73037d444b269c9d0922b5dbc8e0a"),
+ ("Darwin","arm64"):("https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.20.1_1.tar.gz","196d13ba5f10414bef7f6a05a9b3f00edacb18ebacef2b99485db9e2ee18f0e8"),
 }
 def norm_arch(v): return {"amd64":"x86_64","x86_64":"x86_64","arm64":"arm64","aarch64":"arm64"}.get(v.lower(),v.lower())
 def host(): return platform.system(),norm_arch(platform.machine())
@@ -29,6 +36,14 @@ def sha256(path):
   for b in iter(lambda:f.read(8*1024*1024),b""): h.update(b)
  return h.hexdigest()
 def safe_extract(src,dst):
+ if src.name.endswith(".tar.gz"):
+  with tarfile.open(src,"r:gz") as tf:
+   for m in tf.getmembers():
+    p=pathlib.PurePosixPath(m.name)
+    if p.is_absolute() or ".." in p.parts: raise RuntimeError("unsafe archive entry")
+   try: tf.extractall(dst,filter="data")
+   except TypeError: tf.extractall(dst)
+  return
  with zipfile.ZipFile(src) as z:
   for m in z.infolist():
    p=pathlib.PurePosixPath(m.filename)
@@ -44,6 +59,7 @@ def props(path):
 def paths(root):
  sdk=root/"sdk"; clt=sdk/"cmdline-tools"/"current"
  return {"sdk":sdk,"clt":clt,"sdkmanager":clt/"bin"/exe("sdkmanager"),"avdmanager":clt/"bin"/exe("avdmanager"),
+  "java":root/"jdk"/"bin"/("java.exe" if platform.system()=="Windows" else "java"),
   "adb":sdk/"platform-tools"/("adb.exe" if platform.system()=="Windows" else "adb"),
   "emulator":sdk/"emulator"/("emulator.exe" if platform.system()=="Windows" else "emulator"),
   "apksigner":sdk/"build-tools"/BUILD_TOOLS/("apksigner.bat" if platform.system()=="Windows" else "apksigner"),
@@ -53,11 +69,12 @@ def image_package(system,arch):
 def image_dir(root,system,arch):
  abi="arm64-v8a" if system=="Darwin" and arch=="arm64" else "x86_64"; return root/"sdk"/"system-images"/f"android-{API}"/"google_apis_playstore"/abi
 def environment(root):
- p=paths(root); e=os.environ.copy(); e.update({"ANDROID_HOME":str(p["sdk"]),"ANDROID_SDK_ROOT":str(p["sdk"]),"ANDROID_AVD_HOME":str(p["avd_home"]),"ANDROID_USER_HOME":str(p["user_home"]),"JAVA_TOOL_OPTIONS":"-Dfile.encoding=UTF-8"}); return e
-def java_info():
- j=shutil.which("java")
- if not j:return {"present":False}
- c,o,e=run([j,"-version"],timeout=20); return {"present":c==0,"path":j,"version":(e or o).splitlines()[0] if (e or o) else None}
+ p=paths(root); e=os.environ.copy(); sep=os.pathsep
+ e.update({"ANDROID_HOME":str(p["sdk"]),"ANDROID_SDK_ROOT":str(p["sdk"]),"ANDROID_AVD_HOME":str(p["avd_home"]),"ANDROID_USER_HOME":str(p["user_home"]),"JAVA_HOME":str(root/"jdk"),"JAVA_TOOL_OPTIONS":"-Dfile.encoding=UTF-8","PATH":str(root/"jdk"/"bin")+sep+e.get("PATH","")}); return e
+def java_info(root):
+ j=paths(root)["java"]
+ if not j.is_file(): return {"present":False,"path":str(j),"version":None}
+ c,o,e=run([str(j),"-version"],timeout=20); return {"present":c==0 and JDK_VERSION in (e or o),"path":str(j),"version":(e or o).splitlines()[0] if (e or o) else None}
 def revisions(root,system,arch):
  p=paths(root); img=image_dir(root,system,arch)
  return {"platform_tools":props(p["sdk"]/"platform-tools"/"source.properties").get("Pkg.Revision"),"emulator":props(p["sdk"]/"emulator"/"source.properties").get("Pkg.Revision"),"build_tools":props(p["sdk"]/"build-tools"/BUILD_TOOLS/"source.properties").get("Pkg.Revision"),"system_image":props(img/"source.properties").get("Pkg.Revision"),"system_image_abi":props(img/"source.properties").get("SystemImage.Abi")}
@@ -70,7 +87,7 @@ def observe(root):
   k=pathlib.Path("/dev/kvm"); virt.update({"device":"/dev/kvm","exists":k.exists(),"readable":os.access(k,os.R_OK),"writable":os.access(k,os.W_OK)})
  if p["emulator"].is_file():
   c,o,e=run([str(p["emulator"]),"-accel-check"],env=environment(root),timeout=30); virt.update({"status":accel_status(c),"exit_code":c,"evidence":(o+e)[-1200:]})
- return {"schema":SCHEMA,"operation":"status","host":{"system":system,"architecture":arch,"supported":supported,"runner_name":os.environ.get("RUNNER_NAME"),"runner_arch":os.environ.get("RUNNER_ARCH"),"image_os":os.environ.get("ImageOS"),"image_version":os.environ.get("ImageVersion")},"root":str(root),"java":java_info(),"tools":{k:v.is_file() for k,v in p.items() if k in {"sdkmanager","avdmanager","adb","emulator","apksigner"}},"revisions":revisions(root,system,arch),"image_package":image_package(system,arch) if supported else None,"manifest_present":p["manifest"].is_file(),"virtualization":virt}
+ return {"schema":SCHEMA,"operation":"status","host":{"system":system,"architecture":arch,"supported":supported,"runner_name":os.environ.get("RUNNER_NAME"),"runner_arch":os.environ.get("RUNNER_ARCH"),"image_os":os.environ.get("ImageOS"),"image_version":os.environ.get("ImageVersion")},"root":str(root),"java":java_info(root),"tools":{k:v.is_file() for k,v in p.items() if k in {"sdkmanager","avdmanager","adb","emulator","apksigner"}},"revisions":revisions(root,system,arch),"image_package":image_package(system,arch) if supported else None,"manifest_present":p["manifest"].is_file(),"virtualization":virt}
 def desired_ok(obs):
  s=obs["host"]["system"]; a=obs["host"]["architecture"]; er=ARM_IMAGE_REV if s=="Darwin" and a=="arm64" else X86_IMAGE_REV; r=obs["revisions"]
  return bool(obs["host"]["supported"] and obs["java"]["present"] and all(obs["tools"].values()) and r["platform_tools"]==PLATFORM_TOOLS and r["emulator"]==EMULATOR and r["build_tools"]==BUILD_TOOLS and r["system_image"]==er and obs["manifest_present"])
@@ -78,6 +95,24 @@ def plan(root):
  o=observe(root)
  if not o["host"]["supported"]: return {"schema":SCHEMA,"operation":"plan","action":"unsupported_host","changed":False,"observation":o}
  return {"schema":SCHEMA,"operation":"plan","action":"noop" if desired_ok(o) else "install-or-repair","changed":not desired_ok(o),"desired":{"platform_tools":PLATFORM_TOOLS,"emulator":EMULATOR,"build_tools":BUILD_TOOLS,"system_image_revision":ARM_IMAGE_REV if o["host"]["system"]=="Darwin" and o["host"]["architecture"]=="arm64" else X86_IMAGE_REV,"image_package":o["image_package"]},"observation":o}
+def download_verified(url,expected,target):
+ if target.is_file() and sha256(target)==expected: return target
+ target.parent.mkdir(parents=True,exist_ok=True); part=target.with_suffix(target.suffix+".part"); req=urllib.request.Request(url,headers={"User-Agent":"AAR-runtime-qualification/1"})
+ with urllib.request.urlopen(req,timeout=180) as resp,part.open("wb") as out: shutil.copyfileobj(resp,out)
+ got=sha256(part)
+ if got!=expected: part.unlink(missing_ok=True); raise RuntimeError(f"download SHA-256 mismatch: {got}")
+ part.replace(target); return target
+def bootstrap_jdk(root):
+ system,arch=host(); url,expected=JDK[(system,arch)]; suffix=".zip" if system=="Windows" else ".tar.gz"; arc=download_verified(url,expected,root/"cache"/("jdk"+suffix))
+ stage=root/"stage-jdk"; shutil.rmtree(stage,ignore_errors=True); stage.mkdir(parents=True); safe_extract(arc,stage)
+ java_name="java.exe" if system=="Windows" else "java"; candidates=[]
+ for j in stage.rglob(java_name):
+  if j.parent.name=="bin": candidates.append(j.parent.parent)
+ if len(candidates)!=1: raise RuntimeError(f"JDK home ambiguity: {len(candidates)}")
+ dest=root/"jdk"; shutil.rmtree(dest,ignore_errors=True); shutil.copytree(candidates[0],dest,symlinks=True); shutil.rmtree(stage,ignore_errors=True)
+ info=java_info(root)
+ if not info["present"]: raise RuntimeError(f"project-local JDK verification failed: {info}")
+ return {"url":url,"sha256":expected,"version":JDK_VERSION}
 def bootstrap(root):
  system,arch=host(); url,expected=CLT[(system,arch)]; p=paths(root); p["sdk"].mkdir(parents=True,exist_ok=True); cache=root/"cache"; cache.mkdir(parents=True,exist_ok=True); arc=cache/"clt.zip"
  if not arc.is_file() or sha256(arc)!=expected:
@@ -184,7 +219,7 @@ def apply(root):
  if p["action"]=="unsupported_host": raise RuntimeError("unsupported_host")
  changed=False; comps={}
  if p["changed"]:
-  root.mkdir(parents=True,exist_ok=True); comps["command_line_tools"]=bootstrap(root); comps["sdk_packages"]=install_packages(root); create_avd(root); changed=True
+  root.mkdir(parents=True,exist_ok=True); comps["jdk"]=bootstrap_jdk(root); comps["command_line_tools"]=bootstrap(root); comps["sdk_packages"]=install_packages(root); create_avd(root); changed=True
   paths(root)["manifest"].write_text(json.dumps({"schema":SCHEMA,"host":{"system":host()[0],"architecture":host()[1]},"desired":p["desired"],"components":comps},indent=2,sort_keys=True)+"\n",encoding="utf-8")
  v=verify(root,boot=False)
  if not v["passed"]: raise RuntimeError("post-apply tool verification failed")
@@ -201,7 +236,7 @@ def cycle(root):
  passed=bool(v1["passed"] and p2["action"]=="noop" and not a2["changed"] and v2["passed"] and rv["passed"] and a3["changed"] and v3["passed"])
  return {"schema":SCHEMA,"operation":"cycle","passed":passed,"before":before,"first_plan":p1,"first_apply":a1,"first_verify":v1,"second_plan":p2,"second_apply":a2,"second_verify":v2,"revert":rv,"reapply":a3,"final_verify":v3}
 def contract():
- return {"schema":SCHEMA,"audiences":{"human":{"commands":["status","plan","apply","verify","revert","cycle"],"default_output":"human"},"automation":{"output":"json","success_signal":"passed","idempotence_signal":"changed"},"agent":{"discover":"contract","observe":"status","plan":"plan","mutate":["apply","revert"],"verify":"verify","preferred_output":"json"}},"lifecycle":"observe -> plan -> apply -> verify","properties":["project-local","repeatable","reversible","idempotent","fail-closed"],"supported_hosts":[{"system":k[0],"architecture":k[1]} for k in CLT]}
+ return {"schema":SCHEMA,"runtime":{"jdk":JDK_VERSION,"platform_tools":PLATFORM_TOOLS,"emulator":EMULATOR,"build_tools":BUILD_TOOLS,"api":API},"audiences":{"human":{"commands":["status","plan","apply","verify","revert","cycle"],"default_output":"human"},"automation":{"output":"json","success_signal":"passed","idempotence_signal":"changed"},"agent":{"discover":"contract","observe":"status","plan":"plan","mutate":["apply","revert"],"verify":"verify","preferred_output":"json"}},"lifecycle":"observe -> plan -> apply -> verify","properties":["project-local","repeatable","reversible","idempotent","fail-closed"],"supported_hosts":[{"system":k[0],"architecture":k[1]} for k in CLT]}
 def human(v):
  op=v.get("operation")
  if op=="status": return f"status: {v['host']['system']}/{v['host']['architecture']} supported={v['host']['supported']} ready={desired_ok(v)}"
