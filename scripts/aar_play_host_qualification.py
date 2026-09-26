@@ -126,9 +126,10 @@ def main() -> int:
                     final_rc = 1
                 else:
                     fresh_plan_rc, fresh_plan = stage("fresh-plan", ["plan"])
+                    fresh_plan_value = fresh_plan.get("evidence", {}).get("plan")
                     fresh_plan_path = (
-                        pathlib.Path(fresh_plan.get("evidence", {}).get("plan", ""))
-                        if fresh_plan_rc == 0
+                        pathlib.Path(fresh_plan_value)
+                        if fresh_plan_rc == 0 and isinstance(fresh_plan_value, str) and fresh_plan_value
                         else None
                     )
                     fresh_plan_ok = (
