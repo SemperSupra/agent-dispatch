@@ -95,6 +95,21 @@ def _adb_version(path: pathlib.Path) -> str | None:
     return None
 
 def _windows_driver_records() -> list[dict[str, str]]:
+    """Cheap routine sensor: observe only Google Android USB Driver Store payloads."""
+    if platform.system() != "Windows":
+        return []
+    windows = pathlib.Path(os.environ.get("WINDIR") or r"C:\\Windows")
+    repository = windows / "System32" / "DriverStore" / "FileRepository"
+    if not repository.is_dir():
+        return []
+    return [
+        {"DriverStorePath": str(path)}
+        for path in sorted(repository.glob("android_winusb.inf_*"))
+        if path.is_dir()
+    ]
+
+def _windows_driver_package_records() -> list[dict[str, str]]:
+    """Expensive identity sensor used only after mutation to capture oem*.inf."""
     if platform.system() != "Windows":
         return []
     shell = shutil.which("pwsh") or shutil.which("powershell")
@@ -122,7 +137,6 @@ def _windows_driver_records() -> list[dict[str, str]]:
             if isinstance(item, dict):
                 records.append({str(k): str(v) for k, v in item.items() if v is not None})
     return records
-
 def observe(root: pathlib.Path) -> Observation:
     managed = root / "platform-tools"
     manifest = root / "manifest.json"
@@ -257,11 +271,13 @@ def _install_windows_usb_driver(root: pathlib.Path, temp_root: pathlib.Path) -> 
     code, out, err = _run([pnputil, "/add-driver", str(inf)], timeout=90)
     if code != 0:
         raise RuntimeError(f"pnputil driver staging failed ({code}): {out} {err}")
-    after = _windows_driver_records()
+    after_store = _windows_driver_records()
+    if not after_store:
+        raise RuntimeError("Google Android USB driver staging returned success but verification found no Driver Store payload")
+    after = _windows_driver_package_records()
     if not after:
-        raise RuntimeError("Google Android USB driver staging returned success but verification found no Driver Store record")
-    before_names = {x.get("Driver") for x in before}
-    owned = sorted(x.get("Driver") for x in after if x.get("Driver") and x.get("Driver") not in before_names)
+        raise RuntimeError("Google Android USB driver payload is present but its published INF identity could not be resolved")
+    owned = sorted(x.get("Driver") for x in after if x.get("Driver"))
     return {
         "kind": "google-usb-driver",
         "changed": bool(owned),
@@ -270,6 +286,7 @@ def _install_windows_usb_driver(root: pathlib.Path, temp_root: pathlib.Path) -> 
         "sha256": digest,
         "owned_driver_names": owned,
         "records_after": after,
+        "driver_store_after": after_store,
     }
 
 def _read_manifest(root: pathlib.Path) -> dict[str, Any]:
@@ -378,9 +395,8 @@ def revert(root: pathlib.Path) -> dict[str, Any]:
         manifest_path.unlink()
         changed = True
     obs = observe(root)
-    owned_still_present = {
-        rec.get("Driver") for rec in obs.windows_usb_driver_records
-    } & set(manifest.get("owned_windows_driver_names", []))
+    owned_names = set(manifest.get("owned_windows_driver_names", []))
+    owned_still_present = bool(owned_names and obs.windows_usb_driver_records)
     passed = not errors and not owned_still_present and not obs.managed_adb_present and not obs.managed_fastboot_present
     return {
         "schema": SCHEMA,
