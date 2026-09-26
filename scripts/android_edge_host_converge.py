@@ -254,12 +254,12 @@ def _install_windows_usb_driver(root: pathlib.Path, temp_root: pathlib.Path) -> 
     pnputil = shutil.which("pnputil")
     if not pnputil:
         raise RuntimeError("pnputil is required to install the Google Android USB driver")
-    code, out, err = _run([pnputil, "/add-driver", str(inf), "/install"], timeout=90)
+    code, out, err = _run([pnputil, "/add-driver", str(inf)], timeout=90)
     if code != 0:
-        raise RuntimeError(f"pnputil driver install failed ({code}): {out} {err}")
+        raise RuntimeError(f"pnputil driver staging failed ({code}): {out} {err}")
     after = _windows_driver_records()
     if not after:
-        raise RuntimeError("Google Android USB driver install returned success but verification found no staged driver")
+        raise RuntimeError("Google Android USB driver staging returned success but verification found no Driver Store record")
     before_names = {x.get("Driver") for x in before}
     owned = sorted(x.get("Driver") for x in after if x.get("Driver") and x.get("Driver") not in before_names)
     return {
