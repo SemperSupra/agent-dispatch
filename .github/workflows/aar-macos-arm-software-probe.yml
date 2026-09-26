@@ -1,0 +1,44 @@
+name: AAR macOS ARM Software AVD Probe
+
+on:
+  push:
+    branches: [qual/aar-macos-arm-software-probe-20260926]
+    paths:
+      - ".github/workflows/aar-macos-arm-software-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Checkout corrected public AAR
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/android-artifact-recovery
+          ref: 0f8f39bcadbc945f64d88948d8c42117aa715a9a
+          path: aar
+          persist-credentials: false
+
+      - name: Run software AVD probe
+        run: |
+          mkdir -p "${RUNNER_TEMP}/aar-arm-software"
+          python3 scripts/aar_play_host_macos_arm_software_probe.py \
+            --aar-root "${GITHUB_WORKSPACE}/aar" \
+            --boot-timeout 900 \
+            --out "${RUNNER_TEMP}/aar-arm-software/receipt.json"
+
+      - name: Upload probe receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aar-macos-arm-software-probe
+          path: ${{ runner.temp }}/aar-arm-software/receipt.json
+          if-no-files-found: error
+          retention-days: 7
