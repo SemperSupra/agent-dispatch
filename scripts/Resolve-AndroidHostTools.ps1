@@ -7,8 +7,17 @@ function Enable-AndroidEdgeManagedTools {
         [string]$Root
     )
 
+    $isWindowsHost = $false
+    $isWindowsVariable = Get-Variable -Name IsWindows -ErrorAction SilentlyContinue
+    if ($isWindowsVariable) {
+        $isWindowsHost = [bool]$isWindowsVariable.Value
+    }
+    elseif ($env:OS -eq 'Windows_NT') {
+        $isWindowsHost = $true
+    }
+
     if (-not $Root) {
-        if ($IsWindows) {
+        if ($isWindowsHost) {
             $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData/Local' }
             $Root = Join-Path $base 'AndroidEdgeApplianceKit'
         }
@@ -18,8 +27,8 @@ function Enable-AndroidEdgeManagedTools {
     }
 
     $toolDir = Join-Path $Root 'platform-tools'
-    $adbName = if ($IsWindows) { 'adb.exe' } else { 'adb' }
-    $fastbootName = if ($IsWindows) { 'fastboot.exe' } else { 'fastboot' }
+    $adbName = if ($isWindowsHost) { 'adb.exe' } else { 'adb' }
+    $fastbootName = if ($isWindowsHost) { 'fastboot.exe' } else { 'fastboot' }
     $adbPath = Join-Path $toolDir $adbName
     $fastbootPath = Join-Path $toolDir $fastbootName
 
