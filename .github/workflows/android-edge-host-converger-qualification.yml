@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $root = Join-Path $env:RUNNER_TEMP "android-edge-host"
-          $args = @("scripts/android_edge_host_converge.py","cycle","--root",$root,"--output","json","--windows-driver-policy","stage-ok")
+          $args = @("scripts/android_edge_host_converge.py","cycle","--root",$root,"--output","json")
           python @args | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "android-edge-host-receipt.json")
       - name: Validate human PowerShell tool discovery UX
         shell: pwsh
