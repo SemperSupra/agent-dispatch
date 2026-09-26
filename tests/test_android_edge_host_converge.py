@@ -32,10 +32,14 @@ class ConvergerContractTests(unittest.TestCase):
             self.assertFalse(a["changed"])
             self.assertFalse(b["changed"])
 
-    def test_unknown_os_is_rejected_for_download(self):
+    def test_unknown_os_is_rejected_for_install(self):
         with tempfile.TemporaryDirectory() as td, mock.patch.object(mod.platform, "system", return_value="Plan9"):
+            root = pathlib.Path(td) / "root"
+            scratch = pathlib.Path(td) / "scratch"
+            root.mkdir()
+            scratch.mkdir()
             with self.assertRaises(RuntimeError):
-                mod._download_archive(pathlib.Path(td) / "x.zip", False)
+                mod._install_platform_tools(root, scratch)
 
 if __name__ == "__main__":
     unittest.main()
