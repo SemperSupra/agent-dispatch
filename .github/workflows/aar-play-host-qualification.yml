@@ -60,10 +60,10 @@ jobs:
             expect: supported
             rep: 2
           - runner: macos-26
-            expect: supported
+            expect: venue-limited
             rep: 1
           - runner: macos-26
-            expect: supported
+            expect: venue-limited
             rep: 2
           - runner: ubuntu-26.04-arm
             expect: unsupported
@@ -83,7 +83,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SemperSupra/android-artifact-recovery
-          ref: ${{ inputs.aar_ref || '6258f925ef15cd3ce55b734050cf22cf2af7191b' }}
+          ref: ${{ inputs.aar_ref || 'bb95fe95041831885f236ac16be02f024ba3489f' }}
           path: aar
           persist-credentials: false
 
