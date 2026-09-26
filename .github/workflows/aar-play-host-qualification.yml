@@ -23,7 +23,7 @@ on:
       aar_ref:
         description: Public AAR ref to qualify
         required: false
-        default: 71d7958efd2eaf5da9c318b76657c8df50990444
+        default: 7bfd6a1ef2e5f6079acf99089040f9a6a65564af
         type: string
 
 permissions:
