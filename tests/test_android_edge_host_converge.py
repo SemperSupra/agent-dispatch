@@ -2,12 +2,14 @@ import importlib.util
 import pathlib
 import tempfile
 import unittest
+import sys
 from unittest import mock
 
 MODULE_PATH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "android_edge_host_converge.py"
 spec = importlib.util.spec_from_file_location("android_edge_host_converge", MODULE_PATH)
 mod = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
+sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
 
 class ConvergerContractTests(unittest.TestCase):
