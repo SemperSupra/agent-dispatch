@@ -125,12 +125,33 @@ def main() -> int:
                     result["cleanup_passed"] = cleanup_rc == 0
                     final_rc = 1
                 else:
-                    noop_rc, noop = stage(
-                        "second-apply", ["apply", "--plan", str(plan_path)]
+                    fresh_plan_rc, fresh_plan = stage("fresh-plan", ["plan"])
+                    fresh_plan_path = (
+                        pathlib.Path(fresh_plan.get("evidence", {}).get("plan", ""))
+                        if fresh_plan_rc == 0
+                        else None
                     )
-                    cleanup_rc, cleanup = stage("cleanup", ["cleanup", "--plan", str(plan_path)])
+                    fresh_plan_ok = (
+                        fresh_plan_rc == 0
+                        and fresh_plan.get("status") == "no-op-planned"
+                        and fresh_plan.get("evidence", {}).get("plan_mode") == "verify-existing"
+                        and fresh_plan_path is not None
+                    )
+                    if fresh_plan_ok:
+                        noop_rc, noop = stage(
+                            "fresh-apply",
+                            ["apply", "--plan", str(fresh_plan_path)],
+                        )
+                        cleanup_plan = fresh_plan_path
+                    else:
+                        noop_rc, noop = 1, {}
+                        cleanup_plan = plan_path
+                    cleanup_rc, cleanup = stage(
+                        "cleanup", ["cleanup", "--plan", str(cleanup_plan)]
+                    )
                     ok = (
-                        noop_rc == 0
+                        fresh_plan_ok
+                        and noop_rc == 0
                         and noop.get("status") == "no-op"
                         and cleanup_rc == 0
                         and cleanup.get("status") == "cleaned"
@@ -138,6 +159,12 @@ def main() -> int:
                     result["classification"] = "PASS" if ok else "IDEMPOTENCY_OR_CLEANUP_FAILED"
                     result["passed"] = ok
                     result["verified_guest"] = verify.get("evidence", {}).get("avd")
+                    result["fresh_plan_convergence"] = {
+                        "passed": fresh_plan_ok and noop_rc == 0 and noop.get("status") == "no-op",
+                        "plan_status": fresh_plan.get("status"),
+                        "plan_mode": fresh_plan.get("evidence", {}).get("plan_mode"),
+                        "apply_status": noop.get("status"),
+                    }
                     final_rc = 0 if ok else 1
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
