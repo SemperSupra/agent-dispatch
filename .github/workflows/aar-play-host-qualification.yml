@@ -3,11 +3,6 @@ name: AAR Play Host Qualification
 run-name: sidecar:${{ inputs.workset_id || 'manual' }}:${{ inputs.delegation_id || 'manual' }}:${{ inputs.assignment_id || github.run_id }}
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/aar-play-host-qualification.yml"
-      - "scripts/aar_play_host_qualification.py"
   workflow_dispatch:
     inputs:
       workset_id:
@@ -28,7 +23,7 @@ on:
       aar_ref:
         description: Public AAR ref to qualify
         required: false
-        default: 7bfd6a1ef2e5f6079acf99089040f9a6a65564af
+        default: 0f8f39bcadbc945f64d88948d8c42117aa715a9a
         type: string
 
 permissions:
@@ -83,7 +78,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SemperSupra/android-artifact-recovery
-          ref: ${{ inputs.aar_ref || 'bb95fe95041831885f236ac16be02f024ba3489f' }}
+          ref: ${{ inputs.aar_ref || '0f8f39bcadbc945f64d88948d8c42117aa715a9a' }}
           path: aar
           persist-credentials: false
 
