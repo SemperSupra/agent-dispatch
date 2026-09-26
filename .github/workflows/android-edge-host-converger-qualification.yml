@@ -1,0 +1,63 @@
+name: Android Edge Host Converger Qualification
+run-name: sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      workset_id:
+        description: Opaque Agent Dispatch workset id
+        required: false
+        default: manual
+      delegation_id:
+        description: Opaque Agent Dispatch delegation id
+        required: false
+        default: qualification
+      assignment_id:
+        description: Opaque Agent Dispatch assignment id
+        required: false
+        default: manual
+      allow_latest_fallback:
+        description: Permit latest URL only if pinned artifact URL is unavailable
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_android_edge_host_converge.py
+
+  qualify:
+    needs: contract
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, windows-2025, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run full observe-plan-apply-verify-revert cycle
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "android-edge-host"
+          $args = @("scripts/android_edge_host_converge.py","cycle","--root",$root,"--output","json")
+          if ("${{ inputs.allow_latest_fallback }}" -eq "true") { $args += "--allow-latest-fallback" }
+          python @args | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "android-edge-host-receipt.json")
+      - name: Upload qualification receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-edge-host-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-edge-host-receipt.json
+          if-no-files-found: error
+          retention-days: 7
