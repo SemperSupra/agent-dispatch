@@ -12,9 +12,18 @@ import sys
 from typing import Any
 
 
-def run_stage(tool: pathlib.Path, state: pathlib.Path, command: list[str]) -> tuple[int, dict[str, Any], str]:
+def run_stage(
+    tool: pathlib.Path,
+    state: pathlib.Path,
+    command: list[str],
+    *,
+    privileged: bool = False,
+) -> tuple[int, dict[str, Any], str]:
+    argv = [sys.executable, str(tool), "--state-root", str(state), "--format", "json", *command]
+    if privileged:
+        argv = ["sudo", "-n", "-E", *argv]
     cp = subprocess.run(
-        [sys.executable, str(tool), "--state-root", str(state), "--format", "json", *command],
+        argv,
         text=True,
         capture_output=True,
         encoding="utf-8",
@@ -54,8 +63,10 @@ def main() -> int:
         "passed": False,
     }
 
-    def stage(name: str, argv: list[str]) -> tuple[int, dict[str, Any]]:
-        rc, receipt, stderr = run_stage(tool, state, argv)
+    privileged_runtime = False
+
+    def stage(name: str, argv: list[str], *, privileged: bool = False) -> tuple[int, dict[str, Any]]:
+        rc, receipt, stderr = run_stage(tool, state, argv, privileged=privileged)
         result["stages"].append({
             "name": name,
             "exit_code": rc,
@@ -65,6 +76,16 @@ def main() -> int:
         return rc, receipt
 
     observe_rc, observe = stage("observe", ["observe"])
+    if args.expect == "supported" and platform.system() == "Linux":
+        accel = observe.get("evidence", {}).get("acceleration", {})
+        if accel.get("present") and not accel.get("writable"):
+            sudo = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True)
+            privileged_runtime = sudo.returncode == 0
+            result["linux_kvm_venue_adapter"] = {
+                "required": True,
+                "selected": "sudo -n -E" if privileged_runtime else None,
+                "reason": "GitHub runner exposes /dev/kvm but the runner account lacks direct write access",
+            }
     if args.expect == "unsupported":
         ok = observe_rc == 2 and observe.get("status") == "unsupported_host"
         result["classification"] = "EXPECTED_UNSUPPORTED" if ok else "UNEXPECTED_SUPPORT_RESULT"
@@ -85,25 +106,37 @@ def main() -> int:
                 result["classification"] = "APPLY_FAILED"
                 final_rc = 1
             else:
-                verify_rc, verify = stage("verify", ["verify", "--plan", str(plan_path), "--boot-timeout", "300"])
+                verify_rc, verify = stage(
+                    "verify",
+                    ["verify", "--plan", str(plan_path), "--boot-timeout", "300"],
+                    privileged=privileged_runtime,
+                )
                 identity = apply_receipt.get("evidence", {}).get("toolchain_identity", {})
                 result["toolchain_identity_sha256"] = identity.get("identity_sha256")
                 result["profile"] = observe.get("host", {}).get("profile")
                 if verify_rc == 3 and verify.get("status") == "venue_limitation":
                     result["classification"] = "VENUE_LIMITATION"
                     result["venue_failure_type"] = verify.get("failure_type")
-                    cleanup_rc, _ = stage("cleanup", ["cleanup", "--plan", str(plan_path)])
+                    cleanup_rc, _ = stage(
+                        "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
+                    )
                     result["cleanup_passed"] = cleanup_rc == 0
                     final_rc = 3
                 elif verify_rc != 0:
                     result["classification"] = "VERIFY_FAILED"
                     # Cleanup is best effort after a failed verification.
-                    cleanup_rc, _ = stage("cleanup", ["cleanup", "--plan", str(plan_path)])
+                    cleanup_rc, _ = stage(
+                        "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
+                    )
                     result["cleanup_passed"] = cleanup_rc == 0
                     final_rc = 1
                 else:
-                    noop_rc, noop = stage("second-apply", ["apply", "--plan", str(plan_path)])
-                    cleanup_rc, cleanup = stage("cleanup", ["cleanup", "--plan", str(plan_path)])
+                    noop_rc, noop = stage(
+                        "second-apply", ["apply", "--plan", str(plan_path)], privileged=privileged_runtime
+                    )
+                    cleanup_rc, cleanup = stage(
+                        "cleanup", ["cleanup", "--plan", str(plan_path)], privileged=privileged_runtime
+                    )
                     ok = (
                         noop_rc == 0
                         and noop.get("status") == "no-op"
