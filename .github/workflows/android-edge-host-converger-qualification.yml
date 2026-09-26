@@ -8,6 +8,9 @@ on:
       workset_id: {required: false, default: manual}
       delegation_id: {required: false, default: qualification}
       assignment_id: {required: false, default: manual}
+concurrency:
+  group: aar-runtime-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
