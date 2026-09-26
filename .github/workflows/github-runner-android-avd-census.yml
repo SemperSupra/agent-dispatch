@@ -1,0 +1,32 @@
+name: Android AVD Capability Census
+on:
+  push:
+    branches: [exp/android-avd-capability-census-20260926]
+    paths:
+      - scripts/github_runner_android_avd_catalog.py
+      - .github/workflows/github-runner-android-avd-census.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  census:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/avd-census"
+          python3 scripts/github_runner_android_avd_catalog.py --label "${{ matrix.runner }}" --out "${RUNNER_TEMP}/avd-census/catalog.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-avd-census-${{ matrix.runner }}
+          path: ${{ runner.temp }}/avd-census/catalog.json
+          retention-days: 7
