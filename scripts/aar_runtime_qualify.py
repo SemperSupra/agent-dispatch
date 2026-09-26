@@ -102,6 +102,24 @@ def create_avd(root):
  c,o,e=run([str(p["avdmanager"]),"create","avd","--force","--name",AVD_NAME,"--package",image_package(*host()),"--device","pixel_7"],env=env,stdin="no\n",timeout=90)
  if c!=0: raise RuntimeError(f"AVD create failed {c}: {(e or o)[-1600:]}")
  return True
+def emulator_command(root,accel):
+ p=paths(root); env=environment(root)
+ args=[str(p["emulator"]),"-avd",AVD_NAME,"-port","5556","-no-window","-no-audio","-no-boot-anim","-no-snapshot-load","-no-snapshot-save","-gpu","swiftshader_indirect","-no-metrics",*accel]
+ elevated=False
+ if platform.system()=="Linux" and pathlib.Path("/dev/kvm").exists() and not os.access("/dev/kvm",os.W_OK):
+  sudo=shutil.which("sudo")
+  if sudo:
+   env_args=[f"{k}={env[k]}" for k in ("ANDROID_HOME","ANDROID_SDK_ROOT","ANDROID_AVD_HOME","ANDROID_USER_HOME","HOME") if k in env]
+   args=[sudo,"-n","env",*env_args,*args]; elevated=True
+ return args,elevated
+
+def restore_managed_ownership(root):
+ if platform.system()!="Linux" or not hasattr(os,"getuid"): return
+ sudo=shutil.which("sudo")
+ if not sudo:return
+ uid=os.getuid(); gid=os.getgid()
+ run([sudo,"-n","chown","-R",f"{uid}:{gid}",str(root)],timeout=60)
+
 def stop_emulator(proc,adb,serial,env,avd_root):
  if serial:
   run([str(adb),"-s",serial,"emu","kill"],env=env,timeout=20)
@@ -129,7 +147,8 @@ def verify(root,boot=True):
  if not boot:r.update({"passed":True,"classification":"TOOLS_READY"}); return r
  p=paths(root); env=environment(root); create_avd(root); native=o["virtualization"].get("status")=="usable"; attempts=[("native",["-accel","on"])] if native else []; attempts.append(("software",["-accel","off"])); records=[]
  for mode,accel in attempts:
-  proc=subprocess.Popen([str(p["emulator"]),"-avd",AVD_NAME,"-port","5556","-no-window","-no-audio","-no-boot-anim","-no-snapshot-load","-no-snapshot-save","-gpu","swiftshader_indirect","-no-metrics",*accel],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding="utf-8",errors="replace",env=env)
+  cmd,elevated=emulator_command(root,accel)
+  proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding="utf-8",errors="replace",env=env)
   serial="emulator-5556"; booted=False; start=time.monotonic()
   try:
    deadline=time.monotonic()+(180 if mode=="native" else 300)
@@ -147,6 +166,7 @@ def verify(root,boot=True):
    if booted and play:r.update({"passed":True,"classification":"LIVE_READY","boot":records}); return r
   finally:
    stop_emulator(proc,p["adb"],serial,env,p["avd_home"])
+   if elevated: restore_managed_ownership(root)
  r.update({"classification":"VENUE_ACCELERATION_UNAVAILABLE" if not native else "BOOT_FAILED","boot":records}); return r
 def apply(root):
  p=plan(root)
