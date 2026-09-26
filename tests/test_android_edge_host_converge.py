@@ -32,7 +32,8 @@ class ConvergerContractTests(unittest.TestCase):
             (driver / "android_winusb.inf").write_text("fixture", encoding="utf-8")
             with mock.patch.object(mod, "_windows_driver_records", return_value=[]):
                 p = mod.plan(root, "stage-ok")
-            self.assertFalse(p.windows_usb_driver_needed)
+            self.assertFalse(p.windows_usb_driver_package_needed)
+            self.assertFalse(p.windows_driver_store_needed)
 
     def test_revert_empty_root_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
