@@ -31,10 +31,10 @@ def main():
     host=pathlib.Path(os.environ.get("ANDROID_HOME") or "/usr/local/lib/android/sdk")
     sdkmanager=host/"cmdline-tools"/"latest"/"bin"/"sdkmanager"
     avdmanager=host/"cmdline-tools"/"latest"/"bin"/"avdmanager"
-    emulator=host/"emulator"/"emulator"
     adb=host/"platform-tools"/"adb"
-    if not all(x.exists() for x in (sdkmanager,avdmanager,emulator,adb)):
-        return finish("BLOCKED","required read-only host SDK tools missing",{})
+    if not all(x.exists() for x in (sdkmanager,avdmanager,adb)):
+        return finish("BLOCKED","required read-only host SDK bootstrap tools missing",
+                      {"sdkmanager":sdkmanager.exists(),"avdmanager":avdmanager.exists(),"adb":adb.exists()})
     base=pathlib.Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir())/"android-avd-disposable"
     if base.exists(): shutil.rmtree(base,ignore_errors=True)
     sdk=base/"sdk"; avdhome=base/"avd"; userhome=base/"android-user"; home=base/"home"
@@ -44,8 +44,10 @@ def main():
         "ANDROID_AVD_HOME":str(avdhome),"ANDROID_USER_HOME":str(userhome),"HOME":str(home)})
     try:
         before=set(str(p.relative_to(base)) for p in base.rglob("*"))
-        code,so,se=run([str(sdkmanager),f"--sdk_root={sdk}","--install",a.package],360,env,"y\n"*200)
-        if code!=0: return finish("BLOCKED","system image install failed",{"stderr":se[-2000:],"stdout":so[-2000:]})
+        code,so,se=run([str(sdkmanager),f"--sdk_root={sdk}","--install","emulator",a.package],360,env,"y\n"*200)
+        if code!=0: return finish("BLOCKED","disposable emulator/system-image install failed",{"stderr":se[-2000:],"stdout":so[-2000:]})
+        emulator=sdk/"emulator"/"emulator"
+        if not emulator.exists(): return finish("BLOCKED","disposable emulator package missing after install",{"stderr":se[-2000:]})
         cc,co,ce=run([str(avdmanager),"create","avd","--force","--name","profilequal","--package",a.package,"--device",a.profile],60,env,"no\n")
         if cc!=0: return finish("BLOCKED","AVD creation failed",{"stderr":ce[-2000:],"stdout":co[-1000:]})
         accel=run([str(emulator),"-accel-check"],20,env)
