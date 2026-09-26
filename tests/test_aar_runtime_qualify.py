@@ -9,6 +9,8 @@ class T(unittest.TestCase):
   self.assertEqual(set(M.CLT),{("Windows","x86_64"),("Linux","x86_64"),("Darwin","x86_64"),("Darwin","arm64")})
  def test_image_mapping(self):
   self.assertTrue(M.image_package("Darwin","arm64").endswith("arm64-v8a")); self.assertTrue(M.image_package("Linux","x86_64").endswith("x86_64"))
+ def test_accel_check_zero_means_usable(self):
+  self.assertEqual(M.accel_status(0),"usable"); self.assertEqual(M.accel_status(11),"unavailable")
  def test_revert_empty(self):
   with tempfile.TemporaryDirectory() as d:
    p=pathlib.Path(d)/"managed"; a=M.revert(p); b=M.revert(p); self.assertFalse(a["changed"]); self.assertFalse(b["changed"]); self.assertTrue(a["passed"] and b["passed"])
