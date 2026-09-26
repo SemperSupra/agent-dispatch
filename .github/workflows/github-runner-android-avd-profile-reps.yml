@@ -1,0 +1,50 @@
+name: Android AVD Disposable Profile Reps
+on:
+  push:
+    branches: [exp/android-avd-capability-census-20260926]
+    paths:
+      - scripts/github_runner_android_avd_profile.py
+      - .github/workflows/github-runner-android-avd-profile-reps.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reps:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - id: legacy-aosp
+            package: system-images;android-29;default;x86_64
+            profile: pixel_2
+          - id: aosp-atd
+            package: system-images;android-30;aosp_atd;x86_64
+            profile: pixel_2
+          - id: google-atd-current
+            package: system-images;android-36;google_atd;x86_64
+            profile: pixel_6
+          - id: pagesize16k
+            package: system-images;android-35;google_apis_ps16k;x86_64
+            profile: pixel_6
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/avd-profile-rep"
+          python3 scripts/github_runner_android_avd_profile.py \
+            --label ubuntu-24.04 \
+            --package '${{ matrix.package }}' \
+            --profile '${{ matrix.profile }}' \
+            --out "${RUNNER_TEMP}/avd-profile-rep/receipt.json"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-avd-profile-${{ matrix.id }}
+          path: ${{ runner.temp }}/avd-profile-rep/receipt.json
+          retention-days: 7
