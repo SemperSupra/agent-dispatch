@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {persist-credentials: false}
-      - run: python3 -m unittest -v tests/test_aar_runtime_qualify.py
+      - run: python3 -m unittest -v tests/test_aar_runtime_qualify.py tests/test_aar_drive_contract.py
   qualify:
     needs: contract
     strategy:
@@ -40,6 +40,12 @@ jobs:
       - name: Show human/automation/agent contract
         shell: pwsh
         run: '& "${{ matrix.python }}" scripts/aar_runtime_qualify.py contract --output json'
+      - name: Verify public Drive credential boundary
+        shell: pwsh
+        run: |
+          & "${{ matrix.python }}" scripts/aar_drive_contract.py selftest --output json
+          $plan = (& "${{ matrix.python }}" scripts/aar_drive_contract.py plan --output json | ConvertFrom-Json)
+          if ($plan.action -ne "credential-boundary") { throw "Public qualification unexpectedly has live Drive credentials" }
       - name: Run observe-plan-apply-verify-revert-reapply cycle
         id: cycle
         continue-on-error: true
