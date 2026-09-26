@@ -1,4 +1,5 @@
 name: Android AVD Disposable Profile Reps
+# Disposable SDK root qualification
 on:
   push:
     branches: [exp/android-avd-capability-census-20260926]
