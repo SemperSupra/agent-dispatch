@@ -1,0 +1,84 @@
+name: Android Edge Appliance Host Qualification
+run-name: android-edge-host:${{ inputs.workset_id || 'push' }}:${{ inputs.delegation_id || 'qualification' }}:${{ inputs.assignment_id || github.sha }}
+
+on:
+  push:
+    branches: [qual/android-edge-appliance-host-20260926]
+    paths:
+      - scripts/android_edge_host_converge.py
+      - scripts/Resolve-AndroidHostTools.ps1
+      - tests/test_android_edge_host_converge.py
+      - .github/workflows/android-edge-appliance-host-qualification.yml
+  workflow_dispatch:
+    inputs:
+      workset_id:
+        required: false
+        default: manual
+      delegation_id:
+        required: false
+        default: qualification
+      assignment_id:
+        required: false
+        default: manual
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_android_edge_host_converge.py
+
+  qualify:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            python: python3
+          - runner: windows-2025
+            python: python
+          - runner: macos-26
+            python: python3
+          - runner: macos-26-intel
+            python: python3
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Show human automation agent contract
+        shell: pwsh
+        run: '& "${{ matrix.python }}" scripts/android_edge_host_converge.py contract --output json'
+      - name: Run observe plan apply verify revert reapply cycle
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "android-edge-host"
+          & "${{ matrix.python }}" scripts/android_edge_host_converge.py cycle --root $root --output json |
+            Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP "android-edge-host-receipt.json")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate human PowerShell tool resolution
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "android-edge-host"
+          . ./scripts/Resolve-AndroidHostTools.ps1
+          $resolved = Enable-AndroidEdgeManagedTools -Root $root
+          $resolved | ConvertTo-Json -Depth 5
+          adb version
+          fastboot --version
+      - name: Upload public safe qualification receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-edge-appliance-host-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-edge-host-receipt.json
+          if-no-files-found: error
+          retention-days: 7
