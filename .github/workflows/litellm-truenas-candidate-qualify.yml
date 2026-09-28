@@ -98,7 +98,7 @@ jobs:
           services=data.get('services') or {}
           assert len(services)==1, services.keys()
           service=next(iter(services.values()))
-          assert service.get('image') == 'ghcr.io/sempersupra/litellm-appliance:0.1.0-dev', service.get('image')
+          assert service.get('image') == 'ghcr.io/sempersupra/litellm-appliance@sha256:6209a4f4642a5e8b9bc1a4e7f9d853a9cb3a2a6c549aec5691f6370afefd0c26', service.get('image')
           vols=service.get('volumes') or []
           text='\n'.join(str(v) for v in vols)
           assert '/config' in text and '/run/secrets/semper-env' in text, text
