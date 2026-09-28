@@ -1,0 +1,109 @@
+name: Container Actions-runner Readiness
+
+on:
+  push:
+    branches:
+      - exp/container-runner-readiness
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-runner-readiness
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate readiness contract
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/container_runner_readiness.py
+          python3 -m unittest -v tests/test_container_runner_readiness.py
+
+  windows:
+    needs: contract
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Stage official runner inside Windows process container
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\container-runner-readiness" | Out-Null
+          python scripts/container_runner_readiness.py --lane windows --out "$env:RUNNER_TEMP\container-runner-readiness\windows.json"
+      - name: Upload Windows readiness receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-runner-readiness-windows-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\container-runner-readiness\windows.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  lxc:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare LXC
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            lxc lxc-templates uidmap bridge-utils dnsmasq-base iproute2 iptables
+          sudo systemctl start lxc-net || true
+      - name: Stage official runner through provider-neutral kit inside LXC
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/container-runner-readiness"
+          sudo -E python3 scripts/container_runner_readiness.py --lane lxc --out "$RUNNER_TEMP/container-runner-readiness/lxc.json"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/container-runner-readiness/lxc.json" || true
+      - name: Upload LXC readiness receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-runner-readiness-lxc-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/container-runner-readiness/lxc.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  incus:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare Incus
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            incus dnsmasq-base iproute2 iptables
+      - name: Stage official runner through provider-neutral kit inside Incus
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/container-runner-readiness"
+          sudo -E python3 scripts/container_runner_readiness.py --lane incus --out "$RUNNER_TEMP/container-runner-readiness/incus.json"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/container-runner-readiness/incus.json" || true
+      - name: Upload Incus readiness receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-runner-readiness-incus-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/container-runner-readiness/incus.json
+          if-no-files-found: warn
+          retention-days: 7
