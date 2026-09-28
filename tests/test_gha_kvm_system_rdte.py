@@ -15,6 +15,8 @@ PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
 TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
+TRUENAS_INSTALL = ROOT / "scripts" / "truenas_installer_rpc_install.py"
+TRUENAS_MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
 
 
 class SystemRdteContractTests(unittest.TestCase):
@@ -238,6 +240,24 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("installer_rpc_hostfwd_accepted", text)
         self.assertNotIn("RPC_REACHABLE", text)
         self.assertIn("completed vendor WebSocket/JSON-RPC discovery exchange", text)
+
+    def test_future_truenas_mutating_clients_compile_and_refuse_ambiguity(self):
+        install = TRUENAS_INSTALL.read_text(encoding="utf-8")
+        middleware = TRUENAS_MIDDLEWARE.read_text(encoding="utf-8")
+        self.assertIn("expected exactly one non-removable disk", install)
+        self.assertIn("expected exactly one non-loopback interface", install)
+        self.assertIn('"truenas_admin"', install)
+        self.assertIn('"auth.login_ex"', middleware)
+        self.assertIn('"PASSWORD_PLAIN"', middleware)
+        self.assertIn('"system.version"', middleware)
+        self.assertIn('"system.info"', middleware)
+        for path in (TRUENAS_INSTALL, TRUENAS_MIDDLEWARE):
+            cp = subprocess.run(
+                ["python3", "-m", "py_compile", str(path)],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(cp.returncode, 0, cp.stderr)
 
 
 if __name__ == "__main__":
