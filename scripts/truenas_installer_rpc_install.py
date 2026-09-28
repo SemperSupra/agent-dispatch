@@ -95,7 +95,7 @@ def main():
                 ]
             },
         }
-        rpc_call(ws, "install", 4, install_params, progress=payload["progress"])
+        rpc_call(ws, "install", 4, [install_params], progress=payload["progress"])
         payload["oracleSatisfied"] = True
         payload["classification"] = "SUPPORTED"
         payload["detail"] = "vendor installer completed on the sole disposable disk"

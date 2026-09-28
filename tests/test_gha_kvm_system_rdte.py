@@ -268,6 +268,10 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_ddp_probe.py", text)
         self.assertIn('NIC_MAC="52:54:00:54:4e:26"', text)
 
+    def test_truenas_install_rpc_uses_one_positional_object(self):
+        text = TRUENAS_INSTALL.read_text(encoding="utf-8")
+        self.assertIn('rpc_call(ws, "install", 4, [install_params]', text)
+
 
 if __name__ == "__main__":
     unittest.main()

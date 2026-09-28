@@ -120,7 +120,9 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
 
                     req = peer.recv_json(conn)
                     self.assertEqual(req["method"], "install")
-                    params = req["params"]
+                    self.assertIsInstance(req["params"], list)
+                    self.assertEqual(len(req["params"]), 1)
+                    params = req["params"][0]
                     self.assertEqual(params["disks"], ["vda"])
                     self.assertTrue(params["set_pmbr"])
                     self.assertEqual(params["authentication"]["username"], "truenas_admin")
