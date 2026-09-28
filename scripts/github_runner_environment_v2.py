@@ -345,7 +345,7 @@ def _darwin_details() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
 
     for command, args in (
         ("xcodebuild", ["-version"]),
-        ("xcrun", ["--version"]),
+        ("xcrun", ["--show-sdk-path"]),
         ("cups-config", ["--version"]),
         ("lpstat", ["-r"]),
     ):
@@ -429,14 +429,16 @@ def _windows_details() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     wsl = shutil.which("wsl") or shutil.which("wsl.exe")
     if wsl:
         code, out, err = _run([wsl, "--status"], timeout=15)
+        clean_out = out.replace("\x00", "")
+        clean_err = err.replace("\x00", "")
         capabilities.append(_cap(
             "windows:wsl-status", observed=True, installed=True,
             callable_=code == 0, exercised=True, oracle=code == 0,
             classification="SUPPORTED" if code == 0 else "INCONCLUSIVE",
             reason="wsl --status succeeded" if code == 0
                    else "WSL command exists but status query did not succeed",
-            evidence={"exit_code": code, "stdout": out[:800] or None,
-                      "stderr": err[:500] or None},
+            evidence={"exit_code": code, "stdout": clean_out[:800] or None,
+                      "stderr": clean_err[:500] or None},
         ))
 
     docker = shutil.which("docker") or shutil.which("docker.exe")
@@ -528,6 +530,9 @@ def build_receipt(label: str | None = None) -> dict[str, Any]:
     )
     receipt["environment"]["container_image"] = os.environ.get("CENSUS_CONTAINER_IMAGE")
     receipt["environment"]["service_container"] = os.environ.get("CENSUS_SERVICE_CONTAINER")
+    receipt["environment"]["label_status"] = os.environ.get("CENSUS_LABEL_STATUS")
+    if not receipt["provenance"].get("image_version"):
+        receipt["provenance"]["image_version"] = None
 
     receipt["observations"].extend([
         _obs("common:network-family-counts", _network_interface_counts()),
@@ -572,6 +577,25 @@ def build_receipt(label: str | None = None) -> dict[str, Any]:
         observations, capabilities = _darwin_details()
     elif system == "Windows":
         observations, capabilities = _windows_details()
+        selected = next(
+            (item["value"] for item in observations if item["name"] == "windows:selected-system"),
+            None,
+        )
+        if isinstance(selected, dict):
+            total_kib = selected.get("total_visible_memory_kib")
+            free_kib = selected.get("free_physical_memory_kib")
+            if isinstance(total_kib, (int, float)):
+                receipt["resources"]["memory"]["total_bytes"] = int(total_kib) * 1024
+            if isinstance(free_kib, (int, float)):
+                receipt["resources"]["memory"]["available_bytes"] = int(free_kib) * 1024
+            if selected.get("cpu_name"):
+                receipt["resources"]["cpu"]["model"] = selected["cpu_name"]
+        admin_cap = next(
+            (item for item in capabilities if item["name"] == "windows:administrator-context"),
+            None,
+        )
+        if admin_cap is not None:
+            receipt["runner"]["privileged"] = bool(admin_cap.get("oracleSatisfied"))
     else:
         observations = [_obs("platform:unhandled-system", system)]
         capabilities = []
