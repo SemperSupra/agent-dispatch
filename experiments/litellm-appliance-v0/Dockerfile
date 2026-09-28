@@ -11,7 +11,7 @@ LABEL org.opencontainers.image.title="SemperSupra LiteLLM Appliance" \
       com.sempersupra.litellm.upstream.digest="sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7" \
       com.sempersupra.contract.profile="gateway-minimal"
 
-COPY --chmod=0555 appliances/litellm/semper-entrypoint.sh /usr/local/bin/semper-litellm-entrypoint
+COPY --chmod=0555 semper-entrypoint.sh /usr/local/bin/semper-litellm-entrypoint
 
 
 ENTRYPOINT ["/usr/local/bin/semper-litellm-entrypoint"]
