@@ -77,7 +77,7 @@ jobs:
     needs: [contract, proxmox-9-2]
     if: needs.contract.result == 'success'
     runs-on: ubuntu-26.04
-    timeout-minutes: 18
+    timeout-minutes: 32
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -94,6 +94,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
           bash scripts/gha_kvm_truenas_rdte.sh \
             --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
+            --rung t1 \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
       - name: Preserve TrueNAS harness failure evidence
@@ -106,7 +107,7 @@ jobs:
           import json, pathlib, sys
           pathlib.Path(sys.argv[1]).write_text(json.dumps({
             "contract":"gha-kvm-system-lab/v1",
-            "target":{"product":"truenas","version":"26.0.0-BETA.3","rung":"T0"},
+            "target":{"product":"truenas","version":"26.0.0-BETA.3","rung":"T1"},
             "classification":"HARNESS_FAILURE",
             "oracleSatisfied":False,
             "phase":"workflow-fallback",
