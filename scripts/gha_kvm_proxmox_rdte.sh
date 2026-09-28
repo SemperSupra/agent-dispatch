@@ -133,6 +133,7 @@ printf 'mode = "iso"\n' >"$STATE_DIR/auto-installer-mode.toml"
 
 xorriso -osirrox on -indev "$ISO" -extract /boot/grub/grub.cfg "$STATE_DIR/grub.cfg" >/dev/null 2>&1 ||
   fail_evidence HARNESS_FAILURE prepare "could not extract Proxmox GRUB config"
+chmod u+w "$STATE_DIR/grub.cfg"
 python3 - "$STATE_DIR/grub.cfg" <<'PY'
 import pathlib, sys
 p=pathlib.Path(sys.argv[1])
