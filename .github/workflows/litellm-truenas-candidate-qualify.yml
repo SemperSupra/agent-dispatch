@@ -122,7 +122,7 @@ jobs:
             "schema": "semper-supra.truenas-candidate-qualification/1",
             "status": "PASS",
             "truenas_apps_commit": "4df7498747aad81b1049135539c65c383e42df95",
-            "truenas_lib_version": "2.3.14",
+            "truenas_lib_version": "2.3.4",
             "validator_digest": os.environ["VALIDATOR_DIGEST"],
             "oracles": {
               "official_dev_catalog_validation": True,
