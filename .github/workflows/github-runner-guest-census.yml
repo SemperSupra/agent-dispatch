@@ -1,0 +1,65 @@
+name: GitHub Runner BSD and Illumos Guest Census
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - run: python3 -m unittest -v tests/test_github_runner_guest_receipt.py
+  guest:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - {slug: freebsd-15.1, os: freebsd, version: '15.1', arch: x86-64}
+          - {slug: openbsd-7.9, os: openbsd, version: '7.9', arch: x86-64}
+          - {slug: netbsd-11.0, os: netbsd, version: '11.0', arch: x86-64}
+          - {slug: omnios-r151058, os: omnios, version: 'r151058', arch: x86-64}
+          - {slug: dragonflybsd-6.4.2, os: dragonflybsd, version: '6.4.2', arch: x86-64}
+          - {slug: haiku-r1beta6, os: haiku, version: 'r1beta6', arch: x86-64}
+          - {slug: freebsd-14.5, os: freebsd, version: '14.5', arch: x86-64}
+          - {slug: freebsd-15.1-arm64, os: freebsd, version: '15.1', arch: arm64}
+          - {slug: freebsd-15.1-riscv64, os: freebsd, version: '15.1', arch: riscv64}
+          - {slug: openbsd-7.8, os: openbsd, version: '7.8', arch: x86-64}
+          - {slug: openbsd-7.9-arm64, os: openbsd, version: '7.9', arch: arm64}
+          - {slug: netbsd-10.1, os: netbsd, version: '10.1', arch: x86-64}
+          - {slug: netbsd-11.0-arm64, os: netbsd, version: '11.0', arch: arm64}
+          - {slug: omnios-r151056, os: omnios, version: 'r151056', arch: x86-64}
+          - {slug: haiku-r1beta5, os: haiku, version: 'r1beta5', arch: x86-64}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Start commit-pinned QEMU guest
+        uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641
+        with:
+          operating_system: ${{ matrix.os }}
+          version: ${{ matrix.version }}
+          architecture: ${{ matrix.arch }}
+          memory: 2G
+          cpu_count: 2
+          sync_files: true
+      - name: Run bounded guest census
+        shell: cpa.sh {0}
+        run: sh scripts/github_runner_guest_census.sh guest-census.txt
+      - name: Materialize v1 guest receipt
+        env: {CENSUS_REPOSITORY_VISIBILITY: public}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/guest-census"
+          python3 scripts/github_runner_guest_receipt.py --raw guest-census.txt --os "${{ matrix.os }}" --version "${{ matrix.version }}" --arch "${{ matrix.arch }}" --parent-label ubuntu-24.04 --adapter-commit e0b9770014ba65d5e0815f15b74031c3a635f641 --out "${RUNNER_TEMP}/guest-census/receipt.json"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-guest-${{ matrix.slug }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/guest-census/receipt.json
+          if-no-files-found: warn
+          retention-days: 14

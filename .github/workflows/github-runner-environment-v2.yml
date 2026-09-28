@@ -1,0 +1,188 @@
+name: GitHub Runner Environment Census V2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test V2 receipt and drift semantics
+        run: |
+          python3 -m unittest -v tests/test_github_runner_environment_v2.py
+          python3 -m unittest -v tests/test_github_runner_receipt_diff.py
+
+  native-unix:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            status: supported
+          - runner: ubuntu-22.04-arm
+            status: supported
+          - runner: ubuntu-24.04
+            status: supported
+          - runner: ubuntu-24.04-arm
+            status: supported
+          - runner: ubuntu-26.04
+            status: supported
+          - runner: ubuntu-26.04-arm
+            status: supported
+          - runner: ubuntu-slim
+            status: supported-shared-container
+          - runner: macos-14
+            status: deprecated
+          - runner: macos-15
+            status: supported
+          - runner: macos-15-intel
+            status: supported
+          - runner: macos-26
+            status: supported
+          - runner: macos-26-intel
+            status: supported
+          - runner: xcode-27
+            status: preview
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run V2 native-host census
+        env:
+          CENSUS_REQUESTED_LABEL: ${{ matrix.runner }}
+          CENSUS_REPOSITORY_VISIBILITY: public
+          CENSUS_EXECUTION_MODEL: ${{ matrix.runner == 'ubuntu-slim' && 'shared-container' || 'native-host' }}
+          CENSUS_LABEL_STATUS: ${{ matrix.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/runner-environment-v2"
+          python3 scripts/github_runner_environment_v2.py --label "${{ matrix.runner }}" --out "${RUNNER_TEMP}/runner-environment-v2/receipt.json"
+      - name: Upload V2 receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-environment-v2-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-environment-v2/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+  native-windows:
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - runner: windows-2022
+            status: supported
+          - runner: windows-2025
+            status: supported
+          - runner: windows-2025-vs2026
+            status: supported
+          - runner: windows-11-arm
+            status: supported
+          - runner: windows-11-vs2026-arm
+            status: supported
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run V2 Windows native-host census
+        env:
+          CENSUS_REQUESTED_LABEL: ${{ matrix.runner }}
+          CENSUS_REPOSITORY_VISIBILITY: public
+          CENSUS_EXECUTION_MODEL: native-host
+          CENSUS_LABEL_STATUS: ${{ matrix.status }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/runner-environment-v2" | Out-Null
+          python scripts/github_runner_environment_v2.py --label "${{ matrix.runner }}" --out "$env:RUNNER_TEMP/runner-environment-v2/receipt.json"
+      - name: Upload V2 receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-environment-v2-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-environment-v2/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+  job-container:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: python:3.13-bookworm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Census Actions job-container execution model
+        env:
+          CENSUS_REQUESTED_LABEL: ubuntu-24.04/job-container-python3.13-bookworm
+          CENSUS_REPOSITORY_VISIBILITY: public
+          CENSUS_EXECUTION_MODEL: job-container
+          CENSUS_PARENT_RUNNER_LABEL: ubuntu-24.04
+          CENSUS_CONTAINER_IMAGE: python:3.13-bookworm
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/runner-environment-v2"
+          python3 scripts/github_runner_environment_v2.py --label "ubuntu-24.04/job-container-python3.13-bookworm" --out "${RUNNER_TEMP}/runner-environment-v2/receipt.json"
+      - name: Upload job-container receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-environment-v2-job-container-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-environment-v2/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+  service-container:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Census host plus service-container network
+        env:
+          CENSUS_REQUESTED_LABEL: ubuntu-24.04/service-container-redis7-alpine
+          CENSUS_REPOSITORY_VISIBILITY: public
+          CENSUS_EXECUTION_MODEL: native-host-with-service-container
+          CENSUS_PARENT_RUNNER_LABEL: ubuntu-24.04
+          CENSUS_SERVICE_CONTAINER: redis:7-alpine
+          CENSUS_SERVICE_HOST: 127.0.0.1
+          CENSUS_SERVICE_PORT: '6379'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/runner-environment-v2"
+          python3 scripts/github_runner_environment_v2.py --label "ubuntu-24.04/service-container-redis7-alpine" --out "${RUNNER_TEMP}/runner-environment-v2/receipt.json"
+      - name: Upload service-container receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-environment-v2-service-container-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-environment-v2/receipt.json
+          if-no-files-found: error
+          retention-days: 14
