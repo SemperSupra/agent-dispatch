@@ -136,10 +136,11 @@ questions:
             attrs:
               - variable: cpus
                 label: CPUs
+                description: CPU limit for LiteLLM.
                 schema:
-                  type: float
+                  type: int
                   default: 2
-                  min: 0.5
+                  min: 1
                   required: true
               - variable: memory
                 label: Memory (MiB)
