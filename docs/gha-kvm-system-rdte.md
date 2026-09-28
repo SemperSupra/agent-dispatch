@@ -165,3 +165,23 @@ T2 is a single disposable-system execution with separately retained sub-oracles:
 An installed-middleware failure therefore does not erase a successful installer
 sub-oracle. Fresh TrueNAS installation installs both i386-pc GRUB and EFI GRUB,
 so the disposable legacy-BIOS QEMU target is a valid post-install boot oracle.
+
+
+### TrueNAS T3 disposable ZFS data pool
+
+T3 extends the accepted T2 system without changing the installer disk shape. The
+installer still sees only the 24-GiB boot target. After vendor installation completes,
+the installed-system boot adds exactly two experiment-owned 8-GiB sparse virtio disks.
+
+The T3 middleware client then:
+- authenticates through the accepted installed-system DDP surface;
+- records `boot.get_disks` and refuses any overlap with data candidates;
+- requires exactly two disks from `disk.get_unused`;
+- creates `rdtepool` as one two-disk `MIRROR`;
+- waits for the returned `pool.create` job ID to reach `SUCCESS`;
+- requires an independent `pool.query` oracle reporting `ONLINE` and healthy;
+- requires `pool.get_disks` membership to match exactly the two selected data disks.
+
+QEMU disk attachment, middleware unused-disk classification, job acceptance, and pool
+health are separate observations. T3 does not imply Apps support; T4 remains a distinct
+gate.

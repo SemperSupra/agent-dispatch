@@ -17,6 +17,7 @@ TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
 TRUENAS_INSTALL = ROOT / "scripts" / "truenas_installer_rpc_install.py"
 TRUENAS_MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
+TRUENAS_POOL = ROOT / "scripts" / "truenas_middleware_pool_probe.py"
 
 
 class SystemRdteContractTests(unittest.TestCase):
@@ -272,6 +273,24 @@ class SystemRdteContractTests(unittest.TestCase):
         text = TRUENAS_INSTALL.read_text(encoding="utf-8")
         self.assertIn('rpc_call(ws, "install", 4, [install_params]', text)
 
+    def test_truenas_t3_real_harness_contract(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("t0|t1|t2|t3", text)
+        self.assertIn('DATA_DISK_SIZE="8G"', text)
+        self.assertIn("DATA_DISK_COUNT=2", text)
+        self.assertIn('DATA_POOL_NAME="rdtepool"', text)
+        self.assertIn("data${index}.qcow2", text)
+        self.assertIn('"${DATA_DRIVE_ARGS[@]}"', text)
+        self.assertIn("truenas_middleware_pool_probe.py", text)
+        self.assertIn('"data_pool_created"', text)
+        self.assertIn('"data_pool"', text)
+        self.assertIn("--rung t3", workflow)
+        self.assertIn("scripts/truenas_middleware_pool_probe.py", workflow)
+        shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
+        self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
+        py_check = subprocess.run(["python3", "-m", "py_compile", str(TRUENAS_POOL)], text=True, capture_output=True)
+        self.assertEqual(py_check.returncode, 0, py_check.stderr)
 
 if __name__ == "__main__":
     unittest.main()
