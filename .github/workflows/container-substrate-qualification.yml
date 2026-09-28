@@ -52,21 +52,31 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Build pinned Apple container runtime
+      - name: Install pinned signed Apple container runtime
         shell: bash
         run: |
           set +e
-          rm -rf "$RUNNER_TEMP/apple-container"
-          git clone --depth 1 --branch 1.4.1 https://github.com/apple/container.git "$RUNNER_TEMP/apple-container"
-          clone_rc=$?
-          build_rc=127
-          if [ "$clone_rc" -eq 0 ]; then
-            make -C "$RUNNER_TEMP/apple-container" all
-            build_rc=$?
+          pkg="$RUNNER_TEMP/container-1.4.1-installer-signed.pkg"
+          curl -fL --retry 3 --retry-delay 2 \
+            -o "$pkg" \
+            https://github.com/apple/container/releases/download/1.4.1/container-1.4.1-installer-signed.pkg
+          download_rc=$?
+          digest_rc=127
+          install_rc=127
+          if [ "$download_rc" -eq 0 ]; then
+            observed="$(shasum -a 256 "$pkg" | awk '{print $1}')"
+            expected="c0d2716afefbb194c93fae662e9cae7cc186bcbcf746816608ec673dd648a6a4"
+            if [ "$observed" = "$expected" ]; then digest_rc=0; else digest_rc=1; fi
           fi
-          echo "APPLE_CONTAINER_BIN=$RUNNER_TEMP/apple-container/bin/container" >> "$GITHUB_ENV"
-          echo "APPLE_CONTAINER_CLONE_RC=$clone_rc" >> "$GITHUB_ENV"
-          echo "APPLE_CONTAINER_BUILD_RC=$build_rc" >> "$GITHUB_ENV"
+          if [ "$digest_rc" -eq 0 ]; then
+            sudo installer -pkg "$pkg" -target /
+            install_rc=$?
+          fi
+          runtime="$(command -v container || true)"
+          echo "APPLE_CONTAINER_BIN=$runtime" >> "$GITHUB_ENV"
+          echo "APPLE_CONTAINER_DOWNLOAD_RC=$download_rc" >> "$GITHUB_ENV"
+          echo "APPLE_CONTAINER_DIGEST_RC=$digest_rc" >> "$GITHUB_ENV"
+          echo "APPLE_CONTAINER_INSTALL_RC=$install_rc" >> "$GITHUB_ENV"
           exit 0
       - name: Qualify Apple container lifecycle and execution envelope
         env:
