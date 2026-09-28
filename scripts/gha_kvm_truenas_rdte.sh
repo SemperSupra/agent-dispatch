@@ -149,7 +149,9 @@ p.write_text(prefix + "\n".join(lines)+"\n", encoding="utf-8")
 PY
 
 SERIAL_ISO="$STATE_DIR/truenas-serial.iso"
-xorriso -indev "$ISO" -outdev "$SERIAL_ISO" -boot_image any replay \
+cp --reflink=auto "$ISO" "$SERIAL_ISO"
+chmod u+w "$SERIAL_ISO"
+xorriso -boot_image any keep -dev "$SERIAL_ISO" \
   -map "$STATE_DIR/grub.cfg" "$GRUB_PATH" -commit >/dev/null 2>"$STATE_DIR/xorriso.log" ||
   fail_evidence HARNESS_FAILURE prepare "failed to construct serial-observable TrueNAS ISO"
 
