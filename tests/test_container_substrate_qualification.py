@@ -57,10 +57,16 @@ class ContainerSubstrateTests(unittest.TestCase):
     def test_linux_inner_census_names_required_sections(self):
         for section in (
             "UNAME", "CPU", "MEMINFO", "CGROUP", "MOUNTS",
-            "NETWORK", "ROUTES", "DNS", "DNS_ORACLE", "HTTPS_EGRESS",
+            "NETWORK", "ROUTES", "DNS", "DNS_ORACLE", "TCP_443_ORACLE", "HTTPS_EGRESS",
             "DEVICES", "FILESYSTEM", "IDENTITY",
         ):
             self.assertIn(f"==={section}===", MOD.LINUX_INNER)
+
+    def test_bridge_nat_unavailable_off_linux_is_data(self):
+        with mock.patch.object(MOD.platform, "system", return_value="Darwin"):
+            result = MOD.ensure_bridge_nat("test0")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["created"], [])
 
     def test_parse_sections_returns_structured_evidence(self):
         parsed = MOD.parse_sections("===CPU===\n4\n===HTTPS_EGRESS===\nPASS\n")
