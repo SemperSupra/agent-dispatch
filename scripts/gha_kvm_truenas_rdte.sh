@@ -44,7 +44,8 @@ OBSERVED_ISO_SHA=""
 EXPECTED_ISO_SHA=""
 GRUB_PATH=""
 T0_OBSERVED="false"
-RPC_REACHABLE="false"
+RPC_HOSTFWD_ACCEPTED="false"
+RPC_DISCOVERY_OK="false"
 RPC_DISCOVERY_JSON=""
 QEMU_ALIVE_AT_GATE="unknown"
 cleanup() {
@@ -66,8 +67,8 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_EXPECTED="$EXPECTED_ISO_SHA" R_GRUB="$GRUB_PATH"
-  export R_RUNG="$RUNG" R_T0="$T0_OBSERVED" R_RPC_REACHABLE="$RPC_REACHABLE"
-  export R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
+  export R_RUNG="$RUNG" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
+  export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -88,9 +89,10 @@ payload = {
   "installer_grub_path": os.environ.get("R_GRUB") or None,
   "oracles": {
     "vendor_iso_digest": bool(os.environ.get("R_ISO_SHA")) and os.environ.get("R_ISO_SHA") == os.environ.get("R_EXPECTED"),
-    "installer_environment_observed": os.environ.get("R_T0") == "true",
-    "installer_rpc_port_reachable": os.environ.get("R_RPC_REACHABLE") == "true",
-    "installer_rpc_readonly": bool(os.environ.get("R_RPC_DISCOVERY")),
+    "installer_environment_observed": os.environ.get("R_T0") == "true" or os.environ.get("R_RPC_OK") == "true",
+    "installer_serial_marker_observed": os.environ.get("R_T0") == "true",
+    "installer_rpc_hostfwd_accepted": os.environ.get("R_RPC_HOSTFWD") == "true",
+    "installer_rpc_readonly": os.environ.get("R_RPC_OK") == "true",
   },
   "rpc_discovery": json.loads(os.environ["R_RPC_DISCOVERY"]) if os.environ.get("R_RPC_DISCOVERY") else None,
   "qemu_alive_at_gate": os.environ.get("R_QEMU_ALIVE"),
@@ -192,6 +194,27 @@ finally:
 PY
 }
 
+try_rpc_discovery() {
+  local rpc_out="$STATE_DIR/rpc-discovery.json"
+  rm -f "$rpc_out"
+  python3 "$SCRIPT_DIR/truenas_installer_rpc_probe.py"     --host 127.0.0.1 --port "$RPC_PORT" --out "$rpc_out" --timeout 3     >/dev/null 2>&1 || true
+  [[ -f "$rpc_out" ]] || return 1
+  RPC_DISCOVERY_JSON="$(cat "$rpc_out")"
+  if python3 - "$rpc_out" <<'PY'
+import json, pathlib, sys
+try:
+    data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if data.get("oracleSatisfied") is True else 1)
+PY
+  then
+    RPC_DISCOVERY_OK="true"
+    return 0
+  fi
+  return 1
+}
+
 qemu-img create -q -f qcow2 "$STATE_DIR/boot.qcow2" "$DISK_SIZE"
 RPC_PORT="$(python3 - <<'PY'
 import socket
@@ -211,8 +234,9 @@ sudo -n qemu-system-x86_64 \
 QEMU_PID="$(sudo -n cat "$STATE_DIR/qemu.pid")"
 
 T0_OBSERVED="false"
-RPC_REACHABLE="false"
-for _ in $(seq 1 220); do
+RPC_HOSTFWD_ACCEPTED="false"
+RPC_DISCOVERY_OK="false"
+for attempt in $(seq 1 220); do
   if grep -Eqi 'TrueNAS|truenas-installer|TrueNAS Installer|Install/Upgrade' "$STATE_DIR/serial.log" 2>/dev/null; then
     T0_OBSERVED="true"
   fi
@@ -225,9 +249,15 @@ for _ in $(seq 1 220); do
   if [[ "$RUNG" == "t0" && "$T0_OBSERVED" == "true" ]]; then
     break
   fi
-  if [[ "$RUNG" == "t1" ]] && port_open "$RPC_PORT"; then
-    RPC_REACHABLE="true"
-    break
+  if [[ "$RUNG" == "t1" ]]; then
+    if port_open "$RPC_PORT"; then
+      RPC_HOSTFWD_ACCEPTED="true"
+    fi
+    # QEMU hostfwd accepting TCP is only a scheduling hint. The oracle is a
+    # completed vendor WebSocket/JSON-RPC discovery exchange.
+    if (( attempt % 2 == 0 )) && try_rpc_discovery; then
+      break
+    fi
   fi
   sleep 3
 done
@@ -243,23 +273,6 @@ if [[ "$RUNG" == "t0" ]]; then
   exit 0
 fi
 
-[[ "$T0_OBSERVED" == "true" ]] || fail_evidence ORACLE_FAILURE installer-rpc "T1 did not preserve the T0 installer-environment oracle"
-[[ "$RPC_REACHABLE" == "true" ]] || fail_evidence ORACLE_FAILURE installer-rpc "TrueNAS installer RPC port 8080 did not become reachable"
-
-RPC_OUT="$STATE_DIR/rpc-discovery.json"
-python3 "$SCRIPT_DIR/truenas_installer_rpc_probe.py"   --host 127.0.0.1 --port "$RPC_PORT" --out "$RPC_OUT" --timeout 8 || true
-if [[ -f "$RPC_OUT" ]]; then
-  RPC_DISCOVERY_JSON="$(cat "$RPC_OUT")"
-fi
-RPC_OK="$(python3 - "$RPC_OUT" <<'PY'
-import json, pathlib, sys
-try:
-    data=json.loads(pathlib.Path(sys.argv[1]).read_text())
-except Exception:
-    print("false")
-else:
-    print("true" if data.get("oracleSatisfied") is True else "false")
-PY
-)"
-[[ "$RPC_OK" == "true" ]] || fail_evidence ORACLE_FAILURE installer-rpc "TrueNAS installer WebSocket JSON-RPC answered but read-only discovery oracle failed"
-write_receipt SUPPORTED true installer-rpc "pinned TrueNAS installer answered read-only JSON-RPC discovery methods"
+[[ "$RPC_DISCOVERY_OK" == "true" ]] ||
+  fail_evidence ORACLE_FAILURE installer-rpc "TrueNAS installer did not complete the read-only WebSocket JSON-RPC discovery oracle"
+write_receipt SUPPORTED true installer-rpc "pinned TrueNAS installer answered read-only JSON-RPC discovery methods; stronger RPC evidence also establishes the installer environment for this rung"

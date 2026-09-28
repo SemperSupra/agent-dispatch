@@ -231,6 +231,14 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
 
+    def test_truenas_t1_requires_real_rpc_not_hostfwd_tcp(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn("try_rpc_discovery", text)
+        self.assertIn("RPC_DISCOVERY_OK", text)
+        self.assertIn("installer_rpc_hostfwd_accepted", text)
+        self.assertNotIn("RPC_REACHABLE", text)
+        self.assertIn("completed vendor WebSocket/JSON-RPC discovery exchange", text)
+
 
 if __name__ == "__main__":
     unittest.main()

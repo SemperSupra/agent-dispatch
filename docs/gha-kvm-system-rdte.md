@@ -129,3 +129,18 @@ documentation-only changes do not launch a system VM. Manual dispatch can reques
 When both heavy targets are requested they remain serialized. This keeps the public
 free-tier RDTE useful without replaying multi-gigabyte installs that cannot change the
 evidence under test.
+
+
+### TrueNAS T1 service-oracle semantics
+
+QEMU user-mode `hostfwd` accepting a localhost TCP connection is not a TrueNAS
+installer-service oracle. T1 records that condition only as
+`installer_rpc_hostfwd_accepted` diagnostic evidence. T1 is satisfied only by a
+completed WebSocket/JSON-RPC exchange with the pinned installer that successfully
+returns the read-only discovery methods.
+
+The T0 serial marker remains the T0-only oracle. On T1, a successful response from
+the vendor installer RPC is stronger evidence that the installer environment is
+running, so lack of an earlier serial-label observation does not negate a completed
+RPC oracle. This avoids both a premature TCP false positive and a weaker-oracle
+dependency blocking a stronger observed interface.
