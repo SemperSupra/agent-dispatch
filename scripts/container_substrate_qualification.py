@@ -17,7 +17,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "container-substrate/0.1"
+VERSION = "container-substrate/0.2"
 
 
 def run(argv, timeout=60, cwd=None, env=None):
@@ -65,6 +65,29 @@ def read_text(path, limit=20000):
         return pathlib.Path(path).read_text(errors="replace")[:limit]
     except Exception:
         return None
+
+
+def parse_json_stdout(result):
+    if not ok(result) or not result.get("stdout"):
+        return None
+    try:
+        return json.loads(result["stdout"])
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_sections(text):
+    """Parse ===NAME=== delimited probe output without losing raw evidence."""
+    sections = {}
+    current = None
+    for line in (text or "").splitlines():
+        if line.startswith("===") and line.endswith("===") and len(line) > 6:
+            current = line[3:-3]
+            sections.setdefault(current, [])
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return {name: "\n".join(lines).strip() for name, lines in sections.items()}
 
 
 def host_census():
@@ -126,20 +149,42 @@ def host_census():
     elif platform.system() == "Windows":
         ps = r"""
 $ErrorActionPreference='SilentlyContinue'
+function NetSnapshot {
+  @(
+    Get-NetIPConfiguration | ForEach-Object {
+      [ordered]@{
+        interfaceAlias = $_.InterfaceAlias
+        interfaceDescription = $_.InterfaceDescription
+        ipv4 = @($_.IPv4Address | ForEach-Object { $_.IPAddress })
+        ipv6 = @($_.IPv6Address | ForEach-Object { $_.IPAddress })
+        gateways = @($_.IPv4DefaultGateway | ForEach-Object { $_.NextHop })
+        dns = @($_.DNSServer.ServerAddresses)
+      }
+    }
+  )
+}
 [ordered]@{
   computer = Get-CimInstance Win32_ComputerSystem | Select-Object Name,Manufacturer,Model,NumberOfLogicalProcessors,TotalPhysicalMemory
   os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,OSArchitecture,FreePhysicalMemory,TotalVisibleMemorySize
   cpu = @(Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,VirtualizationFirmwareEnabled)
   display = @(Get-CimInstance Win32_VideoController | Select-Object Name,AdapterCompatibility,DriverVersion,VideoProcessor)
   net = @(Get-NetAdapter | Select-Object Name,InterfaceDescription,Status,LinkSpeed,MacAddress)
-  ip = @(Get-NetIPConfiguration | Select-Object InterfaceAlias,InterfaceDescription,IPv4Address,IPv6Address,IPv4DefaultGateway,DNSServer)
+  ip = @(NetSnapshot)
   disks = @(Get-Volume | Select-Object DriveLetter,FileSystem,Size,SizeRemaining)
   hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All | Select-Object FeatureName,State
   containers = Get-WindowsFeature Containers | Select-Object Name,InstallState
-} | ConvertTo-Json -Depth 8 -Compress
+} | ConvertTo-Json -Depth 5 -Compress
 """
-        data["windows"] = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=45)
-        data["docker"] = run(["docker", "version", "--format", "{{json .}}"], timeout=30) if command("docker") else None
+        windows_result = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=45)
+        data["windows"] = {
+            "command": windows_result,
+            "parsed": parse_json_stdout(windows_result),
+        }
+        docker_result = run(["docker", "version", "--format", "{{json .}}"], timeout=30) if command("docker") else None
+        data["docker"] = {
+            "command": docker_result,
+            "parsed": parse_json_stdout(docker_result) if docker_result else None,
+        }
     return data
 
 
@@ -157,14 +202,47 @@ cat /proc/self/cgroup 2>/dev/null || true
 echo '===MOUNTS==='
 cat /proc/mounts 2>/dev/null || true
 echo '===NETWORK==='
-(ip -details addr 2>/dev/null || cat /proc/net/dev 2>/dev/null || true)
+if command -v ip >/dev/null 2>&1; then
+  ip -details addr 2>/dev/null || true
+elif command -v ifconfig >/dev/null 2>&1; then
+  ifconfig -a 2>/dev/null || true
+else
+  cat /proc/net/dev 2>/dev/null || true
+fi
 echo '===ROUTES==='
-(ip route 2>/dev/null || cat /proc/net/route 2>/dev/null || true)
+if command -v ip >/dev/null 2>&1; then
+  ip route 2>/dev/null || true
+elif command -v route >/dev/null 2>&1; then
+  route -n 2>/dev/null || true
+else
+  cat /proc/net/route 2>/dev/null || true
+fi
 echo '===DNS==='
 cat /etc/resolv.conf 2>/dev/null || true
+echo '===DNS_ORACLE==='
+if command -v nslookup >/dev/null 2>&1; then
+  nslookup github.com 2>&1 || true
+elif command -v getent >/dev/null 2>&1; then
+  getent hosts github.com 2>&1 || true
+else
+  echo 'UNKNOWN no DNS query tool'
+fi
+echo '===HTTPS_EGRESS==='
+if command -v wget >/dev/null 2>&1; then
+  if wget -q -T 10 -O /dev/null https://github.com/ 2>/dev/null; then echo PASS; else echo FAIL; fi
+elif command -v curl >/dev/null 2>&1; then
+  if curl -fsS --max-time 10 -o /dev/null https://github.com/; then echo PASS; else echo FAIL; fi
+else
+  echo 'UNKNOWN no HTTPS client'
+fi
 echo '===DEVICES==='
 for p in /dev/kvm /dev/dri /dev/nvidia0 /dev/nvidiactl /dev/infiniband /dev/bus/usb /dev/net/tun /dev/fuse /dev/tpm0 /dev/tpmrm0; do
-  if [ -e "$p" ]; then ls -ld "$p"; else echo "MISSING $p"; fi
+  if [ -e "$p" ]; then
+    ls -ld "$p" 2>/dev/null || true
+    if [ -d "$p" ]; then find "$p" -maxdepth 2 -mindepth 1 -print 2>/dev/null | head -100 || true; fi
+  else
+    echo "MISSING $p"
+  fi
 done
 echo '===FILESYSTEM==='
 (df -T 2>/dev/null || df -h 2>/dev/null || true)
@@ -175,8 +253,29 @@ echo '===IDENTITY==='
 
 def windows_probe_script():
     return r"""$ErrorActionPreference='SilentlyContinue'
-$dns = $null
-try { $dns = [System.Net.Dns]::GetHostAddresses('github.com') | ForEach-Object { $_.IPAddressToString } } catch {}
+$dns = @()
+try { $dns = @([System.Net.Dns]::GetHostAddresses('github.com') | ForEach-Object { $_.IPAddressToString }) } catch {}
+$https = $false
+try {
+  $request = [System.Net.HttpWebRequest]::Create('https://github.com/')
+  $request.Method = 'HEAD'
+  $request.Timeout = 10000
+  $response = $request.GetResponse()
+  $https = $true
+  $response.Close()
+} catch {}
+$ip = @(
+  Get-NetIPConfiguration | ForEach-Object {
+    [ordered]@{
+      interfaceAlias = $_.InterfaceAlias
+      interfaceDescription = $_.InterfaceDescription
+      ipv4 = @($_.IPv4Address | ForEach-Object { $_.IPAddress })
+      ipv6 = @($_.IPv6Address | ForEach-Object { $_.IPAddress })
+      gateways = @($_.IPv4DefaultGateway | ForEach-Object { $_.NextHop })
+      dns = @($_.DNSServer.ServerAddresses)
+    }
+  }
+)
 [ordered]@{
   env = [ordered]@{
     COMPUTERNAME=$env:COMPUTERNAME
@@ -189,10 +288,11 @@ try { $dns = [System.Net.Dns]::GetHostAddresses('github.com') | ForEach-Object {
   cpu = @(Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors)
   display = @(Get-CimInstance Win32_VideoController | Select-Object Name,AdapterCompatibility,DriverVersion,VideoProcessor)
   net = @(Get-NetAdapter | Select-Object Name,InterfaceDescription,Status,LinkSpeed,MacAddress)
-  ip = @(Get-NetIPConfiguration | Select-Object InterfaceAlias,InterfaceDescription,IPv4Address,IPv6Address,IPv4DefaultGateway,DNSServer)
+  ip = $ip
   disks = @(Get-Volume | Select-Object DriveLetter,FileSystem,Size,SizeRemaining)
-  dnsLookup = @($dns)
-} | ConvertTo-Json -Depth 8 -Compress
+  dnsLookup = $dns
+  httpsEgress = $https
+} | ConvertTo-Json -Depth 5 -Compress
 """
 
 
@@ -234,7 +334,8 @@ def lane_windows():
             "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
             "oracleSatisfied": passed,
             "reason": "built and exercised a Windows process-isolated container" if passed else "Windows image built but process-isolated container oracle failed",
-            "container_census": run_result.get("stdout"),
+            "container_census": parse_json_stdout(run_result),
+            "container_census_raw": run_result.get("stdout") if parse_json_stdout(run_result) is None else None,
             "isolation": "process",
         }
 
@@ -282,11 +383,29 @@ def lane_apple(runtime=None):
     stop = run([cli, "system", "stop"], timeout=60)
     evidence["steps"].append({"system_stop": stop})
     passed = ok(build) and ok(inner)
+    virtualization_negative = (
+        not ok(build)
+        and "Virtualization is not available on this hardware" in build.get("stderr", "")
+    )
+    classification = "SUPPORTED" if passed else (
+        "NEGATIVE_OBSERVATION" if virtualization_negative else "ORACLE_FAILURE"
+    )
+    reason = (
+        "built and exercised an Apple container Linux VM"
+        if passed
+        else (
+            "Apple container control plane is callable, but this hosted Mac reports no usable nested virtualization for the Linux VM"
+            if virtualization_negative
+            else "Apple container service started but build/run oracle failed"
+        )
+    )
     return evidence | {
-        "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
+        "classification": classification,
         "oracleSatisfied": passed,
-        "reason": "built and exercised an Apple container Linux VM" if passed else "Apple container service started but build/run oracle failed",
-        "container_census": inner.get("stdout"),
+        "reason": reason,
+        "container_census": parse_sections(inner.get("stdout", "")),
+        "container_census_raw": inner.get("stdout") if inner.get("stdout") else None,
+        "virtualization_available": False if virtualization_negative else None,
         "isolation": "lightweight-linux-vm-per-container",
     }
 
@@ -347,7 +466,8 @@ def lane_lxc():
         "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
         "oracleSatisfied": passed,
         "reason": "created, started, entered, censused, and destroyed a real LXC system container" if passed else "LXC lifecycle or census oracle failed",
-        "container_census": inner.get("stdout"),
+        "container_census": parse_sections(inner.get("stdout", "")),
+        "container_census_raw": inner.get("stdout"),
         "isolation": "shared-linux-kernel-system-container",
     }
 
@@ -384,7 +504,8 @@ def lane_incus():
         "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
         "oracleSatisfied": passed,
         "reason": "created, entered, censused, and destroyed a real Incus system container" if passed else "Incus lifecycle or census oracle failed",
-        "container_census": inner.get("stdout"),
+        "container_census": parse_sections(inner.get("stdout", "")),
+        "container_census_raw": inner.get("stdout"),
         "isolation": "shared-linux-kernel-system-container",
     }
 
