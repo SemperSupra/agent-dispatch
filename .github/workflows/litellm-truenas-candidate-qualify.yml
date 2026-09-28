@@ -33,6 +33,7 @@ jobs:
           mkdir -p /tmp/apps/ix-dev/community/litellm
           cp -a "$PROJECTION/." /tmp/apps/ix-dev/community/litellm/
           git -C /tmp/apps add -N ix-dev/community/litellm
+          git -C /tmp/apps diff --name-only master | grep -q '^ix-dev/community/litellm/'
 
       - name: Resolve official validator identity
         id: validator
@@ -50,8 +51,12 @@ jobs:
           VALIDATOR: ${{ steps.validator.outputs.reference }}
         run: |
           set -euo pipefail
+          mkdir -p /tmp/validator-home
+          printf '[safe]\n\tdirectory = /workspace\n' > /tmp/validator-home/.gitconfig
           docker run --rm --platform linux/amd64 \
             -e FAKE_ENV=1 \
+            -e HOME=/validator-home \
+            -v /tmp/validator-home:/validator-home:ro \
             -v /tmp/apps:/workspace \
             "$VALIDATOR" \
             apps_dev_charts_validate validate --path /workspace --base_branch master
