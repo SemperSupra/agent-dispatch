@@ -13,6 +13,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 INSTALL = ROOT / "scripts" / "truenas_installer_rpc_install.py"
 MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
+POOL = ROOT / "scripts" / "truenas_middleware_pool_probe.py"
 
 
 class SyntheticWebSocketPeer:
@@ -251,6 +252,135 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
 
+    def test_t3_pool_client_waits_for_job_and_proves_membership(self):
+        peer = SyntheticWebSocketPeer()
+        errors = []
+        password = "synthetic-ephemeral-9264"
+
+        def expect_call(conn, method):
+            msg = peer.recv_json(conn)
+            self.assertEqual(msg["msg"], "method")
+            self.assertEqual(msg["method"], method)
+            return msg
+
+        def result(conn, msg, value):
+            peer.send_json(conn, {"id": msg["id"], "msg": "result", "result": value})
+
+        def server():
+            try:
+                with peer.accept_websocket() as conn:
+                    msg = peer.recv_json(conn)
+                    self.assertEqual(msg, {"msg": "connect", "version": "1", "support": ["1"]})
+                    peer.send_json(conn, {"msg": "connected", "session": "synthetic"})
+
+                    msg = expect_call(conn, "auth.login_ex")
+                    self.assertEqual(msg["params"][0]["password"], password)
+                    result(conn, msg, {"response_type": "SUCCESS"})
+
+                    msg = expect_call(conn, "system.version")
+                    result(conn, msg, "TrueNAS-26.0.0-BETA.3")
+
+                    msg = expect_call(conn, "boot.get_disks")
+                    result(conn, msg, ["vda"])
+
+                    msg = expect_call(conn, "disk.get_unused")
+                    result(conn, msg, [
+                        {"name": "vdb", "devname": "vdb", "size": 8_589_934_592},
+                        {"name": "vdc", "devname": "vdc", "size": 8_589_934_592},
+                    ])
+
+                    msg = expect_call(conn, "pool.query")
+                    self.assertEqual(msg["params"], [[["name", "=", "rdtepool"]]])
+                    result(conn, msg, [])
+
+                    msg = expect_call(conn, "pool.create")
+                    self.assertEqual(msg["params"], [{
+                        "name": "rdtepool",
+                        "encryption": False,
+                        "allow_duplicate_serials": True,
+                        "topology": {
+                            "data": [{
+                                "type": "MIRROR",
+                                "disks": ["vdb", "vdc"],
+                            }],
+                        },
+                    }])
+                    result(conn, msg, 42)
+
+                    msg = expect_call(conn, "core.get_jobs")
+                    self.assertEqual(msg["params"][0], [["id", "=", 42]])
+                    result(conn, msg, {
+                        "id": 42,
+                        "state": "RUNNING",
+                        "progress": {"percent": 50, "description": "Creating pool"},
+                    })
+
+                    msg = expect_call(conn, "core.get_jobs")
+                    result(conn, msg, {
+                        "id": 42,
+                        "state": "SUCCESS",
+                        "progress": {"percent": 100, "description": "Pool created"},
+                        "result": {"id": 7, "name": "rdtepool"},
+                    })
+
+                    msg = expect_call(conn, "pool.query")
+                    self.assertEqual(msg["params"], [
+                        [["name", "=", "rdtepool"]],
+                        {"get": True},
+                    ])
+                    result(conn, msg, {
+                        "id": 7,
+                        "name": "rdtepool",
+                        "guid": "synthetic",
+                        "status": "ONLINE",
+                        "healthy": True,
+                        "path": "/mnt/rdtepool",
+                    })
+
+                    msg = expect_call(conn, "pool.get_disks")
+                    self.assertEqual(msg["params"], [7])
+                    result(conn, msg, ["vdb", "vdc"])
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                peer.listener.close()
+
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        with tempfile.TemporaryDirectory() as td:
+            td = pathlib.Path(td)
+            password_file = td / "password"
+            password_file.write_text(password, encoding="utf-8")
+            out = td / "pool.json"
+            cp = subprocess.run(
+                [
+                    sys.executable,
+                    str(POOL),
+                    "--port", str(peer.port),
+                    "--password-file", str(password_file),
+                    "--out", str(out),
+                    "--timeout", "2",
+                    "--job-timeout", "8",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=15,
+            )
+            self.assertEqual(cp.returncode, 0, cp.stderr)
+            receipt = json.loads(out.read_text(encoding="utf-8"))
+            self.assertTrue(receipt["oracleSatisfied"], receipt)
+            self.assertEqual(receipt["classification"], "SUPPORTED")
+            self.assertEqual(receipt["selected_data_disks"], ["vdb", "vdc"])
+            self.assertEqual(receipt["pool_disks"], ["vdb", "vdc"])
+            self.assertEqual(receipt["job_state"], "SUCCESS")
+            self.assertEqual(receipt["pool"]["status"], "ONLINE")
+            self.assertTrue(receipt["pool"]["healthy"])
+            self.assertNotIn(password, out.read_text(encoding="utf-8"))
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+
 
 if __name__ == "__main__":
+    unittest.main()
     unittest.main()
