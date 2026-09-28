@@ -1,0 +1,43 @@
+name: Firecracker J1 Jailed F3 Parity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test J1 contract
+        run: python3 -m unittest -v tests/test_github_runner_firecracker_j1_jailed_f3.py
+
+  parity:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run matched unjailed/jailed F3 parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-j1"
+          python3 scripts/github_runner_firecracker_j1_jailed_f3.py \
+            --label ubuntu-26.04 \
+            --out "${RUNNER_TEMP}/firecracker-j1/receipt.json"
+      - name: Upload J1 receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-j1-jailed-f3-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-j1/receipt.json
+          if-no-files-found: error
+          retention-days: 7
