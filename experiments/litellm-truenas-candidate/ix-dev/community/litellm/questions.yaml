@@ -1,0 +1,150 @@
+groups:
+  - name: LiteLLM Configuration
+    description: Configure the LiteLLM gateway appliance
+  - name: Network Configuration
+    description: Configure LiteLLM API access
+  - name: Storage Configuration
+    description: Configure the read-only config and provider-secret directories
+  - name: Resources Configuration
+    description: Configure LiteLLM resource limits
+
+questions:
+  - variable: network
+    label: ""
+    group: Network Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: web_port
+          label: LiteLLM API Port
+          schema:
+            type: dict
+            attrs:
+              - variable: bind_mode
+                label: Port Bind Mode
+                schema:
+                  type: string
+                  default: published
+                  required: true
+                  enum:
+                    - value: published
+                      description: Publish on the TrueNAS host
+                    - value: exposed
+                      description: Expose only for inter-container communication
+              - variable: port_number
+                label: Host Port
+                schema:
+                  type: int
+                  default: 30400
+                  min: 1
+                  max: 65535
+                  required: true
+              - variable: host_ips
+                label: Host IPs
+                schema:
+                  type: list
+                  default: []
+                  show_if: [["bind_mode", "=", "published"]]
+                  items:
+                    - variable: host_ip
+                      label: Host IP
+                      schema:
+                        type: string
+                        required: true
+                        $ref:
+                          - definitions/node_bind_ip
+
+  - variable: storage
+    label: ""
+    group: Storage Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: config
+          label: LiteLLM Configuration Directory
+          description: Host directory containing proxy_server_config.yaml. The app mounts it read-only.
+          schema:
+            type: dict
+            attrs:
+              - variable: type
+                label: Type
+                schema:
+                  type: string
+                  required: true
+                  default: host_path
+                  hidden: true
+                  enum:
+                    - value: host_path
+                      description: Host Path
+              - variable: host_path_config
+                label: Host Path Configuration
+                schema:
+                  type: dict
+                  attrs:
+                    - variable: acl_enable
+                      label: Enable ACL
+                      schema:
+                        type: boolean
+                        default: false
+                    - variable: path
+                      label: Host Path
+                      schema:
+                        type: hostpath
+                        required: true
+        - variable: provider_secrets
+          label: Provider Secret Directory
+          description: Protected host directory containing one file per environment variable. Values are never stored in the app catalog artifact.
+          schema:
+            type: dict
+            attrs:
+              - variable: type
+                label: Type
+                schema:
+                  type: string
+                  required: true
+                  default: host_path
+                  hidden: true
+                  enum:
+                    - value: host_path
+                      description: Host Path
+              - variable: host_path_config
+                label: Host Path Configuration
+                schema:
+                  type: dict
+                  attrs:
+                    - variable: acl_enable
+                      label: Enable ACL
+                      schema:
+                        type: boolean
+                        default: false
+                    - variable: path
+                      label: Host Path
+                      schema:
+                        type: hostpath
+                        required: true
+
+  - variable: resources
+    label: ""
+    group: Resources Configuration
+    schema:
+      type: dict
+      attrs:
+        - variable: limits
+          label: Limits
+          schema:
+            type: dict
+            attrs:
+              - variable: cpus
+                label: CPUs
+                schema:
+                  type: float
+                  default: 2
+                  min: 0.5
+                  required: true
+              - variable: memory
+                label: Memory (MiB)
+                schema:
+                  type: int
+                  default: 2048
+                  min: 512
+                  required: true
