@@ -15,8 +15,8 @@ keywords:
 - proxy
 - gateway
 - openai
-lib_version: 2.3.14
-lib_version_hash: 6038f48d2190e05399cd824410204c3eba22568c1150470f3d9f8815a6dd241a
+lib_version: 2.3.4
+lib_version_hash: 2e3a8847308fb2eb0da046018f287c73822c094b5950a10377c3235794ff1242
 maintainers:
 - name: Mark E. DeYoung
   email: 1854350+mark-e-deyoung@users.noreply.github.com
