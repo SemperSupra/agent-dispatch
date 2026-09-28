@@ -33,6 +33,15 @@ jobs:
           - {slug: omnios-r151058, os: omnios, version: 'r151058', arch: x86-64}
           - {slug: dragonflybsd-6.4.2, os: dragonflybsd, version: '6.4.2', arch: x86-64}
           - {slug: haiku-r1beta6, os: haiku, version: 'r1beta6', arch: x86-64}
+          - {slug: freebsd-14.5, os: freebsd, version: '14.5', arch: x86-64}
+          - {slug: freebsd-15.1-arm64, os: freebsd, version: '15.1', arch: arm64}
+          - {slug: freebsd-15.1-riscv64, os: freebsd, version: '15.1', arch: riscv64}
+          - {slug: openbsd-7.8, os: openbsd, version: '7.8', arch: x86-64}
+          - {slug: openbsd-7.9-arm64, os: openbsd, version: '7.9', arch: arm64}
+          - {slug: netbsd-10.1, os: netbsd, version: '10.1', arch: x86-64}
+          - {slug: netbsd-11.0-arm64, os: netbsd, version: '11.0', arch: arm64}
+          - {slug: omnios-r151056, os: omnios, version: 'r151056', arch: x86-64}
+          - {slug: haiku-r1beta5, os: haiku, version: 'r1beta5', arch: x86-64}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {persist-credentials: false}
