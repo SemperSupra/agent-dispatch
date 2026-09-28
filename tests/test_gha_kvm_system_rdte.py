@@ -286,7 +286,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"data_pool_created"', text)
         self.assertIn('"data_pool"', text)
         self.assertIn("--rung t3", workflow)
-        self.assertIn("scripts/truenas_middleware_pool_probe.py", workflow)
+        self.assertNotIn("scripts/truenas_middleware_pool_probe.py", workflow)
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
         py_check = subprocess.run(["python3", "-m", "py_compile", str(TRUENAS_POOL)], text=True, capture_output=True)
