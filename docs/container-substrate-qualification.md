@@ -179,6 +179,20 @@ sudo incus admin init --minimal
 sudo -E python3 scripts/container_substrate_qualification.py --lane incus --out /tmp/incus-receipt.json
 ```
 
+## Normalized capability-fact projection
+
+Each receipt now emits `capability_facts` alongside the raw census. The projection is intentionally small and non-prescriptive:
+
+- `SUPPORTED` means an exercised oracle passed.
+- `OBSERVED` means the object/interface is visible but callability is not proven.
+- `NEGATIVE_OBSERVATION` records a tested absence in this exact environment.
+- `DOCUMENTED_NEGATIVE` records an upstream/platform limitation represented by the qualification contract.
+- `INCONCLUSIVE` means the rep does not justify either a positive or negative placement claim.
+
+Examples from the current contract include `runtime:lxc`, `kernel:shared`, `network:dns`, `network:tcp443`, `network:https-egress`, `device:tun`, `device:fuse`, `device:kvm`, `gpu:directx`, and `apple-container:control-plane`.
+
+The projection exists so later Agent Dispatch/GARM placement code does not parse human diagnostic logs. It is evidence input, not a scheduler or admission decision.
+
 ## Agent Dispatch / GARM mapping
 
 Do not introduce a scheduler for this experiment. Preserve primitive facts that a later placement layer can match:
