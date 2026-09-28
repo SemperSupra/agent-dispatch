@@ -58,8 +58,21 @@ jobs:
 
       - name: Run official render path
         working-directory: /tmp/apps
+        env:
+          VALIDATOR: ${{ steps.validator.outputs.reference }}
         run: |
           set -euo pipefail
+          python3 - "$VALIDATOR" <<'PY'
+          from pathlib import Path
+          import sys
+          p=Path('.github/scripts/ci.py')
+          s=p.read_text(encoding='utf-8')
+          old='CONTAINER_IMAGE = "ghcr.io/truenas/apps_validation:latest"'
+          new='CONTAINER_IMAGE = ' + repr(sys.argv[1])
+          if old not in s:
+              raise SystemExit('official ci.py validator constant changed')
+          p.write_text(s.replace(old,new),encoding='utf-8')
+          PY
           python3 ./.github/scripts/ci.py \
             --train community \
             --app litellm \
