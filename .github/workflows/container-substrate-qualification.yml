@@ -1,0 +1,164 @@
+name: Native Container Substrate Qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - exp/container-substrate-qualification
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test qualification contract
+        run: python3 -m unittest -v tests/test_container_substrate_qualification.py
+
+  windows:
+    needs: contract
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify Windows container lifecycle and execution envelope
+        env:
+          CENSUS_REQUESTED_LABEL: windows-2025
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\container-substrate" | Out-Null
+          python scripts/container_substrate_qualification.py --lane windows --out "$env:RUNNER_TEMP\container-substrate\windows.json"
+      - name: Upload Windows receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-substrate-windows-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\container-substrate\windows.json
+          if-no-files-found: error
+          retention-days: 7
+
+  apple:
+    needs: contract
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build pinned Apple container runtime
+        shell: bash
+        run: |
+          set +e
+          rm -rf "$RUNNER_TEMP/apple-container"
+          git clone --depth 1 --branch 1.4.1 https://github.com/apple/container.git "$RUNNER_TEMP/apple-container"
+          clone_rc=$?
+          build_rc=127
+          if [ "$clone_rc" -eq 0 ]; then
+            make -C "$RUNNER_TEMP/apple-container" all
+            build_rc=$?
+          fi
+          echo "APPLE_CONTAINER_BIN=$RUNNER_TEMP/apple-container/bin/container" >> "$GITHUB_ENV"
+          echo "APPLE_CONTAINER_CLONE_RC=$clone_rc" >> "$GITHUB_ENV"
+          echo "APPLE_CONTAINER_BUILD_RC=$build_rc" >> "$GITHUB_ENV"
+          exit 0
+      - name: Qualify Apple container lifecycle and execution envelope
+        env:
+          CENSUS_REQUESTED_LABEL: macos-26
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/container-substrate"
+          python3 scripts/container_substrate_qualification.py \
+            --lane apple \
+            --runtime "$APPLE_CONTAINER_BIN" \
+            --out "$RUNNER_TEMP/container-substrate/apple.json"
+      - name: Upload Apple receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-substrate-apple-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/container-substrate/apple.json
+          if-no-files-found: error
+          retention-days: 7
+
+  lxc:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare LXC
+        shell: bash
+        run: |
+          set +e
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            lxc lxc-templates uidmap bridge-utils dnsmasq-base iproute2 pciutils usbutils
+          echo "LXC_PREPARE_RC=$?" >> "$GITHUB_ENV"
+          sudo systemctl start lxc-net || true
+          exit 0
+      - name: Qualify LXC lifecycle and execution envelope
+        env:
+          CENSUS_REQUESTED_LABEL: ubuntu-26.04
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/container-substrate"
+          sudo -E python3 scripts/container_substrate_qualification.py \
+            --lane lxc \
+            --out "$RUNNER_TEMP/container-substrate/lxc.json"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/container-substrate/lxc.json" || true
+      - name: Upload LXC receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-substrate-lxc-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/container-substrate/lxc.json
+          if-no-files-found: error
+          retention-days: 7
+
+  incus:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare Incus
+        shell: bash
+        run: |
+          set +e
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            incus iproute2 pciutils usbutils
+          echo "INCUS_PREPARE_RC=$?" >> "$GITHUB_ENV"
+          exit 0
+      - name: Qualify Incus lifecycle and execution envelope
+        env:
+          CENSUS_REQUESTED_LABEL: ubuntu-26.04
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/container-substrate"
+          sudo -E python3 scripts/container_substrate_qualification.py \
+            --lane incus \
+            --out "$RUNNER_TEMP/container-substrate/incus.json"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/container-substrate/incus.json" || true
+      - name: Upload Incus receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-substrate-incus-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/container-substrate/incus.json
+          if-no-files-found: error
+          retention-days: 7
