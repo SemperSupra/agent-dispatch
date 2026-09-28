@@ -56,7 +56,7 @@ write_receipt() {
     serial_tail="$(tail -n 120 "$STATE_DIR/serial.log" | tr -d '\000' | sed -E 's/[^[:print:]\t]//g' | tail -c 16000)"
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
-  export R_SERIAL="$serial_tail" R_ISO_SHA="\${OBSERVED_ISO_SHA:-}" R_EXPECTED="\${EXPECTED_ISO_SHA:-}" R_GRUB="\${GRUB_PATH:-}"
+  export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_EXPECTED="$EXPECTED_ISO_SHA" R_GRUB="$GRUB_PATH"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
