@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: gha-kvm-system-rdte
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   contract:
@@ -46,6 +46,24 @@ jobs:
             --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-state" \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+      - name: Preserve Proxmox harness failure evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+          if [ ! -f "$receipt" ]; then
+            python3 - "$receipt" <<'PY'
+          import json, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+            "contract":"gha-kvm-system-lab/v1",
+            "target":{"product":"proxmox-ve","version":"9.2-1"},
+            "classification":"HARNESS_FAILURE",
+            "oracleSatisfied":False,
+            "phase":"workflow-fallback",
+            "detail":"adapter exited before emitting its normal receipt"
+          }, indent=2, sort_keys=True)+"\n")
+          PY
+          fi
       - name: Upload Proxmox evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -56,7 +74,8 @@ jobs:
           retention-days: 7
 
   truenas-26-beta3:
-    needs: proxmox-9-2
+    needs: [contract, proxmox-9-2]
+    if: needs.contract.result == 'success'
     runs-on: ubuntu-26.04
     timeout-minutes: 18
     steps:
@@ -77,6 +96,24 @@ jobs:
             --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+      - name: Preserve TrueNAS harness failure evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          if [ ! -f "$receipt" ]; then
+            python3 - "$receipt" <<'PY'
+          import json, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+            "contract":"gha-kvm-system-lab/v1",
+            "target":{"product":"truenas","version":"26.0.0-BETA.3","rung":"T0"},
+            "classification":"HARNESS_FAILURE",
+            "oracleSatisfied":False,
+            "phase":"workflow-fallback",
+            "detail":"adapter exited before emitting its normal receipt"
+          }, indent=2, sort_keys=True)+"\n")
+          PY
+          fi
       - name: Upload TrueNAS evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
