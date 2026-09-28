@@ -48,15 +48,16 @@ Keep these distinct:
 
 A capability observed in one class is not silently generalized to another.
 
-## Follow-on
+## Completed expansion
 
-After the native V2 sweep is stable:
+The V2 campaign now includes the native-label refresh, digest-bound Linux
+userlands on x64 and arm64, and BSD/illumos/Haiku QEMU guests. Accepted run
+identities and bounded findings are recorded in
+`docs/github-runner-environment-census-v2-results.md`.
 
-- reduce against retained #78/#223/#281 receipts;
-- add version-pinned userland portability profiles (Debian, Alpine, Fedora,
-  RHEL-family compatible images);
-- add BSD/illumos guest profiles on the already-qualified x64 KVM lane;
-- only promote a resulting fact to placement when a real workset requirement
-  consumes it.
+The three experiment workflows are frozen to `workflow_dispatch` after
+qualification. Re-run them only for image drift, a concrete placement
+requirement, or a targeted regression question. Do not extend the matrix merely
+to increase census breadth.
 
 No scalar runner score and no automatic placement promotion are introduced.

@@ -1,13 +1,7 @@
 name: GitHub Runner BSD and Illumos Guest Census
 on:
-  pull_request:
-    branches: [exp/runner-latent-hardware-surfaces]
-    paths:
-      - 'scripts/github_runner_guest_census.sh'
-      - 'scripts/github_runner_guest_receipt.py'
-      - 'tests/test_github_runner_guest_receipt.py'
-      - '.github/workflows/github-runner-guest-census.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

@@ -1,12 +1,7 @@
 name: GitHub Runner Linux Userland Census
 on:
-  pull_request:
-    branches: [exp/runner-latent-hardware-surfaces]
-    paths:
-      - 'scripts/github_runner_userland_census.py'
-      - 'tests/test_github_runner_userland_census.py'
-      - '.github/workflows/github-runner-userland-census.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

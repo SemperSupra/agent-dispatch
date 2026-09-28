@@ -1,17 +1,6 @@
 name: GitHub Runner Environment Census V2
 
 on:
-  pull_request:
-    branches:
-      - exp/runner-latent-hardware-surfaces
-    paths:
-      - 'scripts/github_runner_census.py'
-      - 'scripts/github_runner_environment_v2.py'
-      - 'scripts/github_runner_receipt_diff.py'
-      - 'tests/test_github_runner_environment_v2.py'
-      - 'tests/test_github_runner_receipt_diff.py'
-      - '.github/workflows/github-runner-environment-v2.yml'
-      - 'docs/github-runner-environment-census-v2.md'
   workflow_dispatch:
 
 permissions:
