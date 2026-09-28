@@ -1,3 +1,11 @@
+import base64
+import hashlib
+import json
+import socket
+import struct
+import sys
+import tempfile
+import threading
 import pathlib
 import subprocess
 import unittest
@@ -6,6 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
 TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
 
 
 class SystemRdteContractTests(unittest.TestCase):
@@ -81,6 +90,146 @@ class SystemRdteContractTests(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(cp.returncode, 0, cp.stderr)
+
+    def test_workflow_scopes_heavy_targets(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("fetch-depth: 0", text)
+        self.assertIn("needs.changes.outputs.proxmox", text)
+        self.assertIn("needs.changes.outputs.truenas", text)
+        self.assertIn("DISPATCH_TARGET", text)
+        self.assertIn("BEFORE_SHA:", text)
+        self.assertIn('git diff --name-only "$BEFORE_SHA" "$AFTER_SHA"', text)
+        self.assertIn("scripts/truenas_installer_rpc_probe.py", text)
+
+    def test_truenas_t1_requires_local_rpc_probe(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn("missing TrueNAS installer RPC probe", text)
+
+    def test_truenas_rpc_probe_protocol_round_trip(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        errors = []
+
+        def read_exact(conn, count):
+            parts = []
+            remaining = count
+            while remaining:
+                part = conn.recv(remaining)
+                if not part:
+                    raise EOFError("synthetic websocket peer closed")
+                parts.append(part)
+                remaining -= len(part)
+            return b"".join(parts)
+
+        def recv_json(conn):
+            b1, b2 = read_exact(conn, 2)
+            opcode = b1 & 0x0F
+            if opcode == 0x8:
+                return None
+            if opcode != 0x1:
+                raise AssertionError(f"unexpected client opcode {opcode}")
+            masked = bool(b2 & 0x80)
+            if not masked:
+                raise AssertionError("client websocket frame must be masked")
+            size = b2 & 0x7F
+            if size == 126:
+                size = struct.unpack("!H", read_exact(conn, 2))[0]
+            elif size == 127:
+                size = struct.unpack("!Q", read_exact(conn, 8))[0]
+            mask = read_exact(conn, 4)
+            payload = read_exact(conn, size)
+            payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+            return json.loads(payload.decode())
+
+        def send_json(conn, value):
+            payload = json.dumps(value, separators=(",", ":")).encode()
+            if len(payload) < 126:
+                header = bytes([0x81, len(payload)])
+            else:
+                header = bytes([0x81, 126]) + struct.pack("!H", len(payload))
+            conn.sendall(header + payload)
+
+        def server():
+            try:
+                conn, _ = listener.accept()
+                with conn:
+                    request = bytearray()
+                    while b"\r\n\r\n" not in request:
+                        request.extend(conn.recv(4096))
+                    headers = {}
+                    for line in request.decode().split("\r\n")[1:]:
+                        if ":" in line:
+                            key, value = line.split(":", 1)
+                            headers[key.lower().strip()] = value.strip()
+                    key = headers["sec-websocket-key"]
+                    accept = base64.b64encode(
+                        hashlib.sha1(
+                            (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()
+                        ).digest()
+                    ).decode()
+                    conn.sendall(
+                        (
+                            "HTTP/1.1 101 Switching Protocols\r\n"
+                            "Upgrade: websocket\r\n"
+                            "Connection: Upgrade\r\n"
+                            f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
+                        ).encode()
+                    )
+                    answers = [
+                        ("is_adopted", False),
+                        ("system_info", {"version": "synthetic", "installation_running": False}),
+                        ("list_disks", [{"name": "sda", "size": 1024}]),
+                        ("list_network_interfaces", [{"name": "eth0"}]),
+                    ]
+                    for method, result in answers:
+                        request_obj = recv_json(conn)
+                        if request_obj["method"] != method:
+                            raise AssertionError(
+                                f"expected {method}, got {request_obj['method']}"
+                            )
+                        send_json(
+                            conn,
+                            {
+                                "jsonrpc": "2.0",
+                                "id": request_obj["id"],
+                                "result": result,
+                            },
+                        )
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                listener.close()
+
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "rpc.json"
+            cp = subprocess.run(
+                [
+                    sys.executable,
+                    str(TRUENAS_RPC),
+                    "--port",
+                    str(port),
+                    "--out",
+                    str(out),
+                    "--timeout",
+                    "2",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            self.assertEqual(cp.returncode, 0, cp.stderr)
+            payload = json.loads(out.read_text(encoding="utf-8"))
+            self.assertTrue(payload["oracleSatisfied"])
+            self.assertEqual(payload["classification"], "SUPPORTED")
+            self.assertFalse(payload["methods"]["is_adopted"])
+            self.assertEqual(payload["methods"]["system_info"]["version"], "synthetic")
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

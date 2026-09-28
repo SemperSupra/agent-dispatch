@@ -116,3 +116,16 @@ Only after TrueNAS T4/T5 pass should TrueNAS App Foundry receive a runtime targe
 adapter. Only public materializations are eligible for this public RDTE. Application
 development remains in product repositories and private promotion/evaluator authority
 remains outside this public repository.
+
+
+## Active-campaign target scoping
+
+Heavy system jobs are demand-scoped during the experiment campaign. A push that
+changes only the Proxmox adapter runs the Proxmox lane; a push that changes the
+TrueNAS adapter or installer RPC probe runs the TrueNAS lane. Contract, test, or
+documentation-only changes do not launch a system VM. Manual dispatch can request
+`proxmox`, `truenas`, or `both`.
+
+When both heavy targets are requested they remain serialized. This keeps the public
+free-tier RDTE useful without replaying multi-gigabyte installs that cannot change the
+evidence under test.

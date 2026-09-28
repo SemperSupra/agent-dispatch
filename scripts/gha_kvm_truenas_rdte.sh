@@ -112,6 +112,8 @@ fail_evidence() {
   exit 0
 }
 
+[[ -f "$SCRIPT_DIR/truenas_installer_rpc_probe.py" ]] ||
+  fail_evidence HARNESS_FAILURE preflight "missing TrueNAS installer RPC probe"
 for cmd in curl sha256sum qemu-img qemu-system-x86_64 xorriso python3; do
   command -v "$cmd" >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: $cmd"
 done

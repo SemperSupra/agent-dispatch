@@ -5,6 +5,16 @@ on:
     branches:
       - experiment/gha-kvm-system-rdte
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Heavy target to exercise"
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - proxmox
+          - truenas
 
 permissions:
   contents: read
@@ -14,6 +24,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      proxmox: ${{ steps.scope.outputs.proxmox }}
+      truenas: ${{ steps.scope.outputs.truenas }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TARGET: ${{ inputs.target }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          proxmox=false
+          truenas=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            case "$DISPATCH_TARGET" in
+              proxmox) proxmox=true ;;
+              truenas) truenas=true ;;
+              both) proxmox=true; truenas=true ;;
+              *) echo "unsupported dispatch target: $DISPATCH_TARGET" >&2; exit 2 ;;
+            esac
+          elif [[ -n "$BEFORE_SHA" && -n "$AFTER_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+            while IFS= read -r path; do
+              case "$path" in
+                scripts/gha_kvm_proxmox_rdte.sh)
+                  proxmox=true
+                  ;;
+                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py)
+                  truenas=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
+          else
+            proxmox=true
+            truenas=true
+          fi
+          echo "proxmox=$proxmox" >>"$GITHUB_OUTPUT"
+          echo "truenas=$truenas" >>"$GITHUB_OUTPUT"
+          printf 'target scope: proxmox=%s truenas=%s\n' "$proxmox" "$truenas"
+
   contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -25,7 +82,8 @@ jobs:
         run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py
 
   proxmox-9-2:
-    needs: contract
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.proxmox == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 35
     steps:
@@ -74,8 +132,12 @@ jobs:
           retention-days: 7
 
   truenas-26-beta3:
-    needs: [contract, proxmox-9-2]
-    if: needs.contract.result == 'success'
+    needs: [changes, contract, proxmox-9-2]
+    if: >-
+      always() &&
+      needs.contract.result == 'success' &&
+      needs.changes.outputs.truenas == 'true' &&
+      (needs['proxmox-9-2'].result == 'success' || needs['proxmox-9-2'].result == 'skipped')
     runs-on: ubuntu-26.04
     timeout-minutes: 32
     steps:
