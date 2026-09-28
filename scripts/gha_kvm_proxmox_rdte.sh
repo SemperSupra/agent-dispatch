@@ -54,7 +54,7 @@ write_receipt() {
     serial_tail="$(tail -n 80 "$STATE_DIR/serial.log" | tr -d '\000' | sed -E 's/[^[:print:]\t]//g' | tail -c 12000)"
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
-  export R_SERIAL="$serial_tail" R_ISO_SHA="\${OBSERVED_ISO_SHA:-}" R_API="\${API_VERSION_JSON:-}" R_NESTED="\${NESTED_KVM:-unknown}"
+  export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -184,7 +184,7 @@ start_qemu() {
     -daemonize -pidfile "$STATE_DIR/qemu.pid"
   )
   if [[ "$with_iso" == yes ]]; then args+=( -cdrom "$AUTO_ISO" -boot order=d ); else args+=( -boot order=c ); fi
-  sudo -n qemu-system-x86_64 "\${args[@]}"
+  sudo -n qemu-system-x86_64 "${args[@]}"
   QEMU_PID="$(sudo -n cat "$STATE_DIR/qemu.pid")"
 }
 stop_qemu() {
