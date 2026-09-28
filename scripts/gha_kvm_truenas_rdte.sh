@@ -123,6 +123,7 @@ for candidate in /boot/grub/grub.cfg /EFI/BOOT/grub.cfg /efi/boot/grub.cfg; do
   fi
 done
 [[ -n "$GRUB_PATH" ]] || fail_evidence HARNESS_FAILURE prepare "could not locate installer GRUB config in pinned ISO"
+chmod u+w "$STATE_DIR/grub.cfg"
 
 python3 - "$STATE_DIR/grub.cfg" <<'PY'
 import pathlib, sys
