@@ -9,8 +9,10 @@ import pathlib
 import platform
 import tempfile
 import time
+import sys
 import uuid
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import container_substrate_qualification as substrate
 
 RUNNER_VERSION = "2.337.0"
