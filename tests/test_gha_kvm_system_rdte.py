@@ -259,6 +259,15 @@ class SystemRdteContractTests(unittest.TestCase):
             )
             self.assertEqual(cp.returncode, 0, cp.stderr)
 
+    def test_truenas_t2_keeps_install_and_middleware_oracles_separate(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn("t0|t1|t2", text)
+        self.assertIn("installer_install_completed", text)
+        self.assertIn("installed_middleware_authenticated", text)
+        self.assertIn("truenas_installer_rpc_install.py", text)
+        self.assertIn("truenas_middleware_ddp_probe.py", text)
+        self.assertIn('NIC_MAC="52:54:00:54:4e:26"', text)
+
 
 if __name__ == "__main__":
     unittest.main()

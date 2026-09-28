@@ -144,3 +144,24 @@ the vendor installer RPC is stronger evidence that the installer environment is
 running, so lack of an earlier serial-label observation does not negate a completed
 RPC oracle. This avoids both a premature TCP false positive and a weaker-oracle
 dependency blocking a stronger observed interface.
+
+
+### TrueNAS T2 install + installed middleware
+
+T2 is a single disposable-system execution with separately retained sub-oracles:
+
+1. T1 read-only installer JSON-RPC discovery must pass.
+2. The mutating installer client refuses adopted state, requires exactly one
+   non-removable destination disk and one non-loopback NIC, configures
+   `truenas_admin` with an ephemeral non-repository password, enables DHCP,
+   and requires the vendor `install` RPC to return successfully.
+3. Only after that response (the upstream installer has exported `boot-pool`)
+   is the installer VM terminated.
+4. The same qcow2 is booted with a stable virtual NIC identity.
+5. Installed middleware is qualified independently over its source-defined DDP
+   `/websocket` interface using `auth.login_ex` with `PASSWORD_PLAIN`,
+   followed by `system.version` and `system.info`.
+
+An installed-middleware failure therefore does not erase a successful installer
+sub-oracle. Fresh TrueNAS installation installs both i386-pc GRUB and EFI GRUB,
+so the disposable legacy-BIOS QEMU target is a valid post-install boot oracle.

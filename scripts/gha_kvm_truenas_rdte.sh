@@ -11,11 +11,12 @@ SHA_URL="$ISO_URL.sha256"
 RAM_MIB=8192
 VCPUS=2
 DISK_SIZE="24G"
+NIC_MAC="52:54:00:54:4e:26"
 MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1|t2]"
 }
 
 OUT=""
@@ -31,7 +32,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$OUT" ]] || { usage >&2; exit 2; }
-[[ "$RUNG" == "t0" || "$RUNG" == "t1" ]] || { echo "rung must be t0 or t1" >&2; exit 2; }
+[[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" ]] || { echo "rung must be t0, t1, or t2" >&2; exit 2; }
 
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-truenas.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
@@ -48,6 +49,8 @@ RPC_HOSTFWD_ACCEPTED="false"
 RPC_DISCOVERY_OK="false"
 RPC_DISCOVERY_JSON=""
 QEMU_ALIVE_AT_GATE="unknown"
+INSTALL_RESULT_JSON=""
+MIDDLEWARE_RESULT_JSON=""
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
@@ -69,6 +72,7 @@ write_receipt() {
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_EXPECTED="$EXPECTED_ISO_SHA" R_GRUB="$GRUB_PATH"
   export R_RUNG="$RUNG" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
+  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -93,13 +97,18 @@ payload = {
     "installer_serial_marker_observed": os.environ.get("R_T0") == "true",
     "installer_rpc_hostfwd_accepted": os.environ.get("R_RPC_HOSTFWD") == "true",
     "installer_rpc_readonly": os.environ.get("R_RPC_OK") == "true",
+    "installer_install_completed": bool(os.environ.get("R_INSTALL_RESULT")) and json.loads(os.environ["R_INSTALL_RESULT"]).get("oracleSatisfied") is True,
+    "installed_middleware_authenticated": bool(os.environ.get("R_MIDDLEWARE_RESULT")) and json.loads(os.environ["R_MIDDLEWARE_RESULT"]).get("oracleSatisfied") is True,
   },
   "rpc_discovery": json.loads(os.environ["R_RPC_DISCOVERY"]) if os.environ.get("R_RPC_DISCOVERY") else None,
+  "install_result": json.loads(os.environ["R_INSTALL_RESULT"]) if os.environ.get("R_INSTALL_RESULT") else None,
+  "installed_middleware": json.loads(os.environ["R_MIDDLEWARE_RESULT"]) if os.environ.get("R_MIDDLEWARE_RESULT") else None,
   "qemu_alive_at_gate": os.environ.get("R_QEMU_ALIVE"),
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
     "T0 proves pinned vendor media integrity and installer-environment boot under the disposable virtual target profile.",
-    "T1 is read-only installer RPC discovery; installation, ZFS, middleware, Containers, Apps, and application lifecycle remain later gates.",
+    "T1 is read-only installer RPC discovery.",
+    "T2 adds vendor installation plus installed middleware authentication/health; ZFS data-pool, Containers, Apps, and application lifecycle remain later gates.",
     "This does not qualify physical storage controllers, SMART, GPU, IPMI, or HA behavior.",
   ],
 }
@@ -116,6 +125,12 @@ fail_evidence() {
 
 [[ -f "$SCRIPT_DIR/truenas_installer_rpc_probe.py" ]] ||
   fail_evidence HARNESS_FAILURE preflight "missing TrueNAS installer RPC probe"
+if [[ "$RUNG" == "t2" ]]; then
+  [[ -f "$SCRIPT_DIR/truenas_installer_rpc_install.py" ]] ||
+    fail_evidence HARNESS_FAILURE preflight "missing TrueNAS installer install client"
+  [[ -f "$SCRIPT_DIR/truenas_middleware_ddp_probe.py" ]] ||
+    fail_evidence HARNESS_FAILURE preflight "missing TrueNAS middleware health client"
+fi
 for cmd in curl sha256sum qemu-img qemu-system-x86_64 xorriso python3; do
   command -v "$cmd" >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: $cmd"
 done
@@ -226,7 +241,7 @@ sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
   -drive "file=$STATE_DIR/boot.qcow2,if=virtio,format=qcow2" \
   -cdrom "$SERIAL_ISO" -boot order=d \
-  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080" -device virtio-net-pci,netdev=net0 \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080" -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
   -daemonize -pidfile "$STATE_DIR/qemu.pid" ||
@@ -249,7 +264,7 @@ for attempt in $(seq 1 220); do
   if [[ "$RUNG" == "t0" && "$T0_OBSERVED" == "true" ]]; then
     break
   fi
-  if [[ "$RUNG" == "t1" ]]; then
+  if [[ "$RUNG" == "t1" || "$RUNG" == "t2" ]]; then
     if port_open "$RPC_PORT"; then
       RPC_HOSTFWD_ACCEPTED="true"
     fi
@@ -275,4 +290,118 @@ fi
 
 [[ "$RPC_DISCOVERY_OK" == "true" ]] ||
   fail_evidence ORACLE_FAILURE installer-rpc "TrueNAS installer did not complete the read-only WebSocket JSON-RPC discovery oracle"
-write_receipt SUPPORTED true installer-rpc "pinned TrueNAS installer answered read-only JSON-RPC discovery methods; stronger RPC evidence also establishes the installer environment for this rung"
+
+if [[ "$RUNG" == "t1" ]]; then
+  write_receipt SUPPORTED true installer-rpc "pinned TrueNAS installer answered read-only JSON-RPC discovery methods; stronger RPC evidence also establishes the installer environment for this rung"
+  exit 0
+fi
+
+PASSWORD_FILE="$STATE_DIR/install-password"
+python3 - "$PASSWORD_FILE" <<'PY'
+import pathlib, secrets, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(secrets.token_urlsafe(24), encoding="utf-8")
+path.chmod(0o600)
+PY
+
+INSTALL_OUT="$STATE_DIR/install-result.json"
+python3 "$SCRIPT_DIR/truenas_installer_rpc_install.py" \
+  --host 127.0.0.1 --port "$RPC_PORT" \
+  --password-file "$PASSWORD_FILE" \
+  --out "$INSTALL_OUT" --timeout 120 >/dev/null 2>&1 || true
+[[ -f "$INSTALL_OUT" ]] || fail_evidence HARNESS_FAILURE installer-install "installer mutation client did not emit a receipt"
+INSTALL_RESULT_JSON="$(cat "$INSTALL_OUT")"
+INSTALL_OK="$(python3 - "$INSTALL_OUT" <<'PY'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print("true" if data.get("oracleSatisfied") is True else "false")
+PY
+)"
+[[ "$INSTALL_OK" == "true" ]] ||
+  fail_evidence ORACLE_FAILURE installer-install "vendor installer RPC did not complete installation on the sole disposable disk"
+
+# The installer exports boot-pool before returning from install(). Terminate the
+# disposable installer VM only after that completed response, then boot the same disk.
+if [[ -n "$QEMU_PID" ]]; then
+  sudo -n kill "$QEMU_PID" >/dev/null 2>&1 || true
+  for _ in $(seq 1 40); do
+    sudo -n kill -0 "$QEMU_PID" >/dev/null 2>&1 || break
+    sleep 0.25
+  done
+  sudo -n kill -9 "$QEMU_PID" >/dev/null 2>&1 || true
+  QEMU_PID=""
+fi
+
+HTTP_PORT="$(python3 - <<'PY'
+import socket
+s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+PY
+)"
+HTTPS_PORT="$(python3 - <<'PY'
+import socket
+s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+PY
+)"
+: >"$STATE_DIR/serial.log"
+sudo -n qemu-system-x86_64 \
+  -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
+  -drive "file=$STATE_DIR/boot.qcow2,if=virtio,format=qcow2" \
+  -boot order=c \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443" \
+  -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC" \
+  -display none -monitor none \
+  -serial "file:$STATE_DIR/serial.log" \
+  -daemonize -pidfile "$STATE_DIR/qemu.pid" ||
+  fail_evidence ENVIRONMENT_FAILURE installed-boot "QEMU could not start installed TrueNAS guest"
+QEMU_PID="$(sudo -n cat "$STATE_DIR/qemu.pid")"
+
+MIDDLEWARE_OUT="$STATE_DIR/middleware-health.json"
+MIDDLEWARE_OK="false"
+for attempt in $(seq 1 180); do
+  if ! sudo -n kill -0 "$QEMU_PID" >/dev/null 2>&1; then
+    QEMU_ALIVE_AT_GATE="false"
+    break
+  fi
+  QEMU_ALIVE_AT_GATE="true"
+
+  if (( attempt % 2 == 0 )); then
+    rm -f "$MIDDLEWARE_OUT"
+    python3 "$SCRIPT_DIR/truenas_middleware_ddp_probe.py" \
+      --host 127.0.0.1 --port "$HTTP_PORT" \
+      --password-file "$PASSWORD_FILE" --out "$MIDDLEWARE_OUT" --timeout 4 \
+      >/dev/null 2>&1 || true
+    if [[ -f "$MIDDLEWARE_OUT" ]] && python3 - "$MIDDLEWARE_OUT" <<'PY'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+raise SystemExit(0 if data.get("oracleSatisfied") is True else 1)
+PY
+    then
+      MIDDLEWARE_OK="true"
+      break
+    fi
+
+    rm -f "$MIDDLEWARE_OUT"
+    python3 "$SCRIPT_DIR/truenas_middleware_ddp_probe.py" \
+      --host 127.0.0.1 --port "$HTTPS_PORT" --tls \
+      --password-file "$PASSWORD_FILE" --out "$MIDDLEWARE_OUT" --timeout 4 \
+      >/dev/null 2>&1 || true
+    if [[ -f "$MIDDLEWARE_OUT" ]] && python3 - "$MIDDLEWARE_OUT" <<'PY'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+raise SystemExit(0 if data.get("oracleSatisfied") is True else 1)
+PY
+    then
+      MIDDLEWARE_OK="true"
+      break
+    fi
+  fi
+  sleep 3
+done
+
+if [[ -f "$MIDDLEWARE_OUT" ]]; then
+  MIDDLEWARE_RESULT_JSON="$(cat "$MIDDLEWARE_OUT")"
+fi
+[[ "$MIDDLEWARE_OK" == "true" ]] ||
+  fail_evidence ORACLE_FAILURE installed-middleware "installed TrueNAS did not authenticate and answer system.version/system.info within the bounded boot window"
+
+write_receipt SUPPORTED true installed-middleware "vendor installer completed and installed TrueNAS middleware authenticated and answered health methods"
