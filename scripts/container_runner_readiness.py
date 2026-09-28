@@ -71,6 +71,18 @@ PY
 """
 
 
+def windows_runtime_probe_script():
+    return r"""$ErrorActionPreference='Stop'
+$v=(Get-Content C:\\runner-version.txt -Raw).Trim()
+$actual=(& C:\\actions-runner\\bin\\Runner.Listener.exe --version | Select-Object -Last 1).Trim()
+[ordered]@{
+  version=$v
+  observed_version=$actual
+  oracleSatisfied=($v -eq $actual)
+} | ConvertTo-Json -Compress
+"""
+
+
 def windows_dockerfile():
     return f"""FROM mcr.microsoft.com/windows/servercore:ltsc2025
 SHELL ["powershell","-NoProfile","-NonInteractive","-Command"]
@@ -85,7 +97,8 @@ RUN $ErrorActionPreference='Stop'; \\
     $actual=(& C:\\actions-runner\\bin\\Runner.Listener.exe --version | Select-Object -Last 1).Trim(); \\
     if ($actual -ne $version) {{ throw ('Runner.Listener version mismatch: ' + $actual) }}; \\
     Set-Content -NoNewline C:\\runner-version.txt $actual
-ENTRYPOINT ["powershell","-NoProfile","-NonInteractive","-Command","$v=(Get-Content C:\\runner-version.txt -Raw).Trim(); $actual=(& C:\\actions-runner\\bin\\Runner.Listener.exe --version | Select-Object -Last 1).Trim(); [ordered]@{{version=$v;observed_version=$actual;oracleSatisfied=($v -eq $actual)}} | ConvertTo-Json -Compress"]
+COPY runner_probe.ps1 C:/runner_probe.ps1
+ENTRYPOINT ["powershell","-NoProfile","-NonInteractive","-File","C:\\runner_probe.ps1"]
 """
 
 
@@ -106,6 +119,7 @@ def qualify_windows():
             return result("ENVIRONMENT_FAILURE", False, "Windows container daemon unavailable", lane="windows", service_start=start)
     with tempfile.TemporaryDirectory(prefix="win-runner-ready-") as td:
         root = pathlib.Path(td)
+        (root / "runner_probe.ps1").write_text(windows_runtime_probe_script())
         (root / "Dockerfile").write_text(windows_dockerfile())
         tag = "agent-dispatch/windows-runner-ready:" + uuid.uuid4().hex[:8]
         build = substrate.run([docker, "build", "--pull", "-t", tag, str(root)], timeout=900)
@@ -175,6 +189,14 @@ def qualify_incus():
     if not incus:
         return result("NEGATIVE_OBSERVATION", False, "incus CLI absent", lane="incus")
     init = substrate.run([incus, "admin", "init", "--minimal"], timeout=90)
+    if not substrate.ok(init):
+        return result(
+            "ENVIRONMENT_FAILURE",
+            False,
+            "Incus minimal initialization failed before instance creation",
+            lane="incus",
+            init=init,
+        )
     nets = substrate.run([incus, "network", "list", "--format", "json"], timeout=30)
     parsed_nets = substrate.parse_json_stdout(nets) or []
     managed = [n for n in parsed_nets if n.get("managed") and n.get("type") == "bridge"]
