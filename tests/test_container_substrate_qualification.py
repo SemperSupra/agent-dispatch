@@ -82,5 +82,72 @@ class ContainerSubstrateTests(unittest.TestCase):
         self.assertIsNone(MOD.parse_json_stdout({"exit_code": 0, "stdout": "truncated"}))
 
 
+    def test_lxc_capability_projection_keeps_observed_separate_from_supported(self):
+        receipt = {
+            "lane": "lxc",
+            "oracleSatisfied": True,
+            "classification": "SUPPORTED",
+            "reason": "ok",
+            "isolation": "shared-linux-kernel-system-container",
+            "host": {"machine": "x86_64"},
+            "container_census": {
+                "DEVICES": "MISSING /dev/kvm\ncrw-rw-rw- 1 root root 10,200 /dev/net/tun\nMISSING /dev/fuse",
+                "DNS_ORACLE": "github.com resolved",
+                "TCP_443_ORACLE": "PASS",
+                "HTTPS_EGRESS": "HTTP/2 200",
+            },
+        }
+        facts = MOD.derive_capability_facts(receipt)
+        self.assertEqual(facts["runtime:lxc"]["state"], "SUPPORTED")
+        self.assertEqual(facts["kernel:shared"]["state"], "SUPPORTED")
+        self.assertEqual(facts["device:kvm"]["state"], "NEGATIVE_OBSERVATION")
+        self.assertEqual(facts["device:tun"]["state"], "OBSERVED")
+        self.assertEqual(facts["network:https-egress"]["state"], "SUPPORTED")
+
+    def test_apple_negative_guest_does_not_erase_callable_control_plane(self):
+        receipt = {
+            "lane": "apple",
+            "oracleSatisfied": False,
+            "classification": "NEGATIVE_OBSERVATION",
+            "reason": "nested virtualization unavailable",
+            "isolation": "lightweight-linux-vm-per-container",
+            "host": {
+                "machine": "arm64",
+                "sysctl": {"hv_support": {"stdout": "0", "exit_code": 0}},
+            },
+            "steps": [
+                {"version": {"exit_code": 0}},
+                {"status": {"exit_code": 0}},
+            ],
+        }
+        facts = MOD.derive_capability_facts(receipt)
+        self.assertEqual(facts["runtime:apple-container"]["state"], "NEGATIVE_OBSERVATION")
+        self.assertEqual(facts["apple-container:control-plane"]["state"], "SUPPORTED")
+        self.assertEqual(facts["host:apple-hv-support"]["state"], "NEGATIVE_OBSERVATION")
+        self.assertEqual(facts["gpu:apple"]["state"], "DOCUMENTED_NEGATIVE")
+
+    def test_windows_gpu_visibility_is_not_directx_support(self):
+        receipt = {
+            "lane": "windows",
+            "oracleSatisfied": True,
+            "classification": "SUPPORTED",
+            "reason": "ok",
+            "isolation": "process",
+            "host": {"machine": "AMD64"},
+            "container_census": {
+                "env": {"PROCESSOR_ARCHITECTURE": "AMD64"},
+                "display": [{"Name": "Microsoft Hyper-V Video"}],
+                "dnsLookup": ["example"],
+                "httpsEgress": True,
+                "net": [{"Name": "vEthernet"}],
+            },
+            "steps": [],
+        }
+        facts = MOD.derive_capability_facts(receipt)
+        self.assertEqual(facts["runtime:windows-container"]["state"], "SUPPORTED")
+        self.assertEqual(facts["gpu:windows-display"]["state"], "OBSERVED")
+        self.assertEqual(facts["gpu:directx"]["state"], "INCONCLUSIVE")
+
+
 if __name__ == "__main__":
     unittest.main()
