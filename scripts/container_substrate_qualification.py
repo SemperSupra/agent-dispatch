@@ -17,7 +17,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "container-substrate/0.3"
+VERSION = "container-substrate/0.4"
 
 
 def run(argv, timeout=60, cwd=None, env=None):
@@ -131,7 +131,9 @@ def host_census():
         data["device_paths"] = {
             p: {
                 "exists": pathlib.Path(p).exists(),
-                "listing": run(["ls", "-ld", p]) if pathlib.Path(p).exists() else None,
+                "listing": run(
+                    ["sh", "-lc", f"ls -ld {p}; if [ -d {p} ]; then find {p} -maxdepth 2 -mindepth 1 -print | head -100; fi"]
+                ) if pathlib.Path(p).exists() else None,
             }
             for p in devs
         }
@@ -203,7 +205,7 @@ echo '===MOUNTS==='
 cat /proc/mounts 2>/dev/null || true
 echo '===NETWORK==='
 if command -v ip >/dev/null 2>&1; then
-  ip -details addr 2>/dev/null || true
+  ip addr 2>/dev/null || true
 elif command -v ifconfig >/dev/null 2>&1; then
   ifconfig -a 2>/dev/null || true
 elif command -v busybox >/dev/null 2>&1; then
@@ -486,10 +488,18 @@ def lane_lxc():
         time.sleep(3)
         network_prepare = run([
             "lxc-attach", "-n", name, "--", "sh", "-lc",
-            "if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
-            "elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
-            "else exit 4; fi",
-        ], timeout=60)
+            "set -e; "
+            "if ! (ip -4 addr show eth0 2>/dev/null || busybox ip -4 addr show eth0 2>/dev/null) | grep -q 'inet '; then "
+            "  if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
+            "  elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
+            "  else exit 4; fi; "
+            "fi; "
+            "gw=$( (ip route 2>/dev/null || busybox ip route 2>/dev/null) | awk '/^default/{print $3; exit}'); "
+            "if [ -n \"$gw\" ] && { [ ! -s /etc/resolv.conf ] || grep -q 'nameserver 127\\.' /etc/resolv.conf; }; then "
+            "  printf 'nameserver %s\\n' \"$gw\" > /etc/resolv.conf; "
+            "fi; "
+            "if command -v apk >/dev/null 2>&1; then apk add --no-cache ca-certificates curl iproute2 >/tmp/substrate-apk.log 2>&1; fi",
+        ], timeout=120)
         evidence["steps"].append({"network_prepare": network_prepare})
         inner = run(["lxc-attach", "-n", name, "--", "sh", "-lc", LINUX_INNER], timeout=120)
         evidence["steps"].append({"attach_census": inner})
@@ -530,10 +540,18 @@ def lane_incus():
             time.sleep(2)
         network_prepare = run([
             incus, "exec", name, "--", "sh", "-lc",
-            "if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
-            "elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
-            "else exit 4; fi",
-        ], timeout=60)
+            "set -e; "
+            "if ! (ip -4 addr show eth0 2>/dev/null || busybox ip -4 addr show eth0 2>/dev/null) | grep -q 'inet '; then "
+            "  if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
+            "  elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
+            "  else exit 4; fi; "
+            "fi; "
+            "gw=$( (ip route 2>/dev/null || busybox ip route 2>/dev/null) | awk '/^default/{print $3; exit}'); "
+            "if [ -n \"$gw\" ] && { [ ! -s /etc/resolv.conf ] || grep -q 'nameserver 127\\.' /etc/resolv.conf; }; then "
+            "  printf 'nameserver %s\\n' \"$gw\" > /etc/resolv.conf; "
+            "fi; "
+            "if command -v apk >/dev/null 2>&1; then apk add --no-cache ca-certificates curl iproute2 >/tmp/substrate-apk.log 2>&1; fi",
+        ], timeout=120)
         evidence["steps"].append({"network_prepare": network_prepare})
         inner = run([incus, "exec", name, "--", "sh", "-lc", LINUX_INNER], timeout=120)
         evidence["steps"].append({"exec_census": inner})
