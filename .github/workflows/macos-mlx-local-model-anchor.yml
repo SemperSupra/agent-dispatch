@@ -1,0 +1,37 @@
+name: macOS MLX Local Model Anchor
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mlx-local-model-anchor:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner:
+          - macos-26
+          - xcode-27
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run pinned MLX local-model anchor
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/mlx-local-model-anchor"
+          python3 scripts/macos_mlx_local_model_anchor.py             --label "${{ matrix.runner }}"             --out "${RUNNER_TEMP}/mlx-local-model-anchor/receipt.json"
+      - name: Upload receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mlx-local-model-anchor-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mlx-local-model-anchor/receipt.json
+          if-no-files-found: error
+          retention-days: 7
