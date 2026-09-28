@@ -283,11 +283,15 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
                     msg = expect_call(conn, "boot.get_disks")
                     result(conn, msg, ["vda"])
 
-                    msg = expect_call(conn, "disk.get_unused")
-                    result(conn, msg, [
-                        {"name": "vdb", "devname": "vdb", "size": 8_589_934_592},
-                        {"name": "vdc", "devname": "vdc", "size": 8_589_934_592},
-                    ])
+                    msg = expect_call(conn, "disk.details")
+                    self.assertEqual(msg["params"], [])
+                    result(conn, msg, {
+                        "used": [{"name": "vda", "devname": "vda"}],
+                        "unused": [
+                            {"name": "vdb", "devname": "vdb", "size": 8_589_934_592},
+                            {"name": "vdc", "devname": "vdc", "size": 8_589_934_592},
+                        ],
+                    })
 
                     msg = expect_call(conn, "pool.query")
                     self.assertEqual(msg["params"], [[["name", "=", "rdtepool"]]])
@@ -379,6 +383,12 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
         thread.join(timeout=5)
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
+
+    def test_t3_uses_public_disk_details_not_private_get_unused(self):
+        text = POOL.read_text(encoding="utf-8")
+        self.assertIn('"disk.details"', text)
+        self.assertNotIn('"disk.get_unused"', text)
+        self.assertIn('disk_details["unused"]', text)
 
 
 if __name__ == "__main__":

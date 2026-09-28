@@ -60,7 +60,11 @@ def main():
         payload["system_version"] = ddp_call(ws, "2", "system.version", [])
         boot_disks = ddp_call(ws, "3", "boot.get_disks", [])
         payload["boot_disks"] = sorted(boot_disks)
-        unused = ddp_call(ws, "4", "disk.get_unused", [])
+        disk_details = ddp_call(ws, "4", "disk.details", [])
+        payload["disk_details"] = disk_details
+        if not isinstance(disk_details, dict) or not isinstance(disk_details.get("unused"), list):
+            raise RuntimeError(f"disk.details did not return an unused-disk list: {disk_details!r}")
+        unused = disk_details["unused"]
         payload["unused_disks"] = unused
 
         if len(unused) != a.expected_data_disks:
