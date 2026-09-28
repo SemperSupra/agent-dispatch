@@ -1,0 +1,838 @@
+#!/usr/bin/env python3
+"""Qualify native/system container substrates with resource/device/network evidence.
+
+The script is intentionally self-contained and public-safe.  It treats lifecycle,
+resource visibility, callability, and exercised oracles as separate evidence.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import platform
+import shutil
+import subprocess
+import tempfile
+import time
+import uuid
+
+VERSION = "container-substrate/0.6"
+
+
+def run(argv, timeout=60, cwd=None, env=None):
+    try:
+        cp = subprocess.run(
+            argv,
+            cwd=cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        return {
+            "argv": [str(x) for x in argv],
+            "exit_code": cp.returncode,
+            "stdout": cp.stdout[-12000:],
+            "stderr": cp.stderr[-12000:],
+        }
+    except Exception as exc:
+        return {
+            "argv": [str(x) for x in argv],
+            "exit_code": None,
+            "stdout": "",
+            "stderr": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def sh(command, timeout=60):
+    if os.name == "nt":
+        return run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command], timeout=timeout)
+    return run(["sh", "-lc", command], timeout=timeout)
+
+
+def ok(result):
+    return result.get("exit_code") == 0
+
+
+def command(name):
+    return shutil.which(name)
+
+
+def read_text(path, limit=20000):
+    try:
+        return pathlib.Path(path).read_text(errors="replace")[:limit]
+    except Exception:
+        return None
+
+
+def parse_json_stdout(result):
+    if not ok(result) or not result.get("stdout"):
+        return None
+    try:
+        return json.loads(result["stdout"])
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_sections(text):
+    """Parse ===NAME=== delimited probe output without losing raw evidence."""
+    sections = {}
+    current = None
+    for line in (text or "").splitlines():
+        if line.startswith("===") and line.endswith("===") and len(line) > 6:
+            current = line[3:-3]
+            sections.setdefault(current, [])
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return {name: "\n".join(lines).strip() for name, lines in sections.items()}
+
+
+def host_census():
+    data = {
+        "system": platform.system(),
+        "release": platform.release(),
+        "version": platform.version(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "logical_cpus": os.cpu_count(),
+        "github_actions": os.environ.get("GITHUB_ACTIONS") == "true",
+        "runner_name": os.environ.get("RUNNER_NAME"),
+        "runner_os": os.environ.get("RUNNER_OS"),
+        "runner_arch": os.environ.get("RUNNER_ARCH"),
+        "requested_label": os.environ.get("CENSUS_REQUESTED_LABEL"),
+    }
+
+    if platform.system() == "Linux":
+        data["kernel"] = run(["uname", "-a"])
+        data["meminfo"] = read_text("/proc/meminfo")
+        data["self_status"] = read_text("/proc/self/status")
+        data["cgroup"] = read_text("/proc/self/cgroup")
+        data["mounts"] = run(["findmnt", "-J"]) if command("findmnt") else None
+        data["network"] = run(["ip", "-j", "address"]) if command("ip") else None
+        data["routes"] = run(["ip", "-j", "route"]) if command("ip") else None
+        data["forwarding"] = {
+            "ipv4": read_text("/proc/sys/net/ipv4/ip_forward"),
+            "ipv6": read_text("/proc/sys/net/ipv6/conf/all/forwarding"),
+        }
+        data["firewall"] = {
+            "iptables_filter": run(["iptables", "-S"], timeout=20) if command("iptables") else None,
+            "iptables_nat": run(["iptables", "-t", "nat", "-S"], timeout=20) if command("iptables") else None,
+            "nft": run(["nft", "list", "ruleset"], timeout=20) if command("nft") else None,
+        }
+        data["pci"] = run(["lspci", "-nn"]) if command("lspci") else None
+        data["usb"] = run(["lsusb"]) if command("lsusb") else None
+        data["accelerators"] = {}
+        for tool, argv in (
+            ("nvidia-smi", ["nvidia-smi", "-L"]),
+            ("rocminfo", ["rocminfo"]),
+            ("clinfo", ["clinfo", "-l"]),
+        ):
+            if command(tool):
+                data["accelerators"][tool] = run(argv, timeout=20)
+        devs = [
+            "/dev/kvm", "/dev/dri", "/dev/nvidia0", "/dev/nvidiactl",
+            "/dev/infiniband", "/dev/bus/usb", "/dev/net/tun", "/dev/fuse",
+            "/dev/tpm0", "/dev/tpmrm0",
+        ]
+        data["device_paths"] = {
+            p: {
+                "exists": pathlib.Path(p).exists(),
+                "listing": run(
+                    ["sh", "-lc", f"ls -ld {p}; if [ -d {p} ]; then find {p} -maxdepth 2 -mindepth 1 -print | head -100; fi"]
+                ) if pathlib.Path(p).exists() else None,
+            }
+            for p in devs
+        }
+    elif platform.system() == "Darwin":
+        data["hardware"] = run(["system_profiler", "SPHardwareDataType", "-json"], timeout=30)
+        data["display"] = run(["system_profiler", "SPDisplaysDataType", "-json"], timeout=30)
+        data["network"] = run(["ifconfig", "-a"])
+        data["routes"] = run(["netstat", "-rn"])
+        data["vm_stat"] = run(["vm_stat"])
+        data["sysctl"] = {
+            "logicalcpu": run(["sysctl", "-n", "hw.logicalcpu"]),
+            "memsize": run(["sysctl", "-n", "hw.memsize"]),
+            "hv_support": run(["sysctl", "-n", "kern.hv_support"]),
+        }
+    elif platform.system() == "Windows":
+        ps = r"""
+$ErrorActionPreference='SilentlyContinue'
+function NetSnapshot {
+  @(
+    Get-NetIPConfiguration | ForEach-Object {
+      [ordered]@{
+        interfaceAlias = $_.InterfaceAlias
+        interfaceDescription = $_.InterfaceDescription
+        ipv4 = @($_.IPv4Address | ForEach-Object { $_.IPAddress })
+        ipv6 = @($_.IPv6Address | ForEach-Object { $_.IPAddress })
+        gateways = @($_.IPv4DefaultGateway | ForEach-Object { $_.NextHop })
+        dns = @($_.DNSServer.ServerAddresses)
+      }
+    }
+  )
+}
+[ordered]@{
+  computer = Get-CimInstance Win32_ComputerSystem | Select-Object Name,Manufacturer,Model,NumberOfLogicalProcessors,TotalPhysicalMemory
+  os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,OSArchitecture,FreePhysicalMemory,TotalVisibleMemorySize
+  cpu = @(Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors,VirtualizationFirmwareEnabled)
+  display = @(Get-CimInstance Win32_VideoController | Select-Object Name,AdapterCompatibility,DriverVersion,VideoProcessor)
+  net = @(Get-NetAdapter | Select-Object Name,InterfaceDescription,Status,LinkSpeed,MacAddress)
+  ip = @(NetSnapshot)
+  disks = @(Get-Volume | Select-Object DriveLetter,FileSystem,Size,SizeRemaining)
+  hyperv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All | Select-Object FeatureName,State
+  containers = Get-WindowsFeature Containers | Select-Object Name,InstallState
+} | ConvertTo-Json -Depth 5 -Compress
+"""
+        windows_result = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=45)
+        data["windows"] = {
+            "command": windows_result,
+            "parsed": parse_json_stdout(windows_result),
+        }
+        docker_result = run(["docker", "version", "--format", "{{json .}}"], timeout=30) if command("docker") else None
+        data["docker"] = {
+            "command": docker_result,
+            "parsed": parse_json_stdout(docker_result) if docker_result else None,
+        }
+    return data
+
+
+LINUX_INNER = r"""set -eu
+echo '===UNAME==='
+uname -a || true
+echo '===CPU==='
+getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || true
+echo '===MEMINFO==='
+cat /proc/meminfo 2>/dev/null || true
+echo '===STATUS==='
+cat /proc/self/status 2>/dev/null || true
+echo '===CGROUP==='
+cat /proc/self/cgroup 2>/dev/null || true
+echo '===MOUNTS==='
+cat /proc/mounts 2>/dev/null || true
+echo '===NETWORK==='
+if command -v ip >/dev/null 2>&1; then
+  ip addr 2>/dev/null || true
+elif command -v ifconfig >/dev/null 2>&1; then
+  ifconfig -a 2>/dev/null || true
+elif command -v busybox >/dev/null 2>&1; then
+  busybox ip addr 2>/dev/null || busybox ifconfig -a 2>/dev/null || cat /proc/net/dev 2>/dev/null || true
+else
+  cat /proc/net/dev 2>/dev/null || true
+fi
+echo '===ROUTES==='
+if command -v ip >/dev/null 2>&1; then
+  ip route 2>/dev/null || true
+elif command -v route >/dev/null 2>&1; then
+  route -n 2>/dev/null || true
+elif command -v busybox >/dev/null 2>&1; then
+  busybox ip route 2>/dev/null || busybox route -n 2>/dev/null || cat /proc/net/route 2>/dev/null || true
+else
+  cat /proc/net/route 2>/dev/null || true
+fi
+echo '===DNS==='
+cat /etc/resolv.conf 2>/dev/null || true
+echo '===DNS_ORACLE==='
+if command -v nslookup >/dev/null 2>&1; then
+  nslookup github.com 2>&1 || true
+elif command -v getent >/dev/null 2>&1; then
+  getent hosts github.com 2>&1 || true
+elif command -v busybox >/dev/null 2>&1; then
+  busybox nslookup github.com 2>&1 || true
+else
+  echo 'UNKNOWN no DNS query tool'
+fi
+echo '===TCP_443_ORACLE==='
+if command -v nc >/dev/null 2>&1; then
+  nc -zvw 8 github.com 443 2>&1 && echo PASS || echo FAIL
+elif command -v busybox >/dev/null 2>&1; then
+  busybox nc -z -w 8 github.com 443 2>&1 && echo PASS || echo FAIL
+else
+  echo 'UNKNOWN no TCP client'
+fi
+echo '===HTTPS_EGRESS==='
+if command -v curl >/dev/null 2>&1; then
+  curl -fsS -I --max-time 12 -w 'HTTP=%{http_code} REMOTE=%{remote_ip} CONNECT=%{time_connect} TLS=%{time_appconnect}\n' https://github.com/ 2>&1 && echo PASS || echo FAIL
+elif command -v wget >/dev/null 2>&1; then
+  wget -S -T 12 -O /dev/null https://github.com/ 2>&1 && echo PASS || echo FAIL
+elif command -v busybox >/dev/null 2>&1; then
+  busybox wget -S -T 12 -O /dev/null https://github.com/ 2>&1 && echo PASS || echo FAIL
+else
+  echo 'UNKNOWN no HTTPS client'
+fi
+echo '===DEVICES==='
+for p in /dev/kvm /dev/dri /dev/nvidia0 /dev/nvidiactl /dev/infiniband /dev/bus/usb /dev/net/tun /dev/fuse /dev/tpm0 /dev/tpmrm0; do
+  if [ -e "$p" ]; then
+    ls -ld "$p" 2>/dev/null || true
+    if [ -d "$p" ]; then find "$p" -maxdepth 2 -mindepth 1 -print 2>/dev/null | head -100 || true; fi
+  else
+    echo "MISSING $p"
+  fi
+done
+echo '===FILESYSTEM==='
+(df -T 2>/dev/null || df -h 2>/dev/null || true)
+echo '===IDENTITY==='
+(id || true)
+"""
+
+
+def windows_probe_script():
+    return r"""$ErrorActionPreference='SilentlyContinue'
+$dns = @()
+try { $dns = @([System.Net.Dns]::GetHostAddresses('github.com') | ForEach-Object { $_.IPAddressToString }) } catch {}
+$https = $false
+try {
+  $request = [System.Net.HttpWebRequest]::Create('https://github.com/')
+  $request.Method = 'HEAD'
+  $request.Timeout = 10000
+  $response = $request.GetResponse()
+  $https = $true
+  $response.Close()
+} catch {}
+$ip = @(
+  Get-NetIPConfiguration | ForEach-Object {
+    [ordered]@{
+      interfaceAlias = $_.InterfaceAlias
+      interfaceDescription = $_.InterfaceDescription
+      ipv4 = @($_.IPv4Address | ForEach-Object { $_.IPAddress })
+      ipv6 = @($_.IPv6Address | ForEach-Object { $_.IPAddress })
+      gateways = @($_.IPv4DefaultGateway | ForEach-Object { $_.NextHop })
+      dns = @($_.DNSServer.ServerAddresses)
+    }
+  }
+)
+[ordered]@{
+  env = [ordered]@{
+    COMPUTERNAME=$env:COMPUTERNAME
+    PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE
+    NUMBER_OF_PROCESSORS=$env:NUMBER_OF_PROCESSORS
+    USERNAME=$env:USERNAME
+  }
+  computer = Get-CimInstance Win32_ComputerSystem | Select-Object Name,Manufacturer,Model,NumberOfLogicalProcessors,TotalPhysicalMemory
+  os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,OSArchitecture,FreePhysicalMemory,TotalVisibleMemorySize
+  cpu = @(Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer,NumberOfCores,NumberOfLogicalProcessors)
+  display = @(Get-CimInstance Win32_VideoController | Select-Object Name,AdapterCompatibility,DriverVersion,VideoProcessor)
+  net = @(Get-NetAdapter | Select-Object Name,InterfaceDescription,Status,LinkSpeed,MacAddress)
+  ip = $ip
+  disks = @(Get-Volume | Select-Object DriveLetter,FileSystem,Size,SizeRemaining)
+  dnsLookup = $dns
+  httpsEgress = $https
+} | ConvertTo-Json -Depth 5 -Compress
+"""
+
+
+def lane_windows():
+    evidence = {"runtime": "windows-hcs/docker", "host": host_census(), "steps": []}
+    docker = command("docker")
+    if not docker:
+        return evidence | {
+            "classification": "NEGATIVE_OBSERVATION",
+            "oracleSatisfied": False,
+            "reason": "docker CLI not present on Windows runner",
+        }
+
+    daemon_before = run([docker, "version", "--format", "{{json .Server}}"], timeout=30)
+    evidence["steps"].append({"daemon_before": daemon_before})
+    if not ok(daemon_before) or not daemon_before.get("stdout", "").strip():
+        service_start = sh(
+            "$svc = Get-Service -Name docker -ErrorAction SilentlyContinue; "
+            "if ($null -eq $svc) { exit 3 }; "
+            "if ($svc.Status -ne 'Running') { Start-Service docker }; "
+            "(Get-Service docker).Status",
+            timeout=60,
+        )
+        evidence["steps"].append({"docker_service_start": service_start})
+        daemon_after = run([docker, "version", "--format", "{{json .Server}}"], timeout=30)
+        evidence["steps"].append({"daemon_after": daemon_after})
+        if not ok(daemon_after) or not daemon_after.get("stdout", "").strip():
+            return evidence | {
+                "classification": "ENVIRONMENT_FAILURE",
+                "oracleSatisfied": False,
+                "reason": "Windows Docker CLI is installed but the Windows container daemon could not be made callable",
+            }
+
+    with tempfile.TemporaryDirectory(prefix="win-container-") as td:
+        root = pathlib.Path(td)
+        (root / "probe.ps1").write_text(windows_probe_script())
+        (root / "Dockerfile").write_text(
+            "FROM mcr.microsoft.com/windows/servercore:ltsc2025\n"
+            "SHELL [\"powershell\",\"-NoProfile\",\"-NonInteractive\",\"-Command\"]\n"
+            "COPY probe.ps1 C:/probe.ps1\n"
+            "ENTRYPOINT [\"powershell\",\"-NoProfile\",\"-NonInteractive\",\"-File\",\"C:\\\\probe.ps1\"]\n"
+        )
+        tag = f"agent-dispatch/windows-substrate:{uuid.uuid4().hex[:8]}"
+        build = run([docker, "build", "--pull", "-t", tag, str(root)], timeout=600)
+        evidence["steps"].append({"build": build})
+        if not ok(build):
+            return evidence | {
+                "classification": "ENVIRONMENT_FAILURE",
+                "oracleSatisfied": False,
+                "reason": "Windows container image build failed",
+            }
+        inspect = run([docker, "image", "inspect", tag], timeout=30)
+        run_result = run([docker, "run", "--rm", "--isolation=process", tag], timeout=180)
+        evidence["steps"].append({"image_inspect": inspect, "run": run_result})
+        cleanup = run([docker, "image", "rm", "-f", tag], timeout=60)
+        evidence["cleanup"] = cleanup
+        passed = ok(run_result) and bool(run_result.get("stdout", "").strip())
+        return evidence | {
+            "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
+            "oracleSatisfied": passed,
+            "reason": "built and exercised a Windows process-isolated container" if passed else "Windows image built but process-isolated container oracle failed",
+            "container_census": parse_json_stdout(run_result),
+            "container_census_raw": run_result.get("stdout") if parse_json_stdout(run_result) is None else None,
+            "isolation": "process",
+        }
+
+
+def lane_apple(runtime=None):
+    evidence = {"runtime": "apple/container", "host": host_census(), "steps": []}
+    cli = runtime or command("container")
+    if not cli or not pathlib.Path(cli).exists():
+        return evidence | {
+            "classification": "NEGATIVE_OBSERVATION",
+            "oracleSatisfied": False,
+            "reason": "apple/container CLI not available after preparation",
+        }
+
+    version = run([cli, "system", "version", "--format", "json"], timeout=30)
+    evidence["steps"].append({"version": version})
+    start = run([cli, "system", "start", "--enable-kernel-install", "--timeout", "60"], timeout=180)
+    evidence["steps"].append({"system_start": start})
+    if not ok(start):
+        return evidence | {
+            "classification": "NEGATIVE_OBSERVATION",
+            "oracleSatisfied": False,
+            "reason": "container CLI built/callable but Virtualization.framework-backed service did not start on this hosted runner",
+        }
+
+    status = run([cli, "system", "status", "--format", "json"], timeout=30)
+    evidence["steps"].append({"status": status})
+    with tempfile.TemporaryDirectory(prefix="apple-container-") as td:
+        root = pathlib.Path(td)
+        (root / "Dockerfile").write_text(
+            "FROM docker.io/library/alpine:3.22\n"
+            "RUN apk add --no-cache iproute2 util-linux\n"
+            "CMD [\"/bin/sh\"]\n"
+        )
+        tag = f"agent-dispatch/apple-substrate:{uuid.uuid4().hex[:8]}"
+        build = run([cli, "build", "--tag", tag, str(root)], timeout=600)
+        evidence["steps"].append({"build": build})
+        if ok(build):
+            inner = run([cli, "run", "--rm", tag, "sh", "-lc", LINUX_INNER], timeout=180)
+        else:
+            inner = {"exit_code": None, "stdout": "", "stderr": "build failed"}
+        evidence["steps"].append({"run": inner})
+        cleanup = run([cli, "image", "delete", tag], timeout=60)
+        evidence["cleanup"] = cleanup
+    stop = run([cli, "system", "stop"], timeout=60)
+    evidence["steps"].append({"system_stop": stop})
+    passed = ok(build) and ok(inner)
+    virtualization_negative = (
+        not ok(build)
+        and "Virtualization is not available on this hardware" in build.get("stderr", "")
+    )
+    classification = "SUPPORTED" if passed else (
+        "NEGATIVE_OBSERVATION" if virtualization_negative else "ORACLE_FAILURE"
+    )
+    reason = (
+        "built and exercised an Apple container Linux VM"
+        if passed
+        else (
+            "Apple container control plane is callable, but this hosted Mac reports no usable nested virtualization for the Linux VM"
+            if virtualization_negative
+            else "Apple container service started but build/run oracle failed"
+        )
+    )
+    return evidence | {
+        "classification": classification,
+        "oracleSatisfied": passed,
+        "reason": reason,
+        "container_census": parse_sections(inner.get("stdout", "")),
+        "container_census_raw": inner.get("stdout") if inner.get("stdout") else None,
+        "virtualization_available": False if virtualization_negative else None,
+        "isolation": "lightweight-linux-vm-per-container",
+    }
+
+
+def ensure_lxc_bridge():
+    if not command("ip"):
+        return
+    have = run(["ip", "link", "show", "lxcbr0"])
+    if ok(have):
+        return
+    if command("systemctl"):
+        run(["systemctl", "start", "lxc-net"], timeout=30)
+
+
+def ensure_bridge_nat(bridge):
+    """Idempotently add only the minimum IPv4 forwarding/NAT rules for one test bridge."""
+    evidence = {"bridge": bridge, "created": []}
+    if platform.system() != "Linux" or not command("ip") or not command("iptables"):
+        evidence["status"] = "unavailable"
+        return evidence
+    route = run(["sh", "-lc", f"ip -4 route show dev {bridge} proto kernel | awk 'NR==1{{print $1}}'"])
+    uplink = run(["sh", "-lc", "ip -4 route show default | awk 'NR==1{print $5}'"])
+    subnet = route.get("stdout", "").strip()
+    outif = uplink.get("stdout", "").strip()
+    evidence["subnet"] = subnet
+    evidence["uplink"] = outif
+    if not subnet or not outif:
+        evidence["status"] = "inconclusive"
+        return evidence
+    evidence["ip_forward_before"] = read_text("/proc/sys/net/ipv4/ip_forward")
+    evidence["sysctl"] = run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
+    rules = [
+        (["-t", "nat"], ["POSTROUTING", "-s", subnet, "-o", outif, "-j", "MASQUERADE"]),
+        ([], ["FORWARD", "-i", bridge, "-o", outif, "-j", "ACCEPT"]),
+        ([], ["FORWARD", "-i", outif, "-o", bridge, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"]),
+    ]
+    for table_args, rule in rules:
+        check = run(["iptables", "-w", "5", *table_args, "-C", *rule], timeout=15)
+        if ok(check):
+            continue
+        add = run(["iptables", "-w", "5", *table_args, "-A", *rule], timeout=15)
+        evidence.setdefault("adds", []).append(add)
+        if ok(add):
+            evidence["created"].append({"table_args": table_args, "rule": rule})
+    evidence["status"] = "prepared"
+    return evidence
+
+
+def cleanup_bridge_nat(evidence):
+    results = []
+    if not isinstance(evidence, dict):
+        return results
+    for item in reversed(evidence.get("created", [])):
+        results.append(run([
+            "iptables", "-w", "5", *item["table_args"], "-D", *item["rule"]
+        ], timeout=15))
+    if str(evidence.get("ip_forward_before", "")).strip() == "0":
+        results.append(run(["sysctl", "-w", "net.ipv4.ip_forward=0"], timeout=15))
+    return results
+
+
+def lane_lxc():
+    evidence = {"runtime": "lxc", "host": host_census(), "steps": []}
+    required = ["lxc-create", "lxc-start", "lxc-attach", "lxc-destroy"]
+    if any(not command(x) for x in required):
+        return evidence | {
+            "classification": "NEGATIVE_OBSERVATION",
+            "oracleSatisfied": False,
+            "reason": "LXC tools not available after preparation",
+        }
+    ensure_lxc_bridge()
+    nat = ensure_bridge_nat("lxcbr0")
+    evidence["steps"].append({"bridge_nat": nat})
+    name = f"gha-lxc-{uuid.uuid4().hex[:8]}"
+    arch = "amd64" if platform.machine().lower() in ("x86_64", "amd64") else "arm64"
+    create = run([
+        "lxc-create", "-n", name, "-t", "download", "--",
+        "-d", "alpine", "-r", "3.22", "-a", arch,
+    ], timeout=300)
+    evidence["steps"].append({"create": create})
+    if not ok(create):
+        return evidence | {
+            "classification": "ENVIRONMENT_FAILURE",
+            "oracleSatisfied": False,
+            "reason": "LXC rootfs creation failed",
+        }
+    config = pathlib.Path("/var/lib/lxc") / name / "config"
+    try:
+        with config.open("a") as fp:
+            fp.write("\nlxc.net.0.type = veth\n")
+            fp.write("lxc.net.0.link = lxcbr0\n")
+            fp.write("lxc.net.0.flags = up\n")
+    except Exception as exc:
+        evidence["config_warning"] = str(exc)
+    start = run(["lxc-start", "-n", name, "-d"], timeout=60)
+    evidence["steps"].append({"start": start})
+    inner = {"exit_code": None, "stdout": "", "stderr": "not started"}
+    if ok(start):
+        time.sleep(3)
+        network_prepare = run([
+            "lxc-attach", "-n", name, "--", "sh", "-lc",
+            "set -e; "
+            "if ! (ip -4 addr show eth0 2>/dev/null || busybox ip -4 addr show eth0 2>/dev/null) | grep -q 'inet '; then "
+            "  if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
+            "  elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
+            "  else exit 4; fi; "
+            "fi; "
+            "gw=$( (ip route 2>/dev/null || busybox ip route 2>/dev/null) | awk '/^default/{print $3; exit}'); "
+            "if [ -n \"$gw\" ] && { [ ! -s /etc/resolv.conf ] || grep -q 'nameserver 127\\.' /etc/resolv.conf; }; then "
+            "  printf 'nameserver %s\\n' \"$gw\" > /etc/resolv.conf; "
+            "fi; "
+            "if command -v apk >/dev/null 2>&1; then apk add --no-cache ca-certificates curl iproute2 >/tmp/substrate-apk.log 2>&1; fi",
+        ], timeout=120)
+        evidence["steps"].append({"network_prepare": network_prepare})
+        inner = run(["lxc-attach", "-n", name, "--", "sh", "-lc", LINUX_INNER], timeout=120)
+        evidence["steps"].append({"attach_census": inner})
+    stop = run(["lxc-stop", "-n", name, "-k"], timeout=30)
+    destroy = run(["lxc-destroy", "-n", name], timeout=60)
+    nat_cleanup = cleanup_bridge_nat(nat)
+    evidence["cleanup"] = {"stop": stop, "destroy": destroy, "bridge_nat": nat_cleanup}
+    passed = ok(start) and ok(inner) and ok(destroy)
+    return evidence | {
+        "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
+        "oracleSatisfied": passed,
+        "reason": "created, started, entered, censused, and destroyed a real LXC system container" if passed else "LXC lifecycle or census oracle failed",
+        "container_census": parse_sections(inner.get("stdout", "")),
+        "container_census_raw": inner.get("stdout"),
+        "isolation": "shared-linux-kernel-system-container",
+    }
+
+
+def lane_incus():
+    evidence = {"runtime": "incus", "host": host_census(), "steps": []}
+    incus = command("incus")
+    if not incus:
+        return evidence | {
+            "classification": "NEGATIVE_OBSERVATION",
+            "oracleSatisfied": False,
+            "reason": "Incus CLI not available after preparation",
+        }
+    init = run([incus, "admin", "init", "--minimal"], timeout=90)
+    evidence["steps"].append({"init": init})
+    network_list = run([incus, "network", "list", "--format", "json"], timeout=30)
+    evidence["steps"].append({"network_list_before": network_list})
+    bridge = "incusbr0"
+    parsed_networks = parse_json_stdout(network_list) or []
+    managed = [n for n in parsed_networks if n.get("managed") and n.get("type") == "bridge"]
+    if managed:
+        bridge = managed[0].get("name") or bridge
+    nat = ensure_bridge_nat(bridge)
+    evidence["steps"].append({"bridge_nat": nat})
+    name = f"gha-incus-{uuid.uuid4().hex[:8]}"
+    launch = run([incus, "launch", "images:alpine/3.22", name], timeout=300)
+    evidence["steps"].append({"launch": launch})
+    inner = {"exit_code": None, "stdout": "", "stderr": "not launched"}
+    if ok(launch):
+        for _ in range(15):
+            state = run([incus, "info", name], timeout=15)
+            if "Status: RUNNING" in state.get("stdout", ""):
+                break
+            time.sleep(2)
+        network_prepare = run([
+            incus, "exec", name, "--", "sh", "-lc",
+            "set -e; "
+            "if ! (ip -4 addr show eth0 2>/dev/null || busybox ip -4 addr show eth0 2>/dev/null) | grep -q 'inet '; then "
+            "  if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
+            "  elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
+            "  else exit 4; fi; "
+            "fi; "
+            "gw=$( (ip route 2>/dev/null || busybox ip route 2>/dev/null) | awk '/^default/{print $3; exit}'); "
+            "if [ -n \"$gw\" ] && { [ ! -s /etc/resolv.conf ] || grep -q 'nameserver 127\\.' /etc/resolv.conf; }; then "
+            "  printf 'nameserver %s\\n' \"$gw\" > /etc/resolv.conf; "
+            "fi; "
+            "if command -v apk >/dev/null 2>&1; then apk add --no-cache ca-certificates curl iproute2 >/tmp/substrate-apk.log 2>&1; fi",
+        ], timeout=120)
+        evidence["steps"].append({"network_prepare": network_prepare})
+        inner = run([incus, "exec", name, "--", "sh", "-lc", LINUX_INNER], timeout=120)
+        evidence["steps"].append({"exec_census": inner})
+        evidence["instance_config"] = run([incus, "config", "show", name, "--expanded"], timeout=30)
+        evidence["networks"] = run([incus, "network", "list", "--format", "json"], timeout=30)
+    delete = run([incus, "delete", name, "--force"], timeout=60)
+    nat_cleanup = cleanup_bridge_nat(nat)
+    evidence["cleanup"] = {"delete": delete, "bridge_nat": nat_cleanup}
+    passed = ok(launch) and ok(inner) and ok(delete)
+    return evidence | {
+        "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
+        "oracleSatisfied": passed,
+        "reason": "created, entered, censused, and destroyed a real Incus system container" if passed else "Incus lifecycle or census oracle failed",
+        "container_census": parse_sections(inner.get("stdout", "")),
+        "container_census_raw": inner.get("stdout"),
+        "isolation": "shared-linux-kernel-system-container",
+    }
+
+
+
+def _fact(state, evidence=None, note=None):
+    item = {"state": state}
+    if evidence is not None:
+        item["evidence"] = evidence
+    if note:
+        item["note"] = note
+    return item
+
+
+def _linux_device_facts(sections):
+    text = (sections or {}).get("DEVICES", "")
+    mapping = {
+        "device:kvm": "/dev/kvm",
+        "device:dri": "/dev/dri",
+        "device:nvidia": "/dev/nvidia0",
+        "device:infiniband": "/dev/infiniband",
+        "device:usb": "/dev/bus/usb",
+        "device:tun": "/dev/net/tun",
+        "device:fuse": "/dev/fuse",
+        "device:tpm": "/dev/tpm0",
+    }
+    facts = {}
+    for name, path in mapping.items():
+        if f"MISSING {path}" in text:
+            facts[name] = _fact("NEGATIVE_OBSERVATION", path)
+        elif path in text:
+            facts[name] = _fact("OBSERVED", path, "visible in container; callability not implied")
+        else:
+            facts[name] = _fact("INCONCLUSIVE", path)
+    return facts
+
+
+def derive_capability_facts(payload):
+    """Project raw receipt evidence into bounded placement facts.
+
+    Facts remain evidence states, not scheduler policy. OBSERVED means visible only;
+    SUPPORTED is reserved for an exercised oracle.
+    """
+    lane = payload.get("lane")
+    passed = bool(payload.get("oracleSatisfied"))
+    facts = {}
+
+    runtime_names = {
+        "windows": "runtime:windows-container",
+        "apple": "runtime:apple-container",
+        "lxc": "runtime:lxc",
+        "incus": "runtime:incus",
+    }
+    runtime_fact = runtime_names.get(lane)
+    if runtime_fact:
+        facts[runtime_fact] = _fact(
+            "SUPPORTED" if passed else payload.get("classification", "INCONCLUSIVE"),
+            payload.get("reason"),
+        )
+
+    isolation = payload.get("isolation")
+    if isolation == "process" and passed:
+        facts["isolation:process"] = _fact("SUPPORTED")
+    elif isolation == "shared-linux-kernel-system-container" and passed:
+        facts["isolation:system-container"] = _fact("SUPPORTED")
+        facts["kernel:shared"] = _fact("SUPPORTED")
+    elif isolation == "lightweight-linux-vm-per-container":
+        facts["isolation:vm-per-container"] = _fact(
+            "SUPPORTED" if passed else "OBSERVED",
+            note="Apple container architecture/control plane; guest execution is separately gated",
+        )
+        facts["kernel:guest-linux-vm"] = _fact(
+            "SUPPORTED" if passed else "OBSERVED",
+            note="guest kernel model is architectural; this hosted runner did not boot the guest",
+        )
+
+    if lane in {"lxc", "incus"}:
+        sections = payload.get("container_census") or {}
+        facts.update(_linux_device_facts(sections))
+        if sections.get("DNS_ORACLE"):
+            facts["network:dns"] = _fact("SUPPORTED", sections["DNS_ORACLE"][:500])
+        else:
+            facts["network:dns"] = _fact("INCONCLUSIVE")
+        if "PASS" in (sections.get("TCP_443_ORACLE") or ""):
+            facts["network:tcp443"] = _fact("SUPPORTED", sections["TCP_443_ORACLE"][:500])
+        else:
+            facts["network:tcp443"] = _fact("INCONCLUSIVE")
+        if sections.get("HTTPS_EGRESS"):
+            facts["network:https-egress"] = _fact("SUPPORTED", sections["HTTPS_EGRESS"][:500])
+        else:
+            facts["network:https-egress"] = _fact("INCONCLUSIVE")
+        facts["network:bridge"] = _fact(
+            "SUPPORTED" if passed else "INCONCLUSIVE",
+            note="bounded bridge/NAT path exercised by lifecycle rep",
+        )
+
+    if lane == "windows":
+        census = payload.get("container_census") or {}
+        env = census.get("env") or {}
+        if passed:
+            facts["kernel:shared-windows"] = _fact("SUPPORTED", "process isolation")
+            facts["network:hns"] = _fact("OBSERVED", census.get("net"))
+            facts["network:dns"] = _fact(
+                "SUPPORTED" if census.get("dnsLookup") else "INCONCLUSIVE",
+                census.get("dnsLookup"),
+            )
+            facts["network:https-egress"] = _fact(
+                "SUPPORTED" if census.get("httpsEgress") is True else "INCONCLUSIVE"
+            )
+            facts["isa:x86_64"] = _fact(
+                "SUPPORTED" if env.get("PROCESSOR_ARCHITECTURE") == "AMD64" else "INCONCLUSIVE",
+                env.get("PROCESSOR_ARCHITECTURE"),
+            )
+        display = census.get("display") or []
+        facts["gpu:windows-display"] = _fact(
+            "OBSERVED" if display else "NEGATIVE_OBSERVATION",
+            display,
+            "display adapter visibility does not prove DirectX/CUDA acceleration",
+        )
+        facts["gpu:directx"] = _fact(
+            "INCONCLUSIVE",
+            note="requires an in-container DirectX compute/render oracle; not inferred from Hyper-V Video",
+        )
+
+    if lane == "apple":
+        host = payload.get("host") or {}
+        hv = (((host.get("sysctl") or {}).get("hv_support") or {}).get("stdout") or "").strip()
+        version_ok = any(ok(step.get("version", {})) for step in payload.get("steps", []) if "version" in step)
+        status_ok = any(ok(step.get("status", {})) for step in payload.get("steps", []) if "status" in step)
+        facts["apple-container:control-plane"] = _fact(
+            "SUPPORTED" if version_ok and status_ok else "INCONCLUSIVE"
+        )
+        facts["host:apple-hv-support"] = _fact(
+            "NEGATIVE_OBSERVATION" if hv == "0" else ("OBSERVED" if hv else "INCONCLUSIVE"),
+            hv or None,
+        )
+        facts["gpu:apple"] = _fact(
+            "DOCUMENTED_NEGATIVE",
+            note="no supported Apple-GPU passthrough/compute interface to the Linux guest in this qualification contract",
+        )
+
+    machine = ((payload.get("host") or {}).get("machine") or "").lower()
+    if machine in {"x86_64", "amd64"}:
+        facts.setdefault("isa:x86_64", _fact("OBSERVED", machine))
+    elif machine in {"arm64", "aarch64"}:
+        facts.setdefault("isa:arm64", _fact("OBSERVED", machine))
+
+    return dict(sorted(facts.items()))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lane", choices=["windows", "apple", "lxc", "incus"], required=True)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--runtime")
+    args = parser.parse_args()
+
+    if args.lane == "windows":
+        payload = lane_windows()
+    elif args.lane == "apple":
+        payload = lane_apple(args.runtime)
+    elif args.lane == "lxc":
+        payload = lane_lxc()
+    else:
+        payload = lane_incus()
+
+    payload = {
+        "schema": VERSION,
+        "lane": args.lane,
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        **payload,
+    }
+    correlation = {
+        "workset_id": os.environ.get("AGENT_DISPATCH_WORKSET_ID") or None,
+        "delegation_id": os.environ.get("AGENT_DISPATCH_DELEGATION_ID") or None,
+        "assignment_id": os.environ.get("AGENT_DISPATCH_ASSIGNMENT_ID") or None,
+    }
+    if any(correlation.values()):
+        payload["correlation"] = correlation
+    payload["capability_facts"] = derive_capability_facts(payload)
+    out = pathlib.Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    print(json.dumps({
+        "lane": args.lane,
+        "classification": payload.get("classification"),
+        "oracleSatisfied": payload.get("oracleSatisfied"),
+        "reason": payload.get("reason"),
+    }, indent=2))
+
+
+if __name__ == "__main__":
+    main()
