@@ -153,8 +153,8 @@ jobs:
         run: |
           set -euo pipefail
           inspect="$(docker image inspect "$IMAGE")"
-          jq -e '.[0].Config.Labels["com.sempersupra.litellm.upstream.version"] == "v1.102.1"' <<<"$inspect" >/dev/null
-          jq -e '.[0].Config.Labels["com.sempersupra.litellm.upstream.digest"] == "sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02"' <<<"$inspect" >/dev/null
+          jq -e '.[0].Config.Labels["com.sempersupra.litellm.upstream.version"] == "v1.103.0"' <<<"$inspect" >/dev/null
+          jq -e '.[0].Config.Labels["com.sempersupra.litellm.upstream.digest"] == "sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7"' <<<"$inspect" >/dev/null
           jq -e '.[0].Config.Labels["com.sempersupra.contract.profile"] == "gateway-minimal"' <<<"$inspect" >/dev/null
 
       - name: Emit sanitized qualification receipt
@@ -169,9 +169,9 @@ jobs:
             "schema": "semper-supra.litellm-appliance-qualification/1",
             "status": "PASS",
             "upstream": {
-              "version": "v1.102.1",
-              "digest": "sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02",
-              "signature_verified_run": 36461885475,
+              "version": "v1.103.0",
+              "digest": "sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7",
+              "signature_verified_run": 36496814619,
             },
             "appliance": {
               "local_image_id": os.environ["IMAGE_ID"],
