@@ -815,6 +815,13 @@ def main():
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         **payload,
     }
+    correlation = {
+        "workset_id": os.environ.get("AGENT_DISPATCH_WORKSET_ID") or None,
+        "delegation_id": os.environ.get("AGENT_DISPATCH_DELEGATION_ID") or None,
+        "assignment_id": os.environ.get("AGENT_DISPATCH_ASSIGNMENT_ID") or None,
+    }
+    if any(correlation.values()):
+        payload["correlation"] = correlation
     payload["capability_facts"] = derive_capability_facts(payload)
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
