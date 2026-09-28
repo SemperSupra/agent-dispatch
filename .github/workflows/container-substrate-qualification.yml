@@ -2,12 +2,41 @@ name: Native Container Substrate Qualification
 
 on:
   workflow_dispatch:
+    inputs:
+      workset_id:
+        description: Opaque Agent Dispatch workset correlation id
+        required: false
+        type: string
+      delegation_id:
+        description: Opaque Agent Dispatch delegation correlation id
+        required: false
+        type: string
+      assignment_id:
+        description: Opaque Agent Dispatch assignment correlation id
+        required: false
+        type: string
+      lane:
+        description: Substrate lane to qualify
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - windows
+          - apple
+          - lxc
+          - incus
   push:
     branches:
       - exp/container-substrate-qualification
 
 permissions:
   contents: read
+
+env:
+  AGENT_DISPATCH_WORKSET_ID: ${{ inputs.workset_id || '' }}
+  AGENT_DISPATCH_DELEGATION_ID: ${{ inputs.delegation_id || '' }}
+  AGENT_DISPATCH_ASSIGNMENT_ID: ${{ inputs.assignment_id || '' }}
 
 jobs:
   contract:
@@ -21,6 +50,7 @@ jobs:
         run: python3 -m unittest -v tests/test_container_substrate_qualification.py
 
   windows:
+    if: ${{ github.event_name == 'push' || inputs.lane == 'all' || inputs.lane == 'windows' }}
     needs: contract
     runs-on: windows-2025
     timeout-minutes: 20
@@ -45,6 +75,7 @@ jobs:
           retention-days: 7
 
   apple:
+    if: ${{ github.event_name == 'push' || inputs.lane == 'all' || inputs.lane == 'apple' }}
     needs: contract
     runs-on: macos-26
     timeout-minutes: 25
@@ -99,6 +130,7 @@ jobs:
           retention-days: 7
 
   lxc:
+    if: ${{ github.event_name == 'push' || inputs.lane == 'all' || inputs.lane == 'lxc' }}
     needs: contract
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -137,6 +169,7 @@ jobs:
           retention-days: 7
 
   incus:
+    if: ${{ github.event_name == 'push' || inputs.lane == 'all' || inputs.lane == 'incus' }}
     needs: contract
     runs-on: ubuntu-26.04
     timeout-minutes: 15
