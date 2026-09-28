@@ -36,6 +36,10 @@ QEMU_PID=""
 OBSERVED_ISO_SHA=""
 API_VERSION_JSON=""
 NESTED_KVM="unknown"
+SSH_REACHABLE="false"
+API_PORT_REACHABLE="false"
+QEMU_ALIVE_AT_API_GATE="unknown"
+GUEST_DIAGNOSTICS=""
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
@@ -55,6 +59,8 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
+  export R_SSH_REACHABLE="$SSH_REACHABLE" R_API_PORT_REACHABLE="$API_PORT_REACHABLE"
+  export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -79,6 +85,12 @@ payload = {
   },
   "api_version": json.loads(os.environ["R_API"]) if os.environ.get("R_API") else None,
   "nested_kvm": os.environ.get("R_NESTED"),
+  "diagnostics": {
+    "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
+    "ssh_port_reachable": os.environ.get("R_SSH_REACHABLE") == "true",
+    "api_port_reachable": os.environ.get("R_API_PORT_REACHABLE") == "true",
+    "guest": os.environ.get("R_GUEST_DIAGNOSTICS") or None,
+  },
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
     "Disposable virtual-hardware target profile; not physical-HBA/SMART/IPMI/HA qualification.",
@@ -172,6 +184,47 @@ s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
 PY
 )"
 
+
+port_open() {
+  local port="$1"
+  python3 - "$port" <<'PY'
+import socket, sys
+s=socket.socket()
+s.settimeout(1.0)
+try:
+    s.connect(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+finally:
+    s.close()
+PY
+}
+
+guest_diagnostics() {
+  command -v sshpass >/dev/null 2>&1 || return 0
+  sshpass -p 'rdte-proxmox-ephemeral-9264' ssh -p "$SSH_PORT"     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5     root@127.0.0.1 '
+      echo "===PVEVERSION===";
+      pveversion -v 2>&1 || true;
+      echo "===SYSTEMD_FAILED===";
+      systemctl --failed --no-pager 2>&1 || true;
+      echo "===PVE_SERVICES===";
+      for s in pveproxy pvedaemon pvestatd pve-cluster networking systemd-networkd; do
+        echo "--- $s ---";
+        systemctl status "$s" --no-pager -l 2>&1 | tail -n 40 || true;
+      done;
+      echo "===LISTENERS===";
+      ss -lntup 2>&1 || true;
+      echo "===IP_ADDR===";
+      ip -brief addr 2>&1 || true;
+      echo "===IP_ROUTE===";
+      ip route 2>&1 || true;
+      echo "===RESOLV===";
+      cat /etc/resolv.conf 2>&1 || true;
+      echo "===PVE_PROXY_JOURNAL===";
+      journalctl -u pveproxy -b --no-pager -n 100 2>&1 || true;
+    ' 2>&1 | tail -c 24000
+}
+
 start_qemu() {
   local with_iso="$1"
   : >"$STATE_DIR/serial.log"
@@ -211,12 +264,30 @@ stop_qemu
 
 start_qemu no
 API_VERSION_JSON=""
+SSH_REACHABLE="false"
+API_PORT_REACHABLE="false"
+QEMU_ALIVE_AT_API_GATE="unknown"
 for _ in $(seq 1 120); do
-  API_VERSION_JSON="$(curl -sk --max-time 3 "https://127.0.0.1:$WEB_PORT/api2/json/version" 2>/dev/null || true)"
-  if [[ "$API_VERSION_JSON" == *'"data"'* ]]; then break; fi
+  if sudo -n kill -0 "$QEMU_PID" >/dev/null 2>&1; then
+    QEMU_ALIVE_AT_API_GATE="true"
+  else
+    QEMU_ALIVE_AT_API_GATE="false"
+    break
+  fi
+  if port_open "$SSH_PORT"; then SSH_REACHABLE="true"; fi
+  if port_open "$WEB_PORT"; then API_PORT_REACHABLE="true"; fi
+  if [[ "$API_PORT_REACHABLE" == "true" ]]; then
+    API_VERSION_JSON="$(curl -sk --max-time 3 "https://127.0.0.1:$WEB_PORT/api2/json/version" 2>/dev/null || true)"
+    if [[ "$API_VERSION_JSON" == *'"data"'* ]]; then break; fi
+  fi
   sleep 3
 done
-[[ "$API_VERSION_JSON" == *'"data"'* ]] || fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer"
+if [[ "$API_VERSION_JSON" != *'"data"'* ]]; then
+  if [[ "$SSH_REACHABLE" == "true" ]]; then
+    GUEST_DIAGNOSTICS="$(guest_diagnostics || true)"
+  fi
+  fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer (qemu_alive=$QEMU_ALIVE_AT_API_GATE ssh=$SSH_REACHABLE tcp8006=$API_PORT_REACHABLE)"
+fi
 
 NESTED_KVM="unknown"
 if command -v sshpass >/dev/null 2>&1; then
