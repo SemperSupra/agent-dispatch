@@ -141,7 +141,7 @@ jobs:
           done
           [[ "$ready" == true ]]
 
-          docker exec "$cid" python -c "import os; assert os.environ.get('TEST_PROVIDER_KEY') == 'fixture-provider-token'"
+          docker exec "$cid" python -c "data=open('/proc/1/environ','rb').read().split(b'\\0'); assert b'TEST_PROVIDER_KEY=fixture-provider-token' in data"
           docker inspect "$cid" | grep -q '/config'
           docker inspect "$cid" | grep -q '/run/secrets/semper-env'
           ! docker inspect "$cid" | grep -q 'fixture-provider-token'
