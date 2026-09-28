@@ -1,4 +1,4 @@
-ARG LITELLM_BASE=ghcr.io/berriai/litellm@sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02
+ARG LITELLM_BASE=ghcr.io/berriai/litellm@sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7
 FROM ${LITELLM_BASE}
 
 LABEL org.opencontainers.image.title="SemperSupra LiteLLM Appliance" \
@@ -6,13 +6,12 @@ LABEL org.opencontainers.image.title="SemperSupra LiteLLM Appliance" \
       org.opencontainers.image.vendor="SemperSupra" \
       org.opencontainers.image.version="0.1.0" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.source="https://github.com/SemperSupra/agent-dispatch" \
-      com.sempersupra.litellm.upstream.version="v1.102.1" \
-      com.sempersupra.litellm.upstream.commit="d09bbae1c6df463e425558f60d460437193635da" \
-      com.sempersupra.litellm.upstream.digest="sha256:87f34979b9f8cb274fac90ca8a4fdda07d8480de22755562a26adeb95ce20d02" \
+      com.sempersupra.litellm.upstream.version="v1.103.0" \
+      com.sempersupra.litellm.upstream.commit="c991f4b01f5799eb0b0cab0fb63988e15c3a8a9d" \
+      com.sempersupra.litellm.upstream.digest="sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7" \
       com.sempersupra.contract.profile="gateway-minimal"
 
-COPY --chmod=0555 semper-entrypoint.sh /usr/local/bin/semper-litellm-entrypoint
+COPY --chmod=0555 appliances/litellm/semper-entrypoint.sh /usr/local/bin/semper-litellm-entrypoint
 
 
 ENTRYPOINT ["/usr/local/bin/semper-litellm-entrypoint"]
