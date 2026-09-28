@@ -1,0 +1,52 @@
+name: GitHub Runner Linux Userland Census
+on:
+  pull_request:
+    branches: [exp/runner-latent-hardware-surfaces]
+    paths:
+      - 'scripts/github_runner_userland_census.py'
+      - 'tests/test_github_runner_userland_census.py'
+      - '.github/workflows/github-runner-userland-census.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_github_runner_userland_census.py
+  userland:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {slug: ubuntu-24.04, image: 'ubuntu:24.04'}
+          - {slug: debian-13.7-slim, image: 'debian:13.7-slim'}
+          - {slug: debian-12-slim, image: 'debian:12-slim'}
+          - {slug: alpine-3.24.2, image: 'alpine:3.24.2'}
+          - {slug: fedora-44, image: 'fedora:44'}
+          - {slug: rocky-10.2-minimal, image: 'rockylinux/rockylinux:10.2-minimal'}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Census digest-bound userland
+        env:
+          CENSUS_REPOSITORY_VISIBILITY: public
+        run: |
+          mkdir -p "${RUNNER_TEMP}/userland"
+          python3 scripts/github_runner_userland_census.py --image "${{ matrix.image }}" --parent-label ubuntu-24.04 --out "${RUNNER_TEMP}/userland/receipt.json"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-userland-${{ matrix.slug }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/userland/receipt.json
+          if-no-files-found: error
+          retention-days: 14
