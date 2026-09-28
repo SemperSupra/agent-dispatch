@@ -14,7 +14,6 @@ LABEL org.opencontainers.image.title="SemperSupra LiteLLM Appliance" \
 
 COPY --chmod=0555 semper-entrypoint.sh /usr/local/bin/semper-litellm-entrypoint
 
-ENV SEMPER_SECRET_DIR=/run/secrets/semper-env
 
 ENTRYPOINT ["/usr/local/bin/semper-litellm-entrypoint"]
 CMD ["--config", "/config/proxy_server_config.yaml", "--port", "4000"]
