@@ -57,9 +57,23 @@ class ContainerSubstrateTests(unittest.TestCase):
     def test_linux_inner_census_names_required_sections(self):
         for section in (
             "UNAME", "CPU", "MEMINFO", "CGROUP", "MOUNTS",
-            "NETWORK", "ROUTES", "DEVICES", "FILESYSTEM", "IDENTITY",
+            "NETWORK", "ROUTES", "DNS", "DNS_ORACLE", "HTTPS_EGRESS",
+            "DEVICES", "FILESYSTEM", "IDENTITY",
         ):
             self.assertIn(f"==={section}===", MOD.LINUX_INNER)
+
+    def test_parse_sections_returns_structured_evidence(self):
+        parsed = MOD.parse_sections("===CPU===\n4\n===HTTPS_EGRESS===\nPASS\n")
+        self.assertEqual(parsed["CPU"], "4")
+        self.assertEqual(parsed["HTTPS_EGRESS"], "PASS")
+
+    def test_parse_json_stdout_requires_valid_successful_json(self):
+        self.assertEqual(
+            MOD.parse_json_stdout({"exit_code": 0, "stdout": '{"ok":true}'}),
+            {"ok": True},
+        )
+        self.assertIsNone(MOD.parse_json_stdout({"exit_code": 1, "stdout": '{"ok":true}'}))
+        self.assertIsNone(MOD.parse_json_stdout({"exit_code": 0, "stdout": "truncated"}))
 
 
 if __name__ == "__main__":
