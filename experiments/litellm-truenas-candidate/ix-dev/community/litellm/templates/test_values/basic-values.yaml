@@ -1,0 +1,22 @@
+resources:
+  limits:
+    cpus: 2.0
+    memory: 2048
+
+network:
+  web_port:
+    bind_mode: published
+    port_number: 30400
+    host_ips: []
+
+storage:
+  config:
+    type: host_path
+    host_path_config:
+      acl_enable: false
+      path: /opt/tests/mnt/litellm/config
+  provider_secrets:
+    type: host_path
+    host_path_config:
+      acl_enable: false
+      path: /opt/tests/mnt/litellm/secrets
