@@ -1,0 +1,11 @@
+images:
+  image:
+    repository: ghcr.io/sempersupra/litellm-appliance
+    tag: 0.1.0-dev
+
+consts:
+  container_name: litellm
+  config_dir: /config
+  config_file: /config/proxy_server_config.yaml
+  secret_dir: /run/secrets/semper-env
+  internal_web_port: 4000
