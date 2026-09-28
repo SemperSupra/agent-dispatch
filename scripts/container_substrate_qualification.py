@@ -17,7 +17,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "container-substrate/0.2"
+VERSION = "container-substrate/0.3"
 
 
 def run(argv, timeout=60, cwd=None, env=None):
@@ -206,6 +206,8 @@ if command -v ip >/dev/null 2>&1; then
   ip -details addr 2>/dev/null || true
 elif command -v ifconfig >/dev/null 2>&1; then
   ifconfig -a 2>/dev/null || true
+elif command -v busybox >/dev/null 2>&1; then
+  busybox ip addr 2>/dev/null || busybox ifconfig -a 2>/dev/null || cat /proc/net/dev 2>/dev/null || true
 else
   cat /proc/net/dev 2>/dev/null || true
 fi
@@ -214,6 +216,8 @@ if command -v ip >/dev/null 2>&1; then
   ip route 2>/dev/null || true
 elif command -v route >/dev/null 2>&1; then
   route -n 2>/dev/null || true
+elif command -v busybox >/dev/null 2>&1; then
+  busybox ip route 2>/dev/null || busybox route -n 2>/dev/null || cat /proc/net/route 2>/dev/null || true
 else
   cat /proc/net/route 2>/dev/null || true
 fi
@@ -224,6 +228,8 @@ if command -v nslookup >/dev/null 2>&1; then
   nslookup github.com 2>&1 || true
 elif command -v getent >/dev/null 2>&1; then
   getent hosts github.com 2>&1 || true
+elif command -v busybox >/dev/null 2>&1; then
+  busybox nslookup github.com 2>&1 || true
 else
   echo 'UNKNOWN no DNS query tool'
 fi
@@ -232,6 +238,8 @@ if command -v wget >/dev/null 2>&1; then
   if wget -q -T 10 -O /dev/null https://github.com/ 2>/dev/null; then echo PASS; else echo FAIL; fi
 elif command -v curl >/dev/null 2>&1; then
   if curl -fsS --max-time 10 -o /dev/null https://github.com/; then echo PASS; else echo FAIL; fi
+elif command -v busybox >/dev/null 2>&1; then
+  if busybox wget -q -T 10 -O /dev/null https://github.com/ 2>/dev/null; then echo PASS; else echo FAIL; fi
 else
   echo 'UNKNOWN no HTTPS client'
 fi
@@ -305,6 +313,26 @@ def lane_windows():
             "oracleSatisfied": False,
             "reason": "docker CLI not present on Windows runner",
         }
+
+    daemon_before = run([docker, "version", "--format", "{{json .Server}}"], timeout=30)
+    evidence["steps"].append({"daemon_before": daemon_before})
+    if not ok(daemon_before) or not daemon_before.get("stdout", "").strip():
+        service_start = sh(
+            "$svc = Get-Service -Name docker -ErrorAction SilentlyContinue; "
+            "if ($null -eq $svc) { exit 3 }; "
+            "if ($svc.Status -ne 'Running') { Start-Service docker }; "
+            "(Get-Service docker).Status",
+            timeout=60,
+        )
+        evidence["steps"].append({"docker_service_start": service_start})
+        daemon_after = run([docker, "version", "--format", "{{json .Server}}"], timeout=30)
+        evidence["steps"].append({"daemon_after": daemon_after})
+        if not ok(daemon_after) or not daemon_after.get("stdout", "").strip():
+            return evidence | {
+                "classification": "ENVIRONMENT_FAILURE",
+                "oracleSatisfied": False,
+                "reason": "Windows Docker CLI is installed but the Windows container daemon could not be made callable",
+            }
 
     with tempfile.TemporaryDirectory(prefix="win-container-") as td:
         root = pathlib.Path(td)
@@ -456,6 +484,13 @@ def lane_lxc():
     inner = {"exit_code": None, "stdout": "", "stderr": "not started"}
     if ok(start):
         time.sleep(3)
+        network_prepare = run([
+            "lxc-attach", "-n", name, "--", "sh", "-lc",
+            "if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
+            "elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
+            "else exit 4; fi",
+        ], timeout=60)
+        evidence["steps"].append({"network_prepare": network_prepare})
         inner = run(["lxc-attach", "-n", name, "--", "sh", "-lc", LINUX_INNER], timeout=120)
         evidence["steps"].append({"attach_census": inner})
     stop = run(["lxc-stop", "-n", name, "-k"], timeout=30)
@@ -493,6 +528,13 @@ def lane_incus():
             if "Status: RUNNING" in state.get("stdout", ""):
                 break
             time.sleep(2)
+        network_prepare = run([
+            incus, "exec", name, "--", "sh", "-lc",
+            "if command -v udhcpc >/dev/null 2>&1; then udhcpc -i eth0 -q -n -t 5; "
+            "elif command -v busybox >/dev/null 2>&1; then busybox udhcpc -i eth0 -q -n -t 5; "
+            "else exit 4; fi",
+        ], timeout=60)
+        evidence["steps"].append({"network_prepare": network_prepare})
         inner = run([incus, "exec", name, "--", "sh", "-lc", LINUX_INNER], timeout=120)
         evidence["steps"].append({"exec_census": inner})
         evidence["instance_config"] = run([incus, "config", "show", name, "--expanded"], timeout=30)
