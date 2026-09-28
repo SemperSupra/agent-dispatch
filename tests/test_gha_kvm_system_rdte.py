@@ -5,6 +5,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
+TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 
 
 class SystemRdteContractTests(unittest.TestCase):
@@ -57,6 +58,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("TrueNAS-26.0.0-BETA.3.iso.sha256", text)
         self.assertIn("RAM_MIB=8192", text)
         self.assertIn("installer-boot", text)
+        self.assertIn("installer-rpc", text)
+        self.assertIn("truenas_installer_rpc_probe.py", text)
         self.assertNotIn("nightly", text.lower())
         self.assertNotIn("xdotool", text)
 
@@ -64,6 +67,20 @@ class SystemRdteContractTests(unittest.TestCase):
         needle = chr(92) + "$" + "{"
         for path in (PVE, TRUENAS):
             self.assertNotIn(needle, path.read_text(encoding="utf-8"))
+
+
+    def test_truenas_rpc_probe_is_dependency_free_and_read_only(self):
+        text = TRUENAS_RPC.read_text(encoding="utf-8")
+        for method in ("is_adopted", "system_info", "list_disks", "list_network_interfaces"):
+            self.assertIn(method, text)
+        self.assertNotIn('"install"', text)
+        self.assertNotIn("pip install", text)
+        cp = subprocess.run(
+            ["python3", "-m", "py_compile", str(TRUENAS_RPC)],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(cp.returncode, 0, cp.stderr)
 
 
 if __name__ == "__main__":
