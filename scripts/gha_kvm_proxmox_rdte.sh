@@ -151,7 +151,9 @@ p.write_text("\n".join(lines)+"\n", encoding="utf-8")
 PY
 
 AUTO_ISO="$STATE_DIR/proxmox-auto.iso"
-xorriso -indev "$ISO" -outdev "$AUTO_ISO" -boot_image any replay \
+cp --reflink=auto "$ISO" "$AUTO_ISO"
+chmod u+w "$AUTO_ISO"
+xorriso -boot_image any keep -dev "$AUTO_ISO" \
   -map "$STATE_DIR/auto-installer-mode.toml" /auto-installer-mode.toml \
   -map "$STATE_DIR/answer.toml" /answer.toml \
   -map "$STATE_DIR/grub.cfg" /boot/grub/grub.cfg \
