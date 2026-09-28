@@ -17,7 +17,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "container-substrate/0.4"
+VERSION = "container-substrate/0.5"
 
 
 def run(argv, timeout=60, cwd=None, env=None):
@@ -113,6 +113,15 @@ def host_census():
         data["mounts"] = run(["findmnt", "-J"]) if command("findmnt") else None
         data["network"] = run(["ip", "-j", "address"]) if command("ip") else None
         data["routes"] = run(["ip", "-j", "route"]) if command("ip") else None
+        data["forwarding"] = {
+            "ipv4": read_text("/proc/sys/net/ipv4/ip_forward"),
+            "ipv6": read_text("/proc/sys/net/ipv6/conf/all/forwarding"),
+        }
+        data["firewall"] = {
+            "iptables_filter": run(["iptables", "-S"], timeout=20) if command("iptables") else None,
+            "iptables_nat": run(["iptables", "-t", "nat", "-S"], timeout=20) if command("iptables") else None,
+            "nft": run(["nft", "list", "ruleset"], timeout=20) if command("nft") else None,
+        }
         data["pci"] = run(["lspci", "-nn"]) if command("lspci") else None
         data["usb"] = run(["lsusb"]) if command("lsusb") else None
         data["accelerators"] = {}
@@ -235,13 +244,21 @@ elif command -v busybox >/dev/null 2>&1; then
 else
   echo 'UNKNOWN no DNS query tool'
 fi
-echo '===HTTPS_EGRESS==='
-if command -v wget >/dev/null 2>&1; then
-  if wget -q -T 10 -O /dev/null https://github.com/ 2>/dev/null; then echo PASS; else echo FAIL; fi
-elif command -v curl >/dev/null 2>&1; then
-  if curl -fsS --max-time 10 -o /dev/null https://github.com/; then echo PASS; else echo FAIL; fi
+echo '===TCP_443_ORACLE==='
+if command -v nc >/dev/null 2>&1; then
+  nc -zvw 8 github.com 443 2>&1 && echo PASS || echo FAIL
 elif command -v busybox >/dev/null 2>&1; then
-  if busybox wget -q -T 10 -O /dev/null https://github.com/ 2>/dev/null; then echo PASS; else echo FAIL; fi
+  busybox nc -z -w 8 github.com 443 2>&1 && echo PASS || echo FAIL
+else
+  echo 'UNKNOWN no TCP client'
+fi
+echo '===HTTPS_EGRESS==='
+if command -v curl >/dev/null 2>&1; then
+  curl -fsS -I --max-time 12 -w 'HTTP=%{http_code} REMOTE=%{remote_ip} CONNECT=%{time_connect} TLS=%{time_appconnect}\n' https://github.com/ 2>&1 && echo PASS || echo FAIL
+elif command -v wget >/dev/null 2>&1; then
+  wget -S -T 12 -O /dev/null https://github.com/ 2>&1 && echo PASS || echo FAIL
+elif command -v busybox >/dev/null 2>&1; then
+  busybox wget -S -T 12 -O /dev/null https://github.com/ 2>&1 && echo PASS || echo FAIL
 else
   echo 'UNKNOWN no HTTPS client'
 fi
@@ -450,6 +467,53 @@ def ensure_lxc_bridge():
         run(["systemctl", "start", "lxc-net"], timeout=30)
 
 
+def ensure_bridge_nat(bridge):
+    """Idempotently add only the minimum IPv4 forwarding/NAT rules for one test bridge."""
+    evidence = {"bridge": bridge, "created": []}
+    if platform.system() != "Linux" or not command("ip") or not command("iptables"):
+        evidence["status"] = "unavailable"
+        return evidence
+    route = run(["sh", "-lc", f"ip -4 route show dev {bridge} proto kernel | awk 'NR==1{{print $1}}'"])
+    uplink = run(["sh", "-lc", "ip -4 route show default | awk 'NR==1{print $5}'"])
+    subnet = route.get("stdout", "").strip()
+    outif = uplink.get("stdout", "").strip()
+    evidence["subnet"] = subnet
+    evidence["uplink"] = outif
+    if not subnet or not outif:
+        evidence["status"] = "inconclusive"
+        return evidence
+    evidence["ip_forward_before"] = read_text("/proc/sys/net/ipv4/ip_forward")
+    evidence["sysctl"] = run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
+    rules = [
+        (["-t", "nat"], ["POSTROUTING", "-s", subnet, "-o", outif, "-j", "MASQUERADE"]),
+        ([], ["FORWARD", "-i", bridge, "-o", outif, "-j", "ACCEPT"]),
+        ([], ["FORWARD", "-i", outif, "-o", bridge, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"]),
+    ]
+    for table_args, rule in rules:
+        check = run(["iptables", "-w", "5", *table_args, "-C", *rule], timeout=15)
+        if ok(check):
+            continue
+        add = run(["iptables", "-w", "5", *table_args, "-A", *rule], timeout=15)
+        evidence.setdefault("adds", []).append(add)
+        if ok(add):
+            evidence["created"].append({"table_args": table_args, "rule": rule})
+    evidence["status"] = "prepared"
+    return evidence
+
+
+def cleanup_bridge_nat(evidence):
+    results = []
+    if not isinstance(evidence, dict):
+        return results
+    for item in reversed(evidence.get("created", [])):
+        results.append(run([
+            "iptables", "-w", "5", *item["table_args"], "-D", *item["rule"]
+        ], timeout=15))
+    if str(evidence.get("ip_forward_before", "")).strip() == "0":
+        results.append(run(["sysctl", "-w", "net.ipv4.ip_forward=0"], timeout=15))
+    return results
+
+
 def lane_lxc():
     evidence = {"runtime": "lxc", "host": host_census(), "steps": []}
     required = ["lxc-create", "lxc-start", "lxc-attach", "lxc-destroy"]
@@ -460,6 +524,8 @@ def lane_lxc():
             "reason": "LXC tools not available after preparation",
         }
     ensure_lxc_bridge()
+    nat = ensure_bridge_nat("lxcbr0")
+    evidence["steps"].append({"bridge_nat": nat})
     name = f"gha-lxc-{uuid.uuid4().hex[:8]}"
     arch = "amd64" if platform.machine().lower() in ("x86_64", "amd64") else "arm64"
     create = run([
@@ -505,7 +571,8 @@ def lane_lxc():
         evidence["steps"].append({"attach_census": inner})
     stop = run(["lxc-stop", "-n", name, "-k"], timeout=30)
     destroy = run(["lxc-destroy", "-n", name], timeout=60)
-    evidence["cleanup"] = {"stop": stop, "destroy": destroy}
+    nat_cleanup = cleanup_bridge_nat(nat)
+    evidence["cleanup"] = {"stop": stop, "destroy": destroy, "bridge_nat": nat_cleanup}
     passed = ok(start) and ok(inner) and ok(destroy)
     return evidence | {
         "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
@@ -528,6 +595,15 @@ def lane_incus():
         }
     init = run([incus, "admin", "init", "--minimal"], timeout=90)
     evidence["steps"].append({"init": init})
+    network_list = run([incus, "network", "list", "--format", "json"], timeout=30)
+    evidence["steps"].append({"network_list_before": network_list})
+    bridge = "incusbr0"
+    parsed_networks = parse_json_stdout(network_list) or []
+    managed = [n for n in parsed_networks if n.get("managed") and n.get("type") == "bridge"]
+    if managed:
+        bridge = managed[0].get("name") or bridge
+    nat = ensure_bridge_nat(bridge)
+    evidence["steps"].append({"bridge_nat": nat})
     name = f"gha-incus-{uuid.uuid4().hex[:8]}"
     launch = run([incus, "launch", "images:alpine/3.22", name], timeout=300)
     evidence["steps"].append({"launch": launch})
@@ -558,7 +634,8 @@ def lane_incus():
         evidence["instance_config"] = run([incus, "config", "show", name, "--expanded"], timeout=30)
         evidence["networks"] = run([incus, "network", "list", "--format", "json"], timeout=30)
     delete = run([incus, "delete", name, "--force"], timeout=60)
-    evidence["cleanup"] = delete
+    nat_cleanup = cleanup_bridge_nat(nat)
+    evidence["cleanup"] = {"delete": delete, "bridge_nat": nat_cleanup}
     passed = ok(launch) and ok(inner) and ok(delete)
     return evidence | {
         "classification": "SUPPORTED" if passed else "ORACLE_FAILURE",
