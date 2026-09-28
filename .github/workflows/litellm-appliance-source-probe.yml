@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      IMAGE_TAG: ghcr.io/berriai/litellm:v1.102.1
-      UPSTREAM_TAG_COMMIT: d09bbae1c6df463e425558f60d460437193635da
+      IMAGE_TAG: ghcr.io/berriai/litellm:v1.103.0
+      UPSTREAM_TAG_COMMIT: c991f4b01f5799eb0b0cab0fb63988e15c3a8a9d
       UPSTREAM_COSIGN_KEY: https://raw.githubusercontent.com/BerriAI/litellm/0112e53046018d726492c814b3644b7d376029d0/cosign.pub
     steps:
       - name: Checkout public execution surface
@@ -86,9 +86,9 @@ jobs:
               "status": "PASS",
               "upstream": {
                   "repository": "BerriAI/litellm",
-                  "tag": "v1.102.1",
-                  "tag_commit": "d09bbae1c6df463e425558f60d460437193635da",
-                  "image": "ghcr.io/berriai/litellm:v1.102.1",
+                  "tag": "v1.103.0",
+                  "tag_commit": "c991f4b01f5799eb0b0cab0fb63988e15c3a8a9d",
+                  "image": "ghcr.io/berriai/litellm:v1.103.0",
                   "image_digest": os.environ["RESOLVED_DIGEST"],
                   "cosign_key_commit": "0112e53046018d726492c814b3644b7d376029d0",
                   "signature_verified": True,
