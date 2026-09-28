@@ -288,8 +288,9 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
                     result(conn, msg, {
                         "used": [{"name": "vda", "devname": "vda"}],
                         "unused": [
-                            {"name": "vdb", "devname": "vdb", "size": 8_589_934_592},
-                            {"name": "vdc", "devname": "vdc", "size": 8_589_934_592},
+                            {"name": "vdb", "devname": "vdb", "serial": "RDTE_DATA_0", "size": 8_589_934_592},
+                            {"name": "vdc", "devname": "vdc", "serial": "RDTE_DATA_1", "size": 8_589_934_592},
+                            {"name": "fd0", "devname": "fd0", "serial": "", "size": 4096},
                         ],
                     })
 
@@ -301,7 +302,7 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
                     self.assertEqual(msg["params"], [{
                         "name": "rdtepool",
                         "encryption": False,
-                        "allow_duplicate_serials": True,
+                        "allow_duplicate_serials": False,
                         "topology": {
                             "data": [{
                                 "type": "MIRROR",
@@ -375,6 +376,8 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
             self.assertTrue(receipt["oracleSatisfied"], receipt)
             self.assertEqual(receipt["classification"], "SUPPORTED")
             self.assertEqual(receipt["selected_data_disks"], ["vdb", "vdc"])
+            self.assertEqual([d["serial"] for d in receipt["owned_data_disks"]], ["RDTE_DATA_0", "RDTE_DATA_1"])
+            self.assertEqual(len(receipt["unused_disks"]), 3)
             self.assertEqual(receipt["pool_disks"], ["vdb", "vdc"])
             self.assertEqual(receipt["job_state"], "SUCCESS")
             self.assertEqual(receipt["pool"]["status"], "ONLINE")

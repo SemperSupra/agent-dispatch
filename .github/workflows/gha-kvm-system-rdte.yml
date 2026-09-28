@@ -58,7 +58,7 @@ jobs:
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
-                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py)
+                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py)
                   truenas=true
                   ;;
               esac

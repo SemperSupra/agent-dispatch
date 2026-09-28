@@ -22,6 +22,7 @@ def main():
     p.add_argument("--out", required=True)
     p.add_argument("--pool-name", default="rdtepool")
     p.add_argument("--expected-data-disks", type=int, default=2)
+    p.add_argument("--data-serial-prefix", default="RDTE_DATA_")
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8.0)
     p.add_argument("--job-timeout", type=float, default=180.0)
@@ -34,6 +35,7 @@ def main():
         "classification": "ORACLE_FAILURE",
         "pool_name": a.pool_name,
         "expected_data_disks": a.expected_data_disks,
+        "data_serial_prefix": a.data_serial_prefix,
         "transport": "wss" if a.tls else "ws",
     }
     started = time.time()
@@ -67,17 +69,27 @@ def main():
         unused = disk_details["unused"]
         payload["unused_disks"] = unused
 
-        if len(unused) != a.expected_data_disks:
+        expected_serials = {
+            f"{a.data_serial_prefix}{index}" for index in range(a.expected_data_disks)
+        }
+        owned = [
+            disk for disk in unused
+            if disk.get("serial") in expected_serials
+        ]
+        payload["owned_data_disks"] = owned
+        observed_serials = {disk.get("serial") for disk in owned}
+        if observed_serials != expected_serials or len(owned) != a.expected_data_disks:
             raise RuntimeError(
-                f"refusing pool mutation: expected exactly {a.expected_data_disks} unused data disks, found {len(unused)}"
+                "refusing pool mutation: expected exactly owned serials "
+                f"{sorted(expected_serials)!r}, found {sorted(s for s in observed_serials if s)!r}"
             )
-        selected = [disk_name(disk) for disk in unused]
+        selected = [disk_name(disk) for disk in owned]
         if any(not name for name in selected):
-            raise RuntimeError("refusing pool mutation: unused disk missing name/devname")
+            raise RuntimeError("refusing pool mutation: owned data disk missing name/devname")
         if len(set(selected)) != len(selected):
-            raise RuntimeError("refusing pool mutation: duplicate data-disk names")
+            raise RuntimeError("refusing pool mutation: duplicate owned data-disk names")
         if set(selected) & set(boot_disks):
-            raise RuntimeError("refusing pool mutation: a selected data disk overlaps the boot pool")
+            raise RuntimeError("refusing pool mutation: an owned data disk overlaps the boot pool")
         payload["selected_data_disks"] = sorted(selected)
 
         existing = ddp_call(ws, "5", "pool.query", [[["name", "=", a.pool_name]]])
@@ -87,7 +99,7 @@ def main():
         create = {
             "name": a.pool_name,
             "encryption": False,
-            "allow_duplicate_serials": True,
+            "allow_duplicate_serials": False,
             "topology": {
                 "data": [{
                     "type": "MIRROR",
