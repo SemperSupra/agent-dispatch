@@ -105,17 +105,18 @@ container build ...
 container run ...
 ```
 
-Local reproduction on an Apple-silicon Mac with macOS 26/Xcode 26:
+Local reproduction on an Apple-silicon Mac with macOS 26 uses the pinned signed 1.4.1 release package. Verify the release SHA-256 before installation:
 
 ```bash
-git clone --branch 1.4.1 --depth 1 https://github.com/apple/container
-cd container
-make all
-../agent-dispatch/scripts/container_substrate_qualification.py \
-  --lane apple --runtime "$PWD/bin/container" --out receipt.json
+curl -fL -o /tmp/container-1.4.1.pkg \
+  https://github.com/apple/container/releases/download/1.4.1/container-1.4.1-installer-signed.pkg
+echo 'c0d2716afefbb194c93fae662e9cae7cc186bcbcf746816608ec673dd648a6a4  /tmp/container-1.4.1.pkg' | shasum -a 256 -c -
+sudo installer -pkg /tmp/container-1.4.1.pkg -target /
+python3 scripts/container_substrate_qualification.py \
+  --lane apple --runtime "$(command -v container)" --out receipt.json
 ```
 
-Do not infer Apple-GPU availability inside the Linux guest. It must be proven through an actual guest-visible GPU/accelerator API before a `gpu:apple` capability can exist.
+The first public GHA rep also built 1.4.1 successfully from source; routine requalification uses the signed package to reduce setup cost. Do not infer Apple-GPU availability inside the Linux guest. It must be proven through an actual guest-visible GPU/accelerator API before a `gpu:apple` capability can exist.
 
 ### Raw LXC
 
