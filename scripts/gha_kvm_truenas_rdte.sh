@@ -14,6 +14,7 @@ DISK_SIZE="24G"
 DATA_DISK_SIZE="8G"
 DATA_DISK_COUNT=2
 DATA_POOL_NAME="rdtepool"
+DATA_SERIAL_PREFIX="RDTE_DATA_"
 NIC_MAC="52:54:00:54:4e:26"
 MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
@@ -92,6 +93,7 @@ payload = {
     "boot_disk": "24G",
     "data_disks": ["8G", "8G"] if os.environ.get("R_RUNG") == "t3" else [],
     "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") == "t3" else None,
+    "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") == "t3" else [],
   },
   "source": {
     "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
@@ -356,7 +358,11 @@ if [[ "$RUNG" == "t3" ]]; then
     data_disk="$STATE_DIR/data${index}.qcow2"
     qemu-img create -q -f qcow2 "$data_disk" "$DATA_DISK_SIZE" ||
       fail_evidence HARNESS_FAILURE data-disk-prepare "failed to create sparse data disk $index"
-    DATA_DRIVE_ARGS+=( -drive "file=$data_disk,if=virtio,format=qcow2" )
+    drive_id="rdtedata${index}"
+    DATA_DRIVE_ARGS+=(
+      -drive "file=$data_disk,if=none,id=$drive_id,format=qcow2"
+      -device "virtio-blk-pci,drive=$drive_id,serial=${DATA_SERIAL_PREFIX}${index}"
+    )
   done
 fi
 
@@ -450,7 +456,7 @@ python3 "$SCRIPT_DIR/truenas_middleware_pool_probe.py" \
   "${MIDDLEWARE_TLS_ARG[@]}" \
   --password-file "$PASSWORD_FILE" \
   --out "$POOL_OUT" --pool-name "$DATA_POOL_NAME" \
-  --expected-data-disks "$DATA_DISK_COUNT" \
+  --expected-data-disks "$DATA_DISK_COUNT" --data-serial-prefix "$DATA_SERIAL_PREFIX" \
   --timeout 6 --job-timeout 180 >/dev/null 2>&1 || true
 [[ -f "$POOL_OUT" ]] || fail_evidence HARNESS_FAILURE data-pool "T3 pool client did not emit a receipt"
 POOL_RESULT_JSON="$(cat "$POOL_OUT")"
