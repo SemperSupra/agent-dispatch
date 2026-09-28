@@ -1,0 +1,87 @@
+name: Real-system KVM RDTE
+
+on:
+  push:
+    branches:
+      - experiment/gha-kvm-system-rdte
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gha-kvm-system-rdte
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate public-safe contract
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py
+
+  proxmox-9-2:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Ensure bounded QEMU/KVM prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso sshpass
+      - name: Exercise pinned Proxmox real-system target
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          bash scripts/gha_kvm_proxmox_rdte.sh \
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-state" \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+          python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+      - name: Upload Proxmox evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-kvm-proxmox-9-2-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/proxmox-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  truenas-26-beta3:
+    needs: proxmox-9-2
+    runs-on: ubuntu-26.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Ensure bounded QEMU/KVM prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso
+      - name: Exercise pinned TrueNAS installer target
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          bash scripts/gha_kvm_truenas_rdte.sh \
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+      - name: Upload TrueNAS evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-kvm-truenas-26-beta3-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/truenas-receipt.json
+          if-no-files-found: error
+          retention-days: 7
