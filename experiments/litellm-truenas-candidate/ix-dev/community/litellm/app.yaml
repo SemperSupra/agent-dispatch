@@ -1,4 +1,4 @@
-app_version: v1.102.1-semper.0.1.0
+app_version: v1.103.0-semper.0.1.0
 capabilities: []
 categories:
 - ai
@@ -22,7 +22,7 @@ maintainers:
   url: https://github.com/SemperSupra
 name: litellm
 run_as_context:
-- description: Upstream LiteLLM v1.102.1 currently runs as root. Capabilities remain dropped by the TrueNAS app library. Non-root execution is a separate qualification gate.
+- description: Upstream LiteLLM v1.103.0 currently runs as root. Capabilities remain dropped by the TrueNAS app library. Non-root execution is a separate qualification gate.
   gid: 0
   group_name: root
   uid: 0
