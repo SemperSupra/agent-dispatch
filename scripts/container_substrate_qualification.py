@@ -17,7 +17,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "container-substrate/0.5"
+VERSION = "container-substrate/0.6"
 
 
 def run(argv, timeout=60, cwd=None, env=None):
@@ -647,6 +647,152 @@ def lane_incus():
     }
 
 
+
+def _fact(state, evidence=None, note=None):
+    item = {"state": state}
+    if evidence is not None:
+        item["evidence"] = evidence
+    if note:
+        item["note"] = note
+    return item
+
+
+def _linux_device_facts(sections):
+    text = (sections or {}).get("DEVICES", "")
+    mapping = {
+        "device:kvm": "/dev/kvm",
+        "device:dri": "/dev/dri",
+        "device:nvidia": "/dev/nvidia0",
+        "device:infiniband": "/dev/infiniband",
+        "device:usb": "/dev/bus/usb",
+        "device:tun": "/dev/net/tun",
+        "device:fuse": "/dev/fuse",
+        "device:tpm": "/dev/tpm0",
+    }
+    facts = {}
+    for name, path in mapping.items():
+        if f"MISSING {path}" in text:
+            facts[name] = _fact("NEGATIVE_OBSERVATION", path)
+        elif path in text:
+            facts[name] = _fact("OBSERVED", path, "visible in container; callability not implied")
+        else:
+            facts[name] = _fact("INCONCLUSIVE", path)
+    return facts
+
+
+def derive_capability_facts(payload):
+    """Project raw receipt evidence into bounded placement facts.
+
+    Facts remain evidence states, not scheduler policy. OBSERVED means visible only;
+    SUPPORTED is reserved for an exercised oracle.
+    """
+    lane = payload.get("lane")
+    passed = bool(payload.get("oracleSatisfied"))
+    facts = {}
+
+    runtime_names = {
+        "windows": "runtime:windows-container",
+        "apple": "runtime:apple-container",
+        "lxc": "runtime:lxc",
+        "incus": "runtime:incus",
+    }
+    runtime_fact = runtime_names.get(lane)
+    if runtime_fact:
+        facts[runtime_fact] = _fact(
+            "SUPPORTED" if passed else payload.get("classification", "INCONCLUSIVE"),
+            payload.get("reason"),
+        )
+
+    isolation = payload.get("isolation")
+    if isolation == "process" and passed:
+        facts["isolation:process"] = _fact("SUPPORTED")
+    elif isolation == "shared-linux-kernel-system-container" and passed:
+        facts["isolation:system-container"] = _fact("SUPPORTED")
+        facts["kernel:shared"] = _fact("SUPPORTED")
+    elif isolation == "lightweight-linux-vm-per-container":
+        facts["isolation:vm-per-container"] = _fact(
+            "SUPPORTED" if passed else "OBSERVED",
+            note="Apple container architecture/control plane; guest execution is separately gated",
+        )
+        facts["kernel:guest-linux-vm"] = _fact(
+            "SUPPORTED" if passed else "OBSERVED",
+            note="guest kernel model is architectural; this hosted runner did not boot the guest",
+        )
+
+    if lane in {"lxc", "incus"}:
+        sections = payload.get("container_census") or {}
+        facts.update(_linux_device_facts(sections))
+        if sections.get("DNS_ORACLE"):
+            facts["network:dns"] = _fact("SUPPORTED", sections["DNS_ORACLE"][:500])
+        else:
+            facts["network:dns"] = _fact("INCONCLUSIVE")
+        if "PASS" in (sections.get("TCP_443_ORACLE") or ""):
+            facts["network:tcp443"] = _fact("SUPPORTED", sections["TCP_443_ORACLE"][:500])
+        else:
+            facts["network:tcp443"] = _fact("INCONCLUSIVE")
+        if sections.get("HTTPS_EGRESS"):
+            facts["network:https-egress"] = _fact("SUPPORTED", sections["HTTPS_EGRESS"][:500])
+        else:
+            facts["network:https-egress"] = _fact("INCONCLUSIVE")
+        facts["network:bridge"] = _fact(
+            "SUPPORTED" if passed else "INCONCLUSIVE",
+            note="bounded bridge/NAT path exercised by lifecycle rep",
+        )
+
+    if lane == "windows":
+        census = payload.get("container_census") or {}
+        env = census.get("env") or {}
+        if passed:
+            facts["kernel:shared-windows"] = _fact("SUPPORTED", "process isolation")
+            facts["network:hns"] = _fact("OBSERVED", census.get("net"))
+            facts["network:dns"] = _fact(
+                "SUPPORTED" if census.get("dnsLookup") else "INCONCLUSIVE",
+                census.get("dnsLookup"),
+            )
+            facts["network:https-egress"] = _fact(
+                "SUPPORTED" if census.get("httpsEgress") is True else "INCONCLUSIVE"
+            )
+            facts["isa:x86_64"] = _fact(
+                "SUPPORTED" if env.get("PROCESSOR_ARCHITECTURE") == "AMD64" else "INCONCLUSIVE",
+                env.get("PROCESSOR_ARCHITECTURE"),
+            )
+        display = census.get("display") or []
+        facts["gpu:windows-display"] = _fact(
+            "OBSERVED" if display else "NEGATIVE_OBSERVATION",
+            display,
+            "display adapter visibility does not prove DirectX/CUDA acceleration",
+        )
+        facts["gpu:directx"] = _fact(
+            "INCONCLUSIVE",
+            note="requires an in-container DirectX compute/render oracle; not inferred from Hyper-V Video",
+        )
+
+    if lane == "apple":
+        host = payload.get("host") or {}
+        hv = (((host.get("sysctl") or {}).get("hv_support") or {}).get("stdout") or "").strip()
+        version_ok = any(ok(step.get("version", {})) for step in payload.get("steps", []) if "version" in step)
+        status_ok = any(ok(step.get("status", {})) for step in payload.get("steps", []) if "status" in step)
+        facts["apple-container:control-plane"] = _fact(
+            "SUPPORTED" if version_ok and status_ok else "INCONCLUSIVE"
+        )
+        facts["host:apple-hv-support"] = _fact(
+            "NEGATIVE_OBSERVATION" if hv == "0" else ("OBSERVED" if hv else "INCONCLUSIVE"),
+            hv or None,
+        )
+        facts["gpu:apple"] = _fact(
+            "DOCUMENTED_NEGATIVE",
+            note="no supported Apple-GPU passthrough/compute interface to the Linux guest in this qualification contract",
+        )
+
+    machine = ((payload.get("host") or {}).get("machine") or "").lower()
+    if machine in {"x86_64", "amd64"}:
+        facts.setdefault("isa:x86_64", _fact("OBSERVED", machine))
+    elif machine in {"arm64", "aarch64"}:
+        facts.setdefault("isa:arm64", _fact("OBSERVED", machine))
+
+    return dict(sorted(facts.items()))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lane", choices=["windows", "apple", "lxc", "incus"], required=True)
@@ -669,6 +815,7 @@ def main():
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         **payload,
     }
+    payload["capability_facts"] = derive_capability_facts(payload)
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2, sort_keys=True))
