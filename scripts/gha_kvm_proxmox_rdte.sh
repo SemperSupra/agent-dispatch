@@ -33,6 +33,9 @@ OUT="$(realpath -m "$OUT")"
 [[ "$OUT" != "$STATE_DIR/"* ]] || { echo "receipt must be outside disposable state" >&2; exit 2; }
 
 QEMU_PID=""
+OBSERVED_ISO_SHA=""
+API_VERSION_JSON=""
+NESTED_KVM="unknown"
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
