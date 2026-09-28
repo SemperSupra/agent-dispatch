@@ -8,12 +8,15 @@ out="$1"
   printf 'UID=%s\n' "$(id -u 2>/dev/null || true)"
   printf 'GID=%s\n' "$(id -g 2>/dev/null || true)"
   printf 'SHELL_PATH=%s\n' "$(command -v sh 2>/dev/null || true)"
-  for cmd in sh bash ksh zsh cc gcc clang make cmake python3 python perl ruby go rustc cargo pkg pkg_add pkgin pkgman svcadm service rcctl sysctl; do
+  for cmd in sh bash ksh zsh cc gcc clang make cmake python3 python perl ruby go rustc cargo pkg pkg_add pkgin pkgman svcadm service rcctl sysctl psrinfo prtconf pagesize; do
     if command -v "$cmd" >/dev/null 2>&1; then printf 'CMD_%s=1\n' "$cmd"; else printf 'CMD_%s=0\n' "$cmd"; fi
   done
   cpu=""
   if command -v getconf >/dev/null 2>&1; then cpu="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"; fi
   if [ -z "$cpu" ] && command -v sysctl >/dev/null 2>&1; then cpu="$(sysctl -n hw.ncpu 2>/dev/null || true)"; fi
+  if [ -z "$cpu" ] && command -v psrinfo >/dev/null 2>&1; then
+    cpu="$(psrinfo 2>/dev/null | awk 'NF {n++} END {if (n) print n}' || true)"
+  fi
   printf 'CPU_ONLINE=%s\n' "$cpu"
   mem=""
   if command -v sysctl >/dev/null 2>&1; then
@@ -21,6 +24,9 @@ out="$1"
       mem="$(sysctl -n "$key" 2>/dev/null || true)"
       [ -n "$mem" ] && break
     done
+  fi
+  if [ -z "$mem" ] && command -v prtconf >/dev/null 2>&1; then
+    mem="$(prtconf 2>/dev/null | awk '/Memory size:/ {print $3 * 1024 * 1024; exit}' || true)"
   fi
   printf 'MEM_BYTES=%s\n' "$mem"
   df -Pk / 2>/dev/null | awk 'NR==2 {printf "ROOT_FS=%s\nROOT_TOTAL_KIB=%s\nROOT_FREE_KIB=%s\n",$1,$2,$4}' || true
