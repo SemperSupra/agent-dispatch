@@ -8,6 +8,7 @@ on:
       - '.github/workflows/prep-rdte-static.yml'
       - '.github/workflows/gha-kvm-system-rdte.yml'
       - 'config/truenas-rdte-targets.json'
+      - 'config/truenas-rdte-execution.json'
       - 'scripts/gha_kvm_truenas_rdte.sh'
       - 'scripts/gha_kvm_proxmox_rdte.sh'
       - 'scripts/truenas_middleware_*.py'

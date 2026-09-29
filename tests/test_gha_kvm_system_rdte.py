@@ -14,6 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
 TRUENAS_TARGETS = ROOT / "config" / "truenas-rdte-targets.json"
+TRUENAS_EXECUTION = ROOT / "config" / "truenas-rdte-execution.json"
 TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
 QEMU_TOPOLOGY = ROOT / "scripts" / "gha_qemu_t3_topology_probe.py"
@@ -326,7 +327,11 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_pool_probe.py", text)
         self.assertIn('"data_pool_created"', text)
         self.assertIn('"data_pool"', text)
-        self.assertIn("--rung t5", workflow)
+        execution = json.loads(TRUENAS_EXECUTION.read_text(encoding="utf-8"))
+        self.assertEqual(execution["target_profile"], "25.10.7")
+        self.assertEqual(execution["rung"], "t3")
+        self.assertIn("--target-profile", workflow)
+        self.assertIn('config/truenas-rdte-execution.json', workflow)
         self.assertIn("scripts/truenas_middleware_pool_probe.py", workflow)
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
@@ -353,7 +358,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', app)
         self.assertNotIn('"nginx:1.27-alpine"', app)
         self.assertIn('"state") == "RUNNING"', app)
-        self.assertIn('--rung t5', workflow)
+        self.assertIn('config/truenas-rdte-execution.json', workflow)
         py = subprocess.run(
             ["python3", "-m", "py_compile", str(TRUENAS_APP)],
             text=True,
@@ -374,7 +379,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', lifecycle)
         self.assertIn('APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', lifecycle)
         self.assertIn("scripts/truenas_middleware_app_lifecycle_probe.py", workflow)
-        self.assertIn("--rung t5", workflow)
+        self.assertIn('config/truenas-rdte-execution.json', workflow)
         shell_check = subprocess.run(
             ["bash", "-n", str(TRUENAS)], text=True, capture_output=True
         )

@@ -60,7 +60,7 @@ jobs:
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
-                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py)
+                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|config/truenas-rdte-targets.json|config/truenas-rdte-execution.json)
                   truenas=true
                   ;;
                 scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
@@ -168,7 +168,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  truenas-26-beta3:
+  truenas-system:
     needs: [changes, contract, proxmox-9-2]
     if: >-
       always() &&
@@ -187,13 +187,24 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             qemu-system-x86 qemu-utils xorriso
-      - name: Exercise pinned TrueNAS installer target
+      - name: Exercise configured TrueNAS target profile
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          mapfile -t target < <(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path("config/truenas-rdte-execution.json").read_text())
+          assert data["schema"] == "truenas-rdte-execution/v1"
+          print(data["target_profile"])
+          print(data["rung"])
+          PY
+          )
+          [[ "${#target[@]}" -eq 2 ]]
           bash scripts/gha_kvm_truenas_rdte.sh \
             --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
-            --rung t5 \
+            --target-profile "${target[0]}" \
+            --rung "${target[1]}" \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
       - name: Preserve TrueNAS harness failure evidence
@@ -206,7 +217,7 @@ jobs:
           import json, pathlib, sys
           pathlib.Path(sys.argv[1]).write_text(json.dumps({
             "contract":"gha-kvm-system-lab/v1",
-            "target":{"product":"truenas","version":"26.0.0-BETA.3","rung":"T5"},
+            "target":{"product":"truenas","version":"configured","rung":"configured"},
             "classification":"HARNESS_FAILURE",
             "oracleSatisfied":False,
             "phase":"workflow-fallback",
@@ -218,7 +229,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: gha-kvm-truenas-26-beta3-${{ github.run_attempt }}
+          name: gha-kvm-truenas-system-${{ github.run_attempt }}
           path: ${{ runner.temp }}/gha-kvm-system-rdte/truenas-receipt.json
           if-no-files-found: error
           retention-days: 7
