@@ -10,7 +10,7 @@ RAM_MIB=4096
 VCPUS=2
 DISK_SIZE="40G"
 MIN_HOST_MEM_KIB=$((6 * 1024 * 1024))
-MIN_HOST_FREE_KIB=$((24 * 1024 * 1024))\nROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
+MIN_HOST_FREE_KIB=$((16 * 1024 * 1024))\nROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
 
 usage() {
   echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR]"
@@ -148,7 +148,7 @@ sudo -n test -r /dev/kvm && sudo -n test -w /dev/kvm || fail_evidence ENVIRONMEN
 MEM_AVAIL_KIB="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)"
 FREE_KIB="$(df -Pk "$STATE_DIR" | awk 'NR==2 {print $4}')"
 (( MEM_AVAIL_KIB >= MIN_HOST_MEM_KIB )) || fail_evidence SKIPPED_GUARDRAIL preflight "host memory headroom below 6 GiB"
-(( FREE_KIB >= MIN_HOST_FREE_KIB )) || fail_evidence SKIPPED_GUARDRAIL preflight "host disk headroom below 24 GiB"
+(( FREE_KIB >= MIN_HOST_FREE_KIB )) || fail_evidence SKIPPED_GUARDRAIL preflight "host disk headroom below 16 GiB (observed ${FREE_KIB} KiB)"
 
 ISO="$STATE_DIR/$ISO_NAME"
 curl --fail --location --retry 3 --silent --show-error "$ISO_URL" -o "$ISO" || fail_evidence ENVIRONMENT_FAILURE acquire "vendor ISO download failed"
@@ -162,7 +162,7 @@ ISO_FIRST_BOOT_PACKAGE="$(basename "$ISO_FIRST_BOOT_PATH")"
 [[ "$ISO_FIRST_BOOT_PACKAGE" == proxmox-first-boot_${PVE_INSTALLER_SOURCE_VERSION}_*.deb ]] ||
   fail_evidence ORACLE_FAILURE acquire "ISO first-boot package does not match pinned source version ${PVE_INSTALLER_SOURCE_VERSION}: ${ISO_FIRST_BOOT_PACKAGE:-absent}"
 
-cat >"$STATE_DIR/answer.toml" <<'EOF'
+cat >"$STATE_DIR/answer.toml" <<EOF
 [global]
 keyboard = "en-us"
 country = "us"
