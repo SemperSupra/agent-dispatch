@@ -1,0 +1,45 @@
+name: qualify provider execution vs validation
+
+on:
+  push:
+    branches:
+      - qualification/provider-execution-not-validation-20260929
+    paths:
+      - 'qualifications/provider_execution_not_validation/**'
+      - '.github/workflows/qualify-provider-execution-not-validation.yml'
+  pull_request:
+    paths:
+      - 'qualifications/provider_execution_not_validation/**'
+      - '.github/workflows/qualify-provider-execution-not-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Verify capsule manifest and exact candidate binding
+        working-directory: qualifications/provider_execution_not_validation
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          m = json.loads(Path("manifest.json").read_text())
+          assert m["schema"] == "agent-dispatch.public-qualification-capsule.v1"
+          assert m["private_candidate_head"] == "df53a4d8c8b8a62c0ce4af641071cb1273676ca3"
+          assert m["private_pr"] == 360
+          assert m["function_sha256"] == "ae26c04e43e6f98b247709d067a7656986a4bb1eb137ebd6e514295301fed4ca"
+          assert m["public_safe"] is True
+          assert m["contains_private_credentials"] is False
+          PY
+
+      - name: Run independent trust-semantics qualification
+        working-directory: qualifications/provider_execution_not_validation
+        run: python3 -m unittest -v test_candidate.py
