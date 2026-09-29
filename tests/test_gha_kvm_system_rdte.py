@@ -92,6 +92,9 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('cat >"$STATE_DIR/answer.toml" <<EOF', text)
         self.assertNotIn(r"\nROOT_PASSWORD", text)
         self.assertNotIn("rdte-proxmox-ephemeral-", text)
+        self.assertIn("qemu-img convert -f qcow2 -O raw -S 4k", text)
+        self.assertIn("losetup --find --show --read-only --partscan", text)
+        self.assertNotIn("qemu-nbd --connect", text)
 
     def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
         text = PVE.read_text(encoding="utf-8")

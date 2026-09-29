@@ -135,7 +135,7 @@ fail_evidence() {
   exit 0
 }
 
-for cmd in curl sha256sum qemu-img qemu-system-x86_64 qemu-nbd xorriso python3 lsblk blkid mount umount readlink modprobe udevadm blockdev partx; do
+for cmd in curl sha256sum qemu-img qemu-system-x86_64 xorriso python3 lsblk blkid mount umount readlink udevadm losetup mountpoint; do
   command -v "$cmd" >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: $cmd"
 done
 if ! command -v pvs >/dev/null 2>&1 || ! command -v lvs >/dev/null 2>&1 || ! command -v lvchange >/dev/null 2>&1; then
@@ -378,45 +378,48 @@ stop_qemu() {
 
 inspect_installed_disk() {
   local phase="$1"
-  local nbd="" nbd_name="" pv="" vg="" rootdev="" mnt="$STATE_DIR/mnt-$phase"
+  local raw="$STATE_DIR/system-\${phase}.raw"
+  local loopdev="" pv="" vg="" rootdev="" mnt="$STATE_DIR/mnt-$phase"
   local hook_present=false hook_exec=false hook_sha="" hook_matches=false pending=false
   local unit_present=false alias_target="" wants_target="" log_present=false log_text="" package_version=""
 
+  cleanup_inspection() {
+    set +e
+    if mountpoint -q "$mnt" 2>/dev/null; then sudo -n umount "$mnt" >/dev/null 2>&1 || true; fi
+    if [[ -n "$rootdev" ]]; then sudo -n lvchange -an "$rootdev" >/dev/null 2>&1 || true; fi
+    if [[ -n "$loopdev" ]]; then sudo -n losetup -d "$loopdev" >/dev/null 2>&1 || true; fi
+    rm -f -- "$raw"
+    set -e
+  }
+
   emit_inspection_error() {
-    local layout="" blkids="" nbd_max_part=""
-    if [[ -n "$nbd" && -b "$nbd" ]]; then
-      layout="$(sudo -n lsblk -lnpo NAME,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTLABEL,SIZE "$nbd" 2>&1 || true)"
-      blkids="$(sudo -n blkid 2>&1 | grep -F "$nbd" || true)"
+    local layout="" blkids="" image_info=""
+    image_info="$(qemu-img info --output=json "$STATE_DIR/system.qcow2" 2>&1 || true)"
+    if [[ -n "$loopdev" && -b "$loopdev" ]]; then
+      layout="$(sudo -n lsblk -lnpo NAME,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTLABEL,SIZE "$loopdev" 2>&1 || true)"
+      blkids="$(sudo -n blkid 2>&1 | grep -F "$loopdev" || true)"
     fi
-    [[ -r /sys/module/nbd/parameters/max_part ]] && nbd_max_part="$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || true)"
-    R_PHASE="$phase" R_ERROR="$1" R_LAYOUT="$layout" R_BLKIDS="$blkids" R_NBD_MAX_PART="$nbd_max_part" python3 - <<'PY'
+    R_PHASE="$phase" R_ERROR="$1" R_LAYOUT="$layout" R_BLKIDS="$blkids" R_IMAGE_INFO="$image_info" python3 - <<'PY'
 import json, os
 print(json.dumps({
     "phase": os.environ["R_PHASE"],
     "inspection_ok": False,
     "error": os.environ["R_ERROR"],
+    "qemu_img_info": os.environ.get("R_IMAGE_INFO") or None,
     "lsblk": os.environ.get("R_LAYOUT") or None,
     "blkid": os.environ.get("R_BLKIDS") or None,
-    "nbd_max_part": os.environ.get("R_NBD_MAX_PART") or None,
 }, sort_keys=True))
 PY
+    cleanup_inspection
   }
 
-  sudo -n modprobe nbd max_part=16 >/dev/null 2>&1 || { emit_inspection_error "could not load nbd"; return 0; }
-  for candidate in /dev/nbd{0..15}; do
-    [[ -b "$candidate" ]] || continue
-    nbd_name="${candidate#/dev/}"
-    if [[ ! -s "/sys/block/$nbd_name/pid" ]]; then
-      nbd="$candidate"
-      break
-    fi
-  done
-  [[ -n "$nbd" ]] || { emit_inspection_error "no free nbd device"; return 0; }
-
-  sudo -n qemu-nbd --connect="$nbd" --read-only "$STATE_DIR/system.qcow2" >/dev/null 2>&1 ||
-    { emit_inspection_error "qemu-nbd connect failed"; return 0; }
-  sudo -n blockdev --rereadpt "$nbd" >/dev/null 2>&1 || true
-  sudo -n partx -a "$nbd" >/dev/null 2>&1 || sudo -n partx -u "$nbd" >/dev/null 2>&1 || true
+  # Keep the product disk immutable. Convert qcow2 to a sparse raw read-only
+  # inspection copy, then let the kernel expose its partition table via loop.
+  # This avoids making Proxmox evidence depend on the qemu-nbd daemon lifecycle.
+  qemu-img convert -f qcow2 -O raw -S 4k "$STATE_DIR/system.qcow2" "$raw" >/dev/null 2>&1 ||
+    { emit_inspection_error "qcow2 sparse-raw conversion failed"; return 0; }
+  loopdev="$(sudo -n losetup --find --show --read-only --partscan "$raw" 2>/dev/null || true)"
+  [[ -n "$loopdev" ]] || { emit_inspection_error "read-only loop attach failed"; return 0; }
   sudo -n udevadm settle >/dev/null 2>&1 || true
   sleep 1
 
@@ -426,33 +429,22 @@ PY
       pv="$dev"
       break
     fi
-  done < <(lsblk -lnpo NAME,TYPE "$nbd" 2>/dev/null)
+  done < <(sudo -n lsblk -lnpo NAME,TYPE "$loopdev" 2>/dev/null)
 
-  if [[ -z "$pv" ]]; then
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-    emit_inspection_error "installed LVM PV not found"
-    return 0
-  fi
+  [[ -n "$pv" ]] || { emit_inspection_error "installed LVM PV not found"; return 0; }
 
   sudo -n pvscan --cache "$pv" >/dev/null 2>&1 || true
   vg="$(sudo -n pvs --noheadings -o vg_name "$pv" 2>/dev/null | xargs || true)"
-  if [[ -z "$vg" ]]; then
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-    emit_inspection_error "installed VG not found"
-    return 0
-  fi
+  [[ -n "$vg" ]] || { emit_inspection_error "installed VG not found"; return 0; }
 
   rootdev="$(sudo -n lvs --noheadings -o lv_path,lv_name "$vg" 2>/dev/null | awk '$2=="root" {print $1; exit}')"
   if [[ -z "$rootdev" ]] || ! sudo -n lvchange -ay "$rootdev" >/dev/null 2>&1; then
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
     emit_inspection_error "installed root LV not activatable"
     return 0
   fi
 
   mkdir -p "$mnt"
   if ! sudo -n mount -o ro,noload "$rootdev" "$mnt" >/dev/null 2>&1; then
-    sudo -n lvchange -an "$rootdev" >/dev/null 2>&1 || true
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
     emit_inspection_error "installed root LV mount failed"
     return 0
   fi
@@ -480,11 +472,10 @@ PY
   fi
   package_version="$(sudo -n sed -n '/^Package: proxmox-first-boot$/,/^$/p' "$mnt/var/lib/dpkg/status" 2>/dev/null | sed -n 's/^Version: //p' | head -n 1)"
 
-  sudo -n umount "$mnt" >/dev/null 2>&1 || true
-  sudo -n lvchange -an "$rootdev" >/dev/null 2>&1 || true
-  sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-
-  R_PHASE="$phase" R_ROOT="$rootdev" R_HOOK_PRESENT="$hook_present" R_HOOK_EXEC="$hook_exec"   R_HOOK_SHA="$hook_sha" R_HOOK_MATCH="$hook_matches" R_PENDING="$pending" R_UNIT="$unit_present"   R_ALIAS="$alias_target" R_WANTS="$wants_target" R_LOG_PRESENT="$log_present" R_LOG="$log_text"   R_PACKAGE_VERSION="$package_version" python3 - <<'PY'
+  R_PHASE="$phase" R_ROOT="$rootdev" R_HOOK_PRESENT="$hook_present" R_HOOK_EXEC="$hook_exec" \
+  R_HOOK_SHA="$hook_sha" R_HOOK_MATCH="$hook_matches" R_PENDING="$pending" R_UNIT="$unit_present" \
+  R_ALIAS="$alias_target" R_WANTS="$wants_target" R_LOG_PRESENT="$log_present" R_LOG="$log_text" \
+  R_PACKAGE_VERSION="$package_version" python3 - <<'PY'
 import json, os
 def b(name): return os.environ.get(name, "false").lower() == "true"
 print(json.dumps({
@@ -504,6 +495,7 @@ print(json.dumps({
     "first_boot_log": os.environ.get("R_LOG") or None,
 }, sort_keys=True))
 PY
+  cleanup_inspection
 }
 
 start_qemu yes
