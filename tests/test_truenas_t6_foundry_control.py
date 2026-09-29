@@ -2,12 +2,16 @@
 import importlib.util
 import json
 import pathlib
+import sys
 import tempfile
 import unittest
 
 
 HERE = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = HERE / "scripts" / "truenas_middleware_foundry_control_probe.py"
+SCRIPTS = HERE / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+SCRIPT = SCRIPTS / "truenas_middleware_foundry_control_probe.py"
 SPEC = importlib.util.spec_from_file_location("t6_probe", SCRIPT)
 MOD = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader
