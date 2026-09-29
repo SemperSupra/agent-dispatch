@@ -57,7 +57,7 @@ jobs:
           elif [[ -n "$BEFORE_SHA" && -n "$AFTER_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]]; then
             while IFS= read -r path; do
               case "$path" in
-                scripts/gha_kvm_proxmox_rdte.sh)
+                scripts/gha_kvm_proxmox_rdte.sh|scripts/proxmox_installed_disk_probe.sh)
                   proxmox=true
                   ;;
                 scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py)
