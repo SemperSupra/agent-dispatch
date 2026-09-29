@@ -118,6 +118,15 @@ class LiteLlmT6ContractTests(unittest.TestCase):
         self.assertNotIn("truenas-foundry-materialized-controls", workflow)
         self.assertIn('LITELLM_HOSTFWD=",hostfwd=tcp:127.0.0.1:', harness)
         self.assertIn('-:30401"', harness)
+        netdev_lines = [
+            line.strip()
+            for line in harness.splitlines()
+            if '-netdev "user,id=net0' in line
+        ]
+        self.assertEqual(2, len(netdev_lines))
+        self.assertNotIn("LITELLM_HOSTFWD", netdev_lines[0])
+        self.assertIn("${LITELLM_HOSTFWD}", netdev_lines[1])
+        self.assertIn("hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443", netdev_lines[1])
         self.assertIn(
             'python3 "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py"',
             harness,
