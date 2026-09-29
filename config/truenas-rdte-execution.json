@@ -1,8 +1,8 @@
 {
   "schema": "truenas-rdte-execution/v1",
-  "target_profile": "25.10.7",
+  "target_profile": "25.04.1",
   "rung": "t3",
-  "purpose": "current-stable real-system qualification",
+  "purpose": "deployed-current-appliance release qualification in disposable public GHA",
   "predecessor": "source-contract-qualified + vendor-media-pin-verified",
   "mutation_scope": "disposable public-GHA VM only"
 }

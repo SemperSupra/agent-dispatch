@@ -26,6 +26,19 @@
       "middleware_tag": "TS-25.10.7",
       "middleware_commit": "8ede398839710e56893d88ce85088139d8fab18e",
       "max_qualified_harness_rung": "t3"
+    },
+    "25.04.1": {
+      "release_class": "deployed-current-appliance",
+      "version": "25.04.1",
+      "iso_name": "TrueNAS-SCALE-25.04.1.iso",
+      "iso_url": "https://download.truenas.com/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso",
+      "sha256_url": "https://download.truenas.com/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso.sha256",
+      "expected_sha256": "0719dfe4b1c7bd36ae1d6084f674cfb1ad87b749b407b4bf4801511ca401ed4a",
+      "installer_tag": "TS-25.04.1",
+      "installer_commit": "390ee5aa69096cd35cbb11420dbc7b448595ca03",
+      "middleware_tag": "TS-25.04.1",
+      "middleware_commit": "74ab5a2d373be4097dece257d00e1086376333ba",
+      "max_qualified_harness_rung": "t3"
     }
   },
   "invariants": {
@@ -40,6 +53,18 @@
       ],
       "observed_equal": true
     },
-    "stable_apps_gate": "t4+ fail-closed until exact 25.10.7 Apps runtime client is qualified"
+    "stable_apps_gate": "t4+ fail-closed until exact 25.10.7 Apps runtime client is qualified",
+    "current_appliance_25_04_1": {
+      "installer_readonly_methods": [
+        "is_adopted",
+        "system_info",
+        "list_disks",
+        "list_network_interfaces"
+      ],
+      "installer_install_shape": "single-dictionary",
+      "middleware_source_profile": ".foundry/truenas-compatibility/25.04.1-materialization.json",
+      "vendor_media_pin_verified_by_public_gha_run": 36545859303,
+      "note": "T0-T3 system qualification is separate from T4+ Apps/materialization qualification."
+    }
   }
 }

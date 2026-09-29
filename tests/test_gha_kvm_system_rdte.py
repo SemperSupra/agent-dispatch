@@ -73,6 +73,7 @@ class SystemRdteContractTests(unittest.TestCase):
         text = TRUENAS.read_text(encoding="utf-8")
         registry = TRUENAS_TARGETS.read_text(encoding="utf-8")
         self.assertIn("TrueNAS-26.0.0-BETA.3.iso", registry)
+        self.assertIn("TrueNAS-SCALE-25.04.1.iso", registry)
         self.assertIn("TrueNAS-SCALE-25.10.7.iso", registry)
         self.assertIn("54ce9441ce66966a392e28f63604ca3c2c083d0bec4db7bb5af2f74f7a007c8e", registry)
         self.assertIn("PINNED_ISO_SHA", text)
@@ -284,8 +285,13 @@ class SystemRdteContractTests(unittest.TestCase):
 
     def test_truenas_target_registry_pins_stable_and_upcoming_sources(self):
         targets = json.loads(TRUENAS_TARGETS.read_text(encoding="utf-8"))
+        deployed = targets["targets"]["25.04.1"]
         stable = targets["targets"]["25.10.7"]
         beta = targets["targets"]["26.0.0-BETA.3"]
+        self.assertEqual(deployed["expected_sha256"], "0719dfe4b1c7bd36ae1d6084f674cfb1ad87b749b407b4bf4801511ca401ed4a")
+        self.assertEqual(deployed["installer_commit"], "390ee5aa69096cd35cbb11420dbc7b448595ca03")
+        self.assertEqual(deployed["middleware_commit"], "74ab5a2d373be4097dece257d00e1086376333ba")
+        self.assertEqual(deployed["max_qualified_harness_rung"], "t3")
         self.assertEqual(stable["expected_sha256"], "54ce9441ce66966a392e28f63604ca3c2c083d0bec4db7bb5af2f74f7a007c8e")
         self.assertEqual(stable["installer_commit"], "f66c7830bc511f3dc516ae0c5097662f5ed4d27b")
         self.assertEqual(stable["middleware_commit"], "8ede398839710e56893d88ce85088139d8fab18e")
@@ -328,7 +334,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"data_pool_created"', text)
         self.assertIn('"data_pool"', text)
         execution = json.loads(TRUENAS_EXECUTION.read_text(encoding="utf-8"))
-        self.assertEqual(execution["target_profile"], "25.10.7")
+        self.assertEqual(execution["target_profile"], "25.04.1")
         self.assertEqual(execution["rung"], "t3")
         self.assertIn("--target-profile", workflow)
         self.assertIn('config/truenas-rdte-execution.json', workflow)
