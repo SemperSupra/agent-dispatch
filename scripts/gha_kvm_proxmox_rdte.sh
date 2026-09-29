@@ -141,7 +141,7 @@ root-password = "rdte-proxmox-ephemeral-9264"
 
 [first-boot]
 source = "from-iso"
-ordering = "fully-up"
+ordering = "network-online"
 
 [network]
 source = "from-dhcp"
@@ -159,23 +159,56 @@ if [ -c /dev/ttyS0 ]; then
   exec >/dev/ttyS0 2>&1
 fi
 echo "PVE_RDTE_WITNESS_BEGIN"
+printf 'ORDERING_ARG=%s\n' "${1:-unset}"
 printf 'HOSTNAME='; hostname -f 2>/dev/null || hostname 2>/dev/null || true
 printf 'KERNEL='; uname -a 2>/dev/null || true
+echo "HOSTS_BEGIN"
+cat /etc/hosts 2>&1 || true
+echo "HOSTS_END"
 echo "IP_ADDR_BEGIN"
 ip -brief address 2>&1 || true
 echo "IP_ADDR_END"
 echo "IP_ROUTE_BEGIN"
 ip route 2>&1 || true
 echo "IP_ROUTE_END"
-echo "PVE_SERVICES_BEGIN"
+echo "NETWORK_INTERFACES_BEGIN"
+cat /etc/network/interfaces 2>&1 || true
+echo "NETWORK_INTERFACES_END"
+echo "PVE_INITIAL_SERVICES_BEGIN"
 for service in pve-cluster pvedaemon pvestatd pveproxy ssh networking systemd-networkd; do
   printf '%s=' "$service"
   systemctl is-active "$service" 2>/dev/null || true
 done
-echo "PVE_SERVICES_END"
+echo "PVE_INITIAL_SERVICES_END"
+
+# network-online intentionally runs before the product proxy dependency used by
+# the upstream "fully-up" first-boot unit. Poll without mutating so a failing
+# pveproxy can still leave guest-originated evidence instead of deadlocking the oracle.
+for _ in $(seq 1 45); do
+  if systemctl is-active --quiet pveproxy 2>/dev/null && ss -lnt 2>/dev/null | grep -Eq '[:.]8006[[:space:]]'; then
+    break
+  fi
+  sleep 2
+done
+
+echo "PVE_FINAL_SERVICES_BEGIN"
+for service in pve-cluster pvedaemon pvestatd pveproxy ssh networking systemd-networkd; do
+  printf '%s=' "$service"
+  systemctl is-active "$service" 2>/dev/null || true
+done
+echo "PVE_FINAL_SERVICES_END"
 echo "LISTENERS_BEGIN"
 ss -lntp 2>&1 || true
 echo "LISTENERS_END"
+echo "FAILED_UNITS_BEGIN"
+systemctl --failed --no-pager 2>&1 || true
+echo "FAILED_UNITS_END"
+echo "PVEPROXY_JOURNAL_BEGIN"
+journalctl -u pveproxy -b --no-pager -n 80 2>&1 || true
+echo "PVEPROXY_JOURNAL_END"
+echo "PVECLUSTER_JOURNAL_BEGIN"
+journalctl -u pve-cluster -b --no-pager -n 80 2>&1 || true
+echo "PVECLUSTER_JOURNAL_END"
 if [ -e /dev/kvm ]; then echo "KVM_DEVICE=present"; else echo "KVM_DEVICE=absent"; fi
 if grep -Eq '(vmx|svm)' /proc/cpuinfo 2>/dev/null; then echo "CPU_VIRT_FLAG=present"; else echo "CPU_VIRT_FLAG=absent"; fi
 echo "PVE_RDTE_WITNESS_END"
@@ -211,6 +244,15 @@ xorriso -boot_image any keep -dev "$AUTO_ISO" \
   -map "$STATE_DIR/grub.cfg" /boot/grub/grub.cfg \
   -commit >/dev/null 2>"$STATE_DIR/xorriso.log" ||
   fail_evidence HARNESS_FAILURE prepare "failed to construct unattended Proxmox ISO"
+
+# Prove that the same exact file name consumed by the upstream auto-installer
+# (/cdrom/proxmox-first-boot) exists in the prepared ISO before spending a VM rep.
+xorriso -osirrox on -indev "$AUTO_ISO" \
+  -extract /proxmox-first-boot "$STATE_DIR/proxmox-first-boot.iso" >/dev/null 2>&1 ||
+  fail_evidence HARNESS_FAILURE prepare "prepared ISO does not contain /proxmox-first-boot"
+[[ "$(sha256sum "$STATE_DIR/proxmox-first-boot" | awk '{print $1}')" == \
+   "$(sha256sum "$STATE_DIR/proxmox-first-boot.iso" | awk '{print $1}')" ]] ||
+  fail_evidence HARNESS_FAILURE prepare "prepared ISO first-boot hook content mismatch"
 
 qemu-img create -q -f qcow2 "$STATE_DIR/system.qcow2" "$DISK_SIZE"
 SSH_PORT="$(python3 - <<'PY'

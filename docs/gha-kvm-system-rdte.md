@@ -134,11 +134,21 @@ evidence under test.
 ### Proxmox P2 installed-guest witness
 
 P2 must distinguish the QEMU host-forward listener from the installed guest. The
-diagnostic adapter therefore uses the vendor automated installer's supported
-`[first-boot]` hook with `source = "from-iso"` and `ordering = "fully-up"`.
-The hook emits a bounded serial witness from inside the installed guest containing
-hostname/kernel identity, interface and route state, selected Proxmox service activity,
-listening TCP sockets, and observational KVM/CPU-virtualization presence.
+diagnostic adapter uses the vendor automated installer's supported `[first-boot]`
+hook with `source = "from-iso"`, but intentionally selects
+`ordering = "network-online"`.
+
+The earlier `fully-up` witness was circular: upstream Proxmox first-boot packaging
+orders the fully-up service after and wants the product-specific API proxy
+(`pveproxy.service` on PVE). If that proxy is the failing P2 dependency, the witness
+cannot run to explain it. The upstream `network-online` ordering instead runs after
+networking and before that product-proxy dependency.
+
+The hook therefore emits a bounded serial witness from inside the installed guest,
+records hostname/hosts/network state immediately, then waits at most 90 seconds for
+`pveproxy`/TCP 8006 and records final service state, listeners, failed units, and
+bounded `pveproxy`/`pve-cluster` journals. The prepared ISO is also read back before
+launch and the exact `/proxmox-first-boot` content SHA-256 must match the source hook.
 
 The witness is diagnostic evidence only. P2 is satisfied only by a real HTTPS
 `/api2/json/version` response. A host-side TCP accept is recorded only as
