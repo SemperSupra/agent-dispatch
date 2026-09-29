@@ -105,8 +105,8 @@ payload = {
     "boot_disk": "24G",
     "data_disks": ["8G", "8G"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else [],
     "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else None,
-    "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5"} else [],
-    "app": {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"} if os.environ.get("R_RUNG") in {"t4", "t5", "t6"} else None,
+    "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else [],
+    "app": ({"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"} if os.environ.get("R_RUNG") == "t6" else {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"} if os.environ.get("R_RUNG") in {"t4", "t5"} else None),
   },
   "source": {
     "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
@@ -412,6 +412,16 @@ import socket
 s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
 PY
 )"
+LITELLM_HOST_PORT=""
+LITELLM_HOSTFWD=""
+if [[ "$RUNG" == "t6" ]]; then
+  LITELLM_HOST_PORT="$(python3 - <<'PY'
+import socket
+s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+PY
+)"
+  LITELLM_HOSTFWD=",hostfwd=tcp:127.0.0.1:${LITELLM_HOST_PORT}-:30401"
+fi
 : >"$STATE_DIR/serial.log"
 sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
@@ -573,6 +583,6 @@ print("true" if data.get("oracleSatisfied") is True else "false")
 PY
 )"
 [[ "$FOUNDRY_OK" == "true" ]] ||
-  fail_evidence ORACLE_FAILURE foundry-materialization "exact public Foundry control did not realize and verify on TrueNAS"
+  fail_evidence ORACLE_FAILURE foundry-materialization "exact Foundry-exported LiteLLM control did not realize and verify on TrueNAS"
 
-write_receipt SUPPORTED true foundry-materialization "exact public Foundry materialization control reached RUNNING with matching app.config identity and was removed"
+write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported LiteLLM control passed S1 projection, exact image/config read-back, health, restart persistence, and delete/absence"
