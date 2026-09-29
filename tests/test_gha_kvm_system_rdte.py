@@ -15,6 +15,7 @@ PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
 TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
+QEMU_TOPOLOGY = ROOT / "scripts" / "gha_qemu_t3_topology_probe.py"
 TRUENAS_INSTALL = ROOT / "scripts" / "truenas_installer_rpc_install.py"
 TRUENAS_MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
 TRUENAS_POOL = ROOT / "scripts" / "truenas_middleware_pool_probe.py"
@@ -300,6 +301,29 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
         py_check = subprocess.run(["python3", "-m", "py_compile", str(TRUENAS_POOL)], text=True, capture_output=True)
         self.assertEqual(py_check.returncode, 0, py_check.stderr)
+
+    def test_qemu_t3_topology_is_a_cheap_separate_oracle(self):
+        probe = QEMU_TOPOLOGY.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('"rdte-nic"', probe)
+        self.assertIn('"rdte-boot"', probe)
+        self.assertIn('"bootindex": 1', probe)
+        self.assertIn('"RDTE_DATA_0"', probe)
+        self.assertIn('"RDTE_DATA_1"', probe)
+        self.assertIn('"query-pci"', probe)
+        self.assertIn('"qom-get"', probe)
+        self.assertIn("qemu-t3-topology:", workflow)
+        self.assertIn("needs.changes.outputs.qemu_topology", workflow)
+        self.assertNotIn(
+            "scripts/gha_qemu_t3_topology_probe.py)",
+            workflow.split("truenas=true", 1)[0],
+        )
+        py = subprocess.run(
+            ["python3", "-m", "py_compile", str(QEMU_TOPOLOGY)],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(py.returncode, 0, py.stderr)
 
 if __name__ == "__main__":
     unittest.main()

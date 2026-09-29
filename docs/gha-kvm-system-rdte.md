@@ -185,3 +185,20 @@ The T3 middleware client then:
 QEMU disk attachment, middleware unused-disk classification, job acceptance, and pool
 health are separate observations. T3 does not imply Apps support; T4 remains a distinct
 gate.
+
+
+### QEMU T3 topology oracle
+
+Before another full TrueNAS T3 installation is spent, a cheap Ubuntu 26.04 job
+instantiates the proposed installed-guest hardware shape under the hosted runner's
+actual QEMU package without booting an operating system. QMP must report:
+
+- virtio NIC at PCI slot 0x3;
+- explicit TrueNAS boot virtio-blk device at slot 0x4 with `bootindex=1`;
+- experiment data disks at slots 0x5 and 0x6;
+- data-disk serials `RDTE_DATA_0` and `RDTE_DATA_1`.
+
+This oracle exists because QEMU auto-assigns PCI devices to the first available
+non-reserved slot and virtio-blk exposes both `serial` and `bootindex` as device
+properties. It validates QEMU realization separately from the expensive TrueNAS
+installer/boot/pool oracle.
