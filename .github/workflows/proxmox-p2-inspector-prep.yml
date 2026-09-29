@@ -6,6 +6,7 @@ on:
       - prep/proxmox-p2-inspector-v2
     paths:
       - scripts/gha_proxmox_nbd_lvm_selftest.sh
+      - scripts/proxmox_installed_disk_probe.sh
       - .github/workflows/proxmox-p2-inspector-prep.yml
   workflow_dispatch:
 
