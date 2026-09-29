@@ -222,3 +222,16 @@ The TrueNAS 26.0 entitlement matrix grants Apps to an unlicensed generic/VM Comm
 Edition system, so this QEMU target is expected to be eligible without adding a license.
 T4 still does not promote broader lifecycle semantics or App Foundry materialization;
 those remain T5 and T6.
+
+
+### TrueNAS BETA.3 source binding
+
+Runtime API contracts for the 26.0.0-BETA.3 lane are bound to the published
+`TS-26.0.0-BETA.3` middleware tag, commit
+`81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3`.
+
+That tagged tree predates the later `truenas.entitlements.*` service. Its Apps gate
+is `docker.license_active`: non-HA systems are permitted directly, while HA-capable
+systems consult `system.feature_enabled("APPS")`. The T4 client therefore does not
+call the later entitlement API; `docker.update` and Docker startup exercise the
+actual BETA.3 product gate.

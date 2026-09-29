@@ -30,6 +30,11 @@ def main():
     password = pathlib.Path(a.password_file).read_text(encoding="utf-8").strip()
     payload = {
         "schema": "truenas-middleware-app-t4/v1",
+        "source_contract": {
+            "middleware_tag": "TS-26.0.0-BETA.3",
+            "middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
+            "apps_gate": "docker.license_active",
+        },
         "oracleSatisfied": False,
         "classification": "ORACLE_FAILURE",
         "pool_name": a.pool_name,
@@ -83,11 +88,6 @@ def main():
             raise RuntimeError(f"authentication did not return SUCCESS: {auth!r}")
 
         payload["system_version"] = call("system.version", [])
-        entitlement = call("truenas.entitlements.check", ["APPS"])
-        payload["apps_entitlement"] = entitlement
-        if not isinstance(entitlement, dict) or entitlement.get("entitled") is not True:
-            raise RuntimeError(f"Apps entitlement denied: {entitlement!r}")
-
         payload["docker_before"] = call("docker.config", [])
         existing = call("app.query", [[[ "id", "=", APP_NAME ]]])
         if existing:

@@ -361,5 +361,13 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertNotIn('if [[ "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" ]]; then', text)
         self.assertIn("try_rpc_discovery", text)
 
+    def test_t4_uses_tagged_beta3_apps_gate(self):
+        text = (ROOT / "scripts" / "truenas_middleware_app_probe.py").read_text(encoding="utf-8")
+        self.assertNotIn("truenas.entitlements.check", text)
+        self.assertIn('"middleware_tag": "TS-26.0.0-BETA.3"', text)
+        self.assertIn('"middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3"', text)
+        self.assertIn('"apps_gate": "docker.license_active"', text)
+
+
 if __name__ == "__main__":
     unittest.main()
