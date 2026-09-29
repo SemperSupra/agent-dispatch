@@ -110,6 +110,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"pve_manager_version"', probe)
         self.assertIn('"pve_cluster_version"', probe)
         self.assertIn('"installed_hostname"', probe)
+        self.assertIn('"first_boot_package_version"', probe)
+        self.assertIn('"hook_matches_prepared_iso"', probe)
         self.assertIn('sgdisk -n2:1M:+512M -t2:EF00 -n3:513M:0 -t3:8E00', selftest)
         self.assertIn("proxmox_installed_disk_probe.sh", selftest)
         for path in (PVE_DISK_PROBE, PVE_NBD_SELFTEST):
@@ -123,9 +125,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"api_hostfwd_accepted"', text)
         self.assertIn("first_boot_witness_observed", text)
         self.assertIn("inspect_installed_disk", text)
-        self.assertIn("qemu-nbd", text)
-        self.assertIn("first_boot_package_version", text)
-        self.assertIn("hook_matches_prepared_iso", text)
+        self.assertIn("PVE_DISK_PROBE", text)
         self.assertIn("INSTALLED_DISK_PREBOOT", text)
         self.assertIn("INSTALLED_DISK_POSTBOOT", text)
 
