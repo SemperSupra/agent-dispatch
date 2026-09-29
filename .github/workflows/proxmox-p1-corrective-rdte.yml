@@ -15,62 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  contract:
+  supersede:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - name: Validate current RDTE contract
-        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py
-
-  proxmox-9-2:
-    needs: contract
-    if: needs.contract.result == 'success'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - name: Ensure bounded QEMU/KVM prerequisites
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            qemu-system-x86 qemu-utils xorriso sshpass
-      - name: Exercise corrected Proxmox P1/P2 target
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/proxmox-p1-corrective"
-          bash scripts/gha_kvm_proxmox_rdte.sh \
-            --state-dir "$RUNNER_TEMP/proxmox-p1-corrective/state" \
-            --out "$RUNNER_TEMP/proxmox-p1-corrective/proxmox-receipt.json"
-          python3 -m json.tool "$RUNNER_TEMP/proxmox-p1-corrective/proxmox-receipt.json"
-      - name: Preserve classified evidence
-        if: always()
-        run: |
-          set -euo pipefail
-          receipt="$RUNNER_TEMP/proxmox-p1-corrective/proxmox-receipt.json"
-          if [ ! -f "$receipt" ]; then
-            python3 - "$receipt" <<'PY'
-          import json, pathlib, sys
-          pathlib.Path(sys.argv[1]).write_text(json.dumps({
-            "contract":"gha-kvm-system-lab/v1",
-            "target":{"product":"proxmox-ve","version":"9.2-1"},
-            "classification":"HARNESS_FAILURE",
-            "oracleSatisfied":False,
-            "phase":"workflow-fallback",
-            "detail":"corrective adapter exited before emitting its normal receipt"
-          }, indent=2, sort_keys=True)+"\n")
-          PY
-          fi
-      - name: Upload Proxmox evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: gha-kvm-proxmox-p1-corrective-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/proxmox-p1-corrective/proxmox-receipt.json
-          if-no-files-found: error
-          retention-days: 7
+      - run: echo "Superseded because the authoritative main RDTE rep already completed."
