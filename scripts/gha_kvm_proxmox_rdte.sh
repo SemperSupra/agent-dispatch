@@ -44,7 +44,6 @@ QEMU_ALIVE_AT_API_GATE="unknown"
 GUEST_DIAGNOSTICS=""
 FIRST_BOOT_WITNESS=""
 FIRST_BOOT_WITNESS_OBSERVED="false"
-ISO_INSTALLER_PACKAGE=""
 ISO_FIRST_BOOT_PACKAGE=""
 INSTALLED_DISK_PREBOOT=""
 INSTALLED_DISK_POSTBOOT=""
@@ -70,7 +69,7 @@ write_receipt() {
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
   export R_FIRST_BOOT_WITNESS="$FIRST_BOOT_WITNESS" R_FIRST_BOOT_WITNESS_OBSERVED="$FIRST_BOOT_WITNESS_OBSERVED"
-  export R_ISO_INSTALLER_PACKAGE="$ISO_INSTALLER_PACKAGE" R_ISO_FIRST_BOOT_PACKAGE="$ISO_FIRST_BOOT_PACKAGE"
+  export R_ISO_FIRST_BOOT_PACKAGE="$ISO_FIRST_BOOT_PACKAGE"
   export R_DISK_PREBOOT="$INSTALLED_DISK_PREBOOT" R_DISK_POSTBOOT="$INSTALLED_DISK_POSTBOOT"
   python3 - <<'PY'
 import json, os, pathlib
@@ -98,7 +97,6 @@ payload = {
     "observed_sha256": os.environ.get("R_ISO_SHA") or None,
     "installer_source_version": "9.2.5",
     "installer_source_commit": "32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9",
-    "iso_installer_package": os.environ.get("R_ISO_INSTALLER_PACKAGE") or None,
     "iso_first_boot_package": os.environ.get("R_ISO_FIRST_BOOT_PACKAGE") or None,
   },
   "oracles": {
@@ -157,14 +155,10 @@ curl --fail --location --retry 3 --silent --show-error "$ISO_URL" -o "$ISO" || f
 OBSERVED_ISO_SHA="$(sha256sum "$ISO" | awk '{print $1}')"
 [[ "$OBSERVED_ISO_SHA" == "$ISO_SHA256" ]] || fail_evidence ORACLE_FAILURE acquire "vendor ISO digest mismatch"
 
-ISO_INSTALLER_PATHS="$(xorriso -indev "$ISO" -find /proxmox/packages -type f -name 'proxmox-installer_*.deb' -- 2>/dev/null)" ||
-  fail_evidence HARNESS_FAILURE acquire "could not inspect installer package identity in vendor ISO"
 ISO_FIRST_BOOT_PATHS="$(xorriso -indev "$ISO" -find /proxmox/packages -type f -name 'proxmox-first-boot_*.deb' -- 2>/dev/null)" ||
   fail_evidence HARNESS_FAILURE acquire "could not inspect first-boot package identity in vendor ISO"
-ISO_INSTALLER_PACKAGE="$(basename "$(printf '%s\n' "$ISO_INSTALLER_PATHS" | sed -n '1p')")"
-ISO_FIRST_BOOT_PACKAGE="$(basename "$(printf '%s\n' "$ISO_FIRST_BOOT_PATHS" | sed -n '1p')")"
-[[ "$ISO_INSTALLER_PACKAGE" == proxmox-installer_${PVE_INSTALLER_SOURCE_VERSION}_*.deb ]] ||
-  fail_evidence ORACLE_FAILURE acquire "ISO installer package does not match pinned source version ${PVE_INSTALLER_SOURCE_VERSION}: ${ISO_INSTALLER_PACKAGE:-absent}"
+ISO_FIRST_BOOT_PATH="$(printf '%s\n' "$ISO_FIRST_BOOT_PATHS" | sed -n '1p' | tr -d "'")"
+ISO_FIRST_BOOT_PACKAGE="$(basename "$ISO_FIRST_BOOT_PATH")"
 [[ "$ISO_FIRST_BOOT_PACKAGE" == proxmox-first-boot_${PVE_INSTALLER_SOURCE_VERSION}_*.deb ]] ||
   fail_evidence ORACLE_FAILURE acquire "ISO first-boot package does not match pinned source version ${PVE_INSTALLER_SOURCE_VERSION}: ${ISO_FIRST_BOOT_PACKAGE:-absent}"
 

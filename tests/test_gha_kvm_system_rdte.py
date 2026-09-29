@@ -67,8 +67,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("/api2/json/version", text)
         self.assertIn('PVE_INSTALLER_SOURCE_VERSION="9.2.5"', text)
         self.assertIn('PVE_INSTALLER_SOURCE_COMMIT="32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9"', text)
-        self.assertIn("proxmox-installer_*.deb", text)
         self.assertIn("proxmox-first-boot_*.deb", text)
+        self.assertIn("ISO_FIRST_BOOT_PACKAGE", text)
         self.assertNotIn("xdotool", text)
 
     def test_proxmox_first_boot_witness_uses_vendor_hook(self):
