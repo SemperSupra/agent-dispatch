@@ -100,5 +100,30 @@ class LiteLlmT6ContractTests(unittest.TestCase):
         self.assertNotIn("OPENROUTER_API_KEY", text)
 
 
+    def test_workflow_and_harness_are_bound_to_exact_litellm_export(self):
+        workflow = (HERE / ".github" / "workflows" / "gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
+        harness = (SCRIPTS / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            "export-litellm-t6-control.yml@" + MOD.EXPECTED_FOUNDRY_REF,
+            workflow,
+        )
+        self.assertIn("foundry_ref: " + MOD.EXPECTED_FOUNDRY_REF, workflow)
+        self.assertIn("name: litellm-truenas-t6-control", workflow)
+        self.assertIn('--foundry-commit "' + MOD.EXPECTED_FOUNDRY_REF + '"', workflow)
+        self.assertNotIn("truenas-foundry-materialized-controls", workflow)
+        self.assertIn('LITELLM_HOSTFWD=",hostfwd=tcp:127.0.0.1:', harness)
+        self.assertIn('-:30401"', harness)
+        self.assertIn(
+            'python3 "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py"',
+            harness,
+        )
+        self.assertIn('--service-port "$LITELLM_HOST_PORT"', harness)
+        self.assertNotIn(
+            'python3 "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py"',
+            harness,
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
