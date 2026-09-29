@@ -293,7 +293,8 @@ for attempt in $(seq 1 220); do
   if [[ "$RUNG" == "t0" && "$T0_OBSERVED" == "true" ]]; then
     break
   fi
-  # All post-T0 rungs share the installer RPC prerequisite; do not enumerate higher rungs here.\n  if [[ "$RUNG" != "t0" ]]; then
+  # All post-T0 rungs share the installer RPC prerequisite; do not enumerate higher rungs here.
+  if [[ "$RUNG" != "t0" ]]; then
     if port_open "$RPC_PORT"; then
       RPC_HOSTFWD_ACCEPTED="true"
     fi
