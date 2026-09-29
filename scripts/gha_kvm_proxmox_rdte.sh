@@ -378,7 +378,7 @@ stop_qemu() {
 
 inspect_installed_disk() {
   local phase="$1"
-  local raw="$STATE_DIR/system-\${phase}.raw"
+  local raw="$STATE_DIR/system-${phase}.raw"
   local loopdev="" pv="" vg="" rootdev="" mnt="$STATE_DIR/mnt-$phase"
   local hook_present=false hook_exec=false hook_sha="" hook_matches=false pending=false
   local unit_present=false alias_target="" wants_target="" log_present=false log_text="" package_version=""
