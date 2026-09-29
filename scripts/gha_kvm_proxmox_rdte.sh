@@ -10,7 +10,7 @@ RAM_MIB=4096
 VCPUS=2
 DISK_SIZE="40G"
 MIN_HOST_MEM_KIB=$((6 * 1024 * 1024))
-MIN_HOST_FREE_KIB=$((24 * 1024 * 1024))
+MIN_HOST_FREE_KIB=$((24 * 1024 * 1024))\nROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
 
 usage() {
   echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR]"
@@ -134,7 +134,7 @@ fail_evidence() {
   exit 0
 }
 
-for cmd in curl sha256sum qemu-img qemu-system-x86_64 qemu-nbd xorriso python3 lsblk blkid mount umount readlink modprobe udevadm; do
+for cmd in curl sha256sum qemu-img qemu-system-x86_64 qemu-nbd xorriso python3 lsblk blkid mount umount readlink modprobe udevadm blockdev partx; do
   command -v "$cmd" >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: $cmd"
 done
 if ! command -v pvs >/dev/null 2>&1 || ! command -v lvs >/dev/null 2>&1 || ! command -v lvchange >/dev/null 2>&1; then
@@ -169,7 +169,7 @@ country = "us"
 fqdn = "pve-rdte.example.invalid"
 mailto = "rdte@example.invalid"
 timezone = "Etc/UTC"
-root-password = "rdte-proxmox-ephemeral-9264"
+root-password = "$ROOT_PASSWORD"
 
 [first-boot]
 source = "from-iso"
@@ -325,7 +325,7 @@ PY
 
 guest_diagnostics() {
   command -v sshpass >/dev/null 2>&1 || return 0
-  sshpass -p 'rdte-proxmox-ephemeral-9264' ssh -p "$SSH_PORT"     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5     root@127.0.0.1 '
+  sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT"     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5     root@127.0.0.1 '
       echo "===PVEVERSION===";
       pveversion -v 2>&1 || true;
       echo "===SYSTEMD_FAILED===";
@@ -382,12 +382,21 @@ inspect_installed_disk() {
   local unit_present=false alias_target="" wants_target="" log_present=false log_text="" package_version=""
 
   emit_inspection_error() {
-    R_PHASE="$phase" R_ERROR="$1" python3 - <<'PY'
+    local layout="" blkids="" nbd_max_part=""
+    if [[ -n "$nbd" && -b "$nbd" ]]; then
+      layout="$(sudo -n lsblk -lnpo NAME,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTLABEL,SIZE "$nbd" 2>&1 || true)"
+      blkids="$(sudo -n blkid 2>&1 | grep -F "$nbd" || true)"
+    fi
+    [[ -r /sys/module/nbd/parameters/max_part ]] && nbd_max_part="$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || true)"
+    R_PHASE="$phase" R_ERROR="$1" R_LAYOUT="$layout" R_BLKIDS="$blkids" R_NBD_MAX_PART="$nbd_max_part" python3 - <<'PY'
 import json, os
 print(json.dumps({
     "phase": os.environ["R_PHASE"],
     "inspection_ok": False,
     "error": os.environ["R_ERROR"],
+    "lsblk": os.environ.get("R_LAYOUT") or None,
+    "blkid": os.environ.get("R_BLKIDS") or None,
+    "nbd_max_part": os.environ.get("R_NBD_MAX_PART") or None,
 }, sort_keys=True))
 PY
   }
@@ -405,6 +414,8 @@ PY
 
   sudo -n qemu-nbd --connect="$nbd" --read-only "$STATE_DIR/system.qcow2" >/dev/null 2>&1 ||
     { emit_inspection_error "qemu-nbd connect failed"; return 0; }
+  sudo -n blockdev --rereadpt "$nbd" >/dev/null 2>&1 || true
+  sudo -n partx -a "$nbd" >/dev/null 2>&1 || sudo -n partx -u "$nbd" >/dev/null 2>&1 || true
   sudo -n udevadm settle >/dev/null 2>&1 || true
   sleep 1
 
@@ -533,7 +544,7 @@ for _ in $(seq 1 120); do
   sleep 3
 done
 if [[ "$API_VERSION_JSON" != *'"data"'* ]]; then
-  if command -v sshpass >/dev/null 2>&1 && sshpass -p 'rdte-proxmox-ephemeral-9264' ssh -p "$SSH_PORT" \
+  if command -v sshpass >/dev/null 2>&1 && sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
       -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
       root@127.0.0.1 'true' >/dev/null 2>&1; then
     GUEST_DIAGNOSTICS="$(guest_diagnostics || true)"
@@ -545,7 +556,7 @@ fi
 
 NESTED_KVM="unknown"
 if command -v sshpass >/dev/null 2>&1; then
-  if sshpass -p 'rdte-proxmox-ephemeral-9264' ssh -p "$SSH_PORT" \
+  if sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
       -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
       root@127.0.0.1 'test -e /dev/kvm && grep -Eq "(vmx|svm)" /proc/cpuinfo' >/dev/null 2>&1; then
     NESTED_KVM="yes"
