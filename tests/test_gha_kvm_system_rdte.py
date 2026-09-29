@@ -358,7 +358,7 @@ class SystemRdteContractTests(unittest.TestCase):
     def test_all_post_t0_rungs_share_installer_rpc_gate(self):
         text = TRUENAS.read_text(encoding="utf-8")
         self.assertIn('if [[ "$RUNG" != "t0" ]]; then', text)
-        self.assertNotIn('if [[ "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" ]]\', text)
+        self.assertNotIn('if [[ "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" ]]; then', text)
         self.assertIn("try_rpc_discovery", text)
 
 if __name__ == "__main__":
