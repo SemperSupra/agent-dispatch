@@ -10,7 +10,8 @@ RAM_MIB=4096
 VCPUS=2
 DISK_SIZE="40G"
 MIN_HOST_MEM_KIB=$((6 * 1024 * 1024))
-MIN_HOST_FREE_KIB=$((16 * 1024 * 1024))\nROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
+MIN_HOST_FREE_KIB=$((16 * 1024 * 1024))
+ROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
 
 usage() {
   echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR]"

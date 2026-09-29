@@ -90,6 +90,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('ROOT_PASSWORD="rdte-proxmox-', text)
         self.assertIn('root-password = "$ROOT_PASSWORD"', text)
         self.assertIn('cat >"$STATE_DIR/answer.toml" <<EOF', text)
+        self.assertNotIn(r"\nROOT_PASSWORD", text)
         self.assertNotIn("rdte-proxmox-ephemeral-", text)
 
     def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
