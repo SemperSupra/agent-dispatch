@@ -1,0 +1,50 @@
+apiVersion: score.dev/v1b1
+metadata:
+  name: litellm
+  profile: gateway-minimal
+  annotations:
+    semper.supra/min-secret-tier: S1
+containers:
+  litellm:
+    image: .
+    args:
+      - --config
+      - /config/proxy_server_config.yaml
+      - --port
+      - "4000"
+    variables:
+      SEMPER_SECRET_DIR: /run/secrets/semper-env
+    volumes:
+      /config:
+        source: ${resources.config}
+        readOnly: true
+      /run/secrets/semper-env:
+        source: ${resources.provider-secrets}
+        readOnly: true
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "2"
+        memory: "2Gi"
+    livenessProbe:
+      httpGet:
+        path: /health/liveliness
+        port: 4000
+    readinessProbe:
+      httpGet:
+        path: /health/readiness
+        port: 4000
+service:
+  ports:
+    http:
+      port: 4000
+      targetPort: 4000
+resources:
+  config:
+    type: volume
+    class: config-directory
+  provider-secrets:
+    type: volume
+    class: env-files
