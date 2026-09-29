@@ -173,7 +173,7 @@ keyboard = "en-us"
 country = "us"
 fqdn = "pve-rdte.example.invalid"
 mailto = "rdte@example.invalid"
-timezone = "Etc/UTC"
+timezone = "UTC"
 root-password = "$ROOT_PASSWORD"
 
 [first-boot]

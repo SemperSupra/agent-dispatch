@@ -89,6 +89,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("first_boot_witness_observed", text)
         self.assertIn('ROOT_PASSWORD="rdte-proxmox-', text)
         self.assertIn('root-password = "$ROOT_PASSWORD"', text)
+        self.assertIn('timezone = "UTC"', text)
+        self.assertNotIn('timezone = "Etc/UTC"', text)
         self.assertIn('cat >"$STATE_DIR/answer.toml" <<EOF', text)
         self.assertNotIn(r"\nROOT_PASSWORD", text)
         self.assertNotIn("rdte-proxmox-ephemeral-", text)
