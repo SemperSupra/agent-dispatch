@@ -36,10 +36,12 @@ QEMU_PID=""
 OBSERVED_ISO_SHA=""
 API_VERSION_JSON=""
 NESTED_KVM="unknown"
-SSH_REACHABLE="false"
-API_PORT_REACHABLE="false"
+SSH_HOSTFWD_ACCEPTED="false"
+API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
 GUEST_DIAGNOSTICS=""
+FIRST_BOOT_WITNESS=""
+FIRST_BOOT_WITNESS_OBSERVED="false"
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
@@ -59,8 +61,9 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
-  export R_SSH_REACHABLE="$SSH_REACHABLE" R_API_PORT_REACHABLE="$API_PORT_REACHABLE"
+  export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
+  export R_FIRST_BOOT_WITNESS="$FIRST_BOOT_WITNESS" R_FIRST_BOOT_WITNESS_OBSERVED="$FIRST_BOOT_WITNESS_OBSERVED"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -78,7 +81,7 @@ payload = {
     "observed_sha256": os.environ.get("R_ISO_SHA") or None,
   },
   "oracles": {
-    "vendor_iso_digest": bool(os.environ.get("R_ISO_SHA")),
+    "vendor_iso_digest": os.environ.get("R_ISO_SHA") == "4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c",
     "unattended_install_completed": os.environ["R_PHASE"] in {"installed-api", "complete"},
     "installed_https_api": bool(os.environ.get("R_API")),
     "nested_kvm_observed_via_ssh": os.environ.get("R_NESTED") == "yes",
@@ -87,9 +90,11 @@ payload = {
   "nested_kvm": os.environ.get("R_NESTED"),
   "diagnostics": {
     "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
-    "ssh_port_reachable": os.environ.get("R_SSH_REACHABLE") == "true",
-    "api_port_reachable": os.environ.get("R_API_PORT_REACHABLE") == "true",
+    "ssh_hostfwd_accepted": os.environ.get("R_SSH_HOSTFWD_ACCEPTED") == "true",
+    "api_hostfwd_accepted": os.environ.get("R_API_HOSTFWD_ACCEPTED") == "true",
     "guest": os.environ.get("R_GUEST_DIAGNOSTICS") or None,
+    "first_boot_witness_observed": os.environ.get("R_FIRST_BOOT_WITNESS_OBSERVED") == "true",
+    "first_boot_witness": os.environ.get("R_FIRST_BOOT_WITNESS") or None,
   },
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
@@ -134,6 +139,10 @@ mailto = "rdte@example.invalid"
 timezone = "Etc/UTC"
 root-password = "rdte-proxmox-ephemeral-9264"
 
+[first-boot]
+source = "from-iso"
+ordering = "fully-up"
+
 [network]
 source = "from-dhcp"
 
@@ -142,6 +151,36 @@ filesystem = "ext4"
 disk-list = ["sda"]
 EOF
 printf 'mode = "iso"\n' >"$STATE_DIR/auto-installer-mode.toml"
+
+cat >"$STATE_DIR/proxmox-first-boot" <<'EOF'
+#!/bin/sh
+set +e
+if [ -c /dev/ttyS0 ]; then
+  exec >/dev/ttyS0 2>&1
+fi
+echo "PVE_RDTE_WITNESS_BEGIN"
+printf 'HOSTNAME='; hostname -f 2>/dev/null || hostname 2>/dev/null || true
+printf 'KERNEL='; uname -a 2>/dev/null || true
+echo "IP_ADDR_BEGIN"
+ip -brief address 2>&1 || true
+echo "IP_ADDR_END"
+echo "IP_ROUTE_BEGIN"
+ip route 2>&1 || true
+echo "IP_ROUTE_END"
+echo "PVE_SERVICES_BEGIN"
+for service in pve-cluster pvedaemon pvestatd pveproxy ssh networking systemd-networkd; do
+  printf '%s=' "$service"
+  systemctl is-active "$service" 2>/dev/null || true
+done
+echo "PVE_SERVICES_END"
+echo "LISTENERS_BEGIN"
+ss -lntp 2>&1 || true
+echo "LISTENERS_END"
+if [ -e /dev/kvm ]; then echo "KVM_DEVICE=present"; else echo "KVM_DEVICE=absent"; fi
+if grep -Eq '(vmx|svm)' /proc/cpuinfo 2>/dev/null; then echo "CPU_VIRT_FLAG=present"; else echo "CPU_VIRT_FLAG=absent"; fi
+echo "PVE_RDTE_WITNESS_END"
+EOF
+chmod 0755 "$STATE_DIR/proxmox-first-boot"
 
 xorriso -osirrox on -indev "$ISO" -extract /boot/grub/grub.cfg "$STATE_DIR/grub.cfg" >/dev/null 2>&1 ||
   fail_evidence HARNESS_FAILURE prepare "could not extract Proxmox GRUB config"
@@ -168,6 +207,7 @@ chmod u+w "$AUTO_ISO"
 xorriso -boot_image any keep -dev "$AUTO_ISO" \
   -map "$STATE_DIR/auto-installer-mode.toml" /auto-installer-mode.toml \
   -map "$STATE_DIR/answer.toml" /answer.toml \
+  -map "$STATE_DIR/proxmox-first-boot" /proxmox-first-boot \
   -map "$STATE_DIR/grub.cfg" /boot/grub/grub.cfg \
   -commit >/dev/null 2>"$STATE_DIR/xorriso.log" ||
   fail_evidence HARNESS_FAILURE prepare "failed to construct unattended Proxmox ISO"
@@ -264,8 +304,8 @@ stop_qemu
 
 start_qemu no
 API_VERSION_JSON=""
-SSH_REACHABLE="false"
-API_PORT_REACHABLE="false"
+SSH_HOSTFWD_ACCEPTED="false"
+API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
 for _ in $(seq 1 120); do
   if sudo -n kill -0 "$QEMU_PID" >/dev/null 2>&1; then
@@ -274,19 +314,28 @@ for _ in $(seq 1 120); do
     QEMU_ALIVE_AT_API_GATE="false"
     break
   fi
-  if port_open "$SSH_PORT"; then SSH_REACHABLE="true"; fi
-  if port_open "$WEB_PORT"; then API_PORT_REACHABLE="true"; fi
-  if [[ "$API_PORT_REACHABLE" == "true" ]]; then
+  if grep -q 'PVE_RDTE_WITNESS_END' "$STATE_DIR/serial.log" 2>/dev/null; then
+    FIRST_BOOT_WITNESS_OBSERVED="true"
+    FIRST_BOOT_WITNESS="$(awk '/PVE_RDTE_WITNESS_BEGIN/{capture=1} capture{print} /PVE_RDTE_WITNESS_END/{exit}' "$STATE_DIR/serial.log" | tr -d '\000' | sed -E 's/[^[:print:]\t]//g' | tail -c 16000)"
+  fi
+  if port_open "$SSH_PORT"; then SSH_HOSTFWD_ACCEPTED="true"; fi
+  if port_open "$WEB_PORT"; then API_HOSTFWD_ACCEPTED="true"; fi
+  if [[ "$API_HOSTFWD_ACCEPTED" == "true" ]]; then
     API_VERSION_JSON="$(curl -sk --max-time 3 "https://127.0.0.1:$WEB_PORT/api2/json/version" 2>/dev/null || true)"
     if [[ "$API_VERSION_JSON" == *'"data"'* ]]; then break; fi
+  fi
+  if [[ "$FIRST_BOOT_WITNESS_OBSERVED" == "true" && -z "$API_VERSION_JSON" ]]; then
+    break
   fi
   sleep 3
 done
 if [[ "$API_VERSION_JSON" != *'"data"'* ]]; then
-  if [[ "$SSH_REACHABLE" == "true" ]]; then
+  if command -v sshpass >/dev/null 2>&1 && sshpass -p 'rdte-proxmox-ephemeral-9264' ssh -p "$SSH_PORT" \
+      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+      root@127.0.0.1 'true' >/dev/null 2>&1; then
     GUEST_DIAGNOSTICS="$(guest_diagnostics || true)"
   fi
-  fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer (qemu_alive=$QEMU_ALIVE_AT_API_GATE ssh=$SSH_REACHABLE tcp8006=$API_PORT_REACHABLE)"
+  fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer (qemu_alive=$QEMU_ALIVE_AT_API_GATE first_boot_witness=$FIRST_BOOT_WITNESS_OBSERVED)"
 fi
 
 NESTED_KVM="unknown"
@@ -296,7 +345,7 @@ if command -v sshpass >/dev/null 2>&1; then
       root@127.0.0.1 'test -e /dev/kvm && grep -Eq "(vmx|svm)" /proc/cpuinfo' >/dev/null 2>&1; then
     NESTED_KVM="yes"
   else
-    NESTED_KVM="no"
+    NESTED_KVM="unknown"
   fi
 fi
 

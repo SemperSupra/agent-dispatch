@@ -66,6 +66,24 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("/api2/json/version", text)
         self.assertNotIn("xdotool", text)
 
+
+    def test_proxmox_first_boot_witness_uses_vendor_hook(self):
+        text = PVE.read_text(encoding="utf-8")
+        self.assertIn("[first-boot]", text)
+        self.assertIn('source = "from-iso"', text)
+        self.assertIn('ordering = "fully-up"', text)
+        self.assertIn("/proxmox-first-boot", text)
+        self.assertIn("PVE_RDTE_WITNESS_BEGIN", text)
+        self.assertIn("PVE_RDTE_WITNESS_END", text)
+        self.assertIn("first_boot_witness_observed", text)
+
+    def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
+        text = PVE.read_text(encoding="utf-8")
+        self.assertNotIn('NESTED_KVM="no"', text)
+        self.assertIn('"ssh_hostfwd_accepted"', text)
+        self.assertIn('"api_hostfwd_accepted"', text)
+        self.assertIn("first_boot_witness_observed", text)
+
     def test_truenas_is_pinned_and_digest_sidecar_is_required(self):
         text = TRUENAS.read_text(encoding="utf-8")
         self.assertIn("TrueNAS-26.0.0-BETA.3.iso", text)
