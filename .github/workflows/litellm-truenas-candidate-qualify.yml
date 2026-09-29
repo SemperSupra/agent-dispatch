@@ -59,6 +59,13 @@ jobs:
             printf 'materialized_library_source=%s\n' "${source_dir#/tmp/apps/}" >> "$GITHUB_OUTPUT"
           fi
 
+          actual_lib_hash="$(find "$dest" -type f -exec sha256sum {} + | sort | awk '{print $1}' | sha256sum | awk '{print $1}')"
+          printf 'materialized_library_hash=%s\n' "$actual_lib_hash" >> "$GITHUB_OUTPUT"
+          if [[ "$actual_lib_hash" != "$lib_hash" ]]; then
+            echo "Materialized library hash mismatch: expected=$lib_hash actual=$actual_lib_hash source=${source_dir:-existing}" >&2
+            exit 1
+          fi
+
           git -C /tmp/apps add -N ix-dev/community/litellm
           git -C /tmp/apps diff --name-only master | grep -q '^ix-dev/community/litellm/'
 
