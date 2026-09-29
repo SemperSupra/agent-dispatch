@@ -34,6 +34,7 @@ def main():
             "middleware_tag": "TS-26.0.0-BETA.3",
             "middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
             "apps_gate": "docker.license_active",
+            "apps_gate_behavior": "non-HA targets permitted directly; HA consults system.feature_enabled(APPS)",
         },
         "oracleSatisfied": False,
         "classification": "ORACLE_FAILURE",
