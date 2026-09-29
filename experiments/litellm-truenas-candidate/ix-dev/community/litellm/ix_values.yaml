@@ -1,7 +1,7 @@
 images:
   image:
     repository: ghcr.io/sempersupra/litellm-appliance@sha256
-    tag: 6209a4f4642a5e8b9bc1a4e7f9d853a9cb3a2a6c549aec5691f6370afefd0c26
+    tag: 225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac
 
 consts:
   container_name: litellm
