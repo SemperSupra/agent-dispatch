@@ -14,6 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 INSTALL = ROOT / "scripts" / "truenas_installer_rpc_install.py"
 MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
 POOL = ROOT / "scripts" / "truenas_middleware_pool_probe.py"
+LIFECYCLE = ROOT / "scripts" / "truenas_middleware_app_lifecycle_probe.py"
 
 
 class SyntheticWebSocketPeer:
@@ -393,6 +394,205 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
         self.assertIn('"disk.details"', text)
         self.assertNotIn('"disk.get_unused"', text)
         self.assertIn('disk_details["unused"]', text)
+
+
+    def test_t5_lifecycle_contract_is_version_and_digest_pinned(self):
+        text = LIFECYCLE.read_text(encoding="utf-8")
+        self.assertIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', text)
+        self.assertIn('APP_NAME = "rdte-t4-probe"', text)
+        self.assertIn('APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', text)
+        self.assertNotIn('APP_IMAGE = "nginx:1.27-alpine"', text)
+        for method in (
+            "app.stop",
+            "app.start",
+            "app.update",
+            "app.config",
+            "app.redeploy",
+            "app.delete",
+        ):
+            self.assertIn(f'"{method}"', text)
+        self.assertIn('"RDTE_GENERATION": "2"', text)
+        self.assertIn('"remove_images": True', text)
+        self.assertIn('"remove_ix_volumes": True', text)
+        self.assertIn('"post_delete_query"', text)
+        cp = subprocess.run(
+            [sys.executable, "-m", "py_compile", str(LIFECYCLE)],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+
+    def test_t5_lifecycle_round_trip(self):
+        peer = SyntheticWebSocketPeer()
+        errors = []
+        password = "synthetic-ephemeral-9264"
+
+        def expect_call(conn, method):
+            msg = peer.recv_json(conn)
+            self.assertEqual(msg["msg"], "method")
+            self.assertEqual(msg["method"], method)
+            return msg
+
+        def result(conn, msg, value):
+            peer.send_json(conn, {"id": msg["id"], "msg": "result", "result": value})
+
+        def app(state):
+            running = state == "RUNNING"
+            return {
+                "id": "rdte-t4-probe",
+                "name": "rdte-t4-probe",
+                "state": state,
+                "custom_app": True,
+                "active_workloads": {
+                    "containers": 1 if running else 0,
+                    "container_details": [{
+                        "id": "synthetic-nginx",
+                        "service_name": "web",
+                        "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+                        "state": "running",
+                    }] if running else [],
+                },
+            }
+
+        def job_success(conn, job_id, result_value=None):
+            msg = expect_call(conn, "core.get_jobs")
+            self.assertEqual(msg["params"][0], [["id", "=", job_id]])
+            result(conn, msg, {
+                "id": job_id,
+                "state": "SUCCESS",
+                "progress": {"percent": 100, "description": "done"},
+                "result": result_value,
+            })
+
+        def server():
+            try:
+                with peer.accept_websocket() as conn:
+                    msg = peer.recv_json(conn)
+                    self.assertEqual(
+                        msg, {"msg": "connect", "version": "1", "support": ["1"]}
+                    )
+                    peer.send_json(conn, {"msg": "connected", "session": "synthetic"})
+
+                    msg = expect_call(conn, "auth.login_ex")
+                    self.assertEqual(msg["params"][0]["password"], password)
+                    result(conn, msg, {"response_type": "SUCCESS"})
+
+                    msg = expect_call(conn, "system.version")
+                    result(conn, msg, "TrueNAS-26.0.0-BETA.3")
+
+                    msg = expect_call(conn, "app.query")
+                    result(conn, msg, app("RUNNING"))
+
+                    msg = expect_call(conn, "app.stop")
+                    self.assertEqual(msg["params"], ["rdte-t4-probe"])
+                    result(conn, msg, 31)
+                    job_success(conn, 31)
+                    msg = expect_call(conn, "app.query")
+                    result(conn, msg, app("STOPPED"))
+
+                    msg = expect_call(conn, "app.start")
+                    self.assertEqual(msg["params"], ["rdte-t4-probe"])
+                    result(conn, msg, 32)
+                    job_success(conn, 32)
+                    msg = expect_call(conn, "app.query")
+                    result(conn, msg, app("RUNNING"))
+
+                    msg = expect_call(conn, "app.update")
+                    self.assertEqual(msg["params"][0], "rdte-t4-probe")
+                    update = msg["params"][1]
+                    self.assertEqual(
+                        update["custom_compose_config"]["services"]["web"]["image"],
+                        "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+                    )
+                    self.assertEqual(
+                        update["custom_compose_config"]["services"]["web"]["environment"]["RDTE_GENERATION"],
+                        "2",
+                    )
+                    result(conn, msg, 33)
+                    job_success(conn, 33)
+
+                    msg = expect_call(conn, "app.config")
+                    result(conn, msg, update["custom_compose_config"])
+
+                    msg = expect_call(conn, "app.query")
+                    result(conn, msg, app("RUNNING"))
+
+                    msg = expect_call(conn, "app.redeploy")
+                    self.assertEqual(msg["params"], ["rdte-t4-probe"])
+                    result(conn, msg, 34)
+                    job_success(conn, 34)
+                    msg = expect_call(conn, "app.query")
+                    result(conn, msg, app("RUNNING"))
+
+                    msg = expect_call(conn, "app.stop")
+                    result(conn, msg, 35)
+                    job_success(conn, 35)
+                    msg = expect_call(conn, "app.query")
+                    result(conn, msg, app("STOPPED"))
+
+                    msg = expect_call(conn, "app.delete")
+                    self.assertEqual(msg["params"][0], "rdte-t4-probe")
+                    self.assertEqual(msg["params"][1], {
+                        "remove_images": True,
+                        "remove_ix_volumes": True,
+                        "force_remove_custom_app": False,
+                    })
+                    result(conn, msg, 36)
+                    job_success(conn, 36, True)
+
+                    msg = expect_call(conn, "app.query")
+                    self.assertEqual(
+                        msg["params"], [[["id", "=", "rdte-t4-probe"]]]
+                    )
+                    result(conn, msg, [])
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                peer.listener.close()
+
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        with tempfile.TemporaryDirectory() as td:
+            td = pathlib.Path(td)
+            password_file = td / "password"
+            password_file.write_text(password, encoding="utf-8")
+            out = td / "lifecycle.json"
+            cp = subprocess.run(
+                [
+                    sys.executable,
+                    str(LIFECYCLE),
+                    "--port", str(peer.port),
+                    "--password-file", str(password_file),
+                    "--out", str(out),
+                    "--timeout", "2",
+                    "--job-timeout", "8",
+                    "--state-timeout", "8",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=20,
+            )
+            self.assertEqual(cp.returncode, 0, cp.stderr)
+            receipt = json.loads(out.read_text(encoding="utf-8"))
+            self.assertTrue(receipt["oracleSatisfied"], receipt)
+            self.assertEqual(receipt["classification"], "SUPPORTED")
+            self.assertEqual(receipt["system_version"], "TrueNAS-26.0.0-BETA.3")
+            self.assertEqual(receipt["app_image"], "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10")
+            self.assertEqual(
+                receipt["states"],
+                ["RUNNING", "STOPPED", "RUNNING", "RUNNING", "RUNNING", "STOPPED"],
+            )
+            self.assertEqual(
+                receipt["config_after_update"]["services"]["web"]["environment"]["RDTE_GENERATION"],
+                "2",
+            )
+            self.assertEqual(receipt["post_delete_query"], [])
+            self.assertNotIn(password, out.read_text(encoding="utf-8"))
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+
+
 
 
 if __name__ == "__main__":
