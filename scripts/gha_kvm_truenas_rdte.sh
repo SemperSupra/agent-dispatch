@@ -20,23 +20,32 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1|t2|t3|t4|t5]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1|t2|t3|t4|t5|t6] [--foundry-control-dir DIR] [--foundry-commit SHA]"
 }
 
 OUT=""
 STATE_DIR=""
 RUNG="t0"
+FOUNDRY_CONTROL_DIR=""
+FOUNDRY_COMMIT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --state-dir) STATE_DIR="$2"; shift 2 ;;
     --rung) RUNG="$2"; shift 2 ;;
+    --foundry-control-dir) FOUNDRY_CONTROL_DIR="$2"; shift 2 ;;
+    --foundry-commit) FOUNDRY_COMMIT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 [[ -n "$OUT" ]] || { usage >&2; exit 2; }
-[[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" ]] || { echo "rung must be t0, t1, t2, t3, t4, or t5" >&2; exit 2; }
+[[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
+if [[ "$RUNG" == "t6" ]]; then
+  [[ -n "$FOUNDRY_CONTROL_DIR" && -d "$FOUNDRY_CONTROL_DIR" ]] || { echo "t6 requires --foundry-control-dir" >&2; exit 2; }
+  [[ "$FOUNDRY_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "t6 requires exact --foundry-commit SHA" >&2; exit 2; }
+  FOUNDRY_CONTROL_DIR="$(realpath "$FOUNDRY_CONTROL_DIR")"
+fi
 
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-truenas.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
@@ -58,6 +67,7 @@ MIDDLEWARE_RESULT_JSON=""
 POOL_RESULT_JSON=""
 APP_RESULT_JSON=""
 LIFECYCLE_RESULT_JSON=""
+FOUNDRY_RESULT_JSON=""
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
@@ -79,7 +89,7 @@ write_receipt() {
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_EXPECTED="$EXPECTED_ISO_SHA" R_GRUB="$GRUB_PATH"
   export R_RUNG="$RUNG" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
-  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON"
+  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -93,10 +103,15 @@ payload = {
     "vcpus": 2,
     "ram_mib": 8192,
     "boot_disk": "24G",
-    "data_disks": ["8G", "8G"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5"} else [],
-    "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") in {"t3", "t4", "t5"} else None,
-    "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5"} else [],
-    "app": {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"} if os.environ.get("R_RUNG") in {"t4", "t5"} else None,
+    "data_disks": ["8G", "8G"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else [],
+    "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else None,
+    "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else [],
+    "app": (
+      {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
+      if os.environ.get("R_RUNG") == "t6"
+      else {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"}
+      if os.environ.get("R_RUNG") in {"t4", "t5"} else None
+    ),
   },
   "source": {
     "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
@@ -117,6 +132,7 @@ payload = {
     "data_pool_created": bool(os.environ.get("R_POOL_RESULT")) and json.loads(os.environ["R_POOL_RESULT"]).get("oracleSatisfied") is True,
     "apps_runtime_exercised": bool(os.environ.get("R_APP_RESULT")) and json.loads(os.environ["R_APP_RESULT"]).get("oracleSatisfied") is True,
     "app_lifecycle_exercised": bool(os.environ.get("R_LIFECYCLE_RESULT")) and json.loads(os.environ["R_LIFECYCLE_RESULT"]).get("oracleSatisfied") is True,
+    "foundry_materialization_exercised": bool(os.environ.get("R_FOUNDRY_RESULT")) and json.loads(os.environ["R_FOUNDRY_RESULT"]).get("oracleSatisfied") is True,
   },
   "rpc_discovery": json.loads(os.environ["R_RPC_DISCOVERY"]) if os.environ.get("R_RPC_DISCOVERY") else None,
   "install_result": json.loads(os.environ["R_INSTALL_RESULT"]) if os.environ.get("R_INSTALL_RESULT") else None,
@@ -124,6 +140,7 @@ payload = {
   "data_pool": json.loads(os.environ["R_POOL_RESULT"]) if os.environ.get("R_POOL_RESULT") else None,
   "apps_runtime": json.loads(os.environ["R_APP_RESULT"]) if os.environ.get("R_APP_RESULT") else None,
   "app_lifecycle": json.loads(os.environ["R_LIFECYCLE_RESULT"]) if os.environ.get("R_LIFECYCLE_RESULT") else None,
+  "foundry_materialization": json.loads(os.environ["R_FOUNDRY_RESULT"]) if os.environ.get("R_FOUNDRY_RESULT") else None,
   "qemu_alive_at_gate": os.environ.get("R_QEMU_ALIVE"),
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
@@ -133,7 +150,8 @@ payload = {
     "T3 adds two experiment-owned sparse data disks and a real middleware-created ZFS mirror pool.",
     "T4 initializes Apps on that pool and runs one synthetic public-safe custom Compose app.",
     "T5 exercises stop/start, config mutation/read-back, redeploy, stop, and delete for that digest-pinned custom app.",
-    "Broader application lifecycle and Foundry materialization remain later gates.",
+    "T6 consumes the exact byte-projected LiteLLM Foundry candidate, stages only public-safe qualification fixtures on the disposable pool, verifies the immutable appliance digest, native Custom App realization/read-back, HTTP liveliness, and stop/start persistence.",
+    "T6 does not claim production cutover, physical TrueNAS hardware compatibility, or real provider-credential correctness.",
     "This does not qualify physical storage controllers, SMART, GPU, IPMI, or HA behavior.",
   ],
 }
@@ -150,22 +168,26 @@ fail_evidence() {
 
 [[ -f "$SCRIPT_DIR/truenas_installer_rpc_probe.py" ]] ||
   fail_evidence HARNESS_FAILURE preflight "missing TrueNAS installer RPC probe"
-if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" ]]; then
+if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]]; then
   [[ -f "$SCRIPT_DIR/truenas_installer_rpc_install.py" ]] ||
     fail_evidence HARNESS_FAILURE preflight "missing TrueNAS installer install client"
   [[ -f "$SCRIPT_DIR/truenas_middleware_ddp_probe.py" ]] ||
     fail_evidence HARNESS_FAILURE preflight "missing TrueNAS middleware health client"
-  if [[ "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" ]]; then
+  if [[ "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]]; then
     [[ -f "$SCRIPT_DIR/truenas_middleware_pool_probe.py" ]] ||
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T3/T4 pool client"
   fi
-  if [[ "$RUNG" == "t4" || "$RUNG" == "t5" ]]; then
+  if [[ "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]]; then
     [[ -f "$SCRIPT_DIR/truenas_middleware_app_probe.py" ]] ||
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS Apps client"
   fi
-  if [[ "$RUNG" == "t5" ]]; then
+  if [[ "$RUNG" == "t5" || "$RUNG" == "t6" ]]; then
     [[ -f "$SCRIPT_DIR/truenas_middleware_app_lifecycle_probe.py" ]] ||
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T5 lifecycle client"
+  fi
+  if [[ "$RUNG" == "t6" ]]; then
+    [[ -f "$SCRIPT_DIR/truenas_middleware_litellm_foundry_probe.py" ]] ||
+      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 Foundry control client"
   fi
 fi
 for cmd in curl sha256sum qemu-img qemu-system-x86_64 xorriso python3; do
@@ -371,7 +393,7 @@ if [[ -n "$QEMU_PID" ]]; then
 fi
 
 DATA_DRIVE_ARGS=()
-if [[ "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" ]]; then
+if [[ "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]]; then
   for index in $(seq 0 $((DATA_DISK_COUNT - 1))); do
     data_disk="$STATE_DIR/data${index}.qcow2"
     qemu-img create -q -f qcow2 "$data_disk" "$DATA_DISK_SIZE" ||
@@ -395,6 +417,11 @@ import socket
 s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
 PY
 )"
+APP_HTTP_PORT="$(python3 - <<'PY'
+import socket
+s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+PY
+)"
 : >"$STATE_DIR/serial.log"
 sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
@@ -402,7 +429,7 @@ sudo -n qemu-system-x86_64 \
   -device "virtio-blk-pci,drive=rdteboot,id=rdte-boot,addr=0x4,bootindex=1" \
   "${DATA_DRIVE_ARGS[@]}" \
   -boot strict=on \
-  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443" \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443,hostfwd=tcp:127.0.0.1:$APP_HTTP_PORT-:30400" \
   -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
@@ -534,4 +561,29 @@ PY
 [[ "$LIFECYCLE_OK" == "true" ]] ||
   fail_evidence ORACLE_FAILURE app-lifecycle "custom app did not complete the bounded T5 lifecycle"
 
-write_receipt SUPPORTED true app-lifecycle "digest-pinned custom app completed stop/start, config mutation with public read-back, redeploy, stop, and delete"
+if [[ "$RUNG" == "t5" ]]; then
+  write_receipt SUPPORTED true app-lifecycle "digest-pinned custom app completed stop/start, config mutation with public read-back, redeploy, stop, and delete"
+  exit 0
+fi
+
+FOUNDRY_OUT="$STATE_DIR/foundry-control.json"
+python3 "$SCRIPT_DIR/truenas_middleware_litellm_foundry_probe.py" \
+  --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+  "${MIDDLEWARE_TLS_ARG[@]}" \
+  --password-file "$PASSWORD_FILE" \
+  --control-dir "$FOUNDRY_CONTROL_DIR" \
+  --foundry-commit "$FOUNDRY_COMMIT" \
+  --app-http-port "$APP_HTTP_PORT" \
+  --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 300 >/dev/null 2>&1 || true
+[[ -f "$FOUNDRY_OUT" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "T6 Foundry control client did not emit a receipt"
+FOUNDRY_RESULT_JSON="$(cat "$FOUNDRY_OUT")"
+FOUNDRY_OK="$(python3 - "$FOUNDRY_OUT" <<'PY'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print("true" if data.get("oracleSatisfied") is True else "false")
+PY
+)"
+[[ "$FOUNDRY_OK" == "true" ]] ||
+  fail_evidence ORACLE_FAILURE foundry-materialization "exact LiteLLM Foundry control did not realize and verify on TrueNAS"
+
+write_receipt SUPPORTED true foundry-materialization "exact LiteLLM Foundry control reached RUNNING, matched app.config identity, passed HTTP liveliness before and after stop/start, and was removed"
