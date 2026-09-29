@@ -58,4 +58,7 @@ jobs:
           if [[ -f tests/test_truenas_t6_foundry_control.py ]]; then
             tests+=(tests/test_truenas_t6_foundry_control.py)
           fi
+          if [[ -f tests/test_truenas_t6_litellm_control.py ]]; then
+            tests+=(tests/test_truenas_t6_litellm_control.py)
+          fi
           python3 -m unittest -v "${tests[@]}"
