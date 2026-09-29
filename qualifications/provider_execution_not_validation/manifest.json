@@ -1,0 +1,11 @@
+{
+  "schema": "agent-dispatch.public-qualification-capsule.v1",
+  "claim": "provider completion establishes execution state only and does not independently establish validation or acceptance",
+  "private_candidate_head": "df53a4d8c8b8a62c0ce4af641071cb1273676ca3",
+  "private_pr": 360,
+  "function": "_normalize_terminal_result",
+  "function_sha256": "ae26c04e43e6f98b247709d067a7656986a4bb1eb137ebd6e514295301fed4ca",
+  "public_safe": true,
+  "contains_private_credentials": false,
+  "contains_private_repository_content_beyond_exact_function_under_test": false
+}
