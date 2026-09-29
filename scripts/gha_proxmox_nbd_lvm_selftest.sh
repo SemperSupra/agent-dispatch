@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+SELF_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 OUT=""
 while [[ $# -gt 0 ]]; do
@@ -128,6 +129,28 @@ qemu-nbd --disconnect "$NBD" >/dev/null
 udevadm settle
 sleep 0.25
 
+PRODUCTION_PROBE_OUT="$STATE/production-probe.json"
+bash "$SELF_DIR/proxmox_installed_disk_probe.sh" \
+  --image "$IMAGE" \
+  --source-hook "$HOOK" \
+  --phase synthetic >"$PRODUCTION_PROBE_OUT"
+python3 - "$PRODUCTION_PROBE_OUT" <<'PY'
+import json, pathlib, sys
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert payload["inspection_ok"] is True, payload
+assert payload["connected_size_bytes"] == 2 * 1024 * 1024 * 1024, payload
+assert payload["partition3_type"] == "LVM2_member", payload
+assert payload["root_lv"] == "/dev/pve/root", payload
+assert payload["first_boot_package_version"] == "9.2.5", payload
+assert payload["first_boot_hook_present"] is True, payload
+assert payload["first_boot_hook_executable"] is True, payload
+assert payload["hook_matches_prepared_iso"] is True, payload
+assert payload["pending_flag_present"] is True, payload
+assert payload["network_online_unit_present"] is True, payload
+assert payload["alias_target"] == "/lib/systemd/system/proxmox-first-boot-network-online.service", payload
+assert payload["wanted_by_target"] == "/lib/systemd/system/proxmox-first-boot-network-online.service", payload
+PY
+
 qemu-nbd --connect="$NBD" --read-only --format=qcow2 "$IMAGE"
 READONLY_SIZE="$(wait_for_capacity $((1024 * 1024 * 1024)))" || {
   echo "read-only attachment never exposed nonzero capacity: $READONLY_SIZE" >&2
@@ -165,8 +188,10 @@ lvchange --devices "$PV" -an "$ROOTDEV" >/dev/null
 mkdir -p "$(dirname "$OUT")"
 export R_OUT="$OUT" R_CONNECTED="$CONNECTED_SIZE" R_READONLY="$READONLY_SIZE" R_LSBLK="$LSBLK" R_BLKID="$BLKID_TYPE"
 export R_VG="$DISCOVERED_VG" R_ROOT="$DISCOVERED_ROOT" R_SENTINEL="$SENTINEL_OK" R_HOOK_MATCH="$HOOK_MATCH"
+export R_PRODUCTION_PROBE_OUT="$PRODUCTION_PROBE_OUT"
 python3 - <<'PY'
 import json, os, pathlib
+production_probe = json.loads(pathlib.Path(os.environ["R_PRODUCTION_PROBE_OUT"]).read_text())
 payload = {
     "contract": "proxmox-p2-offline-inspector-selftest/v1",
     "classification": "SUPPORTED",
@@ -179,6 +204,7 @@ payload = {
     "root_lv": os.environ["R_ROOT"],
     "root_sentinel_readback": os.environ["R_SENTINEL"].lower() == "true",
     "hook_hash_matches": os.environ["R_HOOK_MATCH"].lower() == "true",
+    "production_probe": production_probe,
 }
 pathlib.Path(os.environ["R_OUT"]).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
