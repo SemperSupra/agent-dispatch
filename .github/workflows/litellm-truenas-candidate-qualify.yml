@@ -42,16 +42,14 @@ jobs:
           if [[ ! -d "$dest" ]]; then
             source_dir=""
             while IFS= read -r candidate_dir; do
-              candidate_app="${candidate_dir%%/templates/library/$base_dir}/app.yaml"
-              [[ -f "$candidate_app" ]] || continue
-              grep -Fqx "lib_version: $lib_version" "$candidate_app" || continue
-              grep -Fqx "lib_version_hash: $lib_hash" "$candidate_app" || continue
+              candidate_hash="$(find "$candidate_dir" -type f -exec sha256sum {} + | sort | awk '{print $1}' | sha256sum | awk '{print $1}')"
+              [[ "$candidate_hash" == "$lib_hash" ]] || continue
               source_dir="$candidate_dir"
               break
             done < <(find /tmp/apps/ix-dev -type d -path "*/templates/library/$base_dir" | sort)
 
             [[ -n "$source_dir" ]] || {
-              echo "No exact pinned TrueNAS library source found for $lib_version / $lib_hash" >&2
+              echo "No exact pinned TrueNAS library tree found for $lib_version / $lib_hash" >&2
               exit 1
             }
             mkdir -p "$(dirname "$dest")"
