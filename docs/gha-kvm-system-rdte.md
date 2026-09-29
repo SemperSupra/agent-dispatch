@@ -209,19 +209,23 @@ installer/boot/pool oracle.
 T4 builds directly on the accepted T3 disposable mirror. The BETA.3 source-defined
 control path is used end-to-end:
 
-1. require the `APPS` entitlement reported by `truenas.entitlements.check`;
+1. rely on the exact BETA.3 product gate exercised by `docker.update`:
+   private `docker.license_active` permits non-HA targets directly and consults
+   `system.feature_enabled("APPS")` for HA-capable systems;
 2. run the real `docker.update({"pool":"rdtepool"})` job and independently require
    `docker.config.pool == "rdtepool"` plus `docker.status == RUNNING`;
-3. create the upstream-test-shaped custom app `rdte-t4-probe` with a minimal
-   `nginx:1.27-alpine` Compose service;
+3. create the upstream-test-shaped custom app `rdte-t4-probe` using immutable image
+   `nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10`;
 4. wait for the `app.create` job to succeed, then independently poll `app.query`;
 5. require app state `RUNNING`, `custom_app == true`, exactly one active container,
-   service name `web`, image `nginx:1.27-alpine`, and container state `running`.
+   service name `web`, the exact digest-pinned image, and container state `running`.
 
-The TrueNAS 26.0 entitlement matrix grants Apps to an unlicensed generic/VM Community
-Edition system, so this QEMU target is expected to be eligible without adding a license.
-T4 still does not promote broader lifecycle semantics or App Foundry materialization;
-those remain T5 and T6.
+The failed run `36536731116` is an oracle/harness failure, not an Apps capability
+negative: authentication and the T3 pool oracle succeeded, but the T4 client called a
+later `truenas.entitlements.check` service that is absent from the tagged BETA.3
+middleware before reaching `docker.update`. The corrected rep must exercise the
+tagged source path above. T4 still does not promote broader lifecycle semantics or App
+Foundry materialization; those remain T5 and T6.
 
 
 ### TrueNAS BETA.3 source binding

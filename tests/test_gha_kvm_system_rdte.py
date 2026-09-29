@@ -324,7 +324,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("app.query", app)
         self.assertIn('payload["docker_update_result"]', app)
         self.assertIn('payload["app_create_result"]', app)
-        self.assertIn('"nginx:1.27-alpine"', app)
+        self.assertIn('"nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', app)
+        self.assertNotIn('"nginx:1.27-alpine"', app)
         self.assertIn('"state") == "RUNNING"', app)
         self.assertIn('--rung t4', workflow)
         py = subprocess.run(
