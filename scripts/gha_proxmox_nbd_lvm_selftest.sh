@@ -80,8 +80,7 @@ CONNECTED_SIZE="$(wait_for_capacity $((1024 * 1024 * 1024)))" || {
 }
 
 sgdisk -Z "$NBD" >/dev/null
-sgdisk -n2:1M:+64M -t2:EF00 "$NBD" >/dev/null
-sgdisk -n3:65M:0 -t3:8E00 "$NBD" >/dev/null
+sgdisk -n2:1M:+512M -t2:EF00 -n3:513M:0 -t3:8E00 "$NBD" >/dev/null
 sgdisk -a1 -n1:34:2047 -t1:EF02 "$NBD" >/dev/null
 blockdev --rereadpt "$NBD" >/dev/null 2>&1 || true
 partx -u "$NBD" >/dev/null 2>&1 || true
