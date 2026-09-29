@@ -315,6 +315,31 @@ def main() -> int:
         if existing:
             raise RuntimeError("refusing adopted LiteLLM app state")
 
+        fixture_dirs = [
+            ("/mnt/rdtepool/litellm-t6", "750"),
+            (EXPECTED_CONFIG_DIR, "750"),
+            (EXPECTED_SECRET_DIR, "700"),
+        ]
+        created_dirs = []
+        for path, mode in fixture_dirs:
+            result = call("filesystem.mkdir", [{
+                "path": path,
+                "options": {"mode": mode, "raise_chmod_error": True},
+            }])
+            if not isinstance(result, dict) or result.get("path") != path:
+                raise RuntimeError(f"filesystem.mkdir did not create exact path {path}")
+            observed_mode = int(result.get("mode", 0)) & 0o777
+            if observed_mode != int(mode, 8):
+                raise RuntimeError(f"filesystem.mkdir mode mismatch for {path}")
+            created_dirs.append({
+                "path": path,
+                "mode": oct(observed_mode),
+            })
+        payload["fixture_directories"] = {
+            "created": created_dirs,
+            "values_recorded": False,
+        }
+
         config_remote = f"{EXPECTED_CONFIG_DIR}/{EXPECTED_CONFIG_FILE}"
         secret_remote = f"{EXPECTED_SECRET_DIR}/TEST_PROVIDER_KEY"
         config_job = multipart_upload(
