@@ -70,8 +70,12 @@ class SystemRdteContractTests(unittest.TestCase):
 
     def test_truenas_is_pinned_and_digest_sidecar_is_required(self):
         text = TRUENAS.read_text(encoding="utf-8")
-        self.assertIn("TrueNAS-26.0.0-BETA.3.iso", text)
-        self.assertIn("TrueNAS-26.0.0-BETA.3.iso.sha256", text)
+        registry = TRUENAS_TARGETS.read_text(encoding="utf-8")
+        self.assertIn("TrueNAS-26.0.0-BETA.3.iso", registry)
+        self.assertIn("TrueNAS-SCALE-25.10.7.iso", registry)
+        self.assertIn("54ce9441ce66966a392e28f63604ca3c2c083d0bec4db7bb5af2f74f7a007c8e", registry)
+        self.assertIn("PINNED_ISO_SHA", text)
+        self.assertIn("vendor.sha256", text)
         self.assertIn("RAM_MIB=8192", text)
         self.assertIn("installer-boot", text)
         self.assertIn("installer-rpc", text)
