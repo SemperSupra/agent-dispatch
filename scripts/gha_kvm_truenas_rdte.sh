@@ -3,11 +3,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-VERSION="26.0.0-BETA.3"
-ISO_NAME="TrueNAS-26.0.0-BETA.3.iso"
-BASE_URL="https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3"
-ISO_URL="$BASE_URL/$ISO_NAME"
-SHA_URL="$ISO_URL.sha256"
+TARGETS_FILE="$SCRIPT_DIR/../config/truenas-rdte-targets.json"
+TARGET_PROFILE="26.0.0-BETA.3"
+VERSION=""
+ISO_NAME=""
+ISO_URL=""
+SHA_URL=""
+PINNED_ISO_SHA=""
+INSTALLER_TAG=""
+INSTALLER_COMMIT=""
+MIDDLEWARE_TAG=""
+MIDDLEWARE_COMMIT=""
+MAX_RUNG=""
 RAM_MIB=8192
 VCPUS=2
 DISK_SIZE="24G"
@@ -20,7 +27,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1|t2|t3|t4|t5]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-profile VERSION] [--rung t0|t1|t2|t3|t4|t5]"
 }
 
 OUT=""
@@ -31,12 +38,41 @@ while [[ $# -gt 0 ]]; do
     --out) OUT="$2"; shift 2 ;;
     --state-dir) STATE_DIR="$2"; shift 2 ;;
     --rung) RUNG="$2"; shift 2 ;;
+    --target-profile) TARGET_PROFILE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 [[ -n "$OUT" ]] || { usage >&2; exit 2; }
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" ]] || { echo "rung must be t0, t1, t2, t3, t4, or t5" >&2; exit 2; }
+
+[[ -f "$TARGETS_FILE" ]] || { echo "missing target registry: $TARGETS_FILE" >&2; exit 2; }
+mapfile -t TARGET_FIELDS < <(python3 - "$TARGETS_FILE" "$TARGET_PROFILE" <<'PY'
+import json, pathlib, sys
+data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+target=data.get("targets",{}).get(sys.argv[2])
+if not isinstance(target, dict):
+    raise SystemExit(2)
+for key in (
+    "version","iso_name","iso_url","sha256_url","expected_sha256",
+    "installer_tag","installer_commit","middleware_tag","middleware_commit",
+    "max_qualified_harness_rung",
+):
+    print(target[key])
+PY
+)
+[[ "${#TARGET_FIELDS[@]}" -eq 10 ]] || { echo "unknown/incomplete target profile: $TARGET_PROFILE" >&2; exit 2; }
+VERSION="${TARGET_FIELDS[0]}"
+ISO_NAME="${TARGET_FIELDS[1]}"
+ISO_URL="${TARGET_FIELDS[2]}"
+SHA_URL="${TARGET_FIELDS[3]}"
+PINNED_ISO_SHA="${TARGET_FIELDS[4]}"
+INSTALLER_TAG="${TARGET_FIELDS[5]}"
+INSTALLER_COMMIT="${TARGET_FIELDS[6]}"
+MIDDLEWARE_TAG="${TARGET_FIELDS[7]}"
+MIDDLEWARE_COMMIT="${TARGET_FIELDS[8]}"
+MAX_RUNG="${TARGET_FIELDS[9]}"
+(( ${RUNG#t} <= ${MAX_RUNG#t} )) || { echo "target $TARGET_PROFILE is only qualified through $MAX_RUNG; refusing $RUNG" >&2; exit 2; }
 
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-truenas.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
@@ -76,6 +112,8 @@ write_receipt() {
     serial_tail="$(tail -n 120 "$STATE_DIR/serial.log" | tr -d '\000' | sed -E 's/[^[:print:]\t]//g' | tail -c 16000)"
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
+  export R_VERSION="$VERSION" R_ISO_NAME="$ISO_NAME" R_ISO_URL="$ISO_URL" R_SHA_URL="$SHA_URL" R_PINNED_ISO_SHA="$PINNED_ISO_SHA"
+  export R_INSTALLER_TAG="$INSTALLER_TAG" R_INSTALLER_COMMIT="$INSTALLER_COMMIT" R_MIDDLEWARE_TAG="$MIDDLEWARE_TAG" R_MIDDLEWARE_COMMIT="$MIDDLEWARE_COMMIT"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_EXPECTED="$EXPECTED_ISO_SHA" R_GRUB="$GRUB_PATH"
   export R_RUNG="$RUNG" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
@@ -84,7 +122,7 @@ write_receipt() {
 import json, os, pathlib
 payload = {
   "contract": "gha-kvm-system-lab/v1",
-  "target": {"product": "truenas", "version": "26.0.0-BETA.3", "rung": os.environ.get("R_RUNG", "t0").upper()},
+  "target": {"product": "truenas", "version": os.environ["R_VERSION"], "rung": os.environ.get("R_RUNG", "t0").upper()},
   "classification": os.environ["R_CLASS"],
   "oracleSatisfied": os.environ["R_ORACLE"].lower() == "true",
   "phase": os.environ["R_PHASE"],
@@ -99,15 +137,20 @@ payload = {
     "app": {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"} if os.environ.get("R_RUNG") in {"t4", "t5"} else None,
   },
   "source": {
-    "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
-    "iso_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso",
-    "vendor_sha256_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso.sha256",
+    "iso_name": os.environ["R_ISO_NAME"],
+    "iso_url": os.environ["R_ISO_URL"],
+    "vendor_sha256_url": os.environ["R_SHA_URL"],
+    "pinned_sha256": os.environ["R_PINNED_ISO_SHA"],
     "expected_sha256": os.environ.get("R_EXPECTED") or None,
     "observed_sha256": os.environ.get("R_ISO_SHA") or None,
+    "installer_tag": os.environ["R_INSTALLER_TAG"],
+    "installer_commit": os.environ["R_INSTALLER_COMMIT"],
+    "middleware_tag": os.environ["R_MIDDLEWARE_TAG"],
+    "middleware_commit": os.environ["R_MIDDLEWARE_COMMIT"],
   },
   "installer_grub_path": os.environ.get("R_GRUB") or None,
   "oracles": {
-    "vendor_iso_digest": bool(os.environ.get("R_ISO_SHA")) and os.environ.get("R_ISO_SHA") == os.environ.get("R_EXPECTED"),
+    "vendor_iso_digest": bool(os.environ.get("R_ISO_SHA")) and os.environ.get("R_ISO_SHA") == os.environ.get("R_EXPECTED") == os.environ.get("R_PINNED_ISO_SHA"),
     "installer_environment_observed": os.environ.get("R_T0") == "true" or os.environ.get("R_RPC_OK") == "true",
     "installer_serial_marker_observed": os.environ.get("R_T0") == "true",
     "installer_rpc_hostfwd_accepted": os.environ.get("R_RPC_HOSTFWD") == "true",
@@ -185,6 +228,8 @@ curl --fail --location --retry 3 --silent --show-error "$SHA_URL" -o "$STATE_DIR
   fail_evidence ENVIRONMENT_FAILURE acquire "vendor SHA256 sidecar download failed"
 EXPECTED_ISO_SHA="$(grep -Eo '[0-9a-fA-F]{64}' "$STATE_DIR/vendor.sha256" | head -n1 | tr 'A-F' 'a-f')"
 [[ "$EXPECTED_ISO_SHA" =~ ^[0-9a-f]{64}$ ]] || fail_evidence HARNESS_FAILURE acquire "vendor SHA256 sidecar did not contain a digest"
+[[ "$EXPECTED_ISO_SHA" == "$PINNED_ISO_SHA" ]] ||
+  fail_evidence ORACLE_FAILURE acquire "vendor SHA256 sidecar no longer matches the pinned target-profile digest"
 curl --fail --location --retry 3 --silent --show-error "$ISO_URL" -o "$ISO" ||
   fail_evidence ENVIRONMENT_FAILURE acquire "vendor ISO download failed"
 OBSERVED_ISO_SHA="$(sha256sum "$ISO" | awk '{print $1}')"
@@ -464,6 +509,14 @@ if [[ -f "$MIDDLEWARE_OUT" ]]; then
 fi
 [[ "$MIDDLEWARE_OK" == "true" ]] ||
   fail_evidence ORACLE_FAILURE installed-middleware "installed TrueNAS did not authenticate and answer system.version/system.info within the bounded boot window"
+OBSERVED_SYSTEM_VERSION="$(python3 - "$MIDDLEWARE_OUT" <<'PY'
+import json, pathlib, sys
+data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+print(data.get("system_version") or "")
+PY
+)"
+[[ "$OBSERVED_SYSTEM_VERSION" == "TrueNAS-$VERSION" ]] ||
+  fail_evidence ORACLE_FAILURE installed-middleware "installed system.version does not match exact target profile"
 
 if [[ "$RUNG" == "t2" ]]; then
   write_receipt SUPPORTED true installed-middleware "vendor installer completed and installed TrueNAS middleware authenticated and answered health methods"
