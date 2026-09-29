@@ -35,7 +35,7 @@ cleanup() {
   set +e
   if mountpoint -q "$MNT" 2>/dev/null; then umount "$MNT"; fi
   if [[ -n "$PV" && -b "$PV" ]]; then
-    lvchange --devices "$PV" -an "$VG" >/dev/null 2>&1 || lvchange -an "$VG" >/dev/null 2>&1 || true
+    lvchange --devices "$PV" -an "$ROOTDEV" >/dev/null 2>&1 || lvchange -an "$VG" >/dev/null 2>&1 || true
   else
     lvchange -an "$VG" >/dev/null 2>&1 || true
   fi
@@ -80,9 +80,9 @@ CONNECTED_SIZE="$(wait_for_capacity $((1024 * 1024 * 1024)))" || {
 }
 
 sgdisk -Z "$NBD" >/dev/null
-sgdisk -n1:34:2047 -t1:EF02 "$NBD" >/dev/null
 sgdisk -n2:1M:+64M -t2:EF00 "$NBD" >/dev/null
-sgdisk -n3:0:0 -t3:8E00 "$NBD" >/dev/null
+sgdisk -n3:65M:0 -t3:8E00 "$NBD" >/dev/null
+sgdisk -a1 -n1:34:2047 -t1:EF02 "$NBD" >/dev/null
 blockdev --rereadpt "$NBD" >/dev/null 2>&1 || true
 partx -u "$NBD" >/dev/null 2>&1 || true
 udevadm settle
@@ -124,7 +124,7 @@ Architecture: amd64
 EOF
 sync
 umount "$MNT"
-lvchange --devices "$PV" -an "$VG" >/dev/null
+lvchange --devices "$PV" -an "$ROOTDEV" >/dev/null
 qemu-nbd --disconnect "$NBD" >/dev/null
 udevadm settle
 sleep 0.25
@@ -161,7 +161,7 @@ INSTALLED_HOOK_SHA="$(sha256sum "$MNT/var/lib/proxmox-first-boot/proxmox-first-b
 [[ "$(readlink "$MNT/etc/systemd/system/proxmox-first-boot.service")" == "/lib/systemd/system/proxmox-first-boot-network-online.service" ]]
 [[ "$(readlink "$MNT/etc/systemd/system/multi-user.target.wants/proxmox-first-boot-network-online.service")" == "/lib/systemd/system/proxmox-first-boot-network-online.service" ]]
 umount "$MNT"
-lvchange --devices "$PV" -an "$VG" >/dev/null
+lvchange --devices "$PV" -an "$ROOTDEV" >/dev/null
 
 mkdir -p "$(dirname "$OUT")"
 export R_OUT="$OUT" R_CONNECTED="$CONNECTED_SIZE" R_READONLY="$READONLY_SIZE" R_LSBLK="$LSBLK" R_BLKID="$BLKID_TYPE"
