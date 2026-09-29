@@ -88,6 +88,7 @@ def main():
             raise RuntimeError(f"authentication did not return SUCCESS: {auth!r}")
 
         payload["system_version"] = call("system.version", [])
+        # BETA.3 uses docker.license_active internally; the later truenas.entitlements API is absent.
         payload["docker_before"] = call("docker.config", [])
         existing = call("app.query", [[[ "id", "=", APP_NAME ]]])
         if existing:
