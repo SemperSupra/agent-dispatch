@@ -31,6 +31,8 @@ EXPECTED_LIBRARY_VERSION = "2.3.11"
 EXPECTED_LIBRARY_HASH = "874636814efb275e5276ea9d709b7cd665fed42bb1d50328e853d9253a2e1229"
 EXPECTED_APP_NAME = "rdte-t6-litellm"
 EXPECTED_GUEST_PORT = 30401
+EXPECTED_FIXTURE_DATASET = "rdtepool/litellm-t6"
+EXPECTED_FIXTURE_ROOT = "/mnt/rdtepool/litellm-t6"
 EXPECTED_CONFIG_DIR = "/mnt/rdtepool/litellm-t6/config"
 EXPECTED_SECRET_DIR = "/mnt/rdtepool/litellm-t6/secrets"
 EXPECTED_CONFIG_FILE = "proxy_server_config.yaml"
@@ -315,8 +317,20 @@ def main() -> int:
         if existing:
             raise RuntimeError("refusing adopted LiteLLM app state")
 
+        existing_dataset = call("pool.dataset.query", [[["id", "=", EXPECTED_FIXTURE_DATASET]]])
+        if existing_dataset:
+            raise RuntimeError("refusing adopted LiteLLM T6 fixture dataset")
+
+        dataset = call("pool.dataset.create", [{
+            "name": EXPECTED_FIXTURE_DATASET,
+            "type": "FILESYSTEM",
+            "share_type": "GENERIC",
+            "comments": "SemperSupra disposable LiteLLM T6 fixture",
+        }])
+        if not isinstance(dataset, dict) or dataset.get("id") != EXPECTED_FIXTURE_DATASET:
+            raise RuntimeError("pool.dataset.create did not return exact T6 dataset identity")
+
         fixture_dirs = [
-            ("/mnt/rdtepool/litellm-t6", "750"),
             (EXPECTED_CONFIG_DIR, "750"),
             (EXPECTED_SECRET_DIR, "700"),
         ]
@@ -335,8 +349,10 @@ def main() -> int:
                 "path": path,
                 "mode": oct(observed_mode),
             })
-        payload["fixture_directories"] = {
-            "created": created_dirs,
+        payload["fixture_storage"] = {
+            "dataset": EXPECTED_FIXTURE_DATASET,
+            "root": EXPECTED_FIXTURE_ROOT,
+            "directories": created_dirs,
             "values_recorded": False,
         }
 
@@ -437,6 +453,35 @@ def main() -> int:
         if remaining:
             raise RuntimeError("LiteLLM app remains after delete")
 
+        deleted_dataset = call("pool.dataset.delete", [
+            EXPECTED_FIXTURE_DATASET,
+            {"recursive": True, "force": False},
+        ])
+        if deleted_dataset is not True:
+            raise RuntimeError("pool.dataset.delete did not return true")
+
+        remaining_dataset = call(
+            "pool.dataset.query",
+            [[["id", "=", EXPECTED_FIXTURE_DATASET]]],
+        )
+        if remaining_dataset:
+            raise RuntimeError("LiteLLM T6 fixture dataset remains after delete")
+
+        root_absent = False
+        try:
+            call("filesystem.stat", [EXPECTED_FIXTURE_ROOT])
+        except RuntimeError:
+            root_absent = True
+        if not root_absent:
+            raise RuntimeError("LiteLLM T6 fixture mountpoint remains after dataset delete")
+
+        payload["cleanup"] = {
+            "app_absent": True,
+            "fixture_dataset_absent": True,
+            "fixture_mountpoint_absent": True,
+            "zero_residue": True,
+        }
+
         payload["runtime"] = {
             "state": "RUNNING",
             "custom_app": True,
@@ -448,13 +493,14 @@ def main() -> int:
             "restart_readiness": restart_ready,
             "restart_compose_identity_preserved": True,
             "delete_absent": True,
+            "zero_residue": True,
         }
         payload["classification"] = "SUPPORTED"
         payload["oracleSatisfied"] = True
         payload["detail"] = (
             "exact Foundry-exported LiteLLM appliance consumed on real TrueNAS software; "
             "S1 fixture projection, exact image/config read-back, health, restart persistence, "
-            "and delete/absence all passed"
+            "and delete/zero-residue all passed"
         )
     except Exception as exc:
         payload["detail"] = f"{type(exc).__name__}: {exc}"
