@@ -131,6 +131,21 @@ free-tier RDTE useful without replaying multi-gigabyte installs that cannot chan
 evidence under test.
 
 
+### Proxmox P2 installed-guest witness
+
+P2 must distinguish the QEMU host-forward listener from the installed guest. The
+diagnostic adapter therefore uses the vendor automated installer's supported
+`[first-boot]` hook with `source = "from-iso"` and `ordering = "fully-up"`.
+The hook emits a bounded serial witness from inside the installed guest containing
+hostname/kernel identity, interface and route state, selected Proxmox service activity,
+listening TCP sockets, and observational KVM/CPU-virtualization presence.
+
+The witness is diagnostic evidence only. P2 is satisfied only by a real HTTPS
+`/api2/json/version` response. A host-side TCP accept is recorded only as
+`*_hostfwd_accepted`; it is not guest-service reachability. Failure to complete SSH
+leaves nested-KVM state `unknown`. P5 still requires an actual L3 KVM VCPU execution
+nonce and cannot be inferred from `/dev/kvm` or CPU flags alone.
+
 ### TrueNAS T1 service-oracle semantics
 
 QEMU user-mode `hostfwd` accepting a localhost TCP connection is not a TrueNAS
