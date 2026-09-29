@@ -6,6 +6,8 @@ ISO_URL="https://enterprise.proxmox.com/iso/$ISO_NAME"
 ISO_SHA256="4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c"
 PVE_INSTALLER_SOURCE_VERSION="9.2.5"
 PVE_INSTALLER_SOURCE_COMMIT="32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PVE_DISK_PROBE="$SCRIPT_DIR/proxmox_installed_disk_probe.sh"
 RAM_MIB=4096
 VCPUS=2
 DISK_SIZE="40G"
@@ -378,132 +380,21 @@ stop_qemu() {
 
 inspect_installed_disk() {
   local phase="$1"
-  local nbd="" nbd_name="" pv="" vg="" rootdev="" mnt="$STATE_DIR/mnt-$phase"
-  local hook_present=false hook_exec=false hook_sha="" hook_matches=false pending=false
-  local unit_present=false alias_target="" wants_target="" log_present=false log_text="" package_version=""
-
-  emit_inspection_error() {
-    local layout="" blkids="" nbd_max_part=""
-    if [[ -n "$nbd" && -b "$nbd" ]]; then
-      layout="$(sudo -n lsblk -lnpo NAME,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTLABEL,SIZE "$nbd" 2>&1 || true)"
-      blkids="$(sudo -n blkid 2>&1 | grep -F "$nbd" || true)"
-    fi
-    [[ -r /sys/module/nbd/parameters/max_part ]] && nbd_max_part="$(cat /sys/module/nbd/parameters/max_part 2>/dev/null || true)"
-    R_PHASE="$phase" R_ERROR="$1" R_LAYOUT="$layout" R_BLKIDS="$blkids" R_NBD_MAX_PART="$nbd_max_part" python3 - <<'PY'
-import json, os
+  [[ -f "$PVE_DISK_PROBE" ]] || {
+    python3 - "$phase" <<'PY'
+import json, sys
 print(json.dumps({
-    "phase": os.environ["R_PHASE"],
+    "phase": sys.argv[1],
     "inspection_ok": False,
-    "error": os.environ["R_ERROR"],
-    "lsblk": os.environ.get("R_LAYOUT") or None,
-    "blkid": os.environ.get("R_BLKIDS") or None,
-    "nbd_max_part": os.environ.get("R_NBD_MAX_PART") or None,
+    "error": "production installed-disk probe missing",
 }, sort_keys=True))
 PY
+    return 0
   }
-
-  sudo -n modprobe nbd max_part=16 >/dev/null 2>&1 || { emit_inspection_error "could not load nbd"; return 0; }
-  for candidate in /dev/nbd{0..15}; do
-    [[ -b "$candidate" ]] || continue
-    nbd_name="${candidate#/dev/}"
-    if [[ ! -s "/sys/block/$nbd_name/pid" ]]; then
-      nbd="$candidate"
-      break
-    fi
-  done
-  [[ -n "$nbd" ]] || { emit_inspection_error "no free nbd device"; return 0; }
-
-  sudo -n qemu-nbd --connect="$nbd" --read-only "$STATE_DIR/system.qcow2" >/dev/null 2>&1 ||
-    { emit_inspection_error "qemu-nbd connect failed"; return 0; }
-  sudo -n blockdev --rereadpt "$nbd" >/dev/null 2>&1 || true
-  sudo -n partx -a "$nbd" >/dev/null 2>&1 || sudo -n partx -u "$nbd" >/dev/null 2>&1 || true
-  sudo -n udevadm settle >/dev/null 2>&1 || true
-  sleep 1
-
-  while read -r dev type; do
-    [[ "$type" == "part" ]] || continue
-    if [[ "$(sudo -n blkid -p -s TYPE -o value "$dev" 2>/dev/null || true)" == "LVM2_member" ]]; then
-      pv="$dev"
-      break
-    fi
-  done < <(lsblk -lnpo NAME,TYPE "$nbd" 2>/dev/null)
-
-  if [[ -z "$pv" ]]; then
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-    emit_inspection_error "installed LVM PV not found"
-    return 0
-  fi
-
-  sudo -n pvscan --cache "$pv" >/dev/null 2>&1 || true
-  vg="$(sudo -n pvs --noheadings -o vg_name "$pv" 2>/dev/null | xargs || true)"
-  if [[ -z "$vg" ]]; then
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-    emit_inspection_error "installed VG not found"
-    return 0
-  fi
-
-  rootdev="$(sudo -n lvs --noheadings -o lv_path,lv_name "$vg" 2>/dev/null | awk '$2=="root" {print $1; exit}')"
-  if [[ -z "$rootdev" ]] || ! sudo -n lvchange -ay "$rootdev" >/dev/null 2>&1; then
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-    emit_inspection_error "installed root LV not activatable"
-    return 0
-  fi
-
-  mkdir -p "$mnt"
-  if ! sudo -n mount -o ro,noload "$rootdev" "$mnt" >/dev/null 2>&1; then
-    sudo -n lvchange -an "$rootdev" >/dev/null 2>&1 || true
-    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-    emit_inspection_error "installed root LV mount failed"
-    return 0
-  fi
-
-  local hook="$mnt/var/lib/proxmox-first-boot/proxmox-first-boot"
-  local pending_path="$mnt/var/lib/proxmox-first-boot/pending-first-boot-setup"
-  local unit="$mnt/lib/systemd/system/proxmox-first-boot-network-online.service"
-  local alias="$mnt/etc/systemd/system/proxmox-first-boot.service"
-  local wants="$mnt/etc/systemd/system/multi-user.target.wants/proxmox-first-boot-network-online.service"
-  local log="$mnt/var/lib/proxmox-first-boot/rdte-first-boot.log"
-
-  if sudo -n test -f "$hook"; then
-    hook_present=true
-    sudo -n test -x "$hook" && hook_exec=true
-    hook_sha="$(sudo -n sha256sum "$hook" 2>/dev/null | awk '{print $1}')"
-    [[ "$hook_sha" == "$(sha256sum "$STATE_DIR/proxmox-first-boot" | awk '{print $1}')" ]] && hook_matches=true
-  fi
-  sudo -n test -e "$pending_path" && pending=true
-  sudo -n test -f "$unit" && unit_present=true
-  alias_target="$(sudo -n readlink "$alias" 2>/dev/null || true)"
-  wants_target="$(sudo -n readlink "$wants" 2>/dev/null || true)"
-  if sudo -n test -f "$log"; then
-    log_present=true
-    log_text="$(sudo -n tail -c 16000 "$log" 2>/dev/null || true)"
-  fi
-  package_version="$(sudo -n sed -n '/^Package: proxmox-first-boot$/,/^$/p' "$mnt/var/lib/dpkg/status" 2>/dev/null | sed -n 's/^Version: //p' | head -n 1)"
-
-  sudo -n umount "$mnt" >/dev/null 2>&1 || true
-  sudo -n lvchange -an "$rootdev" >/dev/null 2>&1 || true
-  sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
-
-  R_PHASE="$phase" R_ROOT="$rootdev" R_HOOK_PRESENT="$hook_present" R_HOOK_EXEC="$hook_exec"   R_HOOK_SHA="$hook_sha" R_HOOK_MATCH="$hook_matches" R_PENDING="$pending" R_UNIT="$unit_present"   R_ALIAS="$alias_target" R_WANTS="$wants_target" R_LOG_PRESENT="$log_present" R_LOG="$log_text"   R_PACKAGE_VERSION="$package_version" python3 - <<'PY'
-import json, os
-def b(name): return os.environ.get(name, "false").lower() == "true"
-print(json.dumps({
-    "phase": os.environ["R_PHASE"],
-    "inspection_ok": True,
-    "root_lv": os.environ.get("R_ROOT") or None,
-    "first_boot_package_version": os.environ.get("R_PACKAGE_VERSION") or None,
-    "first_boot_hook_present": b("R_HOOK_PRESENT"),
-    "first_boot_hook_executable": b("R_HOOK_EXEC"),
-    "first_boot_hook_sha256": os.environ.get("R_HOOK_SHA") or None,
-    "hook_matches_prepared_iso": b("R_HOOK_MATCH"),
-    "pending_flag_present": b("R_PENDING"),
-    "network_online_unit_present": b("R_UNIT"),
-    "alias_target": os.environ.get("R_ALIAS") or None,
-    "wanted_by_target": os.environ.get("R_WANTS") or None,
-    "first_boot_log_present": b("R_LOG_PRESENT"),
-    "first_boot_log": os.environ.get("R_LOG") or None,
-}, sort_keys=True))
-PY
+  sudo -n bash "$PVE_DISK_PROBE" \
+    --image "$STATE_DIR/system.qcow2" \
+    --source-hook "$STATE_DIR/proxmox-first-boot" \
+    --phase "$phase"
 }
 
 start_qemu yes
