@@ -107,10 +107,10 @@ class LiteLlmT6ContractTests(unittest.TestCase):
             index, compose, digest, config = MOD.load_control(
                 pathlib.Path(td), MOD.EXPECTED_FOUNDRY_COMMIT
             )
-        self.assertEqual(expected, digest)
-        self.assertEqual(index["appliance"]["reference"], MOD.EXPECTED_IMAGE)
-        self.assertEqual(sorted(compose["services"]), ["litellm"])
-        self.assertEqual(MOD.file_sha256(config), MOD.EXPECTED_CONFIG_SHA256)
+            self.assertEqual(expected, digest)
+            self.assertEqual(index["appliance"]["reference"], MOD.EXPECTED_IMAGE)
+            self.assertEqual(sorted(compose["services"]), ["litellm"])
+            self.assertEqual(MOD.file_sha256(config), MOD.EXPECTED_CONFIG_SHA256)
 
     def test_rejects_image_drift(self):
         with tempfile.TemporaryDirectory() as td:
@@ -132,7 +132,7 @@ class LiteLlmT6ContractTests(unittest.TestCase):
 
     def test_probe_uses_public_upload_and_product_lifecycle_oracles(self):
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('"/_upload/"', text)
+        self.assertIn("/_upload/", text)
         self.assertIn('"method": "filesystem.put"', text)
         self.assertIn('"app.create"', text)
         self.assertIn('"app.config"', text)
