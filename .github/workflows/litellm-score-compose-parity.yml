@@ -1,0 +1,142 @@
+name: LiteLLM Score Compose parity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/litellm-score-compose-parity.yml"
+      - "experiments/litellm-score-compose/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SCORE_COMPOSE_VERSION: 0.47.0
+      SCORE_COMPOSE_SHA256: a1d0e62de419a93c0bb20d402390acc001657c870db6076d1138a2de7a24ed20
+      IMAGE: ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac
+      WORKDIR: experiments/litellm-score-compose
+    steps:
+      - name: Checkout public execution surface
+        uses: actions/checkout@v4
+
+      - name: Install pinned score-compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="/tmp/score-compose_${SCORE_COMPOSE_VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/score-spec/score-compose/releases/download/${SCORE_COMPOSE_VERSION}/score-compose_${SCORE_COMPOSE_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL "$url" -o "$archive"
+          printf "%s  %s\n" "$SCORE_COMPOSE_SHA256" "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C /tmp
+          install -m 0755 /tmp/score-compose /usr/local/bin/score-compose
+          score-compose --version | grep -F "$SCORE_COMPOSE_VERSION"
+
+      - name: Generate Compose from exact Score workload
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .score-compose compose.yaml
+          score-compose init --no-sample --file gateway-minimal.score.yaml --project litellm-parity
+          score-compose generate gateway-minimal.score.yaml --image "$IMAGE" --publish "14000:litellm:4000" --output compose.yaml
+          docker compose -f compose.yaml config --format json > /tmp/compose.json
+
+      - name: Assert generated semantic parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          service="$(jq -r --arg image "$IMAGE" '.services | to_entries[] | select(.value.image == $image) | .key' /tmp/compose.json)"
+          [[ -n "$service" ]]
+          jq -e --arg s "$service" --arg image "$IMAGE" '.services[$s].image == $image' /tmp/compose.json >/dev/null
+          jq -e --arg s "$service" '.services[$s].environment.SEMPER_SECRET_DIR == "/run/secrets/semper-env"' /tmp/compose.json >/dev/null
+          jq -e --arg s "$service" '[.services[$s].volumes[] | select(.target == "/config" and .read_only == true)] | length == 1' /tmp/compose.json >/dev/null
+          jq -e --arg s "$service" '[.services[$s].volumes[] | select(.target == "/run/secrets/semper-env" and .read_only == true)] | length == 1' /tmp/compose.json >/dev/null
+          jq -e --arg s "$service" '[.services[$s].ports[] | select(.target == 4000 and (.published|tostring) == "14000")] | length == 1' /tmp/compose.json >/dev/null
+          ! grep -q "OPENROUTER_MANAGEMENT_KEY" /tmp/compose.json
+          ! grep -q "fixture-provider-token" /tmp/compose.json
+          printf "service=%s\n" "$service" >> "$GITHUB_ENV"
+
+      - name: Populate synthetic config and secret volumes
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f compose.yaml create
+          config_volume="$(jq -r --arg s "$service" '.services[$s].volumes[] | select(.target == "/config") | .source' /tmp/compose.json)"
+          secret_volume="$(jq -r --arg s "$service" '.services[$s].volumes[] | select(.target == "/run/secrets/semper-env") | .source' /tmp/compose.json)"
+          [[ -n "$config_volume" && -n "$secret_volume" ]]
+          docker run --rm -i -v "$config_volume:/mnt" busybox:1.37 sh -c 'cat > /mnt/proxy_server_config.yaml' < ../litellm-appliance-v0/proxy_server_config.yaml
+          printf "%s\n" fixture-provider-token | docker run --rm -i -v "$secret_volume:/mnt" busybox:1.37 sh -c 'umask 077; cat > /mnt/TEST_PROVIDER_KEY'
+          printf "config_volume=%s\nsecret_volume=%s\n" "$config_volume" "$secret_volume" >> "$GITHUB_ENV"
+
+      - name: Runtime lifecycle parity
+        working-directory: ${{ env.WORKDIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() { docker compose -f compose.yaml down -v --remove-orphans >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker compose -f compose.yaml up -d
+          ready=false
+          for _ in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:14000/health/liveliness >/dev/null 2>&1; then ready=true; break; fi
+            if ! docker compose -f compose.yaml ps --status running --services | grep -qx "$service"; then
+              docker compose -f compose.yaml logs
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$ready" == true ]]
+          cid="$(docker compose -f compose.yaml ps -q "$service")"
+          docker exec "$cid" python -c "data=open('/proc/1/environ','rb').read().split(b'\\0'); assert b'TEST_PROVIDER_KEY=fixture-provider-token' in data"
+          ! docker inspect "$cid" | grep -q "fixture-provider-token"
+          docker compose -f compose.yaml restart
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:14000/health/liveliness >/dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:14000/health/liveliness >/dev/null
+          cleanup
+          trap - EXIT
+          ! docker volume inspect "$config_volume" >/dev/null 2>&1
+          ! docker volume inspect "$secret_volume" >/dev/null 2>&1
+
+      - name: Emit sanitized parity receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee /tmp/receipt.json
+          import json
+          print(json.dumps({
+            "schema": "semper-supra.litellm-score-compose-parity/1",
+            "status": "PASS",
+            "score_compose_version": "0.47.0",
+            "score_compose_asset_sha256": "a1d0e62de419a93c0bb20d402390acc001657c870db6076d1138a2de7a24ed20",
+            "appliance": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac",
+            "oracles": {
+              "official_score_compose_generate": True,
+              "same_appliance_identity": True,
+              "read_only_config_volume": True,
+              "read_only_secret_volume": True,
+              "provider_secret_projected_inside_process": True,
+              "provider_secret_absent_from_compose_and_container_config": True,
+              "port_semantics": True,
+              "liveliness": True,
+              "restart_persistence": True,
+              "zero_residue_volumes": True,
+            },
+            "known_target_gaps": {
+              "http_probe_enforcement": "score-compose validates but intentionally ignores Score HTTP probes",
+              "resource_limit_enforcement": "score-compose validates but intentionally ignores Score requests/limits",
+            },
+            "secrets_captured": False,
+            "money_spent_usd": 0,
+          }, indent=2, sort_keys=True))
+          PY
+          {
+            echo '### LiteLLM Score Compose parity receipt'
+            echo
+            cat /tmp/receipt.json
+          } >> "$GITHUB_STEP_SUMMARY"

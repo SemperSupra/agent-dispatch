@@ -1,0 +1,7 @@
+model_list:
+  - model_name: fixture
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/TEST_PROVIDER_KEY
+litellm_settings:
+  drop_params: true
