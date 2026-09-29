@@ -1,0 +1,41 @@
+name: Proxmox P2 offline inspector prep
+
+on:
+  push:
+    branches:
+      - prep/proxmox-p2-inspector-v2
+    paths:
+      - scripts/gha_proxmox_nbd_lvm_selftest.sh
+      - .github/workflows/proxmox-p2-inspector-prep.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nbd-lvm-selftest:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install cheap offline-inspector prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-utils gdisk lvm2 e2fsprogs
+      - name: Exercise synthetic Proxmox GPT/LVM root image
+        run: |
+          set -euo pipefail
+          sudo bash scripts/gha_proxmox_nbd_lvm_selftest.sh \
+            --out "$RUNNER_TEMP/proxmox-p2-inspector-selftest.json"
+      - name: Upload synthetic inspector evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: proxmox-p2-offline-inspector-selftest-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/proxmox-p2-inspector-selftest.json
+          if-no-files-found: warn
+          retention-days: 7
