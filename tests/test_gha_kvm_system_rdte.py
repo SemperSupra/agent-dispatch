@@ -87,6 +87,10 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("rdte-first-boot.log", text)
         self.assertIn("TTY_S0=character-device", text)
         self.assertIn("first_boot_witness_observed", text)
+        self.assertIn('ROOT_PASSWORD="rdte-proxmox-', text)
+        self.assertIn('root-password = "$ROOT_PASSWORD"', text)
+        self.assertIn('cat >"$STATE_DIR/answer.toml" <<EOF', text)
+        self.assertNotIn("rdte-proxmox-ephemeral-", text)
 
     def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
         text = PVE.read_text(encoding="utf-8")
