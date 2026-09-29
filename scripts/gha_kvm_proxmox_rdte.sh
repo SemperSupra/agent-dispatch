@@ -45,6 +45,8 @@ QEMU_ALIVE_AT_API_GATE="unknown"
 GUEST_DIAGNOSTICS=""
 FIRST_BOOT_WITNESS=""
 FIRST_BOOT_WITNESS_OBSERVED="false"
+INSTALL_SUCCESS_MARKER_OBSERVED="false"
+INSTALLED_DISK_LAYOUT_OK="false"
 ISO_FIRST_BOOT_PACKAGE=""
 INSTALLED_DISK_PREBOOT=""
 INSTALLED_DISK_POSTBOOT=""
@@ -70,6 +72,7 @@ write_receipt() {
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
   export R_FIRST_BOOT_WITNESS="$FIRST_BOOT_WITNESS" R_FIRST_BOOT_WITNESS_OBSERVED="$FIRST_BOOT_WITNESS_OBSERVED"
+  export R_INSTALL_SUCCESS_MARKER_OBSERVED="$INSTALL_SUCCESS_MARKER_OBSERVED" R_INSTALLED_DISK_LAYOUT_OK="$INSTALLED_DISK_LAYOUT_OK"
   export R_ISO_FIRST_BOOT_PACKAGE="$ISO_FIRST_BOOT_PACKAGE"
   export R_DISK_PREBOOT="$INSTALLED_DISK_PREBOOT" R_DISK_POSTBOOT="$INSTALLED_DISK_POSTBOOT"
   python3 - <<'PY'
@@ -102,7 +105,8 @@ payload = {
   },
   "oracles": {
     "vendor_iso_digest": os.environ.get("R_ISO_SHA") == "4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c",
-    "unattended_install_completed": os.environ["R_PHASE"] in {"installed-api", "complete"},
+    "unattended_install_completed": os.environ.get("R_INSTALL_SUCCESS_MARKER_OBSERVED") == "true",
+    "installed_disk_layout": os.environ.get("R_INSTALLED_DISK_LAYOUT_OK") == "true",
     "installed_https_api": bool(os.environ.get("R_API")),
     "nested_kvm_observed_via_ssh": os.environ.get("R_NESTED") == "yes",
   },
@@ -501,13 +505,38 @@ PY
 start_qemu yes
 INSTALL_OK=false
 for _ in $(seq 1 360); do
-  if grep -Eqi 'Installation done|installation finished|powering off|rebooting' "$STATE_DIR/serial.log" 2>/dev/null; then INSTALL_OK=true; break; fi
+  # Exact pve-installer 9.2.5 source emits this only after run_installation()
+  # returns Ok. Do not accept the earlier "Rebooting system after successful
+  # installation" setup log, which is emitted before installation starts.
+  if grep -Fq 'Installation done.' "$STATE_DIR/serial.log" 2>/dev/null; then
+    INSTALL_OK=true
+    INSTALL_SUCCESS_MARKER_OBSERVED="true"
+    break
+  fi
+  if grep -Fq 'Installation failed:' "$STATE_DIR/serial.log" 2>/dev/null; then break; fi
   if ! sudo -n kill -0 "$QEMU_PID" >/dev/null 2>&1; then break; fi
   sleep 5
 done
-[[ "$INSTALL_OK" == true ]] || fail_evidence ORACLE_FAILURE install "unattended installer did not reach completion marker within bounded window"
+[[ "$INSTALL_OK" == true ]] || fail_evidence ORACLE_FAILURE install "exact post-run_installation success witness not observed within bounded window"
 stop_qemu
 INSTALLED_DISK_PREBOOT="$(inspect_installed_disk preboot)"
+if python3 - "$INSTALLED_DISK_PREBOOT" <<'PY'
+import json, sys
+try:
+    payload = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+ok = (
+    payload.get("inspection_ok") is True
+    and payload.get("root_lv") == "/dev/pve/root"
+)
+raise SystemExit(0 if ok else 1)
+PY
+then
+  INSTALLED_DISK_LAYOUT_OK="true"
+else
+  fail_evidence ORACLE_FAILURE installed-disk "exact installer success marker observed but installed /dev/pve/root layout was not proven"
+fi
 
 start_qemu no
 API_VERSION_JSON=""
