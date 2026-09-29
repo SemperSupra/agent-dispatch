@@ -1,0 +1,59 @@
+name: Prep RDTE static gate
+
+on:
+  push:
+    branches:
+      - 'prep/**'
+    paths:
+      - '.github/workflows/prep-rdte-static.yml'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
+      - 'config/truenas-rdte-targets.json'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - 'scripts/gha_kvm_proxmox_rdte.sh'
+      - 'scripts/truenas_middleware_*.py'
+      - 'tests/test_gha_kvm_system_rdte.py'
+      - 'tests/test_truenas_future_protocols.py'
+      - 'tests/test_truenas_t6_foundry_control.py'
+  pull_request:
+    paths:
+      - '.github/workflows/prep-rdte-static.yml'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
+      - 'config/truenas-rdte-targets.json'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - 'scripts/gha_kvm_proxmox_rdte.sh'
+      - 'scripts/truenas_middleware_*.py'
+      - 'tests/test_gha_kvm_system_rdte.py'
+      - 'tests/test_truenas_future_protocols.py'
+      - 'tests/test_truenas_t6_foundry_control.py'
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          bash -n scripts/gha_kvm_truenas_rdte.sh
+          bash -n scripts/gha_kvm_proxmox_rdte.sh
+      - name: Python compile
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q scripts tests
+      - name: RDTE contract and protocol tests
+        run: |
+          set -euo pipefail
+          tests=(
+            tests/test_gha_kvm_system_rdte.py
+            tests/test_truenas_future_protocols.py
+          )
+          if [[ -f tests/test_truenas_t6_foundry_control.py ]]; then
+            tests+=(tests/test_truenas_t6_foundry_control.py)
+          fi
+          python3 -m unittest -v "${tests[@]}"
