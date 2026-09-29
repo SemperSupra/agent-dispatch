@@ -329,7 +329,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', app)
         self.assertNotIn('"nginx:1.27-alpine"', app)
         self.assertIn('"state") == "RUNNING"', app)
-        self.assertIn('--rung t5', workflow)
+        self.assertIn('--rung t6', workflow)
         py = subprocess.run(
             ["python3", "-m", "py_compile", str(TRUENAS_APP)],
             text=True,
