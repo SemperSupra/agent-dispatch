@@ -73,7 +73,7 @@ PY
 }
 
 modprobe nbd max_part=31 >/dev/null 2>&1 || emit_error "could not load nbd"
-if vgs pve >/dev/null 2>&1; then emit_error "host already exposes VG pve before image attachment"; fi
+[[ ! -e /dev/pve/root ]] || emit_error "host already has active /dev/pve/root before image attachment"
 
 for candidate in /dev/nbd{0..15}; do
   [[ -b "$candidate" ]] || continue
