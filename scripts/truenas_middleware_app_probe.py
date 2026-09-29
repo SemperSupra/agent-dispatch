@@ -103,6 +103,7 @@ def main():
             "state": docker_job.get("state"),
             "progress": docker_job.get("progress"),
         }
+        payload["docker_update_result"] = docker_job.get("result")
 
         deadline = time.monotonic() + a.state_timeout
         docker_status = None
@@ -151,6 +152,7 @@ def main():
             "state": app_job.get("state"),
             "progress": app_job.get("progress"),
         }
+        payload["app_create_result"] = app_job.get("result")
 
         deadline = time.monotonic() + a.state_timeout
         app = None
