@@ -38,6 +38,9 @@ OUT="$(realpath -m "$OUT")"
 QEMU_PID=""
 OBSERVED_ISO_SHA=""
 API_VERSION_JSON=""
+HOSTFWD_API_VERSION_JSON=""
+SSH_TUNNEL_API_VERSION_JSON=""
+API_OBSERVATION_ROUTE=""
 NESTED_KVM="unknown"
 SSH_HOSTFWD_ACCEPTED="false"
 API_HOSTFWD_ACCEPTED="false"
@@ -69,6 +72,7 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
+  export R_HOSTFWD_API="$HOSTFWD_API_VERSION_JSON" R_SSH_TUNNEL_API="$SSH_TUNNEL_API_VERSION_JSON" R_API_ROUTE="$API_OBSERVATION_ROUTE"
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
   export R_FIRST_BOOT_WITNESS="$FIRST_BOOT_WITNESS" R_FIRST_BOOT_WITNESS_OBSERVED="$FIRST_BOOT_WITNESS_OBSERVED"
@@ -101,6 +105,8 @@ payload = {
     "observed_sha256": os.environ.get("R_ISO_SHA") or None,
     "installer_source_version": "9.2.5",
     "installer_source_commit": "32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9",
+    "pve_manager_source_commit": "b9984c6d90a4bd80",
+    "pve_version_api_source": "PVE/API2.pm",
     "iso_first_boot_package": os.environ.get("R_ISO_FIRST_BOOT_PACKAGE") or None,
   },
   "oracles": {
@@ -116,6 +122,9 @@ payload = {
     "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
     "ssh_hostfwd_accepted": os.environ.get("R_SSH_HOSTFWD_ACCEPTED") == "true",
     "api_hostfwd_accepted": os.environ.get("R_API_HOSTFWD_ACCEPTED") == "true",
+    "api_observation_route": os.environ.get("R_API_ROUTE") or None,
+    "hostfwd_https_api": load_json_env("R_HOSTFWD_API"),
+    "ssh_tunnel_guest_local_https_api": load_json_env("R_SSH_TUNNEL_API"),
     "guest": os.environ.get("R_GUEST_DIAGNOSTICS") or None,
     "first_boot_witness_observed": os.environ.get("R_FIRST_BOOT_WITNESS_OBSERVED") == "true",
     "first_boot_witness": os.environ.get("R_FIRST_BOOT_WITNESS") or None,
@@ -311,6 +320,11 @@ import socket
 s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
 PY
 )"
+API_TUNNEL_PORT="$(python3 - <<'PY'
+import socket
+s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+PY
+)"
 
 
 port_open() {
@@ -326,6 +340,27 @@ except OSError:
 finally:
     s.close()
 PY
+}
+
+try_api_via_ssh_tunnel() {
+  local control="$STATE_DIR/ssh-api-control"
+  local response=""
+  rm -f -- "$control"
+  if ! sshpass -p "$ROOT_PASSWORD" ssh \
+      -p "$SSH_PORT" \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o ConnectTimeout=5 \
+      -o ExitOnForwardFailure=yes \
+      -M -S "$control" -fN \
+      -L "127.0.0.1:$API_TUNNEL_PORT:127.0.0.1:8006" \
+      root@127.0.0.1 >/dev/null 2>&1; then
+    return 0
+  fi
+  response="$(curl -sk --max-time 10 "https://127.0.0.1:$API_TUNNEL_PORT/api2/json/version" 2>/dev/null || true)"
+  ssh -p "$SSH_PORT" -S "$control" -O exit root@127.0.0.1 >/dev/null 2>&1 || true
+  rm -f -- "$control"
+  printf '%s' "$response"
 }
 
 guest_diagnostics() {
@@ -540,6 +575,9 @@ fi
 
 start_qemu no
 API_VERSION_JSON=""
+HOSTFWD_API_VERSION_JSON=""
+SSH_TUNNEL_API_VERSION_JSON=""
+API_OBSERVATION_ROUTE=""
 SSH_HOSTFWD_ACCEPTED="false"
 API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
@@ -557,11 +595,20 @@ for _ in $(seq 1 120); do
   if port_open "$SSH_PORT"; then SSH_HOSTFWD_ACCEPTED="true"; fi
   if port_open "$WEB_PORT"; then API_HOSTFWD_ACCEPTED="true"; fi
   if [[ "$API_HOSTFWD_ACCEPTED" == "true" ]]; then
-    API_VERSION_JSON="$(curl -sk --max-time 3 "https://127.0.0.1:$WEB_PORT/api2/json/version" 2>/dev/null || true)"
-    if [[ "$API_VERSION_JSON" == *'"data"'* ]]; then break; fi
+    HOSTFWD_API_VERSION_JSON="$(curl -sk --max-time 5 "https://127.0.0.1:$WEB_PORT/api2/json/version" 2>/dev/null || true)"
+    if [[ "$HOSTFWD_API_VERSION_JSON" == *'"data"'* ]]; then
+      API_VERSION_JSON="$HOSTFWD_API_VERSION_JSON"
+      API_OBSERVATION_ROUTE="qemu-hostfwd-https"
+      break
+    fi
   fi
-  if [[ "$FIRST_BOOT_WITNESS_OBSERVED" == "true" && -z "$API_VERSION_JSON" ]]; then
-    break
+  if [[ "$SSH_HOSTFWD_ACCEPTED" == "true" ]]; then
+    SSH_TUNNEL_API_VERSION_JSON="$(try_api_via_ssh_tunnel || true)"
+    if [[ "$SSH_TUNNEL_API_VERSION_JSON" == *'"data"'* ]]; then
+      API_VERSION_JSON="$SSH_TUNNEL_API_VERSION_JSON"
+      API_OBSERVATION_ROUTE="ssh-tunnel-guest-local-https"
+      break
+    fi
   fi
   sleep 3
 done
@@ -573,7 +620,7 @@ if [[ "$API_VERSION_JSON" != *'"data"'* ]]; then
   fi
   stop_qemu
   INSTALLED_DISK_POSTBOOT="$(inspect_installed_disk postboot)"
-  fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer (qemu_alive=$QEMU_ALIVE_AT_API_GATE first_boot_witness=$FIRST_BOOT_WITNESS_OBSERVED)"
+  fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer via direct hostfwd or SSH-tunneled guest-local HTTPS (qemu_alive=$QEMU_ALIVE_AT_API_GATE first_boot_witness=$FIRST_BOOT_WITNESS_OBSERVED)"
 fi
 
 NESTED_KVM="unknown"
@@ -587,4 +634,4 @@ if command -v sshpass >/dev/null 2>&1; then
   fi
 fi
 
-write_receipt SUPPORTED true complete "real Proxmox VE unattended install completed and installed HTTPS API answered"
+write_receipt SUPPORTED true complete "real Proxmox VE unattended install completed and real HTTPS /api2/json/version answered via $API_OBSERVATION_ROUTE"
