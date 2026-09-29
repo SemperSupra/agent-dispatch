@@ -57,3 +57,33 @@ jobs:
             tests+=(tests/test_truenas_t6_foundry_control.py)
           fi
           python3 -m unittest -v "${tests[@]}"
+
+  media-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify vendor checksum sidecars against exact target pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -f config/truenas-rdte-targets.json ]] || exit 0
+          python3 - <<'PY' >"$RUNNER_TEMP/truenas-media-pins.tsv"
+          import json
+          from pathlib import Path
+          data=json.loads(Path("config/truenas-rdte-targets.json").read_text())
+          for version,target in sorted(data.get("targets",{}).items()):
+              print(version, target["sha256_url"], target["expected_sha256"], sep="\t")
+          PY
+          while IFS=$'\t' read -r version url expected; do
+            sidecar="$RUNNER_TEMP/$version.sha256"
+            curl --fail --location --retry 3 --silent --show-error "$url" -o "$sidecar"
+            observed="$(grep -Eo '[0-9a-fA-F]{64}' "$sidecar" | head -n1 | tr 'A-F' 'a-f')"
+            [[ "$observed" == "$expected" ]] || {
+              echo "checksum pin mismatch for $version: expected=$expected observed=$observed" >&2
+              exit 1
+            }
+            echo "$version vendor checksum pin verified"
+          done <"$RUNNER_TEMP/truenas-media-pins.tsv"
