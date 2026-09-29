@@ -10,10 +10,12 @@ on:
       - 'config/truenas-rdte-targets.json'
       - 'scripts/gha_kvm_truenas_rdte.sh'
       - 'scripts/gha_kvm_proxmox_rdte.sh'
+      - 'scripts/proxmox_*.py'
       - 'scripts/truenas_middleware_*.py'
       - 'tests/test_gha_kvm_system_rdte.py'
       - 'tests/test_truenas_future_protocols.py'
       - 'tests/test_truenas_t6_foundry_control.py'
+      - 'tests/test_proxmox_future_protocols.py'
   pull_request:
     paths:
       - '.github/workflows/prep-rdte-static.yml'
@@ -55,5 +57,8 @@ jobs:
           )
           if [[ -f tests/test_truenas_t6_foundry_control.py ]]; then
             tests+=(tests/test_truenas_t6_foundry_control.py)
+          fi
+          if [[ -f tests/test_proxmox_future_protocols.py ]]; then
+            tests+=(tests/test_proxmox_future_protocols.py)
           fi
           python3 -m unittest -v "${tests[@]}"
