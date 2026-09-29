@@ -65,6 +65,10 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('filesystem = "ext4"', text)
         self.assertIn('disk-list = ["sda"]', text)
         self.assertIn("/api2/json/version", text)
+        self.assertIn('PVE_INSTALLER_SOURCE_VERSION="9.2.5"', text)
+        self.assertIn('PVE_INSTALLER_SOURCE_COMMIT="32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9"', text)
+        self.assertIn("proxmox-installer_*.deb", text)
+        self.assertIn("proxmox-first-boot_*.deb", text)
         self.assertNotIn("xdotool", text)
 
     def test_proxmox_first_boot_witness_uses_vendor_hook(self):
@@ -80,6 +84,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("PVEPROXY_JOURNAL_BEGIN", text)
         self.assertIn("PVE_RDTE_WITNESS_BEGIN", text)
         self.assertIn("PVE_RDTE_WITNESS_END", text)
+        self.assertIn("rdte-first-boot.log", text)
+        self.assertIn("TTY_S0=character-device", text)
         self.assertIn("first_boot_witness_observed", text)
 
     def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
@@ -88,6 +94,12 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"ssh_hostfwd_accepted"', text)
         self.assertIn('"api_hostfwd_accepted"', text)
         self.assertIn("first_boot_witness_observed", text)
+        self.assertIn("inspect_installed_disk", text)
+        self.assertIn("qemu-nbd", text)
+        self.assertIn("first_boot_package_version", text)
+        self.assertIn("hook_matches_prepared_iso", text)
+        self.assertIn("INSTALLED_DISK_PREBOOT", text)
+        self.assertIn("INSTALLED_DISK_POSTBOOT", text)
 
     def test_truenas_is_pinned_and_digest_sidecar_is_required(self):
         text = TRUENAS.read_text(encoding="utf-8")

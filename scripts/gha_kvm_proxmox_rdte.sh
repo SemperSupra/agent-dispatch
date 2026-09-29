@@ -4,6 +4,8 @@ set -euo pipefail
 ISO_NAME="proxmox-ve_9.2-1.iso"
 ISO_URL="https://enterprise.proxmox.com/iso/$ISO_NAME"
 ISO_SHA256="4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c"
+PVE_INSTALLER_SOURCE_VERSION="9.2.5"
+PVE_INSTALLER_SOURCE_COMMIT="32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9"
 RAM_MIB=4096
 VCPUS=2
 DISK_SIZE="40G"
@@ -42,6 +44,10 @@ QEMU_ALIVE_AT_API_GATE="unknown"
 GUEST_DIAGNOSTICS=""
 FIRST_BOOT_WITNESS=""
 FIRST_BOOT_WITNESS_OBSERVED="false"
+ISO_INSTALLER_PACKAGE=""
+ISO_FIRST_BOOT_PACKAGE=""
+INSTALLED_DISK_PREBOOT=""
+INSTALLED_DISK_POSTBOOT=""
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
@@ -64,8 +70,19 @@ write_receipt() {
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
   export R_FIRST_BOOT_WITNESS="$FIRST_BOOT_WITNESS" R_FIRST_BOOT_WITNESS_OBSERVED="$FIRST_BOOT_WITNESS_OBSERVED"
+  export R_ISO_INSTALLER_PACKAGE="$ISO_INSTALLER_PACKAGE" R_ISO_FIRST_BOOT_PACKAGE="$ISO_FIRST_BOOT_PACKAGE"
+  export R_DISK_PREBOOT="$INSTALLED_DISK_PREBOOT" R_DISK_POSTBOOT="$INSTALLED_DISK_POSTBOOT"
   python3 - <<'PY'
 import json, os, pathlib
+def load_json_env(name):
+    raw = os.environ.get(name, "")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception as exc:
+        return {"inspection_ok": False, "parse_error": str(exc), "raw": raw[:2000]}
+
 payload = {
   "contract": "gha-kvm-system-lab/v1",
   "target": {"product": "proxmox-ve", "version": "9.2-1"},
@@ -79,6 +96,10 @@ payload = {
     "iso_url": "https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso",
     "expected_sha256": "4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c",
     "observed_sha256": os.environ.get("R_ISO_SHA") or None,
+    "installer_source_version": "9.2.5",
+    "installer_source_commit": "32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9",
+    "iso_installer_package": os.environ.get("R_ISO_INSTALLER_PACKAGE") or None,
+    "iso_first_boot_package": os.environ.get("R_ISO_FIRST_BOOT_PACKAGE") or None,
   },
   "oracles": {
     "vendor_iso_digest": os.environ.get("R_ISO_SHA") == "4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c",
@@ -95,6 +116,8 @@ payload = {
     "guest": os.environ.get("R_GUEST_DIAGNOSTICS") or None,
     "first_boot_witness_observed": os.environ.get("R_FIRST_BOOT_WITNESS_OBSERVED") == "true",
     "first_boot_witness": os.environ.get("R_FIRST_BOOT_WITNESS") or None,
+    "installed_disk_preboot": load_json_env("R_DISK_PREBOOT"),
+    "installed_disk_postboot": load_json_env("R_DISK_POSTBOOT"),
   },
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
@@ -113,9 +136,13 @@ fail_evidence() {
   exit 0
 }
 
-for cmd in curl sha256sum qemu-img qemu-system-x86_64 xorriso python3; do
+for cmd in curl sha256sum qemu-img qemu-system-x86_64 qemu-nbd xorriso python3 lsblk blkid mount umount readlink modprobe udevadm; do
   command -v "$cmd" >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: $cmd"
 done
+if ! command -v pvs >/dev/null 2>&1 || ! command -v lvs >/dev/null 2>&1 || ! command -v lvchange >/dev/null 2>&1; then
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends lvm2 >/dev/null 2>&1 ||
+    fail_evidence ENVIRONMENT_FAILURE preflight "could not install lvm2 diagnostic dependency"
+fi
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || fail_evidence ENVIRONMENT_FAILURE preflight "requires Linux x86_64"
 [[ -e /dev/kvm ]] || fail_evidence ENVIRONMENT_FAILURE preflight "/dev/kvm absent"
 sudo -n test -r /dev/kvm && sudo -n test -w /dev/kvm || fail_evidence ENVIRONMENT_FAILURE preflight "passwordless sudo KVM boundary unavailable"
@@ -129,6 +156,13 @@ ISO="$STATE_DIR/$ISO_NAME"
 curl --fail --location --retry 3 --silent --show-error "$ISO_URL" -o "$ISO" || fail_evidence ENVIRONMENT_FAILURE acquire "vendor ISO download failed"
 OBSERVED_ISO_SHA="$(sha256sum "$ISO" | awk '{print $1}')"
 [[ "$OBSERVED_ISO_SHA" == "$ISO_SHA256" ]] || fail_evidence ORACLE_FAILURE acquire "vendor ISO digest mismatch"
+
+ISO_INSTALLER_PACKAGE="$(xorriso -indev "$ISO" -find /proxmox/packages -name 'proxmox-installer_*.deb' -print 2>/dev/null | head -n 1 | sed 's#.*/##')"
+ISO_FIRST_BOOT_PACKAGE="$(xorriso -indev "$ISO" -find /proxmox/packages -name 'proxmox-first-boot_*.deb' -print 2>/dev/null | head -n 1 | sed 's#.*/##')"
+[[ "$ISO_INSTALLER_PACKAGE" == proxmox-installer_${PVE_INSTALLER_SOURCE_VERSION}_*.deb ]] ||
+  fail_evidence ORACLE_FAILURE acquire "ISO installer package does not match pinned source version ${PVE_INSTALLER_SOURCE_VERSION}: ${ISO_INSTALLER_PACKAGE:-absent}"
+[[ "$ISO_FIRST_BOOT_PACKAGE" == proxmox-first-boot_${PVE_INSTALLER_SOURCE_VERSION}_*.deb ]] ||
+  fail_evidence ORACLE_FAILURE acquire "ISO first-boot package does not match pinned source version ${PVE_INSTALLER_SOURCE_VERSION}: ${ISO_FIRST_BOOT_PACKAGE:-absent}"
 
 cat >"$STATE_DIR/answer.toml" <<'EOF'
 [global]
@@ -155,10 +189,14 @@ printf 'mode = "iso"\n' >"$STATE_DIR/auto-installer-mode.toml"
 cat >"$STATE_DIR/proxmox-first-boot" <<'EOF'
 #!/bin/sh
 set +e
-if [ -c /dev/ttyS0 ]; then
-  exec >/dev/ttyS0 2>&1
-fi
+RDTE_FIRST_BOOT_LOG="/var/lib/proxmox-first-boot/rdte-first-boot.log"
+exec >"$RDTE_FIRST_BOOT_LOG" 2>&1
 echo "PVE_RDTE_WITNESS_BEGIN"
+if [ -c /dev/ttyS0 ]; then
+  echo "TTY_S0=character-device"
+else
+  echo "TTY_S0=absent-or-not-character-device"
+fi
 printf 'ORDERING_ARG=%s\n' "${1:-unset}"
 printf 'HOSTNAME='; hostname -f 2>/dev/null || hostname 2>/dev/null || true
 printf 'KERNEL='; uname -a 2>/dev/null || true
@@ -212,6 +250,11 @@ echo "PVECLUSTER_JOURNAL_END"
 if [ -e /dev/kvm ]; then echo "KVM_DEVICE=present"; else echo "KVM_DEVICE=absent"; fi
 if grep -Eq '(vmx|svm)' /proc/cpuinfo 2>/dev/null; then echo "CPU_VIRT_FLAG=present"; else echo "CPU_VIRT_FLAG=absent"; fi
 echo "PVE_RDTE_WITNESS_END"
+sync || true
+if [ -c /dev/ttyS0 ]; then
+  cat "$RDTE_FIRST_BOOT_LOG" >/dev/ttyS0 2>&1 || true
+fi
+exit 0
 EOF
 chmod 0755 "$STATE_DIR/proxmox-first-boot"
 
@@ -334,6 +377,125 @@ stop_qemu() {
   fi
 }
 
+inspect_installed_disk() {
+  local phase="$1"
+  local nbd="" nbd_name="" pv="" vg="" rootdev="" mnt="$STATE_DIR/mnt-$phase"
+  local hook_present=false hook_exec=false hook_sha="" hook_matches=false pending=false
+  local unit_present=false alias_target="" wants_target="" log_present=false log_text="" package_version=""
+
+  emit_inspection_error() {
+    R_PHASE="$phase" R_ERROR="$1" python3 - <<'PY'
+import json, os
+print(json.dumps({
+    "phase": os.environ["R_PHASE"],
+    "inspection_ok": False,
+    "error": os.environ["R_ERROR"],
+}, sort_keys=True))
+PY
+  }
+
+  sudo -n modprobe nbd max_part=16 >/dev/null 2>&1 || { emit_inspection_error "could not load nbd"; return 0; }
+  for candidate in /dev/nbd{0..15}; do
+    [[ -b "$candidate" ]] || continue
+    nbd_name="${candidate#/dev/}"
+    if [[ ! -s "/sys/block/$nbd_name/pid" ]]; then
+      nbd="$candidate"
+      break
+    fi
+  done
+  [[ -n "$nbd" ]] || { emit_inspection_error "no free nbd device"; return 0; }
+
+  sudo -n qemu-nbd --connect="$nbd" --read-only "$STATE_DIR/system.qcow2" >/dev/null 2>&1 ||
+    { emit_inspection_error "qemu-nbd connect failed"; return 0; }
+  sudo -n udevadm settle >/dev/null 2>&1 || true
+  sleep 1
+
+  while read -r dev type; do
+    [[ "$type" == "part" ]] || continue
+    if [[ "$(sudo -n blkid -p -s TYPE -o value "$dev" 2>/dev/null || true)" == "LVM2_member" ]]; then
+      pv="$dev"
+      break
+    fi
+  done < <(lsblk -lnpo NAME,TYPE "$nbd" 2>/dev/null)
+
+  if [[ -z "$pv" ]]; then
+    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
+    emit_inspection_error "installed LVM PV not found"
+    return 0
+  fi
+
+  sudo -n pvscan --cache "$pv" >/dev/null 2>&1 || true
+  vg="$(sudo -n pvs --noheadings -o vg_name "$pv" 2>/dev/null | xargs || true)"
+  if [[ -z "$vg" ]]; then
+    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
+    emit_inspection_error "installed VG not found"
+    return 0
+  fi
+
+  rootdev="$(sudo -n lvs --noheadings -o lv_path,lv_name "$vg" 2>/dev/null | awk '$2=="root" {print $1; exit}')"
+  if [[ -z "$rootdev" ]] || ! sudo -n lvchange -ay "$rootdev" >/dev/null 2>&1; then
+    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
+    emit_inspection_error "installed root LV not activatable"
+    return 0
+  fi
+
+  mkdir -p "$mnt"
+  if ! sudo -n mount -o ro,noload "$rootdev" "$mnt" >/dev/null 2>&1; then
+    sudo -n lvchange -an "$rootdev" >/dev/null 2>&1 || true
+    sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
+    emit_inspection_error "installed root LV mount failed"
+    return 0
+  fi
+
+  local hook="$mnt/var/lib/proxmox-first-boot/proxmox-first-boot"
+  local pending_path="$mnt/var/lib/proxmox-first-boot/pending-first-boot-setup"
+  local unit="$mnt/lib/systemd/system/proxmox-first-boot-network-online.service"
+  local alias="$mnt/etc/systemd/system/proxmox-first-boot.service"
+  local wants="$mnt/etc/systemd/system/multi-user.target.wants/proxmox-first-boot-network-online.service"
+  local log="$mnt/var/lib/proxmox-first-boot/rdte-first-boot.log"
+
+  if sudo -n test -f "$hook"; then
+    hook_present=true
+    sudo -n test -x "$hook" && hook_exec=true
+    hook_sha="$(sudo -n sha256sum "$hook" 2>/dev/null | awk '{print $1}')"
+    [[ "$hook_sha" == "$(sha256sum "$STATE_DIR/proxmox-first-boot" | awk '{print $1}')" ]] && hook_matches=true
+  fi
+  sudo -n test -e "$pending_path" && pending=true
+  sudo -n test -f "$unit" && unit_present=true
+  alias_target="$(sudo -n readlink "$alias" 2>/dev/null || true)"
+  wants_target="$(sudo -n readlink "$wants" 2>/dev/null || true)"
+  if sudo -n test -f "$log"; then
+    log_present=true
+    log_text="$(sudo -n tail -c 16000 "$log" 2>/dev/null || true)"
+  fi
+  package_version="$(sudo -n sed -n '/^Package: proxmox-first-boot$/,/^$/p' "$mnt/var/lib/dpkg/status" 2>/dev/null | sed -n 's/^Version: //p' | head -n 1)"
+
+  sudo -n umount "$mnt" >/dev/null 2>&1 || true
+  sudo -n lvchange -an "$rootdev" >/dev/null 2>&1 || true
+  sudo -n qemu-nbd --disconnect "$nbd" >/dev/null 2>&1 || true
+
+  R_PHASE="$phase" R_ROOT="$rootdev" R_HOOK_PRESENT="$hook_present" R_HOOK_EXEC="$hook_exec"   R_HOOK_SHA="$hook_sha" R_HOOK_MATCH="$hook_matches" R_PENDING="$pending" R_UNIT="$unit_present"   R_ALIAS="$alias_target" R_WANTS="$wants_target" R_LOG_PRESENT="$log_present" R_LOG="$log_text"   R_PACKAGE_VERSION="$package_version" python3 - <<'PY'
+import json, os
+def b(name): return os.environ.get(name, "false").lower() == "true"
+print(json.dumps({
+    "phase": os.environ["R_PHASE"],
+    "inspection_ok": True,
+    "root_lv": os.environ.get("R_ROOT") or None,
+    "first_boot_package_version": os.environ.get("R_PACKAGE_VERSION") or None,
+    "first_boot_hook_present": b("R_HOOK_PRESENT"),
+    "first_boot_hook_executable": b("R_HOOK_EXEC"),
+    "first_boot_hook_sha256": os.environ.get("R_HOOK_SHA") or None,
+    "hook_matches_prepared_iso": b("R_HOOK_MATCH"),
+    "pending_flag_present": b("R_PENDING"),
+    "network_online_unit_present": b("R_UNIT"),
+    "alias_target": os.environ.get("R_ALIAS") or None,
+    "wanted_by_target": os.environ.get("R_WANTS") or None,
+    "first_boot_log_present": b("R_LOG_PRESENT"),
+    "first_boot_log": os.environ.get("R_LOG") or None,
+}, sort_keys=True))
+PY
+}
+
 start_qemu yes
 INSTALL_OK=false
 for _ in $(seq 1 360); do
@@ -343,6 +505,7 @@ for _ in $(seq 1 360); do
 done
 [[ "$INSTALL_OK" == true ]] || fail_evidence ORACLE_FAILURE install "unattended installer did not reach completion marker within bounded window"
 stop_qemu
+INSTALLED_DISK_PREBOOT="$(inspect_installed_disk preboot)"
 
 start_qemu no
 API_VERSION_JSON=""
@@ -377,6 +540,8 @@ if [[ "$API_VERSION_JSON" != *'"data"'* ]]; then
       root@127.0.0.1 'true' >/dev/null 2>&1; then
     GUEST_DIAGNOSTICS="$(guest_diagnostics || true)"
   fi
+  stop_qemu
+  INSTALLED_DISK_POSTBOOT="$(inspect_installed_disk postboot)"
   fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer (qemu_alive=$QEMU_ALIVE_AT_API_GATE first_boot_witness=$FIRST_BOOT_WITNESS_OBSERVED)"
 fi
 
