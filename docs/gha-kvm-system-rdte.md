@@ -239,3 +239,21 @@ is `docker.license_active`: non-HA systems are permitted directly, while HA-capa
 systems consult `system.feature_enabled("APPS")`. The T4 client therefore does not
 call the later entitlement API; `docker.update` and Docker startup exercise the
 actual BETA.3 product gate.
+
+
+### TrueNAS T5 custom-App lifecycle
+
+T5 is eligible only after accepted T4 evidence. It reproduces the T4 pool and Apps
+runtime first, including the exact immutable image
+`nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10`, then exercises the tagged BETA.3 public lifecycle:
+
+- `app.stop` -> independently queried `STOPPED`;
+- `app.start` -> independently queried `RUNNING` with the expected digest-pinned workload;
+- `app.update` sets `RDTE_GENERATION=2`;
+- public `app.config` must read back both `RDTE_GENERATION=2` and the same immutable image;
+- `app.redeploy` -> independently queried `RUNNING`;
+- final stop -> `STOPPED`;
+- `app.delete` -> final exact `app.query` is absent.
+
+Job success alone never satisfies T5. T5 does not establish Foundry deployment-artifact
+realization; that remains the distinct T6 gate.
