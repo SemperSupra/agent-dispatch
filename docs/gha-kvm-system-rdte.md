@@ -171,7 +171,7 @@ so the disposable legacy-BIOS QEMU target is a valid post-install boot oracle.
 
 T3 extends the accepted T2 system without changing the installer disk shape. The
 installer still sees only the 24-GiB boot target. After vendor installation completes,
-the installed-system boot adds exactly two experiment-owned 8-GiB sparse virtio disks. They are attached as explicit virtio-blk devices with deterministic serial identities `RDTE_DATA_0` and `RDTE_DATA_1`. The virtio NIC is pinned to PCI address `0x3` in both installer and installed-system boots so adding data devices cannot rename the installer-persisted `ens3` interface.
+the installed-system boot adds exactly two experiment-owned 8-GiB sparse virtio disks. They are attached as explicit virtio-blk devices with deterministic serial identities `RDTE_DATA_0` and `RDTE_DATA_1`. The installed-system topology is explicit: the virtio NIC is PCI `0x3`, the TrueNAS boot virtio-blk device is PCI `0x4` with `bootindex=1`, and the data disks are PCI `0x5` and `0x6`. QEMU `-boot order=c` is not mixed with `bootindex`; the installed boot uses `-boot strict=on` so firmware follows the per-device boot priority.
 
 The T3 middleware client then:
 - authenticates through the accepted installed-system DDP surface;

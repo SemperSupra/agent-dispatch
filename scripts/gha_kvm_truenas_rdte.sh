@@ -359,7 +359,7 @@ if [[ "$RUNG" == "t3" ]]; then
     qemu-img create -q -f qcow2 "$data_disk" "$DATA_DISK_SIZE" ||
       fail_evidence HARNESS_FAILURE data-disk-prepare "failed to create sparse data disk $index"
     drive_id="rdtedata${index}"
-    pci_slot=$((4 + index))
+    pci_slot=$((5 + index))
     DATA_DRIVE_ARGS+=(
       -drive "file=$data_disk,if=none,id=$drive_id,format=qcow2"
       -device "virtio-blk-pci,drive=$drive_id,serial=${DATA_SERIAL_PREFIX}${index},addr=0x${pci_slot}"
@@ -380,9 +380,10 @@ PY
 : >"$STATE_DIR/serial.log"
 sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
-  -drive "file=$STATE_DIR/boot.qcow2,if=virtio,format=qcow2" \
+  -drive "file=$STATE_DIR/boot.qcow2,if=none,id=rdteboot,format=qcow2" \
+  -device "virtio-blk-pci,drive=rdteboot,id=rdte-boot,addr=0x4,bootindex=1" \
   "${DATA_DRIVE_ARGS[@]}" \
-  -boot order=c \
+  -boot strict=on \
   -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443" \
   -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
