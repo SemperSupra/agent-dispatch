@@ -283,7 +283,11 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('DATA_SERIAL_PREFIX="RDTE_DATA_"', text)
         self.assertEqual(text.count("mac=$NIC_MAC,addr=0x3"), 2)
         self.assertIn("if=none,id=$drive_id", text)
-        self.assertIn("virtio-blk-pci,drive=$drive_id,serial=${DATA_SERIAL_PREFIX}${index}", text)
+        self.assertIn("pci_slot=$((4 + index))", text)
+        self.assertIn(
+            "virtio-blk-pci,drive=$drive_id,serial=${DATA_SERIAL_PREFIX}${index},addr=0x${pci_slot}",
+            text,
+        )
         self.assertIn('--data-serial-prefix "$DATA_SERIAL_PREFIX"', text)
         self.assertIn("data${index}.qcow2", text)
         self.assertIn('"${DATA_DRIVE_ARGS[@]}"', text)
