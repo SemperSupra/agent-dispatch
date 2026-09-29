@@ -12,6 +12,8 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
+PVE_DISK_PROBE = ROOT / "scripts" / "proxmox_installed_disk_probe.sh"
+PVE_NBD_SELFTEST = ROOT / "scripts" / "gha_proxmox_nbd_lvm_selftest.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
 TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
@@ -92,6 +94,27 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('cat >"$STATE_DIR/answer.toml" <<EOF', text)
         self.assertNotIn(r"\nROOT_PASSWORD", text)
         self.assertNotIn("rdte-proxmox-ephemeral-", text)
+
+    def test_proxmox_installed_disk_probe_is_cheaply_qualified(self):
+        harness = PVE.read_text(encoding="utf-8")
+        probe = PVE_DISK_PROBE.read_text(encoding="utf-8")
+        selftest = PVE_NBD_SELFTEST.read_text(encoding="utf-8")
+        self.assertIn("proxmox_installed_disk_probe.sh", harness)
+        self.assertNotIn("qemu-nbd --connect=\"$nbd\"", harness)
+        self.assertIn("--read-only --format=qcow2", probe)
+        self.assertIn("blockdev --getsize64", probe)
+        self.assertIn('EXACT_PV="${NBD}p3"', probe)
+        self.assertIn('pvs --devices "$PV"', probe)
+        self.assertIn('lvs --devices "$PV"', probe)
+        self.assertIn('lvchange --devices "$PV"', probe)
+        self.assertIn('"pve_manager_version"', probe)
+        self.assertIn('"pve_cluster_version"', probe)
+        self.assertIn('"installed_hostname"', probe)
+        self.assertIn('sgdisk -n2:1M:+512M -t2:EF00 -n3:513M:0 -t3:8E00', selftest)
+        self.assertIn("proxmox_installed_disk_probe.sh", selftest)
+        for path in (PVE_DISK_PROBE, PVE_NBD_SELFTEST):
+            cp = subprocess.run(["bash", "-n", str(path)], text=True, capture_output=True)
+            self.assertEqual(cp.returncode, 0, f"{path}: {cp.stderr}")
 
     def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
         text = PVE.read_text(encoding="utf-8")
