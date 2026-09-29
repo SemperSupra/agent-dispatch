@@ -60,7 +60,7 @@ jobs:
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
-                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_foundry_control_probe.py)
+                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_foundry_control_probe.py|scripts/truenas_middleware_litellm_t6_probe.py)
                   truenas=true
                   ;;
                 scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
@@ -86,12 +86,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate public-safe contract
-        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_foundry_control.py
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_foundry_control.py tests/test_truenas_t6_litellm_control.py
 
   foundry-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/validate-truenas-materialization.yml@5f62da5ba229986879fa4f5d7a53169d0ed80356
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-litellm-t6-control.yml@4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
+    with:
+      foundry_ref: 4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
     permissions:
       contents: read
 
@@ -189,10 +191,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Download exact Foundry T6 materialization control
+      - name: Download exact LiteLLM Foundry T6 control
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: truenas-foundry-materialized-controls
+          name: litellm-truenas-t6-control
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
@@ -207,8 +209,8 @@ jobs:
           bash scripts/gha_kvm_truenas_rdte.sh \
             --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
             --rung t6 \
-            --foundry-control-dir "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control/materialized-controls" \
-            --foundry-commit "5f62da5ba229986879fa4f5d7a53169d0ed80356" \
+            --foundry-control-dir "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control" \
+            --foundry-commit "4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba" \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
       - name: Preserve TrueNAS harness failure evidence
