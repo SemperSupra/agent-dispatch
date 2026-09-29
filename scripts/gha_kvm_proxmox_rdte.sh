@@ -157,8 +157,12 @@ curl --fail --location --retry 3 --silent --show-error "$ISO_URL" -o "$ISO" || f
 OBSERVED_ISO_SHA="$(sha256sum "$ISO" | awk '{print $1}')"
 [[ "$OBSERVED_ISO_SHA" == "$ISO_SHA256" ]] || fail_evidence ORACLE_FAILURE acquire "vendor ISO digest mismatch"
 
-ISO_INSTALLER_PACKAGE="$(xorriso -indev "$ISO" -find /proxmox/packages -name 'proxmox-installer_*.deb' -print 2>/dev/null | head -n 1 | sed 's#.*/##')"
-ISO_FIRST_BOOT_PACKAGE="$(xorriso -indev "$ISO" -find /proxmox/packages -name 'proxmox-first-boot_*.deb' -print 2>/dev/null | head -n 1 | sed 's#.*/##')"
+ISO_INSTALLER_PATHS="$(xorriso -indev "$ISO" -find /proxmox/packages -type f -name 'proxmox-installer_*.deb' -- 2>/dev/null)" ||
+  fail_evidence HARNESS_FAILURE acquire "could not inspect installer package identity in vendor ISO"
+ISO_FIRST_BOOT_PATHS="$(xorriso -indev "$ISO" -find /proxmox/packages -type f -name 'proxmox-first-boot_*.deb' -- 2>/dev/null)" ||
+  fail_evidence HARNESS_FAILURE acquire "could not inspect first-boot package identity in vendor ISO"
+ISO_INSTALLER_PACKAGE="$(basename "$(printf '%s\n' "$ISO_INSTALLER_PATHS" | sed -n '1p')")"
+ISO_FIRST_BOOT_PACKAGE="$(basename "$(printf '%s\n' "$ISO_FIRST_BOOT_PATHS" | sed -n '1p')")"
 [[ "$ISO_INSTALLER_PACKAGE" == proxmox-installer_${PVE_INSTALLER_SOURCE_VERSION}_*.deb ]] ||
   fail_evidence ORACLE_FAILURE acquire "ISO installer package does not match pinned source version ${PVE_INSTALLER_SOURCE_VERSION}: ${ISO_INSTALLER_PACKAGE:-absent}"
 [[ "$ISO_FIRST_BOOT_PACKAGE" == proxmox-first-boot_${PVE_INSTALLER_SOURCE_VERSION}_*.deb ]] ||
