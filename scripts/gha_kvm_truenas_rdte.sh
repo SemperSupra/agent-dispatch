@@ -359,9 +359,10 @@ if [[ "$RUNG" == "t3" ]]; then
     qemu-img create -q -f qcow2 "$data_disk" "$DATA_DISK_SIZE" ||
       fail_evidence HARNESS_FAILURE data-disk-prepare "failed to create sparse data disk $index"
     drive_id="rdtedata${index}"
+    pci_slot=$((4 + index))
     DATA_DRIVE_ARGS+=(
       -drive "file=$data_disk,if=none,id=$drive_id,format=qcow2"
-      -device "virtio-blk-pci,drive=$drive_id,serial=${DATA_SERIAL_PREFIX}${index}"
+      -device "virtio-blk-pci,drive=$drive_id,serial=${DATA_SERIAL_PREFIX}${index},addr=0x${pci_slot}"
     )
   done
 fi
