@@ -1,0 +1,389 @@
+name: LiteLLM TrueNAS Foundry T6 RDTE
+
+on:
+  push:
+    branches:
+      - prep/truenas-t6-litellm-foundry-v1
+    paths:
+      - .github/workflows/litellm-truenas-t6-rdte.yml
+      - scripts/gha_kvm_truenas_rdte.sh
+      - scripts/truenas_middleware_litellm_foundry_probe.py
+      - tests/test_truenas_t6_litellm_foundry.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gha-kvm-system-rdte
+  cancel-in-progress: false
+
+env:
+  PRODUCT_SOURCE_HEAD: f09e7ed495c2bcfff2fa050ec61db268412fa0a9
+  PUBLIC_PROJECTION_HEAD: 76ed8c35a39aaadcfc69a5c8ca95496bd0e8cf97
+  FOUNDRY_COMMIT: 5f62da5ba229986879fa4f5d7a53169d0ed80356
+  TRUENAS_APPS_COMMIT: 4df7498747aad81b1049135539c65c383e42df95
+  TRUENAS_LIBRARY_VERSION: "2.3.11"
+  TRUENAS_LIBRARY_HASH: 874636814efb275e5276ea9d709b7cd665fed42bb1d50328e853d9253a2e1229
+  TRUENAS_VALIDATOR: ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c
+  LITELLM_IMAGE: ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac
+  PROJECTION_PATH: experiments/litellm-truenas-candidate/ix-dev/community/litellm
+  FIXTURE_CONFIG_PATH: experiments/litellm-appliance-v0/proxy_server_config.yaml
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Static syntax
+        run: |
+          set -euo pipefail
+          bash -n scripts/gha_kvm_truenas_rdte.sh
+          python3 -m py_compile scripts/truenas_middleware_litellm_foundry_probe.py
+      - name: LiteLLM T6 contract tests
+        run: python3 -m unittest -v tests/test_truenas_t6_litellm_foundry.py
+
+  materialize-control:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Fetch exact public projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          projection="$RUNNER_TEMP/public-projection"
+          git init --quiet "$projection"
+          git -C "$projection" remote add origin https://github.com/SemperSupra/agent-dispatch.git
+          git -C "$projection" fetch --quiet --depth=1 origin "$PUBLIC_PROJECTION_HEAD"
+          git -C "$projection" checkout --quiet --detach FETCH_HEAD
+          [[ "$(git -C "$projection" rev-parse HEAD)" == "$PUBLIC_PROJECTION_HEAD" ]]
+
+          check_blob() {
+            local path="$1" expected="$2" actual
+            actual="$(git -C "$projection" rev-parse "HEAD:$path")"
+            [[ "$actual" == "$expected" ]] || {
+              echo "projection blob drift: $path expected=$expected actual=$actual" >&2
+              exit 1
+            }
+          }
+          check_blob "$PROJECTION_PATH/app.yaml" 31bf5ee23ead31c8a781d9a70e2a7dd583bf1b9e
+          check_blob "$PROJECTION_PATH/ix_values.yaml" 25ae1d9eb9518884306083815d689f3311755793
+          check_blob "$PROJECTION_PATH/questions.yaml" 3d428cbeaab428b4f2e6ec871e3097878f2a5c56
+          check_blob "$PROJECTION_PATH/templates/docker-compose.yaml" ea0ad93079c5baa4746a300e09d914e644f0cff2
+          check_blob "$PROJECTION_PATH/templates/test_values/basic-values.yaml" ba516814818216b86b831f18d9751c92c33bed29
+          check_blob "$FIXTURE_CONFIG_PATH" 3d4aa1090151ee1aa089c3f2b55d5d2b08cfc47b
+
+      - name: Fetch exact common Foundry materializer
+        shell: bash
+        run: |
+          set -euo pipefail
+          foundry="$RUNNER_TEMP/foundry"
+          git init --quiet "$foundry"
+          git -C "$foundry" remote add origin https://github.com/SemperSupra/truenas-app-foundry.git
+          git -C "$foundry" fetch --quiet --depth=1 origin "$FOUNDRY_COMMIT"
+          git -C "$foundry" checkout --quiet --detach FETCH_HEAD
+          [[ "$(git -C "$foundry" rev-parse HEAD)" == "$FOUNDRY_COMMIT" ]]
+          [[ "$(git -C "$foundry" rev-parse HEAD:tools/prepare_truenas_platform_values.py)" == "f64a1399ac559d8e27a044916a8b5cad10ccfecb" ]]
+
+      - name: Materialize exact TrueNAS Apps source and candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          apps="$RUNNER_TEMP/truenas-apps"
+          projection="$RUNNER_TEMP/public-projection"
+          git init --quiet "$apps"
+          git -C "$apps" remote add origin https://github.com/truenas/apps.git
+          git -C "$apps" fetch --quiet --depth=1 origin "$TRUENAS_APPS_COMMIT"
+          git -C "$apps" checkout --quiet --detach FETCH_HEAD
+          [[ "$(git -C "$apps" rev-parse HEAD)" == "$TRUENAS_APPS_COMMIT" ]]
+
+          app_dir="$apps/ix-dev/community/litellm"
+          mkdir -p "$app_dir"
+          cp -a "$projection/$PROJECTION_PATH/." "$app_dir/"
+
+          lib_version="$(awk '$1 == "lib_version:" {print $2; exit}' "$app_dir/app.yaml")"
+          lib_hash="$(awk '$1 == "lib_version_hash:" {print $2; exit}' "$app_dir/app.yaml")"
+          [[ "$lib_version" == "$TRUENAS_LIBRARY_VERSION" ]]
+          [[ "$lib_hash" == "$TRUENAS_LIBRARY_HASH" ]]
+          base_dir="base_v${lib_version//./_}"
+          dest="$app_dir/templates/library/$base_dir"
+          if [[ ! -d "$dest" ]]; then
+            source_dir=""
+            while IFS= read -r candidate_dir; do
+              candidate_hash="$(find "$candidate_dir" -type f -exec sha256sum {} + | sort | awk '{print $1}' | sha256sum | awk '{print $1}')"
+              [[ "$candidate_hash" == "$lib_hash" ]] || continue
+              source_dir="$candidate_dir"
+              break
+            done < <(find "$apps/ix-dev" -type d -path "*/templates/library/$base_dir" | sort)
+            [[ -n "$source_dir" ]] || {
+              echo "No exact TrueNAS library tree found for $lib_version / $lib_hash" >&2
+              exit 1
+            }
+            mkdir -p "$(dirname "$dest")"
+            cp -a "$source_dir" "$dest"
+          fi
+          actual_lib_hash="$(find "$dest" -type f -exec sha256sum {} + | sort | awk '{print $1}' | sha256sum | awk '{print $1}')"
+          [[ "$actual_lib_hash" == "$TRUENAS_LIBRARY_HASH" ]]
+
+      - name: Prepare site-local T6 values through common Foundry materializer
+        shell: bash
+        run: |
+          set -euo pipefail
+          projection="$RUNNER_TEMP/public-projection"
+          apps="$RUNNER_TEMP/truenas-apps"
+          foundry="$RUNNER_TEMP/foundry"
+          raw="$RUNNER_TEMP/t6-runtime-source-values.yaml"
+          normalized="$RUNNER_TEMP/t6-runtime-values.yaml"
+          plan="$RUNNER_TEMP/t6-platform-plan.json"
+          resolved="$RUNNER_TEMP/t6-resolved.json"
+
+          python3 - "$projection/$PROJECTION_PATH/templates/test_values/basic-values.yaml" "$raw" <<'PY'
+          import pathlib, sys, yaml
+          src = pathlib.Path(sys.argv[1])
+          dst = pathlib.Path(sys.argv[2])
+          values = yaml.safe_load(src.read_text(encoding="utf-8"))
+          assert values["network"]["web_port"]["port_number"] == 30400
+          assert values["network"]["web_port"]["host_ips"] == []
+          assert values["storage"]["config"]["host_path_config"]["path"] == "/opt/tests/mnt/litellm/config"
+          assert values["storage"]["provider_secrets"]["host_path_config"]["path"] == "/opt/tests/mnt/litellm/secrets"
+          values["storage"]["config"]["host_path_config"]["path"] = "/mnt/rdtepool/rdte-t6-litellm/config"
+          values["storage"]["provider_secrets"]["host_path_config"]["path"] = "/mnt/rdtepool/rdte-t6-litellm/secrets"
+          dst.write_text(yaml.safe_dump(values, sort_keys=False), encoding="utf-8")
+          PY
+          printf '{}\n' > "$resolved"
+          python3 "$foundry/tools/prepare_truenas_platform_values.py" \
+            --questions "$apps/ix-dev/community/litellm/questions.yaml" \
+            --values "$raw" \
+            --resolved "$resolved" \
+            --output-values "$normalized" \
+            --plan "$plan"
+
+          [[ "$(stat -c '%a' "$normalized")" == "600" ]]
+          jq -e '.dependencies == [] and .actions == [] and .policy.unknown_active_ref == "fail-closed"' "$plan" >/dev/null
+          cp "$normalized" "$apps/ix-dev/community/litellm/templates/test_values/t6-runtime-values.yaml"
+
+      - name: Verify official validator identity
+        id: validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$TRUENAS_VALIDATOR" >/dev/null
+          ref="$(docker image inspect "$TRUENAS_VALIDATOR" --format '{{index .RepoDigests 0}}')"
+          digest="${ref##*@}"
+          expected="${TRUENAS_VALIDATOR##*@}"
+          [[ "$digest" == "$expected" ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Render exact LiteLLM control with official path
+        shell: bash
+        run: |
+          set -euo pipefail
+          apps="$RUNNER_TEMP/truenas-apps"
+          python3 - "$apps/.github/scripts/ci.py" "$TRUENAS_VALIDATOR" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text(encoding="utf-8")
+          old = 'CONTAINER_IMAGE = "ghcr.io/truenas/apps_validation:latest"'
+          new = 'CONTAINER_IMAGE = ' + repr(sys.argv[2])
+          if old not in s:
+              raise SystemExit("official ci.py validator constant changed")
+          p.write_text(s.replace(old, new), encoding="utf-8")
+          PY
+          (
+            cd "$apps"
+            python3 ./.github/scripts/ci.py \
+              --train community \
+              --app litellm \
+              --test-file t6-runtime-values.yaml \
+              --render-only=true > "$RUNNER_TEMP/rendered.yaml"
+          )
+          test -s "$RUNNER_TEMP/rendered.yaml"
+          docker compose -f "$RUNNER_TEMP/rendered.yaml" config --format json > "$RUNNER_TEMP/compose.json"
+
+      - name: Seal exact T6 control artifact
+        shell: bash
+        env:
+          VALIDATOR_DIGEST: ${{ steps.validator.outputs.digest }}
+        run: |
+          set -euo pipefail
+          control="$RUNNER_TEMP/litellm-t6-control"
+          projection="$RUNNER_TEMP/public-projection"
+          mkdir -p "$control/runtime-fixtures"
+          cp "$projection/$FIXTURE_CONFIG_PATH" "$control/runtime-fixtures/proxy_server_config.yaml"
+
+          python3 - "$RUNNER_TEMP/compose.json" "$control/litellm.compose.json" "$control/index.json" "$control/runtime-fixtures/proxy_server_config.yaml" <<'PY'
+          import hashlib, json, os, pathlib, sys
+
+          src, out, index_path, config_path = map(pathlib.Path, sys.argv[1:])
+          compose = json.loads(src.read_text(encoding="utf-8"))
+          compose.pop("name", None)
+          services = compose.get("services") or {}
+          assert sorted(services) == ["litellm"], sorted(services)
+          service = services["litellm"]
+          expected_image = os.environ["LITELLM_IMAGE"]
+          assert service.get("image") == expected_image, service.get("image")
+
+          mounts = service.get("volumes") or []
+          def find_mount(source, target):
+              found = []
+              for item in mounts:
+                  if isinstance(item, dict):
+                      if str(item.get("source") or "") == source and str(item.get("target") or "") == target:
+                          found.append(bool(item.get("read_only", False)))
+              assert found == [True], (source, target, mounts)
+          find_mount("/mnt/rdtepool/rdte-t6-litellm/config", "/config")
+          find_mount("/mnt/rdtepool/rdte-t6-litellm/secrets", "/run/secrets/semper-env")
+
+          env_text = json.dumps(service.get("environment") or {}, sort_keys=True)
+          assert "SEMPER_SECRET_DIR" in env_text
+          assert "/run/secrets/semper-env" in env_text
+          serialized = json.dumps(compose, sort_keys=True)
+          assert "fixture-provider-token" not in serialized
+          assert "OPENROUTER_MANAGEMENT_KEY" not in serialized
+
+          ports = service.get("ports") or []
+          assert any(int(p.get("target")) == 4000 and int(p.get("published")) == 30400 for p in ports if isinstance(p, dict)), ports
+          assert service.get("healthcheck"), service
+
+          canonical = json.dumps(compose, sort_keys=True, separators=(",", ":")).encode()
+          compose_sha = hashlib.sha256(canonical).hexdigest()
+          out.write_text(json.dumps(compose, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          config_sha = hashlib.sha256(config_path.read_bytes()).hexdigest()
+          assert config_sha == "d9b619992abff31e0ad0dd5537c73a4faecb108a89d323ba873ba991c21cfcd7"
+          index = {
+              "schema": "semper-supra.litellm-truenas-foundry-control/1",
+              "product_source": {
+                  "repository": "SemperSupra/truenas-app-foundry-private",
+                  "pr": 263,
+                  "head": os.environ["PRODUCT_SOURCE_HEAD"],
+                  "identity_basis": "DLE truenas-app-foundry-private#262 comment 5894719446",
+              },
+              "public_projection": {
+                  "repository": "SemperSupra/agent-dispatch",
+                  "pr": 42,
+                  "head": os.environ["PUBLIC_PROJECTION_HEAD"],
+                  "path": os.environ["PROJECTION_PATH"],
+                  "blob_identity_checked": True,
+              },
+              "foundry": {
+                  "repository": "SemperSupra/truenas-app-foundry",
+                  "commit": os.environ["FOUNDRY_COMMIT"],
+                  "platform_values_materializer": "tools/prepare_truenas_platform_values.py",
+              },
+              "truenas_apps": {
+                  "commit": os.environ["TRUENAS_APPS_COMMIT"],
+                  "library_version": os.environ["TRUENAS_LIBRARY_VERSION"],
+                  "library_hash": os.environ["TRUENAS_LIBRARY_HASH"],
+                  "validator_digest": os.environ["VALIDATOR_DIGEST"],
+              },
+              "appliance": {
+                  "reference": expected_image,
+                  "digest": expected_image.split("@", 1)[1],
+              },
+              "runtime": {
+                  "app_name": "rdte-t6-litellm",
+                  "config_dir": "/mnt/rdtepool/rdte-t6-litellm/config",
+                  "secret_dir": "/mnt/rdtepool/rdte-t6-litellm/secrets",
+                  "published_port": 30400,
+              },
+              "compose_path": "litellm.compose.json",
+              "compose_sha256": compose_sha,
+              "fixture_config_path": "runtime-fixtures/proxy_server_config.yaml",
+              "fixture_config_sha256": config_sha,
+              "synthetic_secret": {
+                  "name": "TEST_PROVIDER_KEY",
+                  "sha256": "76f000bbd6cf199852dfd5518a03754ce3662dc3d6db5cb227ecf54c8307c41e",
+                  "value_captured": False,
+              },
+              "secrets_captured": False,
+              "money_spent_usd": 0,
+          }
+          index_path.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps({"status": "PASS", "compose_sha256": compose_sha, "config_sha256": config_sha}, sort_keys=True))
+          PY
+          python3 -m json.tool "$control/index.json"
+          python3 -m json.tool "$control/litellm.compose.json" >/dev/null
+
+      - name: Upload exact LiteLLM T6 control
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: litellm-truenas-t6-control
+          path: ${{ runner.temp }}/litellm-t6-control/
+          if-no-files-found: error
+          retention-days: 7
+
+  truenas-26-beta3-t6:
+    needs: [contract, materialize-control]
+    if: needs.contract.result == 'success' && needs.materialize-control.result == 'success'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Download exact LiteLLM T6 control
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: litellm-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/litellm-t6-control
+
+      - name: Ensure bounded QEMU/KVM prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso
+
+      - name: Exercise exact LiteLLM Foundry candidate on TrueNAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          bash scripts/gha_kvm_truenas_rdte.sh \
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
+            --rung t6 \
+            --foundry-control-dir "$RUNNER_TEMP/gha-kvm-system-rdte/litellm-t6-control" \
+            --foundry-commit "$FOUNDRY_COMMIT" \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+
+      - name: Preserve TrueNAS T6 harness failure evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          if [[ ! -f "$receipt" ]]; then
+            python3 - "$receipt" <<'PY'
+          import json, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+            "contract": "gha-kvm-system-lab/v1",
+            "target": {"product": "truenas", "version": "26.0.0-BETA.3", "rung": "T6"},
+            "classification": "HARNESS_FAILURE",
+            "oracleSatisfied": False,
+            "phase": "workflow-fallback",
+            "detail": "adapter exited before emitting its normal receipt"
+          }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          fi
+
+      - name: Upload TrueNAS T6 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-kvm-truenas-litellm-t6-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/truenas-receipt.json
+          if-no-files-found: error
+          retention-days: 7
