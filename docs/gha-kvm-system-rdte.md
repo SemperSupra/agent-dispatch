@@ -202,3 +202,23 @@ This oracle exists because QEMU auto-assigns PCI devices to the first available
 non-reserved slot and virtio-blk exposes both `serial` and `bootindex` as device
 properties. It validates QEMU realization separately from the expensive TrueNAS
 installer/boot/pool oracle.
+
+
+### TrueNAS T4 Apps runtime
+
+T4 builds directly on the accepted T3 disposable mirror. The BETA.3 source-defined
+control path is used end-to-end:
+
+1. require the `APPS` entitlement reported by `truenas.entitlements.check`;
+2. run the real `docker.update({"pool":"rdtepool"})` job and independently require
+   `docker.config.pool == "rdtepool"` plus `docker.status == RUNNING`;
+3. create the upstream-test-shaped custom app `rdte-t4-probe` with a minimal
+   `nginx:1.27-alpine` Compose service;
+4. wait for the `app.create` job to succeed, then independently poll `app.query`;
+5. require app state `RUNNING`, `custom_app == true`, exactly one active container,
+   service name `web`, image `nginx:1.27-alpine`, and container state `running`.
+
+The TrueNAS 26.0 entitlement matrix grants Apps to an unlicensed generic/VM Community
+Edition system, so this QEMU target is expected to be eligible without adding a license.
+T4 still does not promote broader lifecycle semantics or App Foundry materialization;
+those remain T5 and T6.

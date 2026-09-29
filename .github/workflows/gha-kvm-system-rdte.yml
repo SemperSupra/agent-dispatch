@@ -60,7 +60,7 @@ jobs:
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
-                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py)
+                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py)
                   truenas=true
                   ;;
                 scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
@@ -193,7 +193,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
           bash scripts/gha_kvm_truenas_rdte.sh \
             --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
-            --rung t3 \
+            --rung t4 \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
       - name: Preserve TrueNAS harness failure evidence
@@ -206,7 +206,7 @@ jobs:
           import json, pathlib, sys
           pathlib.Path(sys.argv[1]).write_text(json.dumps({
             "contract":"gha-kvm-system-lab/v1",
-            "target":{"product":"truenas","version":"26.0.0-BETA.3","rung":"T3"},
+            "target":{"product":"truenas","version":"26.0.0-BETA.3","rung":"T4"},
             "classification":"HARNESS_FAILURE",
             "oracleSatisfied":False,
             "phase":"workflow-fallback",

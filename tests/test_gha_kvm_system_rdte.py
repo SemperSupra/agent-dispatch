@@ -19,6 +19,7 @@ QEMU_TOPOLOGY = ROOT / "scripts" / "gha_qemu_t3_topology_probe.py"
 TRUENAS_INSTALL = ROOT / "scripts" / "truenas_installer_rpc_install.py"
 TRUENAS_MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
 TRUENAS_POOL = ROOT / "scripts" / "truenas_middleware_pool_probe.py"
+TRUENAS_APP = ROOT / "scripts" / "truenas_middleware_app_probe.py"
 
 
 class SystemRdteContractTests(unittest.TestCase):
@@ -277,7 +278,7 @@ class SystemRdteContractTests(unittest.TestCase):
     def test_truenas_t3_real_harness_contract(self):
         text = TRUENAS.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("t0|t1|t2|t3", text)
+        self.assertIn("t0|t1|t2|t3|t4", text)
         self.assertIn('DATA_DISK_SIZE="8G"', text)
         self.assertIn("DATA_DISK_COUNT=2", text)
         self.assertIn('DATA_POOL_NAME="rdtepool"', text)
@@ -299,12 +300,35 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_pool_probe.py", text)
         self.assertIn('"data_pool_created"', text)
         self.assertIn('"data_pool"', text)
-        self.assertIn("--rung t3", workflow)
+        self.assertIn("--rung t4", workflow)
         self.assertNotIn("scripts/truenas_middleware_pool_probe.py", workflow)
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
         py_check = subprocess.run(["python3", "-m", "py_compile", str(TRUENAS_POOL)], text=True, capture_output=True)
         self.assertEqual(py_check.returncode, 0, py_check.stderr)
+
+    def test_truenas_t4_apps_contract(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        app = TRUENAS_APP.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('APP_RESULT_JSON=""', text)
+        self.assertIn("apps_runtime_exercised", text)
+        self.assertIn("truenas_middleware_app_probe.py", text)
+        self.assertIn("docker.update", app)
+        self.assertIn("docker.status", app)
+        self.assertIn("truenas.entitlements.check", app)
+        self.assertIn('"APPS"', app)
+        self.assertIn("app.create", app)
+        self.assertIn("app.query", app)
+        self.assertIn('"nginx:1.27-alpine"', app)
+        self.assertIn('"state") == "RUNNING"', app)
+        self.assertIn('--rung t4', workflow)
+        py = subprocess.run(
+            ["python3", "-m", "py_compile", str(TRUENAS_APP)],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(py.returncode, 0, py.stderr)
 
     def test_qemu_t3_topology_is_a_cheap_separate_oracle(self):
         probe = QEMU_TOPOLOGY.read_text(encoding="utf-8")

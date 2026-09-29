@@ -20,7 +20,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1|t2|t3]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1|t2|t3|t4]"
 }
 
 OUT=""
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$OUT" ]] || { usage >&2; exit 2; }
-[[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" ]] || { echo "rung must be t0, t1, t2, or t3" >&2; exit 2; }
+[[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" ]] || { echo "rung must be t0, t1, t2, t3, or t4" >&2; exit 2; }
 
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-truenas.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
@@ -56,6 +56,7 @@ QEMU_ALIVE_AT_GATE="unknown"
 INSTALL_RESULT_JSON=""
 MIDDLEWARE_RESULT_JSON=""
 POOL_RESULT_JSON=""
+APP_RESULT_JSON=""
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
@@ -77,7 +78,7 @@ write_receipt() {
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_EXPECTED="$EXPECTED_ISO_SHA" R_GRUB="$GRUB_PATH"
   export R_RUNG="$RUNG" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
-  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON"
+  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -91,9 +92,10 @@ payload = {
     "vcpus": 2,
     "ram_mib": 8192,
     "boot_disk": "24G",
-    "data_disks": ["8G", "8G"] if os.environ.get("R_RUNG") == "t3" else [],
-    "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") == "t3" else None,
-    "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") == "t3" else [],
+    "data_disks": ["8G", "8G"] if os.environ.get("R_RUNG") in {"t3", "t4"} else [],
+    "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") in {"t3", "t4"} else None,
+    "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") in {"t3", "t4"} else [],
+    "app": {"name": "rdte-t4-probe", "image": "nginx:1.27-alpine"} if os.environ.get("R_RUNG") == "t4" else None,
   },
   "source": {
     "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
@@ -112,11 +114,13 @@ payload = {
     "installer_install_completed": bool(os.environ.get("R_INSTALL_RESULT")) and json.loads(os.environ["R_INSTALL_RESULT"]).get("oracleSatisfied") is True,
     "installed_middleware_authenticated": bool(os.environ.get("R_MIDDLEWARE_RESULT")) and json.loads(os.environ["R_MIDDLEWARE_RESULT"]).get("oracleSatisfied") is True,
     "data_pool_created": bool(os.environ.get("R_POOL_RESULT")) and json.loads(os.environ["R_POOL_RESULT"]).get("oracleSatisfied") is True,
+    "apps_runtime_exercised": bool(os.environ.get("R_APP_RESULT")) and json.loads(os.environ["R_APP_RESULT"]).get("oracleSatisfied") is True,
   },
   "rpc_discovery": json.loads(os.environ["R_RPC_DISCOVERY"]) if os.environ.get("R_RPC_DISCOVERY") else None,
   "install_result": json.loads(os.environ["R_INSTALL_RESULT"]) if os.environ.get("R_INSTALL_RESULT") else None,
   "installed_middleware": json.loads(os.environ["R_MIDDLEWARE_RESULT"]) if os.environ.get("R_MIDDLEWARE_RESULT") else None,
   "data_pool": json.loads(os.environ["R_POOL_RESULT"]) if os.environ.get("R_POOL_RESULT") else None,
+  "apps_runtime": json.loads(os.environ["R_APP_RESULT"]) if os.environ.get("R_APP_RESULT") else None,
   "qemu_alive_at_gate": os.environ.get("R_QEMU_ALIVE"),
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
@@ -124,7 +128,8 @@ payload = {
     "T1 is read-only installer RPC discovery.",
     "T2 adds vendor installation plus installed middleware authentication/health.",
     "T3 adds two experiment-owned sparse data disks and a real middleware-created ZFS mirror pool.",
-    "Containers, Apps, and application lifecycle remain later gates.",
+    "T4 initializes Apps on that pool and runs one synthetic public-safe custom Compose app.",
+    "Broader application lifecycle and Foundry materialization remain later gates.",
     "This does not qualify physical storage controllers, SMART, GPU, IPMI, or HA behavior.",
   ],
 }
@@ -141,14 +146,18 @@ fail_evidence() {
 
 [[ -f "$SCRIPT_DIR/truenas_installer_rpc_probe.py" ]] ||
   fail_evidence HARNESS_FAILURE preflight "missing TrueNAS installer RPC probe"
-if [[ "$RUNG" == "t2" || "$RUNG" == "t3" ]]; then
+if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" ]]; then
   [[ -f "$SCRIPT_DIR/truenas_installer_rpc_install.py" ]] ||
     fail_evidence HARNESS_FAILURE preflight "missing TrueNAS installer install client"
   [[ -f "$SCRIPT_DIR/truenas_middleware_ddp_probe.py" ]] ||
     fail_evidence HARNESS_FAILURE preflight "missing TrueNAS middleware health client"
-  if [[ "$RUNG" == "t3" ]]; then
+  if [[ "$RUNG" == "t3" || "$RUNG" == "t4" ]]; then
     [[ -f "$SCRIPT_DIR/truenas_middleware_pool_probe.py" ]] ||
-      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T3 pool client"
+      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T3/T4 pool client"
+  fi
+  if [[ "$RUNG" == "t4" ]]; then
+    [[ -f "$SCRIPT_DIR/truenas_middleware_app_probe.py" ]] ||
+      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T4 Apps client"
   fi
 fi
 for cmd in curl sha256sum qemu-img qemu-system-x86_64 xorriso python3; do
@@ -353,7 +362,7 @@ if [[ -n "$QEMU_PID" ]]; then
 fi
 
 DATA_DRIVE_ARGS=()
-if [[ "$RUNG" == "t3" ]]; then
+if [[ "$RUNG" == "t3" || "$RUNG" == "t4" ]]; then
   for index in $(seq 0 $((DATA_DISK_COUNT - 1))); do
     data_disk="$STATE_DIR/data${index}.qcow2"
     qemu-img create -q -f qcow2 "$data_disk" "$DATA_DISK_SIZE" ||
@@ -460,7 +469,7 @@ python3 "$SCRIPT_DIR/truenas_middleware_pool_probe.py" \
   --out "$POOL_OUT" --pool-name "$DATA_POOL_NAME" \
   --expected-data-disks "$DATA_DISK_COUNT" --data-serial-prefix "$DATA_SERIAL_PREFIX" \
   --timeout 6 --job-timeout 180 >/dev/null 2>&1 || true
-[[ -f "$POOL_OUT" ]] || fail_evidence HARNESS_FAILURE data-pool "T3 pool client did not emit a receipt"
+[[ -f "$POOL_OUT" ]] || fail_evidence HARNESS_FAILURE data-pool "T3/T4 pool client did not emit a receipt"
 POOL_RESULT_JSON="$(cat "$POOL_OUT")"
 POOL_OK="$(python3 - "$POOL_OUT" <<'PY'
 import json, pathlib, sys
@@ -471,4 +480,27 @@ PY
 [[ "$POOL_OK" == "true" ]] ||
   fail_evidence ORACLE_FAILURE data-pool "installed TrueNAS did not create and independently verify the disposable ZFS mirror pool"
 
-write_receipt SUPPORTED true data-pool "installed TrueNAS created an ONLINE healthy two-disk mirror containing exactly the selected disposable data disks"
+if [[ "$RUNG" == "t3" ]]; then
+  write_receipt SUPPORTED true data-pool "installed TrueNAS created an ONLINE healthy two-disk mirror containing exactly the selected disposable data disks"
+  exit 0
+fi
+
+APP_OUT="$STATE_DIR/apps-runtime.json"
+python3 "$SCRIPT_DIR/truenas_middleware_app_probe.py" \
+  --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+  "${MIDDLEWARE_TLS_ARG[@]}" \
+  --password-file "$PASSWORD_FILE" \
+  --out "$APP_OUT" --pool-name "$DATA_POOL_NAME" \
+  --timeout 8 --job-timeout 300 --state-timeout 180 >/dev/null 2>&1 || true
+[[ -f "$APP_OUT" ]] || fail_evidence HARNESS_FAILURE apps-runtime "T4 Apps client did not emit a receipt"
+APP_RESULT_JSON="$(cat "$APP_OUT")"
+APP_OK="$(python3 - "$APP_OUT" <<'PY'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print("true" if data.get("oracleSatisfied") is True else "false")
+PY
+)"
+[[ "$APP_OK" == "true" ]] ||
+  fail_evidence ORACLE_FAILURE apps-runtime "TrueNAS Apps did not initialize and run the bounded custom app oracle"
+
+write_receipt SUPPORTED true apps-runtime "installed TrueNAS initialized Apps on rdtepool and ran the bounded custom nginx Compose app"
