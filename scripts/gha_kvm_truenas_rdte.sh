@@ -293,7 +293,7 @@ for attempt in $(seq 1 220); do
   if [[ "$RUNG" == "t0" && "$T0_OBSERVED" == "true" ]]; then
     break
   fi
-  if [[ "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" ]]; then
+  if [[ "$RUNG" != "t0" ]]; then
     if port_open "$RPC_PORT"; then
       RPC_HOSTFWD_ACCEPTED="true"
     fi
