@@ -380,6 +380,7 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
             self.assertEqual(len(receipt["unused_disks"]), 3)
             self.assertEqual(receipt["pool_disks"], ["vdb", "vdc"])
             self.assertEqual(receipt["job_state"], "SUCCESS")
+            self.assertFalse(receipt["create_contract"]["allow_duplicate_serials"])
             self.assertEqual(receipt["pool"]["status"], "ONLINE")
             self.assertTrue(receipt["pool"]["healthy"])
             self.assertNotIn(password, out.read_text(encoding="utf-8"))

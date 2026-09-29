@@ -110,7 +110,7 @@ def main():
         payload["create_contract"] = {
             "name": a.pool_name,
             "encryption": False,
-            "allow_duplicate_serials": True,
+            "allow_duplicate_serials": False,
             "topology": {"data": [{"type": "MIRROR", "disks": sorted(selected)}]},
         }
         job_id = ddp_call(ws, "6", "pool.create", [create])
