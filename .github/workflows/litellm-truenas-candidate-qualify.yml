@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 30
     env:
       TRUENAS_APPS_COMMIT: 4df7498747aad81b1049135539c65c383e42df95
+      TRUENAS_VALIDATOR: ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c
       PROJECTION: experiments/litellm-truenas-candidate/ix-dev/community/litellm
     steps:
       - name: Checkout public projection
@@ -67,15 +68,16 @@ jobs:
           git -C /tmp/apps add -N ix-dev/community/litellm
           git -C /tmp/apps diff --name-only master | grep -q '^ix-dev/community/litellm/'
 
-      - name: Resolve official validator identity
+      - name: Verify pinned official validator identity
         id: validator
         run: |
           set -euo pipefail
-          docker pull ghcr.io/truenas/apps_validation:latest
-          ref="$(docker image inspect ghcr.io/truenas/apps_validation:latest --format '{{index .RepoDigests 0}}')"
+          docker pull "$TRUENAS_VALIDATOR"
+          ref="$(docker image inspect "$TRUENAS_VALIDATOR" --format '{{index .RepoDigests 0}}')"
           digest="${ref##*@}"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          printf 'reference=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+          expected="${TRUENAS_VALIDATOR##*@}"
+          [[ "$digest" == "$expected" ]]
+          printf 'reference=%s\n' "$TRUENAS_VALIDATOR" >> "$GITHUB_OUTPUT"
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
 
       - name: Run official dev catalog validation
@@ -130,7 +132,7 @@ jobs:
           services=data.get('services') or {}
           assert len(services)==1, services.keys()
           service=next(iter(services.values()))
-          assert service.get('image') == 'ghcr.io/sempersupra/litellm-appliance@sha256:6209a4f4642a5e8b9bc1a4e7f9d853a9cb3a2a6c549aec5691f6370afefd0c26', service.get('image')
+          assert service.get('image') == 'ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac', service.get('image')
           vols=service.get('volumes') or []
           text='\n'.join(str(v) for v in vols)
           assert '/config' in text and '/run/secrets/semper-env' in text, text
@@ -154,7 +156,7 @@ jobs:
             "schema": "semper-supra.truenas-candidate-qualification/1",
             "status": "PASS",
             "truenas_apps_commit": "4df7498747aad81b1049135539c65c383e42df95",
-            "truenas_lib_version": "2.3.4",
+            "truenas_lib_version": "2.3.11",
             "validator_digest": os.environ["VALIDATOR_DIGEST"],
             "oracles": {
               "official_dev_catalog_validation": True,
