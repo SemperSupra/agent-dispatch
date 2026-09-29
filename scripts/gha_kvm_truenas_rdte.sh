@@ -429,7 +429,7 @@ sudo -n qemu-system-x86_64 \
   -device "virtio-blk-pci,drive=rdteboot,id=rdte-boot,addr=0x4,bootindex=1" \
   "${DATA_DRIVE_ARGS[@]}" \
   -boot strict=on \
-  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443" \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443${LITELLM_HOSTFWD}" \
   -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
@@ -567,8 +567,8 @@ if [[ "$RUNG" == "t5" ]]; then
 fi
 
 FOUNDRY_OUT="$STATE_DIR/foundry-control.json"
-python3 "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py" \
-  --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+python3 "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" \
+  --host 127.0.0.1 --port "$MIDDLEWARE_PORT" --service-port "$LITELLM_HOST_PORT" \
   "${MIDDLEWARE_TLS_ARG[@]}" \
   --password-file "$PASSWORD_FILE" \
   --control-dir "$FOUNDRY_CONTROL_DIR" \
