@@ -261,7 +261,7 @@ sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
   -drive "file=$STATE_DIR/boot.qcow2,if=virtio,format=qcow2" \
   -cdrom "$SERIAL_ISO" -boot order=d \
-  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080" -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC" \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080" -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
   -daemonize -pidfile "$STATE_DIR/qemu.pid" ||
@@ -383,7 +383,7 @@ sudo -n qemu-system-x86_64 \
   "${DATA_DRIVE_ARGS[@]}" \
   -boot order=c \
   -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443" \
-  -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC" \
+  -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
   -daemonize -pidfile "$STATE_DIR/qemu.pid" ||
