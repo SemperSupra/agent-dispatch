@@ -59,6 +59,20 @@ class GarmProviderG2Tests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "producer source drifted"):
                 MOD.load_bundle(root, "b" * 40)
 
+    def test_g2_fixture_download_is_true_nas_job_local(self):
+        workflow = (
+            ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
+        ).read_text(encoding="utf-8")
+        proxmox = workflow.split("  proxmox-9-2:", 1)[1].split(
+            "  truenas-26-beta3:", 1
+        )[0]
+        truenas = workflow.split("  truenas-26-beta3:", 1)[1]
+        marker = "Download exact GARM provider G2 fixtures"
+        self.assertNotIn(marker, proxmox)
+        self.assertIn(marker, truenas)
+        self.assertIn("garm-provider-truenas-g2-fixtures", truenas)
+        self.assertIn("--g2-fixture-dir", truenas)
+
     def test_tls_path_is_verified_and_ephemeral(self):
         text = SCRIPT.read_text(encoding="utf-8")
         for required in (

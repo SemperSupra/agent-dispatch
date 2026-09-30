@@ -222,13 +222,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Download exact GARM provider G2 fixtures
-        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: garm-provider-truenas-g2-fixtures
-          path: ${{ runner.temp }}/gha-kvm-system-rdte/g2-fixtures
-
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
@@ -308,6 +301,12 @@ jobs:
         with:
           name: garm-truenas-t6-control
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact GARM provider G2 fixtures
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-g2-fixtures
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/g2-fixtures
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
