@@ -52,6 +52,7 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
 
     def test_setup_and_cleanup_failures_keep_typed_classification(self):
         source = SCRIPT.read_text()
+        self.assertIn("class ProbeError(RuntimeError):", source)
         self.assertIn('ProbeError("VENUE_LIMITATION"', source)
         self.assertIn('ProbeError("SETUP_REQUIRED"', source)
         self.assertIn('"CLEANUP_FAILURE"', source)
