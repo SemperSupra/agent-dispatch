@@ -1,0 +1,8 @@
+{
+  "schema": "gha-kvm-truenas-run-request/v1",
+  "request_id": "tn-25.10.7-t5-initial",
+  "version": "25.10.7",
+  "rung": "t5",
+  "authority_issue": 410,
+  "purpose": "First exact stable TrueNAS T0-T5 qualification for Foundry materialization."
+}
