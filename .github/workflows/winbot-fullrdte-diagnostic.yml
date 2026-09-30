@@ -1,0 +1,419 @@
+name: WinBot FullRDTE Diagnostic
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-fullrdte-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  full-rdte:
+    runs-on: windows-2025
+    timeout-minutes: 125
+    env:
+      MASTER_MANIFEST_SHA: 'fad2b02f5bde4bc34d00bd41bc1383280e9c6a12'
+      EXPECTED_SOURCE_REVISION: 'fdc27c1c4aba48dfc575df855eb1351f85b82bf9'
+      EXPECTED_PROJECTION_IDENTITY: 'b617c8dc47a43fca870a89cffd5d45a5b5a13b0c797600e324774648a5d4ba44'
+      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20260930-03'
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Reconstruct and independently verify authorized FullRDTE capsule
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-staged'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $py = @'
+          import base64, hashlib, io, json, os, pathlib, tarfile, urllib.request
+          from datetime import datetime, timezone
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          master_sha = os.environ["MASTER_MANIFEST_SHA"]
+          expected_rev = os.environ["EXPECTED_SOURCE_REVISION"]
+          expected_identity = os.environ["EXPECTED_PROJECTION_IDENTITY"]
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "winbot-fullrdte-staged"
+          staging = root / "capsule"
+          projection = staging / "projection"
+          projection.mkdir(parents=True, exist_ok=True)
+
+          def get_blob(sha):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  obj = json.load(r)
+              if obj.get("sha") != sha or obj.get("encoding") != "base64":
+                  raise SystemExit(f"blob identity/encoding mismatch for {sha}")
+              raw = base64.b64decode(obj["content"])
+              if len(raw) != int(obj["size"]):
+                  raise SystemExit(f"blob size mismatch for {sha}")
+              git_sha = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+              if git_sha != sha:
+                  raise SystemExit(f"Git object digest mismatch for {sha}")
+              return raw
+
+          master = json.loads(get_blob(master_sha))
+          if master["source_revision"] != expected_rev:
+              raise SystemExit("master source revision mismatch")
+          if master["projection_identity_sha256"] != expected_identity:
+              raise SystemExit("master projection identity mismatch")
+
+          entries = []
+          for batch_sha in master["source_batch_manifests"]:
+              batch = json.loads(get_blob(batch_sha))
+              if batch["source_revision"] != expected_rev:
+                  raise SystemExit(f"batch source revision mismatch: {batch_sha}")
+              entries.extend(batch["entries"])
+
+          if len(entries) != int(master["projected_file_count"]):
+              raise SystemExit(f"projected file count mismatch: {len(entries)}")
+          if len({e["path"] for e in entries}) != len(entries):
+              raise SystemExit("duplicate projected paths")
+
+          projected = []
+          for e in sorted(entries, key=lambda x: x["path"]):
+              raw = get_blob(e["git_blob_sha"])
+              if len(raw) != int(e["size"]):
+                  raise SystemExit(f"source size mismatch: {e['path']}")
+              dest = projection / pathlib.PurePosixPath(e["path"])
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              dest.write_bytes(raw)
+              projected.append({
+                  "path": e["path"],
+                  "bytes": len(raw),
+                  "sha256": hashlib.sha256(raw).hexdigest(),
+              })
+
+          identity_obj = {"source_revision": expected_rev, "projected_files": projected}
+          identity = hashlib.sha256(
+              json.dumps(identity_obj, sort_keys=True, separators=(",", ":")).encode()
+          ).hexdigest()
+          if identity != expected_identity:
+              raise SystemExit(f"projection identity mismatch: {identity}")
+          total = sum(x["bytes"] for x in projected)
+          if total != int(master["projected_bytes"]):
+              raise SystemExit(f"projected byte count mismatch: {total}")
+
+          controls = json.loads(get_blob(master["control_manifest_sha"]))
+          control = {}
+          for e in controls["entries"]:
+              control[e["path"]] = get_blob(e["git_blob_sha"])
+
+          required = {
+              "rdte/gha/media/windows-enterprise-eval-x64.json",
+              "rdte/gha/qualification.json",
+              "rdte/gha/projection-policy.json",
+              "rdte/gha/full-rdte.ps1",
+          }
+          if set(control) != required:
+              raise SystemExit("control object set mismatch")
+
+          policy = json.loads(control["rdte/gha/projection-policy.json"])
+          auth = policy.get("authorization", {})
+          if not (
+              policy.get("state") == "authorized"
+              and auth.get("approved_revision") == expected_rev
+              and auth.get("approved_manifest_sha256") == expected_identity
+          ):
+              raise SystemExit("projection policy no longer authorizes exact source identity")
+
+          (staging / "media.json").write_bytes(control["rdte/gha/media/windows-enterprise-eval-x64.json"])
+          (staging / "qualification.json").write_bytes(control["rdte/gha/qualification.json"])
+          (staging / "projection-policy.json").write_bytes(control["rdte/gha/projection-policy.json"])
+          run_text = control["rdte/gha/full-rdte.ps1"].decode("utf-8-sig").strip() + "\n"
+          (staging / "run.ps1").write_text(run_text, encoding="utf-8")
+
+          manifest = {
+              "schema_version": 1,
+              "authority": "mark-e-deyoung/WinBot#70",
+              "profile": "FullRDTE",
+              "source_revision": expected_rev,
+              "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+              "projection_identity_sha256": identity,
+              "projected_files": projected,
+              "projected_file_count": len(projected),
+              "projected_bytes": total,
+              "constraints": {
+                  "private_repo_checkout_on_public_runner": False,
+                  "local_vhdx": False,
+                  "local_iso": False,
+                  "local_credentials": False,
+                  "local_api_token": False,
+                  "capsule_public_safe_required": True,
+              },
+          }
+          (staging / "projection-manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+
+          capsule = root / "capsule.tar.gz"
+          with tarfile.open(capsule, "w:gz") as tf:
+              for item in sorted(staging.rglob("*")):
+                  if item.is_file():
+                      tf.add(item, arcname=item.relative_to(staging))
+
+          raw = capsule.read_bytes()
+          capsule_sha = hashlib.sha256(raw).hexdigest()
+          if len(raw) > 8 * 1024 * 1024:
+              raise SystemExit(f"capsule exceeds 8 MiB: {len(raw)}")
+          b64 = root / "capsule.b64"
+          b64.write_text(base64.b64encode(raw).decode("ascii"), encoding="ascii")
+
+          receipt = {
+              "schema_version": 1,
+              "authority": master["authority"],
+              "experiment_authority": master["experiment_authority"],
+              "master_manifest_sha": master_sha,
+              "source_revision": expected_rev,
+              "projection_identity_sha256": identity,
+              "projected_file_count": len(projected),
+              "projected_bytes": total,
+              "capsule_bytes": len(raw),
+              "capsule_sha256": capsule_sha,
+              "private_repo_checkout": False,
+              "staged_public_git_objects_only": True,
+          }
+          (root / "reconstruction.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(receipt, sort_keys=True))
+          '@
+          $py | python -
+          if ($LASTEXITCODE -ne 0) { throw 'authorized projection reconstruction failed' }
+
+          $receipt = Get-Content -LiteralPath (Join-Path $root 'reconstruction.json') -Raw | ConvertFrom-Json
+          "CAPSULE_SHA256=$($receipt.capsule_sha256)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CAPSULE_B64_FILE=$(Join-Path $root 'capsule.b64')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install pinned result sealer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uri = 'https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-windows-amd64.zip'
+          $expected = 'f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7'
+          $zip = Join-Path $env:RUNNER_TEMP 'age-v1.3.2-windows-amd64.zip'
+          Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "age archive SHA-256 mismatch" }
+          $ageRoot = Join-Path $env:RUNNER_TEMP 'age-v1.3.2'
+          Expand-Archive -LiteralPath $zip -DestinationPath $ageRoot -Force
+          $age = Get-ChildItem -LiteralPath $ageRoot -Recurse -Filter age.exe | Select-Object -First 1
+          if (-not $age) { throw 'age.exe missing' }
+          $age.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+
+      - name: Generate ephemeral diagnostic result key
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $identity = Join-Path $env:RUNNER_TEMP 'winbot-diagnostic-age-identity.txt'
+          age-keygen -o $identity 2>$null
+          $line = (Select-String -LiteralPath $identity -Pattern '^# public key: ' | Select-Object -First 1).Line
+          if (-not $line) { throw 'age public recipient missing from generated identity' }
+          $recipient = $line.Split()[-1]
+          if ($recipient -notmatch '^age1[023456789acdefghjklmnpqrstuvwxyz]{58}        id: execute
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $env:SEALED_CAPSULE_TRANSPORT = 'staged_git_projection'
+          python scripts/sealed_public_execution.py `
+            --assignment-id "$env:ASSIGNMENT_ID" `
+            --capsule-b64-file "$env:CAPSULE_B64_FILE" `
+            --capsule-sha256 "$env:CAPSULE_SHA256" `
+            --recipient "$env:AGE_RECIPIENT" `
+            --timeout-seconds 7200 `
+            --entrypoint run.ps1 `
+            --out-dir .sealed
+          $rc = $LASTEXITCODE
+          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+
+      - name: Derive redacted FullRDTE diagnostic receipt
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $diagRoot = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-diagnostic'
+          New-Item -ItemType Directory -Force -Path $diagRoot | Out-Null
+          $diagPath = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-staged\diagnostic.json'
+          if (-not (Test-Path -LiteralPath '.sealed\result.age')) { throw 'sealed diagnostic result missing' }
+          if (-not $env:DIAG_IDENTITY -or -not (Test-Path -LiteralPath $env:DIAG_IDENTITY)) { throw 'ephemeral diagnostic identity missing' }
+          $plain = Join-Path $diagRoot 'result.tar.gz'
+          age --decrypt --identity $env:DIAG_IDENTITY --output $plain '.sealed\result.age'
+          if ($LASTEXITCODE -ne 0) { throw 'diagnostic result decryption failed' }
+          $extract = Join-Path $diagRoot 'result'
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          $env:DIAG_PLAIN = $plain
+          $env:DIAG_EXTRACT = $extract
+          $env:DIAG_OUTPUT = $diagPath
+          $py = @'
+          import json, os, pathlib, re, tarfile
+
+          plain = pathlib.Path(os.environ["DIAG_PLAIN"])
+          root = pathlib.Path(os.environ["DIAG_EXTRACT"])
+          output = pathlib.Path(os.environ["DIAG_OUTPUT"])
+          with tarfile.open(plain, "r:gz") as tf:
+              tf.extractall(root, filter="data")
+
+          def load_one(name):
+              hits = list(root.rglob(name))
+              if not hits:
+                  return None
+              return json.loads(hits[0].read_text(encoding="utf-8-sig"))
+
+          def clean_text(value):
+              if value is None:
+                  return None
+              s = str(value)
+              s = re.sub(r"Wb![0-9A-Fa-f]{20,}", "<redacted-run-credential>", s)
+              s = re.sub(r"\b[0-9A-Fa-f]{48,}\b", "<redacted-long-hex>", s)
+              return s[:800]
+
+          r = load_one("full-rdte.json")
+          e = load_one("execution.json")
+          diag = {"schema_version": 1, "scope": "redacted_fullrdte_diagnostic"}
+          if e:
+              diag["execution"] = {
+                  k: e.get(k) for k in (
+                      "assignment_id","exit_code","task_exit_code","timed_out",
+                      "capsule_sha256","worker_revision","run_id","run_attempt"
+                  )
+              }
+              diag["execution"]["result_budget"] = e.get("result_budget")
+          if r:
+              diag["full_rdte"] = {
+                  "schema_version": r.get("schema_version"),
+                  "profile": r.get("profile"),
+                  "assignment_id": r.get("assignment_id"),
+                  "source_revision": r.get("source_revision"),
+                  "projection_identity_sha256": r.get("projection_identity_sha256"),
+                  "classification": r.get("classification"),
+                  "failure_domain": r.get("failure_domain"),
+                  "error_type": r.get("error_type"),
+                  "error_message": clean_text(r.get("error_message")),
+                  "elapsed_seconds": r.get("elapsed_seconds"),
+                  "build": {k: (clean_text(v) if isinstance(v,str) else v) for k,v in (r.get("build") or {}).items()
+                            if k in {
+                              "projection_authorized","free_bytes_before","switch_name",
+                              "download_method","download_seconds","media_size_bytes",
+                              "image_apply_engine","build_seconds","seed_test_vhd",
+                              "seed_size_bytes","seed_integrity",
+                              "iso_reclaimed_before_materialization","seed_unchanged",
+                              "seed_integrity_after"
+                            }},
+                  "work_cells": {
+                      side: {k:v for k,v in ((r.get("work_cells") or {}).get(side) or {}).items()
+                             if k in {
+                               "materialize_seconds","lineage","ip_observed",
+                               "api_token_observed","health_status","ready_seconds",
+                               "runtime_taint_written","prior_runtime_taint_absent",
+                               "vm_absent_after_dispose","runtime_disk_absent_after_dispose"
+                             }}
+                      for side in ("a","b")
+                  },
+                  "persistence": {k:v for k,v in (r.get("persistence") or {}).items()
+                                  if k in {
+                                    "explicit_attachment","exists_before_a","canary_written",
+                                    "exists_after_a_dispose","canary_survived_rematerialization",
+                                    "b_drive_letter","exists_after_b_dispose","oracle_satisfied"
+                                  }},
+                  "conformance": {k:v for k,v in (r.get("conformance") or {}).items()
+                                  if k in {
+                                    "contracts_revision","elapsed_seconds","pytest_exit_code",
+                                    "results_present","summary","oracle_satisfied"
+                                  }},
+                  "cleanup": r.get("cleanup") or {},
+              }
+          else:
+              diag["full_rdte"] = None
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps(diag, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          '@
+          $py | python -
+          if ($LASTEXITCODE -ne 0) { throw 'diagnostic receipt extraction failed' }
+          Remove-Item -LiteralPath $diagRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath $env:DIAG_IDENTITY -Force -ErrorAction SilentlyContinue
+
+      - name: Upload sealed FullRDTE evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-fullrdte-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .sealed/receipt.json
+            ${{ runner.temp }}/winbot-fullrdte-staged/reconstruction.json
+            ${{ runner.temp }}/winbot-fullrdte-staged/diagnostic.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Preserve FullRDTE verdict
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.execute.outputs.task_rc }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TASK_RC)) { exit 1 }
+          exit [int]$env:TASK_RC
+) { throw 'generated age recipient failed validation' }
+          "AGE_RECIPIENT=$recipient" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DIAG_IDENTITY=$identity" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Execute sealed FullRDTE
+        id: execute
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $env:SEALED_CAPSULE_TRANSPORT = 'staged_git_projection'
+          python scripts/sealed_public_execution.py `
+            --assignment-id "$env:ASSIGNMENT_ID" `
+            --capsule-b64-file "$env:CAPSULE_B64_FILE" `
+            --capsule-sha256 "$env:CAPSULE_SHA256" `
+            --recipient "$env:AGE_RECIPIENT" `
+            --timeout-seconds 7200 `
+            --entrypoint run.ps1 `
+            --out-dir .sealed
+          $rc = $LASTEXITCODE
+          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Upload sealed FullRDTE evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-fullrdte-staged-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .sealed/result.age
+            .sealed/receipt.json
+            ${{ runner.temp }}/winbot-fullrdte-staged/reconstruction.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Preserve FullRDTE verdict
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.execute.outputs.task_rc }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TASK_RC)) { exit 1 }
+          exit [int]$env:TASK_RC
