@@ -44,6 +44,12 @@ class FirecrackerWorkloadEvidenceTests(unittest.TestCase):
         self.assertEqual(MOD.receipt_digest(a), MOD.receipt_digest(b))
         self.assertEqual(len(MOD.receipt_digest(a)), 64)
 
+    def test_receipt_digest_remains_recomputable_after_insertion(self):
+        r = base_receipt()
+        digest = MOD.receipt_digest(r)
+        r["receipt_digest"] = digest
+        self.assertEqual(MOD.receipt_digest(r), digest)
+
     def test_firecracker_requires_material_reason(self):
         with self.assertRaises(MOD.ContractError):
             base_receipt(placement_reasons=[])
