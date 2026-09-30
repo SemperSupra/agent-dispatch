@@ -45,6 +45,7 @@ on:
         options:
           - litellm
           - wow-sidecar
+          - garm
 
 permissions:
   contents: read
@@ -105,7 +106,7 @@ jobs:
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
-                config/truenas-rdte-targets.json|scripts/truenas_rdte_target.py|scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_litellm_t6_probe.py|scripts/truenas_middleware_wow_sidecar_t6_probe.py)
+                config/truenas-rdte-targets.json|scripts/truenas_rdte_target.py|scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_litellm_t6_probe.py|scripts/truenas_middleware_wow_sidecar_t6_probe.py|scripts/truenas_middleware_garm_t6_probe.py)
                   truenas=true
                   ;;
                 scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
@@ -116,7 +117,7 @@ jobs:
             if [[ "$run_request_changed" == "true" ]]; then
               truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
               truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
-              truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar")' "$RUN_REQUEST_PATH")"
+              truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm")' "$RUN_REQUEST_PATH")"
               jq -e '.schema == "gha-kvm-truenas-run-request/v1"' "$RUN_REQUEST_PATH" >/dev/null
               python3 scripts/truenas_rdte_target.py \
                 --registry config/truenas-rdte-targets.json \
@@ -143,7 +144,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate public-safe contract
-        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_rdte_target.py
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_rdte_target.py
 
   foundry-t6-control:
     needs: [changes, contract]
@@ -162,6 +163,17 @@ jobs:
       foundry_ref: 706eca4fafcdafbff41ce6b0adb5a784a580df1e
     permissions:
       contents: read
+      packages: read
+
+  foundry-garm-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-garm-t6-control.yml@34a0759fe390d7a92b270a599b6584f8949c6d07
+    with:
+      foundry_ref: 34a0759fe390d7a92b270a599b6584f8949c6d07
+    permissions:
+      contents: read
+      packages: read
 
   qemu-t3-topology:
     needs: [changes, contract]
@@ -202,6 +214,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Download exact GARM Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
@@ -244,7 +262,7 @@ jobs:
           retention-days: 7
 
   truenas-26-beta3:
-    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control]
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control]
     if: >-
       always() &&
       needs.contract.result == 'success' &&
@@ -253,7 +271,8 @@ jobs:
       (
         needs.changes.outputs.truenas_rung != 't6' ||
         (needs.changes.outputs.truenas_t6_product == 'litellm' && needs['foundry-t6-control'].result == 'success') ||
-        (needs.changes.outputs.truenas_t6_product == 'wow-sidecar' && needs['foundry-wow-t6-control'].result == 'success')
+        (needs.changes.outputs.truenas_t6_product == 'wow-sidecar' && needs['foundry-wow-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm' && needs['foundry-garm-t6-control'].result == 'success')
       )
     runs-on: ubuntu-26.04
     timeout-minutes: 50
@@ -290,7 +309,9 @@ jobs:
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           )
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" ]]; then
-            if [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "wow-sidecar" ]]; then
+            if [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm" ]]; then
+              foundry_commit="34a0759fe390d7a92b270a599b6584f8949c6d07"
+            elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "wow-sidecar" ]]; then
               foundry_commit="706eca4fafcdafbff41ce6b0adb5a784a580df1e"
             else
               foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
