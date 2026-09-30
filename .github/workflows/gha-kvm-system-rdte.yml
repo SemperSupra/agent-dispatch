@@ -68,6 +68,7 @@ jobs:
           DISPATCH_TRUENAS_RUNG: ${{ inputs.truenas_rung }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
+          RUN_REQUEST_PATH: config/truenas-rdte-run-request.json
         run: |
           set -euo pipefail
           proxmox=false
@@ -75,6 +76,7 @@ jobs:
           qemu_topology=false
           truenas_version="${DISPATCH_TRUENAS_VERSION:-26.0.0-BETA.3}"
           truenas_rung="${DISPATCH_TRUENAS_RUNG:-t6}"
+          run_request_changed=false
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             case "$DISPATCH_TARGET" in
               proxmox) proxmox=true ;;
@@ -85,6 +87,10 @@ jobs:
           elif [[ -n "$BEFORE_SHA" && -n "$AFTER_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]]; then
             while IFS= read -r path; do
               case "$path" in
+                config/truenas-rdte-run-request.json)
+                  truenas=true
+                  run_request_changed=true
+                  ;;
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
@@ -96,6 +102,211 @@ jobs:
                   ;;
               esac
             done < <(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
+            if [[ "$run_request_changed" == "true" ]]; then
+              request="$(python3 - "$RUN_REQUEST_PATH" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+if data.get("schema") != "gha-kvm-truenas-run-request/v1":
+    raise SystemExit("unsupported TrueNAS run-request schema")
+version = data.get("version")
+rung = data.get("rung")
+if not isinstance(version, str) or not version:
+    raise SystemExit("run request requires exact version")
+if rung not in {"t0", "t1", "t2", "t3", "t4", "t5", "t6"}:
+    raise SystemExit("run request has invalid rung")
+print(f"{version}\t{rung}")
+PY
+              )"
+              IFS=
+            proxmox=true
+            truenas=true
+            qemu_topology=true
+          fi
+          echo "proxmox=$proxmox" >>"$GITHUB_OUTPUT"
+          echo "truenas=$truenas" >>"$GITHUB_OUTPUT"
+          echo "qemu_topology=$qemu_topology" >>"$GITHUB_OUTPUT"
+          echo "truenas_version=$truenas_version" >>"$GITHUB_OUTPUT"
+          echo "truenas_rung=$truenas_rung" >>"$GITHUB_OUTPUT"
+          printf 'target scope: proxmox=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s\n' "$proxmox" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung"
+
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate public-safe contract
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_rdte_target.py
+
+  foundry-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-litellm-t6-control.yml@4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
+    with:
+      foundry_ref: 4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
+    permissions:
+      contents: read
+
+  qemu-t3-topology:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.qemu_topology == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install QEMU topology prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils
+      - name: Exercise actual hosted-runner QEMU topology
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          python3 scripts/gha_qemu_t3_topology_probe.py \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/qemu-t3-topology.json"
+      - name: Upload QEMU topology evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-qemu-t3-topology-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/qemu-t3-topology.json
+          if-no-files-found: error
+          retention-days: 7
+
+  proxmox-9-2:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.proxmox == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Ensure bounded QEMU/KVM prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso sshpass
+      - name: Exercise pinned Proxmox real-system target
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          bash scripts/gha_kvm_proxmox_rdte.sh \
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-state" \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+          python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+      - name: Preserve Proxmox harness failure evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+          if [ ! -f "$receipt" ]; then
+            python3 - "$receipt" <<'PY'
+          import json, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+            "contract":"gha-kvm-system-lab/v1",
+            "target":{"product":"proxmox-ve","version":"9.2-1"},
+            "classification":"HARNESS_FAILURE",
+            "oracleSatisfied":False,
+            "phase":"workflow-fallback",
+            "detail":"adapter exited before emitting its normal receipt"
+          }, indent=2, sort_keys=True)+"\n")
+          PY
+          fi
+      - name: Upload Proxmox evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-kvm-proxmox-9-2-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/proxmox-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  truenas-26-beta3:
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control]
+    if: >-
+      always() &&
+      needs.contract.result == 'success' &&
+      needs.changes.outputs.truenas == 'true' &&
+      (needs['proxmox-9-2'].result == 'success' || needs['proxmox-9-2'].result == 'skipped') &&
+      (needs.changes.outputs.truenas_rung != 't6' || needs['foundry-t6-control'].result == 'success')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Download exact LiteLLM Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: litellm-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Ensure bounded QEMU/KVM prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso
+      - name: Exercise pinned TrueNAS installer target
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          args=(
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state"
+            --target-version "${{ needs.changes.outputs.truenas_version }}"
+            --rung "${{ needs.changes.outputs.truenas_rung }}"
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          )
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" ]]; then
+            args+=(
+              --foundry-control-dir "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control"
+              --foundry-commit "4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
+            )
+          fi
+          bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
+          python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+      - name: Preserve TrueNAS harness failure evidence
+        if: always()
+        env:
+          TRUENAS_VERSION: ${{ needs.changes.outputs.truenas_version }}
+          TRUENAS_RUNG: ${{ needs.changes.outputs.truenas_rung }}
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          if [ ! -f "$receipt" ]; then
+            python3 - "$receipt" <<'PY'
+          import json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+            "contract":"gha-kvm-system-lab/v1",
+            "target":{"product":"truenas","version":os.environ["TRUENAS_VERSION"],"rung":os.environ["TRUENAS_RUNG"].upper()},
+            "classification":"HARNESS_FAILURE",
+            "oracleSatisfied":False,
+            "phase":"workflow-fallback",
+            "detail":"adapter exited before emitting its normal receipt"
+          }, indent=2, sort_keys=True)+"\n")
+          PY
+          fi
+      - name: Upload TrueNAS evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-kvm-truenas-26-beta3-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/truenas-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+\t' read -r truenas_version truenas_rung <<<"$request"
+              python3 scripts/truenas_rdte_target.py \
+                --registry config/truenas-rdte-targets.json \
+                --version "$truenas_version" >/dev/null
+            fi
           else
             proxmox=true
             truenas=true
