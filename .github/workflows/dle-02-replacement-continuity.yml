@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Recover DLE from durable state
+        env:
+          DLE_ACTIVATION_BODY: github-actions/ubuntu-24.04
         run: python3 experiments/dle-02/check_continuation.py experiments/dle-02/capsule.json artifacts/dle-02/receipt.json
       - name: Show machine receipt
         run: cat artifacts/dle-02/receipt.json
