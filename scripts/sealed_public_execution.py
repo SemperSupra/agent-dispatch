@@ -28,7 +28,9 @@ from pathlib import Path
 
 ASSIGNMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,95}$")
 AGE_RECIPIENT_RE = re.compile(r"^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$")
-MAX_CAPSULE_B64 = 60_000
+MAX_INLINE_CAPSULE_B64 = 60_000
+MAX_CAPSULE_BYTES = 8 * 1024 * 1024
+MAX_CAPSULE_B64 = ((MAX_CAPSULE_BYTES + 2) // 3) * 4
 MAX_MEMBER_COUNT = 256
 MAX_UNPACKED_BYTES = 16 * 1024 * 1024
 MAX_TIMEOUT_SECONDS = 7_200
@@ -79,6 +81,8 @@ def decode_capsule(encoded: str, expected_sha256: str, destination: Path) -> Pat
         raw = base64.b64decode(encoded, validate=True)
     except Exception as exc:  # binascii.Error varies by Python version
         raise WorkerError("capsule_b64 is not valid base64") from exc
+    if len(raw) > MAX_CAPSULE_BYTES:
+        raise WorkerError(f"decoded capsule exceeds {MAX_CAPSULE_BYTES} bytes")
     capsule = destination / "capsule.tar.gz"
     capsule.write_bytes(raw)
     actual = _sha256(capsule)
