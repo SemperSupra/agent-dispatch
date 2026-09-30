@@ -50,6 +50,13 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         self.assertIn('visibility="public_safe"', source)
         self.assertNotIn('visibility="private"', source)
 
+    def test_externalization_and_cleanup_can_overrule_guest_success(self):
+        source = SCRIPT.read_text()
+        self.assertIn('"ORACLE_FAILURE"', source)
+        self.assertIn('"CLEANUP_FAILURE"', source)
+        self.assertIn('"host_output_validation": outputs_valid', source)
+        self.assertIn('"cleanup_ok": cleanup["ok"]', source)
+
     def test_host_validator_is_separate_from_guest_marker(self):
         source = SCRIPT.read_text()
         self.assertIn("host/playwright-control-v1", source)
