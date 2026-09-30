@@ -2,12 +2,19 @@ name: GitHub Runner Representative Workload
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "experiments/dle-02/**"
+      - ".github/workflows/github-runner-workload.yml"
 
 permissions:
   contents: read
 
 jobs:
   qualify:
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -111,5 +118,30 @@ jobs:
             ${{ runner.temp }}/runner-workload/receipt.json
             ${{ runner.temp }}/runner-workload/stdout.txt
             ${{ runner.temp }}/runner-workload/stderr.txt
+          if-no-files-found: error
+          retention-days: 7
+
+
+  dle02-replacement:
+    if: github.event_name == 'pull_request' && github.head_ref == 'exp/dle-02-replacement-continuity'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Recover DLE from durable repository state
+        env:
+          DLE_ACTIVATION_BODY: github-actions/ubuntu-24.04
+        run: |
+          python3 experiments/dle-02/check_continuation.py             experiments/dle-02/capsule.json             artifacts/dle-02/receipt.json
+          cat artifacts/dle-02/receipt.json
+
+      - name: Upload DLE-02 receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dle-02-replacement-receipt-${{ github.run_id }}
+          path: artifacts/dle-02/receipt.json
           if-no-files-found: error
           retention-days: 7
