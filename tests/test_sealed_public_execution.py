@@ -66,6 +66,22 @@ class SealedExecutionContractTests(unittest.TestCase):
             worker.safe_extract(capsule, root / "work")
             self.assertTrue((root / "work" / "run.sh").is_file())
 
+
+    def test_windows_entrypoint_is_bounded_and_extractable(self):
+        raw = make_capsule([
+            ("run.ps1", 'New-Item -ItemType Directory -Force -Path $env:SEALED_RESULT_DIR | Out-Null\n', "file"),
+        ])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            capsule = root / "capsule.tar.gz"
+            capsule.write_bytes(raw)
+            worker.safe_extract(capsule, root / "work", entrypoint="run.ps1")
+            self.assertTrue((root / "work" / "run.ps1").is_file())
+
+        self.assertEqual(worker._validate_entrypoint("run.ps1"), "run.ps1")
+        with self.assertRaises(worker.WorkerError):
+            worker._validate_entrypoint("arbitrary.ps1")
+
     def test_safe_extract_rejects_traversal(self):
         raw = make_capsule([
             ("run.sh", "echo ok\n", "file"),
