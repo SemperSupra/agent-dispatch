@@ -24,7 +24,9 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertIn(MOD.EXPECTED_FIXTURE_DATASET, text)
         self.assertIn('"execution_control_mutation_authorized": False', text)
         self.assertNotIn("GITHUB_APP_PRIVATE_KEY=", text)
-        self.assertIn('"SemperSupra/wow-sidecar-private"', text)
+        self.assertIn("PRIVATE_REPO_RE", text)
+        self.assertNotIn("SemperSupra/wow-sidecar-private", text)
+        self.assertNotIn("SemperSupra/agent-dispatch-private", text)
 
     def test_probe_binds_seed_permissions_restart_and_cleanup_oracles(self):
         text = SCRIPT.read_text(encoding="utf-8")
