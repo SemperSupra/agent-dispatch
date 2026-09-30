@@ -26,6 +26,15 @@ jobs:
       - name: Run dependency-free contract tests
         run: python3 -m unittest -v tests/test_sealed_public_execution.py
 
+      - name: Guard work-cell guest file reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -nE 'Get-Content[^\n]*-Raw|-Raw[^\n]*Get-Content' scripts/winbot_hyperv_workcell_materialization.ps1; then
+            echo 'provider-dependent Get-Content -Raw is prohibited in the work-cell guest harness' >&2
+            exit 1
+          fi
+
       - name: Install age for round-trip test
         shell: bash
         run: |
