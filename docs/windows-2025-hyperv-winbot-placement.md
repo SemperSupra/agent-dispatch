@@ -115,3 +115,45 @@ at that dependency rather than substituting a local/private guest.
 
 A permanent self-hosted Hyper-V runner remains an optional optimization under
 WinBot #70 only if repeated use later justifies it.
+
+## Accepted qualification evidence
+
+Accepted targeted rep:
+
+- workflow run: `36688159026`;
+- execution commit: `e82b65bcf1513e58e79331b70f4d043941466082`;
+- requested runner: `windows-2025`;
+- observed image: `win25-vs2026` / `20260922.246.2`;
+- retained artifact: `windows-2025-hyperv-lifecycle-36688159026-1`;
+- artifact digest: `sha256:323eeff03762316814404cfe8b8db8475844f887a16e66ae3f7e4b760d821df7`.
+
+The receipt classified `windows:hyper-v-vm-lifecycle` as `SUPPORTED` with
+`oracleSatisfied=true`. The raw evidence records:
+
+- Hyper-V module `2.0.0.0` present;
+- Hyper-V server feature installed;
+- `vmms` present and running;
+- `Get-VMHost` callable;
+- hypervisor present and firmware virtualization reported enabled;
+- one Generation-2, 64 MiB, no-VHD VM created;
+- zero disks and zero network adapters before start;
+- `Running` observed;
+- running-state inspection again confirmed zero disks/network adapters;
+- `Off` observed after stop;
+- VM absent after removal;
+- run-owned directory absent after final cleanup.
+
+The `Get-WindowsOptionalFeature Microsoft-Hyper-V-All` observation itself
+returned a PowerShell property-query failure in this image; the separate
+Windows Server feature query reported Hyper-V `Installed`. This is retained as
+preflight evidence and does not substitute for the successful lifecycle oracle.
+
+**Placement status:** Hyper-V VM control is proven usable for this exact
+`windows-2025` hosted image observation. This is image-bound evidence, not a
+provider guarantee that future `windows-2025` images will retain the same
+capability.
+
+**WinBot build/qualification status:** not ready yet. The remaining dependency
+is an explicitly authorized public guest input with immutable identity plus its
+independent WinBot validation oracle. No local/private WinBot image or
+credential is an acceptable substitute.
