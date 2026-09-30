@@ -62,7 +62,7 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertIn('"wow-sidecar"', harness)
         self.assertIn("truenas_middleware_wow_sidecar_t6_probe.py", harness)
         self.assertIn('T6_PRODUCT="litellm"', harness)
-        self.assertIn(request["product"], {"litellm", "wow-sidecar", "garm"})
+        self.assertIn(request["product"], {"litellm", "wow-sidecar", "garm", "garm-provider-g2"})
         if request["product"] == "wow-sidecar":
             self.assertEqual("t6", request["rung"])
             self.assertEqual("26.0.0-BETA.3", request["version"])
