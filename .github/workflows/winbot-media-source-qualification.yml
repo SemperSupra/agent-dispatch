@@ -26,6 +26,8 @@ jobs:
           $sourceLink = 'https://go.microsoft.com/fwlink/?LinkId=2382600&clcid=0x409&country=us&culture=en-us'
           $downloadUrl = 'https://software-static.download.prss.microsoft.com/dbazure/26300.9457.260913-1737.26h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso'
           $iso = Join-Path $outDir $isoName
+          $expectedSha256 = 'bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38'
+          $expectedSizeBytes = [int64]8225329152
           $receipt = [ordered]@{
             schema_version = 1
             authority = 'SemperSupra/agent-dispatch-private#406'
@@ -107,6 +109,8 @@ jobs:
             $receipt.observations.size_bytes = [int64]$item.Length
             $receipt.observations.sha256 = $sha
             $receipt.oracles.nonempty_media = ($item.Length -gt 4GB)
+            $receipt.oracles.sha256_matches_pin = ($sha -eq $expectedSha256)
+            $receipt.oracles.size_matches_pin = ([int64]$item.Length -eq $expectedSizeBytes)
 
             $mount = Mount-DiskImage -ImagePath $iso -PassThru -ErrorAction Stop
             try {
@@ -137,9 +141,13 @@ jobs:
               [bool]$receipt.oracles.microsoft_static_download_host -and
               [bool]$receipt.oracles.nonempty_media -and
               [bool]$receipt.oracles.enterprise_evaluation_image_present
+            $receipt.oracles.accepted =
+              [bool]$receipt.oracles.identity_observed -and
+              [bool]$receipt.oracles.sha256_matches_pin -and
+              [bool]$receipt.oracles.size_matches_pin
 
-            if ($receipt.oracles.identity_observed) {
-              $receipt.classification = 'OBSERVED_UNPINNED'
+            if ($receipt.oracles.accepted) {
+              $receipt.classification = 'SUPPORTED'
               $rc = 0
             } else {
               $receipt.classification = 'ORACLE_FAILURE'
@@ -176,8 +184,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: winbot-media-qualification-\${{ github.run_id }}-\${{ github.run_attempt }}
-          path: \${{ runner.temp }}/winbot-media-qualification/receipt.json
+          name: winbot-media-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-media-qualification/receipt.json
           if-no-files-found: error
           retention-days: 14
 
@@ -185,7 +193,7 @@ jobs:
         if: always()
         shell: pwsh
         env:
-          TASK_RC: \${{ steps.qualify.outputs.task_rc }}
+          TASK_RC: ${{ steps.qualify.outputs.task_rc }}
         run: |
           $receiptPath = Join-Path $env:RUNNER_TEMP 'winbot-media-qualification\receipt.json'
           if (-not (Test-Path -LiteralPath $receiptPath)) { throw 'media qualification receipt missing' }
@@ -196,8 +204,8 @@ jobs:
           Write-Host "build_resource_candidate=$($receipt.oracles.build_resource_candidate)"
           Write-Host "cleanup=$($receipt.cleanup.oracle_satisfied)"
           if ([int]$env:TASK_RC -ne 0 -or
-              $receipt.classification -ne 'OBSERVED_UNPINNED' -or
-              -not $receipt.oracles.identity_observed -or
+              $receipt.classification -ne 'SUPPORTED' -or
+              -not $receipt.oracles.accepted -or
               -not $receipt.cleanup.oracle_satisfied) {
             throw "media observation oracle not satisfied: $($receipt.classification)"
           }
