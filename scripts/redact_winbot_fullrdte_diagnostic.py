@@ -20,6 +20,7 @@ SAFE_BUILD = {
     "download_seconds","media_size_bytes","image_apply_engine","build_seconds",
     "seed_test_vhd","seed_size_bytes","seed_integrity",
     "iso_reclaimed_before_materialization","seed_unchanged","seed_integrity_after",
+    "runner_image_os","runner_image_version","network_placement_retryable","observed_switches",
 }
 SAFE_CELL = {
     "materialize_seconds","lineage","ip_observed","api_token_observed",
