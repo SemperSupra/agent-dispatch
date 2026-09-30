@@ -142,6 +142,8 @@ class SystemRdteContractTests(unittest.TestCase):
     def test_proxmox_p5_requires_actual_nested_vcpu_execution(self):
         text = PVE.read_text(encoding="utf-8")
         self.assertIn("probe_nested_kvm_vcpu", text)
+        self.assertIn("root@127.0.0.1 'bash -s'", text)
+        self.assertNotIn("root@127.0.0.1 'sh -s'", text)
         self.assertIn("-accel kvm", text)
         self.assertIn("-cpu host", text)
         self.assertIn("isa-debug-exit,iobase=0xf4,iosize=0x4", text)

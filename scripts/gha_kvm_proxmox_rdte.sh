@@ -523,7 +523,7 @@ probe_nested_kvm_vcpu() {
   }
   response="$(sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
-    root@127.0.0.1 'sh -s' 2>/dev/null <<'REMOTE' || true
+    root@127.0.0.1 'bash -s' 2>/dev/null <<'REMOTE' || true
 set +e
 EXPECTED_EXIT=85
 EXPECTED_PACKAGE="11.0.0-3"
