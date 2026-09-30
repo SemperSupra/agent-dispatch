@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-wow-sidecar-001",
+  "request_id": "tn-26-beta3-t6-wow-sidecar-002",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "wow-sidecar",
   "authority_issue": 396,
-  "purpose": "Pre-hardware WOW Sidecar Foundry T6 qualification on the already-accepted disposable TrueNAS BETA.3 substrate.",
+  "purpose": "Execute the permission-corrected WOW Sidecar pre-hardware T6 consumer rep on exact disposable TrueNAS BETA.3.",
   "consumer_authority_issue": 276
 }
