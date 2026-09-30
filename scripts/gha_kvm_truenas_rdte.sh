@@ -3,11 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-VERSION="26.0.0-BETA.3"
-ISO_NAME="TrueNAS-26.0.0-BETA.3.iso"
-BASE_URL="https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3"
-ISO_URL="$BASE_URL/$ISO_NAME"
-SHA_URL="$ISO_URL.sha256"
+TARGET_REGISTRY="$SCRIPT_DIR/../config/truenas-rdte-targets.json"
+TARGET_VERSION="26.0.0-BETA.3"
 RAM_MIB=8192
 VCPUS=2
 DISK_SIZE="24G"
@@ -20,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--rung t0|t1|t2|t3|t4|t5|t6] [--foundry-control-dir DIR] [--foundry-commit SHA]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--foundry-control-dir DIR] [--foundry-commit SHA]"
 }
 
 OUT=""
@@ -32,6 +29,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --state-dir) STATE_DIR="$2"; shift 2 ;;
+    --target-version) TARGET_VERSION="$2"; shift 2 ;;
     --rung) RUNG="$2"; shift 2 ;;
     --foundry-control-dir) FOUNDRY_CONTROL_DIR="$2"; shift 2 ;;
     --foundry-commit) FOUNDRY_COMMIT="$2"; shift 2 ;;
@@ -40,8 +38,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$OUT" ]] || { usage >&2; exit 2; }
+[[ -f "$TARGET_REGISTRY" ]] || { echo "missing exact TrueNAS target registry: $TARGET_REGISTRY" >&2; exit 2; }
+TARGET_ENV="$(python3 "$SCRIPT_DIR/truenas_rdte_target.py" --registry "$TARGET_REGISTRY" --version "$TARGET_VERSION" --shell)" || exit 2
+# truenas_rdte_target.py emits only shell-quoted values after strict registry validation.
+eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
 if [[ "$RUNG" == "t6" ]]; then
+  [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "LiteLLM T6 is currently admitted only for exact TrueNAS 26.0.0-BETA.3; use Foundry F1-F5 for other targets" >&2; exit 2; }
   [[ -n "$FOUNDRY_CONTROL_DIR" && -d "$FOUNDRY_CONTROL_DIR" ]] || { echo "t6 requires --foundry-control-dir" >&2; exit 2; }
   [[ "$FOUNDRY_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "t6 requires exact --foundry-commit SHA" >&2; exit 2; }
   FOUNDRY_CONTROL_DIR="$(realpath "$FOUNDRY_CONTROL_DIR")"
@@ -87,6 +90,10 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_EXPECTED="$EXPECTED_ISO_SHA" R_GRUB="$GRUB_PATH"
+  export R_TARGET_VERSION="$VERSION" R_EXPECTED_SYSTEM_VERSION="$EXPECTED_SYSTEM_VERSION"
+  export R_ISO_NAME="$ISO_NAME" R_ISO_URL="$ISO_URL" R_SHA_URL="$SHA_URL"
+  export R_MIDDLEWARE_REF="$MIDDLEWARE_REF" R_MIDDLEWARE_COMMIT="$MIDDLEWARE_COMMIT"
+  export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
   export R_RUNG="$RUNG" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
   export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON"
@@ -94,7 +101,7 @@ write_receipt() {
 import json, os, pathlib
 payload = {
   "contract": "gha-kvm-system-lab/v1",
-  "target": {"product": "truenas", "version": "26.0.0-BETA.3", "rung": os.environ.get("R_RUNG", "t0").upper()},
+  "target": {"product": "truenas", "version": os.environ["R_TARGET_VERSION"], "rung": os.environ.get("R_RUNG", "t0").upper()},
   "classification": os.environ["R_CLASS"],
   "oracleSatisfied": os.environ["R_ORACLE"].lower() == "true",
   "phase": os.environ["R_PHASE"],
@@ -109,11 +116,17 @@ payload = {
     "app": ({"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"} if os.environ.get("R_RUNG") == "t6" else {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"} if os.environ.get("R_RUNG") in {"t4", "t5"} else None),
   },
   "source": {
-    "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
-    "iso_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso",
-    "vendor_sha256_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso.sha256",
+    "iso_name": os.environ["R_ISO_NAME"],
+    "iso_url": os.environ["R_ISO_URL"],
+    "vendor_sha256_url": os.environ["R_SHA_URL"],
     "expected_sha256": os.environ.get("R_EXPECTED") or None,
     "observed_sha256": os.environ.get("R_ISO_SHA") or None,
+    "middleware_ref": os.environ["R_MIDDLEWARE_REF"],
+    "middleware_commit": os.environ["R_MIDDLEWARE_COMMIT"],
+    "foundry_profile": os.environ["R_FOUNDRY_PROFILE"],
+    "ha_apps_gate": os.environ["R_HA_APPS_GATE"],
+    "system_version_expected": os.environ["R_EXPECTED_SYSTEM_VERSION"],
+    "authority_issue": int(os.environ["R_AUTHORITY_ISSUE"]) if os.environ.get("R_AUTHORITY_ISSUE") else None,
   },
   "installer_grub_path": os.environ.get("R_GRUB") or None,
   "oracles": {
@@ -527,6 +540,9 @@ python3 "$SCRIPT_DIR/truenas_middleware_app_probe.py" \
   "${MIDDLEWARE_TLS_ARG[@]}" \
   --password-file "$PASSWORD_FILE" \
   --out "$APP_OUT" --pool-name "$DATA_POOL_NAME" \
+  --expected-version "$EXPECTED_SYSTEM_VERSION" \
+  --middleware-ref "$MIDDLEWARE_REF" --middleware-commit "$MIDDLEWARE_COMMIT" \
+  --ha-apps-gate "$HA_APPS_GATE" \
   --timeout 8 --job-timeout 300 --state-timeout 180 >/dev/null 2>&1 || true
 [[ -f "$APP_OUT" ]] || fail_evidence HARNESS_FAILURE apps-runtime "T4 Apps client did not emit a receipt"
 APP_RESULT_JSON="$(cat "$APP_OUT")"
@@ -549,7 +565,8 @@ python3 "$SCRIPT_DIR/truenas_middleware_app_lifecycle_probe.py" \
   --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
   "${MIDDLEWARE_TLS_ARG[@]}" \
   --password-file "$PASSWORD_FILE" \
-  --out "$LIFECYCLE_OUT" --timeout 8 --job-timeout 300 --state-timeout 180 >/dev/null 2>&1 || true
+  --out "$LIFECYCLE_OUT" --expected-version "$EXPECTED_SYSTEM_VERSION" \
+  --timeout 8 --job-timeout 300 --state-timeout 180 >/dev/null 2>&1 || true
 [[ -f "$LIFECYCLE_OUT" ]] || fail_evidence HARNESS_FAILURE app-lifecycle "T5 lifecycle client did not emit a receipt"
 LIFECYCLE_RESULT_JSON="$(cat "$LIFECYCLE_OUT")"
 LIFECYCLE_OK="$(python3 - "$LIFECYCLE_OUT" <<'PY'
