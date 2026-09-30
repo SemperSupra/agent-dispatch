@@ -1,8 +1,8 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.10.7-t5-corrected-version-identity",
-  "version": "25.10.7",
+  "request_id": "tn-25.04.1-t5-initial",
+  "version": "25.04.1",
   "rung": "t5",
-  "authority_issue": 410,
-  "purpose": "Corrective exact stable TrueNAS T0-T5 qualification after observed system.version proved TrueNAS-25.10.7."
+  "authority_issue": 411,
+  "purpose": "First exact deployed-legacy TrueNAS 25.04.1 T0-T5 qualification for Foundry materialization."
 }
