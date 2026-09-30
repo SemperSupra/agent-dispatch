@@ -28,6 +28,29 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertNotIn("SemperSupra/wow-sidecar-private", text)
         self.assertNotIn("SemperSupra/agent-dispatch-private", text)
 
+    def test_probe_retains_sanitized_job_failure_without_arguments_or_credentials(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        for required in (
+            "sanitize_diagnostic_text",
+            '"job_failure"',
+            '"logs_excerpt"',
+            '"exception"',
+            '"exc_info"',
+            '"arguments_recorded": False',
+            '"credentials_recorded": False',
+            "<redacted-pem>",
+            "<redacted-private-repository>",
+            "<redacted-token>",
+        ):
+            self.assertIn(required, text)
+        self.assertNotIn('"arguments": last.get("arguments")', text)
+        self.assertNotIn('"credentials": last.get("credentials")', text)
+
+        sample = "before -----BEGIN PRIVATE KEY-----\\nsecret\\n-----END PRIVATE KEY----- after"
+        sanitized = MOD.sanitize_diagnostic_text(sample)
+        self.assertIn("<redacted-pem>", sanitized)
+        self.assertNotIn("secret", sanitized)
+
     def test_probe_binds_seed_permissions_restart_and_cleanup_oracles(self):
         text = SCRIPT.read_text(encoding="utf-8")
         for required in (
