@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "authority": "mark-e-deyoung/WinBot#70",
+  "source_revision": "8909101052cf605924dade0771517388266cdc83",
+  "prior_authorized_revision": "cd3d7139adc6421956391d24e901044682ba77c1",
+  "prior_projection_identity_sha256": "8bb625294bc43ae7d08a0430f6c10b5e1c4f8335416806f8776d1bee54f6f682",
+  "differential_review": "Only projected-source change is repaired host/WinBot.psm1 work-cell facade; FullRDTE and projection policy are outside the projection set."
+}

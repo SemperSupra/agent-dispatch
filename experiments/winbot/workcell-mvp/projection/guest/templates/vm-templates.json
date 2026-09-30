@@ -1,0 +1,145 @@
+{
+  "_comment": "WinBot Cross-Hypervisor VM Templates v1.0 -- canonical VM shapes for each supported hypervisor.",
+  "_schema": "winbot-vm-template/1.0",
+  "templates": {
+    "proxmox": {
+      "label": "Proxmox VE (KVM/QEMU)",
+      "hypervisor": "proxmox",
+      "driverMap": "kvm",
+      "cpus": 2,
+      "memoryMB": 4096,
+      "diskSizeGB": 127,
+      "diskController": "virtio-scsi",
+      "diskFormat": "qcow2",
+      "nicType": "virtio",
+      "firmware": "uefi",
+      "bootOrder": ["net", "disk"],
+      "networkBridge": "vmbr0",
+      "uefi": {
+        "type": "ovmf",
+        "secureBoot": false,
+        "efiDiskSizeMB": 1
+      },
+      "platform": {
+        "sshPort": 22,
+        "proxmox": {
+          "storagePool": "local-lvm",
+          "bridge": "vmbr0",
+          "machine": "q35",
+          "ostype": "win11",
+          "qemuArgs": "-cpu host,-hypervisor",
+          "vga": "qxl",
+          "tablet": true
+        }
+      }
+    },
+    "truenas": {
+      "label": "TrueNAS SCALE (KVM/QEMU)",
+      "hypervisor": "truenas",
+      "driverMap": "kvm",
+      "cpus": 2,
+      "memoryMB": 4096,
+      "diskSizeGB": 127,
+      "diskController": "virtio-scsi",
+      "nicType": "virtio",
+      "firmware": "uefi",
+      "bootOrder": ["net", "disk"],
+      "networkBridge": "br0",
+      "uefi": {
+        "type": "ovmf",
+        "secureBoot": false
+      },
+      "platform": {
+        "sshPort": 22,
+        "truenas": {
+          "pool": "tank",
+          "zvolBlocksize": "64K",
+          "bridge": "br0"
+        }
+      }
+    },
+    "esxi": {
+      "label": "VMware ESXi",
+      "hypervisor": "esxi",
+      "driverMap": "vmware",
+      "cpus": 2,
+      "memoryMB": 4096,
+      "diskSizeGB": 127,
+      "diskController": "pvscsi",
+      "nicType": "vmxnet3",
+      "firmware": "uefi",
+      "bootOrder": ["net", "disk"],
+      "networkBridge": "VM Network",
+      "uefi": {
+        "type": "vmware-native",
+        "secureBoot": false
+      },
+      "platform": {
+        "sshPort": 22,
+        "esxi": {
+          "datastore": "datastore1",
+          "vmx": {
+            "ethernet0.virtualDev": "vmxnet3",
+            "scsi0.virtualDev": "pvscsi",
+            "firmware": "efi",
+            "memsize": "4096",
+            "numvcpus": "2",
+            "guestOS": "windows9_64Guest"
+          }
+        }
+      }
+    },
+    "vbox": {
+      "label": "Oracle VirtualBox",
+      "hypervisor": "vbox",
+      "driverMap": "vbox",
+      "cpus": 2,
+      "memoryMB": 4096,
+      "diskSizeGB": 127,
+      "diskController": "sata-ahci",
+      "nicType": "82540EM",
+      "firmware": "uefi",
+      "bootOrder": ["net", "disk"],
+      "networkBridge": "bridged",
+      "uefi": {
+        "type": "vbox-native",
+        "secureBoot": false
+      },
+      "platform": {
+        "vbox": {
+          "ostype": "Windows11_64",
+          "chipset": "ich9",
+          "hpet": true,
+          "extraData": {
+            "VBoxInternal/Devices/efi/0/Config/DmiSystemProduct": "WinBot-VM",
+            "VBoxInternal/Devices/efi/0/Config/DmiSystemVersion": "1.0"
+          }
+        }
+      }
+    },
+    "hyperv": {
+      "label": "Hyper-V (Windows)",
+      "hypervisor": "hyperv",
+      "driverMap": "hyperv",
+      "cpus": 2,
+      "memoryMB": 4096,
+      "diskSizeGB": 127,
+      "diskController": "scsi",
+      "nicType": "synthetic",
+      "firmware": "uefi",
+      "bootOrder": ["net", "disk"],
+      "networkBridge": "Default Switch",
+      "uefi": {
+        "type": "hyperv-native",
+        "secureBoot": false
+      },
+      "platform": {
+        "hyperv": {
+          "generation": 2,
+          "bootFromNetwork": true,
+          "notes": "Uses WinBot.psm1 New-WinBotClone internally"
+        }
+      }
+    }
+  }
+}

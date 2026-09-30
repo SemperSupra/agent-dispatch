@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "winbot-tool-catalog/1.0",
+  "title": "WinBot Tool Catalog",
+  "description": "Schema for catalog.json — the single source of truth for WinBot tools, capabilities, and loadouts.",
+  "type": "object",
+  "required": ["tools", "capability_groups", "loadout_templates"],
+  "properties": {
+    "_schema": { "type": "string", "const": "winbot-tool-catalog/1.0" },
+    "_comment": { "type": "string" },
+    "tools": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "display_name", "description", "category", "dependencies", "capabilities_enabled"],
+        "properties": {
+          "name": { "type": "string" },
+          "display_name": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": "string", "enum": ["system", "automation", "reverse_engineering", "mcp_backend"] },
+          "dependencies": { "type": "array", "items": { "type": "string" } },
+          "capabilities_enabled": { "type": "array", "items": { "type": "string" } },
+          "script": { "type": ["string", "null"] },
+          "verify": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string", "enum": ["command", "path"] },
+              "command": { "type": "string" },
+              "args": { "type": "array", "items": { "type": "string" } },
+              "expect_exit": { "type": "integer" },
+              "paths": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "install_time_minutes": { "type": "number" },
+          "human_only": { "type": "boolean" },
+          "mcp_port": { "type": "integer" },
+          "mcp_command": { "type": "string" },
+          "_note": { "type": "string" }
+        }
+      }
+    },
+    "capability_groups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label", "description", "capabilities", "requires_tools"],
+        "properties": {
+          "label": { "type": "string" },
+          "description": { "type": "string" },
+          "capabilities": { "type": "array", "items": { "type": "string" } },
+          "requires_tools": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "loadout_templates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["display_name", "description", "tools", "capability_groups"],
+        "properties": {
+          "display_name": { "type": "string" },
+          "description": { "type": "string" },
+          "tools": { "type": "array", "items": { "type": "string" } },
+          "capability_groups": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

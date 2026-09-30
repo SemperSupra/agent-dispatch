@@ -1,0 +1,102 @@
+{
+    "_comment": "WinBot Provisioning Stage Manifest",
+    "schema_version": 1,
+    "phases": [
+        {
+            "id": "1-dirs",
+            "label": "Create directories",
+            "script": "1-dirs.ps1",
+            "dependencies": [],
+            "critical": true,
+            "timeout_seconds": 30
+        },
+        {
+            "id": "1.1-data",
+            "label": "Detect shared data partition",
+            "script": "1.1-data-partition.ps1",
+            "dependencies": ["1-dirs"],
+            "critical": false,
+            "timeout_seconds": 30
+        },
+        {
+            "id": "1.2-autologon",
+            "label": "Re-establish AutoLogon",
+            "script": "1.2-autologon.ps1",
+            "dependencies": ["1-dirs"],
+            "critical": true,
+            "timeout_seconds": 30
+        },
+        {
+            "id": "1.5-activate",
+            "label": "Activate Windows",
+            "script": "1.5-activate.ps1",
+            "dependencies": ["1.2-autologon"],
+            "critical": false,
+            "timeout_seconds": 60
+        },
+        {
+            "id": "2-files",
+            "label": "Verify API files",
+            "script": "2-verify-files.ps1",
+            "dependencies": ["1-dirs"],
+            "critical": true,
+            "timeout_seconds": 30
+        },
+        {
+            "id": "3-winget",
+            "label": "Install WinGet + packages",
+            "script": "3-install-packages.ps1",
+            "dependencies": ["2-files"],
+            "critical": true,
+            "timeout_seconds": 600
+        },
+        {
+            "id": "4-pip",
+            "label": "Install Python packages + ffmpeg",
+            "script": "4-pip-ffmpeg.ps1",
+            "dependencies": ["3-winget"],
+            "critical": false,
+            "timeout_seconds": 300
+        },
+        {
+            "id": "5-remote",
+            "label": "Configure remote access",
+            "script": "5-remote-access.ps1",
+            "dependencies": ["2-files"],
+            "critical": false,
+            "timeout_seconds": 30
+        },
+        {
+            "id": "6-tuning",
+            "label": "System tuning",
+            "script": "6-system-tuning.ps1",
+            "dependencies": ["5-remote"],
+            "critical": false,
+            "timeout_seconds": 300
+        },
+        {
+            "id": "7-api",
+            "label": "Install WinBot API service",
+            "script": "7-install-api.ps1",
+            "dependencies": ["2-files", "3-winget", "4-pip"],
+            "critical": true,
+            "timeout_seconds": 120
+        },
+        {
+            "id": "8-enroll",
+            "label": "Node enrollment",
+            "script": "8-node-enrollment.ps1",
+            "dependencies": ["7-api"],
+            "critical": false,
+            "timeout_seconds": 30
+        },
+        {
+            "id": "9-cleanup",
+            "label": "Security cleanup",
+            "script": "9-security-cleanup.ps1",
+            "dependencies": ["8-enroll"],
+            "critical": false,
+            "timeout_seconds": 30
+        }
+    ]
+}

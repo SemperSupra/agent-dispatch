@@ -1,0 +1,1 @@
+# WinBot API Endpoints

@@ -1,0 +1,55 @@
+name: WinBot WorkCell Projection Review
+
+on:
+  push:
+    branches:
+      - exp/winbot-workcell-mvp
+    paths:
+      - 'experiments/winbot/workcell-mvp/projection/**'
+      - 'experiments/winbot/workcell-mvp/projection-source.json'
+      - '.github/workflows/winbot-workcell-projection-review.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recompute exact projection identity
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('experiments/winbot/workcell-mvp/projection')
+          source = json.loads(pathlib.Path('experiments/winbot/workcell-mvp/projection-source.json').read_text())
+          files = []
+          total = 0
+          for p in sorted(x for x in root.rglob('*') if x.is_file()):
+              data = p.read_bytes()
+              rel = p.relative_to(root).as_posix()
+              total += len(data)
+              files.append({'path': rel, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+          identity = {'source_revision': source['source_revision'], 'projected_files': files}
+          digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+          review = {
+              'source_revision': source['source_revision'],
+              'projection_identity_sha256': digest,
+              'projected_file_count': len(files),
+              'projected_bytes': total,
+              'projected_files': files,
+          }
+          pathlib.Path('projection-review.json').write_text(json.dumps(review, indent=2, sort_keys=True)+'\n')
+          print(json.dumps({k: review[k] for k in ('source_revision','projection_identity_sha256','projected_file_count','projected_bytes')}, indent=2))
+          if len(files) != 80:
+              raise SystemExit(f'unexpected projected file count: {len(files)}')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winbot-workcell-projection-review
+          path: projection-review.json
+          if-no-files-found: error
+          retention-days: 7

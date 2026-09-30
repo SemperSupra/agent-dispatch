@@ -1,0 +1,506 @@
+{
+  "_schema": "winbot-tool-catalog/1.0",
+  "_comment": "Single source of truth mapping tools to installers, dependencies, and capabilities. Used by deploy-loadout.ps1 and capabilities.py.",
+
+  "tools": {
+    "chocolatey": {
+      "name": "chocolatey",
+      "display_name": "Chocolatey Package Manager",
+      "description": "Windows package manager — prerequisite for most tool installs",
+      "category": "system",
+      "dependencies": [],
+      "capabilities_enabled": [],
+      "script": "install-choco.ps1",
+      "verify": {
+        "type": "command",
+        "command": "choco",
+        "args": ["--version"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 2,
+      "human_only": false
+    },
+
+    "python": {
+      "name": "python",
+      "display_name": "Python 3.13",
+      "description": "Python runtime — required for WinBot API, pyautogui, and all Python-based RE tools",
+      "category": "system",
+      "dependencies": ["chocolatey"],
+      "capabilities_enabled": ["run_python", "input_automation", "screenshot_capture"],
+      "script": "install-python.ps1",
+      "verify": {
+        "type": "command",
+        "command": "python",
+        "args": ["--version"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 5,
+      "human_only": false
+    },
+
+    "pyautogui_packages": {
+      "name": "pyautogui_packages",
+      "display_name": "Python Automation Packages",
+      "description": "pyautogui, pywin32, pillow, pynput, psutil — required for keyboard/mouse/screenshot",
+      "category": "system",
+      "dependencies": ["python"],
+      "capabilities_enabled": [],
+      "script": null,
+      "verify": {
+        "type": "command",
+        "command": "python",
+        "args": ["-c", "import pyautogui, pywin32, PIL, pynput, psutil; print('ok')"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 2,
+      "human_only": false,
+      "_note": "Installed as part of install-python.ps1 / autounattend FirstLogonCommands"
+    },
+
+    "ahk": {
+      "name": "ahk",
+      "display_name": "AutoHotkey v1.1",
+      "description": "Windows GUI automation — keyboard macros, window manipulation, form filling",
+      "category": "automation",
+      "dependencies": ["chocolatey"],
+      "capabilities_enabled": ["run_ahk", "gui_automation"],
+      "script": "install-autohotkey.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\Program Files\\AutoHotkey\\AutoHotkey.exe",
+          "C:\\Program Files\\AutoHotkey\\AutoHotkeyU64.exe"
+        ]
+      },
+      "install_time_minutes": 3,
+      "human_only": false
+    },
+
+    "autoit": {
+      "name": "autoit",
+      "display_name": "AutoIt v3",
+      "description": "Windows GUI automation — COM interaction, control manipulation, advanced window management",
+      "category": "automation",
+      "dependencies": ["chocolatey"],
+      "capabilities_enabled": ["run_autoit", "gui_automation"],
+      "script": "install-autoit.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\Program Files (x86)\\AutoIt3\\AutoIt3.exe",
+          "C:\\Program Files\\AutoIt3\\AutoIt3.exe"
+        ]
+      },
+      "install_time_minutes": 3,
+      "human_only": false
+    },
+
+    "nssm": {
+      "name": "nssm",
+      "display_name": "NSSM Service Manager",
+      "description": "Non-Sucking Service Manager — runs WinBot API as a Windows service",
+      "category": "system",
+      "dependencies": ["chocolatey"],
+      "capabilities_enabled": ["api_service"],
+      "script": null,
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\ProgramData\\chocolatey\\bin\\nssm.exe"
+        ]
+      },
+      "install_time_minutes": 1,
+      "human_only": false,
+      "_note": "Installed via choco in install-all.ps1 and autounattend"
+    },
+
+    "winspy": {
+      "name": "winspy",
+      "display_name": "WinSpy++ Window Inspector",
+      "description": "Window inspection utility for identifying window classes and controls",
+      "category": "automation",
+      "dependencies": [],
+      "capabilities_enabled": ["window_inspection"],
+      "script": "install-winspy.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\WinBot\\tools\\WinSpy\\WinSpy.exe",
+          "C:\\WinBot\\tools\\WinSpy\\windowspy.exe"
+        ]
+      },
+      "install_time_minutes": 1,
+      "human_only": true
+    },
+
+    "tightvnc": {
+      "name": "tightvnc",
+      "display_name": "TightVNC Server",
+      "description": "Lightweight VNC server — enables browser-embedded interactive remote desktop via noVNC + WebSocket proxy (~40 MB RAM idle)",
+      "category": "automation",
+      "dependencies": [],
+      "capabilities_enabled": ["remote_desktop_vnc"],
+      "script": "install-tightvnc.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\Program Files\\TightVNC\\tvnserver.exe",
+          "C:\\Program Files (x86)\\TightVNC\\tvnserver.exe"
+        ]
+      },
+      "install_time_minutes": 2,
+      "human_only": false,
+      "_note": "Binds to localhost:5900 only. Access via API's VNC WebSocket proxy at /vnc/connect."
+    },
+
+    "frida": {
+      "name": "frida",
+      "display_name": "Frida Dynamic Instrumentation",
+      "description": "Cross-platform dynamic instrumentation toolkit — inject scripts into running processes",
+      "category": "reverse_engineering",
+      "dependencies": ["python"],
+      "capabilities_enabled": ["dynamic_instrumentation", "process_manipulation"],
+      "script": "install-frida.ps1",
+      "verify": {
+        "type": "command",
+        "command": "python",
+        "args": ["-c", "import frida; print(frida.__version__)"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 3,
+      "human_only": false
+    },
+
+    "frida_server": {
+      "name": "frida_server",
+      "display_name": "Frida Server",
+      "description": "Frida server for remote/headless process attachment by external agents",
+      "category": "reverse_engineering",
+      "dependencies": ["frida"],
+      "capabilities_enabled": ["remote_instrumentation"],
+      "script": null,
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\WinBot\\tools\\frida\\frida-server.exe"
+        ]
+      },
+      "install_time_minutes": 1,
+      "human_only": false,
+      "_note": "Downloaded as part of install-frida.ps1"
+    },
+
+    "ghidra": {
+      "name": "ghidra",
+      "display_name": "Ghidra SRE Framework",
+      "description": "NSA reverse engineering suite — headless analysis mode ideal for agent-driven RE",
+      "category": "reverse_engineering",
+      "dependencies": ["java21"],
+      "capabilities_enabled": ["static_analysis_headless", "binary_decompilation"],
+      "script": "install-ghidra.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\WinBot\\tools\\Ghidra\\support\\analyzeHeadless.bat"
+        ]
+      },
+      "install_time_minutes": 10,
+      "human_only": false
+    },
+
+    "java21": {
+      "name": "java21",
+      "display_name": "OpenJDK 21",
+      "description": "Java Development Kit 21 — required by Ghidra, jadx, bytecode-viewer",
+      "category": "system",
+      "dependencies": ["chocolatey"],
+      "capabilities_enabled": [],
+      "script": null,
+      "verify": {
+        "type": "command",
+        "command": "java",
+        "args": ["-version"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 5,
+      "human_only": false,
+      "_note": "Installed as part of install-ghidra.ps1 via choco openjdk21"
+    },
+
+    "x64dbg": {
+      "name": "x64dbg",
+      "display_name": "x64dbg Debugger",
+      "description": "Windows x64/x86 debugger — GUI-based with plugin API for automation",
+      "category": "reverse_engineering",
+      "dependencies": [],
+      "capabilities_enabled": ["dynamic_debugging_gui"],
+      "script": "install-x64dbg.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\WinBot\\tools\\x64dbg\\release\\x64\\x64dbg.exe",
+          "C:\\Program Files\\x64dbg\\release\\x64\\x64dbg.exe"
+        ]
+      },
+      "install_time_minutes": 3,
+      "human_only": true
+    },
+
+    "radare2": {
+      "name": "radare2",
+      "display_name": "Radare2 RE Framework",
+      "description": "CLI reverse engineering framework — fully scriptable via r2pipe Python bindings",
+      "category": "reverse_engineering",
+      "dependencies": ["python"],
+      "capabilities_enabled": ["static_analysis_cli", "dynamic_analysis_cli", "binary_analysis"],
+      "script": "install-radare2.ps1",
+      "verify": {
+        "type": "command",
+        "command": "radare2",
+        "args": ["-v"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 3,
+      "human_only": false
+    },
+
+    "wireshark": {
+      "name": "wireshark",
+      "display_name": "Wireshark / TShark",
+      "description": "Network protocol analyzer — tshark CLI for headless capture, Wireshark GUI for interactive",
+      "category": "reverse_engineering",
+      "dependencies": [],
+      "capabilities_enabled": ["network_capture", "protocol_analysis"],
+      "script": "install-wireshark.ps1",
+      "verify": {
+        "type": "command",
+        "command": "tshark",
+        "args": ["--version"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 5,
+      "human_only": false
+    },
+
+    "sysinternals": {
+      "name": "sysinternals",
+      "display_name": "Sysinternals Suite",
+      "description": "Process Monitor, Process Explorer, TCPView, Autoruns, ProcDump — system monitoring",
+      "category": "reverse_engineering",
+      "dependencies": [],
+      "capabilities_enabled": ["process_monitoring", "system_inspection"],
+      "script": "install-sysinternals.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\WinBot\\tools\\sysinternals\\procmon.exe",
+          "C:\\WinBot\\tools\\sysinternals\\procexp.exe"
+        ]
+      },
+      "install_time_minutes": 2,
+      "human_only": false
+    },
+
+    "die": {
+      "name": "die",
+      "display_name": "Detect It Easy",
+      "description": "Binary type detection — identify packers, compilers, cryptors. CLI mode available.",
+      "category": "reverse_engineering",
+      "dependencies": [],
+      "capabilities_enabled": ["binary_detection", "packer_identification"],
+      "script": "install-die.ps1",
+      "verify": {
+        "type": "command",
+        "command": "diec",
+        "args": ["--help"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 2,
+      "human_only": false
+    },
+
+    "floss": {
+      "name": "floss",
+      "display_name": "FLOSS String Deobfuscator",
+      "description": "FireEye Labs Obfuscated String Solver — extract hidden strings from malware",
+      "category": "reverse_engineering",
+      "dependencies": [],
+      "capabilities_enabled": ["string_deobfuscation"],
+      "script": "install-floss.ps1",
+      "verify": {
+        "type": "command",
+        "command": "floss",
+        "args": ["--help"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 2,
+      "human_only": false
+    },
+
+    "python_re_packages": {
+      "name": "python_re_packages",
+      "display_name": "Python RE Toolkit",
+      "description": "pefile, capstone, unicorn, yara-python — Python reverse engineering libraries",
+      "category": "reverse_engineering",
+      "dependencies": ["python"],
+      "capabilities_enabled": ["python_re_toolkit", "pe_analysis", "disassembly", "cpu_emulation", "yara_scanning"],
+      "script": "install-python-re-packages.ps1",
+      "verify": {
+        "type": "command",
+        "command": "python",
+        "args": ["-c", "import pefile, capstone, unicorn, yara; print('ok')"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 3,
+      "human_only": false
+    },
+
+    "revula": {
+      "name": "revula",
+      "display_name": "Revula MCP Server",
+      "description": "107-tool MCP server for universal RE automation — Frida, Ghidra, radare2, Wireshark, angr, Android RE, exploit dev. Python-based, installs as a backend MCP server inside the VM.",
+      "category": "mcp_backend",
+      "dependencies": ["python", "frida", "ghidra", "radare2", "wireshark", "python_re_packages"],
+      "capabilities_enabled": ["mcp_revula", "dynamic_instrumentation_mcp", "static_analysis_mcp", "android_re_mcp", "protocol_analysis_mcp", "exploit_dev_mcp", "symbolic_execution_mcp"],
+      "script": "install-backend-mcps.ps1",
+      "verify": {
+        "type": "command",
+        "command": "python",
+        "args": ["-c", "import revula; print('ok')"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 5,
+      "human_only": false,
+      "mcp_port": 9001,
+      "mcp_command": "python -m revula --port 9001",
+      "_note": "Requires all RE tools pre-installed. Backend MCP managed by WinBot MCP lifecycle."
+    },
+
+    "ghidra_mcp": {
+      "name": "ghidra_mcp",
+      "display_name": "Ghidra MCP Server",
+      "description": "249-tool MCP for Ghidra — decompilation, P-code emulation, live debugging, cross-binary docs, batch ops. Installs as Ghidra plugin + Python bridge inside the VM.",
+      "category": "mcp_backend",
+      "dependencies": ["java21", "ghidra", "python"],
+      "capabilities_enabled": ["ghidra_mcp", "binary_decompilation_mcp", "pcode_emulation", "cross_binary_analysis", "ghidra_debugger"],
+      "script": "install-backend-mcps.ps1",
+      "verify": {
+        "type": "path",
+        "paths": [
+          "C:\\WinBot\\tools\\ghidra-mcp\\server.py",
+          "C:\\WinBot\\tools\\Ghidra\\Ghidra\\Extensions\\ghidra_mcp"
+        ]
+      },
+      "install_time_minutes": 5,
+      "human_only": false,
+      "mcp_port": 9002,
+      "mcp_command": "python C:\\WinBot\\tools\\ghidra-mcp\\server.py --port 9002",
+      "_note": "Cloned from github.com/bethington/ghidra-mcp. Requires Ghidra headless or GUI session."
+    },
+
+    "pyghidra_mcp": {
+      "name": "pyghidra_mcp",
+      "display_name": "PyGhidra MCP Server",
+      "description": "Python-first Ghidra MCP — headless mode, ChromaDB vector search across decompiled functions, project-wide analysis. Python-based via pyghidra + jpype.",
+      "category": "mcp_backend",
+      "dependencies": ["java21", "ghidra", "python"],
+      "capabilities_enabled": ["pyghidra_mcp", "semantic_code_search", "headless_decompilation", "project_wide_analysis"],
+      "script": "install-backend-mcps.ps1",
+      "verify": {
+        "type": "command",
+        "command": "python",
+        "args": ["-c", "import pyghidra; print('ok')"],
+        "expect_exit": 0
+      },
+      "install_time_minutes": 5,
+      "human_only": false,
+      "mcp_port": 9003,
+      "mcp_command": "python -m pyghidra_mcp --port 9003",
+      "_note": "Cloned from github.com/clearbluejar/pyghidra-mcp. Requires Ghidra installation path configured."
+    }
+  },
+
+  "capability_groups": {
+    "core": {
+      "label": "Core Platform",
+      "description": "Always available — requires no extra tools",
+      "capabilities": ["screenshot", "window_management", "app_launch", "lifecycle", "health_checking"]
+    },
+    "python_automation": {
+      "label": "Python Automation",
+      "description": "Python script execution and pyautogui input/screenshot",
+      "capabilities": ["run_python", "input_automation", "screenshot_capture"],
+      "requires_tools": ["python", "pyautogui_packages"]
+    },
+    "gui_automation": {
+      "label": "GUI Automation",
+      "description": "AutoHotkey and AutoIt script execution for GUI control",
+      "capabilities": ["run_ahk", "run_autoit", "gui_automation"],
+      "requires_tools": ["ahk", "autoit"]
+    },
+    "static_analysis": {
+      "label": "Static Analysis",
+      "description": "Disassembly, decompilation, binary inspection without execution",
+      "capabilities": ["static_analysis_headless", "static_analysis_cli", "binary_decompilation", "binary_analysis", "binary_detection", "packer_identification", "string_deobfuscation"],
+      "requires_tools": ["ghidra", "radare2", "die", "floss"]
+    },
+    "dynamic_analysis": {
+      "label": "Dynamic Analysis",
+      "description": "Runtime instrumentation, debugging, process manipulation",
+      "capabilities": ["dynamic_instrumentation", "dynamic_analysis_cli", "dynamic_debugging_gui", "process_manipulation", "remote_instrumentation"],
+      "requires_tools": ["frida", "frida_server", "radare2", "x64dbg"]
+    },
+    "network_analysis": {
+      "label": "Network Analysis",
+      "description": "Packet capture, protocol analysis, traffic monitoring",
+      "capabilities": ["network_capture", "protocol_analysis"],
+      "requires_tools": ["wireshark"]
+    },
+    "system_monitoring": {
+      "label": "System Monitoring",
+      "description": "Process monitoring, system inspection, runtime behavior observation",
+      "capabilities": ["process_monitoring", "system_inspection"],
+      "requires_tools": ["sysinternals"]
+    },
+    "python_re_toolkit": {
+      "label": "Python RE Toolkit",
+      "description": "Python libraries for PE analysis, disassembly, CPU emulation, YARA scanning",
+      "capabilities": ["python_re_toolkit", "pe_analysis", "disassembly", "cpu_emulation", "yara_scanning"],
+      "requires_tools": ["python_re_packages"]
+    },
+    "remote_desktop": {
+      "label": "Remote Desktop",
+      "description": "Browser-embedded interactive remote desktop via noVNC + TightVNC",
+      "capabilities": ["remote_desktop_vnc"],
+      "requires_tools": ["tightvnc"]
+    },
+
+    "mcp_backends": {
+      "label": "MCP Backends",
+      "description": "Backend MCP servers (revula, ghidra-mcp, pyghidra-mcp) for AI-driven RE",
+      "capabilities": ["mcp_revula", "ghidra_mcp", "pyghidra_mcp", "dynamic_instrumentation_mcp", "static_analysis_mcp", "android_re_mcp", "protocol_analysis_mcp", "exploit_dev_mcp", "symbolic_execution_mcp", "binary_decompilation_mcp", "pcode_emulation", "cross_binary_analysis", "ghidra_debugger", "semantic_code_search", "headless_decompilation", "project_wide_analysis"],
+      "requires_tools": ["revula", "ghidra_mcp", "pyghidra_mcp"]
+    }
+  },
+
+  "loadout_templates": {
+    "winbot-core": {
+      "display_name": "WinBot Core",
+      "description": "Minimal WinBot platform — API service, Python automation, GUI automation, remote desktop",
+      "tools": ["chocolatey", "python", "pyautogui_packages", "ahk", "autoit", "nssm", "winspy", "tightvnc"],
+      "capability_groups": ["core", "python_automation", "gui_automation", "remote_desktop"]
+    },
+    "windows-re": {
+      "display_name": "Windows RE Lab",
+      "description": "Complete Windows RE environment — static + dynamic analysis, backend MCP servers for AI-driven RE",
+      "tools": ["chocolatey", "python", "pyautogui_packages", "ahk", "autoit", "nssm", "winspy",
+                "java21", "ghidra", "radare2", "x64dbg", "frida", "frida_server",
+                "wireshark", "sysinternals", "die", "floss", "python_re_packages",
+                "revula", "ghidra_mcp", "pyghidra_mcp"],
+      "capability_groups": ["core", "python_automation", "gui_automation",
+                            "static_analysis", "dynamic_analysis", "network_analysis",
+                            "system_monitoring", "python_re_toolkit", "mcp_backends"]
+    }
+  }
+}
