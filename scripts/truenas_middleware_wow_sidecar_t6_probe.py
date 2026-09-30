@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import pathlib
 import re
+import ssl
 import time
 
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
@@ -159,6 +161,30 @@ def main() -> int:
             request_id += 1
             return result
 
+        def download_text_file(remote_path: str, filename: str, max_bytes: int = 2 * 1024 * 1024) -> str:
+            result = call("core.download", ["filesystem.get", [remote_path], filename, True])
+            if not isinstance(result, list) or len(result) != 2 or not isinstance(result[0], int):
+                raise RuntimeError("core.download did not return [job_id, url]")
+            _, url = result
+            if not isinstance(url, str) or not url.startswith("/_download/"):
+                raise RuntimeError("core.download returned an unexpected URL")
+            if a.tls:
+                context = ssl.create_default_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                conn = http.client.HTTPSConnection(a.host, a.port, timeout=a.timeout, context=context)
+            else:
+                conn = http.client.HTTPConnection(a.host, a.port, timeout=a.timeout)
+            try:
+                conn.request("GET", url)
+                response = conn.getresponse()
+                body = response.read(max_bytes)
+            finally:
+                conn.close()
+            if response.status < 200 or response.status >= 300:
+                raise RuntimeError(f"filesystem.get download returned HTTP {response.status}")
+            return body.decode("utf-8", errors="replace")
+
         def wait_job(job_id, label):
             deadline = time.monotonic() + a.job_timeout
             last = None
@@ -187,6 +213,15 @@ def main() -> int:
                         "arguments_recorded": False,
                         "credentials_recorded": False,
                     }
+                    if label.startswith("app."):
+                        try:
+                            lifecycle_log = download_text_file("/var/log/app_lifecycle.log", "app_lifecycle.log")
+                            payload["job_failure"]["app_lifecycle_log_tail"] = sanitize_diagnostic_text(
+                                lifecycle_log[-12000:], 12000
+                            )
+                            payload["job_failure"]["app_lifecycle_log_content_recorded"] = "sanitized-tail-only"
+                        except Exception as log_exc:
+                            payload["job_failure"]["app_lifecycle_log_error"] = sanitize_diagnostic_text(log_exc, 2000)
                     raise RuntimeError(f"{label} job {last.get('state')}")
                 time.sleep(1)
             raise RuntimeError(f"{label} job did not reach SUCCESS")
