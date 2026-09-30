@@ -88,3 +88,33 @@ The artifact is transport, not durable project authority. Durable conclusions, a
 ## Non-goals
 
 This increment does not add a scheduler, task database, queue, generic provider registry, automatic public/private classifier, result archive, or new portfolio authority. It also does not make `agent-dispatch` mandatory for interactive/local execution paths.
+
+## Windows executor
+
+A Windows adapter is available for bounded native-Windows work that has already
+been approved as a public-safe projection.
+
+It preserves the same authority and result model as the Linux adapter:
+
+- standard public `windows-2025` runner;
+- top-level `run.ps1` entrypoint;
+- same assignment ID, capsule digest, timeout, and ephemeral age recipient;
+- same bounded stdout/stderr and result-file budget;
+- same encrypted `result.age` plus minimal `receipt.json`;
+- no private-repository checkout and no private credentials.
+
+The Windows workflow accepts the base64 capsule in two segments of at most
+30,000 characters each. This avoids Windows command-line/environment transport
+limits while retaining the existing 60,000-character capsule authority bound.
+The worker reassembles the segments into a temporary file and still verifies
+the decoded capsule SHA-256 before extraction.
+
+The result sealer is the official age v1.3.2 Windows amd64 release archive,
+downloaded from `FiloSottile/age` and accepted only when its SHA-256 is
+`f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7`.
+
+The Windows contract workflow exercises the full
+PowerShell execute -> capture -> encrypt -> decrypt -> verify path on
+`windows-2025`. A successful contract proves the adapter mechanics only; it
+does not prove any projected workload such as WinBot.
+
