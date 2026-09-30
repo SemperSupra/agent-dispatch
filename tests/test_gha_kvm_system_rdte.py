@@ -138,6 +138,26 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("INSTALLED_DISK_PREBOOT", text)
         self.assertIn("INSTALLED_DISK_POSTBOOT", text)
 
+
+    def test_proxmox_p5_requires_actual_nested_vcpu_execution(self):
+        text = PVE.read_text(encoding="utf-8")
+        self.assertIn("probe_nested_kvm_vcpu", text)
+        self.assertIn("-accel kvm", text)
+        self.assertIn("-cpu host", text)
+        self.assertIn("isa-debug-exit,iobase=0xf4,iosize=0x4", text)
+        self.assertIn('bytes.fromhex("fab02abaf400eef4ebfd")', text)
+        self.assertIn('"expected_debug_value": 42', text)
+        self.assertIn('"expected_exit_code": expected_exit', text)
+        self.assertIn("rc == expected_exit", text)
+        self.assertIn("pkg == expected_pkg", text)
+        self.assertIn('"nested_kvm_vcpu_executed"', text)
+        self.assertIn('"p5_nested_kvm"', text)
+        self.assertIn('"nested_kvm_indicators_via_ssh"', text)
+        self.assertIn('"pve_qemu_source_commit": "684796e835289dab11af8606fbf7358b93526dd6"', text)
+        self.assertIn('"pve_qemu_submodule_commit": "98b060da3a4f92b2a994ead5b16a87e783baf77c"', text)
+        self.assertIn('"exit_code_rule": "(value << 1) | 1"', text)
+        self.assertNotIn('NESTED_KVM="no"', text)
+
     def test_truenas_is_pinned_and_digest_sidecar_is_required(self):
         text = TRUENAS.read_text(encoding="utf-8")
         self.assertIn("TrueNAS-26.0.0-BETA.3.iso", text)

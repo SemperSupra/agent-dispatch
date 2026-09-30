@@ -42,6 +42,8 @@ HOSTFWD_API_VERSION_JSON=""
 GUEST_LOCAL_API_VERSION_JSON=""
 API_OBSERVATION_ROUTE=""
 NESTED_KVM="unknown"
+NESTED_KVM_INDICATORS="unknown"
+NESTED_KVM_VCPU_JSON=""
 SSH_HOSTFWD_ACCEPTED="false"
 API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
@@ -72,6 +74,7 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
+  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON"
   export R_HOSTFWD_API="$HOSTFWD_API_VERSION_JSON" R_GUEST_LOCAL_API="$GUEST_LOCAL_API_VERSION_JSON" R_API_ROUTE="$API_OBSERVATION_ROUTE"
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
@@ -89,6 +92,8 @@ def load_json_env(name):
         return json.loads(raw)
     except Exception as exc:
         return {"inspection_ok": False, "parse_error": str(exc), "raw": raw[:2000]}
+
+nested_vcpu = load_json_env("R_NESTED_VCPU")
 
 payload = {
   "contract": "gha-kvm-system-lab/v1",
@@ -108,6 +113,10 @@ payload = {
     "pve_manager_source_commit": "b9984c6d90a4bd80",
     "pve_access_control_source_commit": "5ccd07d9302562b73374d331b63d25b04b86766c",
     "pve_version_api_source": "PVE/API2.pm",
+    "pve_qemu_source_commit": "684796e835289dab11af8606fbf7358b93526dd6",
+    "pve_qemu_submodule_commit": "98b060da3a4f92b2a994ead5b16a87e783baf77c",
+    "pve_qemu_debugexit_source": "hw/misc/debugexit.c",
+    "pve_qemu_expected_package": "11.0.0-3",
     "iso_first_boot_package": os.environ.get("R_ISO_FIRST_BOOT_PACKAGE") or None,
   },
   "oracles": {
@@ -115,10 +124,13 @@ payload = {
     "unattended_install_completed": os.environ.get("R_INSTALL_SUCCESS_MARKER_OBSERVED") == "true",
     "installed_disk_layout": os.environ.get("R_INSTALLED_DISK_LAYOUT_OK") == "true",
     "installed_https_api": bool(os.environ.get("R_API")),
+    "nested_kvm_indicators_via_ssh": os.environ.get("R_NESTED_INDICATORS") == "yes",
     "nested_kvm_observed_via_ssh": os.environ.get("R_NESTED") == "yes",
+    "nested_kvm_vcpu_executed": bool(nested_vcpu and nested_vcpu.get("oracleSatisfied") is True),
   },
   "api_version": json.loads(os.environ["R_API"]) if os.environ.get("R_API") else None,
   "nested_kvm": os.environ.get("R_NESTED"),
+  "p5_nested_kvm": nested_vcpu,
   "diagnostics": {
     "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
     "ssh_hostfwd_accepted": os.environ.get("R_SSH_HOSTFWD_ACCEPTED") == "true",
@@ -126,6 +138,7 @@ payload = {
     "api_observation_route": os.environ.get("R_API_ROUTE") or None,
     "hostfwd_https_api": load_json_env("R_HOSTFWD_API"),
     "guest_local_https_api": load_json_env("R_GUEST_LOCAL_API"),
+    "nested_kvm_indicators": os.environ.get("R_NESTED_INDICATORS"),
     "guest": os.environ.get("R_GUEST_DIAGNOSTICS") or None,
     "first_boot_witness_observed": os.environ.get("R_FIRST_BOOT_WITNESS_OBSERVED") == "true",
     "first_boot_witness": os.environ.get("R_FIRST_BOOT_WITNESS") or None,
@@ -136,6 +149,7 @@ payload = {
   "limitations": [
     "Disposable virtual-hardware target profile; not physical-HBA/SMART/IPMI/HA qualification.",
     "Nested KVM is a separate oracle from Proxmox management-plane support.",
+    "P5 nested KVM requires p5_nested_kvm.oracleSatisfied=true from an actual nested vCPU debug-exit; device/CPU flags alone are diagnostic.",
   ],
 }
 pathlib.Path(os.environ["R_OUT"]).write_text(json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8")
@@ -500,6 +514,105 @@ guest_diagnostics() {
     ' 2>&1 | tail -c 24000
 }
 
+
+probe_nested_kvm_vcpu() {
+  local response=""
+  command -v sshpass >/dev/null 2>&1 || {
+    printf '%s' '{"contract":"proxmox-nested-kvm-vcpu/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"transport","detail":"sshpass unavailable for guest observation"}'
+    return 0
+  }
+  response="$(sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+    root@127.0.0.1 'sh -s' 2>/dev/null <<'REMOTE' || true
+set +e
+EXPECTED_EXIT=85
+EXPECTED_PACKAGE="11.0.0-3"
+TMP_RDTE="$(mktemp -d)"
+trap 'rm -rf "$TMP_RDTE"' EXIT
+BOOT="$TMP_RDTE/p5-boot.img"
+QERR="$TMP_RDTE/qemu.err"
+python3 - "$BOOT" <<'PY'
+import pathlib, sys
+code = bytes.fromhex("fab02abaf400eef4ebfd")
+image = code + bytes(510 - len(code)) + b"\x55\xaa"
+pathlib.Path(sys.argv[1]).write_bytes(image)
+PY
+BOOT_SHA="$(sha256sum "$BOOT" 2>/dev/null | awk '{print $1}')"
+PKG="$(dpkg-query -W -f='${Version}' pve-qemu-kvm 2>/dev/null || true)"
+QVER="$(qemu-system-x86_64 --version 2>/dev/null | head -n 1 || true)"
+KVM_DEVICE="absent"
+CPU_VIRT_FLAG="absent"
+PRECONDITION=""
+[[ -c /dev/kvm ]] && KVM_DEVICE="present" || PRECONDITION="kvm-device-absent"
+if grep -Eq '(vmx|svm)' /proc/cpuinfo 2>/dev/null; then CPU_VIRT_FLAG="present"; else [[ -n "$PRECONDITION" ]] || PRECONDITION="cpu-virt-flag-absent"; fi
+command -v qemu-system-x86_64 >/dev/null 2>&1 || { [[ -n "$PRECONDITION" ]] || PRECONDITION="nested-qemu-absent"; }
+RC=125
+if [[ -z "$PRECONDITION" ]]; then
+  timeout 15 qemu-system-x86_64 \
+    -machine pc \
+    -accel kvm \
+    -cpu host \
+    -m 64 \
+    -smp 1 \
+    -drive "file=$BOOT,format=raw,if=floppy,readonly=on" \
+    -boot order=a,strict=on \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x4 \
+    -display none \
+    -serial none \
+    -monitor none \
+    -no-reboot \
+    >"$TMP_RDTE/qemu.out" 2>"$QERR"
+  RC=$?
+fi
+ERR="$(tail -c 4000 "$QERR" 2>/dev/null || true)"
+R_RC="$RC" R_EXPECTED_EXIT="$EXPECTED_EXIT" R_EXPECTED_PACKAGE="$EXPECTED_PACKAGE" \
+R_PKG="$PKG" R_QVER="$QVER" R_BOOT_SHA="$BOOT_SHA" R_ERR="$ERR" \
+R_KVM_DEVICE="$KVM_DEVICE" R_CPU_VIRT_FLAG="$CPU_VIRT_FLAG" R_PRECONDITION="$PRECONDITION" \
+python3 - <<'PY'
+import json, os
+rc = int(os.environ["R_RC"])
+expected_exit = int(os.environ["R_EXPECTED_EXIT"])
+pkg = os.environ.get("R_PKG", "")
+expected_pkg = os.environ["R_EXPECTED_PACKAGE"]
+precondition = os.environ.get("R_PRECONDITION", "")
+ok = (not precondition and rc == expected_exit and pkg == expected_pkg and os.environ.get("R_KVM_DEVICE") == "present" and os.environ.get("R_CPU_VIRT_FLAG") == "present")
+if ok:
+    classification = "SUPPORTED"
+    detail = "nested QEMU used KVM and the run-owned guest executed the expected isa-debug-exit instruction"
+elif precondition or pkg != expected_pkg:
+    classification = "ENVIRONMENT_FAILURE"
+    detail = precondition or f"unexpected pve-qemu-kvm package {pkg!r}"
+else:
+    classification = "ORACLE_FAILURE"
+    detail = f"nested QEMU exit code {rc} did not match expected guest debug-exit code {expected_exit}"
+print(json.dumps({
+    "contract": "proxmox-nested-kvm-vcpu/v1",
+    "classification": classification,
+    "oracleSatisfied": ok,
+    "phase": "nested-vcpu",
+    "detail": detail,
+    "expected_debug_value": 42,
+    "expected_exit_code": expected_exit,
+    "observed_exit_code": rc,
+    "pve_qemu_kvm_version": pkg or None,
+    "qemu_version": os.environ.get("R_QVER") or None,
+    "boot_image_sha256": os.environ.get("R_BOOT_SHA") or None,
+    "kvm_device": os.environ.get("R_KVM_DEVICE"),
+    "cpu_virt_flag": os.environ.get("R_CPU_VIRT_FLAG"),
+    "stderr_tail": os.environ.get("R_ERR") or None,
+    "source": {
+        "pve_qemu_commit": "684796e835289dab11af8606fbf7358b93526dd6",
+        "qemu_submodule_commit": "98b060da3a4f92b2a994ead5b16a87e783baf77c",
+        "debugexit_source": "hw/misc/debugexit.c",
+        "exit_code_rule": "(value << 1) | 1",
+    },
+}, sort_keys=True, separators=(",", ":")))
+PY
+REMOTE
+)"
+  if [[ -n "$response" ]]; then printf '%s' "$response"; else printf '%s' '{"contract":"proxmox-nested-kvm-vcpu/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"transport","detail":"guest SSH did not return a nested-KVM receipt"}'; fi
+}
+
 start_qemu() {
   local with_iso="$1"
   : >"$STATE_DIR/serial.log"
@@ -743,14 +856,26 @@ if [[ "$API_VERSION_JSON" != *'"data"'* ]]; then
 fi
 
 NESTED_KVM="unknown"
+NESTED_KVM_INDICATORS="unknown"
 if command -v sshpass >/dev/null 2>&1; then
   if sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
       -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
       root@127.0.0.1 'test -e /dev/kvm && grep -Eq "(vmx|svm)" /proc/cpuinfo' >/dev/null 2>&1; then
-    NESTED_KVM="yes"
-  else
-    NESTED_KVM="unknown"
+    NESTED_KVM_INDICATORS="yes"
   fi
+fi
+NESTED_KVM_VCPU_JSON="$(probe_nested_kvm_vcpu || true)"
+if R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" python3 - <<'PY'
+import json, os
+try:
+    payload = json.loads(os.environ.get("R_NESTED_VCPU", ""))
+    ok = payload.get("oracleSatisfied") is True
+except Exception:
+    ok = False
+raise SystemExit(0 if ok else 1)
+PY
+then
+  NESTED_KVM="yes"
 fi
 
 write_receipt SUPPORTED true complete "real Proxmox VE unattended install completed and real HTTPS /api2/json/version answered via $API_OBSERVATION_ROUTE"
