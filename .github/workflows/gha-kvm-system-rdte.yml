@@ -103,8 +103,8 @@ jobs:
               esac
             done < <(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
             if [[ "$run_request_changed" == "true" ]]; then
-              request="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d.get("schema")=="gha-kvm-truenas-run-request/v1", "unsupported run-request schema"; v=d.get("version"); r=d.get("rung"); assert isinstance(v,str) and v, "run request requires exact version"; assert r in {"t0","t1","t2","t3","t4","t5","t6"}, "invalid run-request rung"; print(v+"\\t"+r)' "$RUN_REQUEST_PATH")"
-              IFS="$(printf '\t')" read -r truenas_version truenas_rung <<<"$request"
+              truenas_version="$(jq -er 'select(.schema == "gha-kvm-truenas-run-request/v1") | .version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
+              truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
               python3 scripts/truenas_rdte_target.py \
                 --registry config/truenas-rdte-targets.json \
                 --version "$truenas_version" >/dev/null
