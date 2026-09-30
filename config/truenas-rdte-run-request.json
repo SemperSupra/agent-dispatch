@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-provider-g2-001",
+  "request_id": "tn-26-beta3-t6-garm-provider-g2-002",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "garm-provider-g2",
   "authority_issue": 396,
-  "purpose": "Execute G2 verified-transport and adoption/reconciliation qualification for the exact GARM TrueNAS provider on disposable TrueNAS BETA.3.",
+  "purpose": "Execute the fixture-routing-corrected G2 verified-transport and adoption/reconciliation qualification for the exact GARM TrueNAS provider on disposable TrueNAS BETA.3.",
   "consumer_authority_issue": 39
 }
