@@ -396,9 +396,11 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
         self.assertIn('disk_details["unused"]', text)
 
 
-    def test_t5_lifecycle_contract_is_version_and_digest_pinned(self):
+    def test_t5_lifecycle_contract_is_exact_version_and_digest_pinned(self):
         text = LIFECYCLE.read_text(encoding="utf-8")
-        self.assertIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', text)
+        self.assertNotIn("EXPECTED_VERSION =", text)
+        self.assertIn('p.add_argument("--expected-version", required=True)', text)
+        self.assertIn('"expected_version": a.expected_version', text)
         self.assertIn('APP_NAME = "rdte-t4-probe"', text)
         self.assertIn('APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', text)
         self.assertNotIn('APP_IMAGE = "nginx:1.27-alpine"', text)
@@ -564,6 +566,7 @@ class FutureTrueNASProtocolTests(unittest.TestCase):
                     "--port", str(peer.port),
                     "--password-file", str(password_file),
                     "--out", str(out),
+                    "--expected-version", "TrueNAS-26.0.0-BETA.3",
                     "--timeout", "2",
                     "--job-timeout", "8",
                     "--state-timeout", "8",

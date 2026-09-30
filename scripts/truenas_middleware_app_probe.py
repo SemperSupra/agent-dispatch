@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded TrueNAS BETA.3 Apps T4 oracle using source-defined middleware APIs."""
+"""Bounded exact-version TrueNAS Apps T4 oracle using source-defined middleware APIs."""
 from __future__ import annotations
 
 import argparse
@@ -21,6 +21,10 @@ def main():
     p.add_argument("--password-file", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--pool-name", default="rdtepool")
+    p.add_argument("--expected-version", required=True)
+    p.add_argument("--middleware-ref", required=True)
+    p.add_argument("--middleware-commit", required=True)
+    p.add_argument("--ha-apps-gate", required=True)
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8.0)
     p.add_argument("--job-timeout", type=float, default=300.0)
@@ -31,10 +35,11 @@ def main():
     payload = {
         "schema": "truenas-middleware-app-t4/v1",
         "source_contract": {
-            "middleware_tag": "TS-26.0.0-BETA.3",
-            "middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
+            "middleware_ref": a.middleware_ref,
+            "middleware_commit": a.middleware_commit,
             "apps_gate": "docker.license_active",
-            "apps_gate_behavior": "non-HA targets permitted directly; HA consults system.feature_enabled(APPS)",
+            "ha_apps_gate": a.ha_apps_gate,
+            "expected_version": a.expected_version,
         },
         "oracleSatisfied": False,
         "classification": "ORACLE_FAILURE",
@@ -89,7 +94,10 @@ def main():
             raise RuntimeError(f"authentication did not return SUCCESS: {auth!r}")
 
         payload["system_version"] = call("system.version", [])
-        # BETA.3 uses docker.license_active internally; the later truenas.entitlements API is absent.
+        if payload["system_version"] != a.expected_version:
+            raise RuntimeError(
+                f"target version changed: expected {a.expected_version!r}, got {payload['system_version']!r}"
+            )
         payload["docker_before"] = call("docker.config", [])
         existing = call("app.query", [[[ "id", "=", APP_NAME ]]])
         if existing:

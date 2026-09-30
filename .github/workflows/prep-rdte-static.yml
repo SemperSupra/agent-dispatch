@@ -8,17 +8,23 @@ on:
       - '.github/workflows/prep-rdte-static.yml'
       - '.github/workflows/gha-kvm-system-rdte.yml'
       - 'config/truenas-rdte-targets.json'
+      - 'config/truenas-rdte-run-request.json'
       - 'scripts/gha_kvm_truenas_rdte.sh'
+      - 'scripts/truenas_rdte_target.py'
+      - 'scripts/truenas_rdte_target.py'
       - 'scripts/gha_kvm_proxmox_rdte.sh'
       - 'scripts/truenas_middleware_*.py'
       - 'tests/test_gha_kvm_system_rdte.py'
       - 'tests/test_truenas_future_protocols.py'
       - 'tests/test_truenas_t6_litellm_control.py'
+      - 'tests/test_truenas_rdte_target.py'
+      - 'tests/test_truenas_rdte_target.py'
   pull_request:
     paths:
       - '.github/workflows/prep-rdte-static.yml'
       - '.github/workflows/gha-kvm-system-rdte.yml'
       - 'config/truenas-rdte-targets.json'
+      - 'config/truenas-rdte-run-request.json'
       - 'scripts/gha_kvm_truenas_rdte.sh'
       - 'scripts/gha_kvm_proxmox_rdte.sh'
       - 'scripts/truenas_middleware_*.py'
@@ -55,5 +61,8 @@ jobs:
           )
           if [[ -f tests/test_truenas_t6_litellm_control.py ]]; then
             tests+=(tests/test_truenas_t6_litellm_control.py)
+          fi
+          if [[ -f tests/test_truenas_rdte_target.py ]]; then
+            tests+=(tests/test_truenas_rdte_target.py)
           fi
           python3 -m unittest -v "${tests[@]}"

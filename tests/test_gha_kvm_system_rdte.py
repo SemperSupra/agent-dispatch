@@ -180,15 +180,18 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('if [[ "$NESTED_KVM" == "yes" ]]; then', text)
         self.assertNotIn("nsenter", text)
 
-    def test_truenas_is_pinned_and_digest_sidecar_is_required(self):
+    def test_truenas_uses_exact_target_registry_and_vendor_digest_sidecar(self):
         text = TRUENAS.read_text(encoding="utf-8")
-        self.assertIn("TrueNAS-26.0.0-BETA.3.iso", text)
-        self.assertIn("TrueNAS-26.0.0-BETA.3.iso.sha256", text)
+        self.assertIn('TARGET_REGISTRY="$SCRIPT_DIR/../config/truenas-rdte-targets.json"', text)
+        self.assertIn('TARGET_VERSION="26.0.0-BETA.3"', text)
+        self.assertIn("--target-version", text)
+        self.assertIn("truenas_rdte_target.py", text)
+        self.assertIn('curl --fail --location --retry 3 --silent --show-error "$SHA_URL"', text)
+        self.assertIn('[[ "$OBSERVED_ISO_SHA" == "$EXPECTED_ISO_SHA" ]]', text)
         self.assertIn("RAM_MIB=8192", text)
         self.assertIn("installer-boot", text)
         self.assertIn("installer-rpc", text)
         self.assertIn("truenas_installer_rpc_probe.py", text)
-        self.assertNotIn("nightly", text.lower())
         self.assertNotIn("xdotool", text)
 
     def test_no_literal_escaped_shell_parameter_expansions(self):
@@ -219,6 +222,13 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("BEFORE_SHA:", text)
         self.assertIn('git diff --name-only "$BEFORE_SHA" "$AFTER_SHA"', text)
         self.assertIn("scripts/truenas_installer_rpc_probe.py", text)
+        self.assertIn("truenas_version:", text)
+        self.assertIn("truenas_rung:", text)
+        self.assertIn("needs.changes.outputs.truenas_version", text)
+        self.assertIn("needs.changes.outputs.truenas_rung", text)
+        self.assertIn("config/truenas-rdte-run-request.json", text)
+        self.assertIn("run_request_changed", text)
+        self.assertIn("gha-kvm-truenas-run-request/v1", text)
 
     def test_truenas_t1_requires_local_rpc_probe(self):
         text = TRUENAS.read_text(encoding="utf-8")
@@ -414,7 +424,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_pool_probe.py", text)
         self.assertIn('"data_pool_created"', text)
         self.assertIn('"data_pool"', text)
-        self.assertIn("--rung t6", workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         self.assertIn("scripts/truenas_middleware_pool_probe.py", workflow)
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
@@ -432,8 +443,12 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("docker.status", app)
         self.assertNotIn("truenas.entitlements.check", app)
         self.assertIn('"apps_gate": "docker.license_active"', app)
-        self.assertIn('"apps_gate_behavior"', app)
-        self.assertIn('"middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3"', app)
+        self.assertIn('"ha_apps_gate": a.ha_apps_gate', app)
+        self.assertIn('"middleware_commit": a.middleware_commit', app)
+        self.assertIn('"middleware_ref": a.middleware_ref', app)
+        self.assertIn('--expected-version "$EXPECTED_SYSTEM_VERSION"', text)
+        self.assertIn('--middleware-commit "$MIDDLEWARE_COMMIT"', text)
+        self.assertIn('--ha-apps-gate "$HA_APPS_GATE"', text)
         self.assertIn("app.create", app)
         self.assertIn("app.query", app)
         self.assertIn('payload["docker_update_result"]', app)
@@ -441,7 +456,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', app)
         self.assertNotIn('"nginx:1.27-alpine"', app)
         self.assertIn('"state") == "RUNNING"', app)
-        self.assertIn('--rung t6', workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         py = subprocess.run(
             ["python3", "-m", "py_compile", str(TRUENAS_APP)],
             text=True,
@@ -459,10 +475,14 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"app_lifecycle_exercised"', text)
         self.assertIn('"app_lifecycle"', text)
         self.assertIn("nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10", text)
-        self.assertIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', lifecycle)
+        self.assertNotIn("EXPECTED_VERSION =", lifecycle)
+        self.assertIn('p.add_argument("--expected-version", required=True)', lifecycle)
+        self.assertIn('"expected_version": a.expected_version', lifecycle)
+        self.assertIn('--expected-version "$EXPECTED_SYSTEM_VERSION"', text)
         self.assertIn('APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', lifecycle)
         self.assertIn("scripts/truenas_middleware_app_lifecycle_probe.py", workflow)
-        self.assertIn("--rung t6", workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         shell_check = subprocess.run(
             ["bash", "-n", str(TRUENAS)], text=True, capture_output=True
         )
@@ -479,7 +499,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertNotIn('python3 "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py"', text)
         self.assertIn('"foundry_materialization_exercised"', text)
         self.assertIn('"foundry_materialization"', text)
-        self.assertIn("--rung t6", workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         self.assertIn("4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba", workflow)
         self.assertIn("litellm-truenas-t6-control", workflow)
         self.assertIn("export-litellm-t6-control.yml", workflow)
@@ -522,12 +543,16 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertNotIn('if [[ "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" ]]; then', text)
         self.assertIn("try_rpc_discovery", text)
 
-    def test_t4_uses_tagged_beta3_apps_gate(self):
+    def test_t4_uses_exact_target_profile_metadata(self):
         text = (ROOT / "scripts" / "truenas_middleware_app_probe.py").read_text(encoding="utf-8")
         self.assertNotIn("truenas.entitlements.check", text)
-        self.assertIn('"middleware_tag": "TS-26.0.0-BETA.3"', text)
-        self.assertIn('"middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3"', text)
+        self.assertIn('p.add_argument("--middleware-ref", required=True)', text)
+        self.assertIn('p.add_argument("--middleware-commit", required=True)', text)
+        self.assertIn('p.add_argument("--ha-apps-gate", required=True)', text)
+        self.assertIn('"middleware_ref": a.middleware_ref', text)
+        self.assertIn('"middleware_commit": a.middleware_commit', text)
         self.assertIn('"apps_gate": "docker.license_active"', text)
+        self.assertIn('"ha_apps_gate": a.ha_apps_gate', text)
 
 
 if __name__ == "__main__":
