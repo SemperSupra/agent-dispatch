@@ -340,20 +340,69 @@ PY
 
 guest_local_https_api() {
   local response=""
-  # Exact installed pve-manager source exposes GET /version to user=all and
-  # pveproxy terminates TLS on 8006. SSH is observation transport only; the
-  # application oracle remains a real HTTPS request to guest localhost:8006.
   for _ in 1 2 3; do
     response="$(sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
       -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
-      root@127.0.0.1 'sh -s' 2>/dev/null <<'REMOTE' || true
-printf 'GET /api2/json/version HTTP/1.0\r\nHost: pve-rdte.example.invalid\r\nConnection: close\r\n\r\n' |
-  timeout 10 openssl s_client -quiet -ign_eof -connect 127.0.0.1:8006 -servername pve-rdte.example.invalid 2>/dev/null |
-  tr -d '\r' |
-  awk 'body { print } /^$/ { body=1 }'
-REMOTE
+      root@127.0.0.1 'command -v python3 >/dev/null 2>&1 || { printf "%s\\n" "{\\\"probe_error\\\":\\\"python3_absent\\\"}"; exit 0; }; exec python3 -' 2>/dev/null <<'PY' || true
+import json
+import socket
+import ssl
+
+host = "127.0.0.1"
+port = 8006
+server_name = "pve-rdte.example.invalid"
+request = (
+    "GET /api2/json/version HTTP/1.0\\r\\n"
+    f"Host: {server_name}\\r\\n"
+    "Connection: close\\r\\n\\r\\n"
+).encode("ascii")
+
+try:
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((host, port), timeout=5) as raw:
+        with context.wrap_socket(raw, server_hostname=server_name) as tls:
+            tls.settimeout(5)
+            tls.sendall(request)
+            chunks = []
+            while True:
+                block = tls.recv(65536)
+                if not block:
+                    break
+                chunks.append(block)
+    payload = b"".join(chunks)
+    header, sep, body = payload.partition(b"\\r\\n\\r\\n")
+    if not sep:
+        raise RuntimeError("HTTP header terminator absent")
+    status = header.split(b"\\r\\n", 1)[0].decode("ascii", "replace")
+    if " 200 " not in f" {status} ":
+        print(json.dumps({
+            "probe_error": "http_status",
+            "status": status,
+            "body_preview": body[:1000].decode("utf-8", "replace"),
+        }, sort_keys=True))
+    else:
+        parsed = json.loads(body.decode("utf-8"))
+        print(json.dumps(parsed, separators=(",", ":"), sort_keys=True))
+except Exception as exc:
+    print(json.dumps({
+        "probe_error": type(exc).__name__,
+        "message": str(exc),
+    }, sort_keys=True))
+PY
 )"
-    if [[ "$response" == *'"data"'* ]]; then
+    if R_RESPONSE="$response" python3 - <<'PY'
+import json, os
+try:
+    payload = json.loads(os.environ["R_RESPONSE"])
+    data = payload.get("data")
+    ok = isinstance(data, dict) and all(data.get(k) for k in ("version", "release", "repoid"))
+except Exception:
+    ok = False
+raise SystemExit(0 if ok else 1)
+PY
+    then
       printf '%s' "$response"
       return 0
     fi
