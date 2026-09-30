@@ -217,166 +217,19 @@ jobs:
           if (-not $age) { throw 'age.exe missing' }
           $age.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-
       - name: Generate ephemeral diagnostic result key
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $identity = Join-Path $env:RUNNER_TEMP 'winbot-diagnostic-age-identity.txt'
           age-keygen -o $identity 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'age-keygen failed' }
           $line = (Select-String -LiteralPath $identity -Pattern '^# public key: ' | Select-Object -First 1).Line
           if (-not $line) { throw 'age public recipient missing from generated identity' }
           $recipient = $line.Split()[-1]
-          if ($recipient -notmatch '^age1[023456789acdefghjklmnpqrstuvwxyz]{58}        id: execute
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $env:SEALED_CAPSULE_TRANSPORT = 'staged_git_projection'
-          python scripts/sealed_public_execution.py `
-            --assignment-id "$env:ASSIGNMENT_ID" `
-            --capsule-b64-file "$env:CAPSULE_B64_FILE" `
-            --capsule-sha256 "$env:CAPSULE_SHA256" `
-            --recipient "$env:AGE_RECIPIENT" `
-            --timeout-seconds 7200 `
-            --entrypoint run.ps1 `
-            --out-dir .sealed
-          $rc = $LASTEXITCODE
-          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          exit 0
-
-
-      - name: Derive redacted FullRDTE diagnostic receipt
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $diagRoot = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-diagnostic'
-          New-Item -ItemType Directory -Force -Path $diagRoot | Out-Null
-          $diagPath = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-staged\diagnostic.json'
-          if (-not (Test-Path -LiteralPath '.sealed\result.age')) { throw 'sealed diagnostic result missing' }
-          if (-not $env:DIAG_IDENTITY -or -not (Test-Path -LiteralPath $env:DIAG_IDENTITY)) { throw 'ephemeral diagnostic identity missing' }
-          $plain = Join-Path $diagRoot 'result.tar.gz'
-          age --decrypt --identity $env:DIAG_IDENTITY --output $plain '.sealed\result.age'
-          if ($LASTEXITCODE -ne 0) { throw 'diagnostic result decryption failed' }
-          $extract = Join-Path $diagRoot 'result'
-          New-Item -ItemType Directory -Force -Path $extract | Out-Null
-          $env:DIAG_PLAIN = $plain
-          $env:DIAG_EXTRACT = $extract
-          $env:DIAG_OUTPUT = $diagPath
-          $py = @'
-          import json, os, pathlib, re, tarfile
-
-          plain = pathlib.Path(os.environ["DIAG_PLAIN"])
-          root = pathlib.Path(os.environ["DIAG_EXTRACT"])
-          output = pathlib.Path(os.environ["DIAG_OUTPUT"])
-          with tarfile.open(plain, "r:gz") as tf:
-              tf.extractall(root, filter="data")
-
-          def load_one(name):
-              hits = list(root.rglob(name))
-              if not hits:
-                  return None
-              return json.loads(hits[0].read_text(encoding="utf-8-sig"))
-
-          def clean_text(value):
-              if value is None:
-                  return None
-              s = str(value)
-              s = re.sub(r"Wb![0-9A-Fa-f]{20,}", "<redacted-run-credential>", s)
-              s = re.sub(r"\b[0-9A-Fa-f]{48,}\b", "<redacted-long-hex>", s)
-              return s[:800]
-
-          r = load_one("full-rdte.json")
-          e = load_one("execution.json")
-          diag = {"schema_version": 1, "scope": "redacted_fullrdte_diagnostic"}
-          if e:
-              diag["execution"] = {
-                  k: e.get(k) for k in (
-                      "assignment_id","exit_code","task_exit_code","timed_out",
-                      "capsule_sha256","worker_revision","run_id","run_attempt"
-                  )
-              }
-              diag["execution"]["result_budget"] = e.get("result_budget")
-          if r:
-              diag["full_rdte"] = {
-                  "schema_version": r.get("schema_version"),
-                  "profile": r.get("profile"),
-                  "assignment_id": r.get("assignment_id"),
-                  "source_revision": r.get("source_revision"),
-                  "projection_identity_sha256": r.get("projection_identity_sha256"),
-                  "classification": r.get("classification"),
-                  "failure_domain": r.get("failure_domain"),
-                  "error_type": r.get("error_type"),
-                  "error_message": clean_text(r.get("error_message")),
-                  "elapsed_seconds": r.get("elapsed_seconds"),
-                  "build": {k: (clean_text(v) if isinstance(v,str) else v) for k,v in (r.get("build") or {}).items()
-                            if k in {
-                              "projection_authorized","free_bytes_before","switch_name",
-                              "download_method","download_seconds","media_size_bytes",
-                              "image_apply_engine","build_seconds","seed_test_vhd",
-                              "seed_size_bytes","seed_integrity",
-                              "iso_reclaimed_before_materialization","seed_unchanged",
-                              "seed_integrity_after"
-                            }},
-                  "work_cells": {
-                      side: {k:v for k,v in ((r.get("work_cells") or {}).get(side) or {}).items()
-                             if k in {
-                               "materialize_seconds","lineage","ip_observed",
-                               "api_token_observed","health_status","ready_seconds",
-                               "runtime_taint_written","prior_runtime_taint_absent",
-                               "vm_absent_after_dispose","runtime_disk_absent_after_dispose"
-                             }}
-                      for side in ("a","b")
-                  },
-                  "persistence": {k:v for k,v in (r.get("persistence") or {}).items()
-                                  if k in {
-                                    "explicit_attachment","exists_before_a","canary_written",
-                                    "exists_after_a_dispose","canary_survived_rematerialization",
-                                    "b_drive_letter","exists_after_b_dispose","oracle_satisfied"
-                                  }},
-                  "conformance": {k:v for k,v in (r.get("conformance") or {}).items()
-                                  if k in {
-                                    "contracts_revision","elapsed_seconds","pytest_exit_code",
-                                    "results_present","summary","oracle_satisfied"
-                                  }},
-                  "cleanup": r.get("cleanup") or {},
-              }
-          else:
-              diag["full_rdte"] = None
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(json.dumps(diag, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-          '@
-          $py | python -
-          if ($LASTEXITCODE -ne 0) { throw 'diagnostic receipt extraction failed' }
-          Remove-Item -LiteralPath $diagRoot -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath $env:DIAG_IDENTITY -Force -ErrorAction SilentlyContinue
-
-      - name: Upload sealed FullRDTE evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: winbot-fullrdte-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            .sealed/receipt.json
-            ${{ runner.temp }}/winbot-fullrdte-staged/reconstruction.json
-            ${{ runner.temp }}/winbot-fullrdte-staged/diagnostic.json
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Preserve FullRDTE verdict
-        if: always()
-        shell: pwsh
-        env:
-          TASK_RC: ${{ steps.execute.outputs.task_rc }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:TASK_RC)) { exit 1 }
-          exit [int]$env:TASK_RC
-) { throw 'generated age recipient failed validation' }
+          if ($recipient -notmatch '^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$') { throw 'generated age recipient failed validation' }
           "AGE_RECIPIENT=$recipient" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DIAG_IDENTITY=$identity" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       - name: Execute sealed FullRDTE
         id: execute
         continue-on-error: true
@@ -396,15 +249,33 @@ jobs:
           "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           exit 0
 
+      - name: Derive redacted FullRDTE diagnostic receipt
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $diagPath = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-staged\diagnostic.json'
+          $plain = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-diagnostic-result.tar.gz'
+          try {
+            if (-not (Test-Path -LiteralPath '.sealed\result.age')) { throw 'sealed diagnostic result missing' }
+            if (-not $env:DIAG_IDENTITY -or -not (Test-Path -LiteralPath $env:DIAG_IDENTITY)) { throw 'ephemeral diagnostic identity missing' }
+            age --decrypt --identity $env:DIAG_IDENTITY --output $plain '.sealed\result.age'
+            if ($LASTEXITCODE -ne 0) { throw 'diagnostic result decryption failed' }
+            python scripts/redact_winbot_fullrdte_diagnostic.py --result-tar $plain --output $diagPath
+            if ($LASTEXITCODE -ne 0) { throw 'diagnostic receipt redaction failed' }
+          } finally {
+            Remove-Item -LiteralPath $plain -Force -ErrorAction SilentlyContinue
+            if ($env:DIAG_IDENTITY) { Remove-Item -LiteralPath $env:DIAG_IDENTITY -Force -ErrorAction SilentlyContinue }
+          }
       - name: Upload sealed FullRDTE evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: winbot-fullrdte-staged-${{ github.run_id }}-${{ github.run_attempt }}
+          name: winbot-fullrdte-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            .sealed/result.age
             .sealed/receipt.json
             ${{ runner.temp }}/winbot-fullrdte-staged/reconstruction.json
+            ${{ runner.temp }}/winbot-fullrdte-staged/diagnostic.json
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
