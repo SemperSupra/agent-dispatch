@@ -89,7 +89,7 @@ class GarmT6ControlTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness = (ROOT / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
         self.assertIn(
-            "export-garm-t6-control.yml@34a0759fe390d7a92b270a599b6584f8949c6d07",
+            "export-garm-t6-control.yml@7fd0d2474248b61cf8e290fc80f40b761cea5e98",
             workflow,
         )
         self.assertIn("name: garm-truenas-t6-control", workflow)
