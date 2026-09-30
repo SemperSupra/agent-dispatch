@@ -95,6 +95,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("/api2/json/access/ticket", text)
         self.assertIn("urllib.parse.urlencode", text)
         self.assertIn("PVEAuthCookie={ticket}", text)
+        self.assertIn('password = os.environ["PVE_RDTE_PASSWORD"]', text)
         self.assertIn('"stage": stage', text)
         self.assertNotIn("print(json.dumps(ticket_payload", text)
         self.assertNotIn("CSRFPreventionToken:", text)

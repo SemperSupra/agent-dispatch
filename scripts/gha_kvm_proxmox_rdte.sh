@@ -356,7 +356,7 @@ import urllib.parse
 host = "127.0.0.1"
 port = 8006
 server_name = "pve-rdte.example.invalid"
-password = sys.stdin.readline().rstrip("\n")
+password = os.environ["PVE_RDTE_PASSWORD"]
 stage = "init"
 
 def https_request(method, path, headers=None, body=b""):
