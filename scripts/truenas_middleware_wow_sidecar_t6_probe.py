@@ -185,7 +185,7 @@ def main() -> int:
                 raise RuntimeError(f"filesystem.get download returned HTTP {response.status}")
             return body.decode("utf-8", errors="replace")
 
-        def wait_job(job_id, label):
+        def wait_job(job_id, label, *, record_failure=True):
             deadline = time.monotonic() + a.job_timeout
             last = None
             while time.monotonic() < deadline:
@@ -194,7 +194,7 @@ def main() -> int:
                     return last
                 if last and last.get("state") in {"FAILED", "ABORTED"}:
                     exc_info = last.get("exc_info") if isinstance(last.get("exc_info"), dict) else {}
-                    payload["job_failure"] = {
+                    failure = {
                         "label": label,
                         "job_id": job_id,
                         "method": last.get("method"),
@@ -213,15 +213,17 @@ def main() -> int:
                         "arguments_recorded": False,
                         "credentials_recorded": False,
                     }
-                    if label.startswith("app."):
+                    if record_failure:
+                        payload["job_failure"] = failure
+                    if record_failure and label.startswith("app."):
                         try:
                             lifecycle_log = download_text_file("/var/log/app_lifecycle.log", "app_lifecycle.log")
-                            payload["job_failure"]["app_lifecycle_log_tail"] = sanitize_diagnostic_text(
+                            failure["app_lifecycle_log_tail"] = sanitize_diagnostic_text(
                                 lifecycle_log[-12000:], 12000
                             )
-                            payload["job_failure"]["app_lifecycle_log_content_recorded"] = "sanitized-tail-only"
+                            failure["app_lifecycle_log_content_recorded"] = "sanitized-tail-only"
                         except Exception as log_exc:
-                            payload["job_failure"]["app_lifecycle_log_error"] = sanitize_diagnostic_text(log_exc, 2000)
+                            failure["app_lifecycle_log_error"] = sanitize_diagnostic_text(log_exc, 2000)
                     raise RuntimeError(f"{label} job {last.get('state')}")
                 time.sleep(1)
             raise RuntimeError(f"{label} job did not reach SUCCESS")
@@ -436,7 +438,7 @@ def main() -> int:
                         "remove_ix_volumes": False,
                         "force_remove_custom_app": True,
                     }])
-                    wait_job(delete_id, "app.delete cleanup")
+                    wait_job(delete_id, "app.delete cleanup", record_failure=False)
                     created_app = False
                     cleanup["app_removed"] = True
                 except Exception as cleanup_exc:
