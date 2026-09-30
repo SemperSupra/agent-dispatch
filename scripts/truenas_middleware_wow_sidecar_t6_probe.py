@@ -423,6 +423,44 @@ def main() -> int:
         }
     finally:
         if ws is not None:
+            cleanup = {
+                "attempted": bool(created_app or created_dataset),
+                "app_removed": not created_app,
+                "fixture_dataset_removed": not created_dataset,
+                "errors": [],
+            }
+            if created_app:
+                try:
+                    delete_id = call("app.delete", [EXPECTED_APP_NAME, {
+                        "remove_images": False,
+                        "remove_ix_volumes": False,
+                        "force_remove_custom_app": True,
+                    }])
+                    wait_job(delete_id, "app.delete cleanup")
+                    created_app = False
+                    cleanup["app_removed"] = True
+                except Exception as cleanup_exc:
+                    cleanup["errors"].append(
+                        "app cleanup: " + (sanitize_diagnostic_text(cleanup_exc, 1500) or "unknown")
+                    )
+            if created_dataset:
+                try:
+                    deleted = call("pool.dataset.delete", [
+                        EXPECTED_FIXTURE_DATASET,
+                        {"recursive": True, "force": False},
+                    ])
+                    if deleted is not True:
+                        raise RuntimeError("pool.dataset.delete cleanup did not return true")
+                    created_dataset = False
+                    cleanup["fixture_dataset_removed"] = True
+                except Exception as cleanup_exc:
+                    cleanup["errors"].append(
+                        "dataset cleanup: " + (sanitize_diagnostic_text(cleanup_exc, 1500) or "unknown")
+                    )
+            cleanup["zero_residue"] = (
+                cleanup["app_removed"] and cleanup["fixture_dataset_removed"] and not cleanup["errors"]
+            )
+            payload["failure_cleanup"] = cleanup
             ws.close()
 
     payload["elapsed_seconds"] = round(time.time() - started, 3)
