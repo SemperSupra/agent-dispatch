@@ -25,6 +25,19 @@ EXPECTED_PROFILE_PATH = EXPECTED_CONFIG_DIR + "/profiles/operator.json"
 EXPECTED_MARKER_PATH = EXPECTED_CONFIG_DIR + "/.initialized-v1"
 FIXTURE_MARKER = "PUBLIC-QUALIFICATION-FIXTURE"
 PRIVATE_REPO_RE = re.compile(r"(?:https://github\\.com/)?SemperSupra/[A-Za-z0-9_.-]+-private(?![A-Za-z0-9_.-])", re.IGNORECASE)
+PEM_RE = re.compile(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", re.DOTALL)
+
+
+def sanitize_diagnostic_text(value: object, limit: int = 6000) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    text = PEM_RE.sub("<redacted-pem>", text)
+    text = PRIVATE_REPO_RE.sub("<redacted-private-repository>", text)
+    text = re.sub(r"\\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]+", "<redacted-token>", text)
+    if len(text) > limit:
+        text = text[:limit] + "<truncated>"
+    return text
 
 
 def canonical_sha256(value: object) -> str:
@@ -154,6 +167,26 @@ def main() -> int:
                 if last and last.get("state") == "SUCCESS":
                     return last
                 if last and last.get("state") in {"FAILED", "ABORTED"}:
+                    exc_info = last.get("exc_info") if isinstance(last.get("exc_info"), dict) else {}
+                    payload["job_failure"] = {
+                        "label": label,
+                        "job_id": job_id,
+                        "method": last.get("method"),
+                        "state": last.get("state"),
+                        "progress": last.get("progress"),
+                        "error": sanitize_diagnostic_text(last.get("error")),
+                        "exception": sanitize_diagnostic_text(last.get("exception")),
+                        "logs_excerpt": sanitize_diagnostic_text(last.get("logs_excerpt")),
+                        "exc_info": {
+                            "type": exc_info.get("type"),
+                            "errno": exc_info.get("errno"),
+                            "errname": exc_info.get("errname"),
+                            "repr": sanitize_diagnostic_text(exc_info.get("repr")),
+                            "extra": sanitize_diagnostic_text(exc_info.get("extra"), 3000),
+                        },
+                        "arguments_recorded": False,
+                        "credentials_recorded": False,
+                    }
                     raise RuntimeError(f"{label} job {last.get('state')}")
                 time.sleep(1)
             raise RuntimeError(f"{label} job did not reach SUCCESS")
