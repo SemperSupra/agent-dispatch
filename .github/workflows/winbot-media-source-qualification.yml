@@ -1,0 +1,203 @@
+name: WinBot Windows Evaluation Media Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-media-source-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-media:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Observe and qualify Microsoft evaluation media candidate
+        id: qualify
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outDir = Join-Path $env:RUNNER_TEMP 'winbot-media-qualification'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $isoName = '26300.9457.260913-1737.26h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso'
+          $sourceLink = 'https://go.microsoft.com/fwlink/?LinkId=2382600&clcid=0x409&country=us&culture=en-us'
+          $downloadUrl = 'https://software-static.download.prss.microsoft.com/dbazure/26300.9457.260913-1737.26h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso'
+          $iso = Join-Path $outDir $isoName
+          $receipt = [ordered]@{
+            schema_version = 1
+            authority = 'SemperSupra/agent-dispatch-private#406'
+            consumer = 'mark-e-deyoung/WinBot#70'
+            profile = 'MediaQualification'
+            runner = [ordered]@{
+              requested_label = 'windows-2025'
+              image_os = $env:ImageOS
+              image_version = $env:ImageVersion
+              runner_os = $env:RUNNER_OS
+              runner_arch = $env:RUNNER_ARCH
+            }
+            candidate = [ordered]@{
+              source_link = $sourceLink
+              download_url = $downloadUrl
+              filename = $isoName
+              version = '26H2'
+              build = '26300.9457'
+              edition = 'Enterprise'
+              architecture = 'x64'
+              language = 'English'
+            }
+            observations = [ordered]@{}
+            oracles = [ordered]@{}
+            cleanup = [ordered]@{}
+            classification = 'HARNESS_FAILURE'
+          }
+          $rc = 1
+          try {
+            $driveName = ([IO.Path]::GetPathRoot($outDir).Substring(0,1))
+            $freeBefore = [int64](Get-PSDrive -Name $driveName).Free
+            $receipt.observations.free_bytes_before = $freeBefore
+            $receipt.oracles.build_resource_candidate = ($freeBefore -ge 30GB)
+
+            $downloadHost = ([Uri]$downloadUrl).DnsSafeHost
+            $receipt.observations.download_host = $downloadHost
+            $receipt.oracles.microsoft_static_download_host =
+              ($downloadHost -eq 'software-static.download.prss.microsoft.com')
+            if (-not $receipt.oracles.microsoft_static_download_host) {
+              throw 'candidate does not use the authorized Microsoft static download host'
+            }
+
+            try {
+              $head = Invoke-WebRequest -Uri $sourceLink -Method Head -MaximumRedirection 0 -SkipHttpErrorCheck -UseBasicParsing
+              $receipt.observations.source_link_status = [int]$head.StatusCode
+              $receipt.observations.source_link_location = [string]$head.Headers.Location
+              $receipt.oracles.redirect_matches_candidate =
+                ([string]$head.Headers.Location -eq $downloadUrl)
+            } catch {
+              $receipt.observations.source_link_probe_error = $_.Exception.GetType().FullName
+              $receipt.oracles.redirect_matches_candidate = $false
+            }
+
+            if ($freeBefore -lt 12GB) {
+              $receipt.classification = 'ENVIRONMENT_FAILURE'
+              throw 'less than 12 GiB free for the bounded media observation'
+            }
+
+            $downloadStart = Get-Date
+            $downloaded = $false
+            if (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue) {
+              try {
+                Start-BitsTransfer -Source $downloadUrl -Destination $iso -DisplayName 'WinBot GHA media qualification' -ErrorAction Stop
+                $receipt.observations.download_method = 'BITS'
+                $downloaded = $true
+              } catch {
+                $receipt.observations.bits_error_type = $_.Exception.GetType().FullName
+              }
+            }
+            if (-not $downloaded) {
+              Invoke-WebRequest -Uri $downloadUrl -OutFile $iso -UseBasicParsing -ErrorAction Stop
+              $receipt.observations.download_method = 'Invoke-WebRequest'
+            }
+            $receipt.observations.download_seconds =
+              [math]::Round(((Get-Date)-$downloadStart).TotalSeconds, 3)
+
+            $item = Get-Item -LiteralPath $iso -ErrorAction Stop
+            $sha = (Get-FileHash -LiteralPath $iso -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt.observations.size_bytes = [int64]$item.Length
+            $receipt.observations.sha256 = $sha
+            $receipt.oracles.nonempty_media = ($item.Length -gt 4GB)
+
+            $mount = Mount-DiskImage -ImagePath $iso -PassThru -ErrorAction Stop
+            try {
+              $volume = $mount | Get-Volume | Where-Object DriveLetter | Select-Object -First 1
+              if (-not $volume) { throw 'mounted ISO has no drive letter' }
+              $root = "$($volume.DriveLetter):\"
+              $wim = Join-Path $root 'sources\install.wim'
+              if (-not (Test-Path -LiteralPath $wim)) { $wim = Join-Path $root 'sources\install.esd' }
+              if (-not (Test-Path -LiteralPath $wim)) { throw 'install.wim/install.esd missing' }
+
+              $images = @(Get-WindowsImage -ImagePath $wim -ErrorAction Stop | ForEach-Object {
+                [ordered]@{
+                  image_index = $_.ImageIndex
+                  image_name = $_.ImageName
+                  image_description = $_.ImageDescription
+                  version = [string]$_.Version
+                  architecture = [string]$_.Architecture
+                }
+              })
+              $receipt.observations.images = $images
+              $receipt.oracles.enterprise_evaluation_image_present =
+                (@($images | Where-Object { $_.image_name -like '*Enterprise Evaluation*' }).Count -gt 0)
+            } finally {
+              Dismount-DiskImage -ImagePath $iso -ErrorAction SilentlyContinue | Out-Null
+            }
+
+            $receipt.oracles.identity_observed =
+              [bool]$receipt.oracles.microsoft_static_download_host -and
+              [bool]$receipt.oracles.nonempty_media -and
+              [bool]$receipt.oracles.enterprise_evaluation_image_present
+
+            if ($receipt.oracles.identity_observed) {
+              $receipt.classification = 'OBSERVED_UNPINNED'
+              $rc = 0
+            } else {
+              $receipt.classification = 'ORACLE_FAILURE'
+              $rc = 2
+            }
+          } catch {
+            $receipt.error_type = $_.Exception.GetType().FullName
+            $receipt.error_message = $_.Exception.Message
+            if ($receipt.classification -eq 'HARNESS_FAILURE') {
+              $receipt.classification = 'ENVIRONMENT_OR_MEDIA_FAILURE'
+            }
+            $rc = 3
+          } finally {
+            try {
+              Get-DiskImage -ImagePath $iso -ErrorAction SilentlyContinue |
+                Where-Object Attached |
+                Dismount-DiskImage -ErrorAction SilentlyContinue | Out-Null
+              if (Test-Path -LiteralPath $iso) { Remove-Item -LiteralPath $iso -Force -ErrorAction Stop }
+              $receipt.cleanup.iso_absent = -not (Test-Path -LiteralPath $iso)
+            } catch {
+              $receipt.cleanup.iso_absent = $false
+              $receipt.cleanup.error_type = $_.Exception.GetType().FullName
+              $receipt.classification = 'ORACLE_FAILURE'
+              $rc = 4
+            }
+            $receipt.cleanup.oracle_satisfied = [bool]$receipt.cleanup.iso_absent
+            $receipt | ConvertTo-Json -Depth 12 |
+              Set-Content -LiteralPath (Join-Path $outDir 'receipt.json') -Encoding utf8
+          }
+          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Upload public-safe media evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-media-qualification-\${{ github.run_id }}-\${{ github.run_attempt }}
+          path: \${{ runner.temp }}/winbot-media-qualification/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce observation and cleanup oracle
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: \${{ steps.qualify.outputs.task_rc }}
+        run: |
+          $receiptPath = Join-Path $env:RUNNER_TEMP 'winbot-media-qualification\receipt.json'
+          if (-not (Test-Path -LiteralPath $receiptPath)) { throw 'media qualification receipt missing' }
+          $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+          Write-Host "classification=$($receipt.classification)"
+          Write-Host "sha256=$($receipt.observations.sha256)"
+          Write-Host "size_bytes=$($receipt.observations.size_bytes)"
+          Write-Host "build_resource_candidate=$($receipt.oracles.build_resource_candidate)"
+          Write-Host "cleanup=$($receipt.cleanup.oracle_satisfied)"
+          if ([int]$env:TASK_RC -ne 0 -or
+              $receipt.classification -ne 'OBSERVED_UNPINNED' -or
+              -not $receipt.oracles.identity_observed -or
+              -not $receipt.cleanup.oracle_satisfied) {
+            throw "media observation oracle not satisfied: $($receipt.classification)"
+          }
