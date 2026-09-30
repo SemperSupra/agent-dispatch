@@ -2,7 +2,8 @@
 """Execute a bounded public-safe capsule and return only sealed evidence.
 
 The capsule is a gzip-compressed tar archive passed as base64. It must contain
-`run.sh`. Task stdout/stderr and files written beneath SEALED_RESULT_DIR are
+a reviewed top-level entrypoint (`run.sh` by default or `run.ps1` for the
+Windows adapter). Task stdout/stderr and files written beneath SEALED_RESULT_DIR are
 captured into the plaintext result bundle, encrypted with age to the caller's
 recipient, then the plaintext is removed.
 
@@ -36,6 +37,7 @@ MAX_RESULT_FILE_BYTES = 8 * 1024 * 1024
 MAX_RESULT_FILES = 252
 MAX_RESULT_TOTAL_BYTES = 16 * 1024 * 1024
 RESULT_BUDGET_EXIT_CODE = 125
+ALLOWED_ENTRYPOINTS = {"run.sh", "run.ps1"}
 
 
 class WorkerError(ValueError):
@@ -85,7 +87,26 @@ def decode_capsule(encoded: str, expected_sha256: str, destination: Path) -> Pat
     return capsule
 
 
-def safe_extract(capsule: Path, destination: Path) -> None:
+def _validate_entrypoint(value: str) -> str:
+    if value not in ALLOWED_ENTRYPOINTS:
+        raise WorkerError("entrypoint must be one of: run.sh, run.ps1")
+    return value
+
+
+def _entrypoint_command(entrypoint: str) -> list[str]:
+    entrypoint = _validate_entrypoint(entrypoint)
+    if entrypoint == "run.ps1":
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        if not shell:
+            raise WorkerError("PowerShell executable is required for run.ps1")
+        return [shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", entrypoint]
+    shell = shutil.which("bash")
+    if not shell:
+        raise WorkerError("bash executable is required for run.sh")
+    return [shell, entrypoint]
+
+
+def safe_extract(capsule: Path, destination: Path, entrypoint: str = "run.sh") -> None:
     destination.mkdir(parents=True, exist_ok=False)
     total = 0
     with tarfile.open(capsule, mode="r:gz") as tf:
@@ -105,9 +126,10 @@ def safe_extract(capsule: Path, destination: Path) -> None:
             except ValueError as exc:
                 raise WorkerError("capsule path escapes execution directory") from exc
         tf.extractall(destination, members=members, filter="data")
-    run_sh = destination / "run.sh"
-    if not run_sh.is_file() or run_sh.is_symlink():
-        raise WorkerError("capsule must contain a regular top-level run.sh")
+    entrypoint = _validate_entrypoint(entrypoint)
+    run_entrypoint = destination / entrypoint
+    if not run_entrypoint.is_file() or run_entrypoint.is_symlink():
+        raise WorkerError(f"capsule must contain a regular top-level {entrypoint}")
 
 
 def _truncate_stream(path: Path, max_bytes: int = MAX_CAPTURED_STREAM_BYTES) -> dict[str, object]:
@@ -223,9 +245,11 @@ def seal_result(plaintext: Path, recipient: str, ciphertext: Path) -> None:
 def run_assignment(
     *, assignment_id: str, capsule_b64: str, capsule_sha256: str,
     recipient: str, timeout_seconds: int, out_dir: Path,
+    entrypoint: str = "run.sh",
 ) -> int:
     assignment_id = _validate_assignment_id(assignment_id)
     recipient = _validate_recipient(recipient)
+    entrypoint = _validate_entrypoint(entrypoint)
     if timeout_seconds < 1 or timeout_seconds > MAX_TIMEOUT_SECONDS:
         raise WorkerError(f"timeout_seconds must be 1-{MAX_TIMEOUT_SECONDS}")
 
@@ -235,7 +259,7 @@ def run_assignment(
         temp = Path(temp_name)
         capsule = decode_capsule(capsule_b64, capsule_sha256, temp)
         work = temp / "work"
-        safe_extract(capsule, work)
+        safe_extract(capsule, work, entrypoint=entrypoint)
         result = temp / "result"
         result.mkdir()
         stdout_path = result / "stdout.txt"
@@ -252,7 +276,7 @@ def run_assignment(
         with stdout_path.open("wb") as stdout_fh, stderr_path.open("wb") as stderr_fh:
             try:
                 completed = subprocess.run(
-                    ["bash", "run.sh"], cwd=work, env=env,
+                    _entrypoint_command(entrypoint), cwd=work, env=env,
                     stdout=stdout_fh, stderr=stderr_fh,
                     timeout=timeout_seconds, check=False,
                 )
@@ -276,6 +300,8 @@ def run_assignment(
             "timed_out": timed_out,
             "result_budget": result_budget,
             "capsule_sha256": capsule_sha256,
+            "entrypoint": entrypoint,
+            "worker_platform": os.name,
             "worker_repository": os.getenv("GITHUB_REPOSITORY"),
             "worker_revision": os.getenv("GITHUB_SHA"),
             "run_id": os.getenv("GITHUB_RUN_ID"),
@@ -311,6 +337,7 @@ def main() -> int:
     parser.add_argument("--recipient", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     parser.add_argument("--out-dir", default=".sealed")
+    parser.add_argument("--entrypoint", choices=sorted(ALLOWED_ENTRYPOINTS), default="run.sh")
     args = parser.parse_args()
     try:
         return run_assignment(
@@ -320,6 +347,7 @@ def main() -> int:
             recipient=args.recipient,
             timeout_seconds=args.timeout_seconds,
             out_dir=Path(args.out_dir),
+            entrypoint=args.entrypoint,
         )
     except WorkerError as exc:
         print(f"sealed public execution rejected: {exc}", file=os.sys.stderr)
