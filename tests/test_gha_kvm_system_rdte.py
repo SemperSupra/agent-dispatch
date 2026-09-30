@@ -94,6 +94,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('all(data.get(k) for k in ("version", "release", "repoid"))', text)
         self.assertNotIn("openssl s_client", text)
         self.assertIn("GET /api2/json/version HTTP/1.0", text)
+        self.assertIn('HTTP/1.0\\\\r\\\\n', text)
+        self.assertNotIn(r'HTTP/1.0\\\\r\\\\n', text)
         self.assertNotIn("for _ in $(seq 1 120); do\n  if [[ \"$SSH_HOSTFWD_ACCEPTED\" == \"true\" ]]; then", text)
         self.assertIn('API_OBSERVATION_ROUTE="ssh-observed-guest-local-https"', text)
         self.assertIn('"api_observation_route"', text)

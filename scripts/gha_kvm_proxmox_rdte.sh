@@ -352,9 +352,9 @@ host = "127.0.0.1"
 port = 8006
 server_name = "pve-rdte.example.invalid"
 request = (
-    "GET /api2/json/version HTTP/1.0\\r\\n"
-    f"Host: {server_name}\\r\\n"
-    "Connection: close\\r\\n\\r\\n"
+    "GET /api2/json/version HTTP/1.0\r\n"
+    f"Host: {server_name}\r\n"
+    "Connection: close\r\n\r\n"
 ).encode("ascii")
 
 try:
@@ -372,10 +372,10 @@ try:
                     break
                 chunks.append(block)
     payload = b"".join(chunks)
-    header, sep, body = payload.partition(b"\\r\\n\\r\\n")
+    header, sep, body = payload.partition(b"\r\n\r\n")
     if not sep:
         raise RuntimeError("HTTP header terminator absent")
-    status = header.split(b"\\r\\n", 1)[0].decode("ascii", "replace")
+    status = header.split(b"\r\n", 1)[0].decode("ascii", "replace")
     if " 200 " not in f" {status} ":
         print(json.dumps({
             "probe_error": "http_status",
