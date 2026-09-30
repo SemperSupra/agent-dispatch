@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-wow-sidecar-002",
+  "request_id": "tn-26-beta3-t6-garm-001",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "wow-sidecar",
+  "product": "garm",
   "authority_issue": 396,
-  "purpose": "Execute the permission-corrected WOW Sidecar pre-hardware T6 consumer rep on exact disposable TrueNAS BETA.3.",
-  "consumer_authority_issue": 276
+  "purpose": "Execute the first GARM controller pre-HIL T6 rep on exact disposable TrueNAS BETA.3 using the accepted secret-free Foundry control.",
+  "consumer_authority_issue": 277
 }
