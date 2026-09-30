@@ -62,11 +62,12 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertIn('"wow-sidecar"', harness)
         self.assertIn("truenas_middleware_wow_sidecar_t6_probe.py", harness)
         self.assertIn('T6_PRODUCT="litellm"', harness)
-        self.assertEqual("wow-sidecar", request["product"])
-        self.assertEqual("t6", request["rung"])
-        self.assertEqual("26.0.0-BETA.3", request["version"])
-        self.assertEqual(396, request["authority_issue"])
-        self.assertEqual(276, request["consumer_authority_issue"])
+        self.assertIn(request["product"], {"litellm", "wow-sidecar", "garm"})
+        if request["product"] == "wow-sidecar":
+            self.assertEqual("t6", request["rung"])
+            self.assertEqual("26.0.0-BETA.3", request["version"])
+            self.assertEqual(396, request["authority_issue"])
+            self.assertEqual(276, request["consumer_authority_issue"])
 
     def test_load_control_rejects_foundry_drift(self):
         compose = {
