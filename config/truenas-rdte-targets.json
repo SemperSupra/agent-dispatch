@@ -1,0 +1,50 @@
+{
+  "schema": "gha-kvm-truenas-targets/v1",
+  "policy": {
+    "exact_version_required": true,
+    "vendor_digest_sidecar_required": true,
+    "floating_target_prohibited": true,
+    "heavyweight_slot": "shared-one-at-a-time"
+  },
+  "targets": [
+    {
+      "version": "25.04.1",
+      "channel": "deployed-legacy",
+      "system_version": "TrueNAS-SCALE-25.04.1",
+      "iso_name": "TrueNAS-SCALE-25.04.1.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso.sha256",
+      "middleware_ref": "release/25.04.1",
+      "middleware_commit": "74ab5a2d373be4097dece257d00e1086376333ba",
+      "foundry_profile": ".foundry/truenas-compatibility/25.04.1-materialization.json",
+      "ha_apps_gate": "system.license:JAILS",
+      "authority_issue": 411
+    },
+    {
+      "version": "25.10.7",
+      "channel": "stable",
+      "system_version": "TrueNAS-SCALE-25.10.7",
+      "iso_name": "TrueNAS-SCALE-25.10.7.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso.sha256",
+      "middleware_ref": "TS-25.10.7",
+      "middleware_commit": "8ede398839710e56893d88ce85088139d8fab18e",
+      "foundry_profile": ".foundry/truenas-compatibility/25.10.7-materialization.json",
+      "ha_apps_gate": "system.license:JAILS",
+      "authority_issue": 410
+    },
+    {
+      "version": "26.0.0-BETA.3",
+      "channel": "early-release",
+      "system_version": "TrueNAS-26.0.0-BETA.3",
+      "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso.sha256",
+      "middleware_ref": "TS-26.0.0-BETA.3",
+      "middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
+      "foundry_profile": ".foundry/truenas-compatibility/26.0.0-BETA.3-materialization.json",
+      "ha_apps_gate": "system.feature_enabled:APPS",
+      "authority_issue": 396
+    }
+  ]
+}
