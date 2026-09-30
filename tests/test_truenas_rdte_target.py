@@ -41,13 +41,15 @@ class TargetRegistryTests(unittest.TestCase):
                 raise MOD.TargetError("exact TrueNAS target is not registered: 26.0.0-RC.1")
 
 
-    def test_initial_run_request_is_exact_stable_t5(self):
+    def test_run_request_is_exact_registered_t5(self):
         request=json.loads(RUN_REQUEST.read_text(encoding="utf-8"))
         self.assertEqual(request["schema"], "gha-kvm-truenas-run-request/v1")
-        self.assertEqual(request["version"], "25.10.7")
         self.assertEqual(request["rung"], "t5")
-        self.assertEqual(request["authority_issue"], 410)
         self.assertIn(request["version"], self.targets)
+        target=self.targets[request["version"]]
+        self.assertEqual(request["authority_issue"], target["authority_issue"])
+        self.assertNotIn("latest", request["version"].lower())
+        self.assertNotIn("nightly", request["version"].lower())
 
 
 if __name__=="__main__":
