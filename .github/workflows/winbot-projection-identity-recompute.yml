@@ -16,8 +16,8 @@ jobs:
     timeout-minutes: 10
     env:
       OLD_MASTER_MANIFEST_SHA: 'bbf4bf113e8bb8e87cfe5b8d3999de7872a3a93c'
-      NEW_SOURCE_REVISION: 'fdc27c1c4aba48dfc575df855eb1351f85b82bf9'
-      NEW_HOST_BLOB_SHA: '012ef5bcaeb0329fd1f7ac1522c945546cff2d2d'
+      NEW_SOURCE_REVISION: '4220566a40afa90436b9ec82f2de9d608a40369b'
+      NEW_HOST_BLOB_SHA: '0568262419d68547d406ce31a3b7388d2b58a31e'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
