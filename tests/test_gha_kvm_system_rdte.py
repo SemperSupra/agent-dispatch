@@ -421,7 +421,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_pool_probe.py", text)
         self.assertIn('"data_pool_created"', text)
         self.assertIn('"data_pool"', text)
-        self.assertIn("--rung t6", workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         self.assertIn("scripts/truenas_middleware_pool_probe.py", workflow)
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
@@ -452,7 +453,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', app)
         self.assertNotIn('"nginx:1.27-alpine"', app)
         self.assertIn('"state") == "RUNNING"', app)
-        self.assertIn('--rung t6', workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         py = subprocess.run(
             ["python3", "-m", "py_compile", str(TRUENAS_APP)],
             text=True,
@@ -476,7 +478,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('--expected-version "$EXPECTED_SYSTEM_VERSION"', text)
         self.assertIn('APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', lifecycle)
         self.assertIn("scripts/truenas_middleware_app_lifecycle_probe.py", workflow)
-        self.assertIn("--rung t6", workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         shell_check = subprocess.run(
             ["bash", "-n", str(TRUENAS)], text=True, capture_output=True
         )
@@ -493,7 +496,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertNotIn('python3 "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py"', text)
         self.assertIn('"foundry_materialization_exercised"', text)
         self.assertIn('"foundry_materialization"', text)
-        self.assertIn("--rung t6", workflow)
+        self.assertIn("truenas_rung:", workflow)
+        self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         self.assertIn("4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba", workflow)
         self.assertIn("litellm-truenas-t6-control", workflow)
         self.assertIn("export-litellm-t6-control.yml", workflow)
