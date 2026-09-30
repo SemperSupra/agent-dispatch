@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-001",
+  "request_id": "tn-26-beta3-t6-wow-sidecar-003-app-create-diagnostic",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "garm",
+  "product": "wow-sidecar",
   "authority_issue": 396,
-  "purpose": "Execute the first GARM controller pre-HIL T6 rep on exact disposable TrueNAS BETA.3 using the accepted secret-free Foundry control.",
-  "consumer_authority_issue": 277
+  "purpose": "Reproduce the WOW Sidecar app.create failure on disposable TrueNAS BETA.3 and retain only sanitized TrueNAS job diagnostics needed to classify the materialization defect.",
+  "consumer_authority_issue": 276
 }
