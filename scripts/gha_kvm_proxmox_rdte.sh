@@ -340,6 +340,9 @@ PY
 }
 
 guest_local_https_api() {
+  # Exact installed source contract: /access/ticket is user=world, while
+  # /version requires an authenticated user; pve-http-server consumes the
+  # returned ticket from the PVEAuthCookie cookie on the subsequent GET.
   local response=""
   for _ in 1 2 3; do
     response="$(
