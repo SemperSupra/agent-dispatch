@@ -15,6 +15,28 @@ on:
           - both
           - proxmox
           - truenas
+      truenas_version:
+        description: "Exact TrueNAS target version"
+        required: true
+        default: "26.0.0-BETA.3"
+        type: choice
+        options:
+          - "26.0.0-BETA.3"
+          - "25.10.7"
+          - "25.04.1"
+      truenas_rung:
+        description: "TrueNAS system qualification rung"
+        required: true
+        default: t6
+        type: choice
+        options:
+          - t0
+          - t1
+          - t2
+          - t3
+          - t4
+          - t5
+          - t6
 
 permissions:
   contents: read
@@ -31,6 +53,8 @@ jobs:
       proxmox: ${{ steps.scope.outputs.proxmox }}
       truenas: ${{ steps.scope.outputs.truenas }}
       qemu_topology: ${{ steps.scope.outputs.qemu_topology }}
+      truenas_version: ${{ steps.scope.outputs.truenas_version }}
+      truenas_rung: ${{ steps.scope.outputs.truenas_rung }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -40,6 +64,8 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           DISPATCH_TARGET: ${{ inputs.target }}
+          DISPATCH_TRUENAS_VERSION: ${{ inputs.truenas_version }}
+          DISPATCH_TRUENAS_RUNG: ${{ inputs.truenas_rung }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
         run: |
@@ -47,6 +73,8 @@ jobs:
           proxmox=false
           truenas=false
           qemu_topology=false
+          truenas_version="${DISPATCH_TRUENAS_VERSION:-26.0.0-BETA.3}"
+          truenas_rung="${DISPATCH_TRUENAS_RUNG:-t6}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             case "$DISPATCH_TARGET" in
               proxmox) proxmox=true ;;
@@ -60,7 +88,7 @@ jobs:
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
-                scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_litellm_t6_probe.py)
+                config/truenas-rdte-targets.json|scripts/truenas_rdte_target.py|scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_litellm_t6_probe.py)
                   truenas=true
                   ;;
                 scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
@@ -76,7 +104,9 @@ jobs:
           echo "proxmox=$proxmox" >>"$GITHUB_OUTPUT"
           echo "truenas=$truenas" >>"$GITHUB_OUTPUT"
           echo "qemu_topology=$qemu_topology" >>"$GITHUB_OUTPUT"
-          printf 'target scope: proxmox=%s truenas=%s qemu_topology=%s\n' "$proxmox" "$truenas" "$qemu_topology"
+          echo "truenas_version=$truenas_version" >>"$GITHUB_OUTPUT"
+          echo "truenas_rung=$truenas_rung" >>"$GITHUB_OUTPUT"
+          printf 'target scope: proxmox=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s\n' "$proxmox" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung"
 
   contract:
     runs-on: ubuntu-24.04
@@ -86,11 +116,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate public-safe contract
-        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_rdte_target.py
 
   foundry-t6-control:
     needs: [changes, contract]
-    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true'
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6'
     uses: SemperSupra/truenas-app-foundry/.github/workflows/export-litellm-t6-control.yml@4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
     with:
       foundry_ref: 4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
@@ -184,7 +214,7 @@ jobs:
       needs.contract.result == 'success' &&
       needs.changes.outputs.truenas == 'true' &&
       (needs['proxmox-9-2'].result == 'success' || needs['proxmox-9-2'].result == 'skipped') &&
-      needs['foundry-t6-control'].result == 'success'
+      (needs.changes.outputs.truenas_rung != 't6' || needs['foundry-t6-control'].result == 'success')
     runs-on: ubuntu-26.04
     timeout-minutes: 50
     steps:
@@ -192,6 +222,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Download exact LiteLLM Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: litellm-truenas-t6-control
@@ -206,24 +237,34 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
-          bash scripts/gha_kvm_truenas_rdte.sh \
-            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state" \
-            --rung t6 \
-            --foundry-control-dir "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control" \
-            --foundry-commit "4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba" \
+          args=(
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state"
+            --target-version "${{ needs.changes.outputs.truenas_version }}"
+            --rung "${{ needs.changes.outputs.truenas_rung }}"
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          )
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" ]]; then
+            args+=(
+              --foundry-control-dir "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control"
+              --foundry-commit "4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
+            )
+          fi
+          bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
       - name: Preserve TrueNAS harness failure evidence
         if: always()
+        env:
+          TRUENAS_VERSION: ${{ needs.changes.outputs.truenas_version }}
+          TRUENAS_RUNG: ${{ needs.changes.outputs.truenas_rung }}
         run: |
           set -euo pipefail
           receipt="$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           if [ ! -f "$receipt" ]; then
             python3 - "$receipt" <<'PY'
-          import json, pathlib, sys
+          import json, os, pathlib, sys
           pathlib.Path(sys.argv[1]).write_text(json.dumps({
             "contract":"gha-kvm-system-lab/v1",
-            "target":{"product":"truenas","version":"26.0.0-BETA.3","rung":"T6"},
+            "target":{"product":"truenas","version":os.environ["TRUENAS_VERSION"],"rung":os.environ["TRUENAS_RUNG"].upper()},
             "classification":"HARNESS_FAILURE",
             "oracleSatisfied":False,
             "phase":"workflow-fallback",
