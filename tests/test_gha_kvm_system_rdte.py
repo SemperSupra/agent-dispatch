@@ -226,6 +226,9 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_rung:", text)
         self.assertIn("needs.changes.outputs.truenas_version", text)
         self.assertIn("needs.changes.outputs.truenas_rung", text)
+        self.assertIn("config/truenas-rdte-run-request.json", text)
+        self.assertIn("run_request_changed", text)
+        self.assertIn("gha-kvm-truenas-run-request/v1", text)
 
     def test_truenas_t1_requires_local_rpc_probe(self):
         text = TRUENAS.read_text(encoding="utf-8")
