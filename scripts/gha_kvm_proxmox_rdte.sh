@@ -6,6 +6,11 @@ ISO_URL="https://enterprise.proxmox.com/iso/$ISO_NAME"
 ISO_SHA256="4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c"
 PVE_INSTALLER_SOURCE_VERSION="9.2.5"
 PVE_INSTALLER_SOURCE_COMMIT="32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9"
+P3_PVE_CONTAINER_SOURCE_COMMIT="5eb5574ee9158ac40a5230de2cf18d7d6345709f"
+P3_TEMPLATE_NAME="debian-13-standard_13.1-2_amd64.tar.zst"
+P3_TEMPLATE_URL="https://download.proxmox.com/images/system/$P3_TEMPLATE_NAME"
+P3_TEMPLATE_SHA512="5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8"
+P3_VMID=9101
 RAM_MIB=4096
 VCPUS=2
 DISK_SIZE="40G"
@@ -44,6 +49,7 @@ API_OBSERVATION_ROUTE=""
 NESTED_KVM="unknown"
 NESTED_KVM_INDICATORS="unknown"
 NESTED_KVM_VCPU_JSON=""
+P3_LXC_JSON=""
 SSH_HOSTFWD_ACCEPTED="false"
 API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
@@ -74,7 +80,7 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
-  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON"
+  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" R_P3_LXC="$P3_LXC_JSON"
   export R_HOSTFWD_API="$HOSTFWD_API_VERSION_JSON" R_GUEST_LOCAL_API="$GUEST_LOCAL_API_VERSION_JSON" R_API_ROUTE="$API_OBSERVATION_ROUTE"
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
@@ -94,6 +100,7 @@ def load_json_env(name):
         return {"inspection_ok": False, "parse_error": str(exc), "raw": raw[:2000]}
 
 nested_vcpu = load_json_env("R_NESTED_VCPU")
+p3_lxc = load_json_env("R_P3_LXC")
 
 payload = {
   "contract": "gha-kvm-system-lab/v1",
@@ -117,6 +124,9 @@ payload = {
     "pve_qemu_submodule_commit": "98b060da3a4f92b2a994ead5b16a87e783baf77c",
     "pve_qemu_debugexit_source": "hw/misc/debugexit.c",
     "pve_qemu_expected_package": "11.0.0-3",
+    "pve_container_source_commit": "5eb5574ee9158ac40a5230de2cf18d7d6345709f",
+    "p3_template": "debian-13-standard_13.1-2_amd64.tar.zst",
+    "p3_template_catalog_sha512": "5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8",
     "iso_first_boot_package": os.environ.get("R_ISO_FIRST_BOOT_PACKAGE") or None,
   },
   "oracles": {
@@ -127,10 +137,12 @@ payload = {
     "nested_kvm_indicators_via_ssh": os.environ.get("R_NESTED_INDICATORS") == "yes",
     "nested_kvm_observed_via_ssh": os.environ.get("R_NESTED") == "yes",
     "nested_kvm_vcpu_executed": bool(nested_vcpu and nested_vcpu.get("oracleSatisfied") is True),
+    "p3_lxc_lifecycle_exercised": bool(p3_lxc and p3_lxc.get("oracleSatisfied") is True),
   },
   "api_version": json.loads(os.environ["R_API"]) if os.environ.get("R_API") else None,
   "nested_kvm": os.environ.get("R_NESTED"),
   "p5_nested_kvm": nested_vcpu,
+  "p3_lxc": p3_lxc,
   "diagnostics": {
     "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
     "ssh_hostfwd_accepted": os.environ.get("R_SSH_HOSTFWD_ACCEPTED") == "true",
@@ -150,6 +162,7 @@ payload = {
     "Disposable virtual-hardware target profile; not physical-HBA/SMART/IPMI/HA qualification.",
     "Nested KVM is a separate oracle from Proxmox management-plane support.",
     "P5 nested KVM requires p5_nested_kvm.oracleSatisfied=true from an actual nested vCPU debug-exit; device/CPU flags alone are diagnostic.",
+    "P3 LXC is a separate lifecycle oracle using one exact public Debian template; P2/P5 are not inferred from it.",
   ],
 }
 pathlib.Path(os.environ["R_OUT"]).write_text(json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8")
@@ -515,6 +528,148 @@ guest_diagnostics() {
 }
 
 
+
+probe_lxc_lifecycle() {
+  local template_host="$STATE_DIR/$P3_TEMPLATE_NAME"
+  local template_guest="/var/lib/vz/template/cache/$P3_TEMPLATE_NAME"
+  local observed_sha="" response=""
+
+  if ! command -v sha512sum >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1; then
+    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"host-prerequisite","detail":"sha512sum or scp unavailable on GHA host"}'
+    return 0
+  fi
+  if ! curl --fail --location --retry 3 --silent --show-error "$P3_TEMPLATE_URL" -o "$template_host"; then
+    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"template-acquire","detail":"exact public LXC template download failed"}'
+    return 0
+  fi
+  observed_sha="$(sha512sum "$template_host" | awk '{print $1}')"
+  if [[ "$observed_sha" != "$P3_TEMPLATE_SHA512" ]]; then
+    R_OBS="$observed_sha" R_EXP="$P3_TEMPLATE_SHA512" python3 - <<'PY'
+import json, os
+print(json.dumps({"contract":"proxmox-lxc-lifecycle/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"phase":"template-integrity","detail":"downloaded template SHA-512 did not match exact admitted PVE catalog","expected_sha512":os.environ["R_EXP"],"observed_sha512":os.environ["R_OBS"]},separators=(",",":")))
+PY
+    rm -f -- "$template_host"
+    return 0
+  fi
+
+  if ! sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+      root@127.0.0.1 "test ! -e '$template_guest' && install -d -m 0755 /var/lib/vz/template/cache" >/dev/null 2>&1; then
+    rm -f -- "$template_host"
+    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"template-stage","detail":"template destination already existed or guest cache could not be prepared"}'
+    return 0
+  fi
+  if ! sshpass -p "$ROOT_PASSWORD" scp -q -P "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      "$template_host" "root@127.0.0.1:$template_guest"; then
+    rm -f -- "$template_host"
+    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"template-stage","detail":"exact template could not be copied into PVE"}'
+    return 0
+  fi
+  rm -f -- "$template_host"
+
+  response="$(sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+    root@127.0.0.1 'bash -s' 2>/dev/null <<'REMOTE' || true
+set +e
+VMID=9101
+TEMPLATE_NAME="debian-13-standard_13.1-2_amd64.tar.zst"
+TEMPLATE="/var/lib/vz/template/cache/$TEMPLATE_NAME"
+EXPECTED_SHA512="5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8"
+EXPECTED_PVE_CONTAINER="6.1.10"
+CENSUS="$(mktemp)"; CREATE_LOG="$(mktemp)"; START_LOG="$(mktemp)"; STOP_LOG="$(mktemp)"; DESTROY_LOG="$(mktemp)"; CONFIG_SNAPSHOT="$(mktemp)"
+cleanup() {
+  if pct status "$VMID" >/dev/null 2>&1; then
+    pct stop "$VMID" >/dev/null 2>&1 || true
+    pct destroy "$VMID" --purge 1 >/dev/null 2>&1 || true
+  fi
+  rm -f -- "$TEMPLATE"
+}
+trap 'cleanup >/dev/null 2>&1' EXIT
+
+OBS_SHA="$(sha512sum "$TEMPLATE" 2>/dev/null | awk '{print $1}')"
+PKG="$(dpkg-query -W -f='${Version}' pve-container 2>/dev/null || true)"
+STORAGE_STATUS="$(pvesm status --storage local-lvm 2>&1 || true)"
+STORAGE_ACTIVE=false
+printf '%s\n' "$STORAGE_STATUS" | awk 'NR>1 && $1=="local-lvm" && $3=="active"{ok=1} END{exit !ok}' && STORAGE_ACTIVE=true
+PRECONDITION=""
+[[ "$OBS_SHA" == "$EXPECTED_SHA512" ]] || PRECONDITION="template-sha512-mismatch"
+[[ "$PKG" == "$EXPECTED_PVE_CONTAINER" ]] || [[ -n "$PRECONDITION" ]] || PRECONDITION="pve-container-version-mismatch"
+[[ "$STORAGE_ACTIVE" == true ]] || [[ -n "$PRECONDITION" ]] || PRECONDITION="local-lvm-inactive"
+if pct status "$VMID" >/dev/null 2>&1 || [[ -e "/etc/pve/lxc/$VMID.conf" ]]; then [[ -n "$PRECONDITION" ]] || PRECONDITION="vmid-preexisting"; fi
+
+CREATE_RC=125; START_RC=125; EXEC_RC=125; STOP_RC=125; DESTROY_RC=125; RUNNING=false; CLEANUP_OK=false
+if [[ -z "$PRECONDITION" ]]; then
+  pct create "$VMID" "local:vztmpl/$TEMPLATE_NAME" --rootfs local-lvm:2 --memory 256 --cores 1 --unprivileged 1 \
+    --hostname rdte-p3 --net0 "name=eth0,bridge=vmbr0,ip=10.0.2.16/24,type=veth" >"$CREATE_LOG" 2>&1
+  CREATE_RC=$?
+  if [[ "$CREATE_RC" -eq 0 ]]; then
+    pct config "$VMID" >"$CONFIG_SNAPSHOT" 2>&1 || true
+    pct start "$VMID" >"$START_LOG" 2>&1; START_RC=$?
+    if [[ "$START_RC" -eq 0 ]]; then
+      for _ in $(seq 1 20); do if pct status "$VMID" 2>/dev/null | grep -Fq 'status: running'; then RUNNING=true; break; fi; sleep 1; done
+      if [[ "$RUNNING" == true ]]; then
+        pct exec "$VMID" -- sh -c '
+          echo P3_CENSUS_BEGIN
+          printf "HOSTNAME="; hostname 2>&1 || true
+          echo UNAME_BEGIN; uname -a 2>&1 || true; echo UNAME_END
+          echo CPU_BEGIN; grep -E "^(processor|vendor_id|model name|flags|Features)" /proc/cpuinfo 2>&1 | head -n 40 || true; echo CPU_END
+          echo MEM_BEGIN; head -n 30 /proc/meminfo 2>&1 || true; echo MEM_END
+          echo CGROUP_BEGIN; cat /proc/self/cgroup 2>&1 || true; echo CGROUP_END
+          echo MOUNTS_BEGIN; head -n 80 /proc/mounts 2>&1 || true; echo MOUNTS_END
+          echo NET_BEGIN; ip -brief address 2>&1 || true; echo NET_END
+          echo ROUTE_BEGIN; ip route 2>&1 || true; echo ROUTE_END
+          echo DNS_BEGIN; cat /etc/resolv.conf 2>&1 || true; echo DNS_END
+          echo DEV_BEGIN; ls -la /dev 2>&1 | head -n 80 || true; echo DEV_END
+          echo P3_CENSUS_END
+        ' >"$CENSUS" 2>&1
+        EXEC_RC=$?
+      fi
+    fi
+  fi
+fi
+
+if pct status "$VMID" >/dev/null 2>&1; then
+  if pct status "$VMID" 2>/dev/null | grep -Fq 'status: running'; then pct stop "$VMID" >"$STOP_LOG" 2>&1; STOP_RC=$?; else STOP_RC=0; fi
+  pct destroy "$VMID" --purge 1 >"$DESTROY_LOG" 2>&1; DESTROY_RC=$?
+else
+  STOP_RC=0; DESTROY_RC=0
+fi
+rm -f -- "$TEMPLATE"
+CONFIG_ABSENT=true; VOLUME_ABSENT=true; TEMPLATE_ABSENT=true
+[[ ! -e "/etc/pve/lxc/$VMID.conf" ]] || CONFIG_ABSENT=false
+if pvesm list local-lvm 2>/dev/null | grep -Eq "(vm|subvol)-$VMID-"; then VOLUME_ABSENT=false; fi
+[[ ! -e "$TEMPLATE" ]] || TEMPLATE_ABSENT=false
+[[ "$CONFIG_ABSENT" == true && "$VOLUME_ABSENT" == true && "$TEMPLATE_ABSENT" == true ]] && CLEANUP_OK=true
+
+CENSUS_TEXT="$(tail -c 12000 "$CENSUS" 2>/dev/null || true)"
+CONFIG_TEXT="$(tail -c 6000 "$CONFIG_SNAPSHOT" 2>/dev/null || true)"
+CREATE_TEXT="$(tail -c 4000 "$CREATE_LOG" 2>/dev/null || true)"; START_TEXT="$(tail -c 4000 "$START_LOG" 2>/dev/null || true)"
+STOP_TEXT="$(tail -c 4000 "$STOP_LOG" 2>/dev/null || true)"; DESTROY_TEXT="$(tail -c 4000 "$DESTROY_LOG" 2>/dev/null || true)"
+R_PRE="$PRECONDITION" R_SHA="$OBS_SHA" R_PKG="$PKG" R_STORAGE="$STORAGE_STATUS" R_CREATE="$CREATE_RC" R_START="$START_RC" R_EXEC="$EXEC_RC" \
+R_STOP="$STOP_RC" R_DESTROY="$DESTROY_RC" R_RUNNING="$RUNNING" R_CLEAN="$CLEANUP_OK" R_CFGABS="$CONFIG_ABSENT" R_VOLABS="$VOLUME_ABSENT" R_TPLABS="$TEMPLATE_ABSENT" \
+R_CENSUS="$CENSUS_TEXT" R_CONFIG="$CONFIG_TEXT" R_CREATE_LOG="$CREATE_TEXT" R_START_LOG="$START_TEXT" R_STOP_LOG="$STOP_TEXT" R_DESTROY_LOG="$DESTROY_TEXT" \
+python3 - <<'PY'
+import json, os
+pre=os.environ.get("R_PRE",""); create=int(os.environ["R_CREATE"]); start=int(os.environ["R_START"]); exe=int(os.environ["R_EXEC"]); stop=int(os.environ["R_STOP"]); destroy=int(os.environ["R_DESTROY"])
+running=os.environ["R_RUNNING"]=="true"; cleanup=os.environ["R_CLEAN"]=="true"
+ok=(not pre and create==0 and start==0 and running and exe==0 and stop==0 and destroy==0 and cleanup)
+classification="SUPPORTED" if ok else ("ENVIRONMENT_FAILURE" if pre else "ORACLE_FAILURE")
+detail="run-owned unprivileged LXC completed create/start/exec/stop/destroy with zero experiment residue" if ok else (pre or "LXC lifecycle did not satisfy the bounded create/start/exec/stop/destroy/cleanup oracle")
+print(json.dumps({
+ "contract":"proxmox-lxc-lifecycle/v1","classification":classification,"oracleSatisfied":ok,"phase":"lxc-lifecycle","detail":detail,"vmid":9101,
+ "template":{"name":"debian-13-standard_13.1-2_amd64.tar.zst","expected_sha512":"5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8","observed_sha512":os.environ.get("R_SHA") or None},
+ "pve_container_version":os.environ.get("R_PKG") or None,"source":{"pve_container_commit":"5eb5574ee9158ac40a5230de2cf18d7d6345709f"},"storage_status":os.environ.get("R_STORAGE") or None,
+ "steps":{"create":create,"start":start,"running":running,"exec":exe,"stop":stop,"destroy":destroy},
+ "cleanup":{"config_absent":os.environ["R_CFGABS"]=="true","root_volume_absent":os.environ["R_VOLABS"]=="true","template_absent":os.environ["R_TPLABS"]=="true","zero_residue":cleanup},
+ "container_config":os.environ.get("R_CONFIG") or None,"census":os.environ.get("R_CENSUS") or None,
+ "logs":{"create":os.environ.get("R_CREATE_LOG") or None,"start":os.environ.get("R_START_LOG") or None,"stop":os.environ.get("R_STOP_LOG") or None,"destroy":os.environ.get("R_DESTROY_LOG") or None},
+},sort_keys=True,separators=(",",":")))
+PY
+trap - EXIT
+rm -f -- "$CENSUS" "$CREATE_LOG" "$START_LOG" "$STOP_LOG" "$DESTROY_LOG" "$CONFIG_SNAPSHOT"
+REMOTE
+)"
+  if [[ -n "$response" ]]; then printf '%s' "$response"; else printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"transport","detail":"guest SSH did not return an LXC receipt"}'; fi
+}
+
 probe_nested_kvm_vcpu() {
   local response=""
   command -v sshpass >/dev/null 2>&1 || {
@@ -876,6 +1031,12 @@ raise SystemExit(0 if ok else 1)
 PY
 then
   NESTED_KVM="yes"
+fi
+
+if [[ "$NESTED_KVM" == "yes" ]]; then
+  P3_LXC_JSON="$(probe_lxc_lifecycle || true)"
+else
+  P3_LXC_JSON='{"contract":"proxmox-lxc-lifecycle/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"prerequisite","detail":"P5 nested-vCPU oracle was not satisfied in this rep"}'
 fi
 
 write_receipt SUPPORTED true complete "real Proxmox VE unattended install completed and real HTTPS /api2/json/version answered via $API_OBSERVATION_ROUTE"

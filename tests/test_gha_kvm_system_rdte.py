@@ -160,6 +160,26 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"exit_code_rule": "(value << 1) | 1"', text)
         self.assertNotIn('NESTED_KVM="no"', text)
 
+
+    def test_proxmox_p3_uses_exact_public_template_and_supported_pct_lifecycle(self):
+        text = PVE.read_text(encoding="utf-8")
+        self.assertIn('P3_TEMPLATE_NAME="debian-13-standard_13.1-2_amd64.tar.zst"', text)
+        self.assertIn('P3_TEMPLATE_SHA512="5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8"', text)
+        self.assertIn('P3_PVE_CONTAINER_SOURCE_COMMIT="5eb5574ee9158ac40a5230de2cf18d7d6345709f"', text)
+        self.assertIn("probe_lxc_lifecycle", text)
+        self.assertIn('pct create "$VMID"', text)
+        self.assertIn('pct start "$VMID"', text)
+        self.assertIn('pct exec "$VMID"', text)
+        self.assertIn('pct stop "$VMID"', text)
+        self.assertIn('pct destroy "$VMID" --purge 1', text)
+        self.assertIn("--unprivileged 1", text)
+        self.assertIn("--rootfs local-lvm:2", text)
+        self.assertIn('"p3_lxc_lifecycle_exercised"', text)
+        self.assertIn('"p3_lxc": p3_lxc', text)
+        self.assertIn('"zero_residue":cleanup', text)
+        self.assertIn('if [[ "$NESTED_KVM" == "yes" ]]; then', text)
+        self.assertNotIn("nsenter", text)
+
     def test_truenas_is_pinned_and_digest_sidecar_is_required(self):
         text = TRUENAS.read_text(encoding="utf-8")
         self.assertIn("TrueNAS-26.0.0-BETA.3.iso", text)
