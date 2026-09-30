@@ -172,15 +172,6 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
         if not own["ok"]:
             return {"ok": False, "classification": "SETUP_REQUIRED", "reason": "could not return rootfs ownership", "detail": own}
 
-        cleanup_root = _run(["sudo", "-n", "rm", "-rf", str(root_dir)], timeout=120)
-        if not cleanup_root["ok"]:
-            return {
-                "ok": False,
-                "classification": "HARNESS_FAILURE",
-                "reason": "rootfs staging cleanup failed",
-                "detail": cleanup_root,
-            }
-
         return {
             "ok": True,
             "rootfs": rootfs,
@@ -191,9 +182,20 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
             "rootfs_size_bytes": rootfs.stat().st_size,
         }
     finally:
+        cleanup_failure = None
         if container_id:
             _run(["docker", "rm", "-f", container_id], timeout=30)
         _run(["docker", "rmi", "-f", image_tag], timeout=60)
+        if root_dir.exists():
+            cleanup_root = _run(["sudo", "-n", "rm", "-rf", str(root_dir)], timeout=120)
+            if not cleanup_root["ok"]:
+                cleanup_failure = cleanup_root
+        if cleanup_failure is not None:
+            raise ProbeError(
+                "CLEANUP_FAILURE",
+                "Playwright rootfs staging cleanup failed: "
+                + (cleanup_failure["stderr"] or cleanup_failure["stdout"] or "unknown error")[-1000:],
+            )
 
 
 def _make_scratch(path: pathlib.Path) -> dict:
@@ -375,10 +377,10 @@ def run_probe(label: str) -> dict:
     tools = _required_tools()
 
     if platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
-        raise RuntimeError("P0a requires x86_64 Linux")
+        raise ProbeError("VENUE_LIMITATION", "P0a requires x86_64 Linux")
     missing = [name for name, path in tools.items() if not path]
     if missing:
-        raise RuntimeError(f"required host tools unavailable: {missing}")
+        raise ProbeError("SETUP_REQUIRED", f"required host tools unavailable: {missing}")
 
     trusted_base = pathlib.Path(f"/opt/agent-dispatch-fcpw-{os.getpid()}")
     identity = None
@@ -415,11 +417,14 @@ def run_probe(label: str) -> dict:
             with timer.stage("bridge_init_compile", "portable"):
                 ic = f1._compile_init(INIT_SOURCE, init_bin)
             if not (vv["verified"] and kv["verified"] and ic["ok"]):
-                raise RuntimeError("pinned VMM/kernel/init preparation failed")
+                raise ProbeError("HARNESS_FAILURE", "pinned VMM/kernel/init preparation failed")
 
             rootfs_info = _build_playwright_rootfs(work, timer)
             if not rootfs_info.get("ok"):
-                raise RuntimeError(rootfs_info.get("reason", "Playwright rootfs materialization failed"))
+                raise ProbeError(
+                    rootfs_info.get("classification", "HARNESS_FAILURE"),
+                    rootfs_info.get("reason", "Playwright rootfs materialization failed"),
+                )
             rootfs = rootfs_info["rootfs"]
             root_before = _sha256(rootfs)
 
@@ -428,7 +433,7 @@ def run_probe(label: str) -> dict:
             with timer.stage("scratch_create", "venue"):
                 ss = _make_scratch(scratch)
             if not ss["ok"]:
-                raise RuntimeError(f"scratch creation failed: {ss['stderr']}")
+                raise ProbeError("SETUP_REQUIRED", f"scratch creation failed: {ss['stderr']}")
 
             identity = j1._create_ephemeral_identity(f"fcpw{os.getpid()}")
             runtime = j1._stage_trusted_runtime(trusted_base, firecracker, jailer)
@@ -591,6 +596,16 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     try:
         receipt = run_probe(args.label)
+    except ProbeError as exc:
+        receipt = {
+            "schema": SCHEMA,
+            "authority_ref": AUTHORITY,
+            "assignment": {"ref": ASSIGNMENT, "revision": ASSIGNMENT_REVISION},
+            "result": {
+                "classification": exc.classification,
+                "reason": exc.reason,
+            },
+        }
     except Exception as exc:
         receipt = {
             "schema": SCHEMA,
