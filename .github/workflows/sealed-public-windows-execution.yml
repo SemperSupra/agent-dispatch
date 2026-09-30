@@ -63,8 +63,7 @@ jobs:
           Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
           $age = Get-ChildItem -LiteralPath $root -Recurse -Filter age.exe | Select-Object -First 1
           if (-not $age) { throw "age.exe missing from pinned release archive" }
-          $ageDir = $age.Directory.FullName
-          $ageDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $age.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & $age.FullName --version
 
       - name: Assemble bounded capsule input
@@ -84,59 +83,7 @@ jobs:
 
           $capsulePath = Join-Path $env:RUNNER_TEMP 'sealed-capsule.b64'
           if ($blobPresent) {
-            if ($env:CAPSULE_BLOB_SHA -notmatch '^[0-9a-f]{40}
-      - name: Execute public-safe PowerShell capsule and seal evidence
-        id: execute
-        continue-on-error: true
-        shell: pwsh
-        env:
-          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
-          CAPSULE_SHA256: ${{ inputs.capsule_sha256 }}
-          AGE_RECIPIENT: ${{ inputs.recipient }}
-          TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
-        run: |
-          $ErrorActionPreference = 'Continue'
-          python scripts/sealed_public_execution.py `
-            --assignment-id "$env:ASSIGNMENT_ID" `
-            --capsule-b64-file "$env:SEALED_CAPSULE_B64_FILE" `
-            --capsule-sha256 "$env:CAPSULE_SHA256" `
-            --recipient "$env:AGE_RECIPIENT" `
-            --timeout-seconds "$env:TIMEOUT_SECONDS" `
-            --entrypoint run.ps1 `
-            --out-dir .sealed
-          $rc = $LASTEXITCODE
-          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          exit 0
-
-      - name: Remove capsule transport file
-        if: always()
-        shell: pwsh
-        run: |
-          if ($env:SEALED_CAPSULE_B64_FILE -and (Test-Path -LiteralPath $env:SEALED_CAPSULE_B64_FILE)) {
-            Remove-Item -LiteralPath $env:SEALED_CAPSULE_B64_FILE -Force
-          }
-
-      - name: Upload sealed result mailbox
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: sealed-windows-${{ inputs.assignment_id }}
-          path: |
-            .sealed/result.age
-            .sealed/receipt.json
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-
-      - name: Preserve task verdict
-        if: always()
-        shell: pwsh
-        env:
-          TASK_RC: ${{ steps.execute.outputs.task_rc }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:TASK_RC)) { exit 1 }
-          exit [int]$env:TASK_RC
-) {
+            if ($env:CAPSULE_BLOB_SHA -notmatch '^[0-9a-f]{40}$') {
               throw "capsule_blob_sha must be a lowercase 40-character Git SHA-1"
             }
             $headers = @{
@@ -146,12 +93,8 @@ jobs:
             }
             $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$env:CAPSULE_BLOB_SHA"
             $blob = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction Stop
-            if ([string]$blob.encoding -ne 'base64') {
-              throw "Git blob API returned unexpected encoding"
-            }
-            if ([int64]$blob.size -gt 8MB) {
-              throw "Git blob capsule exceeds 8 MiB transport bound"
-            }
+            if ([string]$blob.encoding -ne 'base64') { throw "Git blob API returned unexpected encoding" }
+            if ([int64]$blob.size -gt 8MB) { throw "Git blob capsule exceeds 8 MiB transport bound" }
             $encoded = ([string]$blob.content -replace '\s','')
             [IO.File]::WriteAllText($capsulePath, $encoded, [Text.Encoding]::ASCII)
             "SEALED_CAPSULE_TRANSPORT=git_blob" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
