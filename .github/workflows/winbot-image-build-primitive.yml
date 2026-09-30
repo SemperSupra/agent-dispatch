@@ -185,54 +185,20 @@ jobs:
             $receipt.observations.image_apply_engine = 'wimlib-imagex-1.14.5'
 
             $applyLog = Join-Path $work 'wimlib-apply.log'
-            $applyRcPath = Join-Path $work 'wimlib-exit.txt'
-            $applyScript = Join-Path $work 'run-wimlib.ps1'
-            $taskName = "WinBot-RDTE-WIMLIB-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-            @(
-              '$ErrorActionPreference = "Continue"'
-              '& "' + $wimlibExe.FullName + '" apply "' + $wim + '" 1 "T:\\" *>&1 | Set-Content -LiteralPath "' + $applyLog + '" -Encoding utf8'
-              '$rc = $LASTEXITCODE'
-              '[IO.File]::WriteAllText("' + $applyRcPath + '", [string]$rc)'
-              'exit $rc'
-            ) | Set-Content -LiteralPath $applyScript -Encoding utf8
-
-            $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $applyScript + '"')
-            $taskPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-            $taskSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
-            $task = New-ScheduledTask -Action $taskAction -Principal $taskPrincipal -Settings $taskSettings
-            Register-ScheduledTask -TaskName $taskName -InputObject $task -Force -ErrorAction Stop | Out-Null
-            $receipt.observations.image_apply_execution_identity = 'SYSTEM-scheduled-task'
-            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
-
-            $applyDeadline = (Get-Date).AddMinutes(20)
-            do {
-              Start-Sleep -Seconds 2
-              $taskState = (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop).State
-            } while ($taskState -eq 'Running' -and (Get-Date) -lt $applyDeadline)
-
-            $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-            $receipt.observations.image_apply_task_state = [string]$taskState
-            $receipt.observations.image_apply_task_last_result = [int64]$taskInfo.LastTaskResult
-            if (-not (Test-Path -LiteralPath $applyRcPath)) {
-              if (Test-Path -LiteralPath $applyLog) {
-                $receipt.observations.image_apply_log_tail = @(Get-Content -LiteralPath $applyLog -Tail 80 -ErrorAction SilentlyContinue)
-              }
-              $receipt.classification = 'ENVIRONMENT_FAILURE'
-              $receipt.failure_domain = 'wimlib-system-task'
-              throw 'SYSTEM wimlib task did not produce a bounded exit receipt'
-            }
-            $applyRc = [int](Get-Content -LiteralPath $applyRcPath -Raw)
-            $receipt.observations.image_apply_exit_code = $applyRc
+            $receipt.observations.image_apply_execution_identity = 'github-runner-process'
+            $applyStart = Get-Date
+            & $wimlibExe.FullName apply $wim 1 'T:\' *>&1 | Set-Content -LiteralPath $applyLog -Encoding utf8
+            $applyRc = $LASTEXITCODE
+            $receipt.observations.image_apply_seconds = [math]::Round(((Get-Date)-$applyStart).TotalSeconds,3)
+            $receipt.observations.image_apply_exit_code = [int]$applyRc
             if ($applyRc -ne 0) {
               if (Test-Path -LiteralPath $applyLog) {
                 $receipt.observations.image_apply_log_tail = @(Get-Content -LiteralPath $applyLog -Tail 80 -ErrorAction SilentlyContinue)
               }
               $receipt.classification = 'ENVIRONMENT_FAILURE'
-              $receipt.failure_domain = 'wimlib-apply-system'
-              throw ("SYSTEM wimlib apply failed with exit " + $applyRc)
+              $receipt.failure_domain = 'wimlib-apply-runner'
+              throw ("runner-process wimlib apply failed with exit " + $applyRc)
             }
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-            $taskName = $null
 
             & bcdboot.exe T:\Windows /s S: /f UEFI
             $receipt.observations.bcdboot_exit_code = [int]$LASTEXITCODE
