@@ -1,4 +1,5 @@
 name: WinBot Hyper-V Work Cell Materialization Primitive
+# causal rep 2: provider-independent canary reads
 
 on:
   push:
