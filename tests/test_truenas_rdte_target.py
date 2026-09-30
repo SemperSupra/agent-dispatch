@@ -56,6 +56,8 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertEqual(request.get("consumer_authority_issue"), 277)
         if request.get("product") == "garm-provider-g2":
             self.assertEqual(request.get("consumer_authority_issue"), 39)
+        if request.get("product") == "garm-provider-g2":
+            self.assertEqual(request.get("consumer_authority_issue"), 39)
         self.assertNotIn("latest", request["version"].lower())
         self.assertNotIn("nightly", request["version"].lower())
 
