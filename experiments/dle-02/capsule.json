@@ -6,12 +6,13 @@
     "accepted_state": [
       "The capsule is the only task context required by a replacement activation.",
       "The concrete activation body is replaceable and must self-identify in its receipt; body identity is not intrinsic DLE state.",
-      "No secrets, private source, paid infrastructure, or external mutable state are required."
+      "No secrets, private source, paid infrastructure, or external mutable state are required.",
+      "Bounded continuation recovery passed on isolated-container/local-python3, a separate Python Jupyter substrate, and an independent JavaScript/Code-Mode validator reading durable GitHub state; all recovered the required continuation semantics without authority widening or human transcript relay."
     ],
     "unknowns": [
-      "Whether materially different qualified bodies recover equivalent continuation semantics from the same durable DLE."
+      "Whether a materially different external qualified execution provider/body (for example hosted Jules or public GitHub Actions) recovers semantically equivalent continuation state."
     ],
-    "frontier": "Run the deterministic continuation checker and emit a receipt proving what the replacement activation recovered."
+    "frontier": "Run this same durable DLE through one materially different external qualified execution provider/body without widening authority or merging experimental machinery solely to force the rep; otherwise preserve the external-provider equivalence claim as UNKNOWN."
   },
   "delegation": {
     "responsibility": "Recover the DLE continuation semantics from this durable capsule and verify them without transcript or hidden state.",
