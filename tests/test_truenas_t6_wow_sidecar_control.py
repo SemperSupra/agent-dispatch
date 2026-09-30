@@ -24,7 +24,7 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertIn(MOD.EXPECTED_FIXTURE_DATASET, text)
         self.assertIn('"execution_control_mutation_authorized": False', text)
         self.assertNotIn("GITHUB_APP_PRIVATE_KEY=", text)
-        self.assertNotIn("SemperSupra/wow-sidecar-private", text)
+        self.assertIn('"SemperSupra/wow-sidecar-private"', text)
 
     def test_probe_binds_seed_permissions_restart_and_cleanup_oracles(self):
         text = SCRIPT.read_text(encoding="utf-8")
@@ -63,7 +63,8 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertEqual("wow-sidecar", request["product"])
         self.assertEqual("t6", request["rung"])
         self.assertEqual("26.0.0-BETA.3", request["version"])
-        self.assertEqual(276, request["authority_issue"])
+        self.assertEqual(396, request["authority_issue"])
+        self.assertEqual(276, request["consumer_authority_issue"])
 
     def test_load_control_rejects_foundry_drift(self):
         compose = {
