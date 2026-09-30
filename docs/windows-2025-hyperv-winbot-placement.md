@@ -157,3 +157,48 @@ capability.
 is an explicitly authorized public guest input with immutable identity plus its
 independent WinBot validation oracle. No local/private WinBot image or
 credential is an acceptable substitute.
+
+## Public guest-input dependency
+
+The current WinBot source has a reproducibility-oriented `ExactSource` build
+path: it can consume an explicit ISO, independently verify media identity/hash,
+build a VHDX, run `Test-VHD`, and bind the accepted master hash. That is the
+right shape for a future hosted build job.
+
+However, no public-GHA guest input is currently bound as an authorized immutable
+input for this placement:
+
+- the canonical builder requires an explicit, already acquired ISO for its
+  `ExactSource` path;
+- the downloader's built-in CDN table is release-specific and explicitly warns
+  that URLs change;
+- the legacy Microsoft pre-built-VM path is deprecated and requires a separately
+  supplied guest password;
+- the existing WinBot parity workflow assumes a pre-existing clone and a local
+  API token rather than constructing a public hosted guest from pinned inputs.
+
+A Microsoft Enterprise Evaluation ISO is a plausible public source, but it is
+not accepted for this job until one reviewed binding records at least the exact
+source identity, expected SHA-256, edition/version/language/architecture,
+permitted use for the qualification rep, and resource fit for the hosted
+runner. Until then the correct state is `BLOCKED_PUBLIC_GUEST_INPUT`.
+
+When that dependency is satisfied, the separate WinBot job should:
+
+1. check out the exact authorized WinBot source commit with persisted
+   credentials disabled;
+2. acquire only the authorized guest artifact and fail closed unless its hash
+   and declared identity match;
+3. generate any run-only guest credential inside the job rather than importing
+   local/private credentials;
+4. use WinBot's exact-source builder and independently verify the produced
+   master (`Test-VHD` + bound master hash);
+5. create one disposable run-owned WinBot VM, verify boot/API identity, and run
+   the pinned conformance/qualification validator;
+6. capture source/build/validator/cleanup evidence;
+7. remove the disposable VM, run-owned disks/directories, and run-only
+   credentials in an `always()` cleanup path;
+8. fail the job unless the independent validation oracle and cleanup both pass.
+
+Do not reinterpret the Hyper-V placement receipt as a WinBot qualification
+receipt; it only establishes that the hosted runner can control Hyper-V VMs.
