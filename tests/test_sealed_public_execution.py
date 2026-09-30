@@ -5,6 +5,7 @@ import json
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import sys
@@ -53,6 +54,27 @@ class SealedExecutionContractTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), raw)
             with self.assertRaises(worker.WorkerError):
                 worker.decode_capsule(encoded, "0" * 64, Path(td))
+
+    def test_file_backed_capsule_may_exceed_inline_dispatch_bound(self):
+        raw = b"x" * 60_000
+        encoded = base64.b64encode(raw).decode()
+        self.assertGreater(len(encoded), worker.MAX_INLINE_CAPSULE_B64)
+        self.assertLessEqual(len(raw), worker.MAX_CAPSULE_BYTES)
+        with tempfile.TemporaryDirectory() as td:
+            path = worker.decode_capsule(
+                encoded, hashlib.sha256(raw).hexdigest(), Path(td)
+            )
+            self.assertEqual(path.read_bytes(), raw)
+
+    def test_decode_rejects_capsule_over_decoded_byte_bound(self):
+        raw = b"x" * 33
+        encoded = base64.b64encode(raw).decode()
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(worker, "MAX_CAPSULE_BYTES", 32):
+                with self.assertRaises(worker.WorkerError):
+                    worker.decode_capsule(
+                        encoded, hashlib.sha256(raw).hexdigest(), Path(td)
+                    )
 
     def test_safe_extract_accepts_top_level_runner(self):
         raw = make_capsule([
