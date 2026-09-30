@@ -18,6 +18,7 @@ on:
       - 'tests/test_truenas_future_protocols.py'
       - 'tests/test_truenas_t6_litellm_control.py'
       - 'tests/test_truenas_t6_wow_sidecar_control.py'
+      - 'tests/test_truenas_t6_garm_control.py'
       - 'tests/test_truenas_rdte_target.py'
       - 'tests/test_truenas_rdte_target.py'
   pull_request:
@@ -65,6 +66,9 @@ jobs:
           fi
           if [[ -f tests/test_truenas_t6_wow_sidecar_control.py ]]; then
             tests+=(tests/test_truenas_t6_wow_sidecar_control.py)
+          fi
+          if [[ -f tests/test_truenas_t6_garm_control.py ]]; then
+            tests+=(tests/test_truenas_t6_garm_control.py)
           fi
           if [[ -f tests/test_truenas_rdte_target.py ]]; then
             tests+=(tests/test_truenas_rdte_target.py)
