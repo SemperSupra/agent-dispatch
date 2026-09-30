@@ -96,7 +96,7 @@ function Write-Results {
         [string]$FinalReason,
         [bool]$FinalOracleSatisfied,
         [bool]$FinalCleanupOk,
-        [hashtable]$Preflight
+        [System.Collections.IDictionary]$Preflight
     )
 
     $evidence = [ordered]@{
@@ -389,19 +389,26 @@ try {
     Add-Stage 'harness' 'HARNESS_FAILURE' @{ error = Get-PublicError $_ }
 } finally {
     try {
-        $leftover = Get-VM -Name $vmName -ErrorAction SilentlyContinue
-        if ($leftover) {
-            if ($leftover.State.ToString() -ne 'Off') {
-                Stop-VM -Name $vmName -TurnOff -Force -ErrorAction Stop
+        $getVmAvailable = [bool](Get-Command Get-VM -ErrorAction SilentlyContinue)
+        if ($getVmAvailable) {
+            $leftover = Get-VM -Name $vmName -ErrorAction SilentlyContinue
+            if ($leftover) {
+                if ($leftover.State.ToString() -ne 'Off') {
+                    Stop-VM -Name $vmName -TurnOff -Force -ErrorAction Stop
+                }
+                Remove-VM -Name $vmName -Force -ErrorAction Stop
             }
-            Remove-VM -Name $vmName -Force -ErrorAction Stop
         }
 
         if (Test-Path -LiteralPath $vmRoot) {
             Remove-Item -LiteralPath $vmRoot -Recurse -Force -ErrorAction Stop
         }
 
-        $vmAbsent = -not [bool](Get-VM -Name $vmName -ErrorAction SilentlyContinue)
+        $vmAbsent = if ($getVmAvailable) {
+            -not [bool](Get-VM -Name $vmName -ErrorAction SilentlyContinue)
+        } else {
+            -not $vmCreated
+        }
         $dirAbsent = -not (Test-Path -LiteralPath $vmRoot)
         $cleanupOk = $vmAbsent -and $dirAbsent
         $vmRemoved = $vmRemoved -or $vmAbsent
