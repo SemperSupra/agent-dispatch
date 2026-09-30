@@ -144,6 +144,15 @@ class LiteLlmT6ContractTests(unittest.TestCase):
             'python3 "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py"',
             harness,
         )
+        self.assertIn(
+            '[[ -f "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" ]] ||',
+            harness,
+        )
+        self.assertIn("missing TrueNAS T6 LiteLLM control client", harness)
+        self.assertNotIn(
+            '[[ -f "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py" ]] ||',
+            harness,
+        )
 
 
 
