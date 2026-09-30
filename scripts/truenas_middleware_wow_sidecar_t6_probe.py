@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import pathlib
+import re
 import time
 
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
@@ -23,6 +24,7 @@ EXPECTED_KEY_PATH = EXPECTED_CONFIG_DIR + "/github-app.pem"
 EXPECTED_PROFILE_PATH = EXPECTED_CONFIG_DIR + "/profiles/operator.json"
 EXPECTED_MARKER_PATH = EXPECTED_CONFIG_DIR + "/.initialized-v1"
 FIXTURE_MARKER = "PUBLIC-QUALIFICATION-FIXTURE"
+PRIVATE_REPO_RE = re.compile(r"(?:https://github\\.com/)?SemperSupra/[A-Za-z0-9_.-]+-private(?![A-Za-z0-9_.-])", re.IGNORECASE)
 
 
 def canonical_sha256(value: object) -> str:
@@ -80,9 +82,11 @@ def load_control(directory: pathlib.Path, foundry_commit: str) -> tuple[dict, di
     serialized = json.dumps(compose, sort_keys=True)
     if FIXTURE_MARKER not in serialized:
         raise RuntimeError("public fixture marker is absent from exact control")
-    for forbidden in ("ghp_", "sk-", "SemperSupra/agent-dispatch-private", "SemperSupra/wow-sidecar-private"):
+    if PRIVATE_REPO_RE.search(serialized):
+        raise RuntimeError("private repository identity leaked into public control")
+    for forbidden in ("ghp_", "sk-"):
         if forbidden in serialized:
-            raise RuntimeError(f"private credential/authority content leaked into public control: {forbidden}")
+            raise RuntimeError(f"private credential-like content leaked into public control: {forbidden}")
     return control, compose
 
 
