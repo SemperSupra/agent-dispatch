@@ -1,0 +1,45 @@
+{
+  "schema": "truenas-rdte-targets/v1",
+  "targets": {
+    "26.0.0-BETA.3": {
+      "release_class": "upcoming-beta",
+      "version": "26.0.0-BETA.3",
+      "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso.sha256",
+      "expected_sha256": "5a4e174e4583b86a005015cacafc681eae91fc042df38354b42b376204416ada",
+      "installer_tag": "TS-26.0.0-BETA.3",
+      "installer_commit": "cdf7df94963918013ce74af418bacc9b10298157",
+      "middleware_tag": "TS-26.0.0-BETA.3",
+      "middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
+      "max_qualified_harness_rung": "t5"
+    },
+    "25.10.7": {
+      "release_class": "current-stable",
+      "version": "25.10.7",
+      "iso_name": "TrueNAS-SCALE-25.10.7.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso.sha256",
+      "expected_sha256": "54ce9441ce66966a392e28f63604ca3c2c083d0bec4db7bb5af2f74f7a007c8e",
+      "installer_tag": "TS-25.10.7",
+      "installer_commit": "f66c7830bc511f3dc516ae0c5097662f5ed4d27b",
+      "middleware_tag": "TS-25.10.7",
+      "middleware_commit": "8ede398839710e56893d88ce85088139d8fab18e",
+      "max_qualified_harness_rung": "t3"
+    }
+  },
+  "invariants": {
+    "installer_rpc_cross_release_source_equal": {
+      "paths": [
+        "API.md",
+        "truenas_installer/server/api/info.py",
+        "truenas_installer/server/api/install.py",
+        "truenas_installer/server/api/adoption.py",
+        "truenas_installer/server/__init__.py",
+        "truenas_installer/__main__.py"
+      ],
+      "observed_equal": true
+    },
+    "stable_apps_gate": "t4+ fail-closed until exact 25.10.7 Apps runtime client is qualified"
+  }
+}

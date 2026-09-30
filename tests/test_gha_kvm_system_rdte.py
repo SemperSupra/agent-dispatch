@@ -13,6 +13,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
+TRUENAS_TARGETS = ROOT / "config" / "truenas-rdte-targets.json"
 TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
 QEMU_TOPOLOGY = ROOT / "scripts" / "gha_qemu_t3_topology_probe.py"
@@ -126,8 +127,12 @@ class SystemRdteContractTests(unittest.TestCase):
 
     def test_truenas_is_pinned_and_digest_sidecar_is_required(self):
         text = TRUENAS.read_text(encoding="utf-8")
-        self.assertIn("TrueNAS-26.0.0-BETA.3.iso", text)
-        self.assertIn("TrueNAS-26.0.0-BETA.3.iso.sha256", text)
+        registry = TRUENAS_TARGETS.read_text(encoding="utf-8")
+        self.assertIn("TrueNAS-26.0.0-BETA.3.iso", registry)
+        self.assertIn("TrueNAS-SCALE-25.10.7.iso", registry)
+        self.assertIn("54ce9441ce66966a392e28f63604ca3c2c083d0bec4db7bb5af2f74f7a007c8e", registry)
+        self.assertIn("PINNED_ISO_SHA", text)
+        self.assertIn("vendor.sha256", text)
         self.assertIn("RAM_MIB=8192", text)
         self.assertIn("installer-boot", text)
         self.assertIn("installer-rpc", text)
@@ -332,6 +337,26 @@ class SystemRdteContractTests(unittest.TestCase):
     def test_truenas_install_rpc_uses_one_positional_object(self):
         text = TRUENAS_INSTALL.read_text(encoding="utf-8")
         self.assertIn('rpc_call(ws, "install", 4, [install_params]', text)
+
+    def test_truenas_target_registry_pins_stable_and_upcoming_sources(self):
+        targets = json.loads(TRUENAS_TARGETS.read_text(encoding="utf-8"))
+        stable = targets["targets"]["25.10.7"]
+        beta = targets["targets"]["26.0.0-BETA.3"]
+        self.assertEqual(stable["expected_sha256"], "54ce9441ce66966a392e28f63604ca3c2c083d0bec4db7bb5af2f74f7a007c8e")
+        self.assertEqual(stable["installer_commit"], "f66c7830bc511f3dc516ae0c5097662f5ed4d27b")
+        self.assertEqual(stable["middleware_commit"], "8ede398839710e56893d88ce85088139d8fab18e")
+        self.assertEqual(stable["max_qualified_harness_rung"], "t3")
+        self.assertEqual(beta["installer_commit"], "cdf7df94963918013ce74af418bacc9b10298157")
+        self.assertEqual(beta["middleware_commit"], "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3")
+        self.assertEqual(beta["max_qualified_harness_rung"], "t5")
+        self.assertTrue(targets["invariants"]["installer_rpc_cross_release_source_equal"]["observed_equal"])
+
+    def test_truenas_harness_reads_exact_target_profile_and_fails_closed_above_cap(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn("--target-profile", text)
+        self.assertIn("PINNED_ISO_SHA", text)
+        self.assertIn('[[ "$EXPECTED_ISO_SHA" == "$PINNED_ISO_SHA" ]]', text)
+        self.assertIn('"TrueNAS-$VERSION"', text)
 
     def test_truenas_t3_real_harness_contract(self):
         text = TRUENAS.read_text(encoding="utf-8")
