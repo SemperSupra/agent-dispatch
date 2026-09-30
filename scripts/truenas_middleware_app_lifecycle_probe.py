@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded TrueNAS 26.0.0-BETA.3 T5 custom-app lifecycle oracle."""
+"""Bounded exact-version TrueNAS T5 custom-app lifecycle oracle."""
 from __future__ import annotations
 
 import argparse
@@ -10,7 +10,6 @@ import time
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 
-EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
 APP_NAME = "rdte-t4-probe"
 APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"
 
@@ -21,6 +20,7 @@ def main() -> int:
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--password-file", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--expected-version", required=True)
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8.0)
     p.add_argument("--job-timeout", type=float, default=300.0)
@@ -32,7 +32,7 @@ def main() -> int:
         "schema": "truenas-app-lifecycle-t5/v2",
         "classification": "ORACLE_FAILURE",
         "oracleSatisfied": False,
-        "expected_version": EXPECTED_VERSION,
+        "expected_version": a.expected_version,
         "app_name": APP_NAME,
         "app_image": APP_IMAGE,
         "transport": "wss" if a.tls else "ws",
@@ -132,9 +132,9 @@ def main() -> int:
 
         version = call("system.version", [])
         payload["system_version"] = version
-        if version != EXPECTED_VERSION:
+        if version != a.expected_version:
             raise RuntimeError(
-                f"target version changed: expected {EXPECTED_VERSION!r}, got {version!r}"
+                f"target version changed: expected {a.expected_version!r}, got {version!r}"
             )
 
         initial = app_query()
