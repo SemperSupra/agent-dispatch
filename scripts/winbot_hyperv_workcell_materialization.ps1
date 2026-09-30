@@ -129,8 +129,8 @@ try{
  $b=New-Cell $vmB $bDisk $bDir $sw;$r.materialization.cell_b=$b;$r.oracles.b_lineage=([IO.Path]::GetFullPath($b.parent)-eq[IO.Path]::GetFullPath($seed))
  if(!$b.started-or!$r.oracles.b_lineage){Fail ORACLE_FAILURE materialize-b 'B start/lineage failed'}
  $tb=Get-Date;$r.actor_control.b_ready=Wait-PSD $vmB $cred;$r.actor_control.b_ready_seconds=[math]::Round(((Get-Date)-$tb).TotalSeconds,3)
- $obs=Invoke-Command -VMName $vmB -Credential $cred -ArgumentList $can -ScriptBlock {param($can);$d=Get-Disk|?{!$_.IsBoot-and!$_.IsSystem-and$_.Size-le2GB}|sort Number|select -First 1;$p=Get-Partition -DiskNumber $d.Number|? Type -ne Reserved|select -First 1;if(!$p.DriveLetter){$p|Set-Partition -NewDriveLetter P};[pscustomobject]@{canary=([IO.File]::ReadAllText('P:\canary.txt').Trim()-eq$can);no_taint=(-not(Test-Path C:\WinBot\taint.txt))}}
- $r.persistence.canary_survived=[bool]$obs.canary;$r.actor_control.prior_taint_absent=[bool]$obs.no_taint
+ $obs=Invoke-Command -VMName $vmB -Credential $cred -ArgumentList $can -ScriptBlock {param($can);$d=Get-Disk|?{!$_.IsBoot-and!$_.IsSystem-and$_.Size-le2GB}|sort Number|select -First 1;if(!$d){throw'persist disk absent in B'};$p=Get-Partition -DiskNumber $d.Number|? Type -ne Reserved|select -First 1;if(!$p){throw'persist partition absent in B'};if(!$p.DriveLetter){$p|Set-Partition -NewDriveLetter P;$p=Get-Partition -DiskNumber $d.Number|? Type -ne Reserved|select -First 1};$letter=[string]$p.DriveLetter;$canaryPath="${letter}:\canary.txt";[pscustomobject]@{canary=(Test-Path -LiteralPath $canaryPath)-and([IO.File]::ReadAllText($canaryPath).Trim()-eq$can);no_taint=(-not(Test-Path C:\WinBot\taint.txt));persistent_drive_letter=$letter}}
+ $r.persistence.canary_survived=[bool]$obs.canary;$r.persistence.b_drive_letter=[string]$obs.persistent_drive_letter;$r.actor_control.prior_taint_absent=[bool]$obs.no_taint
  Remove-Cell $vmB $bDisk $bDir;$r.cleanup.b_absent=(-not(Get-VM $vmB -ErrorAction SilentlyContinue)-and-not(Test-Path $bDisk));$r.persistence.survived_b=Test-Path $persist
 
  $h1=(Get-FileHash $seed -Algorithm SHA256).Hash.ToLowerInvariant();$r.seed.sha256_after=$h1;$r.oracles.seed_unchanged=($h0-eq$h1)
