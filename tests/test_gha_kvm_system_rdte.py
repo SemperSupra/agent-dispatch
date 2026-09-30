@@ -392,7 +392,7 @@ class SystemRdteContractTests(unittest.TestCase):
     def test_truenas_t3_real_harness_contract(self):
         text = TRUENAS.read_text(encoding="utf-8")
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("t0|t1|t2|t3|t4|t5", text)
+        self.assertIn("t0|t1|t2|t3|t4|t5|t6", text)
         self.assertIn('DATA_DISK_SIZE="8G"', text)
         self.assertIn("DATA_DISK_COUNT=2", text)
         self.assertIn('DATA_POOL_NAME="rdtepool"', text)
@@ -414,7 +414,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_pool_probe.py", text)
         self.assertIn('"data_pool_created"', text)
         self.assertIn('"data_pool"', text)
-        self.assertIn("--rung t5", workflow)
+        self.assertIn("--rung t6", workflow)
         self.assertIn("scripts/truenas_middleware_pool_probe.py", workflow)
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
@@ -441,7 +441,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', app)
         self.assertNotIn('"nginx:1.27-alpine"', app)
         self.assertIn('"state") == "RUNNING"', app)
-        self.assertIn('--rung t5', workflow)
+        self.assertIn('--rung t6', workflow)
         py = subprocess.run(
             ["python3", "-m", "py_compile", str(TRUENAS_APP)],
             text=True,
@@ -462,12 +462,36 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', lifecycle)
         self.assertIn('APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', lifecycle)
         self.assertIn("scripts/truenas_middleware_app_lifecycle_probe.py", workflow)
-        self.assertIn("--rung t5", workflow)
+        self.assertIn("--rung t6", workflow)
         shell_check = subprocess.run(
             ["bash", "-n", str(TRUENAS)], text=True, capture_output=True
         )
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
 
+
+    def test_truenas_t6_foundry_harness_contract(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        litellm = (ROOT / "scripts" / "truenas_middleware_litellm_t6_probe.py").read_text(encoding="utf-8")
+        self.assertIn("--foundry-control-dir", text)
+        self.assertIn("--foundry-commit", text)
+        self.assertIn("truenas_middleware_litellm_t6_probe.py", text)
+        self.assertNotIn('python3 "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py"', text)
+        self.assertIn('"foundry_materialization_exercised"', text)
+        self.assertIn('"foundry_materialization"', text)
+        self.assertIn("--rung t6", workflow)
+        self.assertIn("4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba", workflow)
+        self.assertIn("litellm-truenas-t6-control", workflow)
+        self.assertIn("export-litellm-t6-control.yml", workflow)
+        self.assertIn("semper-supra.litellm-truenas-t6-control/1", litellm)
+        self.assertIn("config_readback_sha", litellm)
+        self.assertIn('"secret_values_captured": False', litellm)
+        self.assertIn("--service-port", text)
+        self.assertIn("-:30401", text)
+        shell_check = subprocess.run(
+            ["bash", "-n", str(TRUENAS)], text=True, capture_output=True
+        )
+        self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
 
     def test_qemu_t3_topology_is_a_cheap_separate_oracle(self):
         probe = QEMU_TOPOLOGY.read_text(encoding="utf-8")
