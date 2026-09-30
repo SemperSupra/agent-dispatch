@@ -43,17 +43,29 @@ jobs:
           $rc = 1
           try {
             Get-VMHost -ErrorAction Stop | Out-Null
-            $switches = @(Get-VMSwitch -ErrorAction Stop | Select-Object Name,SwitchType)
+            $switches = @(Get-VMSwitch -ErrorAction Stop | Select-Object Name,SwitchType,AllowManagementOS,NetAdapterInterfaceDescription)
             $receipt.observations.switches = $switches
-            $default = Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue
-            $receipt.oracles.default_switch_present = [bool]$default
-            if (-not $default) {
+            $natState = @()
+            if (Get-Command Get-NetNat -ErrorAction SilentlyContinue) {
+              $natState = @(Get-NetNat -ErrorAction SilentlyContinue | Select-Object Name,InternalIPInterfaceAddressPrefix,Active)
+            }
+            $receipt.observations.netnat = $natState
+
+            $candidateNames = @('Default Switch','nat')
+            $selected = $null
+            foreach ($candidate in $candidateNames) {
+              $selected = Get-VMSwitch -Name $candidate -ErrorAction SilentlyContinue
+              if ($selected) { break }
+            }
+            $receipt.observations.selected_switch = if ($selected) { [string]$selected.Name } else { $null }
+            $receipt.oracles.existing_switch_selected = [bool]$selected
+            if (-not $selected) {
               $receipt.classification = 'ENVIRONMENT_FAILURE'
-              $receipt.failure_domain = 'hyperv-default-switch'
-              throw 'Hyper-V Default Switch is unavailable'
+              $receipt.failure_domain = 'hyperv-existing-switch'
+              throw 'No authorized existing Hyper-V switch candidate is available'
             }
 
-            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 64MB -NoVHD -Path $vmPath -SwitchName 'Default Switch' -ErrorAction Stop | Out-Null
+            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 64MB -NoVHD -Path $vmPath -SwitchName ([string]$selected.Name) -ErrorAction Stop | Out-Null
             $vm = Get-VM -Name $vmName -ErrorAction Stop
             $nics = @(Get-VMNetworkAdapter -VMName $vmName -ErrorAction Stop)
             $receipt.observations.vm_generation = [int]$vm.Generation
@@ -61,12 +73,12 @@ jobs:
             $receipt.observations.nic_switches = @($nics | ForEach-Object SwitchName)
             $receipt.oracles.vm_created = [bool]$vm
             $receipt.oracles.one_nic = ($nics.Count -eq 1)
-            $receipt.oracles.default_switch_bound = ($nics.Count -eq 1 -and [string]$nics[0].SwitchName -eq 'Default Switch')
+            $receipt.oracles.selected_switch_bound = ($nics.Count -eq 1 -and [string]$nics[0].SwitchName -eq [string]$selected.Name)
 
-            if (-not ($receipt.oracles.vm_created -and $receipt.oracles.one_nic -and $receipt.oracles.default_switch_bound)) {
+            if (-not ($receipt.oracles.vm_created -and $receipt.oracles.one_nic -and $receipt.oracles.selected_switch_bound)) {
               $receipt.classification = 'ORACLE_FAILURE'
               $receipt.failure_domain = 'hyperv-network-binding'
-              throw 'run-owned VM did not bind exactly one NIC to Default Switch'
+              throw 'run-owned VM did not bind exactly one NIC to the selected existing switch'
             }
 
             $receipt.classification = 'SUPPORTED'
@@ -115,11 +127,11 @@ jobs:
           if (-not (Test-Path -LiteralPath $p)) { throw 'network preflight receipt missing' }
           $r = Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
           Write-Host "classification=$($r.classification)"
-          Write-Host "default_switch_present=$($r.oracles.default_switch_present)"
+          Write-Host "selected_switch=$($r.observations.selected_switch)"
           Write-Host "nic_count=$($r.observations.nic_count)"
-          Write-Host "default_switch_bound=$($r.oracles.default_switch_bound)"
+          Write-Host "selected_switch_bound=$($r.oracles.selected_switch_bound)"
           Write-Host "cleanup=$($r.cleanup.oracle_satisfied)"
           if ([int]$env:TASK_RC -ne 0 -or $r.classification -ne 'SUPPORTED' -or
-              -not $r.oracles.default_switch_bound -or -not $r.cleanup.oracle_satisfied) {
+              -not $r.oracles.selected_switch_bound -or -not $r.cleanup.oracle_satisfied) {
             throw "Hyper-V network preflight not satisfied: $($r.classification) / $($r.failure_domain)"
           }
