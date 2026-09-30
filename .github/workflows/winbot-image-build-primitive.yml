@@ -1,0 +1,242 @@
+name: WinBot Windows Image Build Primitive
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-image-build-primitive.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-primitive:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - name: Exercise pinned ISO to bootable VHDX primitive
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outDir = Join-Path $env:RUNNER_TEMP 'winbot-image-build-primitive'
+          $work = Join-Path $env:RUNNER_TEMP 'winbot-image-build-work'
+          New-Item -ItemType Directory -Force -Path $outDir,$work | Out-Null
+
+          $downloadUrl = 'https://software-static.download.prss.microsoft.com/dbazure/26300.9457.260913-1737.26h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso'
+          $expectedSha = 'bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38'
+          $expectedSize = [int64]8225329152
+          $iso = Join-Path $work 'windows-enterprise-eval.iso'
+          $vhd = Join-Path $work 'winbot-build-primitive.vhdx'
+          $receipt = [ordered]@{
+            schema_version = 1
+            authority = 'SemperSupra/agent-dispatch-private#406'
+            consumer = 'mark-e-deyoung/WinBot#70'
+            profile = 'WindowsImageBuildPrimitive'
+            runner = [ordered]@{
+              requested_label = 'windows-2025'
+              image_os = $env:ImageOS
+              image_version = $env:ImageVersion
+              runner_os = $env:RUNNER_OS
+              runner_arch = $env:RUNNER_ARCH
+            }
+            observations = [ordered]@{}
+            oracles = [ordered]@{}
+            cleanup = [ordered]@{}
+            classification = 'HARNESS_FAILURE'
+            failure_domain = $null
+            error_type = $null
+            error_message = $null
+          }
+          $rc = 1
+          $mountedIso = $false
+          $mountedVhd = $false
+          try {
+            $driveName = ([IO.Path]::GetPathRoot($work).Substring(0,1))
+            $freeBefore = [int64](Get-PSDrive -Name $driveName).Free
+            $receipt.observations.free_bytes_before = $freeBefore
+            if ($freeBefore -lt 30GB) {
+              $receipt.classification = 'ENVIRONMENT_FAILURE'
+              $receipt.failure_domain = 'runner-storage'
+              throw 'less than 30 GiB free for image-build primitive'
+            }
+
+            foreach ($cmd in @('Get-VMHost','New-VHD','Mount-VHD','Dismount-VHD','Test-VHD','Mount-DiskImage','Dismount-DiskImage','Get-WindowsImage','dism.exe','bcdboot.exe')) {
+              if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
+                $receipt.classification = 'ENVIRONMENT_FAILURE'
+                $receipt.failure_domain = 'runner-tooling'
+                throw ("required command unavailable: " + $cmd)
+              }
+            }
+            Get-VMHost -ErrorAction Stop | Out-Null
+            $receipt.oracles.hyperv_control_plane = $true
+
+            $downloadStart = Get-Date
+            $downloaded = $false
+            if (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue) {
+              try {
+                Start-BitsTransfer -Source $downloadUrl -Destination $iso -DisplayName 'WinBot build primitive media' -ErrorAction Stop
+                $receipt.observations.download_method = 'BITS'
+                $downloaded = $true
+              } catch {
+                $receipt.observations.bits_error_type = $_.Exception.GetType().FullName
+              }
+            }
+            if (-not $downloaded) {
+              Invoke-WebRequest -Uri $downloadUrl -OutFile $iso -UseBasicParsing -ErrorAction Stop
+              $receipt.observations.download_method = 'Invoke-WebRequest'
+            }
+            $receipt.observations.download_seconds = [math]::Round(((Get-Date)-$downloadStart).TotalSeconds,3)
+
+            $isoItem = Get-Item -LiteralPath $iso -ErrorAction Stop
+            $isoSha = (Get-FileHash -LiteralPath $iso -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt.observations.iso_sha256 = $isoSha
+            $receipt.observations.iso_size_bytes = [int64]$isoItem.Length
+            $receipt.oracles.media_pin = ($isoSha -eq $expectedSha -and [int64]$isoItem.Length -eq $expectedSize)
+            if (-not $receipt.oracles.media_pin) {
+              $receipt.classification = 'ORACLE_FAILURE'
+              $receipt.failure_domain = 'media-identity'
+              throw 'qualified media pin mismatch'
+            }
+
+            $isoMount = Mount-DiskImage -ImagePath $iso -PassThru -ErrorAction Stop
+            $mountedIso = $true
+            $isoVolume = $isoMount | Get-Volume | Where-Object DriveLetter | Select-Object -First 1
+            if (-not $isoVolume) { throw 'ISO mount produced no volume' }
+            $isoRoot = "$($isoVolume.DriveLetter):\"
+            $wim = Join-Path $isoRoot 'sources\install.wim'
+            if (-not (Test-Path -LiteralPath $wim)) { $wim = Join-Path $isoRoot 'sources\install.esd' }
+            if (-not (Test-Path -LiteralPath $wim)) { throw 'install.wim/install.esd missing' }
+
+            $image = Get-WindowsImage -ImagePath $wim -Index 1 -ErrorAction Stop
+            $receipt.observations.image_name = [string]$image.ImageName
+            $receipt.oracles.enterprise_evaluation_image = ([string]$image.ImageName -like '*Enterprise Evaluation*')
+            if (-not $receipt.oracles.enterprise_evaluation_image) {
+              $receipt.classification = 'ORACLE_FAILURE'
+              $receipt.failure_domain = 'media-image-identity'
+              throw 'image index 1 is not Enterprise Evaluation'
+            }
+
+            $buildStart = Get-Date
+            New-VHD -Path $vhd -SizeBytes 127GB -Dynamic -ErrorAction Stop | Out-Null
+            $mount = Mount-VHD -Path $vhd -Passthru -ErrorAction Stop
+            $mountedVhd = $true
+            Start-Sleep -Seconds 1
+            $diskNum = ($mount | Get-Disk).Number
+            Clear-Disk -Number $diskNum -RemoveData -RemoveOEM -Confirm:$false -ErrorAction SilentlyContinue
+            Initialize-Disk -Number $diskNum -PartitionStyle GPT -ErrorAction Stop
+            Start-Sleep -Seconds 1
+
+            $autoMsr = Get-Partition -DiskNumber $diskNum | Where-Object { $_.GptType -eq '{e3c9e316-0b5c-4db8-817d-f92df00215ae}' }
+            if ($autoMsr) {
+              Remove-Partition -DiskNumber $diskNum -PartitionNumber $autoMsr.PartitionNumber -Confirm:$false -ErrorAction SilentlyContinue
+            }
+
+            $efi = New-Partition -DiskNumber $diskNum -Size 100MB -GptType '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' -ErrorAction Stop
+            $efi | Set-Partition -NewDriveLetter S -ErrorAction Stop
+            Format-Volume -DriveLetter S -FileSystem FAT32 -NewFileSystemLabel 'EFI' -Confirm:$false -Force -ErrorAction Stop | Out-Null
+
+            New-Partition -DiskNumber $diskNum -Size 16MB -GptType '{e3c9e316-0b5c-4db8-817d-f92df00215ae}' -ErrorAction Stop | Out-Null
+            $win = New-Partition -DiskNumber $diskNum -UseMaximumSize -GptType '{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}' -ErrorAction Stop
+            $win | Set-Partition -NewDriveLetter T -ErrorAction Stop
+            Format-Volume -DriveLetter T -FileSystem NTFS -NewFileSystemLabel 'Windows' -Confirm:$false -Force -ErrorAction Stop | Out-Null
+
+            $dismLog = Join-Path $work 'dism.log'
+            & dism.exe /English /Apply-Image /ImageFile:$wim /Index:1 /ApplyDir:T:\ /Compact:Off /LogPath:$dismLog
+            $receipt.observations.dism_exit_code = [int]$LASTEXITCODE
+            if ($LASTEXITCODE -ne 0) {
+              $receipt.classification = 'ENVIRONMENT_FAILURE'
+              $receipt.failure_domain = 'dism-apply'
+              throw ("DISM apply failed with exit " + $LASTEXITCODE)
+            }
+
+            & bcdboot.exe T:\Windows /s S: /f UEFI
+            $receipt.observations.bcdboot_exit_code = [int]$LASTEXITCODE
+            if ($LASTEXITCODE -ne 0) {
+              $receipt.classification = 'ENVIRONMENT_FAILURE'
+              $receipt.failure_domain = 'bcdboot'
+              throw ("BCDBOOT failed with exit " + $LASTEXITCODE)
+            }
+
+            $receipt.oracles.windows_tree_present = (Test-Path -LiteralPath 'T:\Windows\System32')
+            $receipt.observations.build_seconds = [math]::Round(((Get-Date)-$buildStart).TotalSeconds,3)
+
+            Dismount-VHD -Path $vhd -ErrorAction Stop
+            $mountedVhd = $false
+            Dismount-DiskImage -ImagePath $iso -ErrorAction Stop | Out-Null
+            $mountedIso = $false
+
+            $receipt.oracles.test_vhd = [bool](Test-VHD -Path $vhd -ErrorAction Stop)
+            $receipt.observations.vhd_physical_size_bytes = [int64](Get-Item -LiteralPath $vhd).Length
+            $receipt.observations.vhd_sha256 = (Get-FileHash -LiteralPath $vhd -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt.observations.free_bytes_after_build = [int64](Get-PSDrive -Name $driveName).Free
+            $receipt.oracles.build_primitive =
+              [bool]$receipt.oracles.media_pin -and
+              [bool]$receipt.oracles.windows_tree_present -and
+              [bool]$receipt.oracles.test_vhd
+
+            if (-not $receipt.oracles.build_primitive) {
+              $receipt.classification = 'ORACLE_FAILURE'
+              $receipt.failure_domain = 'build-oracle'
+              throw 'Windows image-build primitive oracle failed'
+            }
+
+            $receipt.classification = 'SUPPORTED'
+            $rc = 0
+          } catch {
+            if (-not $receipt.error_type) { $receipt.error_type = $_.Exception.GetType().FullName }
+            if (-not $receipt.error_message) { $receipt.error_message = $_.Exception.Message }
+            if ($receipt.classification -eq 'HARNESS_FAILURE') { $rc = 3 }
+            elseif ($rc -eq 1) { $rc = 2 }
+          } finally {
+            try {
+              if ($mountedVhd) { Dismount-VHD -Path $vhd -ErrorAction SilentlyContinue }
+              if ($mountedIso) { Dismount-DiskImage -ImagePath $iso -ErrorAction SilentlyContinue | Out-Null }
+              if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop }
+              $receipt.cleanup.work_absent = -not (Test-Path -LiteralPath $work)
+              $receipt.cleanup.oracle_satisfied = [bool]$receipt.cleanup.work_absent
+            } catch {
+              $receipt.cleanup.oracle_satisfied = $false
+              $receipt.cleanup.error_type = $_.Exception.GetType().FullName
+              $receipt.classification = 'ORACLE_FAILURE'
+              $rc = 4
+            }
+
+            $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $outDir 'receipt.json') -Encoding utf8
+          }
+
+          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Upload public-safe build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-image-build-primitive-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-image-build-primitive/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce build and cleanup oracle
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.build.outputs.task_rc }}
+        run: |
+          $receiptPath = Join-Path $env:RUNNER_TEMP 'winbot-image-build-primitive\receipt.json'
+          if (-not (Test-Path -LiteralPath $receiptPath)) { throw 'build primitive receipt missing' }
+          $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+          Write-Host "classification=$($receipt.classification)"
+          Write-Host "failure_domain=$($receipt.failure_domain)"
+          Write-Host "dism_exit=$($receipt.observations.dism_exit_code)"
+          Write-Host "test_vhd=$($receipt.oracles.test_vhd)"
+          Write-Host "vhd_physical_size_bytes=$($receipt.observations.vhd_physical_size_bytes)"
+          Write-Host "free_bytes_after_build=$($receipt.observations.free_bytes_after_build)"
+          Write-Host "cleanup=$($receipt.cleanup.oracle_satisfied)"
+          if ([int]$env:TASK_RC -ne 0 -or
+              $receipt.classification -ne 'SUPPORTED' -or
+              -not $receipt.oracles.build_primitive -or
+              -not $receipt.cleanup.oracle_satisfied) {
+            throw "image-build primitive not satisfied: $($receipt.classification) / $($receipt.failure_domain)"
+          }
