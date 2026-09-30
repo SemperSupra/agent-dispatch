@@ -9,3 +9,5 @@ This is deliberately public-safe and deterministic. The originating interactive 
 PASS proves only this bounded continuity claim. It does not prove general DLE portability or actor semantic equivalence.
 
 Kill rule: do not promote a new DLE schema from this fixture. Reuse existing project-native durable semantics unless a materially different rep proves a representation gap.
+
+Activation trigger note: this content-only revision is the first push after the branch workflow exists; it is the execution revision for the public fresh-body rep.
