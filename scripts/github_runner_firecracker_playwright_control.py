@@ -175,6 +175,15 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
         if not own["ok"]:
             return {"ok": False, "classification": "SETUP_REQUIRED", "reason": "could not return rootfs ownership", "detail": own}
 
+        cleanup_root = _run(["sudo", "-n", "rm", "-rf", str(root_dir)], timeout=120)
+        if not cleanup_root["ok"]:
+            return {
+                "ok": False,
+                "classification": "HARNESS_FAILURE",
+                "reason": "rootfs staging cleanup failed",
+                "detail": cleanup_root,
+            }
+
         return {
             "ok": True,
             "rootfs": rootfs,
@@ -411,8 +420,7 @@ def run_probe(label: str) -> dict:
             if not (vv["verified"] and kv["verified"] and ic["ok"]):
                 raise RuntimeError("pinned VMM/kernel/init preparation failed")
 
-            with timer.stage("playwright_rootfs_materialize", "portable"):
-                rootfs_info = _build_playwright_rootfs(work, timer)
+            rootfs_info = _build_playwright_rootfs(work, timer)
             if not rootfs_info.get("ok"):
                 raise RuntimeError(rootfs_info.get("reason", "Playwright rootfs materialization failed"))
             rootfs = rootfs_info["rootfs"]
@@ -430,6 +438,8 @@ def run_probe(label: str) -> dict:
             vm_id = f"pw{os.getpid()}"
 
             cfg = f1._build_config(kernel, initrd, config)
+            cfg["boot-source"]["kernel_image_path"] = "/vmlinux"
+            cfg["boot-source"]["initrd_path"] = "/initrd.cpio"
             cfg["machine-config"]["vcpu_count"] = 2
             cfg["machine-config"]["mem_size_mib"] = 2048
             cfg["drives"] = [
