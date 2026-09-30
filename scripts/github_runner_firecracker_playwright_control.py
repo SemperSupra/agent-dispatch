@@ -26,10 +26,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import firecracker_workload_evidence as evidence
 import github_runner_firecracker_f0 as f0
 import github_runner_firecracker_f1_boot as f1
-import github_runner_firecracker_f3_useful_work as f3
 import github_runner_firecracker_j1_jailed_f3 as j1
-import github_runner_firecracker_u1_userspace as u1
-import github_runner_firecracker_u2_composed as u2
 from firecracker_lifecycle_timing import LifecycleTimer
 
 SCHEMA = "firecracker-playwright-control/v1"
