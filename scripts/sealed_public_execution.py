@@ -332,7 +332,9 @@ def run_assignment(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--assignment-id", required=True)
-    parser.add_argument("--capsule-b64", required=True)
+    capsule_group = parser.add_mutually_exclusive_group(required=True)
+    capsule_group.add_argument("--capsule-b64")
+    capsule_group.add_argument("--capsule-b64-file")
     parser.add_argument("--capsule-sha256", required=True)
     parser.add_argument("--recipient", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=3600)
@@ -340,9 +342,12 @@ def main() -> int:
     parser.add_argument("--entrypoint", choices=sorted(ALLOWED_ENTRYPOINTS), default="run.sh")
     args = parser.parse_args()
     try:
+        capsule_b64 = args.capsule_b64
+        if args.capsule_b64_file:
+            capsule_b64 = Path(args.capsule_b64_file).read_text(encoding="ascii")
         return run_assignment(
             assignment_id=args.assignment_id,
-            capsule_b64=args.capsule_b64,
+            capsule_b64=capsule_b64,
             capsule_sha256=args.capsule_sha256,
             recipient=args.recipient,
             timeout_seconds=args.timeout_seconds,
