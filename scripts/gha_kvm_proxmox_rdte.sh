@@ -348,7 +348,7 @@ guest_local_https_api() {
       -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
       root@127.0.0.1 'sh -s' 2>/dev/null <<'REMOTE' || true
 printf 'GET /api2/json/version HTTP/1.0\r\nHost: pve-rdte.example.invalid\r\nConnection: close\r\n\r\n' |
-  timeout 10 openssl s_client -quiet -connect 127.0.0.1:8006 -servername pve-rdte.example.invalid 2>/dev/null |
+  timeout 10 openssl s_client -quiet -ign_eof -connect 127.0.0.1:8006 -servername pve-rdte.example.invalid 2>/dev/null |
   tr -d '\r' |
   awk 'body { print } /^$/ { body=1 }'
 REMOTE

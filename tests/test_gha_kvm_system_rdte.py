@@ -88,7 +88,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("TTY_S0=character-device", text)
         self.assertIn("first_boot_witness_observed", text)
         self.assertIn("guest_local_https_api", text)
-        self.assertIn("openssl s_client -quiet -connect 127.0.0.1:8006", text)
+        self.assertIn("openssl s_client -quiet -ign_eof -connect 127.0.0.1:8006", text)
         self.assertIn("GET /api2/json/version HTTP/1.0", text)
         self.assertNotIn("for _ in $(seq 1 120); do\n  if [[ \"$SSH_HOSTFWD_ACCEPTED\" == \"true\" ]]; then", text)
         self.assertIn('API_OBSERVATION_ROUTE="ssh-observed-guest-local-https"', text)
