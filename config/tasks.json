@@ -1,4 +1,5 @@
 {
   "phase0-private-repo-smoke-test": "tasks/phase0-private-repo-smoke-test.md",
-  "reconcile-repository-state": "tasks/reconcile-repository-state.md"
+  "reconcile-repository-state": "tasks/reconcile-repository-state.md",
+  "playnite-native-rdte": "tasks/playnite-native-rdte.md"
 }
