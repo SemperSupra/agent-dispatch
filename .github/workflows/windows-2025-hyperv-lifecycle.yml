@@ -1,0 +1,81 @@
+name: Windows 2025 Hyper-V Lifecycle Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate bounded Hyper-V probe contract
+        run: python3 -m unittest -v tests/test_windows_hyperv_lifecycle_probe.py
+
+  hyperv-lifecycle:
+    needs: contract
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Build existing runner-capability receipt
+        env:
+          CENSUS_REQUESTED_LABEL: windows-2025
+          CENSUS_REPOSITORY_VISIBILITY: public
+          CENSUS_EXECUTION_MODEL: native-host
+          CENSUS_LABEL_STATUS: supported
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/hyperv-lifecycle" | Out-Null
+          python scripts/github_runner_environment_v2.py --label "windows-2025" --out "$env:RUNNER_TEMP/hyperv-lifecycle/receipt.json"
+
+      - name: Exercise one run-owned Hyper-V VM lifecycle
+        id: hyperv
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./scripts/windows_hyperv_lifecycle_probe.ps1 `
+            -ReceiptPath "$env:RUNNER_TEMP/hyperv-lifecycle/receipt.json" `
+            -EvidencePath "$env:RUNNER_TEMP/hyperv-lifecycle/hyperv-lifecycle.json"
+
+      - name: Upload capability evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-2025-hyperv-lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/hyperv-lifecycle/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce Hyper-V lifecycle and cleanup oracle
+        if: always()
+        shell: pwsh
+        run: |
+          $path = "$env:RUNNER_TEMP/hyperv-lifecycle/receipt.json"
+          if (-not (Test-Path -LiteralPath $path)) {
+            throw "HARNESS_FAILURE: receipt missing after probe"
+          }
+          $receipt = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+          $cap = @($receipt.capabilities | Where-Object name -eq 'windows:hyper-v-vm-lifecycle')
+          if ($cap.Count -ne 1) {
+            throw "HARNESS_FAILURE: expected exactly one Hyper-V lifecycle capability result"
+          }
+          $cleanup = $cap[0].evidence.cleanup
+          Write-Host "classification=$($cap[0].classification)"
+          Write-Host "oracleSatisfied=$($cap[0].oracleSatisfied)"
+          Write-Host "cleanupSatisfied=$($cleanup.satisfied)"
+          if ($cap[0].classification -ne 'SUPPORTED' -or
+              -not $cap[0].oracleSatisfied -or
+              -not $cleanup.satisfied -or
+              -not $cleanup.vm_absent -or
+              -not $cleanup.run_directory_absent) {
+            throw "Hyper-V lifecycle placement oracle not satisfied: $($cap[0].classification)"
+          }
