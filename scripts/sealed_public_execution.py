@@ -304,6 +304,8 @@ def run_assignment(
             "timed_out": timed_out,
             "result_budget": result_budget,
             "capsule_sha256": capsule_sha256,
+            "capsule_transport": os.getenv("SEALED_CAPSULE_TRANSPORT", "inline"),
+            "capsule_blob_sha": os.getenv("SEALED_CAPSULE_BLOB_SHA"),
             "entrypoint": entrypoint,
             "worker_platform": os.name,
             "worker_repository": os.getenv("GITHUB_REPOSITORY"),
