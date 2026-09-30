@@ -30,6 +30,7 @@ RESULT_CLASSIFICATIONS = frozenset({
     "SETUP_REQUIRED",
     "VENUE_LIMITATION",
     "AUTHORITY_REQUIRED",
+    "CLEANUP_FAILURE",
     "INCONCLUSIVE",
 })
 
@@ -160,7 +161,11 @@ def validate_receipt(receipt: dict) -> None:
 
 def canonical_json(receipt: dict) -> str:
     validate_receipt(receipt)
-    return json.dumps(receipt, sort_keys=True, separators=(",", ":"))
+    # The receipt digest is defined over the receipt with its self-digest field
+    # omitted so it remains independently recomputable after insertion.
+    material = dict(receipt)
+    material.pop("receipt_digest", None)
+    return json.dumps(material, sort_keys=True, separators=(",", ":"))
 
 
 def receipt_digest(receipt: dict) -> str:
