@@ -47,6 +47,13 @@ CONTROL_RE = re.compile(
 EXIT_RE = re.compile(r"FIRECRACKER_PLAYWRIGHT_EXIT code=(\d+)")
 
 
+class ProbeError(RuntimeError):
+    def __init__(self, classification: str, reason: str):
+        super().__init__(reason)
+        self.classification = classification
+        self.reason = reason
+
+
 def _sha256(path: pathlib.Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
