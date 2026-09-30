@@ -10,7 +10,7 @@
     {
       "version": "25.04.1",
       "channel": "deployed-legacy",
-      "system_version": "TrueNAS-SCALE-25.04.1",
+      "system_version": "TrueNAS-25.04.1",
       "iso_name": "TrueNAS-SCALE-25.04.1.iso",
       "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso",
       "sha256_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso.sha256",
