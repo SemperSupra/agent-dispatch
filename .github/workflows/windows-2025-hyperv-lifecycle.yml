@@ -2,20 +2,6 @@ name: Windows 2025 Hyper-V Lifecycle Probe
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'exp/windows-2025-hyperv-winbot-probe'
-    paths:
-      - '.github/workflows/windows-2025-hyperv-lifecycle.yml'
-      - 'scripts/windows_hyperv_lifecycle_probe.ps1'
-      - 'tests/test_windows_hyperv_lifecycle_probe.py'
-      - 'docs/windows-2025-hyperv-winbot-placement.md'
-  pull_request:
-    paths:
-      - '.github/workflows/windows-2025-hyperv-lifecycle.yml'
-      - 'scripts/windows_hyperv_lifecycle_probe.ps1'
-      - 'tests/test_windows_hyperv_lifecycle_probe.py'
-      - 'docs/windows-2025-hyperv-winbot-placement.md'
 
 permissions:
   contents: read
