@@ -1,0 +1,128 @@
+name: Sealed Public Windows Execution
+run-name: Sealed Windows execution ${{ inputs.assignment_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      assignment_id:
+        description: "Opaque assignment correlation ID"
+        required: true
+        type: string
+      capsule_b64_part1:
+        description: "First base64 capsule segment (<=30000 chars)"
+        required: true
+        type: string
+      capsule_b64_part2:
+        description: "Optional second base64 capsule segment (<=30000 chars)"
+        required: false
+        default: ""
+        type: string
+      capsule_sha256:
+        description: "Lowercase SHA-256 of decoded capsule bytes"
+        required: true
+        type: string
+      recipient:
+        description: "Ephemeral age X25519 public recipient (age1...)"
+        required: true
+        type: string
+      timeout_seconds:
+        description: "Task timeout, max 7200 seconds"
+        required: false
+        default: "3600"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: windows-2025
+    timeout-minutes: 125
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install pinned result sealer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uri = 'https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-windows-amd64.zip'
+          $expected = 'f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7'
+          $zip = Join-Path $env:RUNNER_TEMP 'age-v1.3.2-windows-amd64.zip'
+          Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "age archive SHA-256 mismatch" }
+          $root = Join-Path $env:RUNNER_TEMP 'age-v1.3.2'
+          Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
+          $age = Get-ChildItem -LiteralPath $root -Recurse -Filter age.exe | Select-Object -First 1
+          if (-not $age) { throw "age.exe missing from pinned release archive" }
+          $ageDir = $age.Directory.FullName
+          $ageDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $age.FullName --version
+
+      - name: Assemble bounded capsule input
+        shell: pwsh
+        env:
+          CAPSULE_B64_PART1: ${{ inputs.capsule_b64_part1 }}
+          CAPSULE_B64_PART2: ${{ inputs.capsule_b64_part2 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:CAPSULE_B64_PART1.Length -gt 30000 -or $env:CAPSULE_B64_PART2.Length -gt 30000) {
+            throw "capsule segment exceeds 30000-character Windows transport bound"
+          }
+          $capsulePath = Join-Path $env:RUNNER_TEMP 'sealed-capsule.b64'
+          [IO.File]::WriteAllText($capsulePath, ($env:CAPSULE_B64_PART1 + $env:CAPSULE_B64_PART2), [Text.Encoding]::ASCII)
+          "SEALED_CAPSULE_B64_FILE=$capsulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Execute public-safe PowerShell capsule and seal evidence
+        id: execute
+        continue-on-error: true
+        shell: pwsh
+        env:
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          CAPSULE_SHA256: ${{ inputs.capsule_sha256 }}
+          AGE_RECIPIENT: ${{ inputs.recipient }}
+          TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          python scripts/sealed_public_execution.py `
+            --assignment-id "$env:ASSIGNMENT_ID" `
+            --capsule-b64-file "$env:SEALED_CAPSULE_B64_FILE" `
+            --capsule-sha256 "$env:CAPSULE_SHA256" `
+            --recipient "$env:AGE_RECIPIENT" `
+            --timeout-seconds "$env:TIMEOUT_SECONDS" `
+            --entrypoint run.ps1 `
+            --out-dir .sealed
+          $rc = $LASTEXITCODE
+          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Remove capsule transport file
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:SEALED_CAPSULE_B64_FILE -and (Test-Path -LiteralPath $env:SEALED_CAPSULE_B64_FILE)) {
+            Remove-Item -LiteralPath $env:SEALED_CAPSULE_B64_FILE -Force
+          }
+
+      - name: Upload sealed result mailbox
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sealed-windows-${{ inputs.assignment_id }}
+          path: |
+            .sealed/result.age
+            .sealed/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Preserve task verdict
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.execute.outputs.task_rc }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TASK_RC)) { exit 1 }
+          exit [int]$env:TASK_RC
