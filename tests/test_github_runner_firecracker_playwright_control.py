@@ -50,6 +50,13 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         self.assertIn('visibility="public_safe"', source)
         self.assertNotIn('visibility="private"', source)
 
+    def test_setup_and_cleanup_failures_keep_typed_classification(self):
+        source = SCRIPT.read_text()
+        self.assertIn('ProbeError("VENUE_LIMITATION"', source)
+        self.assertIn('ProbeError("SETUP_REQUIRED"', source)
+        self.assertIn('"CLEANUP_FAILURE"', source)
+        self.assertIn("rootfs staging cleanup failed", source)
+
     def test_externalization_and_cleanup_can_overrule_guest_success(self):
         source = SCRIPT.read_text()
         self.assertIn('"ORACLE_FAILURE"', source)
