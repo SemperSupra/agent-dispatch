@@ -11,11 +11,11 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 125
     env:
-      MASTER_MANIFEST_SHA: 'fad2b02f5bde4bc34d00bd41bc1383280e9c6a12'
+      MASTER_MANIFEST_SHA: 'a0128581f121caaf1f84b3d5cc924b1c1b0fd769'
       EXPECTED_SOURCE_REVISION: 'fdc27c1c4aba48dfc575df855eb1351f85b82bf9'
       EXPECTED_PROJECTION_IDENTITY: 'b617c8dc47a43fca870a89cffd5d45a5b5a13b0c797600e324774648a5d4ba44'
       AGE_RECIPIENT: 'age17wrssz9yp7q637z9ezwy37ev8g6k0jnfsppu0pte6aywxmym9qhq52hm4r'
-      ASSIGNMENT_ID: 'winbot-fullrdte-20260930-04'
+      ASSIGNMENT_ID: 'winbot-fullrdte-20260930-05'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
