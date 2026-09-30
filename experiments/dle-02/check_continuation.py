@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import hashlib, json, sys
+import hashlib, json, os, sys
 from pathlib import Path
 
 capsule_path = Path(sys.argv[1] if len(sys.argv) > 1 else "experiments/dle-02/capsule.json")
@@ -43,7 +43,7 @@ receipt = {
     "capsule_sha256":hashlib.sha256(raw).hexdigest(),
     "activation":{
         "actor_kind":"deterministic-automation",
-        "body":"github-actions/ubuntu-24.04",
+        "body":os.environ.get("DLE_ACTIVATION_BODY", "unknown"),
         "context_source":"durable-repository-state-only"
     },
     "recovered":checks,
