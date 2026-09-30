@@ -181,8 +181,8 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T5 lifecycle client"
   fi
   if [[ "$RUNG" == "t6" ]]; then
-    [[ -f "$SCRIPT_DIR/truenas_middleware_foundry_control_probe.py" ]] ||
-      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 Foundry control client"
+    [[ -f "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" ]] ||
+      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 LiteLLM control client"
   fi
 fi
 for cmd in curl sha256sum qemu-img qemu-system-x86_64 xorriso python3; do
