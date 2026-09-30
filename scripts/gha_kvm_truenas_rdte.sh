@@ -17,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar] [--foundry-control-dir DIR] [--foundry-commit SHA]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm] [--foundry-control-dir DIR] [--foundry-commit SHA]"
 }
 
 OUT=""
@@ -47,7 +47,7 @@ eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
 if [[ "$RUNG" == "t6" ]]; then
   [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "T6 is currently admitted only for exact TrueNAS 26.0.0-BETA.3; use Foundry F1-F5 for other targets" >&2; exit 2; }
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
   [[ -n "$FOUNDRY_CONTROL_DIR" && -d "$FOUNDRY_CONTROL_DIR" ]] || { echo "t6 requires --foundry-control-dir" >&2; exit 2; }
   [[ "$FOUNDRY_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "t6 requires exact --foundry-commit SHA" >&2; exit 2; }
   FOUNDRY_CONTROL_DIR="$(realpath "$FOUNDRY_CONTROL_DIR")"
@@ -117,7 +117,9 @@ payload = {
     "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else None,
     "data_disk_serials": ["RDTE_DATA_0", "RDTE_DATA_1"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else [],
     "app": (
-      {"name": "rdte-t6-wow-sidecar", "image": "ghcr.io/sempersupra/wow-sidecar@sha256:6b700ce7ba5ae44116b240ccbb54fb3b60dc952a9b4072ca1314b6f311bc5376"}
+      {"name": "rdte-t6-garm", "image": "ghcr.io/sempersupra/garm-appliance@sha256:1af67841ddd4589e3798dcda8be49230565c849d07ab57fd05899432dcdabca9"}
+      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "garm"
+      else {"name": "rdte-t6-wow-sidecar", "image": "ghcr.io/sempersupra/wow-sidecar@sha256:6b700ce7ba5ae44116b240ccbb54fb3b60dc952a9b4072ca1314b6f311bc5376"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "wow-sidecar"
       else {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
       if os.environ.get("R_RUNG") == "t6"
@@ -204,7 +206,10 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T5 lifecycle client"
   fi
   if [[ "$RUNG" == "t6" ]]; then
-    if [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
+    if [[ "$T6_PRODUCT" == "garm" ]]; then
+      [[ -f "$SCRIPT_DIR/truenas_middleware_garm_t6_probe.py" ]] ||
+        fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 GARM control client"
+    elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_wow_sidecar_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 WOW Sidecar control client"
     else
@@ -442,6 +447,8 @@ PY
 )"
 LITELLM_HOST_PORT=""
 LITELLM_HOSTFWD=""
+GARM_HOST_PORT=""
+GARM_HOSTFWD=""
 if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "litellm" ]]; then
   LITELLM_HOST_PORT="$(python3 - <<'PY'
 import socket
@@ -450,6 +457,14 @@ PY
 )"
   LITELLM_HOSTFWD=",hostfwd=tcp:127.0.0.1:${LITELLM_HOST_PORT}-:30401"
 fi
+if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "garm" ]]; then
+  GARM_HOST_PORT="$(python3 - <<'PY'
+import socket
+s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+PY
+)"
+  GARM_HOSTFWD=",hostfwd=tcp:127.0.0.1:${GARM_HOST_PORT}-:30880"
+fi
 : >"$STATE_DIR/serial.log"
 sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
@@ -457,7 +472,7 @@ sudo -n qemu-system-x86_64 \
   -device "virtio-blk-pci,drive=rdteboot,id=rdte-boot,addr=0x4,bootindex=1" \
   "${DATA_DRIVE_ARGS[@]}" \
   -boot strict=on \
-  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443${LITELLM_HOSTFWD}" \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443${LITELLM_HOSTFWD}${GARM_HOSTFWD}" \
   -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
@@ -599,7 +614,15 @@ if [[ "$RUNG" == "t5" ]]; then
 fi
 
 FOUNDRY_OUT="$STATE_DIR/foundry-control.json"
-if [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
+if [[ "$T6_PRODUCT" == "garm" ]]; then
+  python3 "$SCRIPT_DIR/truenas_middleware_garm_t6_probe.py" \
+    --host 127.0.0.1 --port "$MIDDLEWARE_PORT" --service-port "$GARM_HOST_PORT" \
+    "${MIDDLEWARE_TLS_ARG[@]}" \
+    --password-file "$PASSWORD_FILE" \
+    --control-dir "$FOUNDRY_CONTROL_DIR" \
+    --foundry-commit "$FOUNDRY_COMMIT" \
+    --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
+elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_wow_sidecar_t6_probe.py" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
     "${MIDDLEWARE_TLS_ARG[@]}" \
@@ -627,7 +650,9 @@ PY
 [[ "$FOUNDRY_OK" == "true" ]] ||
   fail_evidence ORACLE_FAILURE foundry-materialization "exact Foundry-exported $T6_PRODUCT control did not realize and verify on TrueNAS"
 
-if [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
+if [[ "$T6_PRODUCT" == "garm" ]]; then
+  write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported GARM controller control passed exact appliance and secret-normalized config read-back, persistent state, external HTTPS, restart persistence, and zero-residue cleanup; GitHub/JIT registration intentionally not exercised"
+elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported WOW Sidecar control passed immutable image/config read-back, permissions/seed metadata, public-fixture worker runtime, restart persistence, and zero-residue cleanup"
 else
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported LiteLLM control passed S1 projection, exact image/config read-back, health, restart persistence, and delete/absence"
