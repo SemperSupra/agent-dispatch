@@ -24,6 +24,9 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertNotIn("latest", lower)
             self.assertNotIn("nightly", lower)
             self.assertNotIn("master+", lower)
+    def test_exact_installed_version_identity_for_stable_target(self):
+        self.assertEqual(self.targets["25.10.7"]["system_version"], "TrueNAS-25.10.7")
+
     def test_apps_gate_deltas_are_not_normalized_away(self):
         self.assertEqual(self.targets["25.04.1"]["ha_apps_gate"], "system.license:JAILS")
         self.assertEqual(self.targets["25.10.7"]["ha_apps_gate"], "system.license:JAILS")

@@ -23,7 +23,7 @@
     {
       "version": "25.10.7",
       "channel": "stable",
-      "system_version": "TrueNAS-SCALE-25.10.7",
+      "system_version": "TrueNAS-25.10.7",
       "iso_name": "TrueNAS-SCALE-25.10.7.iso",
       "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso",
       "sha256_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso.sha256",
