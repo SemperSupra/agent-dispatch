@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - exp/dle-02-replacement-continuity
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
