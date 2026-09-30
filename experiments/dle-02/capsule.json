@@ -4,12 +4,12 @@
   "authoritative_state": {
     "intent": "Validate the durable capsule, reconstruct the current bounded responsibility, and emit a continuation receipt without changing mission meaning or authority.",
     "accepted_state": [
-      "The capsule is the only task context available to the replacement activation.",
-      "The replacement activation is a deterministic public GitHub Actions runner.",
+      "The capsule is the only task context required by a replacement activation.",
+      "The concrete activation body is replaceable and must self-identify in its receipt; body identity is not intrinsic DLE state.",
       "No secrets, private source, paid infrastructure, or external mutable state are required."
     ],
     "unknowns": [
-      "Whether a fresh public runner can recover every required continuation fact from durable state alone."
+      "Whether materially different qualified bodies recover equivalent continuation semantics from the same durable DLE."
     ],
     "frontier": "Run the deterministic continuation checker and emit a receipt proving what the replacement activation recovered."
   },
