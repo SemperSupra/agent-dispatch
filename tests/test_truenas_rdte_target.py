@@ -5,6 +5,7 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 SPEC=importlib.util.spec_from_file_location("truenas_rdte_target", ROOT/"scripts"/"truenas_rdte_target.py")
 MOD=importlib.util.module_from_spec(SPEC); assert SPEC.loader; SPEC.loader.exec_module(MOD)
 REG=ROOT/"config"/"truenas-rdte-targets.json"
+RUN_REQUEST=ROOT/"config"/"truenas-rdte-run-request.json"
 
 class TargetRegistryTests(unittest.TestCase):
     def setUp(self):
@@ -32,6 +33,16 @@ class TargetRegistryTests(unittest.TestCase):
             targets=self.targets
             if "26.0.0-RC.1" not in targets:
                 raise MOD.TargetError("exact TrueNAS target is not registered: 26.0.0-RC.1")
+
+
+    def test_initial_run_request_is_exact_stable_t5(self):
+        request=json.loads(RUN_REQUEST.read_text(encoding="utf-8"))
+        self.assertEqual(request["schema"], "gha-kvm-truenas-run-request/v1")
+        self.assertEqual(request["version"], "25.10.7")
+        self.assertEqual(request["rung"], "t5")
+        self.assertEqual(request["authority_issue"], 410)
+        self.assertIn(request["version"], self.targets)
+
 
 if __name__=="__main__":
     unittest.main()
