@@ -85,6 +85,21 @@ class GarmT6ControlTests(unittest.TestCase):
             MOD.TLS_PREFIX + MOD.TLS_KEY_CONFIG,
         )
 
+    def test_workflow_routes_exact_garm_export_through_existing_t6_selector(self):
+        workflow = (ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
+        harness = (ROOT / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            "export-garm-t6-control.yml@34a0759fe390d7a92b270a599b6584f8949c6d07",
+            workflow,
+        )
+        self.assertIn("name: garm-truenas-t6-control", workflow)
+        self.assertIn("needs.changes.outputs.truenas_t6_product == 'garm'", workflow)
+        self.assertIn("packages: read", workflow)
+        self.assertIn('T6_PRODUCT\" == \"garm', harness)
+        self.assertIn("truenas_middleware_garm_t6_probe.py", harness)
+        self.assertIn("GARM_HOSTFWD", harness)
+        self.assertIn("-:30880", harness)
+
     def test_load_control_rejects_foundry_drift(self):
         compose = self.sample_compose()
         with tempfile.TemporaryDirectory() as td:
