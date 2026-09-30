@@ -1,0 +1,75 @@
+{
+  "dle_id": "dle-02-replacement-continuity-v0",
+  "purpose": "Prove a fresh execution body can recover and continue one bounded public-safe DLE from durable repository state without chat/session context.",
+  "authoritative_state": {
+    "intent": "Validate the durable capsule, reconstruct the current bounded responsibility, and emit a continuation receipt without changing mission meaning or authority.",
+    "accepted_state": [
+      "The capsule is the only task context available to the replacement activation.",
+      "The replacement activation is a deterministic public GitHub Actions runner.",
+      "No secrets, private source, paid infrastructure, or external mutable state are required."
+    ],
+    "unknowns": [
+      "Whether a fresh public runner can recover every required continuation fact from durable state alone."
+    ],
+    "frontier": "Run the deterministic continuation checker and emit a receipt proving what the replacement activation recovered."
+  },
+  "delegation": {
+    "responsibility": "Recover the DLE continuation semantics from this durable capsule and verify them without transcript or hidden state.",
+    "authority": {
+      "grants": [
+        "read repository",
+        "execute deterministic validation",
+        "write run-owned receipt artifact"
+      ],
+      "reserved": [
+        "modify authoritative repository state",
+        "merge",
+        "release",
+        "access private data",
+        "spend money",
+        "delegate"
+      ]
+    },
+    "constraints": [
+      "Use only repository content from this checkout.",
+      "Do not access secrets or private repositories.",
+      "Do not mutate authoritative repository state.",
+      "Do not infer authority beyond the capsule."
+    ],
+    "capabilities_required": [
+      "linux",
+      "python",
+      "repository-read"
+    ],
+    "resources": [
+      {
+        "kind": "money",
+        "limit": 0,
+        "unit": "USD"
+      },
+      {
+        "kind": "workflow-dispatches",
+        "limit": 0,
+        "unit": "manual-dispatch"
+      }
+    ]
+  },
+  "acceptance": {
+    "required_recovered_fields": [
+      "intent",
+      "responsibility",
+      "authority_grants",
+      "authority_reserved",
+      "accepted_state",
+      "unknowns",
+      "frontier",
+      "acceptance"
+    ],
+    "conditions": [
+      "The replacement activation consumes no chat/session state.",
+      "The receipt contains a digest of the exact capsule bytes.",
+      "The receipt preserves reserved authority and UNKNOWNs.",
+      "The replacement activation reports the next frontier without broadening authority."
+    ]
+  }
+}
