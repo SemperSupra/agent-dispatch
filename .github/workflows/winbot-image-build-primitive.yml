@@ -52,6 +52,7 @@ jobs:
           $rc = 1
           $mountedIso = $false
           $mountedVhd = $false
+          $taskName = $null
           try {
             $driveName = ([IO.Path]::GetPathRoot($work).Substring(0,1))
             $freeBefore = [int64](Get-PSDrive -Name $driveName).Free
@@ -71,6 +72,14 @@ jobs:
             }
             Get-VMHost -ErrorAction Stop | Out-Null
             $receipt.oracles.hyperv_control_plane = $true
+
+            $wofPath = Join-Path $env:SystemRoot 'System32\drivers\wof.sys'
+            $receipt.observations.wof_sys_present = Test-Path -LiteralPath $wofPath
+            $wofService = Get-Service -Name Wof -ErrorAction SilentlyContinue
+            $receipt.observations.wof_service_present = [bool]$wofService
+            $receipt.observations.wof_service_status = if ($wofService) { [string]$wofService.Status } else { $null }
+            $receipt.observations.prior_dism_failure = '0xc144013b'
+            $receipt.observations.prior_dism_failure_meaning = 'Windows Overlay Filter unavailable/unsupported for WIMGAPI apply on this host'
 
             $downloadStart = Get-Date
             $downloaded = $false
@@ -147,54 +156,83 @@ jobs:
             $win | Set-Partition -NewDriveLetter T -ErrorAction Stop
             Format-Volume -DriveLetter T -FileSystem NTFS -NewFileSystemLabel 'Windows' -Confirm:$false -Force -ErrorAction Stop | Out-Null
 
-            $dismLog = Join-Path $work 'dism.log'
-            $dismRcPath = Join-Path $work 'dism-exit.txt'
-            $dismScript = Join-Path $work 'run-dism.ps1'
-            $taskName = "WinBot-RDTE-DISM-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+            # System DISM/WIMGAPI is known-negative on this hosted image:
+            # 0xC144013B reports an unavailable/unsupported Windows Overlay Filter.
+            # Keep media, VHD geometry, and execution identity constant and vary
+            # only the WIM application engine for this causal rep.
+            $wimlibUrl = 'https://wimlib.net/downloads/wimlib-1.14.5-windows-x86_64-bin.zip'
+            $wimlibExpectedSha = '2f446d6fa3866582175f1a22a7be198eeee0aec7aba5b4e04ad25c99eae2d265'
+            $wimlibZip = Join-Path $work 'wimlib-1.14.5-windows-x86_64-bin.zip'
+            $wimlibRoot = Join-Path $work 'wimlib-1.14.5'
+            Invoke-WebRequest -Uri $wimlibUrl -OutFile $wimlibZip -UseBasicParsing -ErrorAction Stop
+            $wimlibArchiveSha = (Get-FileHash -LiteralPath $wimlibZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt.observations.wimlib_archive_sha256 = $wimlibArchiveSha
+            $receipt.oracles.wimlib_pin = ($wimlibArchiveSha -eq $wimlibExpectedSha)
+            if (-not $receipt.oracles.wimlib_pin) {
+              $receipt.classification = 'ORACLE_FAILURE'
+              $receipt.failure_domain = 'wimlib-identity'
+              throw 'wimlib archive SHA-256 mismatch'
+            }
+            Expand-Archive -LiteralPath $wimlibZip -DestinationPath $wimlibRoot -Force
+            $wimlibExe = Get-ChildItem -LiteralPath $wimlibRoot -Recurse -Filter 'wimlib-imagex.exe' | Select-Object -First 1
+            if (-not $wimlibExe) {
+              $receipt.classification = 'HARNESS_FAILURE'
+              $receipt.failure_domain = 'wimlib-layout'
+              throw 'pinned wimlib archive did not contain wimlib-imagex.exe'
+            }
+            $receipt.observations.wimlib_exe_sha256 = (Get-FileHash -LiteralPath $wimlibExe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt.observations.wimlib_version = ((& $wimlibExe.FullName --version 2>&1 | Out-String).Trim())
+            $receipt.observations.image_apply_engine = 'wimlib-imagex-1.14.5'
+
+            $applyLog = Join-Path $work 'wimlib-apply.log'
+            $applyRcPath = Join-Path $work 'wimlib-exit.txt'
+            $applyScript = Join-Path $work 'run-wimlib.ps1'
+            $taskName = "WinBot-RDTE-WIMLIB-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
             @(
               '$ErrorActionPreference = "Continue"'
-              '& dism.exe /English /Apply-Image /ImageFile:"' + $wim + '" /Index:1 /ApplyDir:T:\ /Compact:Off /LogPath:"' + $dismLog + '"'
+              '& "' + $wimlibExe.FullName + '" apply "' + $wim + '" 1 "T:\\" *>&1 | Set-Content -LiteralPath "' + $applyLog + '" -Encoding utf8'
               '$rc = $LASTEXITCODE'
-              '[IO.File]::WriteAllText("' + $dismRcPath + '", [string]$rc)'
+              '[IO.File]::WriteAllText("' + $applyRcPath + '", [string]$rc)'
               'exit $rc'
-            ) | Set-Content -LiteralPath $dismScript -Encoding utf8
+            ) | Set-Content -LiteralPath $applyScript -Encoding utf8
 
-            $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $dismScript + '"')
+            $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $applyScript + '"')
             $taskPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
             $taskSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
             $task = New-ScheduledTask -Action $taskAction -Principal $taskPrincipal -Settings $taskSettings
             Register-ScheduledTask -TaskName $taskName -InputObject $task -Force -ErrorAction Stop | Out-Null
-            $receipt.observations.dism_execution_identity = 'SYSTEM-scheduled-task'
+            $receipt.observations.image_apply_execution_identity = 'SYSTEM-scheduled-task'
             Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
 
-            $dismDeadline = (Get-Date).AddMinutes(20)
+            $applyDeadline = (Get-Date).AddMinutes(20)
             do {
               Start-Sleep -Seconds 2
               $taskState = (Get-ScheduledTask -TaskName $taskName -ErrorAction Stop).State
-            } while ($taskState -eq 'Running' -and (Get-Date) -lt $dismDeadline)
+            } while ($taskState -eq 'Running' -and (Get-Date) -lt $applyDeadline)
 
             $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-            $receipt.observations.dism_task_state = [string]$taskState
-            $receipt.observations.dism_task_last_result = [int64]$taskInfo.LastTaskResult
-            if (-not (Test-Path -LiteralPath $dismRcPath)) {
-              if (Test-Path -LiteralPath $dismLog) {
-                $receipt.observations.dism_log_tail = @(Get-Content -LiteralPath $dismLog -Tail 80 -ErrorAction SilentlyContinue)
+            $receipt.observations.image_apply_task_state = [string]$taskState
+            $receipt.observations.image_apply_task_last_result = [int64]$taskInfo.LastTaskResult
+            if (-not (Test-Path -LiteralPath $applyRcPath)) {
+              if (Test-Path -LiteralPath $applyLog) {
+                $receipt.observations.image_apply_log_tail = @(Get-Content -LiteralPath $applyLog -Tail 80 -ErrorAction SilentlyContinue)
               }
               $receipt.classification = 'ENVIRONMENT_FAILURE'
-              $receipt.failure_domain = 'dism-system-task'
-              throw 'SYSTEM DISM task did not produce a bounded exit receipt'
+              $receipt.failure_domain = 'wimlib-system-task'
+              throw 'SYSTEM wimlib task did not produce a bounded exit receipt'
             }
-            $dismRc = [int](Get-Content -LiteralPath $dismRcPath -Raw)
-            $receipt.observations.dism_exit_code = $dismRc
-            if ($dismRc -ne 0) {
-              if (Test-Path -LiteralPath $dismLog) {
-                $receipt.observations.dism_log_tail = @(Get-Content -LiteralPath $dismLog -Tail 80 -ErrorAction SilentlyContinue)
+            $applyRc = [int](Get-Content -LiteralPath $applyRcPath -Raw)
+            $receipt.observations.image_apply_exit_code = $applyRc
+            if ($applyRc -ne 0) {
+              if (Test-Path -LiteralPath $applyLog) {
+                $receipt.observations.image_apply_log_tail = @(Get-Content -LiteralPath $applyLog -Tail 80 -ErrorAction SilentlyContinue)
               }
               $receipt.classification = 'ENVIRONMENT_FAILURE'
-              $receipt.failure_domain = 'dism-apply-system'
-              throw ("SYSTEM DISM apply failed with exit " + $dismRc)
+              $receipt.failure_domain = 'wimlib-apply-system'
+              throw ("SYSTEM wimlib apply failed with exit " + $applyRc)
             }
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            $taskName = $null
 
             & bcdboot.exe T:\Windows /s S: /f UEFI
             $receipt.observations.bcdboot_exit_code = [int]$LASTEXITCODE
@@ -275,7 +313,10 @@ jobs:
           $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
           Write-Host "classification=$($receipt.classification)"
           Write-Host "failure_domain=$($receipt.failure_domain)"
-          Write-Host "dism_exit=$($receipt.observations.dism_exit_code)"
+          Write-Host "wof_sys_present=$($receipt.observations.wof_sys_present)"
+          Write-Host "wof_service_status=$($receipt.observations.wof_service_status)"
+          Write-Host "image_apply_engine=$($receipt.observations.image_apply_engine)"
+          Write-Host "image_apply_exit=$($receipt.observations.image_apply_exit_code)"
           Write-Host "test_vhd=$($receipt.oracles.test_vhd)"
           Write-Host "vhd_physical_size_bytes=$($receipt.observations.vhd_physical_size_bytes)"
           Write-Host "free_bytes_after_build=$($receipt.observations.free_bytes_after_build)"
