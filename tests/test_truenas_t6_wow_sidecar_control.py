@@ -54,7 +54,7 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         request = json.loads((ROOT / "config" / "truenas-rdte-run-request.json").read_text(encoding="utf-8"))
 
         self.assertIn(
-            "export-wow-sidecar-t6-control.yml@706eca4fafcdafbff41ce6b0adb5a784a580df1e",
+            "export-wow-sidecar-t6-control.yml@68d08ce9561b0ccf68d2e7eb446a76514e1a8ed2",
             workflow,
         )
         self.assertIn("name: wow-sidecar-truenas-t6-control", workflow)
