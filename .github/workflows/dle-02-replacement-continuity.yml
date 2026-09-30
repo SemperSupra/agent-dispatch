@@ -1,0 +1,25 @@
+name: DLE-02 replacement continuity
+
+on:
+  push:
+    branches:
+      - exp/dle-02-replacement-continuity
+
+permissions:
+  contents: read
+
+jobs:
+  replacement-activation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover DLE from durable state
+        run: python3 experiments/dle-02/check_continuation.py experiments/dle-02/capsule.json artifacts/dle-02/receipt.json
+      - name: Show machine receipt
+        run: cat artifacts/dle-02/receipt.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dle-02-replacement-receipt
+          path: artifacts/dle-02/receipt.json
+          if-no-files-found: error
