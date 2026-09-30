@@ -1,0 +1,125 @@
+name: WinBot Hyper-V Network Preflight
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hyperv-network-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  network-preflight:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - name: Exercise Default Switch binding
+        id: probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outDir = Join-Path $env:RUNNER_TEMP 'winbot-hyperv-network-preflight'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $vmName = "WinBot-RDTE-Net-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $vmPath = Join-Path $env:RUNNER_TEMP $vmName
+          $receipt = [ordered]@{
+            schema_version = 1
+            authority = 'SemperSupra/agent-dispatch-private#406'
+            consumer = 'mark-e-deyoung/WinBot#70'
+            profile = 'HyperVNetworkPreflight'
+            runner = [ordered]@{
+              requested_label = 'windows-2025'
+              image_os = $env:ImageOS
+              image_version = $env:ImageVersion
+            }
+            observations = [ordered]@{}
+            oracles = [ordered]@{}
+            cleanup = [ordered]@{}
+            classification = 'HARNESS_FAILURE'
+            failure_domain = $null
+          }
+          $rc = 1
+          try {
+            Get-VMHost -ErrorAction Stop | Out-Null
+            $switches = @(Get-VMSwitch -ErrorAction Stop | Select-Object Name,SwitchType)
+            $receipt.observations.switches = $switches
+            $default = Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue
+            $receipt.oracles.default_switch_present = [bool]$default
+            if (-not $default) {
+              $receipt.classification = 'ENVIRONMENT_FAILURE'
+              $receipt.failure_domain = 'hyperv-default-switch'
+              throw 'Hyper-V Default Switch is unavailable'
+            }
+
+            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 64MB -NoVHD -Path $vmPath -SwitchName 'Default Switch' -ErrorAction Stop | Out-Null
+            $vm = Get-VM -Name $vmName -ErrorAction Stop
+            $nics = @(Get-VMNetworkAdapter -VMName $vmName -ErrorAction Stop)
+            $receipt.observations.vm_generation = [int]$vm.Generation
+            $receipt.observations.nic_count = $nics.Count
+            $receipt.observations.nic_switches = @($nics | ForEach-Object SwitchName)
+            $receipt.oracles.vm_created = [bool]$vm
+            $receipt.oracles.one_nic = ($nics.Count -eq 1)
+            $receipt.oracles.default_switch_bound = ($nics.Count -eq 1 -and [string]$nics[0].SwitchName -eq 'Default Switch')
+
+            if (-not ($receipt.oracles.vm_created -and $receipt.oracles.one_nic -and $receipt.oracles.default_switch_bound)) {
+              $receipt.classification = 'ORACLE_FAILURE'
+              $receipt.failure_domain = 'hyperv-network-binding'
+              throw 'run-owned VM did not bind exactly one NIC to Default Switch'
+            }
+
+            $receipt.classification = 'SUPPORTED'
+            $rc = 0
+          } catch {
+            $receipt.error_type = $_.Exception.GetType().FullName
+            $receipt.error_message = $_.Exception.Message
+            if ($receipt.classification -eq 'HARNESS_FAILURE') { $rc = 3 } else { $rc = 2 }
+          } finally {
+            try {
+              Get-VM -Name $vmName -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.State -ne 'Off') { Stop-VM -VM $_ -TurnOff -Force -ErrorAction SilentlyContinue }
+                Remove-VM -VM $_ -Force -ErrorAction SilentlyContinue
+              }
+              if (Test-Path -LiteralPath $vmPath) { Remove-Item -LiteralPath $vmPath -Recurse -Force -ErrorAction Stop }
+              $receipt.cleanup.vm_absent = -not [bool](Get-VM -Name $vmName -ErrorAction SilentlyContinue)
+              $receipt.cleanup.path_absent = -not (Test-Path -LiteralPath $vmPath)
+              $receipt.cleanup.oracle_satisfied = $receipt.cleanup.vm_absent -and $receipt.cleanup.path_absent
+            } catch {
+              $receipt.cleanup.oracle_satisfied = $false
+              $receipt.cleanup.error_type = $_.Exception.GetType().FullName
+              $receipt.classification = 'ORACLE_FAILURE'
+              $rc = 4
+            }
+            $receipt | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $outDir 'receipt.json') -Encoding utf8
+          }
+          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Upload network evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-hyperv-network-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-hyperv-network-preflight/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce network and cleanup oracle
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.probe.outputs.task_rc }}
+        run: |
+          $p = Join-Path $env:RUNNER_TEMP 'winbot-hyperv-network-preflight\receipt.json'
+          if (-not (Test-Path -LiteralPath $p)) { throw 'network preflight receipt missing' }
+          $r = Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          Write-Host "classification=$($r.classification)"
+          Write-Host "default_switch_present=$($r.oracles.default_switch_present)"
+          Write-Host "nic_count=$($r.observations.nic_count)"
+          Write-Host "default_switch_bound=$($r.oracles.default_switch_bound)"
+          Write-Host "cleanup=$($r.cleanup.oracle_satisfied)"
+          if ([int]$env:TASK_RC -ne 0 -or $r.classification -ne 'SUPPORTED' -or
+              -not $r.oracles.default_switch_bound -or -not $r.cleanup.oracle_satisfied) {
+            throw "Hyper-V network preflight not satisfied: $($r.classification) / $($r.failure_domain)"
+          }
