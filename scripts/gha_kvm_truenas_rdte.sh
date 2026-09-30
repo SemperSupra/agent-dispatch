@@ -17,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm] [--foundry-control-dir DIR] [--foundry-commit SHA]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA]"
 }
 
 OUT=""
@@ -26,6 +26,8 @@ RUNG="t0"
 T6_PRODUCT="litellm"
 FOUNDRY_CONTROL_DIR=""
 FOUNDRY_COMMIT=""
+G2_FIXTURE_DIR=""
+G2_FIXTURE_PRODUCER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -35,6 +37,8 @@ while [[ $# -gt 0 ]]; do
     --t6-product) T6_PRODUCT="$2"; shift 2 ;;
     --foundry-control-dir) FOUNDRY_CONTROL_DIR="$2"; shift 2 ;;
     --foundry-commit) FOUNDRY_COMMIT="$2"; shift 2 ;;
+    --g2-fixture-dir) G2_FIXTURE_DIR="$2"; shift 2 ;;
+    --g2-fixture-producer) G2_FIXTURE_PRODUCER="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -47,10 +51,16 @@ eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
 if [[ "$RUNG" == "t6" ]]; then
   [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "T6 is currently admitted only for exact TrueNAS 26.0.0-BETA.3; use Foundry F1-F5 for other targets" >&2; exit 2; }
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
-  [[ -n "$FOUNDRY_CONTROL_DIR" && -d "$FOUNDRY_CONTROL_DIR" ]] || { echo "t6 requires --foundry-control-dir" >&2; exit 2; }
-  [[ "$FOUNDRY_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "t6 requires exact --foundry-commit SHA" >&2; exit 2; }
-  FOUNDRY_CONTROL_DIR="$(realpath "$FOUNDRY_CONTROL_DIR")"
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+    [[ -n "$G2_FIXTURE_DIR" && -d "$G2_FIXTURE_DIR" ]] || { echo "garm-provider-g2 requires --g2-fixture-dir" >&2; exit 2; }
+    [[ "$G2_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g2 requires exact --g2-fixture-producer SHA" >&2; exit 2; }
+    G2_FIXTURE_DIR="$(realpath "$G2_FIXTURE_DIR")"
+  else
+    [[ -n "$FOUNDRY_CONTROL_DIR" && -d "$FOUNDRY_CONTROL_DIR" ]] || { echo "t6 requires --foundry-control-dir" >&2; exit 2; }
+    [[ "$FOUNDRY_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "t6 requires exact --foundry-commit SHA" >&2; exit 2; }
+    FOUNDRY_CONTROL_DIR="$(realpath "$FOUNDRY_CONTROL_DIR")"
+  fi
 fi
 
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-truenas.XXXXXX)"; fi
@@ -206,7 +216,12 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T5 lifecycle client"
   fi
   if [[ "$RUNG" == "t6" ]]; then
-    if [[ "$T6_PRODUCT" == "garm" ]]; then
+    if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+      [[ -f "$SCRIPT_DIR/truenas_middleware_garm_provider_g2_probe.py" ]] ||
+        fail_evidence HARNESS_FAILURE preflight "missing TrueNAS GARM provider G2 client"
+      command -v docker >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: docker"
+      command -v openssl >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: openssl"
+    elif [[ "$T6_PRODUCT" == "garm" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_garm_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 GARM control client"
     elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
@@ -614,7 +629,14 @@ if [[ "$RUNG" == "t5" ]]; then
 fi
 
 FOUNDRY_OUT="$STATE_DIR/foundry-control.json"
-if [[ "$T6_PRODUCT" == "garm" ]]; then
+if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+  python3 "$SCRIPT_DIR/truenas_middleware_garm_provider_g2_probe.py" \
+    --host 127.0.0.1 --http-port "$HTTP_PORT" --https-port "$HTTPS_PORT" \
+    --password-file "$PASSWORD_FILE" \
+    --fixture-dir "$G2_FIXTURE_DIR" \
+    --fixture-producer-commit "$G2_FIXTURE_PRODUCER" \
+    --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 >/dev/null 2>&1 || true
+elif [[ "$T6_PRODUCT" == "garm" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_t6_probe.py" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" --service-port "$GARM_HOST_PORT" \
     "${MIDDLEWARE_TLS_ARG[@]}" \
@@ -650,7 +672,9 @@ PY
 [[ "$FOUNDRY_OK" == "true" ]] ||
   fail_evidence ORACLE_FAILURE foundry-materialization "exact Foundry-exported $T6_PRODUCT control did not realize and verify on TrueNAS"
 
-if [[ "$T6_PRODUCT" == "garm" ]]; then
+if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+  write_receipt SUPPORTED true foundry-materialization "exact packaged GARM TrueNAS provider passed verified WSS/API-key transport, valid local adoption, foreign exclusion, managed-drift fail-closed behavior, fresh-process readoption, and zero-residue cleanup; provider create/delete and GitHub/JIT intentionally not exercised"
+elif [[ "$T6_PRODUCT" == "garm" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported GARM controller control passed exact appliance and secret-normalized config read-back, persistent state, external HTTPS, restart persistence, and zero-residue cleanup; GitHub/JIT registration intentionally not exercised"
 elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported WOW Sidecar control passed immutable image/config read-back, permissions/seed metadata, public-fixture worker runtime, restart persistence, and zero-residue cleanup"
