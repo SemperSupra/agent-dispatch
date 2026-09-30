@@ -94,11 +94,14 @@ class GarmT6ControlTests(unittest.TestCase):
         )
         self.assertIn("name: garm-truenas-t6-control", workflow)
         self.assertIn("needs.changes.outputs.truenas_t6_product == 'garm'", workflow)
-        self.assertIn("packages: read", workflow)
         self.assertIn('T6_PRODUCT\" == \"garm', harness)
         self.assertIn("truenas_middleware_garm_t6_probe.py", harness)
         self.assertIn("GARM_HOSTFWD", harness)
         self.assertIn("-:30880", harness)
+        proxmox = workflow.split("  proxmox-9-2:", 1)[1].split("  truenas-26-beta3:", 1)[0]
+        truenas = workflow.split("  truenas-26-beta3:", 1)[1]
+        self.assertNotIn("Download exact GARM Foundry T6 control", proxmox)
+        self.assertIn("Download exact GARM Foundry T6 control", truenas)
 
     def test_load_control_rejects_foundry_drift(self):
         compose = self.sample_compose()
