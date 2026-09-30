@@ -504,11 +504,26 @@ def run_probe(label: str) -> dict:
                 "actions": cleanup_actions,
             }
 
-        supported = bool(execution.get("ok")) and bool(outputs.get("ok")) and root_immutable and cleanup["ok"]
+        guest_supported = bool(execution.get("ok"))
+        outputs_valid = bool(outputs.get("ok"))
+        supported = guest_supported and outputs_valid and root_immutable and cleanup["ok"]
+        if supported:
+            final_classification = "SUPPORTED"
+        elif not guest_supported:
+            final_classification = execution.get("classification") or "WORKLOAD_FAILURE"
+            if final_classification == "SUPPORTED":
+                final_classification = "WORKLOAD_FAILURE"
+        elif not outputs_valid or not root_immutable:
+            final_classification = "ORACLE_FAILURE"
+        else:
+            final_classification = "CLEANUP_FAILURE"
+
         execution = {
             **execution,
-            "classification": "SUPPORTED" if supported else execution.get("classification", "ORACLE_FAILURE"),
+            "classification": final_classification,
             "rootfs_immutable": root_immutable,
+            "host_output_validation": outputs_valid,
+            "cleanup_ok": cleanup["ok"],
         }
 
         receipt = evidence.make_receipt(
