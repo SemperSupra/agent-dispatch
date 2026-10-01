@@ -77,7 +77,7 @@ Current official documentation establishes Windows-specific surfaces including c
 | Mobile Codex Remote | Android/mobile relationship | supported desktop Codex can be accessed from mobile Remote | Codex remote-control protocol is inventoried; qualify pairing/control | GAP → active |
 | Built-in browser | browser/search markers | first-party Windows built-in browser documented | official product surface + Codex/browser capabilities where supported | GAP/PARTIAL |
 | Browser state / tabs / downloads | mobile/web behaviors differ | Windows first-party browser has independent state, tabs and downloads | native/WebView + Codex/browser qualification | GAP/PARTIAL |
-| Companion window / quick access | Android bubble/overlay | Windows companion window documented | native global shortcut + companion window | GAP → implementation |
+| Companion window / quick access | Android bubble/overlay | Windows companion window documented | native Alt+Space global summon/toggle + persistent main window | IMPLEMENTED / qualify interaction |
 | Notifications / push | recovered receivers/push | Windows behavior to acquire/observe | native Windows notification adapter + web behavior | GAP |
 | Sharing / share target | recovered | desktop behavior to observe | OS share/open-with/clipboard adapters + official surface | PARTIAL |
 | Temporary chat | recovered | product behavior to observe | official surface | SUPPORTED / qualify |
