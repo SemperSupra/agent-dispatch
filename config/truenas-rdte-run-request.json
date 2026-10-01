@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-004-user-schema-projection",
+  "request_id": "tn-25.04.1-t6-official-catalog-005-user-schema-projection",
   "version": "25.04.1",
   "rung": "t6",
   "product": "official-catalog",
   "authority_issue": 411,
   "consumer_authority_issue": 281,
-  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after projecting the pinned upstream renderer fixture through the pinned questions.yaml user schema, excluding renderer-only ix_volumes and create_host_path fields."
+  "purpose": "Execute exact TrueNAS 25.04.1 native official-catalog ntfy T6 after aligning reusable workflow, runtime probe, and exact Foundry producer to the pinned questions.yaml user-schema projection that excludes renderer-only values."
 }
