@@ -398,6 +398,23 @@
       "notes": "Windows uses the native notification-area adapter, macOS uses the system notification service, and Linux uses the freedesktop notification path when notify-send/a notification daemon is available. Notifications are never the only way state is conveyed."
     },
     {
+      "id": "screen_capture",
+      "consequential": true,
+      "access": {
+        "human": "implemented_with_fallback",
+        "accessible_human": "implemented_with_fallback",
+        "automation": "implemented_with_fallback",
+        "agent": "implemented_with_fallback"
+      },
+      "platforms": {
+        "windows": "implemented_with_fallback",
+        "macos": "implemented_with_fallback",
+        "linux": "implemented_with_fallback"
+      },
+      "human_boundary": "Capture is explicit only. OS desktop/session/screen-recording/compositor permissions remain authoritative; no automatic/background screenshot is taken.",
+      "notes": "One shared Core sensor backs GUI Capture screen & attach, CLI screen-status/screen-capture, and JSON-RPC screen/status/screen/capture. Headless or permission-denied hosts return typed unavailability/failure."
+    },
+    {
       "id": "voice_media",
       "consequential": true,
       "access": {
