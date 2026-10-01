@@ -222,6 +222,16 @@ using (var parityDoc = JsonDocument.Parse(File.ReadAllText(parityPath)))
     var features = root.GetProperty("features");
     Require(features.GetArrayLength() >= 15, "audience parity ledger unexpectedly sparse");
 
+    var allowedParityStates = new HashSet<string>(new[]
+    {
+        "implemented",
+        "implemented_with_fallback",
+        "qualify",
+        "human_boundary",
+        "gap",
+        "not_applicable"
+    }, StringComparer.Ordinal);
+
     foreach (var feature in features.EnumerateArray())
     {
         Require(feature.TryGetProperty("id", out var id) && !string.IsNullOrWhiteSpace(id.GetString()),
@@ -233,6 +243,18 @@ using (var parityDoc = JsonDocument.Parse(File.ReadAllText(parityPath)))
             Require(access.TryGetProperty(audience, out var state) &&
                     !string.IsNullOrWhiteSpace(state.GetString()),
                 $"parity audience state missing for {id.GetString()}: {audience}");
+            Require(allowedParityStates.Contains(state.GetString()!),
+                $"unknown parity audience state for {id.GetString()}: {audience}={state.GetString()}");
+        }
+
+        if (feature.TryGetProperty("consequential", out var consequential) && consequential.GetBoolean())
+        {
+            var humanState = access.GetProperty("human").GetString();
+            var accessibleState = access.GetProperty("accessible_human").GetString();
+            Require(!(humanState == "implemented" && accessibleState == "gap"),
+                $"accessible-human regression for consequential feature {id.GetString()}");
+            Require(!(humanState == "implemented" && accessibleState == "not_applicable"),
+                $"accessible-human path cannot be not_applicable for consequential human feature {id.GetString()}");
         }
 
         Require(feature.TryGetProperty("platforms", out var platforms) && platforms.ValueKind == JsonValueKind.Object,
@@ -242,6 +264,8 @@ using (var parityDoc = JsonDocument.Parse(File.ReadAllText(parityPath)))
             Require(platforms.TryGetProperty(platform, out var state) &&
                     !string.IsNullOrWhiteSpace(state.GetString()),
                 $"parity platform state missing for {id.GetString()}: {platform}");
+            Require(allowedParityStates.Contains(state.GetString()!),
+                $"unknown parity platform state for {id.GetString()}: {platform}={state.GetString()}");
         }
 
         Require(feature.TryGetProperty("human_boundary", out var boundary) &&
