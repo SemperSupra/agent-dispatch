@@ -17,6 +17,10 @@ import time
 
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
+
+BOOTSTRAP_METHODS = {"core.get_methods"}
+REQUIRED_DISCOVERED_METHODS = ["app.config","app.create","app.delete","app.query","app.start","app.stop","auth.login_ex","core.get_jobs","filesystem.mkdir","filesystem.stat","pool.dataset.create","pool.dataset.delete","pool.dataset.query","system.version"]
+
 SCHEMA = "semper-supra.garm-truenas-t6-control/1"
 EXPECTED_APP_NAME = "rdte-t6-garm"
 EXPECTED_IMAGE = "ghcr.io/sempersupra/garm-appliance@sha256:1af67841ddd4589e3798dcda8be49230565c849d07ab57fd05899432dcdabca9"
@@ -312,6 +316,14 @@ def main() -> int:
         }])
         if not isinstance(auth, dict) or auth.get("response_type") != "SUCCESS":
             raise RuntimeError("authentication did not return SUCCESS")
+        method_map = call("core.get_methods", [])
+        if not isinstance(method_map, dict):
+            raise RuntimeError("core.get_methods did not return method map")
+        missing_methods = sorted(set(REQUIRED_DISCOVERED_METHODS) - set(method_map))
+        payload["bootstrap_probes"] = {"core.get_methods": True}
+        payload["missing_methods"] = missing_methods
+        if missing_methods:
+            raise RuntimeError(f"required product T6 methods missing: {missing_methods}")
 
         payload["system_version"] = call("system.version", [])
         if payload["system_version"] != payload["expected_version"]:
