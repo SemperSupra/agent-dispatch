@@ -87,7 +87,6 @@ jobs:
           proxmox=false
           truenas=false
           qemu_topology=false
-          run_request_changed=false
           truenas_version="${DISPATCH_TRUENAS_VERSION:-26.0.0-BETA.3}"
           truenas_rung="${DISPATCH_TRUENAS_RUNG:-t6}"
           truenas_t6_product="${DISPATCH_TRUENAS_T6_PRODUCT:-litellm}"
@@ -103,7 +102,6 @@ jobs:
               case "$path" in
                 config/truenas-rdte-run-request.json)
                   truenas=true
-                  run_request_changed=true
                   ;;
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
@@ -116,19 +114,19 @@ jobs:
                   ;;
               esac
             done < <(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
-            if [[ "$run_request_changed" == "true" ]]; then
-              truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
-              truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
-              truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-provider-g2")' "$RUN_REQUEST_PATH")"
-              jq -e '.schema == "gha-kvm-truenas-run-request/v1"' "$RUN_REQUEST_PATH" >/dev/null
-              python3 scripts/truenas_rdte_target.py \
-                --registry config/truenas-rdte-targets.json \
-                --version "$truenas_version" >/dev/null
-            fi
           else
             proxmox=true
             truenas=true
             qemu_topology=true
+          fi
+          if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then
+            jq -e '.schema == "gha-kvm-truenas-run-request/v1"' "$RUN_REQUEST_PATH" >/dev/null
+            truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
+            truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
+            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-provider-g2")' "$RUN_REQUEST_PATH")"
+            python3 scripts/truenas_rdte_target.py \
+              --registry config/truenas-rdte-targets.json \
+              --version "$truenas_version" >/dev/null
           fi
           echo "proxmox=$proxmox" >>"$GITHUB_OUTPUT"
           echo "truenas=$truenas" >>"$GITHUB_OUTPUT"
