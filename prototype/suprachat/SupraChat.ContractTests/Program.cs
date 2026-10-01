@@ -348,7 +348,16 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"Browser.Status\"",
     "AutomationProperties.AutomationId=\"Browser.StartInspect\"",
     "AutomationProperties.AutomationId=\"Browser.Stop\"",
-    "AutomationProperties.AutomationId=\"Browser.SemanticSnapshot\"",
+    "AutomationProperties.AutomationId=\"Browser.ComputerUseConfirm\"",
+    "AutomationProperties.AutomationId=\"Browser.Screenshot\"",
+    "AutomationProperties.AutomationId=\"Browser.PointerX\"",
+    "AutomationProperties.AutomationId=\"Browser.PointerY\"",
+    "AutomationProperties.AutomationId=\"Browser.PointerClick\"",
+    "AutomationProperties.AutomationId=\"Browser.KeyboardKey\"",
+    "AutomationProperties.AutomationId=\"Browser.KeyboardPress\"",
+    "AutomationProperties.AutomationId=\"Browser.KeyboardText\"",
+    "AutomationProperties.AutomationId=\"Browser.KeyboardType\"",
+    "AutomationProperties.AutomationId=\"Browser.SemanticSnapshot\""
     "AutomationProperties.LiveSetting=\"Polite\"",
     "AutomationProperties.HeadingLevel=\"1\"",
     "AutomationProperties.HeadingLevel=\"2\"",
@@ -397,7 +406,15 @@ foreach (var marker in new[]
     "\"browser/fill\"",
     "\"browser/stop\"",
     "\"browser-click\"",
-    "\"browser-fill\""
+    "\"browser-fill\"",
+    "\"browser-screenshot\"",
+    "\"browser-click-point\"",
+    "\"browser-key\"",
+    "\"browser-type\"",
+    "\"browser/screenshot\"",
+    "\"browser/pointer/click\"",
+    "\"browser/keyboard/press\"",
+    "\"browser/keyboard/type\""
 })
 {
     Require(automationSource.Contains(marker, StringComparison.Ordinal),
@@ -413,8 +430,18 @@ Require(browserSource.Contains("ClickByRoleAsync", StringComparison.Ordinal),
     "semantic browser role/name click actuator missing");
 Require(browserSource.Contains("FillByLabelAsync", StringComparison.Ordinal),
     "semantic browser labeled-input fill actuator missing");
-Require(!browserSource.Contains("Mouse.ClickAsync", StringComparison.Ordinal),
-    "semantic browser tranche regressed to coordinate-first clicking");
+Require(browserSource.Contains("CaptureScreenshotAsync", StringComparison.Ordinal),
+    "browser screenshot fallback sensor missing");
+Require(browserSource.Contains("ClickAtAsync", StringComparison.Ordinal),
+    "raw browser coordinate click fallback missing");
+Require(browserSource.Contains("PressKeyAsync", StringComparison.Ordinal),
+    "raw browser key fallback missing");
+Require(browserSource.Contains("TypeTextAsync", StringComparison.Ordinal),
+    "raw browser text fallback missing");
+var semanticClickIndex = browserSource.IndexOf("ClickByRoleAsync", StringComparison.Ordinal);
+var rawClickIndex = browserSource.IndexOf("ClickAtAsync", StringComparison.Ordinal);
+Require(semanticClickIndex >= 0 && rawClickIndex > semanticClickIndex,
+    "semantic browser interaction must remain the primary implementation path ahead of raw coordinate fallback");
 
 var browserProject = File.ReadAllText(Path.Combine("prototype", "suprachat", "SupraChat", "SupraChat.csproj"));
 Require(browserProject.Contains("Microsoft.Playwright\" Version=\"1.63.0\"", StringComparison.Ordinal),
