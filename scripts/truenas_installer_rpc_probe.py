@@ -134,8 +134,11 @@ def main():
         "methods": {},
         "oracleSatisfied": False,
     }
-    ws = WebSocket(a.host, a.port, path=a.path, timeout=a.timeout)
+    ws = None
+    payload["stage"] = "connect-or-handshake"
     try:
+        ws = WebSocket(a.host, a.port, path=a.path, timeout=a.timeout)
+        payload["stage"] = "rpc-calls"
         adopted = ws.call("is_adopted", 1)
         payload["methods"]["is_adopted"] = adopted
         if adopted:
@@ -147,11 +150,13 @@ def main():
         payload["oracleSatisfied"] = True
         payload["classification"] = "SUPPORTED"
         payload["detail"] = "read-only TrueNAS installer JSON-RPC discovery methods answered"
+        payload["stage"] = "complete"
     except Exception as exc:
         payload["classification"] = "ORACLE_FAILURE"
         payload["detail"] = f"{type(exc).__name__}: {exc}"
     finally:
-        ws.close()
+        if ws is not None:
+            ws.close()
     payload["elapsed_seconds"] = round(time.time() - started, 3)
     pathlib.Path(a.out).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -193,7 +193,12 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("installer-rpc", text)
         self.assertIn("truenas_installer_rpc_probe.py", text)
         self.assertIn('INSTALLER_RPC_PATH', text)
+        self.assertIn('INSTALLER_RPC_GUEST_PORT', text)
+        self.assertIn('INSTALLER_SOURCE_REF', text)
+        self.assertIn('INSTALLER_MAIN_BLOB_SHA', text)
         self.assertIn('--path "$INSTALLER_RPC_PATH"', text)
+        self.assertIn('hostfwd=tcp:127.0.0.1:$RPC_PORT-:$INSTALLER_RPC_GUEST_PORT', text)
+        self.assertNotIn('hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080', text)
         self.assertNotIn("xdotool", text)
 
     def test_no_literal_escaped_shell_parameter_expansions(self):
@@ -369,6 +374,39 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
         self.assertEqual(request_lines, ["GET / HTTP/1.1"])
+
+    def test_truenas_rpc_probe_preserves_connect_failure_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "rpc-failure.json"
+            unused = socket.socket()
+            unused.bind(("127.0.0.1", 0))
+            port = unused.getsockname()[1]
+            unused.close()
+            cp = subprocess.run(
+                [
+                    sys.executable,
+                    str(TRUENAS_RPC),
+                    "--port",
+                    str(port),
+                    "--path",
+                    "/",
+                    "--out",
+                    str(out),
+                    "--timeout",
+                    "0.2",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+            self.assertEqual(cp.returncode, 0, cp.stderr)
+            self.assertTrue(out.is_file())
+            payload = json.loads(out.read_text(encoding="utf-8"))
+            self.assertFalse(payload["oracleSatisfied"])
+            self.assertEqual(payload["classification"], "ORACLE_FAILURE")
+            self.assertEqual(payload["stage"], "connect-or-handshake")
+            self.assertEqual(payload["endpoint"]["path"], "/")
+            self.assertIn("ConnectionRefusedError", payload["detail"])
 
     def test_truenas_t1_requires_real_rpc_not_hostfwd_tcp(self):
         text = TRUENAS.read_text(encoding="utf-8")

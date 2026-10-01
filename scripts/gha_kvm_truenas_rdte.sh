@@ -106,7 +106,7 @@ write_receipt() {
   export R_TARGET_VERSION="$VERSION" R_EXPECTED_SYSTEM_VERSION="$EXPECTED_SYSTEM_VERSION"
   export R_ISO_NAME="$ISO_NAME" R_ISO_URL="$ISO_URL" R_SHA_URL="$SHA_URL"
   export R_MIDDLEWARE_REF="$MIDDLEWARE_REF" R_MIDDLEWARE_COMMIT="$MIDDLEWARE_COMMIT"
-  export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_INSTALLER_RPC_PATH="$INSTALLER_RPC_PATH" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
+  export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_INSTALLER_RPC_PATH="$INSTALLER_RPC_PATH" R_INSTALLER_RPC_GUEST_PORT="$INSTALLER_RPC_GUEST_PORT" R_INSTALLER_SOURCE_REF="$INSTALLER_SOURCE_REF" R_INSTALLER_MAIN_BLOB_SHA="$INSTALLER_MAIN_BLOB_SHA" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
   export R_RUNG="$RUNG" R_T6_PRODUCT="$T6_PRODUCT" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
   export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON"
@@ -150,6 +150,9 @@ payload = {
     "foundry_profile": os.environ["R_FOUNDRY_PROFILE"],
     "ha_apps_gate": os.environ["R_HA_APPS_GATE"],
     "installer_rpc_path": os.environ["R_INSTALLER_RPC_PATH"],
+    "installer_rpc_guest_port": int(os.environ["R_INSTALLER_RPC_GUEST_PORT"]),
+    "installer_source_ref": os.environ["R_INSTALLER_SOURCE_REF"],
+    "installer_main_blob_sha": os.environ["R_INSTALLER_MAIN_BLOB_SHA"],
     "system_version_expected": os.environ["R_EXPECTED_SYSTEM_VERSION"],
     "authority_issue": int(os.environ["R_AUTHORITY_ISSUE"]) if os.environ.get("R_AUTHORITY_ISSUE") else None,
   },
@@ -346,7 +349,7 @@ sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
   -drive "file=$STATE_DIR/boot.qcow2,if=virtio,format=qcow2" \
   -cdrom "$SERIAL_ISO" -boot order=d \
-  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080" -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$RPC_PORT-:$INSTALLER_RPC_GUEST_PORT" -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
   -daemonize -pidfile "$STATE_DIR/qemu.pid" ||
