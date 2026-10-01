@@ -1,60 +1,155 @@
-# SupraChat feature-parity ledger
+# SupraChat capability/parity ledger
 
 Evidence date: 2026-10-01.
 
-This ledger separates **product parity** from **actor-runtime parity**. The official ChatGPT surface is the primary route for ChatGPT product features; SIWC/Codex are separate supported execution surfaces and must not be used as a pretext to call undocumented ChatGPT backend APIs.
+## Scope rule
+
+SupraChat does **not** define scope by the smallest common denominator across clients.
+
+The campaign tracks every consequential capability exposed by any authoritative plane:
+
+1. recovered ChatGPT Android;
+2. official ChatGPT Windows desktop;
+3. official ChatGPT web/product;
+4. documented Sign in with ChatGPT (SIWC) / ChatGPT-plan Responses;
+5. pinned open-source Codex CLI/app-server.
+
+A feature missing from one plane remains in the ledger as `SUPPORTED`, `PARTIAL`, `GAP`, `BLOCKED`, or `UNKNOWN`; it is not deleted to make the surfaces look equivalent.
+
+Broad inventory is separate from runtime authority. Destructive, privileged, credential-bearing, or externally consequential capabilities remain explicit-consent/authority operations even when the implementation knows how to invoke them.
 
 ## Evidence planes
 
-- AAR Android recovery: `SemperSupra/android-artifact-recovery-private#79`, public execution `SemperSupra/android-artifact-recovery#37`.
-- Android sample: `com.openai.chatgpt` 1.2026.265 / versionCode 2626541, signer-verified.
-- Codex source oracle: `openai/codex@57ac6f51639f7cad705a48ac4bd8073034a2f150`.
-- SIWC contract: OpenAI developer documentation, checked 2026-10-01.
-- ChatGPT product capability/availability: OpenAI Help Center, checked 2026-10-01.
+### Android first-party oracle
 
-## Parity matrix
+- Authority: `SemperSupra/android-artifact-recovery-private#79`
+- Public-safe recovery: `SemperSupra/android-artifact-recovery#37`
+- Sample: `com.openai.chatgpt` 1.2026.265 / versionCode 2626541
+- 20 APK splits; signer-verified.
+- Derived markers include WebRTC/realtime voice, media projection, screen share, camera, sharing, push messaging, temporary chat, file library, connectors, conversation bubbles, Codex handoff, PKCE and OAuth device code.
 
-| Capability family | Android evidence | Windows MVP route | State |
-| --- | --- | --- | --- |
-| Chat, conversation history, model selection | recovered conversation/model/history surfaces | official `chatgpt.com` NativeWebView | MVP route |
-| Search / web-backed answers | recovered search/browser markers | official ChatGPT surface | MVP route |
-| Projects and memory | recovered project/memory markers | official ChatGPT surface | MVP route |
-| Files, attachments, Library | recovered file-library/upload/attachment surfaces | official ChatGPT surface; web has full Library | MVP route |
-| Image input and image generation/editing | recovered image/photo/imagegen surfaces | official ChatGPT surface | MVP route |
-| Canvas / rich work surfaces | recovered canvas markers | official ChatGPT surface | MVP route |
-| Plugins / connected apps / connectors | recovered connector auth + plugin surfaces | official ChatGPT surface | MVP route |
-| Sharing | recovered share-flow surfaces | official ChatGPT share UI | MVP route |
-| Live Voice | recovered voice/realtime/WebRTC surfaces | official ChatGPT web Voice through native webview microphone support | qualify live account |
-| Work | Android/web product surface | official ChatGPT surface | MVP route |
-| Codex access / handoff | recovered Codex handoff + realtime-voice analytics surfaces | native Agent Lab + Codex app-server; official ChatGPT web remains separate | partial; deliberate non-equivalence |
-| OAuth / account session | recovered auth/OAuth surfaces | ChatGPT web owns product login; Agent Lab separately uses documented SIWC | MVP route |
-| Camera / image capture | recovered camera/capture surfaces | web upload/camera where exposed; native adapter can provide still-image context | qualification needed |
-| Location / Places | recovered location markers | browser geolocation only if official ChatGPT web requests it | qualification needed |
-| Notifications | recovered notification surfaces | web notification behavior not yet qualified | gap |
-| Android conversation bubble / overlay | recovered Android bubble lifecycle surface | Windows companion window/global shortcut not yet implemented | gap |
-| Advanced Voice live video | mobile Advanced Voice capability | no supported SIWC or current desktop/web equivalent | BLOCKED by current supported interface |
-| Advanced Voice continuous screen share | recovered Android screen-share bubble + mobile Advanced Voice capability | desktop has screen context in supported experiences, but not mobile-style continuous screen share | BLOCKED / native approximation only |
-| Mobile Codex Remote tab controlling another host | OpenAI mobile feature; recovered Codex handoff surfaces | Agent Lab controls local Codex app-server; remote-host pairing not yet implemented | gap |
+### Windows first-party oracle
 
-## Architectural conclusion
+- Authority: `SemperSupra/connected-device-recovery-private#59`
+- Official Windows help: https://help.openai.com/en/articles/9982051
+- Windows release notes: https://help.openai.com/en/articles/10003026
+- Work/Codex desktop behavior: https://help.openai.com/en/articles/20001275-chatgpt-work-and-codex
+- Built-in browser: https://help.openai.com/en/articles/20001277-using-the-built-in-browser-in-the-chatgpt-desktop-app
 
-The recovered Android client is not a thin Responses wrapper. It contains a large Android/JVM graph, native WebRTC/capture code, OpenAI cross-platform native code, and product-specific service/UI behavior. Codex CLI/app-server is a different open-source agent runtime. SIWC is a third, intentionally narrower OAuth + eligible Responses contract.
+Current official documentation establishes Windows-specific surfaces including companion window, desktop Voice, Work/Codex, computer/local-file/app context where available, and a built-in browser with its own state/tabs/download/sign-in behavior. Those are independent parity targets, not assumed to be properties of the web surface.
 
-Therefore:
+### SIWC / ChatGPT-plan contract
 
-1. **Do not port/decompile proprietary Android implementation into the product.**
-2. Use the official ChatGPT surface for product semantics and account-backed ChatGPT features.
-3. Keep SIWC direct Responses and Codex app-server as separate Agent Lab actor bindings.
-4. Implement native desktop adapters only where they can use documented/supported interfaces.
-5. Preserve explicit `BLOCKED` rather than silently replacing Advanced Voice video/screen-share semantics with a weaker feature.
+- Authority: `SemperSupra/agent-dispatch-private#424`
+- Current docs: https://developers.openai.com/siwc/token-sharing-open-source
+- Current plan-sharing calls require `store:false` and `stream:true`.
+- Model availability is account/plan/workspace dependent and discovered at runtime.
+- Text, image and file input are supported where the selected model accepts them.
+- Web search and supported function/custom tools are available subject to the current contract/model/policy.
+- Unsupported request fields/tools remain in the qualification matrix as typed constraints; the raw Responses surface deliberately lets upstream validation provide the authoritative result rather than silently removing probe fields.
 
-## MVP exit rule
+### Codex source/runtime oracle
 
-The Windows artifact may be called a **working MVP** when:
-- it builds and launches on Windows without development tooling;
-- the official ChatGPT surface loads and can complete normal account sign-in;
-- SIWC can complete one real human-consented registration and one streamed `response.completed` request;
-- Codex app-server starts using the same refreshed entitlement;
-- all non-blocked rows above are either qualified or explicitly deferred with a bounded implementation node.
+- Revision: `openai/codex@57ac6f51639f7cad705a48ac4bd8073034a2f150`
+- Inventory: `oracles/codex-app-server-surface-20261001.json`
+- At this revision: 172 client→server RPC methods, 9 server→client requests and 85 notifications = 266 protocol surfaces.
+- Codex is a source-level/runtime oracle and actor candidate. It does not prove implementation details of the proprietary Android or Windows applications.
 
-It must not be called full Android parity while the two current Advanced Voice mobile-only rows remain blocked by supported OpenAI interfaces.
+## Product parity matrix
+
+| Capability family | Android | Windows first-party | SupraChat route | State |
+| --- | --- | --- | --- | --- |
+| Chat / normal conversations | observed/recovered | documented | persistent official ChatGPT web surface | SUPPORTED / qualify account |
+| Conversation history / search | recovered | documented, including history search | official surface; native quick access may supplement | SUPPORTED / qualify |
+| Model selection | recovered | documented | official surface + SIWC runtime model catalog | SUPPORTED |
+| Projects | recovered | documented in desktop Work flow | official surface | SUPPORTED / qualify |
+| Memory | recovered markers | product capability | official surface | SUPPORTED / qualify |
+| Search / web-backed answers | recovered | product capability | official surface + SIWC web-search tool where eligible | SUPPORTED |
+| Files / attachments / Library | recovered | documented file/local-folder behavior | official surface + SIWC file input + Codex file/fs surfaces | SUPPORTED / broaden qualification |
+| Images / photo input | recovered | Windows webcam/photo and file surfaces documented historically | official surface + SIWC image input; native capture adapter | PARTIAL / qualify capture |
+| Image generation/editing | recovered | documented product behavior | official ChatGPT surface; not synthesized through unsupported SIWC hosted image tool | SUPPORTED via product plane |
+| Camera capture | recovered | Windows take-photo behavior documented | native Windows capture + product/web where exposed | GAP → implementation |
+| Voice | realtime/WebRTC evidence | desktop Voice documented; Work/Codex Voice available on eligible accounts | official surface + Windows-native/audio qualification | PARTIAL / live qualification |
+| Advanced Voice video | mobile capability | not documented as equivalent Windows capability | no equivalent supported SIWC surface | BLOCKED / monitor |
+| Advanced Voice continuous screen share | mobile screen-share evidence | desktop computer context exists, but semantics differ | desktop context/native capture experiments; no false equivalence | PARTIAL/BLOCKED |
+| Work | product surface | first-party Windows Work documented | official product plane; future native integrations may supplement | SUPPORTED / qualify |
+| Codex desktop view | mobile handoff/Remote relationship | first-party Windows Codex documented | native Codex app-server actor + product oracle comparison | PARTIAL → expand |
+| Mobile Codex Remote | Android/mobile relationship | supported desktop Codex can be accessed from mobile Remote | Codex remote-control protocol is inventoried; qualify pairing/control | GAP → active |
+| Built-in browser | browser/search markers | first-party Windows built-in browser documented | official product surface + Codex/browser capabilities where supported | GAP/PARTIAL |
+| Browser state / tabs / downloads | mobile/web behaviors differ | Windows first-party browser has independent state, tabs and downloads | native/WebView + Codex/browser qualification | GAP/PARTIAL |
+| Companion window / quick access | Android bubble/overlay | Windows companion window documented | native global shortcut + companion window | GAP → implementation |
+| Notifications / push | recovered receivers/push | Windows behavior to acquire/observe | native Windows notification adapter + web behavior | GAP |
+| Sharing / share target | recovered | desktop behavior to observe | OS share/open-with/clipboard adapters + official surface | PARTIAL |
+| Temporary chat | recovered | product behavior to observe | official surface | SUPPORTED / qualify |
+| Connected apps / plugins/connectors | recovered | Work/Codex/product surfaces | official product surface + complete Codex plugin/app/MCP surfaces | SUPPORTED/PARTIAL |
+| Local files/apps context | mobile semantics differ | Windows Work/Codex documented | Codex fs/process/MCP + explicit desktop permission adapters | PARTIAL → expand |
+| Screen/computer context | media-projection evidence | Windows desktop computer-context permissions documented | explicit desktop context adapters + Codex runtime | PARTIAL → expand |
+| Local shell/process | not ChatGPT-mobile parity feature | Codex desktop behavior | full Codex app-server process/command protocol | SUPPORTED surface / qualify |
+| MCP | connector/tool evidence | Codex/Work ecosystem | full Codex MCP OAuth/status/resource/event/tool surfaces | SUPPORTED surface / qualify |
+| Skills / plugins / apps / marketplace | product markers | Codex ecosystem | full Codex skills/plugin/apps/marketplace surfaces | SUPPORTED surface / qualify |
+| Threads / turns / goals / queues / projects | product conversations differ | Codex runtime | full Codex protocol | SUPPORTED surface / qualify |
+| Realtime Codex audio/text/speech | Android has realtime/voice indicators | Codex desktop Voice documented | Codex realtime protocol inventory + UI adapters | GAP → active |
+| Remote control / pairing | mobile Remote relationship | desktop host side | Codex remote-control/pairing/client protocol | GAP → active |
+| Approvals / elicitation / permissions | user-consent surfaces | desktop agentic interactions | all 9 Codex server-request classes exposed for explicit human response | SUPPORTED surface / qualify |
+| Windows sandbox setup/readiness | n/a | Codex Windows concern | Codex Windows sandbox RPC/notifications | SUPPORTED surface / qualify |
+| Account / rate limits / token usage | account/product surfaces | account/product surfaces | SIWC grant metadata + Codex account/rate-limit/usage protocol | SUPPORTED surface / qualify |
+| Sign-out / grant revocation | product auth | product auth | SIWC refresh-token revocation + local credential deletion | IMPLEMENTED / qualify |
+| Location / Places | recovered markers | browser/product-dependent | official product/browser geolocation if requested; native adapter only if justified | UNKNOWN/PARTIAL |
+
+## Direct SIWC surface policy
+
+SupraChat has two direct Responses paths:
+
+1. typed interview UI for normal text/image/file/web-search qualification;
+2. raw Responses console for the complete request surface.
+
+The raw surface:
+- preserves arbitrary request fields and tool definitions;
+- injects the selected account model when `model` is omitted;
+- forces only the current ChatGPT-plan invariants `store:false` and `stream:true`;
+- surfaces upstream success/error behavior and request IDs;
+- does not reinterpret an upstream rejection as proof that the underlying model can never support the feature through another OpenAI surface.
+
+This is intentionally broader than a hand-authored allowlist.
+
+## Codex full-surface policy
+
+SupraChat uses a generic app-server JSON-RPC transport rather than wrapping only a few methods.
+
+The current client can:
+- send arbitrary client RPC methods/params;
+- monitor every notification;
+- surface every server-initiated request;
+- explicitly return a result or rejection to a pending server request;
+- run typed Codex interviews using the same refreshed ChatGPT-plan entitlement;
+- keep typed convenience flows separate from the generic protocol substrate.
+
+The typed qualification interview currently uses an ephemeral empty workspace, read-only sandbox, no approvals and instructions not to call tools. **That is a qualification fixture, not a global capability restriction.** The generic app-server console retains the complete protocol surface.
+
+## Architecture invariants
+
+1. Do not treat decompiled proprietary implementation as reusable source.
+2. Do not scrape browser cookies or depend on undocumented private ChatGPT endpoints.
+3. Preserve Android, Windows, web/product, SIWC and Codex as distinct evidence planes.
+4. Prefer official first-party product surfaces for first-party product semantics.
+5. Use documented SIWC for third-party ChatGPT-plan authorization/inference.
+6. Use Codex source/app-server for open-source agent/runtime capabilities.
+7. Keep authority and capability distinct: knowing a method exists does not automatically authorize invoking it.
+8. Negative results and unsupported surfaces are durable evidence, not reasons to delete a capability from the ledger.
+
+## Windows MVP exit rule
+
+The Windows artifact is a working MVP when it:
+- builds and launches self-contained on a clean Windows runner;
+- loads the official ChatGPT product surface in a persistent app-owned browser profile;
+- can complete normal product sign-in at the user boundary;
+- can complete SIWC registration/consent and a real streamed ChatGPT-plan request;
+- exposes typed and raw direct Responses surfaces;
+- initializes Codex app-server with the same refreshed entitlement;
+- can perform a real Codex thread/turn interview;
+- exposes the full pinned Codex RPC/notification/server-request substrate;
+- stores secrets only in the local credential boundary;
+- produces redacted qualification receipts;
+- has every discovered Android/Windows/product capability represented in this ledger with an explicit state.
+
+Full Android parity is a later qualification claim and must not be asserted while platform-specific mobile capabilities remain blocked or behaviorally nonequivalent.
