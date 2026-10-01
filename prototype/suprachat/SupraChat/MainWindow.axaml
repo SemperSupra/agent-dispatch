@@ -290,6 +290,58 @@
 
             <Separator Margin="0,12,0,8" />
 
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex Remote"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2"
+                       AutomationProperties.AutomationId="RemoteControl.Heading" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Remote status, pairing and clients are exposed as semantic text. Enable, disable, pairing-start and revoke are consequential and require the explicit confirmation checkbox; no action is inferred from merely viewing this section." />
+            <CheckBox x:Name="RemoteConfirmBox"
+                      Content="Confirm the next consequential Remote action"
+                      AutomationProperties.AutomationId="RemoteControl.Confirm"
+                      AutomationProperties.HelpText="Must be checked immediately before enable, disable, pairing start, or client revoke." />
+            <CheckBox x:Name="RemoteManualCodeBox"
+                      Content="Request a manual pairing code"
+                      AutomationProperties.AutomationId="RemoteControl.ManualCode"
+                      AutomationProperties.HelpText="Request a text pairing code in addition to the normal pairing token." />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Read status" Click="ReadRemoteStatus_Click"
+                      AutomationProperties.AutomationId="RemoteControl.Status" />
+              <Button Margin="0,0,8,8" Content="Enable Remote" Click="RemoteEnable_Click"
+                      AutomationProperties.AutomationId="RemoteControl.Enable" />
+              <Button Margin="0,0,8,8" Content="Disable Remote" Click="RemoteDisable_Click"
+                      AutomationProperties.AutomationId="RemoteControl.Disable" />
+              <Button Margin="0,0,8,8" Content="Start pairing" Click="RemotePairingStart_Click"
+                      AutomationProperties.AutomationId="RemoteControl.PairingStart" />
+            </WrapPanel>
+            <TextBlock FontWeight="SemiBold" Text="Environment ID" />
+            <TextBox x:Name="RemoteEnvironmentBox"
+                     AutomationProperties.AutomationId="RemoteControl.EnvironmentId"
+                     AutomationProperties.Name="Remote environment ID" />
+            <TextBlock FontWeight="SemiBold" Text="Pairing code" />
+            <TextBox x:Name="RemotePairingCodeBox"
+                     AutomationProperties.AutomationId="RemoteControl.PairingCode"
+                     AutomationProperties.Name="Remote pairing code" />
+            <TextBlock FontWeight="SemiBold" Text="Manual pairing code" />
+            <TextBox x:Name="RemoteManualPairingCodeBox"
+                     AutomationProperties.AutomationId="RemoteControl.ManualPairingCode"
+                     AutomationProperties.Name="Remote manual pairing code" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Check pairing status" Click="RemotePairingStatus_Click"
+                      AutomationProperties.AutomationId="RemoteControl.PairingStatus" />
+              <Button Margin="0,0,8,8" Content="List clients" Click="RemoteClients_Click"
+                      AutomationProperties.AutomationId="RemoteControl.Clients" />
+            </WrapPanel>
+            <TextBlock FontWeight="SemiBold" Text="Client ID to revoke" />
+            <TextBox x:Name="RemoteClientIdBox"
+                     AutomationProperties.AutomationId="RemoteControl.ClientId"
+                     AutomationProperties.Name="Remote client ID to revoke" />
+            <Button HorizontalAlignment="Left" Content="Revoke client" Click="RemoteRevoke_Click"
+                    AutomationProperties.AutomationId="RemoteControl.Revoke"
+                    AutomationProperties.HelpText="Requires the confirmation checkbox and both environment and client IDs." />
+
+            <Separator Margin="0,12,0,8" />
+
             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console"
                        AutomationProperties.ControlTypeOverride="Header"
                        AutomationProperties.HeadingLevel="2" />
