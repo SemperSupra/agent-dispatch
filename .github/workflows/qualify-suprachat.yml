@@ -112,6 +112,18 @@ jobs:
           dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
           dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
 
+      - name: Package human/automation/agent/accessibility contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $docs = Join-Path $PWD 'out/${{ matrix.rid }}/docs'
+          New-Item -ItemType Directory -Force -Path $docs | Out-Null
+          Copy-Item prototype/suprachat/README.md $docs/
+          Copy-Item prototype/suprachat/AUDIENCES.md $docs/
+          Copy-Item prototype/suprachat/ACCESSIBILITY.md $docs/
+          Copy-Item prototype/suprachat/CAPABILITIES.md $docs/
+          Copy-Item prototype/suprachat/PARITY.md $docs/
+
       - name: Bundle pinned open-source Codex runtime
         shell: pwsh
         run: |
@@ -177,6 +189,11 @@ jobs:
           $root = Join-Path $PWD 'out/${{ matrix.rid }}'
           $cli = if ($IsWindows) { Join-Path $root 'SupraChat.Automation.exe' } else { Join-Path $root 'SupraChat.Automation' }
           if (!(Test-Path $cli)) { throw "Packaged automation shell missing: $cli" }
+          foreach ($docName in @('README.md','AUDIENCES.md','ACCESSIBILITY.md','CAPABILITIES.md','PARITY.md')) {
+            if (!(Test-Path (Join-Path $root "docs/$docName"))) {
+              throw "Packaged contract document missing: $docName"
+            }
+          }
 
           $cap = & $cli capabilities
           if ($LASTEXITCODE -ne 0) { throw 'Packaged automation capabilities failed.' }
