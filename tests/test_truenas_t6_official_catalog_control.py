@@ -119,6 +119,40 @@ class OfficialCatalogT6ContractTests(unittest.TestCase):
         self.assertEqual(MOD.plan(a, {"TZ": "Etc/UTC"}, c), "START")
         self.assertEqual(MOD.plan(a, {"TZ": "Etc/UTC"}, c, desired_present=False), "DELETE")
 
+    def test_health_allows_completed_permissions_helper(self):
+        c = control()
+        a = app(c)
+        a["active_workloads"] = {
+            "containers": 2,
+            "container_details": [
+                {"state": "running", "service_name": "ntfy"},
+                {"state": "exited", "service_name": "permissions"},
+            ],
+        }
+        self.assertTrue(MOD.healthy_running(a, c))
+        self.assertTrue(MOD.native_runtime_healthy(a, c, exact_identity=False))
+
+    def test_health_requires_primary_service_running(self):
+        c = control()
+        a = app(c)
+        a["active_workloads"] = {
+            "containers": 2,
+            "container_details": [
+                {"state": "exited", "service_name": "ntfy"},
+                {"state": "running", "service_name": "permissions"},
+            ],
+        }
+        self.assertFalse(MOD.healthy_running(a, c))
+
+    def test_health_rejects_missing_primary_service(self):
+        c = control()
+        a = app(c)
+        a["active_workloads"] = {
+            "containers": 1,
+            "container_details": [{"state": "running", "service_name": "permissions"}],
+        }
+        self.assertFalse(MOD.healthy_running(a, c))
+
     def test_foreign_catalog_identity_blocks_mutation(self):
         c = control()
         a = app(c)
