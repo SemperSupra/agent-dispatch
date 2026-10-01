@@ -72,6 +72,10 @@ internal static class Program
                 "browser-snapshot" => WriteSuccess(await BrowserSnapshotAsync(args[1..])),
                 "browser-click" => WriteSuccess(await BrowserClickConfirmedAsync(args[1..])),
                 "browser-fill" => WriteSuccess(await BrowserFillConfirmedAsync(args[1..])),
+                "browser-screenshot" => WriteSuccess(await BrowserScreenshotOnceAsync(args[1..])),
+                "browser-click-point" => WriteSuccess(await BrowserClickPointOnceAsync(args[1..])),
+                "browser-key" => WriteSuccess(await BrowserKeyOnceAsync(args[1..])),
+                "browser-type" => WriteSuccess(await BrowserTypeOnceAsync(args[1..])),
                 "respond" => WriteSuccess(await RespondAsync(args[1..])),
                 "responses-raw" => WriteSuccess(await RawResponsesAsync(args[1..])),
                 "codex-rpc" => WriteSuccess(await CodexRpcAsync(args[1..])),
@@ -125,6 +129,10 @@ internal static class Program
             new { name = "browser-snapshot", description = "Navigate and return an ARIA semantic snapshot.", syntax = "browser-snapshot --url <https-url>" },
             new { name = "browser-click", description = "Explicitly click one element by ARIA role and accessible name.", syntax = "browser-click --confirm --url <https-url> --role <role> --name <accessible-name>" },
             new { name = "browser-fill", description = "Explicitly fill one field by accessible label.", syntax = "browser-fill --confirm --url <https-url> --label <label> --value <text>" },
+            new { name = "browser-screenshot", description = "Capture the isolated browser as a PNG visual fallback.", syntax = "browser-screenshot --url <https-url> --output <path.png> [--full-page]" },
+            new { name = "browser-click-point", description = "Explicitly click raw browser coordinates when semantic locators are insufficient.", syntax = "browser-click-point --confirm --url <https-url> --x <px> --y <px> [--button left|middle|right] [--click-count 1|2|3]" },
+            new { name = "browser-key", description = "Explicitly press one Playwright key or chord in the isolated browser.", syntax = "browser-key --confirm --url <https-url> --key <key-or-chord>" },
+            new { name = "browser-type", description = "Explicitly insert literal text through the isolated browser keyboard actuator.", syntax = "browser-type --confirm --url <https-url> --text <text>" },
             new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--file <path>]... [--web-search]" },
             new { name = "responses-raw", description = "Run an arbitrary SIWC Responses body.", syntax = "responses-raw --model <id> [--body <json>]; stdin is used when --body is omitted" },
             new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
@@ -185,6 +193,10 @@ internal static class Program
             "browser/read",
             "browser/click",
             "browser/fill",
+            "browser/screenshot",
+            "browser/pointer/click",
+            "browser/keyboard/press",
+            "browser/keyboard/type",
             "browser/stop",
             "responses/create",
             "responses/raw",
@@ -264,6 +276,91 @@ internal static class Program
             await using var session = await BrowserSession.StartAsync(headless: true);
             await session.NavigateAndSnapshotAsync(url);
             return await session.FillByLabelAsync(label, value);
+        }
+        catch (PlaywrightException ex)
+        {
+            throw new MachineException(4, "BROWSER_ACTION_FAILED", SafeMessage(ex));
+        }
+    }
+
+    private static async Task<object> BrowserScreenshotOnceAsync(string[] args)
+    {
+        var url = RequiredOption(args, "--url");
+        var output = RequiredOption(args, "--output");
+        var fullPage = HasFlag(args, "--full-page");
+
+        try
+        {
+            await using var session = await BrowserSession.StartAsync(headless: true);
+            await session.NavigateAndSnapshotAsync(url);
+            return await session.CaptureScreenshotAsync(output, fullPage);
+        }
+        catch (PlaywrightException ex)
+        {
+            throw new MachineException(4, "BROWSER_CAPTURE_FAILED", SafeMessage(ex));
+        }
+    }
+
+    private static async Task<object> BrowserClickPointOnceAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Raw browser coordinate click");
+        var url = RequiredOption(args, "--url");
+        var xText = RequiredOption(args, "--x");
+        var yText = RequiredOption(args, "--y");
+        var button = Option(args, "--button") ?? "left";
+        var clickCountText = Option(args, "--click-count");
+
+        if (!float.TryParse(xText, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) || x < 0 ||
+            !float.TryParse(yText, NumberStyles.Float, CultureInfo.InvariantCulture, out var y) || y < 0)
+            throw new MachineException(2, "INVALID_PARAMS", "--x and --y must be finite non-negative numbers.");
+
+        var clickCount = 1;
+        if (!string.IsNullOrWhiteSpace(clickCountText) &&
+            (!int.TryParse(clickCountText, NumberStyles.Integer, CultureInfo.InvariantCulture, out clickCount) ||
+             clickCount is < 1 or > 3))
+            throw new MachineException(2, "INVALID_PARAMS", "--click-count must be 1, 2, or 3.");
+
+        try
+        {
+            await using var session = await BrowserSession.StartAsync(headless: true);
+            await session.NavigateAndSnapshotAsync(url);
+            return await session.ClickAtAsync(x, y, button, clickCount);
+        }
+        catch (PlaywrightException ex)
+        {
+            throw new MachineException(4, "BROWSER_ACTION_FAILED", SafeMessage(ex));
+        }
+    }
+
+    private static async Task<object> BrowserKeyOnceAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Raw browser keyboard press");
+        var url = RequiredOption(args, "--url");
+        var key = RequiredOption(args, "--key");
+
+        try
+        {
+            await using var session = await BrowserSession.StartAsync(headless: true);
+            await session.NavigateAndSnapshotAsync(url);
+            return await session.PressKeyAsync(key);
+        }
+        catch (PlaywrightException ex)
+        {
+            throw new MachineException(4, "BROWSER_ACTION_FAILED", SafeMessage(ex));
+        }
+    }
+
+    private static async Task<object> BrowserTypeOnceAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Raw browser text input");
+        var url = RequiredOption(args, "--url");
+        var text = RequiredOption(args, "--text");
+
+        try
+        {
+            await using var session = await BrowserSession.StartAsync(headless: true);
+            await session.NavigateAndSnapshotAsync(url);
+            return await session.TypeTextAsync(text);
         }
         catch (PlaywrightException ex)
         {
@@ -650,6 +747,10 @@ internal static class Program
             "browser/read" => await RpcBrowserReadAsync(),
             "browser/click" => await RpcBrowserClickAsync(parameters),
             "browser/fill" => await RpcBrowserFillAsync(parameters),
+            "browser/screenshot" => await RpcBrowserScreenshotAsync(parameters),
+            "browser/pointer/click" => await RpcBrowserPointerClickAsync(parameters),
+            "browser/keyboard/press" => await RpcBrowserKeyPressAsync(parameters),
+            "browser/keyboard/type" => await RpcBrowserTypeAsync(parameters),
             "browser/stop" => await RpcBrowserStopAsync(),
             "responses/create" => await RpcResponseCreateAsync(parameters),
             "responses/raw" => await RpcResponsesRawAsync(parameters),
@@ -747,6 +848,70 @@ internal static class Program
         var label = RequiredProperty(p, "label");
         var value = RequiredProperty(p, "value");
         return await RequireAgentBrowser().FillByLabelAsync(label, value);
+    }
+
+    private static async Task<object> RpcBrowserScreenshotAsync(JsonElement? parameters)
+    {
+        var fullPage = false;
+        if (parameters.HasValue)
+        {
+            var p = RequireObject(parameters);
+            if (p.TryGetProperty("full_page", out var fullPageValue))
+            {
+                if (fullPageValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new MachineException(2, "INVALID_PARAMS", "browser/screenshot params.full_page must be a boolean.");
+                fullPage = fullPageValue.GetBoolean();
+            }
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), "suprachat", "browser-captures");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"capture-{Guid.NewGuid():N}.png");
+        return await RequireAgentBrowser().CaptureScreenshotAsync(path, fullPage);
+    }
+
+    private static async Task<object> RpcBrowserPointerClickAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Raw browser coordinate click");
+
+        if (!p.TryGetProperty("x", out var xValue) || xValue.ValueKind != JsonValueKind.Number ||
+            !p.TryGetProperty("y", out var yValue) || yValue.ValueKind != JsonValueKind.Number)
+            throw new MachineException(2, "INVALID_PARAMS", "browser/pointer/click requires numeric params.x and params.y.");
+
+        var x = (float)xValue.GetDouble();
+        var y = (float)yValue.GetDouble();
+        if (!float.IsFinite(x) || !float.IsFinite(y) || x < 0 || y < 0)
+            throw new MachineException(2, "INVALID_PARAMS", "Pointer coordinates must be finite and non-negative.");
+
+        var button = p.TryGetProperty("button", out var buttonValue) && buttonValue.ValueKind == JsonValueKind.String
+            ? buttonValue.GetString() ?? "left"
+            : "left";
+        var clickCount = 1;
+        if (p.TryGetProperty("click_count", out var countValue))
+        {
+            if (countValue.ValueKind != JsonValueKind.Number || !countValue.TryGetInt32(out clickCount) ||
+                clickCount is < 1 or > 3)
+                throw new MachineException(2, "INVALID_PARAMS", "click_count must be 1, 2, or 3.");
+        }
+
+        return await RequireAgentBrowser().ClickAtAsync(x, y, button, clickCount);
+    }
+
+    private static async Task<object> RpcBrowserKeyPressAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Raw browser keyboard press");
+        var key = RequiredProperty(p, "key");
+        return await RequireAgentBrowser().PressKeyAsync(key);
+    }
+
+    private static async Task<object> RpcBrowserTypeAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Raw browser text input");
+        var text = RequiredProperty(p, "text");
+        return await RequireAgentBrowser().TypeTextAsync(text);
     }
 
     private static async Task<object> RpcBrowserStopAsync()
