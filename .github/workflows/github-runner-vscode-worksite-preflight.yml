@@ -54,7 +54,7 @@ jobs:
           mkdir -p "$EXTENSIONS_DIR"
           CODE="${RUNNER_TEMP}/vscode-cli/code"
           "$CODE" ext --extensions-dir "$EXTENSIONS_DIR" install ms-python.python
-          "$CODE" ext list --extensions-dir "$EXTENSIONS_DIR" \
+          "$CODE" ext --extensions-dir "$EXTENSIONS_DIR" list \
             | tee "${RUNNER_TEMP}/vscode-worksite/extensions.txt"
           grep -Fxq 'ms-python.python' "${RUNNER_TEMP}/vscode-worksite/extensions.txt"
           {
