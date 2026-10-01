@@ -107,7 +107,9 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
     container_id = None
     root_dir = work / "rootfs-dir"
     rootfs = work / "playwright-root.squashfs"
+    docker_context = work / "playwright-docker-context"
     root_dir.mkdir()
+    docker_context.mkdir()
     primary_exc: Exception | None = None
     result: dict | None = None
     container_removed = True
@@ -122,7 +124,7 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
         if not base_digest:
             raise ProbeError("HARNESS_FAILURE", "could not resolve pulled Playwright image digest")
 
-        dockerfile = work / "Dockerfile"
+        dockerfile = docker_context / "Dockerfile"
         dockerfile.write_text(
             "FROM " + base_digest + "\n"
             "RUN mkdir -p /opt/pw && cd /opt/pw && npm init -y >/dev/null 2>&1 "
@@ -136,7 +138,7 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
 
         with timer.stage("playwright_userspace_build", "venue"):
             build = _run(
-                ["docker", "build", "--pull=false", "-t", image_tag, "-f", str(dockerfile), str(work)],
+                ["docker", "build", "--pull=false", "-t", image_tag, "-f", str(dockerfile), str(docker_context)],
                 timeout=600,
             )
         if not build["ok"]:
