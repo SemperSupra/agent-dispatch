@@ -97,7 +97,7 @@ for url in "${urls[@]}"; do
     chmod +x "$bundled_codex" || true
     bundled_file="$(file -b "$bundled_codex" || true)"
     bundled_version="$("$bundled_codex" --version 2>&1 | head -n1 || true)"
-    if [ -z "$bundled_version" ]; then
+    if ! printf '%s' "$bundled_version" | grep -Eq 'codex(-cli)?[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+'; then
       bundled_version="$(strings "$bundled_codex" | grep -E 'codex(-cli)?[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
     fi
     bundled_sha="$(sha256sum "$bundled_codex" | awk '{print $1}')"
