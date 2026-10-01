@@ -197,31 +197,83 @@ def wait_verified_https(host: str, port: int, cafile: pathlib.Path, timeout: flo
     raise RuntimeError(f"verified HTTPS did not become ready: {last}")
 
 
-def create_app_stopped(
+def canonical_json_sha256(value: object) -> str:
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def create_app_stopped_with_exact_config(
     session: AdminSession,
     app_name: str,
     compose: dict,
     job_timeout: float,
 ) -> dict:
-    job_id = session.call("app.create", [{
+    """Materialize exact fixture config without ever starting its runner bootstrap.
+
+    TrueNAS 26.0.0-BETA.3 app.update deliberately skips compose_action when the
+    existing App is STOPPED. Seed a harmless container, stop it, then replace
+    the stored custom Compose with the source-generated provider fixture and
+    prove exact app.config read-back while state remains STOPPED.
+    """
+    services = compose.get("services")
+    if not isinstance(services, dict):
+        raise RuntimeError("fixture compose has no services object")
+    runner = services.get("runner")
+    if not isinstance(runner, dict) or not isinstance(runner.get("image"), str):
+        raise RuntimeError("fixture compose has no runner image")
+
+    seed_compose = {
+        "services": {
+            "seed": {
+                "image": runner["image"],
+                "restart": "no",
+                "entrypoint": [
+                    "/bin/sh",
+                    "-c",
+                    "trap 'exit 0' TERM INT HUP; while :; do sleep 60; done",
+                ],
+            },
+        },
+    }
+    create_id = session.call("app.create", [{
         "app_name": app_name,
         "custom_app": True,
-        "custom_compose_config": compose,
+        "custom_compose_config": seed_compose,
     }])
-    if not isinstance(job_id, int):
+    if not isinstance(create_id, int):
         raise RuntimeError(f"app.create({app_name}) did not return a job id")
-    session.wait_job(job_id, f"app.create {app_name}", job_timeout)
+    session.wait_job(create_id, f"app.create seed {app_name}", job_timeout)
+
     app = session.call("app.query", [[["id", "=", app_name]], {"get": True}])
     if not app:
-        raise RuntimeError(f"app {app_name} absent immediately after create")
+        raise RuntimeError(f"seed app {app_name} absent immediately after create")
     if app.get("state") != "STOPPED":
         stop_id = session.call("app.stop", [app_name])
         if not isinstance(stop_id, int):
             raise RuntimeError(f"app.stop({app_name}) did not return a job id")
-        session.wait_job(stop_id, f"app.stop {app_name}", job_timeout)
+        session.wait_job(stop_id, f"app.stop seed {app_name}", job_timeout)
         app = session.call("app.query", [[["id", "=", app_name]], {"get": True}])
     if not app or app.get("state") != "STOPPED":
-        raise RuntimeError(f"fixture app {app_name} did not reach STOPPED")
+        raise RuntimeError(f"seed app {app_name} did not reach STOPPED")
+
+    expected_sha = canonical_json_sha256(compose)
+    update_id = session.call("app.update", [
+        app_name,
+        {"custom_compose_config": compose},
+    ])
+    if not isinstance(update_id, int):
+        raise RuntimeError(f"app.update({app_name}) did not return a job id")
+    session.wait_job(update_id, f"app.update exact fixture {app_name}", job_timeout)
+
+    app = session.call("app.query", [[["id", "=", app_name]], {"get": True}])
+    if not app or app.get("state") != "STOPPED":
+        raise RuntimeError(f"exact fixture app {app_name} did not remain STOPPED")
+
+    readback = session.call("app.config", [app_name])
+    if not isinstance(readback, dict):
+        raise RuntimeError(f"app.config({app_name}) did not return an object")
+    if canonical_json_sha256(readback) != expected_sha:
+        raise RuntimeError(f"app.config({app_name}) did not preserve exact fixture compose")
     return app
 
 
@@ -434,7 +486,7 @@ def main() -> int:
             for key in ("valid_local", "valid_foreign"):
                 fixture = fixtures[key]
                 name = fixture["app_name"]
-                create_app_stopped(session, name, fixture["compose"], a.job_timeout)
+                create_app_stopped_with_exact_config(session, name, fixture["compose"], a.job_timeout)
                 fixture_names.append(name)
 
             local_name = fixtures["valid_local"]["app_name"]
@@ -479,7 +531,7 @@ def main() -> int:
 
             drift = fixtures["managed_drift"]
             drift_name = drift["app_name"]
-            create_app_stopped(session, drift_name, drift["compose"], a.job_timeout)
+            create_app_stopped_with_exact_config(session, drift_name, drift["compose"], a.job_timeout)
             fixture_names.append(drift_name)
 
             drift_get = invoke_provider(
@@ -505,6 +557,8 @@ def main() -> int:
                 "fresh_process_readoption": True,
                 "managed_drift_get_fail_closed": True,
                 "managed_drift_list_fail_closed": True,
+                "exact_fixture_applied_while_stopped": True,
+                "runner_fixture_bootstrap_not_started": True,
                 "provider_delete_not_invoked": True,
                 "provider_create_not_invoked": True,
             }
@@ -514,7 +568,9 @@ def main() -> int:
                 "exact packaged provider used verified WSS plus run-local API-key auth against "
                 "real nested TrueNAS; exact source-generated local fixture was listed/readopted, "
                 "foreign ownership was excluded, and managed realized-profile drift failed closed; "
-                "provider create/delete and GitHub/JIT paths were intentionally not exercised"
+                "source-generated fixture Compose was applied only after each seed App was STOPPED, "
+                "so runner bootstrap/JIT did not execute; provider create/delete and GitHub/JIT paths "
+                "were intentionally not exercised"
             )
         except Exception as exc:
             payload["detail"] = f"{type(exc).__name__}: {exc}"
