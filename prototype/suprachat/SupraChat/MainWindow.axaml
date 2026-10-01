@@ -113,6 +113,19 @@
 
             <Separator Margin="0,12,0,8" />
 
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Capability explorer" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Browse the packaged Codex runtime plus upstream frontier. Packaged requests can be copied into the generic RPC console; server requests and notifications are observable protocol surfaces rather than client-invoked RPCs." />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Refresh catalogs" Click="RefreshCapabilityCatalog_Click" />
+              <ComboBox x:Name="CodexMethodBox" Width="720" Margin="0,0,8,8"
+                        PlaceholderText="Select a Codex protocol surface"
+                        SelectionChanged="CodexMethodBox_SelectionChanged" />
+            </WrapPanel>
+            <TextBlock x:Name="CapabilityCatalogStatus" TextWrapping="Wrap" />
+
+            <Separator Margin="0,12,0,8" />
+
             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console" />
             <TextBlock TextWrapping="Wrap"
                        Text="Pinned oracle currently contains 172 client RPCs, 9 server-initiated request types, and 85 notifications. The console does not hide privileged or experimental surfaces; authority-sensitive calls still require explicit parameters/consent." />
