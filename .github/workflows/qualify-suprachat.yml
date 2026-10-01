@@ -139,15 +139,33 @@ jobs:
           $installedExe = Join-Path $installed 'SupraChat.exe'
           $installedCodex = Join-Path $installed 'runtime/codex/codex.exe'
           $arp = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat'
+          $protocol = 'HKCU:\Software\Classes\suprachat'
+          $appKey = 'HKCU:\Software\Classes\Applications\SupraChat.exe'
+          $protocolCommand = Join-Path $protocol 'shell\open\command'
+          $appCommand = Join-Path $appKey 'shell\open\command'
+          $supportedTypes = Join-Path $appKey 'SupportedTypes'
 
           if (!(Test-Path $installedExe)) { throw 'Installed SupraChat.exe missing.' }
           if (!(Test-Path $installedCodex)) { throw 'Installed bundled Codex runtime missing.' }
           if (!(Test-Path $arp)) { throw 'Add/Remove Programs registration missing.' }
+          if (!(Test-Path $protocolCommand)) { throw 'suprachat:// protocol registration missing.' }
+          if (!(Test-Path $appCommand)) { throw 'Open With command registration missing.' }
+          if (!(Test-Path $supportedTypes)) { throw 'Open With supported-types registration missing.' }
+          if (-not (Get-ItemProperty -Path $supportedTypes).PSObject.Properties.Name.Contains('.pdf')) {
+            throw 'Expected .pdf Open With registration missing.'
+          }
+
+          $registeredProtocol = (Get-Item -Path $protocolCommand).GetValue('')
+          $registeredOpenWith = (Get-Item -Path $appCommand).GetValue('')
+          if ($registeredProtocol -notlike '*SupraChat.exe*"%1"*') { throw 'Protocol command is malformed.' }
+          if ($registeredOpenWith -notlike '*SupraChat.exe*"%1"*') { throw 'Open With command is malformed.' }
 
           Remove-Item (Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/SupraChat.lnk') -Force -ErrorAction SilentlyContinue
           Remove-Item $arp -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $protocol -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $appKey -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item $installed -Recurse -Force -ErrorAction SilentlyContinue
-          'Per-user installer smoke PASS.'
+          'Per-user installer + protocol/Open-With smoke PASS.'
 
       - name: Windows GUI launch smoke
         if: runner.os == 'Windows'
