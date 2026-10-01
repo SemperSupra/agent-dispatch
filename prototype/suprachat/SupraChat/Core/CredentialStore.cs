@@ -15,6 +15,8 @@ public sealed record SiwcRegistration(
         string.IsNullOrWhiteSpace(Email)
             ? $"ChatGPT account {ClientId[..Math.Min(ClientId.Length, 12)]}"
             : Email!;
+
+    public override string ToString() => DisplayLabel;
 }
 
 public static class CredentialStore
