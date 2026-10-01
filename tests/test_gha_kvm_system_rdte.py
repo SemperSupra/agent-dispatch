@@ -235,8 +235,16 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("needs.changes.outputs.truenas_version", text)
         self.assertIn("needs.changes.outputs.truenas_rung", text)
         self.assertIn("config/truenas-rdte-run-request.json", text)
-        self.assertIn("run_request_changed", text)
+        self.assertNotIn("run_request_changed", text)
+        self.assertIn(
+            'if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then',
+            text,
+        )
         self.assertIn("gha-kvm-truenas-run-request/v1", text)
+        self.assertIn("truenas_version=\"$(jq -er", text)
+        self.assertIn(".version | select(type == \"string\" and length > 0)", text)
+        self.assertIn("truenas_rung=\"$(jq -er", text)
+        self.assertIn('.rung | select(. == "t0" or . == "t1"', text)
 
     def test_truenas_t1_requires_local_rpc_probe(self):
         text = TRUENAS.read_text(encoding="utf-8")
