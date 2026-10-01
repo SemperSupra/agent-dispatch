@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using SupraChat.Core;
 
 namespace SupraChat;
@@ -11,8 +13,13 @@ public partial class MainWindow : Window
     private readonly SiwcClient _siwc = new();
     private readonly ResponsesClient _responses = new();
     private readonly List<ResponseAttachment> _attachments = new();
+    private readonly Queue<CodexProtocolEvent> _pendingServerRequests = new();
+
     private SiwcCredential? _credential;
-    private Process? _codex;
+    private CodexAppServerClient? _codex;
+    private CodexAppServerClient.CodexEventSubscription? _codexEvents;
+    private CancellationTokenSource? _codexEventsCts;
+    private Task? _codexMonitorTask;
 
     public MainWindow()
     {
@@ -68,10 +75,16 @@ public partial class MainWindow : Window
             AuthStatus.Text = promptConsent
                 ? "Opening system browser to request ChatGPT-plan permission…"
                 : "Opening system browser for ChatGPT authorization…";
+
             var hostId = await HostIdentity.LoadOrCreateAsync();
             var existing = _credential ?? await CredentialStore.TryLoadAsync();
+            var priorToken = existing?.AccessToken;
+
             _credential = await _siwc.SignInAsync(this, hostId, "SupraChat", existing, promptConsent);
             await CredentialStore.SaveAsync(_credential);
+
+            if (!string.Equals(priorToken, _credential.AccessToken, StringComparison.Ordinal))
+                await StopCodexAsync();
 
             AuthStatus.Text = _credential.HasPlanUsage
                 ? $"Agent Lab authorized. Account subject: {Short(_credential.Subject)}; ChatGPT-plan scope granted."
@@ -97,7 +110,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            StopCodex();
+            await StopCodexAsync();
             var confirmed = await _siwc.RevokeAsync(_credential);
             CredentialStore.Clear();
             _credential = null;
@@ -108,7 +121,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            StopCodex();
+            await StopCodexAsync();
             CredentialStore.Clear();
             _credential = null;
             ModelBox.ItemsSource = null;
@@ -152,9 +165,7 @@ public partial class MainWindow : Window
                 AllowMultiple = true
             });
 
-            long totalBytes = 0;
-            foreach (var existing in _attachments)
-                totalBytes += EstimateDataUrlBytes(existing.Value);
+            long totalBytes = _attachments.Sum(existing => EstimateDataUrlBytes(existing.Value));
 
             foreach (var file in files)
             {
@@ -163,8 +174,11 @@ public partial class MainWindow : Window
                 await stream.CopyToAsync(memory);
                 var bytes = memory.ToArray();
                 totalBytes += bytes.LongLength;
-                if (totalBytes > 50L * 1024 * 1024)
-                    throw new InvalidOperationException("SIWC file inputs are capped at 50 MB combined per request.");
+
+                // This is the upstream Responses file-input limit, not an application policy.
+                if (bytes.LongLength >= 50L * 1024 * 1024 || totalBytes > 50L * 1024 * 1024)
+                    throw new InvalidOperationException(
+                        "Responses file inputs require each file to be under 50 MB and all files combined to be at most 50 MB.");
 
                 var mime = MimeTypeFor(file.Name);
                 var kind = IsImageMime(mime) ? "image" : "file";
@@ -205,7 +219,7 @@ public partial class MainWindow : Window
                 PromptBox.Text ?? string.Empty,
                 _attachments,
                 WebSearchBox.IsChecked == true,
-                delta => OutputBox.Text += delta);
+                delta => Dispatcher.UIThread.Post(() => OutputBox.Text += delta));
 
             timer.Stop();
             if (!result.Completed)
@@ -219,13 +233,13 @@ public partial class MainWindow : Window
                 result.Text.Length);
 
             AuthStatus.Text =
-                $"Interview completed with response.completed. Events={result.EventTypes.Count}; " +
+                $"Direct interview completed. Events={result.EventTypes.Count}; " +
                 $"request_id={result.RequestId ?? "unknown"}; redacted receipt={Path.GetFileName(receiptPath)}";
         }
         catch (Exception ex)
         {
             timer.Stop();
-            AuthStatus.Text = $"Interview failed: {ex.Message}";
+            AuthStatus.Text = $"Direct interview failed: {ex.Message}";
         }
     }
 
@@ -233,19 +247,122 @@ public partial class MainWindow : Window
     {
         try
         {
-            await EnsureCredentialAsync();
-            if (_codex is { HasExited: false })
-            {
-                AuthStatus.Text = "Codex app-server is already running.";
-                return;
-            }
-
-            _codex = CodexAppServer.Start(_credential!.AccessToken);
-            AuthStatus.Text = $"Codex app-server started (PID {_codex.Id}); token is supplied only through process environment.";
+            var client = await EnsureCodexAsync();
+            AuthStatus.Text =
+                $"Codex app-server initialized (PID {client.ProcessId}); full protocol monitor is active.";
         }
         catch (Exception ex)
         {
             AuthStatus.Text = $"Codex app-server start failed: {ex.Message}";
+        }
+    }
+
+    private async void RunCodexInterview_Click(object? sender, RoutedEventArgs e)
+    {
+        var timer = Stopwatch.StartNew();
+        try
+        {
+            await EnsureCredentialAsync();
+            if (ModelBox.SelectedItem is not ModelChoice model)
+                throw new InvalidOperationException("Select a model first.");
+
+            var client = await EnsureCodexAsync();
+            OutputBox.Text = "";
+
+            var result = await client.RunTextInterviewAsync(
+                model.Slug,
+                PromptBox.Text ?? string.Empty,
+                delta => Dispatcher.UIThread.Post(() => OutputBox.Text += delta));
+
+            timer.Stop();
+            if (!result.Completed)
+                throw new InvalidOperationException($"Codex turn completed with status {result.Status}.");
+
+            var receiptPath = await QualificationReceipts.WriteCodexAsync(
+                result.Model,
+                _credential!,
+                completed: true,
+                timer.Elapsed,
+                result.Text.Length);
+
+            AuthStatus.Text =
+                $"Codex interview completed. provider={result.ModelProvider}; thread={Short(result.ThreadId)}; " +
+                $"turn={Short(result.TurnId)}; redacted receipt={Path.GetFileName(receiptPath)}";
+        }
+        catch (Exception ex)
+        {
+            timer.Stop();
+            AuthStatus.Text = $"Codex interview failed: {ex.Message}";
+        }
+    }
+
+    private async void SendRawRpc_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var method = RawRpcMethodBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(method))
+                throw new InvalidOperationException("Enter a Codex app-server method.");
+
+            var client = await EnsureCodexAsync();
+            var parameters = ParseOptionalJson(RawRpcParamsBox.Text);
+            var result = await client.RequestAsync(method, parameters);
+            RawRpcOutputBox.Text = PrettyJson(result);
+            AuthStatus.Text = $"Codex RPC completed: {method}";
+        }
+        catch (Exception ex)
+        {
+            RawRpcOutputBox.Text = ex.ToString();
+            AuthStatus.Text = $"Codex RPC failed: {ex.Message}";
+        }
+    }
+
+    private async void RespondServerRequest_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_pendingServerRequests.Count == 0)
+                throw new InvalidOperationException("No Codex server request is pending.");
+
+            var request = _pendingServerRequests.Peek();
+            if (request.Id is null)
+                throw new InvalidOperationException("Pending server request has no id.");
+
+            var result = ParseOptionalJson(ServerResponseBox.Text)
+                ?? JsonSerializer.SerializeToElement(new { });
+
+            var client = await EnsureCodexAsync();
+            await client.RespondAsync(request.Id, result);
+            _pendingServerRequests.Dequeue();
+            ShowNextServerRequest();
+            AppendProtocolEvent($"responded id={request.Id} method={request.Method}");
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = $"Server-request response failed: {ex.Message}";
+        }
+    }
+
+    private async void RejectServerRequest_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_pendingServerRequests.Count == 0)
+                throw new InvalidOperationException("No Codex server request is pending.");
+
+            var request = _pendingServerRequests.Peek();
+            if (request.Id is null)
+                throw new InvalidOperationException("Pending server request has no id.");
+
+            var client = await EnsureCodexAsync();
+            await client.RespondErrorAsync(request.Id, -32000, "Rejected by SupraChat user.");
+            _pendingServerRequests.Dequeue();
+            ShowNextServerRequest();
+            AppendProtocolEvent($"rejected id={request.Id} method={request.Method}");
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = $"Server-request rejection failed: {ex.Message}";
         }
     }
 
@@ -255,16 +372,124 @@ public partial class MainWindow : Window
         if (_credential is null)
             throw new InvalidOperationException("Use Continue with ChatGPT first.");
 
+        var priorToken = _credential.AccessToken;
         var refreshed = await _siwc.RefreshIfNeededAsync(_credential);
         if (!ReferenceEquals(refreshed, _credential))
         {
             _credential = refreshed;
             await CredentialStore.SaveAsync(_credential);
-            StopCodex();
+            if (!string.Equals(priorToken, refreshed.AccessToken, StringComparison.Ordinal))
+                await StopCodexAsync();
         }
 
         if (!_credential.HasPlanUsage)
             throw new InvalidOperationException("ChatGPT-plan usage is not granted. Use Enable plan usage.");
+    }
+
+    private async Task<CodexAppServerClient> EnsureCodexAsync()
+    {
+        await EnsureCredentialAsync();
+
+        if (_codex is { IsRunning: true })
+            return _codex;
+
+        await StopCodexAsync();
+        _codex = await CodexAppServerClient.StartAsync(_credential!.AccessToken);
+
+        _codexEventsCts = new CancellationTokenSource();
+        _codexEvents = _codex.SubscribeEvents();
+        _codexMonitorTask = MonitorCodexAsync(_codexEvents, _codexEventsCts.Token);
+
+        return _codex;
+    }
+
+    private async Task MonitorCodexAsync(
+        CodexAppServerClient.CodexEventSubscription subscription,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var evt in subscription.Reader.ReadAllAsync(cancellationToken))
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    var prefix = evt.Kind == "server-request"
+                        ? $"SERVER REQUEST id={evt.Id} method={evt.Method}"
+                        : $"EVENT {evt.Method}";
+                    AppendProtocolEvent($"{prefix} {CompactJson(evt.Payload)}");
+
+                    if (evt.Kind == "server-request")
+                    {
+                        _pendingServerRequests.Enqueue(evt);
+                        ShowNextServerRequest();
+                    }
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.UIThread.Post(() =>
+                AppendProtocolEvent($"protocol monitor stopped: {ex.Message}"));
+        }
+    }
+
+    private void ShowNextServerRequest()
+    {
+        if (_pendingServerRequests.Count == 0)
+        {
+            PendingServerRequestBox.Text = "";
+            return;
+        }
+
+        var evt = _pendingServerRequests.Peek();
+        PendingServerRequestBox.Text =
+            $"id={evt.Id}{Environment.NewLine}method={evt.Method}{Environment.NewLine}{PrettyJson(evt.Payload)}";
+    }
+
+    private void AppendProtocolEvent(string line)
+    {
+        var current = ProtocolEventsBox.Text ?? "";
+        var next = current + DateTimeOffset.Now.ToString("HH:mm:ss.fff") + " " + line + Environment.NewLine;
+        ProtocolEventsBox.Text = next.Length <= 60000 ? next : next[^60000..];
+    }
+
+    private async Task StopCodexAsync()
+    {
+        var monitor = _codexMonitorTask;
+        _codexMonitorTask = null;
+
+        _codexEventsCts?.Cancel();
+        _codexEventsCts?.Dispose();
+        _codexEventsCts = null;
+
+        if (_codexEvents is not null)
+        {
+            await _codexEvents.DisposeAsync();
+            _codexEvents = null;
+        }
+
+        if (_codex is not null)
+        {
+            await _codex.DisposeAsync();
+            _codex = null;
+        }
+
+        if (monitor is not null)
+        {
+            try
+            {
+                await monitor;
+            }
+            catch
+            {
+            }
+        }
+
+        _pendingServerRequests.Clear();
+        ShowNextServerRequest();
     }
 
     private void RefreshAttachmentStatus()
@@ -280,11 +505,22 @@ public partial class MainWindow : Window
         AttachmentsStatus.Text = $"{_attachments.Count} attachment(s): {images} image(s), {files} file(s).";
     }
 
-    private void StopCodex()
+    private static JsonElement? ParseOptionalJson(string? text)
     {
-        if (_codex is { HasExited: false })
-            _codex.Kill(entireProcessTree: true);
-        _codex = null;
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        using var document = JsonDocument.Parse(text);
+        return document.RootElement.Clone();
+    }
+
+    private static string PrettyJson(JsonElement element) =>
+        JsonSerializer.Serialize(element, new JsonSerializerOptions { WriteIndented = true });
+
+    private static string CompactJson(JsonElement element)
+    {
+        var text = element.GetRawText().Replace("\r", " ").Replace("\n", " ");
+        return text.Length <= 2000 ? text : text[..2000] + "…";
     }
 
     private static string MimeTypeFor(string name) => Path.GetExtension(name).ToLowerInvariant() switch
@@ -298,8 +534,11 @@ public partial class MainWindow : Window
         ".md" => "text/markdown",
         ".json" => "application/json",
         ".csv" => "text/csv",
+        ".tsv" => "text/tab-separated-values",
         ".html" or ".htm" => "text/html",
         ".xml" => "application/xml",
+        ".rtf" => "application/rtf",
+        ".odt" => "application/vnd.oasis.opendocument.text",
         ".doc" => "application/msword",
         ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".ppt" => "application/vnd.ms-powerpoint",
@@ -326,7 +565,14 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        StopCodex();
+        try
+        {
+            StopCodexAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+        }
+
         base.OnClosed(e);
     }
 }
