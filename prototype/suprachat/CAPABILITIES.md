@@ -215,3 +215,37 @@ Each cell must be one of:
 `IMPLEMENTED | QUALIFY | GAP | BLOCKED_SUPPORTED_INTERFACE | ORACLE_ONLY | NOT_PLAN_SHAREABLE | UNKNOWN`.
 
 A capability present on one first-party surface must not disappear because another platform lacks it, and platform-specific behavior must not be generalized without evidence.
+
+
+## Clean-room desktop runtime implementation layers
+
+### Portable local marketplace
+
+SupraChat now packages a local Codex marketplace and delegates lifecycle semantics to the bundled open-source Codex runtime.
+
+- marketplace: `sempersupra-local`
+- first plugin: `suprachat-diagnostics`
+- plugin type: harmless skill-only diagnostic helper
+- Codex home: app-owned under SupraChat state
+- authorization: local plugin lifecycle does not require ChatGPT-plan scope
+- raw Codex protocol remains available underneath typed UX/DX helpers
+
+This is the first implementation rep toward the plugin/browser/CUA architecture recovered from the unified desktop oracles without copying proprietary OpenAI plugin bundles.
+
+### Playwright browser host
+
+SupraChat pins Microsoft.Playwright `1.63.0` as the independent browser implementation source.
+
+Current shared browser contract:
+- persistent app-owned profiles;
+- page/tab create/list/close;
+- navigation/back/forward/reload;
+- accessibility observation and optional DOM snapshot;
+- screenshots;
+- click/fill/key input;
+- file-input upload;
+- explicit browser permissions;
+- tracing;
+- explicit JavaScript evaluation.
+
+The host is shared across human, automation, and agent shells. It does not use recovered OpenAI browser code and does not import first-party ChatGPT session cookies.
