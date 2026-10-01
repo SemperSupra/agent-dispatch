@@ -5,26 +5,58 @@ using System.Text.Json;
 namespace SupraChat.Core;
 
 public sealed record StreamedResponse(bool Completed, string Text);
+public sealed record ModelChoice(string Slug, string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
 
 public sealed class ResponsesClient
 {
     private readonly HttpClient _http = new() { BaseAddress = new Uri("https://api.openai.com/v1/") };
 
-    public async Task<IReadOnlyList<string>> ListModelsAsync(string accessToken)
+    public async Task<IReadOnlyList<ModelChoice>> ListModelsAsync(string accessToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "models");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         using var response = await _http.SendAsync(request);
         response.EnsureSuccessStatusCode();
 
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return doc.RootElement.GetProperty("data")
-            .EnumerateArray()
-            .Select(x => x.GetProperty("id").GetString())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Cast<string>()
-            .OrderBy(x => x, StringComparer.Ordinal)
-            .ToArray();
+        return ParseModels(await response.Content.ReadAsStringAsync());
+    }
+
+    public static IReadOnlyList<ModelChoice> ParseModels(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var output = new List<ModelChoice>();
+
+        if (root.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in models.EnumerateArray())
+            {
+                if (item.TryGetProperty("visibility", out var visibility) &&
+                    !string.Equals(visibility.GetString(), "list", StringComparison.Ordinal))
+                    continue;
+
+                var slug = item.TryGetProperty("slug", out var s) ? s.GetString() : null;
+                var displayName = item.TryGetProperty("display_name", out var d) ? d.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(slug))
+                    output.Add(new ModelChoice(slug, string.IsNullOrWhiteSpace(displayName) ? slug : displayName!));
+            }
+            return output;
+        }
+
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in data.EnumerateArray())
+            {
+                var id = item.TryGetProperty("id", out var i) ? i.GetString() : null;
+                if (!string.IsNullOrWhiteSpace(id))
+                    output.Add(new ModelChoice(id, id));
+            }
+        }
+
+        return output;
     }
 
     public async Task<StreamedResponse> StreamTextAsync(

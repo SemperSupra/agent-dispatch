@@ -36,6 +36,18 @@ jobs:
         shell: pwsh
         run: dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r win-x64 --self-contained false -o out/suprachat-win-x64
 
+      - name: Windows launch smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'out/suprachat-win-x64/SupraChat.exe'
+          if (!(Test-Path $exe)) { throw "SupraChat.exe missing" }
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { throw "SupraChat exited during launch smoke with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          "SupraChat remained alive through an 8-second Windows launch smoke."
+
       - name: Upload Windows MVP
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

@@ -25,7 +25,9 @@ public static class SiwcProtocol
         string hostId,
         string appName,
         string? issuedClientId = null,
-        Uri? redirectUri = null)
+        Uri? redirectUri = null,
+        string? idTokenHint = null,
+        string? loginHint = null)
     {
         if (!hostId.StartsWith("urn:uuid:", StringComparison.Ordinal))
             throw new ArgumentException("hostId must be a stable urn:uuid value.", nameof(hostId));
@@ -34,7 +36,8 @@ public static class SiwcProtocol
         var nonce = RandomToken(32);
         var verifier = RandomToken(64);
         var challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-        var clientId = string.IsNullOrWhiteSpace(issuedClientId) ? FirstRegistrationClientId : issuedClientId;
+        var isRegistration = string.IsNullOrWhiteSpace(issuedClientId);
+        var clientId = isRegistration ? FirstRegistrationClientId : issuedClientId!;
         redirectUri ??= new Uri("http://127.0.0.1/auth/callback");
 
         var query = new Dictionary<string, string>
@@ -50,8 +53,18 @@ public static class SiwcProtocol
             ["code_challenge"] = challenge,
             ["ext_agent_host_id"] = hostId
         };
-        if (clientId == FirstRegistrationClientId)
+
+        if (isRegistration)
+        {
             query["agent_name_hint"] = appName;
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(idTokenHint))
+                query["id_token_hint"] = idTokenHint;
+            if (!string.IsNullOrWhiteSpace(loginHint))
+                query["login_hint"] = loginHint;
+        }
 
         var uri = new UriBuilder(AuthorizeEndpoint)
         {
@@ -62,17 +75,39 @@ public static class SiwcProtocol
         return new(uri, redirectUri, state, nonce, verifier, clientId, hostId);
     }
 
+    public static Uri CallbackRedirectUri(Uri callbackUri)
+    {
+        if (!string.Equals(callbackUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(callbackUri.Host, "127.0.0.1", StringComparison.Ordinal) ||
+            !string.Equals(callbackUri.AbsolutePath, "/auth/callback", StringComparison.Ordinal))
+            throw new InvalidOperationException("Unexpected OAuth callback origin or path.");
+
+        return new UriBuilder(callbackUri) { Query = "", Fragment = "" }.Uri;
+    }
+
     public static IReadOnlyDictionary<string, string> BuildTokenForm(
         SiwcAuthorizationAttempt attempt,
         string issuedClientId,
-        string code) =>
+        string code,
+        Uri exactRedirectUri) =>
         new Dictionary<string, string>
         {
             ["grant_type"] = "authorization_code",
             ["client_id"] = issuedClientId,
             ["code"] = code,
             ["code_verifier"] = attempt.CodeVerifier,
-            ["redirect_uri"] = attempt.RedirectUri.AbsoluteUri,
+            ["redirect_uri"] = exactRedirectUri.AbsoluteUri,
+            ["resource"] = Resource
+        };
+
+    public static IReadOnlyDictionary<string, string> BuildRefreshForm(
+        string issuedClientId,
+        string refreshToken) =>
+        new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["client_id"] = issuedClientId,
+            ["refresh_token"] = refreshToken,
             ["resource"] = Resource
         };
 

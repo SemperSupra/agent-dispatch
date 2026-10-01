@@ -15,10 +15,34 @@ Require(attempt.AuthorizationUri.Query.Contains("client_id=dynamic_agent_client"
 Require(attempt.AuthorizationUri.Query.Contains("chatgpt.tokens.use.direct"), "plan scope missing");
 Require(attempt.AuthorizationUri.Query.Contains("ext_agent_host_id="), "host id missing");
 Require(attempt.AuthorizationUri.Query.Contains("code_challenge_method=S256"), "PKCE S256 missing");
+Require(attempt.AuthorizationUri.Query.Contains("agent_name_hint=SupraChat"), "registration name missing");
+
+var returning = SiwcProtocol.CreateAuthorization(
+    "urn:uuid:11111111-2222-3333-4444-555555555555",
+    "SupraChat",
+    "oaiapp_existing",
+    idTokenHint: "header.payload.sig",
+    loginHint: "user@example.com");
+Require(!returning.AuthorizationUri.Query.Contains("agent_name_hint="), "returning sign-in must omit agent_name_hint");
+Require(returning.AuthorizationUri.Query.Contains("id_token_hint="), "returning id token hint missing");
+Require(returning.AuthorizationUri.Query.Contains("login_hint="), "returning login hint missing");
+
+var callback = new Uri("http://127.0.0.1:54321/auth/callback?code=abc&state=xyz");
+var exactRedirect = SiwcProtocol.CallbackRedirectUri(callback);
+Require(exactRedirect.AbsoluteUri == "http://127.0.0.1:54321/auth/callback", "callback redirect must preserve allocated port");
+var tokenForm = SiwcProtocol.BuildTokenForm(attempt, "oaiapp_issued", "code", exactRedirect);
+Require(tokenForm["redirect_uri"] == exactRedirect.AbsoluteUri, "token exchange redirect must exactly match callback listener");
+var refreshForm = SiwcProtocol.BuildRefreshForm("oaiapp_issued", "refresh");
+Require(refreshForm["grant_type"] == "refresh_token", "refresh grant missing");
+Require(!refreshForm.ContainsKey("scope"), "refresh must retain existing grant without resending scope");
 
 using var request = JsonDocument.Parse(SiwcProtocol.BuildResponsesBody("test-model", "hello"));
 Require(request.RootElement.GetProperty("store").GetBoolean() == false, "store must be false");
 Require(request.RootElement.GetProperty("stream").GetBoolean(), "stream must be true");
+
+var modelJson = """{"models":[{"slug":"gpt-example","display_name":"GPT Example","visibility":"list"},{"slug":"hidden","display_name":"Hidden","visibility":"hidden"}]}""";
+var models = ResponsesClient.ParseModels(modelJson);
+Require(models.Count == 1 && models[0].Slug == "gpt-example" && models[0].DisplayName == "GPT Example", "SIWC model catalog parsing failed");
 
 Require(CodexAppServer.Arguments.Contains("model_provider=\"openai_chatgpt_plan\""), "Codex provider missing");
 Require(CodexAppServer.Arguments.Any(x => x.Contains("requires_openai_auth=false")), "Codex auth mode missing");

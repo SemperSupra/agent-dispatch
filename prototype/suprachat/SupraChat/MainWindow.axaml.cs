@@ -33,7 +33,8 @@ public partial class MainWindow : Window
         {
             AuthStatus.Text = "Opening system browser for ChatGPT authorization…";
             var hostId = await HostIdentity.LoadOrCreateAsync();
-            _credential = await _siwc.SignInAsync(this, hostId, "SupraChat");
+            var existing = _credential ?? await CredentialStore.TryLoadAsync();
+            _credential = await _siwc.SignInAsync(this, hostId, "SupraChat", existing);
             await CredentialStore.SaveAsync(_credential);
             AuthStatus.Text = $"Agent Lab authorized. Account subject: {Short(_credential.Subject)}; scope confirmed.";
             await PopulateModelsAsync();
@@ -73,14 +74,13 @@ public partial class MainWindow : Window
         try
         {
             await EnsureCredentialAsync();
-            var model = ModelBox.SelectedItem?.ToString();
-            if (string.IsNullOrWhiteSpace(model))
+            if (ModelBox.SelectedItem is not ModelChoice model)
                 throw new InvalidOperationException("Select a model first.");
 
             OutputBox.Text = "";
             var result = await _responses.StreamTextAsync(
                 _credential!.AccessToken,
-                model,
+                model.Slug,
                 PromptBox.Text ?? string.Empty,
                 delta => OutputBox.Text += delta);
 
@@ -117,12 +117,22 @@ public partial class MainWindow : Window
 
     private async Task EnsureCredentialAsync()
     {
-        if (_credential is not null)
-            return;
-
-        _credential = await CredentialStore.TryLoadAsync();
+        _credential ??= await CredentialStore.TryLoadAsync();
         if (_credential is null)
             throw new InvalidOperationException("Use Continue with ChatGPT first.");
+
+        var refreshed = await _siwc.RefreshIfNeededAsync(_credential);
+        if (!ReferenceEquals(refreshed, _credential))
+        {
+            _credential = refreshed;
+            await CredentialStore.SaveAsync(_credential);
+
+            if (_codex is { HasExited: false })
+            {
+                _codex.Kill(entireProcessTree: true);
+                _codex = null;
+            }
+        }
     }
 
     private static string Short(string value) =>
