@@ -112,6 +112,37 @@ jobs:
           dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
           dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
 
+      - name: Bundle pinned Playwright Chromium runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'out/${{ matrix.rid }}'
+          $browserRoot = Join-Path $root 'runtime/browser'
+          New-Item -ItemType Directory -Force -Path $browserRoot | Out-Null
+          $env:PLAYWRIGHT_BROWSERS_PATH = $browserRoot
+
+          $playwrightScript = Get-ChildItem $root -Recurse -File -Filter 'playwright.ps1' |
+            Select-Object -First 1
+          if (-not $playwrightScript) {
+            throw 'Published Playwright installer script was not found.'
+          }
+
+          & $playwrightScript.FullName install chromium
+          if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed with $LASTEXITCODE" }
+
+          $browserFiles = @(Get-ChildItem $browserRoot -Recurse -File -ErrorAction SilentlyContinue)
+          if ($browserFiles.Count -eq 0) { throw 'Bundled browser runtime is empty.' }
+
+          @{
+            schema = 'suprachat-bundled-browser/v1'
+            provider = 'Microsoft.Playwright'
+            playwright_version = '1.63.0'
+            browser = 'chromium'
+            browser_files = $browserFiles.Count
+            ephemeral_context_default = $true
+            semantic_snapshot = 'aria-ai'
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $browserRoot 'runtime.json')
+
       - name: Package human/automation/agent/accessibility contracts
         shell: pwsh
         run: |
@@ -226,6 +257,20 @@ jobs:
             }
           }
 
+          $browserStatus = & $cli browser-status
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged browser-status failed.' }
+          $browserStatusDoc = $browserStatus | ConvertFrom-Json
+          if (-not $browserStatusDoc.ok -or -not $browserStatusDoc.value.browser_directory_present -or -not $browserStatusDoc.value.accessibility_snapshot_supported) {
+            throw 'Bundled browser runtime status contract failed.'
+          }
+
+          $browserSnapshot = & $cli browser-snapshot --url 'https://example.com/'
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged browser-snapshot failed.' }
+          $browserSnapshotDoc = $browserSnapshot | ConvertFrom-Json
+          if (-not $browserSnapshotDoc.ok -or $browserSnapshotDoc.value.url -notlike 'https://example.com*' -or [string]::IsNullOrWhiteSpace($browserSnapshotDoc.value.aria_snapshot)) {
+            throw 'Bundled browser semantic snapshot contract failed.'
+          }
+
           $access = & $cli accessibility
           if ($LASTEXITCODE -ne 0) { throw 'Packaged accessibility command failed.' }
           $accessDoc = $access | ConvertFrom-Json
@@ -271,6 +316,22 @@ jobs:
             throw 'Packaged agent accessibility contract failed.'
           }
 
+          $browserStatusRequest = '{"jsonrpc":"2.0","id":"browser-status","method":"browser/status"}'
+          $browserStatusRpc = $browserStatusRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent browser/status failed.' }
+          $browserStatusRpcDoc = ($browserStatusRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($browserStatusRpcDoc.id -ne 'browser-status' -or -not $browserStatusRpcDoc.result.browser_directory_present) {
+            throw 'Packaged agent browser/status contract failed.'
+          }
+
+          $browserRequest = '{"jsonrpc":"2.0","id":"browser","method":"browser/snapshot","params":{"url":"https://example.com/"}}'
+          $browserRpc = $browserRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent browser/snapshot failed.' }
+          $browserRpcDoc = ($browserRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($browserRpcDoc.id -ne 'browser' -or [string]::IsNullOrWhiteSpace($browserRpcDoc.result.aria_snapshot)) {
+            throw 'Packaged agent browser semantic snapshot contract failed.'
+          }
+
           $parityRequest = '{"jsonrpc":"2.0","id":"parity","method":"parity/read"}'
           $parityRpc = $parityRequest | & $cli stdio 2>$null
           if ($LASTEXITCODE -ne 0) { throw 'Packaged agent parity/read failed.' }
@@ -288,7 +349,7 @@ jobs:
           }
 
 
-          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
+          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness','browser/status','browser/snapshot')) {
             $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
             $semanticRpc = $semanticRequest | & $cli stdio 2>$null
             if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic method: $method" }
