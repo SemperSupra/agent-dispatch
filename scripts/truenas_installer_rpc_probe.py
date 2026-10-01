@@ -123,17 +123,18 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, required=True)
+    p.add_argument("--path", default="/ws")
     p.add_argument("--out", required=True)
     p.add_argument("--timeout", type=float, default=6.0)
     a = p.parse_args()
     started = time.time()
     payload = {
         "schema": "truenas-installer-rpc-discovery/v1",
-        "endpoint": {"host": a.host, "port": a.port, "path": "/ws"},
+        "endpoint": {"host": a.host, "port": a.port, "path": a.path},
         "methods": {},
         "oracleSatisfied": False,
     }
-    ws = WebSocket(a.host, a.port, timeout=a.timeout)
+    ws = WebSocket(a.host, a.port, path=a.path, timeout=a.timeout)
     try:
         adopted = ws.call("is_adopted", 1)
         payload["methods"]["is_adopted"] = adopted
