@@ -212,4 +212,19 @@ Require(WindowsCompanionHotkey.ShortcutDescription == "Alt+Space",
 Require(WindowsNotificationService.Adapter == "shell-notification-area",
     "Windows notification adapter identity drifted");
 
+Require(CodexAppServer.Arguments.Any(x => x.Contains("features.plugins=true", StringComparison.Ordinal)),
+    "Bundled Codex plugin feature must be enabled for the portable marketplace.");
+Require(CodexAppServer.CodexHome.StartsWith(AppState.DirectoryPath, StringComparison.Ordinal),
+    "SupraChat Codex home must remain inside app-owned state.");
+Require(SupraChatMarketplace.MarketplaceName == "sempersupra-local",
+    "Local marketplace identity drifted.");
+Require(SupraChatMarketplace.DiagnosticsPluginId == "suprachat-diagnostics@sempersupra-local",
+    "Diagnostics plugin identity drifted.");
+Require(BrowserHost.RuntimePath.EndsWith(
+        Path.Combine("runtime", "playwright"),
+        StringComparison.Ordinal),
+    "Playwright runtime must remain package-relative.");
+Require(BrowserHost.ProfilesRoot.StartsWith(AppState.DirectoryPath, StringComparison.Ordinal),
+    "Browser profiles must remain inside app-owned state.");
+
 Console.WriteLine("SupraChat contract checks PASS");
