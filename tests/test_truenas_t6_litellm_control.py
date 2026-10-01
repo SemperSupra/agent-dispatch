@@ -158,5 +158,15 @@ class LiteLlmT6ContractTests(unittest.TestCase):
 
 
 
+
+class VersionAdaptiveProbeContractTests(unittest.TestCase):
+    def test_exact_target_is_argument_driven(self):
+        import pathlib
+        text = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "truenas_middleware_litellm_t6_probe.py").read_text(encoding="utf-8")
+        self.assertIn('p.add_argument("--target-version", required=True)', text)
+        self.assertIn('f"TrueNAS-{a.target_version}"', text)
+        self.assertNotIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', text)
+
+
 if __name__ == "__main__":
     unittest.main()
