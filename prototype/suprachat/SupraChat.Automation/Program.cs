@@ -68,6 +68,10 @@ internal static class Program
                 "sandbox-readiness" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "windowsSandbox/readiness" })),
                 "screen-status" => WriteSuccess(DesktopScreenCapture.Describe()),
                 "screen-capture" => WriteSuccess(await ScreenCaptureAsync(args[1..])),
+                "browser-status" => WriteSuccess(BrowserStatus()),
+                "browser-snapshot" => WriteSuccess(await BrowserSnapshotAsync(args[1..])),
+                "browser-click" => WriteSuccess(await BrowserClickConfirmedAsync(args[1..])),
+                "browser-fill" => WriteSuccess(await BrowserFillConfirmedAsync(args[1..])),
                 "respond" => WriteSuccess(await RespondAsync(args[1..])),
                 "responses-raw" => WriteSuccess(await RawResponsesAsync(args[1..])),
                 "codex-rpc" => WriteSuccess(await CodexRpcAsync(args[1..])),
@@ -117,6 +121,10 @@ internal static class Program
             new { name = "sandbox-readiness", description = "Read Windows Codex sandbox readiness without starting setup." },
             new { name = "screen-status", description = "Read the current platform screen-capture adapter and permission boundary." },
             new { name = "screen-capture", description = "Explicitly capture the current desktop to a PNG file.", syntax = "screen-capture --output <path.png>" },
+            new { name = "browser-status", description = "Read bundled clean-room browser runtime status." },
+            new { name = "browser-snapshot", description = "Navigate and return an ARIA semantic snapshot.", syntax = "browser-snapshot --url <https-url>" },
+            new { name = "browser-click", description = "Explicitly click one element by ARIA role and accessible name.", syntax = "browser-click --confirm --url <https-url> --role <role> --name <accessible-name>" },
+            new { name = "browser-fill", description = "Explicitly fill one field by accessible label.", syntax = "browser-fill --confirm --url <https-url> --label <label> --value <text>" },
             new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--file <path>]... [--web-search]" },
             new { name = "responses-raw", description = "Run an arbitrary SIWC Responses body.", syntax = "responses-raw --model <id> [--body <json>]; stdin is used when --body is omitted" },
             new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
@@ -170,6 +178,14 @@ internal static class Program
             "sandbox/readiness",
             "screen/status",
             "screen/capture",
+            "browser/status",
+            "browser/snapshot",
+            "browser/start",
+            "browser/navigate",
+            "browser/read",
+            "browser/click",
+            "browser/fill",
+            "browser/stop",
             "responses/create",
             "responses/raw",
             "responses/ws/connect",
@@ -627,6 +643,14 @@ internal static class Program
             "sandbox/readiness" => await RpcCodexReadAsync("windowsSandbox/readiness", emptyParams: false),
             "screen/status" => DesktopScreenCapture.Describe(),
             "screen/capture" => await RpcScreenCaptureAsync(parameters),
+            "browser/status" => BrowserStatus(),
+            "browser/snapshot" => await RpcBrowserSnapshotAsync(parameters),
+            "browser/start" => await RpcBrowserStartAsync(),
+            "browser/navigate" => await RpcBrowserNavigateAsync(parameters),
+            "browser/read" => await RpcBrowserReadAsync(),
+            "browser/click" => await RpcBrowserClickAsync(parameters),
+            "browser/fill" => await RpcBrowserFillAsync(parameters),
+            "browser/stop" => await RpcBrowserStopAsync(),
             "responses/create" => await RpcResponseCreateAsync(parameters),
             "responses/raw" => await RpcResponsesRawAsync(parameters),
             "responses/ws/connect" => await RpcResponsesConnectAsync(),
@@ -710,6 +734,7 @@ internal static class Program
     private static async Task<object> RpcBrowserClickAsync(JsonElement? parameters)
     {
         var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Browser click");
         var role = RequiredProperty(p, "role");
         var name = RequiredProperty(p, "name");
         return await RequireAgentBrowser().ClickByRoleAsync(role, name);
@@ -718,6 +743,7 @@ internal static class Program
     private static async Task<object> RpcBrowserFillAsync(JsonElement? parameters)
     {
         var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Browser fill");
         var label = RequiredProperty(p, "label");
         var value = RequiredProperty(p, "value");
         return await RequireAgentBrowser().FillByLabelAsync(label, value);
