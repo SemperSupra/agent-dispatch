@@ -1,8 +1,9 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t5-matrix-001",
+  "request_id": "tn-25.04.1-t5-matrix-002-versioned-installer-endpoint",
   "version": "25.04.1",
   "rung": "t5",
   "authority_issue": 411,
-  "purpose": "Exact deployed-legacy TrueNAS 25.04.1 T0-T5 qualification for the Foundry materialization and lifecycle matrix."
+  "consumer_authority_issue": 274,
+  "purpose": "Retry exact TrueNAS 25.04.1 T0-T5 after source-backed discovery that this release exposes installer JSON-RPC at / rather than the later /ws endpoint."
 }
