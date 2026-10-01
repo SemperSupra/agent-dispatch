@@ -58,7 +58,14 @@ def registry():
                             "required_api_templates": ["POST /nodes/{node}/qemu"],
                         }],
                     }
-                ]
+                ],
+                "candidate_targets": [
+                    {
+                        "version": "9.1-1",
+                        "iso_sha256": "d" * 64,
+                        "state": "source-profile-open",
+                    }
+                ],
             },
         },
     }
@@ -96,6 +103,10 @@ class ContractTests(unittest.TestCase):
     def test_proxmox_selects_exact_profile_adapter(self):
         a = choose_adapter(registry(), "proxmox", "9.2-1", "vm", None)
         self.assertEqual(a["id"], "proxmox-vm-rest")
+
+    def test_discovery_candidate_is_not_apply_admitted(self):
+        with self.assertRaises(ContractError):
+            choose_adapter(registry(), "proxmox", "9.1-1", "vm", None)
 
     def test_unknown_target_fails(self):
         with self.assertRaises(ContractError):
