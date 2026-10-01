@@ -281,6 +281,17 @@
                        AutomationProperties.Name="Machine interface readiness"
                        AutomationProperties.LiveSetting="Polite" />
 
+            <TextBlock FontWeight="SemiBold" Text="Audience and accessibility parity"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
+            <TextBlock x:Name="AudienceParityStatus" TextWrapping="Wrap" Text="Loading audience parity ledger…"
+                       AutomationProperties.AutomationId="Machine.AudienceParityStatus"
+                       AutomationProperties.Name="Human, accessible-human, automation and agent parity status"
+                       AutomationProperties.LiveSetting="Polite" />
+            <TextBox x:Name="AudienceParityPathBox" IsReadOnly="True" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="Machine.AudienceParityPath"
+                     AutomationProperties.Name="Packaged audience parity ledger path" />
+
             <TextBlock FontWeight="SemiBold" Text="Packaged automation executable" />
             <TextBox x:Name="MachineExecutablePathBox" IsReadOnly="True" TextWrapping="Wrap"
                      AutomationProperties.AutomationId="Machine.ExecutablePath"
@@ -288,11 +299,11 @@
 
             <TextBlock FontWeight="SemiBold" Text="Portable automation examples" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="155"
-                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot;&#10;suprachat-cli codex-rpc --method model/list --params {}" />
+                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli parity&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot; --file ./document.pdf&#10;suprachat-cli codex-rpc --method model/list --params {}" />
 
             <TextBlock FontWeight="SemiBold" Text="Agent stdio JSON-RPC" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="125"
-                     Text="suprachat-cli stdio&#10;&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;capabilities/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:2,&quot;method&quot;:&quot;accessibility/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:3,&quot;method&quot;:&quot;codex/start&quot;}" />
+                     Text="suprachat-cli stdio&#10;&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;capabilities/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:2,&quot;method&quot;:&quot;accessibility/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:3,&quot;method&quot;:&quot;parity/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:4,&quot;method&quot;:&quot;responses/create&quot;,&quot;params&quot;:{&quot;model&quot;:&quot;&lt;id&gt;&quot;,&quot;input&quot;:&quot;inspect&quot;,&quot;files&quot;:[&quot;./document.pdf&quot;]}}" /> />
 
             <TextBlock TextWrapping="Wrap"
                        Text="Agent mode also emits asynchronous responses/ws/event and codex/event notifications. It never auto-approves Codex server requests; clients must explicitly respond or reject according to their authority." />
