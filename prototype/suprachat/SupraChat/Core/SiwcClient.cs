@@ -35,14 +35,23 @@ public sealed class SiwcClient
         string hostId,
         string appName,
         SiwcCredential? existing = null,
-        bool promptConsent = false)
+        bool promptConsent = false,
+        SiwcRegistration? registration = null)
     {
+        if (existing is not null && registration is not null &&
+            !string.Equals(existing.ClientId, registration.ClientId, StringComparison.Ordinal))
+            throw new InvalidOperationException("Selected registration does not match the active credential.");
+
+        var selectedClientId = existing?.ClientId ?? registration?.ClientId;
+        var expectedSubject = existing?.Subject ?? registration?.Subject;
+        var loginHint = existing?.Email ?? registration?.Email;
+
         var attempt = SiwcProtocol.CreateAuthorization(
             hostId,
             appName,
-            existing?.ClientId,
+            selectedClientId,
             idTokenHint: existing?.IdToken,
-            loginHint: existing?.Email,
+            loginHint: loginHint,
             promptConsent: promptConsent);
 
         var options = new WebAuthenticatorOptions(attempt.AuthorizationUri, attempt.RedirectUri)
@@ -99,7 +108,7 @@ public sealed class SiwcClient
             ?? throw new InvalidOperationException("Validated ID token has no subject.");
         var email = principal.FindFirst("email")?.Value;
 
-        if (existing is not null && !string.Equals(existing.Subject, subject, StringComparison.Ordinal))
+        if (expectedSubject is not null && !string.Equals(expectedSubject, subject, StringComparison.Ordinal))
             throw new InvalidOperationException("Returning sign-in resolved to a different ChatGPT account.");
 
         return new(
