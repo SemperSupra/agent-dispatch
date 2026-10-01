@@ -201,10 +201,17 @@ jobs:
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
           }
-          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
+          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness','screen/status','screen/capture')) {
             if ($capDoc.value.machine_methods -notcontains $method) {
               throw "Semantic machine method missing from capabilities: $method"
             }
+          }
+
+          $screenStatus = & $cli screen-status
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged screen-status failed.' }
+          $screenStatusDoc = $screenStatus | ConvertFrom-Json
+          if (-not $screenStatusDoc.ok -or $screenStatusDoc.value.schema -ne 'suprachat-screen-capture/v1' -or -not $screenStatusDoc.value.requires_explicit_invocation) {
+            throw 'Packaged screen-capture descriptor contract failed.'
           }
 
           foreach ($command in @('voices','remote-status','plugins','permission-profiles','apps','sandbox-readiness')) {
@@ -271,6 +278,15 @@ jobs:
           if ($parityRpcDoc.id -ne 'parity' -or $parityRpcDoc.result.schema -ne 'suprachat-audience-parity/v1') {
             throw 'Packaged agent parity contract failed.'
           }
+
+          $screenRequest = '{"jsonrpc":"2.0","id":"screen","method":"screen/status"}'
+          $screenRpc = $screenRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent screen/status failed.' }
+          $screenRpcDoc = ($screenRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($screenRpcDoc.id -ne 'screen' -or $screenRpcDoc.result.schema -ne 'suprachat-screen-capture/v1' -or -not $screenRpcDoc.result.requires_explicit_invocation) {
+            throw 'Packaged agent screen/status contract failed.'
+          }
+
 
           foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
             $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
