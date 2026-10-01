@@ -11,6 +11,13 @@ mkdir -p "$MACOS"
 cp -R "$SOURCE"/. "$MACOS"/
 chmod +x "$MACOS/SupraChat" "$MACOS/SupraChat.Automation" "$MACOS/runtime/codex/codex"
 
+# Playwright creates a hidden .links housekeeping directory in its browser registry.
+# It is not required to launch the pinned browser, but codesign --deep interprets it
+# as an invalid nested bundle/subcomponent when it lives inside Contents/MacOS.
+if [[ -d "$MACOS/runtime/browser/.links" ]]; then
+  rm -rf "$MACOS/runtime/browser/.links"
+fi
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
