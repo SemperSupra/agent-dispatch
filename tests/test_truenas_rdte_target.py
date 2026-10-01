@@ -37,11 +37,19 @@ class TargetRegistryTests(unittest.TestCase):
         self.assertEqual(self.targets["25.04.2.6"]["ha_apps_gate"], "system.license:JAILS")
         self.assertEqual(self.targets["25.10.7"]["ha_apps_gate"], "system.license:JAILS")
         self.assertEqual(self.targets["26.0.0-BETA.3"]["ha_apps_gate"], "system.feature_enabled:APPS")
-    def test_installer_rpc_path_is_exact_version_profiled(self):
-        self.assertEqual(self.targets["25.04.1"]["installer_rpc_path"], "/")
-        self.assertEqual(self.targets["25.04.2.6"]["installer_rpc_path"], "/ws")
-        self.assertEqual(self.targets["25.10.7"]["installer_rpc_path"], "/ws")
-        self.assertEqual(self.targets["26.0.0-BETA.3"]["installer_rpc_path"], "/ws")
+    def test_installer_rpc_endpoint_is_exact_version_profiled(self):
+        expected = {
+            "25.04.1": ("/", 80, "release/25.04.1", "4845a665568fcdb8ed911f3f6a23f6373cbe0b8f"),
+            "25.04.2.6": ("/", 80, "release/25.04.2.6", "4845a665568fcdb8ed911f3f6a23f6373cbe0b8f"),
+            "25.10.7": ("/ws", 8080, "release/25.10.7", "9e4f8b2bd9db497210fe6737c053080137be94d8"),
+            "26.0.0-BETA.3": ("/ws", 8080, "release/26.0.0-BETA.3", "9e4f8b2bd9db497210fe6737c053080137be94d8"),
+        }
+        for version, (path, port, source_ref, main_blob) in expected.items():
+            target = self.targets[version]
+            self.assertEqual(target["installer_rpc_path"], path)
+            self.assertEqual(target["installer_rpc_guest_port"], port)
+            self.assertEqual(target["installer_source_ref"], source_ref)
+            self.assertEqual(target["installer_main_blob_sha"], main_blob)
 
     def test_unknown_exact_version_fails_closed(self):
         with self.assertRaises(MOD.TargetError):
