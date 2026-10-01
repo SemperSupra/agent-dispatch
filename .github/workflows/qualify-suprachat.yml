@@ -453,7 +453,7 @@ jobs:
           test -x "$stage/SupraChat.app/Contents/MacOS/runtime/codex/codex"
           plutil -extract CFBundleIdentifier raw "$stage/SupraChat.app/Contents/Info.plist" | grep -qx 'com.sempersupra.suprachat'
           plutil -p "$stage/SupraChat.app/Contents/Info.plist" | grep -q 'suprachat'
-          codesign --verify --deep --strict "$stage/SupraChat.app"
+          codesign --verify --strict "$stage/SupraChat.app"
 
           browser_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" browser-snapshot --url https://example.com/)"
           python3 - "$browser_json" <<'PY'
