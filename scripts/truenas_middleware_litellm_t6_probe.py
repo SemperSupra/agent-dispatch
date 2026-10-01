@@ -17,7 +17,7 @@ from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 
 BOOTSTRAP_METHODS = {"core.get_methods"}
-REQUIRED_DISCOVERED_METHODS = ["app.config","app.create","app.delete","app.query","app.start","app.stop","auth.login_ex","core.get_jobs","filesystem.mkdir","filesystem.stat","pool.dataset.create","pool.dataset.delete","pool.dataset.query","system.version"]
+REQUIRED_DISCOVERED_METHODS = ["app.config","app.create","app.delete","app.query","app.start","app.stop","auth.login_ex","core.get_jobs","filesystem.mkdir","filesystem.put","filesystem.stat","pool.dataset.create","pool.dataset.delete","pool.dataset.query","system.version"]
 
 
 EXPECTED_FOUNDRY_REF = "4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
