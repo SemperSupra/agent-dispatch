@@ -77,7 +77,7 @@ public sealed class BrowserHost : IAsyncDisposable
             await page.GotoAsync(url).ConfigureAwait(false);
 
         return new BrowserPageInfo(
-            context.Pages.IndexOf(page),
+            Math.Max(0, context.Pages.Count - 1),
             page.Url,
             await page.TitleAsync().ConfigureAwait(false));
     }
