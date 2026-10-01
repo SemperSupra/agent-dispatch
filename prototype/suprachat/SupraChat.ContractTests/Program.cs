@@ -447,8 +447,23 @@ var codexServerSource = File.ReadAllText(Path.Combine(
     "prototype", "suprachat", "SupraChat", "Core", "CodexAppServer.cs"));
 Require(codexServerSource.Contains("StartLocal()", StringComparison.Ordinal),
     "credential-free Codex local-start substrate missing");
-Require(codexServerSource.Contains("Environment.Remove(\"ACCESS_TOKEN\")", StringComparison.Ordinal),
-    "credential-free Codex local-start must explicitly remove inherited ACCESS_TOKEN");
+foreach (var credentialName in new[]
+{
+    "ACCESS_TOKEN",
+    "OPENAI_API_KEY",
+    "CODEX_API_KEY",
+    "OPENAI_ACCESS_TOKEN",
+    "CHATGPT_ACCESS_TOKEN"
+})
+{
+    Require(codexServerSource.Contains($"\"${credentialName}\"", StringComparison.Ordinal),
+        $"credential-free Codex local-start must explicitly strip {credentialName}");
+}
+Require(codexServerSource.Contains("AppState.DirectoryPath, \"codex-local\"", StringComparison.Ordinal),
+    "credential-free Codex local-start must use an application-owned Codex home");
+Require(codexServerSource.Contains("XDG_CONFIG_HOME", StringComparison.Ordinal) &&
+        codexServerSource.Contains("XDG_DATA_HOME", StringComparison.Ordinal),
+    "credential-free Codex local-start must isolate XDG state");
 
 var browserStatus = BrowserSession.Status();
 Require(browserStatus.Schema == "suprachat-browser-runtime/v1", "browser runtime schema drifted");
