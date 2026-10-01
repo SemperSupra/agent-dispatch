@@ -19,7 +19,10 @@
       "foundry_profile": ".foundry/truenas-compatibility/25.04.1-materialization.json",
       "ha_apps_gate": "system.license:JAILS",
       "authority_issue": 411,
-      "installer_rpc_path": "/"
+      "installer_rpc_path": "/",
+      "installer_rpc_guest_port": 80,
+      "installer_source_ref": "release/25.04.1",
+      "installer_main_blob_sha": "4845a665568fcdb8ed911f3f6a23f6373cbe0b8f"
     },
     {
       "version": "25.04.2.6",
@@ -32,8 +35,11 @@
       "middleware_commit": "244b717370fe35fb9eefc3096acfbc25f12b57b6",
       "foundry_profile": ".foundry/truenas-compatibility/25.04.2.6-materialization.json",
       "ha_apps_gate": "system.license:JAILS",
-      "installer_rpc_path": "/ws",
-      "authority_issue": 423
+      "installer_rpc_path": "/",
+      "authority_issue": 423,
+      "installer_rpc_guest_port": 80,
+      "installer_source_ref": "release/25.04.2.6",
+      "installer_main_blob_sha": "4845a665568fcdb8ed911f3f6a23f6373cbe0b8f"
     },
     {
       "version": "25.10.7",
@@ -47,7 +53,10 @@
       "foundry_profile": ".foundry/truenas-compatibility/25.10.7-materialization.json",
       "ha_apps_gate": "system.license:JAILS",
       "authority_issue": 410,
-      "installer_rpc_path": "/ws"
+      "installer_rpc_path": "/ws",
+      "installer_rpc_guest_port": 8080,
+      "installer_source_ref": "release/25.10.7",
+      "installer_main_blob_sha": "9e4f8b2bd9db497210fe6737c053080137be94d8"
     },
     {
       "version": "26.0.0-BETA.3",
@@ -61,7 +70,10 @@
       "foundry_profile": ".foundry/truenas-compatibility/26.0.0-BETA.3-materialization.json",
       "ha_apps_gate": "system.feature_enabled:APPS",
       "authority_issue": 396,
-      "installer_rpc_path": "/ws"
+      "installer_rpc_path": "/ws",
+      "installer_rpc_guest_port": 8080,
+      "installer_source_ref": "release/26.0.0-BETA.3",
+      "installer_main_blob_sha": "9e4f8b2bd9db497210fe6737c053080137be94d8"
     }
   ]
 }
