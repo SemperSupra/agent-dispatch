@@ -410,7 +410,7 @@ foreach (var marker in new[]
 
 Require(CodexLocalReadPolicy.Schema == "suprachat-codex-local-read-policy/v1",
     "Codex local-read policy schema drifted");
-Require(CodexLocalReadPolicy.Methods.Count == 14,
+Require(CodexLocalReadPolicy.Methods.Count == 15,
     "Codex credential-free allowlist count drifted without qualification evidence");
 foreach (var method in new[]
 {
@@ -422,6 +422,7 @@ foreach (var method in new[]
     "plugin/list",
     "permissionProfile/list",
     "app/list",
+    "account/read",
     "mcpServerStatus/list",
     "skills/list",
     "windowsSandbox/readiness",
@@ -433,6 +434,8 @@ foreach (var method in new[]
     Require(CodexLocalReadPolicy.IsAllowed(method),
         $"qualified Codex local-read method missing from policy: {method}");
 }
+Require(CodexLocalReadPolicy.IsAllowed("account/read"),
+    "signed-out Codex account/read status must remain in the credential-free allowlist");
 Require(!CodexLocalReadPolicy.IsAllowed("account/usage/read"),
     "account-backed Codex usage read must not enter credential-free allowlist");
 Require(!CodexLocalReadPolicy.IsAllowed("remoteControl/enable"),
