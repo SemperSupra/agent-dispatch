@@ -235,6 +235,18 @@
                       Click="ListPlugins_Click"
                       AutomationProperties.AutomationId="RuntimeProbes.Plugins"
                       AutomationProperties.HelpText="List available Codex plugins without installing or changing them." />
+              <Button Margin="0,0,8,8" Content="Permission profiles"
+                      Click="ListPermissionProfiles_Click"
+                      AutomationProperties.AutomationId="RuntimeProbes.PermissionProfiles"
+                      AutomationProperties.HelpText="List Codex permission profiles without changing policy." />
+              <Button Margin="0,0,8,8" Content="Apps/connectors"
+                      Click="ListApps_Click"
+                      AutomationProperties.AutomationId="RuntimeProbes.Apps"
+                      AutomationProperties.HelpText="List available Codex apps and connectors without installing or changing them." />
+              <Button Margin="0,0,8,8" Content="Sandbox readiness"
+                      Click="ReadSandboxReadiness_Click"
+                      AutomationProperties.AutomationId="RuntimeProbes.SandboxReadiness"
+                      AutomationProperties.HelpText="Read effective Codex Windows sandbox readiness without starting setup." />
             </WrapPanel>
             <TextBox x:Name="RuntimeProbeOutputBox"
                      AcceptsReturn="True"
