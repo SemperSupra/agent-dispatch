@@ -19,7 +19,7 @@
       </Grid>
     </Border>
 
-    <TabControl Grid.Row="1">
+    <TabControl x:Name="RootTabs" Grid.Row="1">
       <TabItem Header="ChatGPT">
         <NativeWebView x:Name="ChatView"
                        Source="https://chatgpt.com/"
