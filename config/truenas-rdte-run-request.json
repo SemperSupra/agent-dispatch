@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.2.6-t6-official-catalog-001-schema-projected-health",
-  "version": "25.04.2.6",
+  "request_id": "tn-25.10.7-t6-official-catalog-001-schema-projected-health",
+  "version": "25.10.7",
   "rung": "t6",
   "product": "official-catalog",
-  "authority_issue": 423,
+  "authority_issue": 410,
   "consumer_authority_issue": 281,
-  "purpose": "Qualify exact TrueNAS 25.04.2.6 native official-catalog ntfy T6 using the schema-projected Foundry control and corrected primary-service health oracle after 25.04.1 acceptance."
+  "purpose": "Qualify exact TrueNAS 25.10.7 native official-catalog ntfy T6 using the schema-projected Foundry control and corrected primary-service health oracle after prior exact rows are accepted."
 }
