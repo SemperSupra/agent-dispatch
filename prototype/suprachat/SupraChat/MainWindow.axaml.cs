@@ -887,6 +887,38 @@ public partial class MainWindow : Window
             $"{choice.Name} is a {choice.Kind}. It is observed through the protocol monitor rather than invoked as a client request.";
     }
 
+    private async void ListRealtimeVoices_Click(object? sender, RoutedEventArgs e) =>
+        await RunReadOnlyCodexProbeAsync(
+            "thread/realtime/listVoices",
+            JsonSerializer.SerializeToElement(new { }));
+
+    private async void ReadRemoteStatus_Click(object? sender, RoutedEventArgs e) =>
+        await RunReadOnlyCodexProbeAsync(
+            "remoteControl/status/read",
+            parameters: null);
+
+    private async void ListPlugins_Click(object? sender, RoutedEventArgs e) =>
+        await RunReadOnlyCodexProbeAsync(
+            "plugin/list",
+            JsonSerializer.SerializeToElement(new { }));
+
+    private async Task RunReadOnlyCodexProbeAsync(string method, JsonElement? parameters)
+    {
+        try
+        {
+            RuntimeProbeOutputBox.Text = $"Running {method}…";
+            var client = await EnsureCodexAsync();
+            var result = await client.RequestAsync(method, parameters);
+            RuntimeProbeOutputBox.Text = PrettyJson(result);
+            AuthStatus.Text = $"Read-only Codex probe completed: {method}";
+        }
+        catch (Exception ex)
+        {
+            RuntimeProbeOutputBox.Text = ex.ToString();
+            AuthStatus.Text = $"Read-only Codex probe failed: {method}: {ex.Message}";
+        }
+    }
+
     private async void SendRawRpc_Click(object? sender, RoutedEventArgs e)
     {
         try
