@@ -24,7 +24,26 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _ = RefreshRegistrationsAsync();
+        _ = InitializeAgentLabAsync();
+    }
+
+    private async Task InitializeAgentLabAsync()
+    {
+        try
+        {
+            _credential = await CredentialStore.TryLoadAsync();
+            await RefreshRegistrationsAsync(_credential?.ClientId);
+            if (_credential is not null)
+            {
+                AuthStatus.Text = _credential.HasPlanUsage
+                    ? $"Saved Agent Lab session loaded for {Short(_credential.Subject)}; ChatGPT-plan scope granted."
+                    : $"Saved identity session loaded for {Short(_credential.Subject)}; plan usage is not granted.";
+            }
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = $"Saved Agent Lab state could not be loaded: {ex.Message}";
+        }
     }
 
     private void Back_Click(object? sender, RoutedEventArgs e) => ChatView.GoBack();
@@ -66,8 +85,16 @@ public partial class MainWindow : Window
     private async void SignIn_Click(object? sender, RoutedEventArgs e) =>
         await CompleteSignInAsync(promptConsent: false);
 
-    private async void UseSavedAccount_Click(object? sender, RoutedEventArgs e) =>
+    private async void UseSavedAccount_Click(object? sender, RoutedEventArgs e)
+    {
+        if (AccountBox.SelectedItem is not SiwcRegistration)
+        {
+            AuthStatus.Text = "Choose a saved ChatGPT account registration first.";
+            return;
+        }
+
         await CompleteSignInAsync(promptConsent: false);
+    }
 
     private async void AddAccount_Click(object? sender, RoutedEventArgs e) =>
         await CompleteSignInAsync(promptConsent: false, forceNewRegistration: true);
