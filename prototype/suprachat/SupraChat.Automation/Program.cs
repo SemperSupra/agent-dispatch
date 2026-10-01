@@ -368,6 +368,18 @@ internal static class Program
         }
     }
 
+    private static async Task<object> BrowserClickConfirmedAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Browser click");
+        return await BrowserClickOnceAsync(args);
+    }
+
+    private static async Task<object> BrowserFillConfirmedAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Browser fill");
+        return await BrowserFillOnceAsync(args);
+    }
+
     private static async Task<object> AccessibilityPreferencesAsync()
     {
         var value = await AccessibilityPreferencesStore.LoadAsync();
@@ -764,6 +776,78 @@ internal static class Program
             "codex/stop" => await RpcCodexStopAsync(),
             _ => throw new MachineException(2, "METHOD_NOT_FOUND", $"Unsupported method: {method}")
         };
+    }
+
+    private static async Task<object> RpcRemoteEnableAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Enabling Codex Remote");
+        var args = new List<string> { "--confirm" };
+        if (OptionalBoolean(p, "ephemeral"))
+            args.Add("--ephemeral");
+        return await RemoteEnableAsync(args.ToArray());
+    }
+
+    private static async Task<object> RpcRemoteDisableAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Disabling Codex Remote");
+        var args = new List<string> { "--confirm" };
+        if (OptionalBoolean(p, "ephemeral"))
+            args.Add("--ephemeral");
+        return await RemoteDisableAsync(args.ToArray());
+    }
+
+    private static async Task<object> RpcRemotePairAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Starting Codex Remote pairing");
+        var args = new List<string> { "--confirm" };
+        if (OptionalBoolean(p, "manual_code"))
+            args.Add("--manual-code");
+        return await RemotePairAsync(args.ToArray());
+    }
+
+    private static async Task<object> RpcRemotePairStatusAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var args = new List<string>();
+        var pairingCode = OptionalString(p, "pairing_code");
+        var manualCode = OptionalString(p, "manual_code");
+        if (pairingCode is not null)
+        {
+            args.Add("--pairing-code");
+            args.Add(pairingCode);
+        }
+        if (manualCode is not null)
+        {
+            args.Add("--manual-code");
+            args.Add(manualCode);
+        }
+        return await RemotePairStatusAsync(args.ToArray());
+    }
+
+    private static async Task<object> RpcRemoteClientsAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var environment = RequiredProperty(p, "environment");
+        return await RemoteClientsAsync(new[] { "--environment", environment });
+    }
+
+    private static async Task<object> RpcRemoteRevokeAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        RequireRpcConfirmation(p, "Revoking a Codex Remote client");
+        var environment = RequiredProperty(p, "environment");
+        var client = RequiredProperty(p, "client");
+        return await RemoteRevokeAsync(new[] { "--confirm", "--environment", environment, "--client", client });
+    }
+
+    private static async Task<object> RpcScreenCaptureAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var output = RequiredProperty(p, "output_path");
+        return await ScreenCaptureAsync(new[] { "--output", output });
     }
 
     private static async Task<object> RpcAccessibilityPreferencesWriteAsync(JsonElement? parameters)
@@ -1343,6 +1427,36 @@ internal static class Program
                 expires_at = (DateTimeOffset?)credential.ExpiresAt,
                 scope_count = credential.Scopes.Length
             };
+
+    private static void RequireRpcConfirmation(JsonElement parameters, string operation)
+    {
+        if (!parameters.TryGetProperty("confirm", out var confirm) ||
+            confirm.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+            !confirm.GetBoolean())
+            throw new MachineException(
+                2,
+                "CONFIRMATION_REQUIRED",
+                $"{operation} is consequential. Repeat with params.confirm=true after reviewing the requested action.");
+    }
+
+    private static bool OptionalBoolean(JsonElement parameters, string name)
+    {
+        if (!parameters.TryGetProperty(name, out var value))
+            return false;
+        if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new MachineException(2, "INVALID_PARAMS", $"params.{name} must be a boolean.");
+        return value.GetBoolean();
+    }
+
+    private static string? OptionalString(JsonElement parameters, string name)
+    {
+        if (!parameters.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+        if (value.ValueKind != JsonValueKind.String)
+            throw new MachineException(2, "INVALID_PARAMS", $"params.{name} must be a string.");
+        var text = value.GetString();
+        return string.IsNullOrWhiteSpace(text) ? null : text;
+    }
 
     private static JsonElement RequireObject(JsonElement? element)
     {
