@@ -79,7 +79,7 @@ internal static class Program
             new { name = "doctor", description = "Inspect local runtime/auth readiness without network calls." },
             new { name = "auth-status", description = "Read redacted local ChatGPT-plan authorization state." },
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
-            new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--web-search]" },
+            new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--file <path>]... [--web-search]" },
             new { name = "responses-raw", description = "Run an arbitrary SIWC Responses body.", syntax = "responses-raw --model <id> [--body <json>]; stdin is used when --body is omitted" },
             new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
             new { name = "stdio", description = "Serve line-delimited JSON-RPC 2.0 for agent clients with sessionful Codex events." }
@@ -206,13 +206,27 @@ internal static class Program
         var model = RequiredOption(args, "--model");
         var input = RequiredOption(args, "--input");
         var webSearch = HasFlag(args, "--web-search");
+        var filePaths = Options(args, "--file");
+        IReadOnlyList<ResponseAttachment>? attachments = null;
+        if (filePaths.Count > 0)
+        {
+            try
+            {
+                attachments = await AttachmentInputs.LoadPathsAsync(filePaths);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                throw new MachineException(2, "ATTACHMENT_INVALID", SafeMessage(ex));
+            }
+        }
+
         var credential = await RequireCredentialAsync();
 
         var result = await new ResponsesClient().StreamAsync(
             credential.AccessToken,
             model,
             input,
-            attachments: null,
+            attachments,
             enableWebSearch: webSearch);
 
         if (!result.Completed)
@@ -225,6 +239,7 @@ internal static class Program
             completed = result.Completed,
             request_id = result.RequestId,
             event_types = result.EventTypes,
+            attachment_count = attachments?.Count ?? 0,
             output_text = result.Text
         };
     }
@@ -375,6 +390,21 @@ internal static class Program
             "--model", model,
             "--input", input
         };
+
+        if (p.TryGetProperty("files", out var files))
+        {
+            if (files.ValueKind != JsonValueKind.Array)
+                throw new MachineException(2, "INVALID_PARAMS", "responses/create params.files must be an array of local file paths.");
+
+            foreach (var item in files.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString()))
+                    throw new MachineException(2, "INVALID_PARAMS", "responses/create params.files entries must be non-empty strings.");
+                args.Add("--file");
+                args.Add(item.GetString()!);
+            }
+        }
+
         if (webSearch)
             args.Add("--web-search");
 
@@ -768,6 +798,20 @@ internal static class Program
             return args[i + 1];
         }
         return null;
+    }
+
+    private static IReadOnlyList<string> Options(string[] args, string name)
+    {
+        var values = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!string.Equals(args[i], name, StringComparison.Ordinal))
+                continue;
+            if (i + 1 >= args.Length)
+                throw new MachineException(2, "USAGE", $"Option {name} requires a value.");
+            values.Add(args[++i]);
+        }
+        return values;
     }
 
     private static bool HasFlag(string[] args, string name) =>
