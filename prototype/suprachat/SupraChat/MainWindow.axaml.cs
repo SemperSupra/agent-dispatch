@@ -937,10 +937,138 @@ public partial class MainWindow : Window
             "thread/realtime/listVoices",
             JsonSerializer.SerializeToElement(new { }));
 
-    private async void ReadRemoteStatus_Click(object? sender, RoutedEventArgs e) =>
-        await RunReadOnlyCodexProbeAsync(
+    private async void ReadRemoteStatus_Click(object? sender, RoutedEventArgs e)
+    {
+        var result = await RunCodexProbeForResultAsync(
             "remoteControl/status/read",
-            parameters: null);
+            parameters: null,
+            consequential: false);
+        PopulateRemoteIdentity(result);
+    }
+
+    private async void RemoteEnable_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!ConsumeRemoteConfirmation("Enabling Codex Remote"))
+            return;
+        var result = await RunCodexProbeForResultAsync(
+            "remoteControl/enable",
+            JsonSerializer.SerializeToElement(new { ephemeral = false }),
+            consequential: true);
+        PopulateRemoteIdentity(result);
+    }
+
+    private async void RemoteDisable_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!ConsumeRemoteConfirmation("Disabling Codex Remote"))
+            return;
+        var result = await RunCodexProbeForResultAsync(
+            "remoteControl/disable",
+            JsonSerializer.SerializeToElement(new { ephemeral = false }),
+            consequential: true);
+        PopulateRemoteIdentity(result);
+    }
+
+    private async void RemotePairingStart_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!ConsumeRemoteConfirmation("Starting Codex Remote pairing"))
+            return;
+
+        var result = await RunCodexProbeForResultAsync(
+            "remoteControl/pairing/start",
+            JsonSerializer.SerializeToElement(new { manualCode = RemoteManualCodeBox.IsChecked == true }),
+            consequential: true);
+
+        if (result is { } value)
+        {
+            if (value.TryGetProperty("environmentId", out var environmentId) &&
+                environmentId.ValueKind == JsonValueKind.String)
+                RemoteEnvironmentBox.Text = environmentId.GetString();
+
+            if (value.TryGetProperty("pairingCode", out var pairingCode) &&
+                pairingCode.ValueKind == JsonValueKind.String)
+                RemotePairingCodeBox.Text = pairingCode.GetString();
+
+            if (value.TryGetProperty("manualPairingCode", out var manualPairingCode) &&
+                manualPairingCode.ValueKind == JsonValueKind.String)
+                RemoteManualPairingCodeBox.Text = manualPairingCode.GetString();
+        }
+    }
+
+    private async void RemotePairingStatus_Click(object? sender, RoutedEventArgs e)
+    {
+        var result = await RunCodexProbeForResultAsync(
+            "remoteControl/pairing/status",
+            JsonSerializer.SerializeToElement(new
+            {
+                pairingCode = NullIfWhiteSpace(RemotePairingCodeBox.Text),
+                manualPairingCode = NullIfWhiteSpace(RemoteManualPairingCodeBox.Text)
+            }),
+            consequential: false);
+
+        if (result is { } value && value.TryGetProperty("claimed", out var claimed))
+            AuthStatus.Text = $"Remote pairing claimed={claimed.GetBoolean()}.";
+    }
+
+    private async void RemoteClients_Click(object? sender, RoutedEventArgs e)
+    {
+        var environmentId = RequireText(RemoteEnvironmentBox.Text, "Remote environment ID");
+        await RunCodexProbeForResultAsync(
+            "remoteControl/client/list",
+            JsonSerializer.SerializeToElement(new
+            {
+                environmentId,
+                cursor = (string?)null,
+                limit = (int?)null,
+                order = (string?)null
+            }),
+            consequential: false);
+    }
+
+    private async void RemoteRevoke_Click(object? sender, RoutedEventArgs e)
+    {
+        if (!ConsumeRemoteConfirmation("Revoking a Codex Remote client"))
+            return;
+
+        var environmentId = RequireText(RemoteEnvironmentBox.Text, "Remote environment ID");
+        var clientId = RequireText(RemoteClientIdBox.Text, "Remote client ID");
+        await RunCodexProbeForResultAsync(
+            "remoteControl/client/revoke",
+            JsonSerializer.SerializeToElement(new { environmentId, clientId }),
+            consequential: true);
+    }
+
+    private bool ConsumeRemoteConfirmation(string operation)
+    {
+        if (RemoteConfirmBox.IsChecked != true)
+        {
+            RuntimeProbeOutputBox.Text =
+                $"{operation} requires the explicit confirmation checkbox.";
+            AuthStatus.Text = "Remote action not executed: confirmation is required.";
+            return false;
+        }
+
+        RemoteConfirmBox.IsChecked = false;
+        return true;
+    }
+
+    private void PopulateRemoteIdentity(JsonElement? result)
+    {
+        if (result is not { } value)
+            return;
+
+        if (value.TryGetProperty("environmentId", out var environmentId) &&
+            environmentId.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(environmentId.GetString()))
+            RemoteEnvironmentBox.Text = environmentId.GetString();
+    }
+
+    private static string RequireText(string? value, string label) =>
+        !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : throw new InvalidOperationException($"{label} is required.");
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private async void ListPlugins_Click(object? sender, RoutedEventArgs e) =>
         await RunReadOnlyCodexProbeAsync(
@@ -1010,7 +1138,13 @@ public partial class MainWindow : Window
         _browserSession = null;
     }
 
-    private async Task RunReadOnlyCodexProbeAsync(string method, JsonElement? parameters)
+    private async Task RunReadOnlyCodexProbeAsync(string method, JsonElement? parameters) =>
+        _ = await RunCodexProbeForResultAsync(method, parameters, consequential: false);
+
+    private async Task<JsonElement?> RunCodexProbeForResultAsync(
+        string method,
+        JsonElement? parameters,
+        bool consequential)
     {
         try
         {
@@ -1018,12 +1152,18 @@ public partial class MainWindow : Window
             var client = await EnsureCodexAsync();
             var result = await client.RequestAsync(method, parameters);
             RuntimeProbeOutputBox.Text = PrettyJson(result);
-            AuthStatus.Text = $"Read-only Codex probe completed: {method}";
+            AuthStatus.Text = consequential
+                ? $"Confirmed Codex action completed: {method}"
+                : $"Read-only Codex probe completed: {method}";
+            return result;
         }
         catch (Exception ex)
         {
             RuntimeProbeOutputBox.Text = ex.ToString();
-            AuthStatus.Text = $"Read-only Codex probe failed: {method}: {ex.Message}";
+            AuthStatus.Text = consequential
+                ? $"Confirmed Codex action failed: {method}: {ex.Message}"
+                : $"Read-only Codex probe failed: {method}: {ex.Message}";
+            return null;
         }
     }
 
