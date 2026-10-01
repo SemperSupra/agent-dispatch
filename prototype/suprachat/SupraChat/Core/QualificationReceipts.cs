@@ -33,12 +33,44 @@ public static class QualificationReceipts
         bool completed,
         TimeSpan elapsed,
         int outputCharacters) =>
+        Build(
+            binding: "siwc-direct-responses",
+            model: model,
+            runtime: ".NET " + Environment.Version,
+            credential: credential,
+            completed: completed,
+            elapsed: elapsed,
+            outputCharacters: outputCharacters);
+
+    public static QualificationReceipt BuildCodex(
+        string model,
+        SiwcCredential credential,
+        bool completed,
+        TimeSpan elapsed,
+        int outputCharacters) =>
+        Build(
+            binding: "siwc-codex-app-server",
+            model: model,
+            runtime: "Codex app-server via SupraChat",
+            credential: credential,
+            completed: completed,
+            elapsed: elapsed,
+            outputCharacters: outputCharacters);
+
+    public static QualificationReceipt Build(
+        string binding,
+        string model,
+        string runtime,
+        SiwcCredential credential,
+        bool completed,
+        TimeSpan elapsed,
+        int outputCharacters) =>
         new(
             Schema,
             DateTimeOffset.UtcNow,
-            "siwc-direct-responses",
+            binding,
             model,
-            ".NET " + Environment.Version,
+            runtime,
             Environment.OSVersion.ToString(),
             "chatgpt-plan-oauth",
             credential.Scopes.OrderBy(x => x, StringComparer.Ordinal).ToArray(),
@@ -52,14 +84,24 @@ public static class QualificationReceipts
             ContainsOutput: false,
             ContainsTokenMaterial: false);
 
-    public static async Task<string> WriteDirectAsync(
+    public static Task<string> WriteDirectAsync(
         string model,
         SiwcCredential credential,
         bool completed,
         TimeSpan elapsed,
-        int outputCharacters)
+        int outputCharacters) =>
+        WriteAsync(BuildDirect(model, credential, completed, elapsed, outputCharacters));
+
+    public static Task<string> WriteCodexAsync(
+        string model,
+        SiwcCredential credential,
+        bool completed,
+        TimeSpan elapsed,
+        int outputCharacters) =>
+        WriteAsync(BuildCodex(model, credential, completed, elapsed, outputCharacters));
+
+    public static async Task<string> WriteAsync(QualificationReceipt receipt)
     {
-        var receipt = BuildDirect(model, credential, completed, elapsed, outputCharacters);
         var directory = Path.Combine(AppState.DirectoryPath, "receipts");
         Directory.CreateDirectory(directory);
 
