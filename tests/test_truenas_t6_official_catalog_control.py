@@ -129,6 +129,26 @@ class OfficialCatalogT6ContractTests(unittest.TestCase):
         self.assertIn('"remove_ix_volumes": True', text)
         self.assertNotIn("custom_compose_config", text)
 
+    def test_workflow_and_harness_bind_exact_official_catalog_producer(self):
+        workflow = (HERE / ".github" / "workflows" / "gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
+        harness = (SCRIPTS / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertIn("export-official-catalog-t6-control.yml@" + MOD.EXPECTED_FOUNDRY_REF, workflow)
+        self.assertIn("foundry_ref: " + MOD.EXPECTED_FOUNDRY_REF, workflow)
+        self.assertIn("name: official-catalog-truenas-t6-control", workflow)
+        self.assertIn("needs.changes.outputs.truenas_t6_product == 'official-catalog'", workflow)
+        self.assertIn('foundry_commit="' + MOD.EXPECTED_FOUNDRY_REF + '"', workflow)
+        self.assertIn('"official-catalog"', harness)
+        self.assertIn("truenas_middleware_official_catalog_t6_probe.py", harness)
+        self.assertIn('if [[ "$T6_PRODUCT" != "official-catalog" ]]', harness)
+
+    def test_probe_requires_observed_methods_and_noop_convergence(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"core.get_methods"', text)
+        self.assertIn("REQUIRED_METHODS - method_names", text)
+        self.assertGreaterEqual(text.count('"NOOP"'), 3)
+        self.assertIn('"BLOCK_FOREIGN"', text)
+        self.assertIn("refusing adopted official-catalog control state", text)
+
 
 if __name__ == "__main__":
     unittest.main()
