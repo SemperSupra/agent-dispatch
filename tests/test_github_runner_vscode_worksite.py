@@ -31,10 +31,26 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
             "tunnel_no_sleep_flag",
             "tunnel_accept_license_flag",
             "tunnel_install_extension_flag",
+            "tunnel_status_json_present",
+            "tunnel_status_no_running",
+            "tunnel_status_service_installed",
             "vscode_dev_http_status",
             "relay_http_status",
         ):
             self.assertIn(expected, text)
+
+    def test_preflight_requires_clean_structured_tunnel_status(self) -> None:
+        text = (
+            ROOT / "scripts" / "github_runner_vscode_worksite_preflight.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("code tunnel --cli-data-dir", text)
+        self.assertIn("status_json_present", text)
+        self.assertIn("status_no_running", text)
+        self.assertIn("status_service_installed", text)
+        self.assertIn('"status_json_present" != true', text)
+        self.assertIn('"status_no_running" != true', text)
+        self.assertIn('"status_service_installed" != false', text)
 
     def test_workflow_is_public_safe_and_secret_free(self) -> None:
         text = (
