@@ -469,15 +469,21 @@ jobs:
             $window = $null
             while ((Get-Date) -lt $deadline -and -not $window) {
               Start-Sleep -Milliseconds 500
-              $condition = New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::NameProperty,
-                'SupraChat')
+              $processCondition = New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
+                $p.Id)
               $window = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
-                [System.Windows.Automation.TreeScope]::Children,
-                $condition)
+                [System.Windows.Automation.TreeScope]::Descendants,
+                $processCondition)
             }
 
-            if (-not $window) { throw 'SupraChat window was not visible to Windows UI Automation.' }
+            if (-not $window) {
+              Write-Host "Process $($p.Id) remained alive but exposed no UIA root from this hosted-runner desktop session."
+              Write-Host 'This is a runner interaction boundary, not proof that the application lacks automation peers.'
+              throw 'SupraChat process was not reachable through Windows UI Automation on this runner.'
+            }
+
+            Write-Host "UIA root: name='$($window.Current.Name)' class='$($window.Current.ClassName)' automationId='$($window.Current.AutomationId)' processId=$($window.Current.ProcessId)"
 
             foreach ($automationId in @(
               'RootTabs',
