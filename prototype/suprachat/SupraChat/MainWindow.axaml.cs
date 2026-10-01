@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _responsesWebSocketCts;
     private Task? _responsesWebSocketMonitorTask;
     private WindowsCompanionHotkey? _windowsCompanionHotkey;
+    private BrowserSession? _browserSession;
     private AccessibilityPreferences _accessibilityPreferences = AccessibilityPreferences.Default;
 
     public MainWindow()
@@ -961,6 +962,54 @@ public partial class MainWindow : Window
             "windowsSandbox/readiness",
             parameters: null);
 
+    private void BrowserStatus_Click(object? sender, RoutedEventArgs e)
+    {
+        BrowserSnapshotBox.Text = JsonSerializer.Serialize(
+            BrowserSession.Status(),
+            new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private async void StartBrowser_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var url = BrowserUrlBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(url))
+                throw new InvalidOperationException("Enter an absolute HTTP or HTTPS URL.");
+
+            await StopBrowserSessionAsync();
+            BrowserSnapshotBox.Text = "Starting isolated browser…";
+            _browserSession = await BrowserSession.StartAsync(headless: false);
+            var snapshot = await _browserSession.NavigateAndSnapshotAsync(url);
+            BrowserSnapshotBox.Text = JsonSerializer.Serialize(
+                snapshot,
+                new JsonSerializerOptions { WriteIndented = true });
+            AuthStatus.Text = "Clean-room browser started. Semantic ARIA snapshot is available; Stop browser remains available.";
+        }
+        catch (Exception ex)
+        {
+            await StopBrowserSessionAsync();
+            BrowserSnapshotBox.Text = ex.ToString();
+            AuthStatus.Text = $"Clean-room browser start/inspect failed: {ex.Message}";
+        }
+    }
+
+    private async void StopBrowser_Click(object? sender, RoutedEventArgs e)
+    {
+        await StopBrowserSessionAsync();
+        BrowserSnapshotBox.Text = "Clean-room browser stopped.";
+        AuthStatus.Text = "Clean-room browser stopped.";
+    }
+
+    private async Task StopBrowserSessionAsync()
+    {
+        if (_browserSession is null)
+            return;
+
+        await _browserSession.DisposeAsync();
+        _browserSession = null;
+    }
+
     private async Task RunReadOnlyCodexProbeAsync(string method, JsonElement? parameters)
     {
         try
@@ -1305,6 +1354,7 @@ public partial class MainWindow : Window
         {
             _windowsCompanionHotkey?.Dispose();
             _windowsCompanionHotkey = null;
+            StopBrowserSessionAsync().GetAwaiter().GetResult();
             StopCodexAsync().GetAwaiter().GetResult();
             StopResponsesWebSocketAsync().GetAwaiter().GetResult();
         }
