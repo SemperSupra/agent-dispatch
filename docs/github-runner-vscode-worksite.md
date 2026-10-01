@@ -77,3 +77,13 @@ must emit the current structured JSON contract with:
 This is deliberately credential-free. It qualifies the status shape and clean-start
 assumption consumed by the private Colab/GHA startup and teardown oracles; it does not
 claim that a live tunnel has been registered or that remote deletion has been exercised.
+
+## Clean unregister idempotence
+
+The credential-free pre-auth rung also exercises `code tunnel unregister` while the
+fresh runner has no stored tunnel registration. Acceptance requires exit code 0 and a
+second structured status receipt that remains clean.
+
+This qualifies only the no-registration/idempotent cleanup path. It does **not** claim
+that remote deletion of a real registered tunnel has been exercised; that remains part of
+the identity-bearing lifecycle rep.
