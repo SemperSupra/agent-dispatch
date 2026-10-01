@@ -232,10 +232,30 @@ jobs:
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
           }
-          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness','screen/status','screen/capture')) {
+          foreach ($method in @('realtime/voices','remote/status','remote/enable','remote/disable','remote/pairing/start','remote/pairing/status','remote/clients/list','remote/clients/revoke','plugins/list','permissions/profiles','apps/list','sandbox/readiness','screen/status','screen/capture','browser/status','browser/snapshot')) {
             if ($capDoc.value.machine_methods -notcontains $method) {
               throw "Semantic machine method missing from capabilities: $method"
             }
+          }
+
+          $remoteNoConfirm = & $cli remote-enable 2>$null
+          $remoteNoConfirmExit = $LASTEXITCODE
+          if ($remoteNoConfirmExit -ne 2) {
+            throw "remote-enable without confirmation must exit 2; got $remoteNoConfirmExit"
+          }
+          $remoteNoConfirmDoc = $remoteNoConfirm | ConvertFrom-Json
+          if ($remoteNoConfirmDoc.error.code -ne 'CONFIRMATION_REQUIRED') {
+            throw 'remote-enable did not preserve explicit confirmation boundary.'
+          }
+
+          $remoteConfirmed = & $cli remote-enable --confirm 2>$null
+          $remoteConfirmedExit = $LASTEXITCODE
+          if ($remoteConfirmedExit -ne 3) {
+            throw "confirmed remote-enable on clean runner must stop at AUTH_REQUIRED exit 3; got $remoteConfirmedExit"
+          }
+          $remoteConfirmedDoc = $remoteConfirmed | ConvertFrom-Json
+          if ($remoteConfirmedDoc.error.code -ne 'AUTH_REQUIRED') {
+            throw 'confirmed remote-enable did not stop at human authorization boundary.'
           }
 
           $screenStatus = & $cli screen-status
@@ -340,6 +360,22 @@ jobs:
             throw 'Packaged agent parity contract failed.'
           }
 
+          $remoteNoConfirmRequest = '{"jsonrpc":"2.0","id":"remote-confirm","method":"remote/enable","params":{}}'
+          $remoteNoConfirmRpc = $remoteNoConfirmRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent remote confirmation probe failed.' }
+          $remoteNoConfirmRpcDoc = ($remoteNoConfirmRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($remoteNoConfirmRpcDoc.error.data.type -ne 'CONFIRMATION_REQUIRED') {
+            throw 'Agent remote/enable did not require explicit confirmation.'
+          }
+
+          $remoteConfirmedRequest = '{"jsonrpc":"2.0","id":"remote-auth","method":"remote/enable","params":{"confirm":true}}'
+          $remoteConfirmedRpc = $remoteConfirmedRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent confirmed remote authorization probe failed.' }
+          $remoteConfirmedRpcDoc = ($remoteConfirmedRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($remoteConfirmedRpcDoc.error.data.type -ne 'AUTH_REQUIRED') {
+            throw 'Agent confirmed remote/enable did not stop at human authorization boundary.'
+          }
+
           $screenRequest = '{"jsonrpc":"2.0","id":"screen","method":"screen/status"}'
           $screenRpc = $screenRequest | & $cli stdio 2>$null
           if ($LASTEXITCODE -ne 0) { throw 'Packaged agent screen/status failed.' }
@@ -349,7 +385,7 @@ jobs:
           }
 
 
-          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness','browser/status','browser/snapshot')) {
+          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
             $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
             $semanticRpc = $semanticRequest | & $cli stdio 2>$null
             if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic method: $method" }
