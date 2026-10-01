@@ -337,6 +337,11 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"RuntimeProbes.Apps\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.SandboxReadiness\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.Output\"",
+    "AutomationProperties.AutomationId=\"Browser.Url\"",
+    "AutomationProperties.AutomationId=\"Browser.Status\"",
+    "AutomationProperties.AutomationId=\"Browser.StartInspect\"",
+    "AutomationProperties.AutomationId=\"Browser.Stop\"",
+    "AutomationProperties.AutomationId=\"Browser.SemanticSnapshot\"",
     "AutomationProperties.LiveSetting=\"Polite\"",
     "AutomationProperties.HeadingLevel=\"1\"",
     "AutomationProperties.HeadingLevel=\"2\"",
@@ -373,12 +378,25 @@ foreach (var marker in new[]
     "\"plugins/list\"",
     "\"permissions/profiles\"",
     "\"apps/list\"",
-    "\"sandbox/readiness\""
+    "\"sandbox/readiness\"",
+    "\"browser-status\"",
+    "\"browser-snapshot\"",
+    "\"browser/status\"",
+    "\"browser/snapshot\""
 })
 {
     Require(automationSource.Contains(marker, StringComparison.Ordinal),
         $"semantic machine runtime surface missing: {marker}");
 }
+
+var browserStatus = BrowserSession.Status();
+Require(browserStatus.Schema == "suprachat-browser-runtime/v1", "browser runtime schema drifted");
+Require(browserStatus.EphemeralByDefault, "clean-room browser must remain ephemeral by default");
+Require(browserStatus.AccessibilitySnapshotSupported, "semantic browser snapshot invariant missing");
+
+var browserProject = File.ReadAllText(Path.Combine("prototype", "suprachat", "SupraChat", "SupraChat.csproj"));
+Require(browserProject.Contains("Microsoft.Playwright\" Version=\"1.63.0\"", StringComparison.Ordinal),
+    "Playwright browser runtime version drifted");
 
 var appXamlPath = Path.Combine("prototype", "suprachat", "SupraChat", "App.axaml");
 Require(File.ReadAllText(appXamlPath).Contains("RequestedThemeVariant=\"Default\"", StringComparison.Ordinal),
