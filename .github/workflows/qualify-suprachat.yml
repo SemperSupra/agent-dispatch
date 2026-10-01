@@ -457,12 +457,12 @@ jobs:
 
           browser_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" browser-snapshot --url https://example.com/)"
           python3 - "$browser_json" <<'PY'
-import json,sys
-doc=json.loads(sys.argv[1])
-assert doc["ok"] is True
-assert doc["value"]["url"].startswith("https://example.com")
-assert doc["value"]["aria_snapshot"]
-PY
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["url"].startswith("https://example.com")
+          assert doc["value"]["aria_snapshot"]
+          PY
 
           cli_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" capabilities)"
           python3 - "$cli_json" <<'PY'
