@@ -83,6 +83,32 @@ Require(CodexAppServer.Arguments.Contains("model_provider=\"openai_chatgpt_plan\
 Require(CodexAppServer.Arguments.Any(x => x.Contains("requires_openai_auth=false")), "Codex auth mode missing");
 Require(CodexAppServer.Arguments.All(x => !x.Contains("Bearer ", StringComparison.OrdinalIgnoreCase)), "token leaked into arguments");
 
+var codexInit = CodexAppServerClient.BuildInitializeParams(experimentalApi: true);
+Require(codexInit.GetProperty("clientInfo").GetProperty("name").GetString() == "suprachat", "Codex initialize client identity missing");
+Require(codexInit.GetProperty("capabilities").GetProperty("experimentalApi").GetBoolean(), "Codex experimental protocol capability must be enabled");
+
+var codexThread = CodexAppServerClient.BuildThreadStartParams("gpt-example", Path.GetFullPath("."));
+Require(codexThread.GetProperty("modelProvider").GetString() == "openai_chatgpt_plan", "Codex ChatGPT-plan provider missing");
+Require(codexThread.GetProperty("approvalPolicy").GetString() == "never", "qualification interview approval policy changed");
+Require(codexThread.GetProperty("sandbox").GetString() == "read-only", "qualification interview sandbox changed");
+Require(codexThread.GetProperty("ephemeral").GetBoolean(), "qualification interview thread must be ephemeral");
+
+var codexTurn = CodexAppServerClient.BuildTurnStartParams("thread-test", "hello");
+Require(codexTurn.GetProperty("threadId").GetString() == "thread-test", "Codex turn thread id missing");
+Require(codexTurn.GetProperty("input")[0].GetProperty("type").GetString() == "text", "Codex text input missing");
+
+var surfacePath = Path.Combine(
+    "prototype", "suprachat", "oracles", "codex-app-server-surface-20261001.json");
+Require(File.Exists(surfacePath), "pinned Codex surface inventory missing");
+using (var surfaceDoc = JsonDocument.Parse(File.ReadAllText(surfacePath)))
+{
+    var counts = surfaceDoc.RootElement.GetProperty("counts");
+    Require(counts.GetProperty("client_requests").GetInt32() == 172, "Codex client-RPC inventory drifted");
+    Require(counts.GetProperty("server_requests").GetInt32() == 9, "Codex server-request inventory drifted");
+    Require(counts.GetProperty("server_notifications").GetInt32() == 85, "Codex notification inventory drifted");
+    Require(counts.GetProperty("total").GetInt32() == 266, "Codex total protocol inventory drifted");
+}
+
 var fakeCredential = new SiwcCredential(
     "oaiapp_test",
     "urn:uuid:11111111-2222-3333-4444-555555555555",
@@ -118,5 +144,20 @@ Require(!receiptJson.Contains("REFRESH_TOKEN_MUST_NOT_APPEAR", StringComparison.
 Require(!receiptJson.Contains("ID_TOKEN_MUST_NOT_APPEAR", StringComparison.Ordinal), "ID token leaked into receipt");
 Require(!receiptJson.Contains("subject-secret-value", StringComparison.Ordinal), "raw account subject leaked into receipt");
 Require(!receiptJson.Contains("user@example.com", StringComparison.Ordinal), "email leaked into receipt");
+
+var codexReceipt = QualificationReceipts.BuildCodex(
+    "gpt-example",
+    fakeCredential,
+    completed: true,
+    TimeSpan.FromMilliseconds(1500),
+    outputCharacters: 55);
+var codexReceiptJson = JsonSerializer.Serialize(codexReceipt);
+Require(codexReceipt.Binding == "siwc-codex-app-server", "Codex receipt binding mismatch");
+Require(codexReceipt.Runtime.Contains("Codex app-server", StringComparison.Ordinal), "Codex receipt runtime missing");
+Require(!codexReceiptJson.Contains("ACCESS_TOKEN_MUST_NOT_APPEAR", StringComparison.Ordinal), "access token leaked into Codex receipt");
+Require(!codexReceiptJson.Contains("REFRESH_TOKEN_MUST_NOT_APPEAR", StringComparison.Ordinal), "refresh token leaked into Codex receipt");
+Require(!codexReceiptJson.Contains("ID_TOKEN_MUST_NOT_APPEAR", StringComparison.Ordinal), "ID token leaked into Codex receipt");
+Require(!codexReceiptJson.Contains("subject-secret-value", StringComparison.Ordinal), "raw account subject leaked into Codex receipt");
+Require(!codexReceiptJson.Contains("user@example.com", StringComparison.Ordinal), "email leaked into Codex receipt");
 
 Console.WriteLine("SupraChat contract checks PASS");
