@@ -575,7 +575,7 @@ python3 "$SCRIPT_DIR/truenas_middleware_pool_probe.py" \
   --password-file "$PASSWORD_FILE" \
   --out "$POOL_OUT" --pool-name "$DATA_POOL_NAME" \
   --expected-data-disks "$DATA_DISK_COUNT" --data-serial-prefix "$DATA_SERIAL_PREFIX" \
-  --timeout 6 --job-timeout 180 >/dev/null 2>&1 || true
+  --timeout 15 --job-timeout 180 >/dev/null 2>&1 || true
 [[ -f "$POOL_OUT" ]] || fail_evidence HARNESS_FAILURE data-pool "T3/T4 pool client did not emit a receipt"
 POOL_RESULT_JSON="$(cat "$POOL_OUT")"
 POOL_OK="$(python3 - "$POOL_OUT" <<'PY'

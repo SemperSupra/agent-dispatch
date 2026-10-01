@@ -613,5 +613,20 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"ha_apps_gate": a.ha_apps_gate', text)
 
 
+
+class PoolTransportBudgetTests(unittest.TestCase):
+    def test_pool_probe_has_wss_tolerant_read_budget_and_phase_receipts(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        harness = (root / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        probe = (root / "scripts" / "truenas_middleware_pool_probe.py").read_text(encoding="utf-8")
+        pool_call = harness.split('POOL_OUT="$STATE_DIR/data-pool.json"', 1)[1].split('[[ -f "$POOL_OUT" ]]', 1)[0]
+        self.assertIn("--timeout 15 --job-timeout 180", pool_call)
+        for phase in (
+            "connect", "authenticate", "discover-system", "discover-boot-disks",
+            "discover-disk-details", "precondition-pool-absence",
+            "pool-create-submit", "pool-create-wait", "verify-pool", "verify-pool-disks", "complete",
+        ):
+            self.assertIn(f'payload["phase"] = "{phase}"', probe)
+
 if __name__ == "__main__":
     unittest.main()
