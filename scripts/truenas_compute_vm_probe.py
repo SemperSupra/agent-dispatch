@@ -207,7 +207,19 @@ def main() -> int:
             rows=call("virt.instance.query",[[["id","=",a.name]]])
             if not rows or rows[0].get("type")!="VM":
                 raise ProbeError("legacy VM readback failed")
-            call("virt.instance.update",[a.name,{"environment":{"RDTE_GENERATION":"2"}}])
+            ujob=call("virt.instance.update",[a.name,{"environment":{"RDTE_GENERATION":"2"}}])
+            if not isinstance(ujob,int) or isinstance(ujob,bool):
+                raise ProbeError(f"virt.instance.update did not return job id: {ujob!r}")
+            deadline=time.monotonic()+a.job_timeout
+            while time.monotonic()<deadline:
+                state=call("core.get_jobs",[[["id","=",ujob]],{"get":True}])
+                if state and state.get("state")=="SUCCESS":
+                    break
+                if state and state.get("state") in {"FAILED","ABORTED"}:
+                    raise ProbeError(f"legacy VM update failed: {state.get('error') or state.get('exception')}")
+                time.sleep(1)
+            else:
+                raise ProbeError("legacy VM update timeout")
             rows=call("virt.instance.query",[[["id","=",a.name]]])
             if not rows or rows[0].get("environment",{}).get("RDTE_GENERATION")!="2":
                 raise ProbeError("legacy VM update readback failed")
