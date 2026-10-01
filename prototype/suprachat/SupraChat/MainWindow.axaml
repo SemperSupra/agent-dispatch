@@ -41,6 +41,14 @@
             </WrapPanel>
             <TextBlock x:Name="AuthStatus" Text="Not signed in to Agent Lab." TextWrapping="Wrap" />
 
+            <TextBlock FontWeight="SemiBold" Text="ChatGPT account registration" />
+            <WrapPanel Orientation="Horizontal">
+              <ComboBox x:Name="AccountBox" Width="420" Margin="0,0,8,8"
+                        PlaceholderText="Choose a saved ChatGPT account" />
+              <Button Margin="0,0,8,8" Content="Use saved account" Click="UseSavedAccount_Click" />
+              <Button Margin="0,0,8,8" Content="Add another account/workspace" Click="AddAccount_Click" />
+            </WrapPanel>
+
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8" Content="Refresh models" Click="RefreshModels_Click" />
               <ComboBox x:Name="ModelBox" Width="360" Margin="0,0,8,8" PlaceholderText="Select a model" />
