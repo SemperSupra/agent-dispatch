@@ -1,0 +1,21 @@
+{
+  "name": "suprachat-diagnostics",
+  "version": "0.1.0",
+  "description": "Local diagnostics and capability-discovery helpers for SupraChat.",
+  "keywords": [
+    "suprachat",
+    "diagnostics",
+    "capabilities",
+    "doctor"
+  ],
+  "interface": {
+    "displayName": "SupraChat Diagnostics",
+    "shortDescription": "Inspect SupraChat runtime, auth, and capability state.",
+    "developerName": "SemperSupra",
+    "category": "developer-tools",
+    "capabilities": [
+      "diagnostics",
+      "capability-discovery"
+    ]
+  }
+}
