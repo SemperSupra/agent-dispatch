@@ -206,4 +206,7 @@ Require(CodexAppServer.ResolveExecutable(runtimeRoot) == bundledPath,
     "packaged Codex runtime must take precedence over PATH fallback");
 Directory.Delete(runtimeRoot, recursive: true);
 
+Require(WindowsCompanionHotkey.ShortcutDescription == "Alt+Space",
+    "Windows companion shortcut drifted from first-party parity target");
+
 Console.WriteLine("SupraChat contract checks PASS");
