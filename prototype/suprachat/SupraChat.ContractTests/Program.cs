@@ -212,6 +212,15 @@ Require(WindowsCompanionHotkey.ShortcutDescription == "Alt+Space",
 Require(WindowsNotificationService.Adapter == "shell-notification-area",
     "Windows notification adapter identity drifted");
 
+var accessibilityContract = AccessibilityContract.Describe();
+Require(accessibilityContract.Schema == AccessibilityContract.Schema, "accessibility schema drifted");
+Require(accessibilityContract.Human.KeyboardOnly, "keyboard-only accessibility invariant missing");
+Require(accessibilityContract.Human.ScreenReaderSemantics, "screen-reader semantic invariant missing");
+Require(accessibilityContract.Human.StableAutomationIds, "stable automation-id invariant missing");
+Require(accessibilityContract.Human.BrowserAccessibilityFallback, "browser accessibility fallback invariant missing");
+Require(!accessibilityContract.Automation.ScreenScrapingRequired, "automation accessibility regressed to screen scraping");
+Require(!accessibilityContract.Agent.ScreenScrapingRequired, "agent accessibility regressed to screen scraping");
+
 var accessibilityDocPath = Path.Combine("prototype", "suprachat", "ACCESSIBILITY.md");
 Require(File.Exists(accessibilityDocPath), "accessibility contract document missing");
 var accessibilityDoc = File.ReadAllText(accessibilityDocPath);
