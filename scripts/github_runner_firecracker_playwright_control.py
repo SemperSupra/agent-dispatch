@@ -24,6 +24,7 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import firecracker_workload_evidence as evidence
+import firecracker_execution_adapter as exec_adapter
 import github_runner_firecracker_f0 as f0
 import github_runner_firecracker_f1_boot as f1
 import github_runner_firecracker_j1_jailed_f3 as j1
@@ -388,6 +389,18 @@ def run_probe(label: str) -> dict:
     missing = [name for name, path in tools.items() if not path]
     if missing:
         raise ProbeError("SETUP_REQUIRED", f"required host tools unavailable: {missing}")
+
+    kvm_access = exec_adapter.select_kvm_access()
+    if kvm_access.get("classification") != "SUPPORTED":
+        raise ProbeError(
+            "VENUE_LIMITATION",
+            "callable KVM is required for P0a; observed "
+            + json.dumps({
+                "mode": kvm_access.get("mode"),
+                "user_probe": kvm_access.get("user_probe"),
+                "sudo_probe": kvm_access.get("sudo_probe"),
+            }, sort_keys=True),
+        )
 
     trusted_base = pathlib.Path(f"/opt/agent-dispatch-fcpw-{os.getpid()}")
     identity = None
