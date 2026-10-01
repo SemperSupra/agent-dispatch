@@ -1,3 +1,4 @@
+import pathlib
 import unittest
 from scripts.proxmox_rest_compute_probe import (
     PVE_CONTAINER_SOURCE, PVE_MANAGER_API_SOURCE, PVE_QEMU_PACKAGE_SOURCE,
@@ -36,6 +37,14 @@ class ProxmoxRestComputeContractTests(unittest.TestCase):
         self.assertNotIn("ide2",f)
         self.assertNotIn("password",f)
         self.assertNotIn("ciuser",f)
+
+    def test_apply_failure_path_has_owned_resource_cleanup(self):
+        text=pathlib.Path("scripts/proxmox_rest_compute_probe.py").read_text(encoding="utf-8")
+        self.assertIn("ownership_claimed=True",text)
+        self.assertIn('failure_cleanup_stop',text)
+        self.assertIn('failure_cleanup_delete',text)
+        self.assertIn('{"purge":1}',text)
+        self.assertIn('receipt["cleanup"]["absent"]',text)
 
 if __name__=="__main__":
     unittest.main()
