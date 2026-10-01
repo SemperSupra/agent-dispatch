@@ -715,6 +715,51 @@ public partial class MainWindow : Window
             $"{choice.Name} is a {choice.Kind}. It is observed through the protocol monitor rather than invoked as a client request.";
     }
 
+    private async void MarketplaceAdd_Click(object? sender, RoutedEventArgs e) =>
+        await RunLocalMarketplaceOperationAsync("add");
+
+    private async void MarketplaceList_Click(object? sender, RoutedEventArgs e) =>
+        await RunLocalMarketplaceOperationAsync("list");
+
+    private async void DiagnosticsInstall_Click(object? sender, RoutedEventArgs e) =>
+        await RunLocalMarketplaceOperationAsync("install");
+
+    private async void DiagnosticsRead_Click(object? sender, RoutedEventArgs e) =>
+        await RunLocalMarketplaceOperationAsync("read");
+
+    private async void DiagnosticsUninstall_Click(object? sender, RoutedEventArgs e) =>
+        await RunLocalMarketplaceOperationAsync("uninstall");
+
+    private async void MarketplaceRemove_Click(object? sender, RoutedEventArgs e) =>
+        await RunLocalMarketplaceOperationAsync("remove");
+
+    private async Task RunLocalMarketplaceOperationAsync(string operation)
+    {
+        try
+        {
+            await using var client = await CodexAppServerClient.StartAsync();
+            var result = operation switch
+            {
+                "add" => await SupraChatMarketplace.AddAsync(client),
+                "list" => await SupraChatMarketplace.ListAsync(client),
+                "install" => await SupraChatMarketplace.InstallDiagnosticsAsync(client),
+                "read" => await SupraChatMarketplace.ReadDiagnosticsAsync(client),
+                "uninstall" => await SupraChatMarketplace.UninstallDiagnosticsAsync(client),
+                "remove" => await SupraChatMarketplace.RemoveAsync(client),
+                _ => throw new InvalidOperationException($"Unknown marketplace operation: {operation}")
+            };
+
+            LocalPluginOutputBox.Text = PrettyJson(result);
+            AuthStatus.Text =
+                $"Local Codex marketplace operation completed: {operation}. No ChatGPT-plan grant was used.";
+        }
+        catch (Exception ex)
+        {
+            LocalPluginOutputBox.Text = ex.ToString();
+            AuthStatus.Text = $"Local marketplace operation failed: {ex.Message}";
+        }
+    }
+
     private async void SendRawRpc_Click(object? sender, RoutedEventArgs e)
     {
         try
