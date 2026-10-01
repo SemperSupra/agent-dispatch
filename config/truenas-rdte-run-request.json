@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-wow-sidecar-004-corrected-seed-contract",
+  "request_id": "tn-26-beta3-t6-garm-provider-g2-003-stopped-update",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "wow-sidecar",
+  "product": "garm-provider-g2",
   "authority_issue": 396,
-  "purpose": "Requalify WOW Sidecar on disposable TrueNAS BETA.3 from the corrected exact Foundry control after strengthened full-Compose qualification and exporter PASS.",
-  "consumer_authority_issue": 276
+  "purpose": "Corrective G2 rep-003: stage exact source-generated provider fixtures via supported stopped-App update so List/Get adoption and managed-drift fail-closed can be exercised without runner bootstrap or JIT side effects.",
+  "consumer_authority_issue": 39
 }
