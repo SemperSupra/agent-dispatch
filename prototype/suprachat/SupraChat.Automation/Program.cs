@@ -56,6 +56,8 @@ internal static class Program
                 "diagnostics-read" => WriteSuccess(await LocalMarketplaceAsync("read")),
                 "diagnostics-uninstall" => WriteSuccess(await LocalMarketplaceAsync("uninstall")),
                 "marketplace-remove" => WriteSuccess(await LocalMarketplaceAsync("remove")),
+                "browser-observe" => WriteSuccess(await BrowserObserveAsync(args[1..])),
+                "browser-screenshot" => WriteSuccess(await BrowserScreenshotAsync(args[1..])),
                 "stdio" => await RunStdioAsync(),
                 _ => WriteFailure(2, "USAGE", $"Unknown command: {args[0]}", Help())
             };
@@ -94,7 +96,9 @@ internal static class Program
             new { name = "diagnostics-read", description = "Read the diagnostics plugin through Codex app-server." },
             new { name = "diagnostics-uninstall", description = "Uninstall the local diagnostics plugin." },
             new { name = "marketplace-remove", description = "Remove the local marketplace registration." },
-            new { name = "stdio", description = "Serve line-delimited JSON-RPC 2.0 for agent clients with sessionful Codex events." }
+            new { name = "browser-observe", description = "Open a URL in headless Chromium and return title/URL/accessibility observation.", syntax = "browser-observe --url <url> [--html]" },
+            new { name = "browser-screenshot", description = "Open a URL in headless Chromium and save a full-page screenshot.", syntax = "browser-screenshot --url <url> --out <path>" },
+            new { name = "stdio", description = "Serve line-delimited JSON-RPC 2.0 for agent clients with sessionful Responses/Codex/browser surfaces." }
         },
         auth_boundary = "Interactive authorization is completed by a human through the GUI. Machine shells reuse the same protected local credential store."
     };
@@ -138,6 +142,26 @@ internal static class Program
             "plugin/install-diagnostics",
             "plugin/read-diagnostics",
             "plugin/uninstall-diagnostics",
+            "browser/start",
+            "browser/stop",
+            "browser/pages",
+            "browser/page/new",
+            "browser/page/navigate",
+            "browser/page/back",
+            "browser/page/forward",
+            "browser/page/reload",
+            "browser/page/close",
+            "browser/observe",
+            "browser/screenshot",
+            "browser/click",
+            "browser/fill",
+            "browser/press",
+            "browser/upload",
+            "browser/permissions/grant",
+            "browser/permissions/clear",
+            "browser/trace/start",
+            "browser/trace/stop",
+            "browser/evaluate",
             "codex/start",
             "codex/request",
             "codex/respond",
@@ -336,6 +360,23 @@ internal static class Program
         };
     }
 
+    private static async Task<object> BrowserObserveAsync(string[] args)
+    {
+        var url = RequiredOption(args, "--url");
+        return await BrowserMachine
+            .ObserveUrlAsync(url, HasFlag(args, "--html"))
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<object> BrowserScreenshotAsync(string[] args)
+    {
+        var url = RequiredOption(args, "--url");
+        var destination = RequiredOption(args, "--out");
+        return await BrowserMachine
+            .ScreenshotUrlAsync(url, destination)
+            .ConfigureAwait(false);
+    }
+
     private static async Task<int> RunStdioAsync()
     {
         Console.Error.WriteLine("{\"suprachat\":\"stdio-ready\",\"schema\":\"suprachat-jsonrpc/v1\"}");
@@ -388,6 +429,7 @@ internal static class Program
         }
         finally
         {
+            await BrowserMachine.StopAsync();
             await StopAgentResponsesAsync();
             await StopAgentCodexAsync();
         }
@@ -418,6 +460,26 @@ internal static class Program
             "plugin/install-diagnostics" => await LocalMarketplaceAsync("install"),
             "plugin/read-diagnostics" => await LocalMarketplaceAsync("read"),
             "plugin/uninstall-diagnostics" => await LocalMarketplaceAsync("uninstall"),
+            "browser/start" => await BrowserMachine.StartAsync(parameters),
+            "browser/stop" => await BrowserMachine.StopAsync(),
+            "browser/pages" => await BrowserMachine.PagesAsync(),
+            "browser/page/new" => await BrowserMachine.NewPageAsync(parameters),
+            "browser/page/navigate" => await BrowserMachine.NavigateAsync(parameters),
+            "browser/page/back" => await BrowserMachine.BackAsync(parameters),
+            "browser/page/forward" => await BrowserMachine.ForwardAsync(parameters),
+            "browser/page/reload" => await BrowserMachine.ReloadAsync(parameters),
+            "browser/page/close" => await BrowserMachine.ClosePageAsync(parameters),
+            "browser/observe" => await BrowserMachine.ObserveAsync(parameters),
+            "browser/screenshot" => await BrowserMachine.ScreenshotAsync(parameters),
+            "browser/click" => await BrowserMachine.ClickAsync(parameters),
+            "browser/fill" => await BrowserMachine.FillAsync(parameters),
+            "browser/press" => await BrowserMachine.PressAsync(parameters),
+            "browser/upload" => await BrowserMachine.UploadAsync(parameters),
+            "browser/permissions/grant" => await BrowserMachine.GrantPermissionsAsync(parameters),
+            "browser/permissions/clear" => await BrowserMachine.ClearPermissionsAsync(),
+            "browser/trace/start" => await BrowserMachine.TraceStartAsync(),
+            "browser/trace/stop" => await BrowserMachine.TraceStopAsync(parameters),
+            "browser/evaluate" => await BrowserMachine.EvaluateAsync(parameters),
             "codex/start" => await RpcCodexStartAsync(),
             "codex/request" => await RpcCodexRequestAsync(parameters),
             "codex/respond" => await RpcCodexRespondAsync(parameters),
