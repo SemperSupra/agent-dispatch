@@ -1,0 +1,12 @@
+{
+  "name": "sempersupra-local",
+  "plugins": [
+    {
+      "name": "suprachat-diagnostics",
+      "source": {
+        "source": "local",
+        "path": "./plugins/suprachat-diagnostics"
+      }
+    }
+  ]
+}
