@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -1095,6 +1096,105 @@ public partial class MainWindow : Window
         BrowserSnapshotBox.Text = JsonSerializer.Serialize(
             BrowserSession.Status(),
             new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private async void BrowserScreenshot_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var browser = RequireBrowserSession();
+            var captureDirectory = Path.Combine(AppState.DirectoryPath, "browser-captures");
+            Directory.CreateDirectory(captureDirectory);
+            var path = Path.Combine(
+                captureDirectory,
+                $"browser-{DateTimeOffset.UtcNow:yyyyMMddTHHmmssfffZ}.png");
+            var receipt = await browser.CaptureScreenshotAsync(path);
+            BrowserSnapshotBox.Text = JsonSerializer.Serialize(
+                receipt,
+                new JsonSerializerOptions { WriteIndented = true });
+            AuthStatus.Text = $"Browser screenshot captured: {receipt.OutputPath}";
+        }
+        catch (Exception ex)
+        {
+            BrowserSnapshotBox.Text = ex.ToString();
+            AuthStatus.Text = $"Browser screenshot failed: {ex.Message}";
+        }
+    }
+
+    private async void BrowserCoordinateClick_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            RequireBrowserComputerUseConfirmation("coordinate click");
+            if (!float.TryParse(BrowserXBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var x) || x < 0 ||
+                !float.TryParse(BrowserYBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var y) || y < 0)
+                throw new InvalidOperationException("Pointer X and Y must be finite non-negative numbers.");
+
+            var snapshot = await RequireBrowserSession().ClickAtAsync(x, y);
+            BrowserSnapshotBox.Text = JsonSerializer.Serialize(
+                snapshot,
+                new JsonSerializerOptions { WriteIndented = true });
+            AuthStatus.Text = $"Confirmed browser coordinate click at ({x}, {y}).";
+        }
+        catch (Exception ex)
+        {
+            BrowserSnapshotBox.Text = ex.ToString();
+            AuthStatus.Text = $"Browser coordinate click failed: {ex.Message}";
+        }
+    }
+
+    private async void BrowserKeyPress_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            RequireBrowserComputerUseConfirmation("key press");
+            var key = BrowserKeyBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(key))
+                throw new InvalidOperationException("Enter a Playwright key or key chord.");
+
+            var snapshot = await RequireBrowserSession().PressKeyAsync(key);
+            BrowserSnapshotBox.Text = JsonSerializer.Serialize(
+                snapshot,
+                new JsonSerializerOptions { WriteIndented = true });
+            AuthStatus.Text = $"Confirmed browser key press: {key}";
+        }
+        catch (Exception ex)
+        {
+            BrowserSnapshotBox.Text = ex.ToString();
+            AuthStatus.Text = $"Browser key press failed: {ex.Message}";
+        }
+    }
+
+    private async void BrowserTypeText_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            RequireBrowserComputerUseConfirmation("text input");
+            var text = BrowserTypeTextBox.Text ?? string.Empty;
+            var snapshot = await RequireBrowserSession().TypeTextAsync(text);
+            BrowserSnapshotBox.Text = JsonSerializer.Serialize(
+                snapshot,
+                new JsonSerializerOptions { WriteIndented = true });
+            AuthStatus.Text = "Confirmed literal browser text insertion completed.";
+        }
+        catch (Exception ex)
+        {
+            BrowserSnapshotBox.Text = ex.ToString();
+            AuthStatus.Text = $"Browser text input failed: {ex.Message}";
+        }
+    }
+
+    private BrowserSession RequireBrowserSession() =>
+        _browserSession ?? throw new InvalidOperationException(
+            "Start the clean-room browser before using Computer Use fallback controls.");
+
+    private void RequireBrowserComputerUseConfirmation(string action)
+    {
+        if (BrowserComputerUseConfirmBox.IsChecked != true)
+            throw new InvalidOperationException(
+                $"Confirm the next raw browser input before {action}. Semantic browser controls do not require this fallback confirmation.");
+
+        BrowserComputerUseConfirmBox.IsChecked = false;
     }
 
     private async void StartBrowser_Click(object? sender, RoutedEventArgs e)
