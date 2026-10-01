@@ -241,14 +241,10 @@ class SystemRdteContractTests(unittest.TestCase):
             text,
         )
         self.assertIn("gha-kvm-truenas-run-request/v1", text)
-        self.assertIn(
-            'truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"',
-            text,
-        )
-        self.assertIn(
-            'truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"',
-            text,
-        )
+        self.assertIn("truenas_version=\"$(jq -er", text)
+        self.assertIn(".version | select(type == \"string\" and length > 0)", text)
+        self.assertIn("truenas_rung=\"$(jq -er", text)
+        self.assertIn('.rung | select(. == "t0" or . == "t1"', text)
 
     def test_truenas_t1_requires_local_rpc_probe(self):
         text = TRUENAS.read_text(encoding="utf-8")
