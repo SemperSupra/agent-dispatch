@@ -105,6 +105,30 @@
       "notes": "GUI explorer and machine-readable packaged Codex/SIWC catalogs."
     },
     {
+      "id": "realtime_voice_catalog",
+      "consequential": false,
+      "access": {"human":"implemented","accessible_human":"implemented","automation":"implemented","agent":"implemented"},
+      "platforms": {"windows":"implemented","macos":"implemented","linux":"implemented"},
+      "human_boundary": "Reading the voice catalog does not activate microphone capture or start a realtime session.",
+      "notes": "Named GUI/CLI/JSON-RPC probes map to bundled Codex thread/realtime/listVoices."
+    },
+    {
+      "id": "remote_control_status",
+      "consequential": true,
+      "access": {"human":"implemented","accessible_human":"implemented","automation":"implemented","agent":"implemented"},
+      "platforms": {"windows":"implemented","macos":"implemented","linux":"implemented"},
+      "human_boundary": "Status reads never enable remote control, start pairing, or revoke clients.",
+      "notes": "Named GUI/CLI/JSON-RPC probes map to bundled Codex remoteControl/status/read."
+    },
+    {
+      "id": "plugin_catalog",
+      "consequential": true,
+      "access": {"human":"implemented","accessible_human":"implemented","automation":"implemented","agent":"implemented"},
+      "platforms": {"windows":"implemented","macos":"implemented","linux":"implemented"},
+      "human_boundary": "Catalog reads never install, uninstall, reconcile, or enable plugins.",
+      "notes": "Named GUI/CLI/JSON-RPC probes map to bundled Codex plugin/list."
+    },
+    {
       "id": "accessibility_contract",
       "consequential": true,
       "access": {"human":"implemented","accessible_human":"implemented","automation":"implemented","agent":"implemented"},
