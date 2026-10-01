@@ -151,7 +151,7 @@ public sealed class CodexAppServerClient : IAsyncDisposable
         });
 
     public static async Task<CodexAppServerClient> StartAsync(
-        string accessToken,
+        string? accessToken = null,
         CancellationToken cancellationToken = default)
     {
         var process = CodexAppServer.Start(accessToken);
