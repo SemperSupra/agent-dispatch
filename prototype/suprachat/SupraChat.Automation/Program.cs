@@ -166,6 +166,25 @@ internal static class Program
 
     private static AccessibilityDescriptor Accessibility() => AccessibilityContract.Describe();
 
+    private static object BrowserStatus() => BrowserSession.Status();
+
+    private static async Task<object> BrowserSnapshotAsync(string[] args)
+    {
+        var url = Option(args, "--url");
+        if (string.IsNullOrWhiteSpace(url))
+            throw new MachineException(2, "INVALID_PARAMS", "browser-snapshot requires --url <http-or-https-url>.");
+
+        try
+        {
+            await using var session = await BrowserSession.StartAsync(headless: true);
+            return await session.NavigateAndSnapshotAsync(url);
+        }
+        catch (PlaywrightException ex)
+        {
+            throw new MachineException(4, "BROWSER_RUNTIME_UNAVAILABLE", SafeMessage(ex));
+        }
+    }
+
     private static async Task<object> AccessibilityPreferencesAsync()
     {
         var value = await AccessibilityPreferencesStore.LoadAsync();
@@ -506,6 +525,13 @@ internal static class Program
             interface_scale = saved.InterfaceScale,
             reduced_motion = saved.ReducedMotion
         };
+    }
+
+    private static async Task<object> RpcBrowserSnapshotAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var url = RequiredProperty(p, "url");
+        return await BrowserSnapshotAsync(new[] { "--url", url });
     }
 
     private static async Task<object> RpcResponseCreateAsync(JsonElement? parameters)
