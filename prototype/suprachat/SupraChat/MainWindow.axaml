@@ -320,6 +320,29 @@
                        AutomationProperties.AutomationId="Accessibility.Status"
                        AutomationProperties.Name="Accessibility readiness"
                        AutomationProperties.LiveSetting="Polite" />
+            <TextBlock FontWeight="SemiBold" Text="Accessibility preferences" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Smaller text" Click="AccessibilityScaleDown_Click"
+                      AutomationProperties.AutomationId="Accessibility.ScaleDown"
+                      AutomationProperties.HelpText="Decrease the native SupraChat interface text scale." />
+              <Button Margin="0,0,8,8" Content="Reset text size" Click="AccessibilityScaleReset_Click"
+                      AutomationProperties.AutomationId="Accessibility.ScaleReset"
+                      AutomationProperties.HelpText="Reset the native SupraChat interface text scale to 100 percent." />
+              <Button Margin="0,0,8,8" Content="Larger text" Click="AccessibilityScaleUp_Click"
+                      AutomationProperties.AutomationId="Accessibility.ScaleUp"
+                      AutomationProperties.HelpText="Increase the native SupraChat interface text scale." />
+              <CheckBox x:Name="ReducedMotionBox" Margin="4,4,8,8"
+                        Content="Reduce motion"
+                        Click="ReducedMotionBox_Click"
+                        AutomationProperties.AutomationId="Accessibility.ReducedMotion"
+                        AutomationProperties.HelpText="Prefer reduced motion for SupraChat-owned interface effects." />
+            </WrapPanel>
+            <TextBlock x:Name="AccessibilityPreferencesStatus"
+                       TextWrapping="Wrap"
+                       Text="Interface scale 100 percent · reduced motion off"
+                       AutomationProperties.AutomationId="Accessibility.PreferencesStatus"
+                       AutomationProperties.Name="Accessibility preference status"
+                       AutomationProperties.LiveSetting="Polite" />
             <TextBlock TextWrapping="Wrap"
                        Text="If the embedded ChatGPT view is less usable with your assistive technology on this platform, use the clearly labeled Open in browser action; Agent Lab and machine interfaces remain native SupraChat surfaces." />
             <TextBlock TextWrapping="Wrap"
