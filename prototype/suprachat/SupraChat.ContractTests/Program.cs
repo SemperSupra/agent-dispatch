@@ -75,6 +75,20 @@ using (var multimodal = JsonDocument.Parse(SiwcProtocol.BuildResponsesBody(
         "file data URL missing");
 }
 
+using (var normalizedRaw = JsonDocument.Parse(ResponsesClient.NormalizeRawResponsesBody(
+    """{"input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}],"tools":[{"type":"web_search"}],"temperature":0.2}""",
+    "gpt-example")))
+{
+    var root = normalizedRaw.RootElement;
+    Require(root.GetProperty("model").GetString() == "gpt-example", "raw Responses default model injection failed");
+    Require(root.GetProperty("store").GetBoolean() == false, "raw Responses store must be forced false");
+    Require(root.GetProperty("stream").GetBoolean(), "raw Responses stream must be forced true");
+    Require(root.GetProperty("tools")[0].GetProperty("type").GetString() == "web_search",
+        "raw Responses supported tool field was filtered");
+    Require(root.GetProperty("temperature").GetDouble() == 0.2,
+        "raw Responses probe field was silently removed instead of reaching upstream validation");
+}
+
 var modelJson = """{"models":[{"slug":"gpt-example","display_name":"GPT Example","visibility":"list"},{"slug":"hidden","display_name":"Hidden","visibility":"hidden"}]}""";
 var models = ResponsesClient.ParseModels(modelJson);
 Require(models.Count == 1 && models[0].Slug == "gpt-example" && models[0].DisplayName == "GPT Example", "SIWC model catalog parsing failed");
