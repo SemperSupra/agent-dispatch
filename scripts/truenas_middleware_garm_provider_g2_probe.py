@@ -25,6 +25,7 @@ EXPECTED_APPLIANCE = (
 )
 EXPECTED_PROVIDER_PRODUCT_SOURCE = "14535745dc3aa3c0b5466da7c704bca4d23dcec5"
 EXPECTED_PROVIDER_BINARY_SHA256 = "911f076ba9421f7bb2a1ea72acc927327d799a5ad6265bffe2d869b2cbf5ecc2"
+EXPECTED_TRUENAS_MIDDLEWARE_SOURCE = "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3"
 EXPECTED_FIXTURE_SCHEMA = "semper-supra.garm-provider-truenas-g2-fixtures/1"
 EXPECTED_CONTROLLER_ID = "g2-controller"
 EXPECTED_POOL_ID = "g2-pool"
@@ -375,6 +376,8 @@ def main() -> int:
         "expected_version": EXPECTED_VERSION,
         "provider_product_source": EXPECTED_PROVIDER_PRODUCT_SOURCE,
         "provider_binary_sha256": EXPECTED_PROVIDER_BINARY_SHA256,
+        "truenas_middleware_source": EXPECTED_TRUENAS_MIDDLEWARE_SOURCE,
+        "stopped_update_contract": "app.update skips compose action when existing App state is STOPPED",
         "appliance": EXPECTED_APPLIANCE,
         "controller_id": EXPECTED_CONTROLLER_ID,
         "pool_id": EXPECTED_POOL_ID,
