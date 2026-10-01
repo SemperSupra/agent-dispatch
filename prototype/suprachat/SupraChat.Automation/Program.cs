@@ -135,53 +135,11 @@ internal static class Program
             local_credentials_shared_with_gui = true,
             codex_runtime_resolution = "bundled-first",
             json_rpc_framing = "one-json-object-per-line",
-            accessibility_contract = "suprachat-accessibility/v1"
+            accessibility_contract = AccessibilityContract.Schema
         }
     };
 
-    private static object Accessibility() => new
-    {
-        schema = "suprachat-accessibility/v1",
-        product = "SupraChat",
-        platform = PlatformName(),
-        human = new
-        {
-            keyboard_only = true,
-            screen_reader_semantics = true,
-            stable_automation_ids = true,
-            semantic_headings = true,
-            labeled_inputs = true,
-            live_status_regions = true,
-            state_never_color_only = true,
-            system_theme = true,
-            high_contrast_follows_platform = true,
-            dpi_render_scaling = true,
-            required_pointer_gestures = false,
-            required_custom_motion = false,
-            shortcuts = OperatingSystem.IsMacOS()
-                ? new[] { "Command+1", "Command+2", "Command+3", "Command+L" }
-                : new[] { "Control+1", "Control+2", "Control+3", "Control+L" }
-        },
-        automation = new
-        {
-            screen_scraping_required = false,
-            deterministic_json = true,
-            stable_exit_codes = true,
-            semantic_commands = true
-        },
-        agent = new
-        {
-            screen_scraping_required = false,
-            protocol = "json-rpc-2.0-stdio",
-            semantic_methods = true,
-            human_consent_boundaries_preserved = true
-        },
-        qualification = new
-        {
-            contract_document = "ACCESSIBILITY.md",
-            accessibility_regression_is_failure = true
-        }
-    };
+    private static AccessibilityDescriptor Accessibility() => AccessibilityContract.Describe();
 
     private static object ReadCombinedCatalog() => new
     {
