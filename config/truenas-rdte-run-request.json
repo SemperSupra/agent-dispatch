@@ -5,6 +5,6 @@
   "rung": "t6",
   "product": "garm-provider-g2",
   "authority_issue": 396,
-  "purpose": "Execute the fixture-routing-corrected G2 verified-transport and adoption/reconciliation qualification for the exact GARM TrueNAS provider on disposable TrueNAS BETA.3.",
+  "purpose": "Corrective G2 rep-002 after fixture routing was moved into the TrueNAS job and statically regression-locked.",
   "consumer_authority_issue": 39
 }
