@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-001",
+  "request_id": "tn-25.04.1-t6-official-catalog-002-bootstrap-probe-fix",
   "version": "25.04.1",
   "rung": "t6",
   "product": "official-catalog",
   "authority_issue": 411,
   "consumer_authority_issue": 281,
-  "purpose": "Exercise the exact Foundry-exported native official-catalog ntfy control on accepted TrueNAS 25.04.1 using observe/discover -> plan -> apply -> verify, lifecycle convergence, conditional native upgrade, retain-data delete/reinstall, and final cleanup."
+  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after correcting the capability contract so core.get_methods is proven as a bootstrap call and only returned public adapter methods are self-listed/validated."
 }
