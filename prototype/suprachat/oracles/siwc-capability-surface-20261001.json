@@ -1,0 +1,166 @@
+{
+  "schema": "suprachat-siwc-capability-surface/v1",
+  "captured_at": "2026-10-01",
+  "authority_urls": [
+    "https://developers.openai.com/siwc/token-sharing-open-source",
+    "https://developers.openai.com/siwc/token-sharing-open-source/sign-in",
+    "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference",
+    "https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server",
+    "https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions",
+    "https://developers.openai.com/siwc/token-sharing-open-source/token-reference",
+    "https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery",
+    "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+  ],
+  "oauth": {
+    "first_registration_client_id": "dynamic_agent_client",
+    "required_host_identifier": "ext_agent_host_id",
+    "pkce": "S256",
+    "plan_usage_scope": "chatgpt.tokens.use.direct",
+    "resource": "https://api.openai.com/v1",
+    "endpoints": {
+      "discovery": "https://auth.openai.com/.well-known/openid-configuration",
+      "authorize": "https://auth.openai.com/api/accounts/authorize",
+      "token": "https://auth.openai.com/api/accounts/oauth/token",
+      "revocation": "discovered from OIDC metadata"
+    },
+    "token_behavior": {
+      "access_token_seconds": 3600,
+      "refresh_token_days": 30,
+      "refresh_rotates": true,
+      "offline_access_required_for_refresh": true,
+      "client_secret_required": false
+    }
+  },
+  "public_api_routes": [
+    {
+      "method": "GET",
+      "path": "/v1/models",
+      "state": "supported",
+      "purpose": "account-specific visible model catalog"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/responses",
+      "state": "supported",
+      "purpose": "eligible ChatGPT-plan inference"
+    }
+  ],
+  "responses_http_invariants": {
+    "store": false,
+    "stream": true,
+    "input_context": "send required context in input array",
+    "explicit_system_message_item": "rejected",
+    "instructions_or_developer_messages": "supported",
+    "previous_response_id": "unsupported_over_http"
+  },
+  "supported_inputs": [
+    {
+      "name": "text",
+      "state": "supported_when_model_accepts"
+    },
+    {
+      "name": "image",
+      "state": "supported_when_model_accepts"
+    },
+    {
+      "name": "file",
+      "state": "supported_when_model_accepts"
+    }
+  ],
+  "unsupported_inputs": [
+    {
+      "name": "audio",
+      "state": "unsupported_by_siwc_plan_sharing"
+    },
+    {
+      "name": "video",
+      "state": "unsupported_by_siwc_plan_sharing"
+    },
+    {
+      "name": "Files upload API",
+      "state": "unsupported_route"
+    },
+    {
+      "name": "transcription API",
+      "state": "unsupported_route"
+    }
+  ],
+  "supported_tools": [
+    {
+      "name": "function",
+      "state": "supported",
+      "notes": "group in namespaces or use additional_tools as documented"
+    },
+    {
+      "name": "custom",
+      "state": "supported",
+      "notes": "group in namespaces or use additional_tools as documented"
+    },
+    {
+      "name": "web_search",
+      "state": "conditional",
+      "notes": "subject to selected model and account/workspace policy"
+    }
+  ],
+  "unsupported_tools": [
+    "image_generation",
+    "file_search",
+    "code_interpreter",
+    "native_computer_use",
+    "hosted_mcp_or_connectors",
+    "tool_search",
+    "programmatic_tool_calling_as_top_level_tool"
+  ],
+  "unsupported_request_fields": [
+    "background",
+    "conversation",
+    "max_output_tokens",
+    "max_tool_calls",
+    "metadata",
+    "moderation",
+    "multi_agent",
+    "prompt",
+    "prompt_cache_retention",
+    "safety_identifier",
+    "temperature",
+    "top_logprobs",
+    "top_p",
+    "truncation",
+    "user"
+  ],
+  "conversation_state": {
+    "http_previous_response_id": "unsupported",
+    "http_persistent_conversation_storage": "unsupported",
+    "websocket_continuation": "same_authenticated_connection_only",
+    "application_history": "send required history in input or use Codex local thread history"
+  },
+  "codex_app_server": {
+    "transport_from_app": "newline-delimited JSON over stdio",
+    "inference_transport": "HTTP/SSE Responses",
+    "supports_websockets": false,
+    "token_delivery": "ACCESS_TOKEN process environment",
+    "separate_codex_login_required": false,
+    "local_tools_and_agents": "supported through Codex runtime/function-custom tool path",
+    "arbitrary_responses_parameters": "not accepted by app-server RPC",
+    "refresh_behavior": "refresh in host app; restart app-server with renewed token; initialize; thread/resume"
+  },
+  "terminal_success": "response.completed or Codex turn.status=completed",
+  "known_error_codes": [
+    "subscription_sharing_usage_limit_exceeded",
+    "subscription_sharing_usage_unavailable",
+    "subscription_sharing_unsupported_capability",
+    "subscription_sharing_route_not_supported",
+    "subscription_sharing_invalid_user",
+    "chatpass_v2_scope_not_authorized",
+    "chatpass_v2_invalid_authorization_context",
+    "subscription_sharing_user_unavailable",
+    "invalid_grant",
+    "invalid_refresh_token",
+    "token_expired",
+    "refresh_token_expired",
+    "refresh_token_invalidated",
+    "refresh_token_reused",
+    "invalid_client"
+  ],
+  "qualification_policy": "The typed UI exercises documented supported paths. The raw Responses console preserves arbitrary request fields so current upstream behavior can be measured. Unsupported-by-SIWC does not mean unavailable through ChatGPT product or Codex runtime."
+}
