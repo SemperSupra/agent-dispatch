@@ -37,6 +37,7 @@
                 AutomationProperties.Name="SupraChat work areas">
       <TabItem Header="ChatGPT"
                AutomationProperties.AutomationId="Tab.ChatGPT"
+               AutomationProperties.AcceleratorKey="Command+1 / Control+1"
                AutomationProperties.HelpText="Official ChatGPT product surface. Keyboard shortcut Command+1 on macOS or Control+1 on Windows/Linux.">
         <NativeWebView x:Name="ChatView"
                        Source="https://chatgpt.com/"
@@ -48,6 +49,7 @@
 
       <TabItem Header="Agent Lab"
                AutomationProperties.AutomationId="Tab.AgentLab"
+               AutomationProperties.AcceleratorKey="Command+2 / Control+2"
                AutomationProperties.HelpText="ChatGPT-plan and Codex capability laboratory. Keyboard shortcut Command+2 on macOS or Control+2 on Windows/Linux.">
         <ScrollViewer>
           <StackPanel Margin="20" Spacing="10" MaxWidth="1100">
@@ -105,6 +107,7 @@
             <TextBox x:Name="PromptBox" AcceptsReturn="True" MinHeight="110"
                      Text="Say exactly: Hello from SupraChat."
                      AutomationProperties.AutomationId="AgentLab.Prompt"
+                     AutomationProperties.AcceleratorKey="Command+L / Control+L"
                      AutomationProperties.LabeledBy="{Binding #InterviewInputLabel}"
                      AutomationProperties.HelpText="Interview prompt. Keyboard shortcut Command+L on macOS or Control+L on Windows/Linux focuses this field." />
 
@@ -256,6 +259,7 @@
 
       <TabItem Header="Automation &amp; Agents"
                AutomationProperties.AutomationId="Tab.AutomationAgents"
+               AutomationProperties.AcceleratorKey="Command+3 / Control+3"
                AutomationProperties.HelpText="Machine interfaces, readiness and accessibility information. Keyboard shortcut Command+3 on macOS or Control+3 on Windows/Linux.">
         <ScrollViewer>
           <StackPanel Margin="20" Spacing="10" MaxWidth="1000">
