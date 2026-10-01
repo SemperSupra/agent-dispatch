@@ -15,7 +15,8 @@ public static class CodexAppServer
         "-c", "model_providers.openai_chatgpt_plan.env_key=\"ACCESS_TOKEN\"",
         "-c", "model_providers.openai_chatgpt_plan.wire_api=\"responses\"",
         "-c", "model_providers.openai_chatgpt_plan.requires_openai_auth=false",
-        "-c", "model_providers.openai_chatgpt_plan.supports_websockets=false"
+        "-c", "model_providers.openai_chatgpt_plan.supports_websockets=false",
+        "-c", "features.plugins=true"
     };
 
     public static string ResolveExecutable(string? baseDirectory = null)
@@ -40,8 +41,13 @@ public static class CodexAppServer
         return name;
     }
 
-    public static Process Start(string accessToken)
+    public static string CodexHome =>
+        Path.Combine(AppState.DirectoryPath, "codex-home");
+
+    public static Process Start(string? accessToken = null)
     {
+        Directory.CreateDirectory(CodexHome);
+
         var psi = new ProcessStartInfo(ResolveExecutable())
         {
             UseShellExecute = false,
@@ -52,7 +58,9 @@ public static class CodexAppServer
         };
         foreach (var arg in Arguments)
             psi.ArgumentList.Add(arg);
-        psi.Environment["ACCESS_TOKEN"] = accessToken;
+        psi.Environment["CODEX_HOME"] = CodexHome;
+        if (!string.IsNullOrWhiteSpace(accessToken))
+            psi.Environment["ACCESS_TOKEN"] = accessToken;
 
         return Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start codex app-server.");
