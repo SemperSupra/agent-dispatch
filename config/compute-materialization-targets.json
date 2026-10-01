@@ -1,0 +1,346 @@
+{
+  "schema": "semper-supra.compute-materialization-targets/v1",
+  "authority": "SemperSupra/agent-dispatch-private#426",
+  "parent_system_authority": "SemperSupra/agent-dispatch-private#396",
+  "policy": {
+    "exact_target_required": true,
+    "observed_capabilities_required_before_apply": true,
+    "source_profile_required": true,
+    "cli_fallback_when_product_api_exists": false,
+    "ambiguous_operation_retry": "reobserve-first",
+    "workflow_green_not_acceptance": true
+  },
+  "platforms": {
+    "truenas": {
+      "targets": [
+        {
+          "version": "25.04.1",
+          "middleware_commit": "74ab5a2d373be4097dece257d00e1086376333ba",
+          "management_families": [
+            "virt-incus"
+          ],
+          "source_fingerprint": {
+            "virt.instance": "87fc6bb365b3b09820331d90ed2c0138af41ce1b"
+          },
+          "container_adapters": [
+            {
+              "id": "truenas-virt-incus-container",
+              "instance_type": "CONTAINER",
+              "required_methods": [
+                "virt.instance.query",
+                "virt.instance.create",
+                "virt.instance.update",
+                "virt.instance.delete",
+                "virt.instance.start",
+                "virt.instance.stop",
+                "virt.instance.restart"
+              ],
+              "guest_oracle": "virt.instance.get_shell-or-instance-network",
+              "restart_semantics": "native"
+            }
+          ],
+          "vm_adapters": [
+            {
+              "id": "truenas-virt-incus-vm",
+              "instance_type": "VM",
+              "required_methods": [
+                "virt.instance.query",
+                "virt.instance.create",
+                "virt.instance.update",
+                "virt.instance.delete",
+                "virt.instance.start",
+                "virt.instance.stop",
+                "virt.instance.restart"
+              ],
+              "guest_oracle": "network-or-vnc/serial-capability",
+              "restart_semantics": "native",
+              "hypervisor_family": "incus-qemu"
+            }
+          ]
+        },
+        {
+          "version": "25.04.2.6",
+          "middleware_commit": "244b717370fe35fb9eefc3096acfbc25f12b57b6",
+          "management_families": [
+            "virt-incus",
+            "vm-libvirt"
+          ],
+          "source_fingerprint": {
+            "virt.instance": "ac22db500d9d1c6932a4cc109716cd8a3bd46223",
+            "vm.vms": "993ed915c7058c8e8433d5d5592bb30f24cbfd1c",
+            "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5"
+          },
+          "container_adapters": [
+            {
+              "id": "truenas-virt-incus-container",
+              "instance_type": "CONTAINER",
+              "required_methods": [
+                "virt.instance.query",
+                "virt.instance.create",
+                "virt.instance.update",
+                "virt.instance.delete",
+                "virt.instance.start",
+                "virt.instance.stop",
+                "virt.instance.restart"
+              ],
+              "guest_oracle": "virt.instance.get_shell-or-instance-network",
+              "restart_semantics": "native"
+            }
+          ],
+          "vm_adapters": [
+            {
+              "id": "truenas-vm-libvirt",
+              "preferred": true,
+              "required_methods": [
+                "vm.query",
+                "vm.create",
+                "vm.update",
+                "vm.delete",
+                "vm.status",
+                "vm.start",
+                "vm.stop",
+                "vm.restart"
+              ],
+              "guest_oracle": "network-or-console-capability",
+              "restart_semantics": "native",
+              "hypervisor_family": "libvirt-qemu"
+            },
+            {
+              "id": "truenas-virt-incus-vm",
+              "preferred": false,
+              "instance_type": "VM",
+              "required_methods": [
+                "virt.instance.query",
+                "virt.instance.create",
+                "virt.instance.update",
+                "virt.instance.delete",
+                "virt.instance.start",
+                "virt.instance.stop",
+                "virt.instance.restart"
+              ],
+              "guest_oracle": "network-or-vnc/serial-capability",
+              "restart_semantics": "native",
+              "hypervisor_family": "incus-qemu"
+            }
+          ]
+        },
+        {
+          "version": "25.10.7",
+          "middleware_commit": "8ede398839710e56893d88ce85088139d8fab18e",
+          "management_families": [
+            "virt-incus",
+            "vm-libvirt"
+          ],
+          "source_fingerprint": {
+            "virt.instance": "8f3f21996b4d14385ba17405676704cb9b921bea",
+            "vm.vms": "2532f53d54d845e983c76e8479027587dec81df7",
+            "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5"
+          },
+          "container_adapters": [
+            {
+              "id": "truenas-virt-incus-container",
+              "instance_type": "CONTAINER",
+              "required_methods": [
+                "virt.instance.query",
+                "virt.instance.create",
+                "virt.instance.update",
+                "virt.instance.delete",
+                "virt.instance.start",
+                "virt.instance.stop",
+                "virt.instance.restart"
+              ],
+              "guest_oracle": "virt.instance.get_shell-or-instance-network",
+              "restart_semantics": "native"
+            }
+          ],
+          "vm_adapters": [
+            {
+              "id": "truenas-vm-libvirt",
+              "preferred": true,
+              "required_methods": [
+                "vm.query",
+                "vm.create",
+                "vm.update",
+                "vm.delete",
+                "vm.status",
+                "vm.start",
+                "vm.stop",
+                "vm.restart"
+              ],
+              "guest_oracle": "network-or-console-capability",
+              "restart_semantics": "native",
+              "hypervisor_family": "libvirt-qemu"
+            },
+            {
+              "id": "truenas-virt-incus-vm",
+              "preferred": false,
+              "instance_type": "VM",
+              "required_methods": [
+                "virt.instance.query",
+                "virt.instance.create",
+                "virt.instance.update",
+                "virt.instance.delete",
+                "virt.instance.start",
+                "virt.instance.stop",
+                "virt.instance.restart"
+              ],
+              "guest_oracle": "network-or-vnc/serial-capability",
+              "restart_semantics": "native",
+              "hypervisor_family": "incus-qemu"
+            }
+          ]
+        },
+        {
+          "version": "26.0.0-BETA.3",
+          "middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
+          "management_families": [
+            "container-lxc",
+            "vm-libvirt"
+          ],
+          "source_fingerprint": {
+            "container.container": "54111667692fa7beea67893b50149ef605a8ce22",
+            "container.lifecycle": "1e29c7c3143d9adbd0cb8e03806a3d5f5ebe29e0",
+            "container.nsenter": "90b6e245e186441a863a701c0c4714671b691184",
+            "vm.vms": "43ed4b532b40da02ad885039d954c99a93ea22ed",
+            "vm.lifecycle": "b313e2eeb0baa0179ab9244fc244eee9b02e02e9"
+          },
+          "container_adapters": [
+            {
+              "id": "truenas-container-lxc",
+              "required_methods": [
+                "container.query",
+                "container.create",
+                "container.update",
+                "container.delete",
+                "container.start",
+                "container.stop"
+              ],
+              "guest_oracle": "supported-shell/namespace-or-instance-network",
+              "restart_semantics": "compose-stop-start",
+              "implementation_family": "lxc"
+            }
+          ],
+          "vm_adapters": [
+            {
+              "id": "truenas-vm-libvirt",
+              "preferred": true,
+              "required_methods": [
+                "vm.query",
+                "vm.create",
+                "vm.update",
+                "vm.delete",
+                "vm.status",
+                "vm.start",
+                "vm.stop",
+                "vm.restart"
+              ],
+              "guest_oracle": "network-or-console-capability",
+              "restart_semantics": "native",
+              "hypervisor_family": "libvirt-qemu"
+            }
+          ]
+        }
+      ]
+    },
+    "proxmox": {
+      "targets": [
+        {
+          "version": "9.2-1",
+          "management_families": [
+            "pve-rest-lxc",
+            "pve-rest-qemu"
+          ],
+          "source_fingerprint": {
+            "iso_sha256": "4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c",
+            "pve_installer_version": "9.2.5",
+            "pve_installer_commit": "32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9",
+            "pve_container_commit": "5eb5574ee9158ac40a5230de2cf18d7d6345709f",
+            "pve_qemu_commit": "684796e835289dab11af8606fbf7358b93526dd6",
+            "pve_qemu_submodule_commit": "98b060da3a4f92b2a994ead5b16a87e783baf77c",
+            "expected_pve_container_package": "6.1.10",
+            "expected_pve_qemu_kvm_package": "11.0.0-3"
+          },
+          "container_adapters": [
+            {
+              "id": "proxmox-lxc-rest",
+              "required_api_templates": [
+                "POST /nodes/{node}/lxc",
+                "GET /nodes/{node}/lxc/{vmid}/config",
+                "POST /nodes/{node}/lxc/{vmid}/status/start",
+                "POST /nodes/{node}/lxc/{vmid}/status/stop",
+                "DELETE /nodes/{node}/lxc/{vmid}"
+              ],
+              "guest_oracle": "agent-or-console/exec-boundary",
+              "implementation_family": "pve-lxc"
+            }
+          ],
+          "vm_adapters": [
+            {
+              "id": "proxmox-vm-rest",
+              "required_api_templates": [
+                "POST /nodes/{node}/qemu",
+                "GET /nodes/{node}/qemu/{vmid}/config",
+                "POST /nodes/{node}/qemu/{vmid}/status/start",
+                "POST /nodes/{node}/qemu/{vmid}/status/stop",
+                "POST /nodes/{node}/qemu/{vmid}/status/reboot",
+                "DELETE /nodes/{node}/qemu/{vmid}"
+              ],
+              "guest_oracle": "agent-or-network/console-boundary",
+              "hypervisor_family": "pve-qemu-kvm"
+            }
+          ],
+          "compute_materialization_qualified": false
+        }
+      ]
+    }
+  },
+  "fixtures": {
+    "system_container": {
+      "semantic_id": "linux-system-container-nonce/v1",
+      "required_lifecycle": [
+        "create",
+        "readback",
+        "start",
+        "guest-nonce",
+        "update-if-supported",
+        "restart",
+        "stop",
+        "delete",
+        "absence",
+        "noop"
+      ]
+    },
+    "firecracker_vm": {
+      "semantic_id": "linux-firecracker-nested-vm/v1",
+      "required_lifecycle": [
+        "create",
+        "readback",
+        "start",
+        "guest-nonce",
+        "nested-kvm-observe",
+        "firecracker-if-kvm",
+        "restart",
+        "delete",
+        "absence"
+      ],
+      "nested_kvm": "must-be-observed-not-assumed"
+    },
+    "windows11_vm": {
+      "semantic_id": "windows-11-evaluation-vm/v1",
+      "required_lifecycle": [
+        "create",
+        "readback",
+        "start",
+        "unattended-install",
+        "guest-oracle",
+        "restart",
+        "stop",
+        "delete",
+        "absence"
+      ],
+      "source_policy": "legal-public-evaluation-or-user-provided-media; no embedded product key",
+      "firmware_policy": "observe UEFI/q35/TPM/Secure-Boot capabilities; fail closed where required"
+    }
+  },
+  "claim_boundary": "Source/profile/planning contract only. No container/VM target or fixture is runtime-qualified by this registry."
+}
