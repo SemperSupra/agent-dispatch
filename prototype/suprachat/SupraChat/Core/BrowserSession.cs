@@ -18,6 +18,14 @@ public sealed record BrowserPageSnapshot(
     string AriaSnapshot,
     DateTimeOffset CapturedAt);
 
+public sealed record BrowserScreenshotReceipt(
+    string Schema,
+    string Url,
+    string OutputPath,
+    long Bytes,
+    bool FullPage,
+    DateTimeOffset CapturedAt);
+
 public sealed class BrowserSession : IAsyncDisposable
 {
     public const string Schema = "suprachat-browser-session/v1";
@@ -205,6 +213,84 @@ public sealed class BrowserSession : IAsyncDisposable
             Exact = exact
         }).FillAsync(value);
 
+        return await SnapshotAsync(cancellationToken);
+    }
+
+    public async Task<BrowserScreenshotReceipt> CaptureScreenshotAsync(
+        string outputPath,
+        bool fullPage = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath))
+            throw new ArgumentException("A screenshot output path is required.", nameof(outputPath));
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var fullPath = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory());
+
+        await Page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            Path = fullPath,
+            FullPage = fullPage,
+            Type = ScreenshotType.Png
+        });
+
+        var info = new FileInfo(fullPath);
+        if (!info.Exists || info.Length == 0)
+            throw new InvalidOperationException("Browser screenshot completed without a non-empty PNG.");
+
+        return new BrowserScreenshotReceipt(
+            "suprachat-browser-screenshot/v1",
+            Page.Url,
+            fullPath,
+            info.Length,
+            fullPage,
+            DateTimeOffset.UtcNow);
+    }
+
+    public async Task<BrowserPageSnapshot> ClickAtAsync(
+        float x,
+        float y,
+        string button = "left",
+        int clickCount = 1,
+        CancellationToken cancellationToken = default)
+    {
+        if (!float.IsFinite(x) || !float.IsFinite(y) || x < 0 || y < 0)
+            throw new ArgumentOutOfRangeException(nameof(x), "Pointer coordinates must be finite and non-negative.");
+        if (clickCount is < 1 or > 3)
+            throw new ArgumentOutOfRangeException(nameof(clickCount), "Click count must be between 1 and 3.");
+        if (!Enum.TryParse<MouseButton>(button, ignoreCase: true, out var mouseButton))
+            throw new ArgumentException("Pointer button must be left, middle, or right.", nameof(button));
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Page.Mouse.ClickAsync(x, y, new MouseClickOptions
+        {
+            Button = mouseButton,
+            ClickCount = clickCount
+        });
+        return await SnapshotAsync(cancellationToken);
+    }
+
+    public async Task<BrowserPageSnapshot> PressKeyAsync(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("A Playwright key chord is required.", nameof(key));
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Page.Keyboard.PressAsync(key);
+        return await SnapshotAsync(cancellationToken);
+    }
+
+    public async Task<BrowserPageSnapshot> TypeTextAsync(
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Page.Keyboard.InsertTextAsync(text);
         return await SnapshotAsync(cancellationToken);
     }
 

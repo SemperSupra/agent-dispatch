@@ -279,6 +279,50 @@
                       AutomationProperties.AutomationId="Browser.Stop"
                       AutomationProperties.HelpText="Stop the application-owned clean-room browser session." />
             </WrapPanel>
+
+            <TextBlock FontWeight="SemiBold" Text="Computer Use fallback controls"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2"
+                       AutomationProperties.AutomationId="Browser.ComputerUseHeading" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Semantic ARIA role/name and labeled-field actions remain preferred. Screenshot, coordinate pointer, and raw keyboard controls are fallback tools. Raw input requires a fresh explicit confirmation for each action." />
+            <CheckBox x:Name="BrowserComputerUseConfirmBox"
+                      Content="Confirm the next raw browser input action"
+                      AutomationProperties.AutomationId="Browser.ComputerUseConfirm"
+                      AutomationProperties.HelpText="Must be checked immediately before coordinate click, key press, or literal text insertion. It is consumed after one action." />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Capture browser screenshot"
+                      Click="BrowserScreenshot_Click"
+                      AutomationProperties.AutomationId="Browser.Screenshot"
+                      AutomationProperties.HelpText="Capture the current isolated browser page to an application-owned PNG without changing the page." />
+              <TextBox x:Name="BrowserXBox" Width="80" Margin="0,0,8,8" Text="5"
+                       AutomationProperties.AutomationId="Browser.PointerX"
+                       AutomationProperties.Name="Pointer X coordinate" />
+              <TextBox x:Name="BrowserYBox" Width="80" Margin="0,0,8,8" Text="5"
+                       AutomationProperties.AutomationId="Browser.PointerY"
+                       AutomationProperties.Name="Pointer Y coordinate" />
+              <Button Margin="0,0,8,8" Content="Click coordinates"
+                      Click="BrowserCoordinateClick_Click"
+                      AutomationProperties.AutomationId="Browser.PointerClick"
+                      AutomationProperties.HelpText="Click the supplied browser viewport coordinates after explicit confirmation." />
+            </WrapPanel>
+            <WrapPanel Orientation="Horizontal">
+              <TextBox x:Name="BrowserKeyBox" Width="140" Margin="0,0,8,8" Text="Tab"
+                       AutomationProperties.AutomationId="Browser.KeyboardKey"
+                       AutomationProperties.Name="Browser key or key chord" />
+              <Button Margin="0,0,8,8" Content="Press key"
+                      Click="BrowserKeyPress_Click"
+                      AutomationProperties.AutomationId="Browser.KeyboardPress"
+                      AutomationProperties.HelpText="Press the supplied Playwright key or key chord after explicit confirmation." />
+              <TextBox x:Name="BrowserTypeTextBox" Width="240" Margin="0,0,8,8"
+                       AutomationProperties.AutomationId="Browser.KeyboardText"
+                       AutomationProperties.Name="Literal browser text input" />
+              <Button Margin="0,0,8,8" Content="Type text"
+                      Click="BrowserTypeText_Click"
+                      AutomationProperties.AutomationId="Browser.KeyboardType"
+                      AutomationProperties.HelpText="Insert literal text into the focused browser element after explicit confirmation." />
+            </WrapPanel>
+
             <TextBox x:Name="BrowserSnapshotBox"
                      AcceptsReturn="True"
                      IsReadOnly="True"
