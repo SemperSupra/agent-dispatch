@@ -8,4 +8,14 @@
   <ItemGroup>
     <ProjectReference Include="../SupraChat/SupraChat.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="../oracles/codex-capability-catalog-20261001.json"
+             Link="oracles/codex-capability-catalog-20261001.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../oracles/siwc-capability-surface-20261001.json"
+             Link="oracles/siwc-capability-surface-20261001.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
