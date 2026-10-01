@@ -612,6 +612,14 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"apps_gate": "docker.license_active"', text)
         self.assertIn('"ha_apps_gate": a.ha_apps_gate', text)
 
+    def test_product_t6_admission_replaces_beta_only_product_gate(self):
+        text = (ROOT / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertIn("truenas_product_t6_admission.py", text)
+        self.assertIn("--require-admitted", text)
+        self.assertIn("EXPECTED_PRODUCT_FOUNDRY_COMMIT", text)
+        self.assertNotIn("product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3", text)
+        self.assertIn("garm-provider-g2 remains admitted only for exact TrueNAS 26.0.0-BETA.3", text)
+
 
 if __name__ == "__main__":
     unittest.main()
