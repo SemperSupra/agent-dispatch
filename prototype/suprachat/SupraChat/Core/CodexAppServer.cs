@@ -40,7 +40,13 @@ public static class CodexAppServer
         return name;
     }
 
-    public static Process Start(string accessToken)
+    public static Process Start(string accessToken) =>
+        StartCore(accessToken);
+
+    public static Process StartLocal() =>
+        StartCore(accessToken: null);
+
+    private static Process StartCore(string? accessToken)
     {
         var psi = new ProcessStartInfo(ResolveExecutable())
         {
@@ -52,7 +58,11 @@ public static class CodexAppServer
         };
         foreach (var arg in Arguments)
             psi.ArgumentList.Add(arg);
-        psi.Environment["ACCESS_TOKEN"] = accessToken;
+
+        if (!string.IsNullOrWhiteSpace(accessToken))
+            psi.Environment["ACCESS_TOKEN"] = accessToken;
+        else
+            psi.Environment.Remove("ACCESS_TOKEN");
 
         return Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start codex app-server.");
