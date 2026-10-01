@@ -139,10 +139,10 @@
     {
       "id": "desktop_notifications",
       "consequential": false,
-      "access": {"human":"qualify","accessible_human":"qualify","automation":"not_applicable","agent":"not_applicable"},
-      "platforms": {"windows":"qualify","macos":"gap","linux":"gap"},
+      "access": {"human":"implemented_with_fallback","accessible_human":"implemented_with_fallback","automation":"not_applicable","agent":"not_applicable"},
+      "platforms": {"windows":"implemented","macos":"implemented","linux":"implemented_with_fallback"},
       "human_boundary": "OS notification permissions/preferences apply.",
-      "notes": "Windows native adapter exists; cross-platform notification adapters remain a parity gap."
+      "notes": "Windows uses the native notification-area adapter, macOS uses the system notification service, and Linux uses the freedesktop notification path when notify-send/a notification daemon is available. Notifications are never the only way state is conveyed."
     },
     {
       "id": "voice_media",
