@@ -113,6 +113,21 @@
 
             <Separator Margin="0,12,0,8" />
 
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Local plugin marketplace" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Clean-room local plugins are managed by the bundled open-source Codex runtime. These operations are local and do not require ChatGPT-plan authorization." />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Add marketplace" Click="MarketplaceAdd_Click" />
+              <Button Margin="0,0,8,8" Content="List plugins" Click="MarketplaceList_Click" />
+              <Button Margin="0,0,8,8" Content="Install diagnostics" Click="DiagnosticsInstall_Click" />
+              <Button Margin="0,0,8,8" Content="Read diagnostics" Click="DiagnosticsRead_Click" />
+              <Button Margin="0,0,8,8" Content="Uninstall diagnostics" Click="DiagnosticsUninstall_Click" />
+              <Button Margin="0,0,8,8" Content="Remove marketplace" Click="MarketplaceRemove_Click" />
+            </WrapPanel>
+            <TextBox x:Name="LocalPluginOutputBox" AcceptsReturn="True" IsReadOnly="True"
+                     TextWrapping="Wrap" MinHeight="130" />
+            <Separator Margin="0,12,0,8" />
+
             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Capability explorer" />
             <TextBlock TextWrapping="Wrap"
                        Text="Browse the packaged Codex runtime plus upstream frontier. Packaged requests can be copied into the generic RPC console; server requests and notifications are observable protocol surfaces rather than client-invoked RPCs." />
