@@ -201,6 +201,23 @@ jobs:
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
           }
+          foreach ($method in @('realtime/voices','remote/status','plugins/list')) {
+            if ($capDoc.value.machine_methods -notcontains $method) {
+              throw "Semantic machine method missing from capabilities: $method"
+            }
+          }
+
+          foreach ($command in @('voices','remote-status','plugins')) {
+            $probe = & $cli $command 2>$null
+            $probeExit = $LASTEXITCODE
+            if ($probeExit -ne 3) {
+              throw "Expected $command to stop at AUTH_REQUIRED with exit 3 on clean runner; got $probeExit"
+            }
+            $probeDoc = $probe | ConvertFrom-Json
+            if ($probeDoc.ok -ne $false -or $probeDoc.error.code -ne 'AUTH_REQUIRED') {
+              throw "Semantic command did not preserve human authorization boundary: $command"
+            }
+          }
 
           $access = & $cli accessibility
           if ($LASTEXITCODE -ne 0) { throw 'Packaged accessibility command failed.' }
@@ -253,6 +270,16 @@ jobs:
           $parityRpcDoc = ($parityRpc | Select-Object -Last 1) | ConvertFrom-Json
           if ($parityRpcDoc.id -ne 'parity' -or $parityRpcDoc.result.schema -ne 'suprachat-audience-parity/v1') {
             throw 'Packaged agent parity contract failed.'
+          }
+
+          foreach ($method in @('realtime/voices','remote/status','plugins/list')) {
+            $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
+            $semanticRpc = $semanticRequest | & $cli stdio 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic method: $method" }
+            $semanticDoc = ($semanticRpc | Select-Object -Last 1) | ConvertFrom-Json
+            if ($semanticDoc.id -ne $method -or $semanticDoc.error.data.type -ne 'AUTH_REQUIRED') {
+              throw "Agent semantic method did not preserve AUTH_REQUIRED boundary: $method"
+            }
           }
 
       - name: Stage and smoke Linux per-user install
