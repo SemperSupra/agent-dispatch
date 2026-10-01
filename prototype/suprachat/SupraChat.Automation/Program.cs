@@ -40,6 +40,9 @@ internal static class Program
             return args[0] switch
             {
                 "capabilities" => WriteSuccess(Capabilities()),
+                "catalog" => WriteSuccess(ReadCombinedCatalog()),
+                "codex-catalog" => WriteSuccess(ReadCatalog("codex-capability-catalog-20261001.json")),
+                "siwc-catalog" => WriteSuccess(ReadCatalog("siwc-capability-surface-20261001.json")),
                 "doctor" => WriteSuccess(await DoctorAsync()),
                 "auth-status" => WriteSuccess(await AuthStatusAsync()),
                 "models" => WriteSuccess(await ModelsAsync()),
@@ -68,6 +71,9 @@ internal static class Program
         commands = new object[]
         {
             new { name = "capabilities", description = "Read machine/product capability metadata." },
+            new { name = "catalog", description = "Read the packaged SIWC + Codex capability catalogs." },
+            new { name = "codex-catalog", description = "Read packaged Codex stable-runtime + upstream-frontier surfaces." },
+            new { name = "siwc-catalog", description = "Read packaged SIWC / ChatGPT-plan capability metadata." },
             new { name = "doctor", description = "Inspect local runtime/auth readiness without network calls." },
             new { name = "auth-status", description = "Read redacted local ChatGPT-plan authorization state." },
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
@@ -100,6 +106,9 @@ internal static class Program
         machine_methods = new[]
         {
             "capabilities/read",
+            "catalog/read",
+            "codex/catalog",
+            "siwc/catalog",
             "doctor/read",
             "auth/status",
             "models/list",
@@ -125,6 +134,23 @@ internal static class Program
             json_rpc_framing = "one-json-object-per-line"
         }
     };
+
+    private static object ReadCombinedCatalog() => new
+    {
+        schema = Schema,
+        codex = ReadCatalog("codex-capability-catalog-20261001.json"),
+        siwc = ReadCatalog("siwc-capability-surface-20261001.json")
+    };
+
+    private static JsonElement ReadCatalog(string fileName)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "oracles", fileName);
+        if (!File.Exists(path))
+            throw new MachineException(4, "CATALOG_MISSING", $"Packaged capability catalog is missing: {fileName}");
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        return document.RootElement.Clone();
+    }
 
     private static async Task<object> DoctorAsync()
     {
@@ -311,6 +337,9 @@ internal static class Program
         return method switch
         {
             "capabilities/read" => Capabilities(),
+            "catalog/read" => ReadCombinedCatalog(),
+            "codex/catalog" => ReadCatalog("codex-capability-catalog-20261001.json"),
+            "siwc/catalog" => ReadCatalog("siwc-capability-surface-20261001.json"),
             "doctor/read" => await DoctorAsync(),
             "auth/status" => await AuthStatusAsync(),
             "models/list" => await ModelsAsync(),
