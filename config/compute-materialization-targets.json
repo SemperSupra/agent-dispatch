@@ -36,7 +36,8 @@
                 "virt.instance.restart"
               ],
               "guest_oracle": "virt.instance.get_shell-or-instance-network",
-              "restart_semantics": "native"
+              "restart_semantics": "native",
+              "source_api_family": "v25_04_0"
             }
           ],
           "vm_adapters": [
@@ -54,9 +55,16 @@
               ],
               "guest_oracle": "network-or-vnc/serial-capability",
               "restart_semantics": "native",
-              "hypervisor_family": "incus-qemu"
+              "hypervisor_family": "incus-qemu",
+              "source_api_family": "v25_04_0"
             }
-          ]
+          ],
+          "api_schema_fingerprint": {
+            "virt_instance": {
+              "path": "src/middlewared/middlewared/api/v25_04_0/virt_instance.py",
+              "blob_sha": "f5caf3f2f98f8ce43fafc19ecccbd1aee1c7c6e0"
+            }
+          }
         },
         {
           "version": "25.04.2.6",
@@ -84,7 +92,8 @@
                 "virt.instance.restart"
               ],
               "guest_oracle": "virt.instance.get_shell-or-instance-network",
-              "restart_semantics": "native"
+              "restart_semantics": "native",
+              "source_api_family": "v25_04_2"
             }
           ],
           "vm_adapters": [
@@ -103,7 +112,8 @@
               ],
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
-              "hypervisor_family": "libvirt-qemu"
+              "hypervisor_family": "libvirt-qemu",
+              "source_api_family": "v25_04_2"
             },
             {
               "id": "truenas-virt-incus-vm",
@@ -120,9 +130,20 @@
               ],
               "guest_oracle": "network-or-vnc/serial-capability",
               "restart_semantics": "native",
-              "hypervisor_family": "incus-qemu"
+              "hypervisor_family": "incus-qemu",
+              "source_api_family": "v25_04_2"
             }
-          ]
+          ],
+          "api_schema_fingerprint": {
+            "virt_instance": {
+              "path": "src/middlewared/middlewared/api/v25_04_2/virt_instance.py",
+              "blob_sha": "6076bd3cbe3fb9c1ad4766831e2ffe86e5a1b605"
+            },
+            "vm": {
+              "path": "src/middlewared/middlewared/api/v25_04_2/vm.py",
+              "blob_sha": "201721f7e42e663d11f3e26ff6f59ef2bbce0c5f"
+            }
+          }
         },
         {
           "version": "25.10.7",
@@ -150,7 +171,8 @@
                 "virt.instance.restart"
               ],
               "guest_oracle": "virt.instance.get_shell-or-instance-network",
-              "restart_semantics": "native"
+              "restart_semantics": "native",
+              "source_api_family": "v25_10_0"
             }
           ],
           "vm_adapters": [
@@ -169,7 +191,8 @@
               ],
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
-              "hypervisor_family": "libvirt-qemu"
+              "hypervisor_family": "libvirt-qemu",
+              "source_api_family": "v25_10_0"
             },
             {
               "id": "truenas-virt-incus-vm",
@@ -186,9 +209,20 @@
               ],
               "guest_oracle": "network-or-vnc/serial-capability",
               "restart_semantics": "native",
-              "hypervisor_family": "incus-qemu"
+              "hypervisor_family": "incus-qemu",
+              "source_api_family": "v25_10_0"
             }
-          ]
+          ],
+          "api_schema_fingerprint": {
+            "virt_instance": {
+              "path": "src/middlewared/middlewared/api/v25_10_0/virt_instance.py",
+              "blob_sha": "5a97786a1522de7fb6e84b516127b01b8fd439df"
+            },
+            "vm": {
+              "path": "src/middlewared/middlewared/api/v25_10_0/vm.py",
+              "blob_sha": "2dad2a7e851d354bc9d6e1d201781b2809e77894"
+            }
+          }
         },
         {
           "version": "26.0.0-BETA.3",
@@ -217,7 +251,8 @@
               ],
               "guest_oracle": "supported-shell/namespace-or-instance-network",
               "restart_semantics": "compose-stop-start",
-              "implementation_family": "lxc"
+              "implementation_family": "lxc",
+              "source_api_family": "v26_0_0"
             }
           ],
           "vm_adapters": [
@@ -236,9 +271,20 @@
               ],
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
-              "hypervisor_family": "libvirt-qemu"
+              "hypervisor_family": "libvirt-qemu",
+              "source_api_family": "v26_0_0"
             }
-          ]
+          ],
+          "api_schema_fingerprint": {
+            "container": {
+              "path": "src/middlewared/middlewared/api/v26_0_0/container.py",
+              "blob_sha": "6c1d11b9d42d5bfc6dd242d77c017b7fbe1a26aa"
+            },
+            "vm": {
+              "path": "src/middlewared/middlewared/api/v26_0_0/vm.py",
+              "blob_sha": "0944382fedc0a8cbcfc55fb8a653a9e5758e88fd"
+            }
+          }
         }
       ]
     },
