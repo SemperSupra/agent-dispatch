@@ -130,9 +130,9 @@ def main():
             low=p.name.lower()
             if low=='package.json':
                 obj=read_json(p); packages.append({'path':rel,'sha256':digest,'metadata':safe_subset(obj,SAFE_PACKAGE_KEYS)})
-            if low=='plugin.json' and '.codex-plugin' in rel:
+            if low=='plugin.json' and ('.codex-plugin' in rel or '/plugins/' in '/'+rel.lower()):
                 obj=read_json(p); plugins.append({'path':rel,'sha256':digest,'metadata':safe_subset(obj,SAFE_PLUGIN_KEYS)})
-            if low=='.mcp.json' or low.endswith('.mcp.json'):
+            if low in {'.mcp.json','mcp.json'} or low.endswith('.mcp.json'):
                 obj=read_json(p); mcps.append({'path':rel,'sha256':digest,'metadata':normalize_mcp(obj)})
             if low=='skill.md':
                 text=p.read_text(errors='replace')
