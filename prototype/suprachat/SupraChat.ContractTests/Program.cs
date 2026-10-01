@@ -357,7 +357,7 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"Browser.KeyboardPress\"",
     "AutomationProperties.AutomationId=\"Browser.KeyboardText\"",
     "AutomationProperties.AutomationId=\"Browser.KeyboardType\"",
-    "AutomationProperties.AutomationId=\"Browser.SemanticSnapshot\""
+    "AutomationProperties.AutomationId=\"Browser.SemanticSnapshot\"",
     "AutomationProperties.LiveSetting=\"Polite\"",
     "AutomationProperties.HeadingLevel=\"1\"",
     "AutomationProperties.HeadingLevel=\"2\"",
