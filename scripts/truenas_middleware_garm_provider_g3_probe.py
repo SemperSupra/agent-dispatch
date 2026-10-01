@@ -11,6 +11,7 @@ import secrets
 import subprocess
 import tempfile
 import time
+import urllib.request
 
 import truenas_middleware_garm_provider_g2_probe as g2
 
@@ -35,6 +36,54 @@ EXPECTED_SUBSTITUTIONS = [
     "expected_compose_template.services.runner.environment.GARM_METADATA_URL",
     "expected_compose_template.services.runner.environment.GARM_INSTANCE_TOKEN",
 ]
+
+
+class FixtureEnvironmentError(RuntimeError):
+    pass
+
+
+def preflight_public_fixture(callback_url: str, metadata_url: str, timeout: float) -> None:
+    payload = b'{"status":"probe","message":"public synthetic G3 fixture preflight"}'
+    request = urllib.request.Request(
+        callback_url,
+        data=payload,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "SemperSupra-G3-RDTE/1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            if not (200 <= response.status < 300):
+                raise FixtureEnvironmentError(
+                    f"synthetic callback preflight returned HTTP {response.status}"
+                )
+            response.read(4096)
+
+        metadata_probe = metadata_url.rstrip("/") + "/credentials/runner"
+        request = urllib.request.Request(
+            metadata_probe,
+            method="GET",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "SemperSupra-G3-RDTE/1",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read(4096)
+            if not (200 <= response.status < 300) or not body:
+                raise FixtureEnvironmentError(
+                    "synthetic metadata preflight did not return non-empty HTTP 2xx"
+                )
+    except FixtureEnvironmentError:
+        raise
+    except Exception as exc:
+        raise FixtureEnvironmentError(
+            f"public synthetic callback/metadata fixture unavailable: {type(exc).__name__}: {exc}"
+        ) from exc
+
 
 
 def load_bundle(directory: pathlib.Path, expected_producer: str) -> dict:
@@ -241,6 +290,8 @@ def main() -> int:
         try:
             bundle = load_bundle(a.fixture_dir, a.fixture_producer_commit)
             payload["fixture_producer_source"] = bundle["producer_source"]
+            preflight_public_fixture(a.callback_url, a.metadata_url, a.timeout)
+            payload["synthetic_fixture_preflight"] = True
             payload["fixture_bundle_sha256"] = g2.sha256_file(
                 a.fixture_dir / "garm-provider-g3-fixture.json"
             )
@@ -427,6 +478,9 @@ def main() -> int:
                 "and no GitHub credential, JIT registration, private workload, physical "
                 "TrueNAS, or capacity promotion was exercised"
             )
+        except FixtureEnvironmentError as exc:
+            payload["classification"] = "ENVIRONMENT_FAILURE"
+            payload["detail"] = str(exc).replace(token, "<synthetic-token>")
         except Exception as exc:
             payload["detail"] = str(exc).replace(token, "<synthetic-token>")
         finally:
