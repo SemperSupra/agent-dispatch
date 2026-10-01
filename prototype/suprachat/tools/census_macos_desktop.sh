@@ -89,10 +89,10 @@ PY
     chmod +x "$bundled_codex" || true
     bundled_arch="$(file -b "$bundled_codex" || true)"
     bundled_version="$("$bundled_codex" --version 2>&1 | head -n1 || true)"
-    if [ -z "$bundled_version" ] && printf '%s' "$bundled_arch" | grep -q 'x86_64'; then
+    if ! printf '%s' "$bundled_version" | grep -Eq 'codex(-cli)?[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+' && printf '%s' "$bundled_arch" | grep -q 'x86_64'; then
       bundled_version="$(arch -x86_64 "$bundled_codex" --version 2>&1 | head -n1 || true)"
     fi
-    if [ -z "$bundled_version" ]; then
+    if ! printf '%s' "$bundled_version" | grep -Eq 'codex(-cli)?[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+'; then
       bundled_version="$(strings "$bundled_codex" | grep -E 'codex(-cli)?[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
     fi
     bundled_sha="$(shasum -a 256 "$bundled_codex" | awk '{print $1}')"
@@ -123,6 +123,23 @@ PY
             compare_status="EXACT_BINARY_MATCH"
           else
             compare_status="DIFFERENT_BINARY"
+            bundled_unsigned="$WORK/bundled-unsigned-$index"
+            standalone_unsigned="$WORK/standalone-unsigned-$index"
+            cp "$bundled_codex" "$bundled_unsigned"
+            cp "$standalone_bin" "$standalone_unsigned"
+            bundled_codesign="$(codesign -dv --verbose=4 "$bundled_codex" 2>&1 || true)"
+            standalone_codesign="$(codesign -dv --verbose=4 "$standalone_bin" 2>&1 || true)"
+            codesign --remove-signature "$bundled_unsigned" >/dev/null 2>&1 || true
+            codesign --remove-signature "$standalone_unsigned" >/dev/null 2>&1 || true
+            bundled_unsigned_sha="$(shasum -a 256 "$bundled_unsigned" | awk '{print $1}')"
+            standalone_unsigned_sha="$(shasum -a 256 "$standalone_unsigned" | awk '{print $1}')"
+            bundled_unsigned_size="$(stat -f %z "$bundled_unsigned")"
+            standalone_unsigned_size="$(stat -f %z "$standalone_unsigned")"
+            if [ "$bundled_unsigned_sha" = "$standalone_unsigned_sha" ]; then
+              compare_status="SIGNATURE_ONLY_DIFFERENCE"
+            else
+              compare_status="DIFFERENT_UNSIGNED_PAYLOAD"
+            fi
           fi
         fi
       fi
@@ -135,6 +152,9 @@ PY
   export BUNDLED_SHA="$bundled_sha" BUNDLED_SIZE="$bundled_size" SEMVER="$semver"
   export STANDALONE_ASSET="$standalone_asset" STANDALONE_VERSION="$standalone_version"
   export STANDALONE_SHA="$standalone_sha" STANDALONE_SIZE="$standalone_size" COMPARE_STATUS="$compare_status"
+  export BUNDLED_UNSIGNED_SHA="${bundled_unsigned_sha:-}" STANDALONE_UNSIGNED_SHA="${standalone_unsigned_sha:-}"
+  export BUNDLED_UNSIGNED_SIZE="${bundled_unsigned_size:-}" STANDALONE_UNSIGNED_SIZE="${standalone_unsigned_size:-}"
+  export BUNDLED_CODESIGN="${bundled_codesign:-}" STANDALONE_CODESIGN="${standalone_codesign:-}"
   python3 - <<'PY'
 import json,os,pathlib
 out=pathlib.Path(os.environ["CENSUS"])
@@ -165,6 +185,16 @@ doc={
     "version_output":opt("STANDALONE_VERSION"),
     "sha256":opt("STANDALONE_SHA"),
     "size_bytes":int(os.environ["STANDALONE_SIZE"]) if opt("STANDALONE_SIZE") else None,
+  },
+  "unsigned_comparison":{
+    "bundled_sha256":opt("BUNDLED_UNSIGNED_SHA"),
+    "standalone_sha256":opt("STANDALONE_UNSIGNED_SHA"),
+    "bundled_size_bytes":int(os.environ["BUNDLED_UNSIGNED_SIZE"]) if opt("BUNDLED_UNSIGNED_SIZE") else None,
+    "standalone_size_bytes":int(os.environ["STANDALONE_UNSIGNED_SIZE"]) if opt("STANDALONE_UNSIGNED_SIZE") else None,
+  },
+  "code_signing":{
+    "bundled_summary":opt("BUNDLED_CODESIGN"),
+    "standalone_summary":opt("STANDALONE_CODESIGN"),
   },
   "status":os.environ["COMPARE_STATUS"],
 }
