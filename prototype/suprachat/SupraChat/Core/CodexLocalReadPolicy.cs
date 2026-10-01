@@ -14,6 +14,7 @@ public static class CodexLocalReadPolicy
         "plugin/list",
         "permissionProfile/list",
         "app/list",
+        "account/read",
         "mcpServerStatus/list",
         "skills/list",
         "windowsSandbox/readiness",
