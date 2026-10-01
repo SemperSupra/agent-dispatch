@@ -486,8 +486,10 @@ def main() -> int:
             for key in ("valid_local", "valid_foreign"):
                 fixture = fixtures[key]
                 name = fixture["app_name"]
-                create_app_stopped_with_exact_config(session, name, fixture["compose"], a.job_timeout)
                 fixture_names.append(name)
+                create_app_stopped_with_exact_config(
+                    session, name, fixture["compose"], a.job_timeout
+                )
 
             local_name = fixtures["valid_local"]["app_name"]
             foreign_name = fixtures["valid_foreign"]["app_name"]
@@ -531,8 +533,10 @@ def main() -> int:
 
             drift = fixtures["managed_drift"]
             drift_name = drift["app_name"]
-            create_app_stopped_with_exact_config(session, drift_name, drift["compose"], a.job_timeout)
             fixture_names.append(drift_name)
+            create_app_stopped_with_exact_config(
+                session, drift_name, drift["compose"], a.job_timeout
+            )
 
             drift_get = invoke_provider(
                 provider_binary, config_path, api_key_value, cert_path,
@@ -583,6 +587,15 @@ def main() -> int:
                         delete_app_if_present(session, name, a.job_timeout)
                     except Exception as exc:
                         cleanup_errors.append(f"delete {name}: {type(exc).__name__}: {exc}")
+
+                for name in fixture_names:
+                    try:
+                        if session.call("app.query", [[["id", "=", name]]]):
+                            cleanup_errors.append(f"fixture app remains after delete: {name}")
+                    except Exception as exc:
+                        cleanup_errors.append(
+                            f"verify fixture absence {name}: {type(exc).__name__}: {exc}"
+                        )
 
                 if api_key_id is not None:
                     try:
