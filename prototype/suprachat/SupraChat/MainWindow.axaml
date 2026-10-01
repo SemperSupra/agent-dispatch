@@ -257,6 +257,37 @@
                      AutomationProperties.Name="Desktop runtime probe result"
                      AutomationProperties.LiveSetting="Polite" />
 
+            <TextBlock FontWeight="SemiBold" Text="Clean-room browser substrate" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="The browser session is separate from your ChatGPT product session. Start/inspect opens an application-owned browser and returns a semantic ARIA snapshot; Stop browser is always keyboard reachable." />
+            <TextBox x:Name="BrowserUrlBox"
+                     Text="https://example.com/"
+                     AutomationProperties.AutomationId="Browser.Url"
+                     AutomationProperties.Name="Browser URL"
+                     AutomationProperties.HelpText="Absolute HTTP or HTTPS URL for the clean-room browser session." />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Browser runtime status"
+                      Click="BrowserStatus_Click"
+                      AutomationProperties.AutomationId="Browser.Status"
+                      AutomationProperties.HelpText="Read local browser-runtime readiness without navigating." />
+              <Button Margin="0,0,8,8" Content="Start / inspect browser"
+                      Click="StartBrowser_Click"
+                      AutomationProperties.AutomationId="Browser.StartInspect"
+                      AutomationProperties.HelpText="Start a visible isolated browser session, navigate to the URL, and return a semantic accessibility snapshot." />
+              <Button Margin="0,0,8,8" Content="Stop browser"
+                      Click="StopBrowser_Click"
+                      AutomationProperties.AutomationId="Browser.Stop"
+                      AutomationProperties.HelpText="Stop the application-owned clean-room browser session." />
+            </WrapPanel>
+            <TextBox x:Name="BrowserSnapshotBox"
+                     AcceptsReturn="True"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     MinHeight="180"
+                     AutomationProperties.AutomationId="Browser.SemanticSnapshot"
+                     AutomationProperties.Name="Browser semantic accessibility snapshot"
+                     AutomationProperties.LiveSetting="Polite" />
+
             <Separator Margin="0,12,0,8" />
 
             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console"
