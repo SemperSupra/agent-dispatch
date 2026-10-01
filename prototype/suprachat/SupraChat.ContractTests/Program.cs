@@ -89,6 +89,29 @@ using (var normalizedRaw = JsonDocument.Parse(ResponsesClient.NormalizeRawRespon
         "raw Responses probe field was silently removed instead of reaching upstream validation");
 }
 
+using (var wsCreate = JsonDocument.Parse(ResponsesWebSocketClient.NormalizeClientEvent(
+    """{"type":"response.create","stream_id":"planner","store":true,"stream":true,"background":true,"input":[{"role":"user","content":"hello"}]}""",
+    "gpt-example")))
+{
+    var root = wsCreate.RootElement;
+    Require(root.GetProperty("type").GetString() == "response.create", "WebSocket response.create type changed");
+    Require(root.GetProperty("model").GetString() == "gpt-example", "WebSocket default model injection failed");
+    Require(root.GetProperty("store").GetBoolean() == false, "WebSocket ChatGPT-plan store must be forced false");
+    Require(root.GetProperty("stream_id").GetString() == "planner", "WebSocket stream_id must survive normalization");
+    Require(!root.TryGetProperty("stream", out _), "WebSocket event must omit HTTP-only stream field");
+    Require(!root.TryGetProperty("background", out _), "WebSocket event must omit background field");
+}
+
+using (var wsSteer = JsonDocument.Parse(ResponsesWebSocketClient.NormalizeClientEvent(
+    """{"type":"response.steer","previous_response_id":"resp_1","input":"narrow the scope"}""",
+    "gpt-example")))
+{
+    var root = wsSteer.RootElement;
+    Require(root.GetProperty("type").GetString() == "response.steer", "WebSocket steer type changed");
+    Require(root.GetProperty("previous_response_id").GetString() == "resp_1", "WebSocket steer lineage changed");
+    Require(!root.TryGetProperty("model", out _), "Non-create WebSocket events must remain pass-through");
+}
+
 var modelJson = """{"models":[{"slug":"gpt-example","display_name":"GPT Example","visibility":"list"},{"slug":"hidden","display_name":"Hidden","visibility":"hidden"}]}""";
 var models = ResponsesClient.ParseModels(modelJson);
 Require(models.Count == 1 && models[0].Slug == "gpt-example" && models[0].DisplayName == "GPT Example", "SIWC model catalog parsing failed");
