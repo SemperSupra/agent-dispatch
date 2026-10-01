@@ -1,9 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t5-matrix-003-exact-installer-port-profile",
+  "request_id": "tn-25.04.1-t6-official-catalog-001",
   "version": "25.04.1",
-  "rung": "t5",
+  "rung": "t6",
+  "product": "official-catalog",
   "authority_issue": 411,
-  "consumer_authority_issue": 274,
-  "purpose": "Retry exact TrueNAS 25.04.1 T0-T5 after exact upstream installer source proved WebSocket JSON-RPC at / on guest TCP port 80; target profile now binds path, guest port, source ref/blob, and preserves transport failure evidence."
+  "consumer_authority_issue": 281,
+  "purpose": "Exercise the exact Foundry-exported native official-catalog ntfy control on accepted TrueNAS 25.04.1 using observe/discover -> plan -> apply -> verify, lifecycle convergence, conditional native upgrade, retain-data delete/reinstall, and final cleanup."
 }
