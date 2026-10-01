@@ -280,13 +280,7 @@ public partial class MainWindow : Window
                     throw new InvalidOperationException(
                         "Responses file inputs require each file to be under 50 MB and all files combined to be at most 50 MB.");
 
-                var mime = MimeTypeFor(file.Name);
-                var kind = IsImageMime(mime) ? "image" : "file";
-                _attachments.Add(new ResponseAttachment(
-                    kind,
-                    file.Name,
-                    SiwcProtocol.ToDataUrl(mime, bytes),
-                    "auto"));
+                AddAttachmentBytes(file.Name, bytes);
             }
 
             RefreshAttachmentStatus();
@@ -301,6 +295,72 @@ public partial class MainWindow : Window
     {
         _attachments.Clear();
         RefreshAttachmentStatus();
+    }
+
+    public async Task HandleStartupArgumentsAsync(IEnumerable<string> args)
+    {
+        var imported = 0;
+        foreach (var raw in args.Where(value => !string.IsNullOrWhiteSpace(value)))
+        {
+            if (File.Exists(raw))
+            {
+                var bytes = await File.ReadAllBytesAsync(raw);
+                AddAttachmentBytes(Path.GetFileName(raw), bytes);
+                imported++;
+                RootTabs.SelectedIndex = 1;
+                continue;
+            }
+
+            if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri) ||
+                !string.Equals(uri.Scheme, "suprachat", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var text = QueryValue(uri, "text");
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                PromptBox.Text = text;
+                RootTabs.SelectedIndex = 1;
+            }
+        }
+
+        if (imported > 0)
+        {
+            RefreshAttachmentStatus();
+            AuthStatus.Text = $"Imported {imported} file(s) from the desktop launch request.";
+        }
+    }
+
+    private void AddAttachmentBytes(string name, byte[] bytes)
+    {
+        var totalBytes = _attachments.Sum(existing => EstimateDataUrlBytes(existing.Value)) + bytes.LongLength;
+        if (bytes.LongLength >= 50L * 1024 * 1024 || totalBytes > 50L * 1024 * 1024)
+            throw new InvalidOperationException(
+                "Responses file inputs require each file to be under 50 MB and all files combined to be at most 50 MB.");
+
+        var mime = MimeTypeFor(name);
+        var kind = IsImageMime(mime) ? "image" : "file";
+        _attachments.Add(new ResponseAttachment(
+            kind,
+            name,
+            SiwcProtocol.ToDataUrl(mime, bytes),
+            "auto"));
+    }
+
+    private static string? QueryValue(Uri uri, string key)
+    {
+        foreach (var part in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pieces = part.Split('=', 2);
+            var candidate = Uri.UnescapeDataString(pieces[0].Replace("+", " "));
+            if (!string.Equals(candidate, key, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            return pieces.Length == 2
+                ? Uri.UnescapeDataString(pieces[1].Replace("+", " "))
+                : string.Empty;
+        }
+
+        return null;
     }
 
     private async void RunInterview_Click(object? sender, RoutedEventArgs e)
