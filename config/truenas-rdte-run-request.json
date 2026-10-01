@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-001",
-  "version": "25.04.1",
+  "request_id": "tn-25.04.2.6-t6-official-catalog-001",
+  "version": "25.04.2.6",
   "rung": "t6",
   "product": "official-catalog",
-  "authority_issue": 411,
+  "authority_issue": 423,
   "consumer_authority_issue": 281,
-  "purpose": "Exercise the exact Foundry-exported native official-catalog ntfy control on accepted TrueNAS 25.04.1 using observe/discover -> plan -> apply -> verify, lifecycle convergence, conditional native upgrade, retain-data delete/reinstall, and final cleanup."
+  "purpose": "Exercise the exact Foundry-exported native official-catalog ntfy control on accepted TrueNAS 25.04.2.6 after the 25.04.1 native-catalog rep is terminal and reconciled."
 }
