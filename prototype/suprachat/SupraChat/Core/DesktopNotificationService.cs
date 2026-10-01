@@ -59,7 +59,7 @@ public static class DesktopNotificationService
         }
     }
 
-    internal static string AppleScriptString(string value)
+    public static string AppleScriptString(string value)
     {
         var escaped = value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
