@@ -215,6 +215,46 @@ internal static class Program
         }
     }
 
+    private static async Task<object> BrowserClickOnceAsync(string[] args)
+    {
+        var url = Option(args, "--url");
+        var role = Option(args, "--role");
+        var name = Option(args, "--name");
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(role) || string.IsNullOrWhiteSpace(name))
+            throw new MachineException(2, "INVALID_PARAMS", "browser-click requires --url, --role and --name.");
+
+        try
+        {
+            await using var session = await BrowserSession.StartAsync(headless: true);
+            await session.NavigateAndSnapshotAsync(url);
+            return await session.ClickByRoleAsync(role, name);
+        }
+        catch (PlaywrightException ex)
+        {
+            throw new MachineException(4, "BROWSER_ACTION_FAILED", SafeMessage(ex));
+        }
+    }
+
+    private static async Task<object> BrowserFillOnceAsync(string[] args)
+    {
+        var url = Option(args, "--url");
+        var label = Option(args, "--label");
+        var value = Option(args, "--value");
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(label) || value is null)
+            throw new MachineException(2, "INVALID_PARAMS", "browser-fill requires --url, --label and --value.");
+
+        try
+        {
+            await using var session = await BrowserSession.StartAsync(headless: true);
+            await session.NavigateAndSnapshotAsync(url);
+            return await session.FillByLabelAsync(label, value);
+        }
+        catch (PlaywrightException ex)
+        {
+            throw new MachineException(4, "BROWSER_ACTION_FAILED", SafeMessage(ex));
+        }
+    }
+
     private static async Task<object> AccessibilityPreferencesAsync()
     {
         var value = await AccessibilityPreferencesStore.LoadAsync();
@@ -665,6 +705,22 @@ internal static class Program
     {
         var browser = RequireAgentBrowser();
         return await browser.SnapshotAsync();
+    }
+
+    private static async Task<object> RpcBrowserClickAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var role = RequiredProperty(p, "role");
+        var name = RequiredProperty(p, "name");
+        return await RequireAgentBrowser().ClickByRoleAsync(role, name);
+    }
+
+    private static async Task<object> RpcBrowserFillAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var label = RequiredProperty(p, "label");
+        var value = RequiredProperty(p, "value");
+        return await RequireAgentBrowser().FillByLabelAsync(label, value);
     }
 
     private static async Task<object> RpcBrowserStopAsync()
