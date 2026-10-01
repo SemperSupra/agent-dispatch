@@ -18,6 +18,8 @@ A feature missing from one plane remains in the ledger as `SUPPORTED`, `PARTIAL`
 
 Broad inventory is separate from runtime authority. Destructive, privileged, credential-bearing, or externally consequential capabilities remain explicit-consent/authority operations even when the implementation knows how to invoke them.
 
+Accessibility is also a parity dimension. A feature is not complete merely because the default GUI exposes it: the ledger must account for keyboard/screen-reader operation plus structured automation/agent access where applicable. ACCESSIBILITY.md is the durable contract.
+
 ## Evidence planes
 
 ### Android first-party oracle
@@ -153,3 +155,17 @@ The Windows artifact is a working MVP when it:
 - has every discovered Android/Windows/product capability represented in this ledger with an explicit state.
 
 Full Android parity is a later qualification claim and must not be asserted while platform-specific mobile capabilities remain blocked or behaviorally nonequivalent.
+
+## Audience + accessibility completion rule
+
+For every consequential capability, maintain these access states:
+
+| Access path | Required evidence |
+| --- | --- |
+| Human GUI | visible/discoverable UI behavior |
+| Accessible human GUI | keyboard reachability, semantic automation metadata, non-color state, assistive-technology fallback where needed |
+| Automation | deterministic structured command/state or explicit typed boundary |
+| Agent | semantic JSON-RPC method/state or explicit typed boundary |
+| Authorization | human-consent/permission boundary preserved |
+
+A feature cannot move to full SUPPORTED/IMPLEMENTED parity while one required access path is silently absent.
