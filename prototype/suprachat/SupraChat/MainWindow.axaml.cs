@@ -902,6 +902,21 @@ public partial class MainWindow : Window
             "plugin/list",
             JsonSerializer.SerializeToElement(new { }));
 
+    private async void ListPermissionProfiles_Click(object? sender, RoutedEventArgs e) =>
+        await RunReadOnlyCodexProbeAsync(
+            "permissionProfile/list",
+            JsonSerializer.SerializeToElement(new { }));
+
+    private async void ListApps_Click(object? sender, RoutedEventArgs e) =>
+        await RunReadOnlyCodexProbeAsync(
+            "app/list",
+            JsonSerializer.SerializeToElement(new { }));
+
+    private async void ReadSandboxReadiness_Click(object? sender, RoutedEventArgs e) =>
+        await RunReadOnlyCodexProbeAsync(
+            "windowsSandbox/readiness",
+            parameters: null);
+
     private async Task RunReadOnlyCodexProbeAsync(string method, JsonElement? parameters)
     {
         try
