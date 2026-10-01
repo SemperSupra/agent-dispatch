@@ -197,4 +197,13 @@ Require(!codexReceiptJson.Contains("ID_TOKEN_MUST_NOT_APPEAR", StringComparison.
 Require(!codexReceiptJson.Contains("subject-secret-value", StringComparison.Ordinal), "raw account subject leaked into Codex receipt");
 Require(!codexReceiptJson.Contains("user@example.com", StringComparison.Ordinal), "email leaked into Codex receipt");
 
+var runtimeRoot = Path.Combine(Path.GetTempPath(), "suprachat-codex-resolution-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(Path.Combine(runtimeRoot, "runtime", "codex"));
+var bundledName = OperatingSystem.IsWindows() ? "codex.exe" : "codex";
+var bundledPath = Path.Combine(runtimeRoot, "runtime", "codex", bundledName);
+File.WriteAllText(bundledPath, "fixture");
+Require(CodexAppServer.ResolveExecutable(runtimeRoot) == bundledPath,
+    "packaged Codex runtime must take precedence over PATH fallback");
+Directory.Delete(runtimeRoot, recursive: true);
+
 Console.WriteLine("SupraChat contract checks PASS");
