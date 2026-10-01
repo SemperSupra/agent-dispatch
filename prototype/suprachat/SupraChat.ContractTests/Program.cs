@@ -211,6 +211,10 @@ Require(WindowsCompanionHotkey.ShortcutDescription == "Alt+Space",
 
 Require(WindowsNotificationService.Adapter == "shell-notification-area",
     "Windows notification adapter identity drifted");
+Require(DesktopNotificationService.Adapter is not "unsupported",
+    "desktop notification adapter missing for supported platform");
+Require(DesktopNotificationService.AppleScriptString("a\"b") == "\"a\\\"b\"",
+    "macOS notification string escaping drifted");
 
 var parityPath = Path.Combine("prototype", "suprachat", "oracles", "audience-parity-20261001.json");
 Require(File.Exists(parityPath), "audience/accessibility parity manifest missing");
