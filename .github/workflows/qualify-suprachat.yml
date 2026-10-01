@@ -131,10 +131,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path $browserRoot | Out-Null
           $env:PLAYWRIGHT_BROWSERS_PATH = $browserRoot
 
-          $playwrightScript = Get-ChildItem $root -Recurse -File -Filter 'playwright.ps1' |
-            Select-Object -First 1
+          # Prefer a Playwright launcher that still has Microsoft.Playwright.dll
+          # beside it. macOS single-file publish intentionally embeds that assembly,
+          # so browser acquisition must run from the ordinary Release build output.
+          $playwrightScript = @(
+            Get-ChildItem $root -Recurse -File -Filter 'playwright.ps1' -ErrorAction SilentlyContinue
+            Get-ChildItem (Join-Path $PWD 'prototype/suprachat/SupraChat/bin/Release') -Recurse -File -Filter 'playwright.ps1' -ErrorAction SilentlyContinue
+          ) | Where-Object {
+            Test-Path (Join-Path $_.Directory.FullName 'Microsoft.Playwright.dll')
+          } | Select-Object -First 1
           if (-not $playwrightScript) {
-            throw 'Published Playwright installer script was not found.'
+            throw 'A Playwright installer script with adjacent Microsoft.Playwright.dll was not found.'
           }
 
           & $playwrightScript.FullName install chromium
