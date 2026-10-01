@@ -2,12 +2,18 @@
 
 Evidence date: 2026-10-01.
 
-This registry is intentionally broader than the MVP. It tracks every capability surface currently relevant to the campaign and keeps four different authority classes distinct:
+This registry is intentionally broader than the MVP. It tracks every capability surface currently relevant to the campaign and keeps distinct evidence/authority planes:
 
-1. **CHATGPT_PRODUCT** — first-party ChatGPT product capabilities reached through the official `https://chatgpt.com/` surface.
-2. **SIWC_SUPPORTED** — documented Sign in with ChatGPT / ChatGPT-plan third-party contract.
-3. **CODEX_ORACLE** — open-source Codex CLI/app-server capabilities at an exact upstream revision.
-4. **ANDROID_OBSERVED** — behavior/capability/endpoint evidence recovered from the proprietary ChatGPT Android client.
+1. **WEB_PRODUCT** — first-party ChatGPT WebUI/product behavior at `https://chatgpt.com/`.
+2. **ANDROID_OBSERVED** — recovered first-party Android behavior/capability/endpoint evidence.
+3. **WINDOWS_DESKTOP_OBSERVED** — official unified Windows desktop package/product behavior.
+4. **MACOS_DESKTOP_OBSERVED** — official unified macOS desktop behavior.
+5. **MACOS_CLASSIC_OBSERVED** — separately supported legacy/Classic macOS lineage.
+6. **LINUX_DESKTOP_OBSERVED** — official Linux public-preview package/product behavior.
+7. **SIWC_SUPPORTED** — documented Sign in with ChatGPT / ChatGPT-plan third-party contract.
+8. **CODEX_ORACLE** — open-source Codex CLI/app-server capabilities at an exact upstream revision.
+
+Desktop/Web/Android observations are first-party oracles, not automatically supported third-party integration contracts.
 
 An observed first-party or Codex capability is not automatically a supported SIWC contract.
 
@@ -161,3 +167,51 @@ SupraChat should implement the union of capabilities through the strongest suppo
 6. never omit a known capability silently: classify it as `IMPLEMENTED`, `QUALIFY`, `GAP`, `BLOCKED_SUPPORTED_INTERFACE`, `ORACLE_ONLY`, or `NOT_PLAN_SHAREABLE`.
 
 This registry is expected to grow as AAR, Codex upstream, ChatGPT web, and OpenAI documentation change.
+
+
+## First-party platform oracle expansion — 2026-10-01
+
+Durable CDR authorities:
+- Android consumer/oracle: `SemperSupra/connected-device-recovery-private#58` fed by AAR #79.
+- Windows unified desktop: `SemperSupra/connected-device-recovery-private#59`.
+- macOS unified + Classic: `SemperSupra/connected-device-recovery-private#62`.
+- Linux desktop public preview: `SemperSupra/connected-device-recovery-private#63`.
+- WebUI/runtime: `SemperSupra/connected-device-recovery-private#64`.
+
+### Windows
+
+Current unified desktop Store identity is `9PLM9XGG6VKS`. Credential-free Store metadata discovery succeeds, but hosted-runner package-byte download currently returns a typed Microsoft Entra authentication requirement. Preserve that as an acquisition boundary rather than substituting an unverified package.
+
+### macOS
+
+Track at least three official distribution candidates independently:
+- unified Apple Silicon: `https://persistent.oaistatic.com/codex-app-prod/ChatGPT.dmg`;
+- unified Intel/x64: `https://persistent.oaistatic.com/codex-app-prod/ChatGPT-latest-x64.dmg`;
+- ChatGPT Classic: `https://persistent.oaistatic.com/classic/public/ChatGPT_Classic.dmg`.
+
+Do not collapse unified and Classic behavior merely because both are first-party ChatGPT clients.
+
+### Linux
+
+The official desktop app is in public preview with x64 + ARM64 packages for supported Ubuntu/Debian/Fedora distributions plus an Arch install/repository path. Linux remains a distinct behavior plane because current platform support differs from macOS/Windows, including missing Computer Use and experimental native Wayland support.
+
+### WebUI / guest
+
+Public qualification run `SemperSupra/connected-device-recovery` run `36902044519` established:
+- OpenAI OIDC discovery is publicly readable without authentication (`200`);
+- `GET /v1/models` without a bearer token returns `401`;
+- `POST /v1/responses` without bearer/basic authentication returns `401`;
+- stock public-GHA requests to `chatgpt.com/` and selected observed `backend-anon` routes are challenged by Cloudflare (`403`), so guest product availability must not be modeled as a generic anonymous server-to-server API.
+
+Guest capability should therefore be qualified through an actual supported browser/product surface where applicable, while documented API execution remains authenticated.
+
+## Cross-platform parity rule
+
+For every capability, track a vector rather than a single desktop state:
+
+`Android × Windows × macOS unified × macOS Classic × Linux × WebUI × SIWC × Codex × SupraChat`
+
+Each cell must be one of:
+`IMPLEMENTED | QUALIFY | GAP | BLOCKED_SUPPORTED_INTERFACE | ORACLE_ONLY | NOT_PLAN_SHAREABLE | UNKNOWN`.
+
+A capability present on one first-party surface must not disappear because another platform lacks it, and platform-specific behavior must not be generalized without evidence.
