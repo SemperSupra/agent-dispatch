@@ -84,3 +84,36 @@ A feature is not considered cross-audience complete until its parity ledger answ
 5. what human authorization or permission boundary remains.
 
 Accessibility regressions are qualification failures, not documentation debt.
+
+
+## User-adjustable preferences
+
+SupraChat stores non-secret accessibility preferences per user in the normal application-state directory and exposes the same values through every audience shell.
+
+Current preferences:
+
+- native SupraChat interface/text scale from 80% through 200%, in 10% steps;
+- reduced-motion preference for SupraChat-owned interface effects.
+
+Human GUI:
+
+- **Smaller text**, **Reset text size**, and **Larger text** controls in the Accessibility section;
+- **Reduce motion** checkbox;
+- keyboard scale shortcuts: Command/Ctrl + `+`, `-`, and `0`;
+- a live semantic status line announces the effective scale and reduced-motion state.
+
+Automation:
+
+```text
+suprachat-cli accessibility-preferences
+suprachat-cli accessibility-set --scale 1.5 --reduced-motion true
+```
+
+Agent JSON-RPC:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"accessibility/preferences/read"}
+{"jsonrpc":"2.0","id":2,"method":"accessibility/preferences/write","params":{"interface_scale":1.5,"reduced_motion":true}}
+```
+
+The native interface scale is independent of the embedded first-party ChatGPT web content. Users who need stronger browser/WebView zoom or assistive-technology behavior retain the clearly labeled system-browser fallback.
