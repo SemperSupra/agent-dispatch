@@ -119,6 +119,17 @@ class GarmProviderG3Tests(unittest.TestCase):
         self.assertLess(compare, inactive)
         self.assertLess(inactive, delete)
 
+    def test_synthetic_fixture_preflight_sends_no_provider_token(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        block = text.split("def preflight_public_fixture", 1)[1].split(
+            "def load_bundle", 1
+        )[0]
+        self.assertIn('method="POST"', block)
+        self.assertIn('method="GET"', block)
+        self.assertNotIn("Authorization", block)
+        self.assertIn('"ENVIRONMENT_FAILURE"', text)
+        self.assertIn('"synthetic_fixture_preflight"', text)
+
     def test_transport_reuses_verified_g2_helper_tuple(self):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("g2.wait_verified_https", text)
