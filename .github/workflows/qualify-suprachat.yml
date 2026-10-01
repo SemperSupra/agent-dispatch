@@ -15,9 +15,32 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2025, ubuntu-24.04, macos-26]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+        include:
+          - os: windows-2025
+            rid: win-x64
+            artifact: suprachat-windows-x64
+            codex_asset: codex-x86_64-pc-windows-msvc.exe
+            codex_sha256: 57e1bdab42c0559a74558ca17e85d5c7893caa5f1e582f67e9ddd6d97fa705a7
+            codex_archive: false
+          - os: ubuntu-24.04
+            rid: linux-x64
+            artifact: suprachat-linux-x64
+            codex_asset: codex-x86_64-unknown-linux-musl.tar.gz
+            codex_sha256: b48ca1b2d6b1bf42b944e02c3d937c898e24651916684cdc35fdedf31b291bcb
+            codex_archive: true
+          - os: macos-26
+            rid: osx-arm64
+            artifact: suprachat-macos-arm64
+            codex_asset: codex-aarch64-apple-darwin.tar.gz
+            codex_sha256: 51de50a39ea592b5b0a64ae0474548c282181cb6b96d9bd08965a682ae12774c
+            codex_archive: true
+
+    runs-on: \${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CODEX_TAG: rust-v0.159.3
+      CODEX_VERSION: 0.159.3
+
     steps:
       - uses: actions/checkout@v4
 
@@ -31,17 +54,77 @@ jobs:
       - name: Run contract checks
         run: dotnet run --project prototype/suprachat/SupraChat.ContractTests/SupraChat.ContractTests.csproj -c Release
 
-      - name: Publish Windows MVP
-        if: runner.os == 'Windows'
+      - name: Publish self-contained application
         shell: pwsh
-        run: dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r win-x64 --self-contained true -o out/suprachat-win-x64
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $PWD 'out/\${{ matrix.rid }}'
+          dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '\${{ matrix.rid }}' --self-contained true -o $out
 
-      - name: Windows launch smoke
+      - name: Bundle pinned open-source Codex runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = '\${{ matrix.codex_asset }}'
+          $expected = '\${{ matrix.codex_sha256 }}'
+          $url = "https://github.com/openai/codex/releases/download/$env:CODEX_TAG/$asset"
+          $tmp = Join-Path $env:RUNNER_TEMP $asset
+          $runtime = Join-Path $PWD 'out/\${{ matrix.rid }}/runtime/codex'
+          New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+
+          Invoke-WebRequest -Uri $url -OutFile $tmp
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "Codex asset digest mismatch: expected=$expected actual=$actual"
+          }
+
+          if ('\${{ matrix.codex_archive }}' -eq 'true') {
+            $extract = Join-Path $env:RUNNER_TEMP "codex-extract-\${{ matrix.rid }}"
+            New-Item -ItemType Directory -Force -Path $extract | Out-Null
+            tar -xzf $tmp -C $extract
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to extract Codex runtime archive.' }
+
+            $candidate = Get-ChildItem $extract -Recurse -File |
+              Where-Object { $_.Name -eq 'codex' -or $_.Name -like 'codex-*' } |
+              Sort-Object Length -Descending |
+              Select-Object -First 1
+            if (-not $candidate) { throw 'Codex executable was not found in archive.' }
+            Copy-Item $candidate.FullName (Join-Path $runtime 'codex')
+            if ($IsLinux -or $IsMacOS) { chmod +x (Join-Path $runtime 'codex') }
+          } else {
+            Copy-Item $tmp (Join-Path $runtime 'codex.exe')
+          }
+
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/openai/codex/$env:CODEX_TAG/LICENSE" -OutFile (Join-Path $runtime 'LICENSE.openai-codex')
+
+          @{
+            schema = 'suprachat-bundled-codex/v1'
+            version = $env:CODEX_VERSION
+            tag = $env:CODEX_TAG
+            source_asset = $asset
+            source_sha256 = $actual
+            license = 'Apache-2.0'
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runtime 'runtime.json')
+
+      - name: Verify bundled Codex runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = Join-Path $PWD 'out/\${{ matrix.rid }}/runtime/codex'
+          $exe = if ($IsWindows) { Join-Path $runtime 'codex.exe' } else { Join-Path $runtime 'codex' }
+          if (!(Test-Path $exe)) { throw "Bundled Codex executable missing: $exe" }
+          if (!(Test-Path (Join-Path $runtime 'LICENSE.openai-codex'))) { throw 'Codex license missing.' }
+          if (!(Test-Path (Join-Path $runtime 'runtime.json'))) { throw 'Codex runtime receipt missing.' }
+
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled Codex --version failed with $LASTEXITCODE" }
+
+      - name: Windows GUI launch smoke
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = Join-Path $PWD 'out/suprachat-win-x64/SupraChat.exe'
+          $exe = Join-Path $PWD 'out/win-x64/SupraChat.exe'
           $startupLog = Join-Path $env:RUNNER_TEMP 'suprachat-startup.log'
           $stdoutLog = Join-Path $env:RUNNER_TEMP 'suprachat-stdout.log'
           $stderrLog = Join-Path $env:RUNNER_TEMP 'suprachat-stderr.log'
@@ -53,33 +136,20 @@ jobs:
 
           if ($p.HasExited) {
             Write-Host "SupraChat exited during launch smoke with code $($p.ExitCode)"
-            if (Test-Path $startupLog) {
-              Write-Host '--- managed startup log ---'
-              Get-Content $startupLog
-            } else {
-              Write-Host 'No managed startup log was created; failure may precede managed Main.'
-            }
-            if (Test-Path $stdoutLog) {
-              Write-Host '--- stdout ---'
-              Get-Content $stdoutLog
-            }
-            if (Test-Path $stderrLog) {
-              Write-Host '--- stderr ---'
-              Get-Content $stderrLog
-            }
-            Write-Host '--- publish directory ---'
-            Get-ChildItem (Split-Path $exe) | Select-Object Name,Length | Format-Table -AutoSize
+            if (Test-Path $startupLog) { Get-Content $startupLog }
+            if (Test-Path $stdoutLog) { Get-Content $stdoutLog }
+            if (Test-Path $stderrLog) { Get-Content $stderrLog }
             throw "SupraChat self-contained launch failed with code $($p.ExitCode)"
           }
 
           Stop-Process -Id $p.Id -Force
           "SupraChat remained alive through an 8-second self-contained Windows launch smoke."
 
-      - name: Upload Windows MVP
-        if: runner.os == 'Windows' && success()
+      - name: Upload self-contained application
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: suprachat-windows-x64
-          path: out/suprachat-win-x64/
+          name: \${{ matrix.artifact }}
+          path: out/\${{ matrix.rid }}/
           if-no-files-found: error
           retention-days: 7
