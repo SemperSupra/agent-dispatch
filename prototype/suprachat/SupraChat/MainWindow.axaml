@@ -6,68 +6,122 @@
     Height="900"
     MinWidth="900"
     MinHeight="650"
-    Title="SupraChat">
+    Title="SupraChat"
+    KeyDown="MainWindow_KeyDown"
+    AutomationProperties.AutomationId="SupraChat.MainWindow"
+    AutomationProperties.Name="SupraChat">
   <Grid RowDefinitions="Auto,*">
     <Border Grid.Row="0" Padding="8">
       <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto">
-        <Button Grid.Column="0" Margin="0,0,6,0" Content="Back" Click="Back_Click" />
-        <Button Grid.Column="1" Margin="0,0,6,0" Content="Forward" Click="Forward_Click" />
-        <Button Grid.Column="2" Margin="0,0,6,0" Content="Reload" Click="Reload_Click" />
-        <Button Grid.Column="3" Margin="0,0,6,0" Content="Home" Click="Home_Click" />
+        <Button Grid.Column="0" Margin="0,0,6,0" Content="Back" Click="Back_Click"
+                 AutomationProperties.AutomationId="Nav.Back"
+                 AutomationProperties.HelpText="Go back in the embedded ChatGPT product view." />
+        <Button Grid.Column="1" Margin="0,0,6,0" Content="Forward" Click="Forward_Click"
+                 AutomationProperties.AutomationId="Nav.Forward"
+                 AutomationProperties.HelpText="Go forward in the embedded ChatGPT product view." />
+        <Button Grid.Column="2" Margin="0,0,6,0" Content="Reload" Click="Reload_Click"
+                 AutomationProperties.AutomationId="Nav.Reload"
+                 AutomationProperties.HelpText="Reload the embedded ChatGPT product view." />
+        <Button Grid.Column="3" Margin="0,0,6,0" Content="Home" Click="Home_Click"
+                 AutomationProperties.AutomationId="Nav.Home"
+                 AutomationProperties.HelpText="Navigate the embedded product view to ChatGPT home." />
         <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="Official ChatGPT product surface + full subscription-backed Agent Lab" />
-        <Button Grid.Column="5" Content="Open in browser" Click="OpenExternal_Click" />
+        <Button Grid.Column="5" Content="Open in browser" Click="OpenExternal_Click"
+                 AutomationProperties.AutomationId="Nav.OpenExternal"
+                 AutomationProperties.HelpText="Open ChatGPT in the system browser." />
       </Grid>
     </Border>
 
-    <TabControl x:Name="RootTabs" Grid.Row="1">
-      <TabItem Header="ChatGPT">
+    <TabControl x:Name="RootTabs" Grid.Row="1"
+                AutomationProperties.AutomationId="RootTabs"
+                AutomationProperties.Name="SupraChat work areas">
+      <TabItem Header="ChatGPT"
+               AutomationProperties.AutomationId="Tab.ChatGPT"
+               AutomationProperties.HelpText="Official ChatGPT product surface. Keyboard shortcut Control+1.">
         <NativeWebView x:Name="ChatView"
                        Source="https://chatgpt.com/"
-                       EnvironmentRequested="ChatView_EnvironmentRequested" />
+                       EnvironmentRequested="ChatView_EnvironmentRequested"
+                       AutomationProperties.AutomationId="ChatGPT.WebView"
+                       AutomationProperties.Name="ChatGPT product view"
+                       AutomationProperties.HelpText="Official ChatGPT web product surface. Web content exposes its own accessibility tree." />
       </TabItem>
 
-      <TabItem Header="Agent Lab">
+      <TabItem Header="Agent Lab"
+               AutomationProperties.AutomationId="Tab.AgentLab"
+               AutomationProperties.HelpText="ChatGPT-plan and Codex capability laboratory. Keyboard shortcut Control+2.">
         <ScrollViewer>
           <StackPanel Margin="20" Spacing="10" MaxWidth="1100">
-            <TextBlock FontSize="22" FontWeight="SemiBold" Text="ChatGPT-plan actor interview and capability surface" />
+            <TextBlock FontSize="22" FontWeight="SemiBold"
+                       Text="ChatGPT-plan actor interview and capability surface"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="1"
+                       AutomationProperties.AutomationId="AgentLab.Heading" />
             <TextBlock TextWrapping="Wrap"
                        Text="This plane uses OpenAI's documented Sign in with ChatGPT flow, account-specific model catalog, every currently supported direct Responses capability, and the complete pinned Codex app-server protocol. It remains separate from the first-party ChatGPT product surface." />
 
             <WrapPanel Orientation="Horizontal">
               <Button x:Name="SignInButton" Margin="0,0,8,8"
-                      Content="Continue with ChatGPT" Click="SignIn_Click" />
-              <Button Margin="0,0,8,8" Content="Enable plan usage" Click="EnablePlanUsage_Click" />
-              <Button Margin="0,0,8,8" Content="Sign out / revoke session" Click="SignOut_Click" />
+                      Content="Continue with ChatGPT" Click="SignIn_Click"
+                      AutomationProperties.AutomationId="Auth.SignIn"
+                      AutomationProperties.HelpText="Open the system browser for interactive ChatGPT authorization." />
+              <Button Margin="0,0,8,8" Content="Enable plan usage" Click="EnablePlanUsage_Click"
+                      AutomationProperties.AutomationId="Auth.EnablePlan"
+                      AutomationProperties.HelpText="Request explicit ChatGPT-plan inference permission in the system browser." />
+              <Button Margin="0,0,8,8" Content="Sign out / revoke session" Click="SignOut_Click"
+                      AutomationProperties.AutomationId="Auth.SignOut"
+                      AutomationProperties.HelpText="Revoke the renewable session when possible and clear local tokens." />
             </WrapPanel>
-            <TextBlock x:Name="AuthStatus" Text="Not signed in to Agent Lab." TextWrapping="Wrap" />
+            <TextBlock x:Name="AuthStatus" Text="Not signed in to Agent Lab." TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="Auth.Status"
+                       AutomationProperties.Name="Authorization status"
+                       AutomationProperties.LiveSetting="Polite" />
 
-            <TextBlock FontWeight="SemiBold" Text="ChatGPT account registration" />
+            <TextBlock x:Name="AccountRegistrationLabel" FontWeight="SemiBold"
+                       Text="ChatGPT account registration"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
             <WrapPanel Orientation="Horizontal">
               <ComboBox x:Name="AccountBox" Width="420" Margin="0,0,8,8"
-                        PlaceholderText="Choose a saved ChatGPT account" />
+                        PlaceholderText="Choose a saved ChatGPT account"
+                        AutomationProperties.AutomationId="Auth.Account"
+                        AutomationProperties.LabeledBy="{Binding #AccountRegistrationLabel}"
+                        AutomationProperties.HelpText="Choose a saved local ChatGPT account/workspace registration." />
               <Button Margin="0,0,8,8" Content="Use saved account" Click="UseSavedAccount_Click" />
               <Button Margin="0,0,8,8" Content="Add another account/workspace" Click="AddAccount_Click" />
             </WrapPanel>
 
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8" Content="Refresh models" Click="RefreshModels_Click" />
-              <ComboBox x:Name="ModelBox" Width="360" Margin="0,0,8,8" PlaceholderText="Select a model" />
+              <ComboBox x:Name="ModelBox" Width="360" Margin="0,0,8,8" PlaceholderText="Select a model"
+                        AutomationProperties.AutomationId="AgentLab.Model"
+                        AutomationProperties.Name="Model"
+                        AutomationProperties.HelpText="Select a model visible to the saved ChatGPT-plan authorization." />
               <Button Margin="0,0,8,8" Content="Start Codex app-server" Click="StartCodex_Click" />
             </WrapPanel>
 
-            <TextBlock FontWeight="SemiBold" Text="Interview input" />
+            <TextBlock x:Name="InterviewInputLabel" FontWeight="SemiBold" Text="Interview input"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
             <TextBox x:Name="PromptBox" AcceptsReturn="True" MinHeight="110"
-                     Text="Say exactly: Hello from SupraChat." />
+                     Text="Say exactly: Hello from SupraChat."
+                     AutomationProperties.AutomationId="AgentLab.Prompt"
+                     AutomationProperties.LabeledBy="{Binding #InterviewInputLabel}"
+                     AutomationProperties.HelpText="Interview prompt. Keyboard shortcut Control+L focuses this field." />
 
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8" Content="Attach image/file" Click="Attach_Click" />
               <Button Margin="0,0,8,8" Content="Clear attachments" Click="ClearAttachments_Click" />
               <CheckBox x:Name="WebSearchBox" Margin="4,4,8,8"
-                        Content="Allow supported web search" />
+                        Content="Allow supported web search"
+                        AutomationProperties.AutomationId="AgentLab.WebSearch"
+                        AutomationProperties.HelpText="Allow the supported Responses web-search tool for this request." />
             </WrapPanel>
             <TextBlock x:Name="AttachmentsStatus"
                        Text="No Agent Lab attachments selected."
-                       TextWrapping="Wrap" />
+                       TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="AgentLab.AttachmentsStatus"
+                       AutomationProperties.Name="Attachment status"
+                       AutomationProperties.LiveSetting="Polite" />
 
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8"
@@ -78,26 +132,41 @@
                       Click="RunCodexInterview_Click" />
             </WrapPanel>
 
-            <TextBlock FontWeight="SemiBold" Text="Interview result" />
+            <TextBlock x:Name="InterviewResultLabel" FontWeight="SemiBold" Text="Interview result"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
             <TextBox x:Name="OutputBox" AcceptsReturn="True" IsReadOnly="True"
-                     TextWrapping="Wrap" MinHeight="180" />
+                     TextWrapping="Wrap" MinHeight="180"
+                     AutomationProperties.AutomationId="AgentLab.InterviewResult"
+                     AutomationProperties.LabeledBy="{Binding #InterviewResultLabel}"
+                     AutomationProperties.HelpText="Read-only streamed interview result." />
 
             <Separator Margin="0,12,0,8" />
 
-            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Raw SIWC Responses surface" />
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Raw SIWC Responses surface"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
             <TextBlock TextWrapping="Wrap"
                        Text="Send arbitrary Responses request fields and supported function/custom tool definitions through the ChatGPT-plan grant. SupraChat only forces the current upstream invariants store=false and stream=true and injects the selected model when omitted." />
             <TextBlock FontWeight="SemiBold" Text="Responses body JSON" />
             <TextBox x:Name="RawResponsesBodyBox" AcceptsReturn="True" MinHeight="170"
+                     AutomationProperties.AutomationId="Responses.RawBody"
+                     AutomationProperties.Name="Raw Responses request JSON"
+                     AutomationProperties.HelpText="Raw Responses request body. SupraChat enforces only required plan-sharing invariants."
                      Text="{}{&quot;input&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;Say exactly: raw Responses surface works.&quot;}]}]}" />
             <Button HorizontalAlignment="Left" Content="Send raw Responses request" Click="SendRawResponses_Click" />
             <TextBlock FontWeight="SemiBold" Text="Raw Responses events" />
             <TextBox x:Name="RawResponsesEventsBox" AcceptsReturn="True" IsReadOnly="True"
-                     TextWrapping="Wrap" MinHeight="150" />
+                     TextWrapping="Wrap" MinHeight="150"
+                     AutomationProperties.AutomationId="Responses.RawEvents"
+                     AutomationProperties.Name="Raw Responses events"
+                     AutomationProperties.HelpText="Read-only event stream from the raw Responses request." />
 
             <Separator Margin="0,12,0,8" />
 
-            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Responses WebSocket surface" />
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Responses WebSocket surface"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
             <TextBlock TextWrapping="Wrap"
                        Text="Persistent authenticated Responses transport for connection-local continuation, multiplexed stream_id lanes, tool-heavy loops, and supported mid-turn steering. Raw events remain visible so new upstream event types do not require a client release." />
             <WrapPanel Orientation="Horizontal">
@@ -106,50 +175,75 @@
               <Button Margin="0,0,8,8" Content="Send WebSocket event" Click="SendResponsesWebSocketEvent_Click" />
             </WrapPanel>
             <TextBox x:Name="ResponsesWebSocketEventBox" AcceptsReturn="True" MinHeight="150"
+                     AutomationProperties.AutomationId="Responses.WebSocketRequest"
+                     AutomationProperties.Name="Responses WebSocket event JSON"
                      Text="{}{&quot;type&quot;:&quot;response.create&quot;,&quot;stream_id&quot;:&quot;main&quot;,&quot;input&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;Say exactly: WebSocket Responses works.&quot;}]}]}" />
             <TextBlock FontWeight="SemiBold" Text="WebSocket events" />
             <TextBox x:Name="ResponsesWebSocketEventsBox" AcceptsReturn="True" IsReadOnly="True"
-                     TextWrapping="Wrap" MinHeight="180" />
+                     TextWrapping="Wrap" MinHeight="180"
+                     AutomationProperties.AutomationId="Responses.WebSocketEvents"
+                     AutomationProperties.Name="Responses WebSocket events" />
 
             <Separator Margin="0,12,0,8" />
 
-            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Capability explorer" />
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Capability explorer"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
             <TextBlock TextWrapping="Wrap"
                        Text="Browse the packaged Codex runtime plus upstream frontier. Packaged requests can be copied into the generic RPC console; server requests and notifications are observable protocol surfaces rather than client-invoked RPCs." />
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8" Content="Refresh catalogs" Click="RefreshCapabilityCatalog_Click" />
               <ComboBox x:Name="CodexMethodBox" Width="720" Margin="0,0,8,8"
                         PlaceholderText="Select a Codex protocol surface"
+                        AutomationProperties.AutomationId="Codex.CapabilitySurface"
+                        AutomationProperties.Name="Codex protocol surface"
                         SelectionChanged="CodexMethodBox_SelectionChanged" />
             </WrapPanel>
-            <TextBlock x:Name="CapabilityCatalogStatus" TextWrapping="Wrap" />
+            <TextBlock x:Name="CapabilityCatalogStatus" TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="Codex.CatalogStatus"
+                       AutomationProperties.Name="Capability catalog status"
+                       AutomationProperties.LiveSetting="Polite" />
 
             <Separator Margin="0,12,0,8" />
 
-            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console" />
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2" />
             <TextBlock TextWrapping="Wrap"
                        Text="Pinned oracle currently contains 172 client RPCs, 9 server-initiated request types, and 85 notifications. The console does not hide privileged or experimental surfaces; authority-sensitive calls still require explicit parameters/consent." />
 
             <TextBlock FontWeight="SemiBold" Text="RPC method" />
-            <TextBox x:Name="RawRpcMethodBox" Text="model/list" />
+            <TextBox x:Name="RawRpcMethodBox" Text="model/list"
+                     AutomationProperties.AutomationId="Codex.RpcMethod"
+                     AutomationProperties.Name="Codex RPC method" />
             <TextBlock FontWeight="SemiBold" Text="RPC params JSON (blank = no params)" />
             <TextBox x:Name="RawRpcParamsBox" AcceptsReturn="True" MinHeight="90"
+                     AutomationProperties.AutomationId="Codex.RpcParams"
+                     AutomationProperties.Name="Codex RPC parameters JSON"
                      Text="{}{&quot;includeHidden&quot;:true}" />
             <Button HorizontalAlignment="Left" Content="Send app-server RPC" Click="SendRawRpc_Click" />
 
             <TextBlock FontWeight="SemiBold" Text="RPC result" />
             <TextBox x:Name="RawRpcOutputBox" AcceptsReturn="True" IsReadOnly="True"
-                     TextWrapping="Wrap" MinHeight="140" />
+                     TextWrapping="Wrap" MinHeight="140"
+                     AutomationProperties.AutomationId="Codex.RpcResult"
+                     AutomationProperties.Name="Codex RPC result" />
 
             <TextBlock FontWeight="SemiBold" Text="Live protocol events" />
             <TextBox x:Name="ProtocolEventsBox" AcceptsReturn="True" IsReadOnly="True"
-                     TextWrapping="Wrap" MinHeight="180" />
+                     TextWrapping="Wrap" MinHeight="180"
+                     AutomationProperties.AutomationId="Codex.ProtocolEvents"
+                     AutomationProperties.Name="Codex protocol events" />
 
             <TextBlock FontWeight="SemiBold" Text="Pending server request" />
             <TextBox x:Name="PendingServerRequestBox" AcceptsReturn="True" IsReadOnly="True"
-                     TextWrapping="Wrap" MinHeight="90" />
+                     TextWrapping="Wrap" MinHeight="90"
+                     AutomationProperties.AutomationId="Codex.PendingServerRequest"
+                     AutomationProperties.Name="Pending Codex server request" />
             <TextBlock FontWeight="SemiBold" Text="Server response result JSON" />
-            <TextBox x:Name="ServerResponseBox" AcceptsReturn="True" MinHeight="70" Text="{}{}" />
+            <TextBox x:Name="ServerResponseBox" AcceptsReturn="True" MinHeight="70" Text="{}{}"
+                     AutomationProperties.AutomationId="Codex.ServerResponse"
+                     AutomationProperties.Name="Codex server response result JSON" />
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8" Content="Respond with result" Click="RespondServerRequest_Click" />
               <Button Margin="0,0,8,8" Content="Reject request" Click="RejectServerRequest_Click" />
@@ -158,10 +252,15 @@
         </ScrollViewer>
       </TabItem>
 
-      <TabItem Header="Automation &amp; Agents">
+      <TabItem Header="Automation &amp; Agents"
+               AutomationProperties.AutomationId="Tab.AutomationAgents"
+               AutomationProperties.HelpText="Machine interfaces, readiness and accessibility information. Keyboard shortcut Control+3.">
         <ScrollViewer>
           <StackPanel Margin="20" Spacing="10" MaxWidth="1000">
-            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Human · Automation · Agent access" />
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Human · Automation · Agent access"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="1"
+                       AutomationProperties.AutomationId="Machine.Heading" />
             <TextBlock TextWrapping="Wrap"
                        Text="SupraChat exposes one capability core through three shells: this desktop GUI for humans, deterministic JSON commands for automation, and line-delimited JSON-RPC over stdio for agents. Interactive authorization remains a human boundary; authorized machine use shares the protected local grant." />
 
@@ -171,10 +270,15 @@
             </WrapPanel>
 
             <TextBlock FontWeight="SemiBold" Text="Readiness" />
-            <TextBlock x:Name="MachineStatus" TextWrapping="Wrap" Text="Checking machine surfaces…" />
+            <TextBlock x:Name="MachineStatus" TextWrapping="Wrap" Text="Checking machine surfaces…"
+                       AutomationProperties.AutomationId="Machine.Status"
+                       AutomationProperties.Name="Machine interface readiness"
+                       AutomationProperties.LiveSetting="Polite" />
 
             <TextBlock FontWeight="SemiBold" Text="Packaged automation executable" />
-            <TextBox x:Name="MachineExecutablePathBox" IsReadOnly="True" TextWrapping="Wrap" />
+            <TextBox x:Name="MachineExecutablePathBox" IsReadOnly="True" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="Machine.ExecutablePath"
+                     AutomationProperties.Name="Packaged automation executable path" />
 
             <TextBlock FontWeight="SemiBold" Text="Portable automation examples" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="155"
@@ -186,6 +290,23 @@
 
             <TextBlock TextWrapping="Wrap"
                        Text="Agent mode also emits asynchronous responses/ws/event and codex/event notifications. It never auto-approves Codex server requests; clients must explicitly respond or reject according to their authority." />
+
+            <Separator Margin="0,12,0,8" />
+
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Accessibility"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2"
+                       AutomationProperties.AutomationId="Accessibility.Heading" />
+            <TextBlock x:Name="AccessibilityStatus"
+                       TextWrapping="Wrap"
+                       Text="SupraChat follows system light/dark/high-contrast settings, exposes semantic automation metadata, and supports keyboard-only navigation."
+                       AutomationProperties.AutomationId="Accessibility.Status"
+                       AutomationProperties.Name="Accessibility readiness"
+                       AutomationProperties.LiveSetting="Polite" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Keyboard: Ctrl+1 ChatGPT · Ctrl+2 Agent Lab · Ctrl+3 Automation &amp; Agents · Ctrl+L interview input. Standard Tab, Shift+Tab, arrows, Enter and Space remain available. No state is conveyed only by color." />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Automation: suprachat-cli accessibility. Agent: accessibility/read. These expose the same accessibility contract without screen scraping." />
           </StackPanel>
         </ScrollViewer>
       </TabItem>
