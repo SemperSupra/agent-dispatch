@@ -287,7 +287,30 @@ jobs:
 
           if (!(Test-Path $installedExe)) { throw 'Installed SupraChat.exe missing.' }
           if (!(Test-Path $installedCodex)) { throw 'Installed bundled Codex runtime missing.' }
-          if (!(Test-Path (Join-Path $installed 'SupraChat.Automation.exe'))) { throw 'Installed automation/agent shell missing.' }
+          $installedAutomation = Join-Path $installed 'SupraChat.Automation.exe'
+          $cliShim = Join-Path $installed 'suprachat-cli.cmd'
+          if (!(Test-Path $installedAutomation)) { throw 'Installed automation/agent shell missing.' }
+          if (!(Test-Path $cliShim)) { throw 'Installed suprachat-cli shim missing.' }
+
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (-not ($userPath.Split(';') | Where-Object { $_.Trim().TrimEnd('\') -eq $installed.TrimEnd('\') })) {
+            throw 'SupraChat install root was not added to user PATH.'
+          }
+
+          $cliJson = & $cliShim capabilities
+          if ($LASTEXITCODE -ne 0) { throw 'Installed suprachat-cli capabilities failed.' }
+          $cliDoc = $cliJson | ConvertFrom-Json
+          if (-not $cliDoc.ok -or -not $cliDoc.value.audiences.automation.supported) {
+            throw 'Installed automation contract failed.'
+          }
+
+          $rpcRequest = '{"jsonrpc":"2.0","id":"installed","method":"capabilities/read"}'
+          $rpcLines = $rpcRequest | & $installedAutomation stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Installed agent stdio failed.' }
+          $rpcDoc = ($rpcLines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($rpcDoc.id -ne 'installed' -or -not $rpcDoc.result.audiences.agent.supported) {
+            throw 'Installed agent JSON-RPC contract failed.'
+          }
           if (!(Test-Path $arp)) { throw 'Add/Remove Programs registration missing.' }
           if (!(Test-Path $protocolCommand)) { throw 'suprachat:// protocol registration missing.' }
           if (!(Test-Path $appCommand)) { throw 'Open With command registration missing.' }
@@ -303,10 +326,20 @@ jobs:
 
           Remove-Item (Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/SupraChat.lnk') -Force -ErrorAction SilentlyContinue
           Remove-Item $arp -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item $protocol -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item $appKey -Recurse -Force -ErrorAction SilentlyContinue
+          $uninstall = Join-Path $installed 'uninstall.ps1'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstall
+          Start-Sleep -Seconds 2
+
+          $userPathAfter = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if ($userPathAfter -and ($userPathAfter.Split(';') | Where-Object { $_.Trim().TrimEnd('\') -eq $installed.TrimEnd('\') })) {
+            throw 'SupraChat uninstall left install root on user PATH.'
+          }
+          if (Test-Path $protocol) { throw 'SupraChat protocol registration survived uninstall.' }
+          if (Test-Path $appKey) { throw 'SupraChat Open With registration survived uninstall.' }
+          if (Test-Path $arp) { throw 'SupraChat Add/Remove Programs entry survived uninstall.' }
+
           Remove-Item $installed -Recurse -Force -ErrorAction SilentlyContinue
-          'Per-user installer + protocol/Open-With smoke PASS.'
+          'Per-user installer + human/automation/agent/protocol/Open-With smoke PASS.'
 
       - name: Windows GUI launch smoke
         if: runner.os == 'Windows'
