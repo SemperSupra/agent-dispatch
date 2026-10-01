@@ -446,7 +446,7 @@
         "linux": "qualify"
       },
       "human_boundary": "Navigation is an explicit caller action. The clean-room browser is isolated from the first-party ChatGPT WebView/session and does not inherit browser cookies or credentials.",
-      "notes": "Pinned Playwright/Chromium substrate. GUI uses a visible session with explicit Stop; CLI/JSON-RPC use ephemeral headless sessions and return AI-optimized ARIA snapshots rather than requiring pixels."
+      "notes": "Pinned Playwright/Chromium substrate. GUI uses a visible isolated session with explicit Stop; CLI/JSON-RPC expose ephemeral semantic snapshots. Automation supports one-shot role/name click and label-based fill; agent JSON-RPC additionally exposes sessionful start/navigate/read/click/fill/stop. Every action returns an AI-optimized ARIA snapshot."
     },
     {
       "id": "computer_use_browser",
@@ -463,7 +463,7 @@
         "linux": "qualify"
       },
       "human_boundary": "Computer/browser control requires explicit authority, permissions and approvals.",
-      "notes": "Recovered unified desktop apps bundle browser/CUA/plugin machinery; clean-room implementation is active. Completion requires semantic operational state, text equivalents for visual-only status, structured permissions, and keyboard/machine-reachable pause/stop."
+      "notes": "Clean-room browser substrate now implements semantic observation plus role/name click and labeled-input fill across human/automation/agent paths. Remaining qualification frontier: packaged Chromium, screenshots/visual fallback, general pointer/keyboard primitives, downloads/uploads, multi-tab/context lifecycle, permission capture and explicit higher-risk approval policy."
     },
     {
       "id": "remote_control_pairing",
