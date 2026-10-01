@@ -73,6 +73,61 @@ class GarmProviderG2Tests(unittest.TestCase):
         self.assertIn("garm-provider-truenas-g2-fixtures", truenas)
         self.assertIn("--g2-fixture-dir", truenas)
 
+
+    def test_exact_fixture_is_applied_only_after_seed_is_stopped(self):
+        compose = {
+            "services": {
+                "runner": {
+                    "image": "example.invalid/runner@sha256:" + ("0" * 64),
+                    "restart": "no",
+                },
+            },
+        }
+
+        class FakeSession:
+            def __init__(self):
+                self.calls = []
+                self.query_count = 0
+                self.waits = []
+
+            def call(self, method, params):
+                self.calls.append((method, params))
+                if method == "app.create":
+                    return 101
+                if method == "app.stop":
+                    return 102
+                if method == "app.update":
+                    return 103
+                if method == "app.query":
+                    self.query_count += 1
+                    return {"state": "RUNNING" if self.query_count == 1 else "STOPPED"}
+                if method == "app.config":
+                    return compose
+                raise AssertionError(method)
+
+            def wait_job(self, job_id, label, timeout):
+                self.waits.append((job_id, label, timeout))
+                return {"state": "SUCCESS"}
+
+        session = FakeSession()
+        result = MOD.create_app_stopped_with_exact_config(
+            session, "garm-fixture-runner-1", compose, 30.0
+        )
+        self.assertEqual(result["state"], "STOPPED")
+
+        methods = [method for method, _ in session.calls]
+        self.assertLess(methods.index("app.stop"), methods.index("app.update"))
+        update = next(params for method, params in session.calls if method == "app.update")
+        self.assertEqual(update[1]["custom_compose_config"], compose)
+        self.assertIn("app.config", methods)
+        self.assertNotIn("app.start", methods)
+
+    def test_stopped_update_contract_is_explicitly_documented(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("existing App is STOPPED", text)
+        self.assertIn('"app.update"', text)
+        self.assertIn('"runner_fixture_bootstrap_not_started": True', text)
+
     def test_tls_path_is_verified_and_ephemeral(self):
         text = SCRIPT.read_text(encoding="utf-8")
         for required in (
