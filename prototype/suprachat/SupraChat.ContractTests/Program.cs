@@ -397,12 +397,73 @@ foreach (var marker in new[]
     "\"browser/fill\"",
     "\"browser/stop\"",
     "\"browser-click\"",
-    "\"browser-fill\""
+    "\"browser-fill\"",
+    "\"codex-local-methods\"",
+    "\"codex-local-read\"",
+    "\"codex/local/methods\"",
+    "\"codex/local/read\""
 })
 {
     Require(automationSource.Contains(marker, StringComparison.Ordinal),
         $"semantic machine runtime surface missing: {marker}");
 }
+
+Require(CodexLocalReadPolicy.Schema == "suprachat-codex-local-read-policy/v1",
+    "Codex local-read policy schema drifted");
+Require(CodexLocalReadPolicy.Methods.Count == 15,
+    "Codex credential-free allowlist count drifted without qualification evidence");
+foreach (var method in new[]
+{
+    "config/read",
+    "configRequirements/read",
+    "experimentalFeature/list",
+    "collaborationMode/list",
+    "model/list",
+    "plugin/list",
+    "permissionProfile/list",
+    "app/list",
+    "account/read",
+    "mcpServerStatus/list",
+    "skills/list",
+    "windowsSandbox/readiness",
+    "thread/realtime/listVoices",
+    "remoteControl/status/read",
+    "thread/list"
+})
+{
+    Require(CodexLocalReadPolicy.IsAllowed(method),
+        $"qualified Codex local-read method missing from policy: {method}");
+}
+Require(CodexLocalReadPolicy.IsAllowed("account/read"),
+    "signed-out Codex account/read status must remain in the credential-free allowlist");
+Require(!CodexLocalReadPolicy.IsAllowed("account/usage/read"),
+    "account-backed Codex usage read must not enter credential-free allowlist");
+Require(!CodexLocalReadPolicy.IsAllowed("remoteControl/enable"),
+    "Codex Remote mutation must not enter credential-free allowlist");
+Require(!CodexLocalReadPolicy.IsAllowed("plugin/install"),
+    "Codex plugin mutation must not enter credential-free allowlist");
+
+var codexServerSource = File.ReadAllText(Path.Combine(
+    "prototype", "suprachat", "SupraChat", "Core", "CodexAppServer.cs"));
+Require(codexServerSource.Contains("StartLocal()", StringComparison.Ordinal),
+    "credential-free Codex local-start substrate missing");
+foreach (var credentialName in new[]
+{
+    "ACCESS_TOKEN",
+    "OPENAI_API_KEY",
+    "CODEX_API_KEY",
+    "OPENAI_ACCESS_TOKEN",
+    "CHATGPT_ACCESS_TOKEN"
+})
+{
+    Require(codexServerSource.Contains($"\"{credentialName}\"", StringComparison.Ordinal),
+        $"credential-free Codex local-start must explicitly strip {credentialName}");
+}
+Require(codexServerSource.Contains("AppState.DirectoryPath, \"codex-local\"", StringComparison.Ordinal),
+    "credential-free Codex local-start must use an application-owned Codex home");
+Require(codexServerSource.Contains("XDG_CONFIG_HOME", StringComparison.Ordinal) &&
+        codexServerSource.Contains("XDG_DATA_HOME", StringComparison.Ordinal),
+    "credential-free Codex local-start must isolate XDG state");
 
 var browserStatus = BrowserSession.Status();
 Require(browserStatus.Schema == "suprachat-browser-runtime/v1", "browser runtime schema drifted");

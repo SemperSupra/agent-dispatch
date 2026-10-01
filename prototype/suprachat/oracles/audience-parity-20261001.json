@@ -177,6 +177,23 @@
       "notes": "Bundled pinned Codex runtime, typed interview and generic RPC/event surfaces."
     },
     {
+      "id": "codex_local_reads",
+      "consequential": false,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "No OpenAI authorization is required for the exact qualified read-only/local allowlist. All methods outside the allowlist retain their existing authorization/confirmation boundary.",
+      "notes": "GUI capability explorer/raw RPC routing, CLI codex-local-methods/codex-local-read, and JSON-RPC codex/local/methods + codex/local/read share the same CodexLocalReadPolicy allowlist. Public guest evidence established 14 methods in run 36927142694; corrected run 36931826876 added signed-out account/read on Windows/Linux/macOS, for a 15-method local-read frontier."
+    },
+    {
       "id": "capability_catalogs",
       "consequential": true,
       "access": {

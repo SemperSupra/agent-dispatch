@@ -124,6 +124,34 @@ The complete method-name inventory is reproducible by extracting `=> "…"` prot
 `codex-rs/app-server-protocol/src/protocol/common.rs`
 at the exact oracle revision above.
 
+### Credential-free local read frontier
+
+Public qualification on 2026-10-01 used the bundled pinned Codex app-server with known OpenAI/Codex credential environment variables removed and an isolated Codex home. The same read-only/local methods returned results on Windows, Linux and macOS without OpenAI authorization:
+
+- `config/read`;
+- `configRequirements/read`;
+- `experimentalFeature/list`;
+- `collaborationMode/list`;
+- `model/list`;
+- `plugin/list`;
+- `permissionProfile/list`;
+- `app/list`;
+- `account/read` (signed-out local state; empirically returns `account=null`, `requiresOpenaiAuth=false`);
+- `mcpServerStatus/list`;
+- `skills/list`;
+- `windowsSandbox/readiness`;
+- `thread/realtime/listVoices`;
+- `remoteControl/status/read`;
+- `thread/list`.
+
+SupraChat binds exactly this set through `CodexLocalReadPolicy` and the `codex-local-read` / `codex/local/read` machine surfaces. Calls outside that allowlist do **not** silently fall through to guest execution.
+
+Observed account-backed boundaries remain separate:
+- public guest-probe run `36927142694` returned authentication-required outcomes for `account/rateLimits/read`, `account/usage/read`, and `account/workspaceMessages/read`;
+- corrected three-OS run `36931826876` sent `account/read` with `params: {}` and returned a local signed-out result on Windows, Linux and macOS: `account=null`, `requiresOpenaiAuth=false`, with no server-request approval path. This qualifies only the local account/auth-status snapshot, not authenticated account data.
+
+This frontier is a capability boundary, not an authority shortcut: inference, account/usage data, plugin/app mutation, Remote mutation, sandbox setup, server-request approval, and other consequential methods retain their existing authorization/confirmation requirements.
+
 ## ChatGPT Android observed capability plane
 
 AAR authority: `SemperSupra/android-artifact-recovery-private#79`.

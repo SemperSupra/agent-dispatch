@@ -150,11 +150,19 @@ public sealed class CodexAppServerClient : IAsyncDisposable
             }
         });
 
-    public static async Task<CodexAppServerClient> StartAsync(
+    public static Task<CodexAppServerClient> StartAsync(
         string accessToken,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        StartCoreAsync(CodexAppServer.Start(accessToken), cancellationToken);
+
+    public static Task<CodexAppServerClient> StartLocalAsync(
+        CancellationToken cancellationToken = default) =>
+        StartCoreAsync(CodexAppServer.StartLocal(), cancellationToken);
+
+    private static async Task<CodexAppServerClient> StartCoreAsync(
+        Process process,
+        CancellationToken cancellationToken)
     {
-        var process = CodexAppServer.Start(accessToken);
         var client = new CodexAppServerClient(process);
         try
         {
