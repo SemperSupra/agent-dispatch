@@ -102,6 +102,31 @@ Demand-driven only: RE, EDA, then Blender background/CPU automation. GPU, Window
 
 Before private operational placement, reproduce the portable contract on the actual KVM-capable sovereign host and measure that host's own concurrency/coexistence envelope.
 
+
+## P0a execution substrate
+
+Prefer reuse of the existing `.github/workflows/sealed-public-execution.yml` worker over creating a workload-specific Actions workflow.
+
+The sealed worker already owns the needed generic mechanism:
+
+- public-safe bounded capsule input with content digest;
+- standard public GitHub-hosted Linux execution;
+- bounded task timeout and output budgets;
+- captured task stdout/stderr;
+- result-file collection;
+- encrypted result mailbox;
+- no project acceptance semantics inside the worker.
+
+The P0a capsule is deliberately small. It verifies the exact public repository/revision, installs only `squashfs-tools`, runs the P0a contract tests, and invokes `github_runner_firecracker_playwright_control.py`. The workload itself performs an explicit callable-KVM preflight; a venue without KVM returns `VENUE_LIMITATION` rather than being misclassified as a browser or Firecracker workload failure.
+
+The current sealed workflow is not yet an Agent Dispatch target. The sidecar reserves `workset_id`, `delegation_id`, and `assignment_id` dispatch inputs and correlates runs by the display-title prefix `sidecar:<workset>:<delegation>:<assignment>`. The sealed workflow already declares `assignment_id`; the minimum compatibility delta is therefore:
+
+1. declare required string inputs `workset_id` and `delegation_id`;
+2. set `run-name` to `sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}`;
+3. leave the sealed worker implementation and existing capsule/result contract unchanged.
+
+Do not add a generic command input, script path, repository selector, arbitrary ref selector, or broader credential. The execution target remains a fixed capability binding for the reviewed P0a capsule.
+
 ## Placement test
 
 ```text
