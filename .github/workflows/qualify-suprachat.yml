@@ -598,7 +598,14 @@ jobs:
           if (Test-Path $appKey) { throw 'SupraChat Open With registration survived uninstall.' }
           if (Test-Path $arp) { throw 'SupraChat Add/Remove Programs entry survived uninstall.' }
 
-          Remove-Item $installed -Recurse -Force -ErrorAction SilentlyContinue
+          if (Test-Path -LiteralPath $installed) {
+            try {
+              Remove-Item -LiteralPath $installed -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+              Write-Host "Installed tree was already being removed by the uninstaller helper: $($_.Exception.Message)"
+            }
+          }
           'Per-user installer + human/automation/agent/protocol/Open-With smoke PASS.'
 
       - name: Windows GUI launch smoke
