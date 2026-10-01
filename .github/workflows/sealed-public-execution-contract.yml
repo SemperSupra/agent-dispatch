@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/sealed_public_execution.py'
       - 'tests/test_sealed_public_execution.py'
+      - 'tests/test_sealed_public_sidecar_correlation.py'
       - '.github/workflows/sealed-public-execution.yml'
       - '.github/workflows/sealed-public-execution-contract.yml'
       - 'docs/sealed-public-execution.md'
@@ -23,7 +24,10 @@ jobs:
           persist-credentials: false
 
       - name: Run dependency-free contract tests
-        run: python3 -m unittest -v tests/test_sealed_public_execution.py
+        run: |
+          python3 -m unittest -v \
+            tests/test_sealed_public_execution.py \
+            tests/test_sealed_public_sidecar_correlation.py
 
       - name: Install age for round-trip test
         shell: bash
