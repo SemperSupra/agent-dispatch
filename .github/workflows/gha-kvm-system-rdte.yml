@@ -177,9 +177,9 @@ jobs:
   foundry-official-catalog-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'official-catalog'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-official-catalog-t6-control.yml@586c8a356392195e1f5783aeb1befc3ce4817844
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-official-catalog-t6-control.yml@be7c2e7fd81785ee3fce2a26f75d226004bf52e5
     with:
-      foundry_ref: 586c8a356392195e1f5783aeb1befc3ce4817844
+      foundry_ref: be7c2e7fd81785ee3fce2a26f75d226004bf52e5
       control_id: ntfy
     permissions:
       contents: read
@@ -353,7 +353,7 @@ jobs:
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "wow-sidecar" ]]; then
                 foundry_commit="9ac2eef97581caff5b0de740560c55a778fa3f1c"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "official-catalog" ]]; then
-                foundry_commit="586c8a356392195e1f5783aeb1befc3ce4817844"
+                foundry_commit="be7c2e7fd81785ee3fce2a26f75d226004bf52e5"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi
