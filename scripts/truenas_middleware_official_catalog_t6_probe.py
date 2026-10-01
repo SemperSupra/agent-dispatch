@@ -108,15 +108,25 @@ def native_lineage(app: dict[str, Any], control: dict[str, Any]) -> bool:
     return app.get("custom_app") is False and metadata.get("name") == control["control"]["id"]
 
 
-def healthy_running(app: dict[str, Any], control: dict[str, Any]) -> bool:
-    if not owned(app, control) or app.get("state") != "RUNNING":
+def native_runtime_healthy(app: dict[str, Any], control: dict[str, Any], *, exact_identity: bool = True) -> bool:
+    if (owned(app, control) if exact_identity else native_lineage(app, control)) is False:
+        return False
+    if app.get("state") != "RUNNING":
         return False
     workloads = app.get("active_workloads") or {}
     details = workloads.get("container_details") or []
     containers = workloads.get("containers")
     if not isinstance(containers, int) or containers < 1 or not details:
         return False
-    return all(item.get("state") == "running" for item in details)
+    primary = control["control"]["id"]
+    return any(
+        item.get("service_name") == primary and item.get("state") == "running"
+        for item in details
+    )
+
+
+def healthy_running(app: dict[str, Any], control: dict[str, Any]) -> bool:
+    return native_runtime_healthy(app, control, exact_identity=True)
 
 
 def plan(
@@ -241,17 +251,7 @@ def main() -> int:
             last = None
             while time.monotonic() < deadline:
                 last = query()
-                workloads = (last or {}).get("active_workloads") or {}
-                details = workloads.get("container_details") or []
-                if (
-                    last
-                    and native_lineage(last, control)
-                    and last.get("state") == "RUNNING"
-                    and isinstance(workloads.get("containers"), int)
-                    and workloads.get("containers") >= 1
-                    and details
-                    and all(item.get("state") == "running" for item in details)
-                ):
+                if last and native_runtime_healthy(last, control, exact_identity=False):
                     payload["states"].append({"label": label, "state": "RUNNING"})
                     return last
                 time.sleep(1)
