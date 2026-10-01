@@ -243,6 +243,34 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void SendRawResponses_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await EnsureCredentialAsync();
+            if (ModelBox.SelectedItem is not ModelChoice model)
+                throw new InvalidOperationException("Select a model first.");
+
+            RawResponsesEventsBox.Text = "";
+            var result = await _responses.StreamRawAsync(
+                _credential!.AccessToken,
+                model.Slug,
+                RawResponsesBodyBox.Text ?? "{}",
+                onDelta: null,
+                onEvent: (type, payload) => Dispatcher.UIThread.Post(() =>
+                    AppendRawResponseEvent(type, payload)));
+
+            AuthStatus.Text =
+                $"Raw Responses request completed={result.Completed}; events={result.EventTypes.Count}; " +
+                $"request_id={result.RequestId ?? "unknown"}.";
+        }
+        catch (Exception ex)
+        {
+            AppendRawResponseEvent("ERROR", ex.ToString());
+            AuthStatus.Text = $"Raw Responses request failed: {ex.Message}";
+        }
+    }
+
     private async void StartCodex_Click(object? sender, RoutedEventArgs e)
     {
         try
@@ -447,6 +475,18 @@ public partial class MainWindow : Window
         var evt = _pendingServerRequests.Peek();
         PendingServerRequestBox.Text =
             $"id={evt.Id}{Environment.NewLine}method={evt.Method}{Environment.NewLine}{PrettyJson(evt.Payload)}";
+    }
+
+    private void AppendRawResponseEvent(string type, string payload)
+    {
+        var compact = payload.Replace("\r", " ").Replace("\n", " ");
+        if (compact.Length > 3000)
+            compact = compact[..3000] + "…";
+
+        var current = RawResponsesEventsBox.Text ?? "";
+        var next = current + DateTimeOffset.Now.ToString("HH:mm:ss.fff") +
+            " " + type + " " + compact + Environment.NewLine;
+        RawResponsesEventsBox.Text = next.Length <= 60000 ? next : next[^60000..];
     }
 
     private void AppendProtocolEvent(string line)
