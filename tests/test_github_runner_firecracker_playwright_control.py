@@ -71,6 +71,16 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         self.assertIn('receipt["kvm_access"]', source)
         self.assertIn('receipt["runner"]', source)
 
+    def test_rootfs_immutability_oracle_hashes_exact_jailed_drive(self):
+        source = SCRIPT.read_text()
+        self.assertIn("def _sudo_sha256", source)
+        self.assertIn('jail_rootfs = jail_root / "playwright.squashfs"', source)
+        self.assertIn("staged_root_before = _sudo_sha256(jail_rootfs)", source)
+        self.assertIn("staged_root_after = _sudo_sha256(jail_rootfs)", source)
+        self.assertIn('"staged_sha256_before": staged_root_before', source)
+        self.assertIn('"staged_sha256_after": staged_root_after', source)
+        self.assertNotIn("root_after = _sha256(rootfs)", source)
+
     def test_externalization_and_cleanup_can_overrule_guest_success(self):
         source = SCRIPT.read_text()
         self.assertIn('"ORACLE_FAILURE"', source)
