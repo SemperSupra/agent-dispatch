@@ -54,6 +54,12 @@ internal static class Program
                 "models" => WriteSuccess(await ModelsAsync()),
                 "voices" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "thread/realtime/listVoices", "--params", "{}" })),
                 "remote-status" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "remoteControl/status/read" })),
+                "remote-enable" => WriteSuccess(await RemoteEnableAsync(args[1..])),
+                "remote-disable" => WriteSuccess(await RemoteDisableAsync(args[1..])),
+                "remote-pair" => WriteSuccess(await RemotePairAsync(args[1..])),
+                "remote-pair-status" => WriteSuccess(await RemotePairStatusAsync(args[1..])),
+                "remote-clients" => WriteSuccess(await RemoteClientsAsync(args[1..])),
+                "remote-revoke" => WriteSuccess(await RemoteRevokeAsync(args[1..])),
                 "plugins" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "plugin/list", "--params", "{}" })),
                 "permission-profiles" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "permissionProfile/list", "--params", "{}" })),
                 "apps" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "app/list", "--params", "{}" })),
@@ -97,6 +103,12 @@ internal static class Program
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
             new { name = "voices", description = "List realtime voices exposed by the bundled Codex runtime." },
             new { name = "remote-status", description = "Read Codex Remote connection/identity status without enabling or pairing." },
+            new { name = "remote-enable", description = "Explicitly enable Codex Remote.", syntax = "remote-enable --confirm [--ephemeral]" },
+            new { name = "remote-disable", description = "Explicitly disable Codex Remote.", syntax = "remote-disable --confirm [--ephemeral]" },
+            new { name = "remote-pair", description = "Explicitly start remote pairing.", syntax = "remote-pair --confirm [--manual-code]" },
+            new { name = "remote-pair-status", description = "Read pairing claim status.", syntax = "remote-pair-status [--pairing-code <code>] [--manual-code <code>]" },
+            new { name = "remote-clients", description = "List paired remote clients.", syntax = "remote-clients --environment <id>" },
+            new { name = "remote-revoke", description = "Explicitly revoke a paired remote client.", syntax = "remote-revoke --confirm --environment <id> --client <id>" },
             new { name = "plugins", description = "List available Codex plugins without installing or mutating them." },
             new { name = "permission-profiles", description = "List effective Codex permission profiles without changing them." },
             new { name = "apps", description = "List available Codex apps/connectors without installing or changing them." },
@@ -144,6 +156,12 @@ internal static class Program
             "models/list",
             "realtime/voices",
             "remote/status",
+            "remote/enable",
+            "remote/disable",
+            "remote/pairing/start",
+            "remote/pairing/status",
+            "remote/clients/list",
+            "remote/clients/revoke",
             "plugins/list",
             "permissions/profiles",
             "apps/list",
@@ -298,6 +316,70 @@ internal static class Program
             binding = "siwc-responses",
             models = models.Select(x => new { id = x.Slug, display_name = x.DisplayName }).ToArray()
         };
+    }
+
+    private static void RequireExplicitConfirmation(string[] args, string operation)
+    {
+        if (!HasFlag(args, "--confirm"))
+            throw new MachineException(
+                2,
+                "CONFIRMATION_REQUIRED",
+                $"{operation} is consequential. Repeat with --confirm after reviewing the requested action.");
+    }
+
+    private static async Task<object> RemoteEnableAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Enabling Codex Remote");
+        var body = JsonSerializer.Serialize(new { ephemeral = HasFlag(args, "--ephemeral") });
+        return await CodexRpcAsync(new[] { "--method", "remoteControl/enable", "--params", body });
+    }
+
+    private static async Task<object> RemoteDisableAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Disabling Codex Remote");
+        var body = JsonSerializer.Serialize(new { ephemeral = HasFlag(args, "--ephemeral") });
+        return await CodexRpcAsync(new[] { "--method", "remoteControl/disable", "--params", body });
+    }
+
+    private static async Task<object> RemotePairAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Starting Codex Remote pairing");
+        var body = JsonSerializer.Serialize(new { manualCode = HasFlag(args, "--manual-code") });
+        return await CodexRpcAsync(new[] { "--method", "remoteControl/pairing/start", "--params", body });
+    }
+
+    private static async Task<object> RemotePairStatusAsync(string[] args)
+    {
+        var pairingCode = Option(args, "--pairing-code");
+        var manualCode = Option(args, "--manual-code");
+        var body = JsonSerializer.Serialize(new
+        {
+            pairingCode,
+            manualPairingCode = manualCode
+        });
+        return await CodexRpcAsync(new[] { "--method", "remoteControl/pairing/status", "--params", body });
+    }
+
+    private static async Task<object> RemoteClientsAsync(string[] args)
+    {
+        var environmentId = RequiredOption(args, "--environment");
+        var body = JsonSerializer.Serialize(new
+        {
+            environmentId,
+            cursor = (string?)null,
+            limit = (int?)null,
+            order = (string?)null
+        });
+        return await CodexRpcAsync(new[] { "--method", "remoteControl/client/list", "--params", body });
+    }
+
+    private static async Task<object> RemoteRevokeAsync(string[] args)
+    {
+        RequireExplicitConfirmation(args, "Revoking a Codex Remote client");
+        var environmentId = RequiredOption(args, "--environment");
+        var clientId = RequiredOption(args, "--client");
+        var body = JsonSerializer.Serialize(new { environmentId, clientId });
+        return await CodexRpcAsync(new[] { "--method", "remoteControl/client/revoke", "--params", body });
     }
 
     private static async Task<object> ScreenCaptureAsync(string[] args)
@@ -490,6 +572,12 @@ internal static class Program
             "models/list" => await ModelsAsync(),
             "realtime/voices" => await RpcCodexReadAsync("thread/realtime/listVoices", emptyParams: true),
             "remote/status" => await RpcCodexReadAsync("remoteControl/status/read", emptyParams: false),
+            "remote/enable" => await RpcRemoteEnableAsync(parameters),
+            "remote/disable" => await RpcRemoteDisableAsync(parameters),
+            "remote/pairing/start" => await RpcRemotePairAsync(parameters),
+            "remote/pairing/status" => await RpcRemotePairStatusAsync(parameters),
+            "remote/clients/list" => await RpcRemoteClientsAsync(parameters),
+            "remote/clients/revoke" => await RpcRemoteRevokeAsync(parameters),
             "plugins/list" => await RpcCodexReadAsync("plugin/list", emptyParams: true),
             "permissions/profiles" => await RpcCodexReadAsync("permissionProfile/list", emptyParams: true),
             "apps/list" => await RpcCodexReadAsync("app/list", emptyParams: true),
