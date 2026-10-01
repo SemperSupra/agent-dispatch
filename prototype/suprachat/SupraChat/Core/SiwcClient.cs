@@ -34,14 +34,16 @@ public sealed class SiwcClient
         TopLevel owner,
         string hostId,
         string appName,
-        SiwcCredential? existing = null)
+        SiwcCredential? existing = null,
+        bool promptConsent = false)
     {
         var attempt = SiwcProtocol.CreateAuthorization(
             hostId,
             appName,
             existing?.ClientId,
             idTokenHint: existing?.IdToken,
-            loginHint: existing?.Email);
+            loginHint: existing?.Email,
+            promptConsent: promptConsent);
 
         var options = new WebAuthenticatorOptions(attempt.AuthorizationUri, attempt.RedirectUri)
         {
@@ -91,7 +93,6 @@ public sealed class SiwcClient
         var tokenType = root.TryGetProperty("token_type", out var tt) ? tt.GetString() ?? "Bearer" : "Bearer";
         var expiresIn = root.TryGetProperty("expires_in", out var ei) ? ei.GetInt64() : 3600;
         var scopes = ParseScopes(root, Array.Empty<string>());
-        RequirePlanScope(scopes);
 
         var principal = await ValidateIdTokenAsync(idToken, issuedClientId, attempt.Nonce);
         var subject = principal.FindFirst("sub")?.Value
@@ -141,7 +142,6 @@ public sealed class SiwcClient
             var tokenType = root.TryGetProperty("token_type", out var tt) ? tt.GetString() ?? credential.TokenType : credential.TokenType;
             var expiresIn = root.TryGetProperty("expires_in", out var ei) ? ei.GetInt64() : 3600;
             var scopes = ParseScopes(root, credential.Scopes);
-            RequirePlanScope(scopes);
 
             return credential with
             {
@@ -159,13 +159,58 @@ public sealed class SiwcClient
         }
     }
 
+    public async Task<bool> RevokeAsync(SiwcCredential credential)
+    {
+        var endpoint = await GetRevocationEndpointAsync().ConfigureAwait(false);
+        using var response = await _http.PostAsync(
+            endpoint,
+            new FormUrlEncodedContent(
+                SiwcProtocol.BuildRevocationForm(credential.ClientId, credential.RefreshToken)))
+            .ConfigureAwait(false);
+
+        // The documented endpoint returns 200 for success and already-invalid
+        // tokens. Temporary failures must not be mistaken for confirmed revocation.
+        if ((int)response.StatusCode >= 500)
+            return false;
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var detail = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            throw new InvalidOperationException(
+                $"session revocation failed ({(int)response.StatusCode}){DiagnosticSuffix(response, detail)}");
+        }
+
+        return true;
+    }
+
+    private async Task<Uri> GetRevocationEndpointAsync()
+    {
+        using var response = await _http.GetAsync(SiwcProtocol.DiscoveryEndpoint).ConfigureAwait(false);
+        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"OIDC discovery failed ({(int)response.StatusCode}){DiagnosticSuffix(response, json)}");
+
+        using var doc = JsonDocument.Parse(json);
+        var text = doc.RootElement.TryGetProperty("revocation_endpoint", out var value)
+            ? value.GetString()
+            : null;
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var endpoint) ||
+            endpoint.Scheme != Uri.UriSchemeHttps ||
+            !string.Equals(endpoint.Host, "auth.openai.com", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("OIDC discovery returned an unexpected revocation endpoint.");
+
+        return endpoint;
+    }
+
     private static async Task<JsonElement> ReadSuccessfulTokenResponseAsync(
         HttpResponseMessage response,
         string operation)
     {
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"{operation} failed ({(int)response.StatusCode}).");
+            throw new InvalidOperationException(
+                $"{operation} failed ({(int)response.StatusCode}){DiagnosticSuffix(response, json)}");
 
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
@@ -180,16 +225,21 @@ public sealed class SiwcClient
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
-    private static void RequirePlanScope(IEnumerable<string> scopes)
-    {
-        if (!scopes.Contains(SiwcProtocol.RequiredPlanScope, StringComparer.Ordinal))
-            throw new InvalidOperationException("ChatGPT plan usage permission was not granted.");
-    }
-
     private static string Required(JsonElement root, string name) =>
         root.TryGetProperty(name, out var value) && value.GetString() is { Length: > 0 } text
             ? text
             : throw new InvalidOperationException($"Token response omitted {name}.");
+
+    private static string DiagnosticSuffix(HttpResponseMessage response, string body)
+    {
+        var requestId = response.Headers.TryGetValues("x-request-id", out var values)
+            ? values.FirstOrDefault()
+            : null;
+        var compact = body.Replace("\r", " ").Replace("\n", " ").Trim();
+        if (compact.Length > 500)
+            compact = compact[..500] + "…";
+        return $" request_id={requestId ?? "unknown"} body={compact}";
+    }
 
     private static async Task<ClaimsPrincipal> ValidateIdTokenAsync(
         string idToken,
@@ -197,7 +247,7 @@ public sealed class SiwcClient
         string expectedNonce)
     {
         var manager = new ConfigurationManager<OpenIdConnectConfiguration>(
-            "https://auth.openai.com/.well-known/openid-configuration",
+            SiwcProtocol.DiscoveryEndpoint.AbsoluteUri,
             new OpenIdConnectConfigurationRetriever());
         var config = await manager.GetConfigurationAsync(CancellationToken.None).ConfigureAwait(false);
 
