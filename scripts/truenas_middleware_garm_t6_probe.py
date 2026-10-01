@@ -18,7 +18,6 @@ import time
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 SCHEMA = "semper-supra.garm-truenas-t6-control/1"
-EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
 EXPECTED_APP_NAME = "rdte-t6-garm"
 EXPECTED_IMAGE = "ghcr.io/sempersupra/garm-appliance@sha256:1af67841ddd4589e3798dcda8be49230565c849d07ab57fd05899432dcdabca9"
 EXPECTED_CONTROLLER_SOURCE = "8a72cb23deacc712786945ac5e7ee63f8b4976d6"
@@ -214,6 +213,7 @@ def main() -> int:
     p.add_argument("--password-file", required=True)
     p.add_argument("--control-dir", type=pathlib.Path, required=True)
     p.add_argument("--foundry-commit", required=True)
+    p.add_argument("--target-version", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8.0)
@@ -226,7 +226,7 @@ def main() -> int:
         "schema": "truenas-garm-foundry-t6/v1",
         "classification": "ORACLE_FAILURE",
         "oracleSatisfied": False,
-        "expected_version": EXPECTED_VERSION,
+        "expected_version": f"TrueNAS-{a.target_version}",
         "foundry_commit": a.foundry_commit,
         "app_name": EXPECTED_APP_NAME,
         "appliance": EXPECTED_IMAGE,
@@ -314,7 +314,7 @@ def main() -> int:
             raise RuntimeError("authentication did not return SUCCESS")
 
         payload["system_version"] = call("system.version", [])
-        if payload["system_version"] != EXPECTED_VERSION:
+        if payload["system_version"] != payload["expected_version"]:
             raise RuntimeError("target version drifted")
 
         if call("app.query", [[["id", "=", EXPECTED_APP_NAME]]]):
