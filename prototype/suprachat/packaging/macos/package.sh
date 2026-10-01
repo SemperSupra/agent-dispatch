@@ -53,6 +53,24 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP"
-codesign --verify --deep --strict "$APP"
+# Sign inside-out. Avoid --deep on the outer app: Microsoft.Playwright ships
+# housekeeping/runtime directories (for example .playwright) that are not bundles
+# and must not be reinterpreted as nested bundles by codesign.
+while IFS= read -r -d '' file_path; do
+  if file -b "$file_path" | grep -q 'Mach-O'; then
+    codesign --force --sign - "$file_path"
+    codesign --verify --strict "$file_path"
+  fi
+done < <(find "$APP/Contents/MacOS" -type f -print0)
+
+# Browser distributions may contain real nested .app bundles; sign those as
+# bundles after their Mach-O members and before sealing SupraChat.app.
+while IFS= read -r nested_app; do
+  [[ "$nested_app" == "$APP" ]] && continue
+  codesign --force --sign - "$nested_app"
+  codesign --verify --strict "$nested_app"
+done < <(find "$APP/Contents/MacOS/runtime/browser" -type d -name '*.app' -print 2>/dev/null | awk '{ print length, $0 }' | sort -rn | cut -d' ' -f2-)
+
+codesign --force --sign - "$APP"
+codesign --verify --strict "$APP"
 plutil -lint "$APP/Contents/Info.plist"
