@@ -68,6 +68,13 @@ jobs:
           if (-not $doc.value.audiences.automation.supported) { throw 'Automation audience not advertised.' }
           if (-not $doc.value.audiences.agent.supported) { throw 'Agent audience not advertised.' }
 
+          $catalog = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- catalog
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation catalog failed.' }
+          $catalogDoc = $catalog | ConvertFrom-Json
+          if (-not $catalogDoc.ok) { throw 'Catalog response was not ok.' }
+          if ($catalogDoc.value.codex.packaged_runtime.counts.total -ne 263) { throw 'Packaged Codex catalog count drifted.' }
+          if ($catalogDoc.value.codex.upstream_frontier.counts.total -ne 266) { throw 'Codex frontier catalog count drifted.' }
+
       - name: Smoke agent JSON-RPC stdio surface
         shell: pwsh
         run: |
@@ -160,6 +167,12 @@ jobs:
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
           }
+
+          $catalog = & $cli catalog
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged automation catalog failed.' }
+          $catalogDoc = $catalog | ConvertFrom-Json
+          if ($catalogDoc.value.codex.packaged_runtime.counts.total -ne 263) { throw 'Packaged Codex catalog missing/stale.' }
+          if ($catalogDoc.value.codex.upstream_frontier.counts.total -ne 266) { throw 'Codex frontier catalog missing/stale.' }
 
           $request = '{"jsonrpc":"2.0","id":"ci","method":"doctor/read"}'
           $rpc = $request | & $cli stdio 2>$null
