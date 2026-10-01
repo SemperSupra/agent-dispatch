@@ -23,10 +23,9 @@ Every packaged desktop target must preserve:
 
 Keyboard baseline:
 
-- `Ctrl+1` — ChatGPT product tab;
-- `Ctrl+2` — Agent Lab;
-- `Ctrl+3` — Automation & Agents;
-- `Ctrl+L` — focus Agent Lab interview input;
+- macOS: `Command+1`, `Command+2`, `Command+3`, `Command+L`;
+- Windows/Linux: `Control+1`, `Control+2`, `Control+3`, `Control+L`;
+- the actions are identical: ChatGPT tab, Agent Lab, Automation & Agents, and focus interview input.
 - standard Tab / Shift+Tab, arrow-key, Enter/Space, text-selection and platform accessibility navigation remain primary.
 
 The Windows `Alt+Space` companion shortcut is additive and must never be the only way to summon the application.
