@@ -1,0 +1,32 @@
+name: Firecracker Playwright P0a Contract
+
+on:
+  pull_request:
+    branches:
+      - experiment/firecracker-microvm-f0
+    paths:
+      - 'docs/experiments/firecracker-real-workload-placement.md'
+      - 'scripts/firecracker_workload_evidence.py'
+      - 'scripts/github_runner_firecracker_playwright_control.py'
+      - 'experiments/firecracker/guest/playwright-control*'
+      - 'tests/test_firecracker_workload_evidence.py'
+      - 'tests/test_github_runner_firecracker_playwright_control.py'
+      - '.github/workflows/firecracker-playwright-p0a-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate P0a contract without KVM execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile             scripts/firecracker_workload_evidence.py             scripts/github_runner_firecracker_playwright_control.py
+          python3 -m unittest -v             tests/test_firecracker_workload_evidence.py             tests/test_github_runner_firecracker_playwright_control.py

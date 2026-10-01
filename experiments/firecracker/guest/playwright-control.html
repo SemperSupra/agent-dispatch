@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Firecracker Playwright Control</title></head>
+<body>
+  <button id="run">Run control</button>
+  <output id="result">idle</output>
+  <script>
+    document.querySelector('#run').addEventListener('click', () => {
+      const values = [6, 7];
+      const product = values.reduce((a, b) => a * b, 1);
+      const result = 'firecracker-playwright-ok:' + product;
+      document.querySelector('#result').textContent = result;
+      document.body.dataset.ready = '1';
+    });
+  </script>
+</body>
+</html>
