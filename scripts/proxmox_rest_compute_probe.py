@@ -212,6 +212,11 @@ def main() -> int:
         print(payload,end="")
         return code
 
+    api: PveApi | None = None
+    node: str | None = None
+    base: str | None = None
+    ownership_claimed = False
+
     try:
         plan=plan_only(a.kind,a.vmid,a.template)
         receipt["plan"]=plan
@@ -277,6 +282,7 @@ def main() -> int:
         fields=plan["create_fields"]
         upid=api.post(base,fields)
         if not isinstance(upid,str): raise ProxmoxProbeError(f"create did not return UPID: {upid!r}")
+        ownership_claimed=True
         receipt["tasks"]["create"]=wait_task(api,node,upid)
         cfg=api.get(f"{base}/{a.vmid}/config")
         if not isinstance(cfg,dict): raise ProxmoxProbeError("config readback missing")
@@ -308,6 +314,36 @@ def main() -> int:
         return emit(0)
     except (OSError,ValueError,ProxmoxProbeError) as exc:
         receipt["detail"]=f"{type(exc).__name__}: {exc}"
+        if a.apply and ownership_claimed and api is not None and node is not None and base is not None:
+            receipt["cleanup"]["attempted"]=True
+            cleanup_errors=[]
+            try:
+                rows=api.get(base)
+                present=any(int(x.get("vmid",-1))==a.vmid for x in (rows or []))
+                if present:
+                    try:
+                        status=api.get(f"{base}/{a.vmid}/status/current")
+                    except ProxmoxProbeError:
+                        status={}
+                    if isinstance(status,dict) and status.get("status")=="running":
+                        stop_upid=api.post(f"{base}/{a.vmid}/status/stop")
+                        if isinstance(stop_upid,str):
+                            receipt["tasks"]["failure_cleanup_stop"]=wait_task(api,node,stop_upid,timeout=60.0)
+                        else:
+                            cleanup_errors.append(f"failure cleanup stop did not return UPID: {stop_upid!r}")
+                    delete_upid=api.delete(f"{base}/{a.vmid}",{"purge":1})
+                    if isinstance(delete_upid,str):
+                        receipt["tasks"]["failure_cleanup_delete"]=wait_task(api,node,delete_upid,timeout=60.0)
+                    else:
+                        cleanup_errors.append(f"failure cleanup delete did not return UPID: {delete_upid!r}")
+                rows=api.get(base)
+                receipt["cleanup"]["absent"]=not any(
+                    int(x.get("vmid",-1))==a.vmid for x in (rows or [])
+                )
+            except (OSError,ValueError,ProxmoxProbeError) as cleanup_exc:
+                cleanup_errors.append(f"{type(cleanup_exc).__name__}: {cleanup_exc}")
+            if cleanup_errors:
+                receipt["cleanup"]["errors"]=cleanup_errors
         return emit(2)
 
 
