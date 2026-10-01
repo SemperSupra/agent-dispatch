@@ -213,6 +213,25 @@ jobs:
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw "Bundled Codex --version failed with $LASTEXITCODE" }
 
+      - name: Probe bundled Codex without OpenAI authorization
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = Join-Path $PWD 'out/${{ matrix.rid }}/runtime/codex'
+          $exe = if ($IsWindows) { Join-Path $runtime 'codex.exe' } else { Join-Path $runtime 'codex' }
+          $evidence = Join-Path $PWD 'out/${{ matrix.rid }}/evidence/codex-guest-probe.json'
+          python prototype/suprachat/tools/probe_codex_guest.py --codex $exe --output $evidence --timeout 8
+          if ($LASTEXITCODE -ne 0) { throw "Credential-free Codex guest probe failed with $LASTEXITCODE" }
+          if (!(Test-Path $evidence)) { throw 'Credential-free Codex guest evidence missing.' }
+          $guest = Get-Content -Raw $evidence | ConvertFrom-Json
+          if ($guest.authorization.openai_credentials_provided -ne $false) {
+            throw 'Guest probe unexpectedly carried OpenAI credentials.'
+          }
+          Write-Host 'Credential-free Codex method outcomes:'
+          $guest.methods.PSObject.Properties | ForEach-Object {
+            Write-Host ("  {0}: {1}" -f $_.Name, $_.Value.outcome)
+          }
+
       - name: Smoke packaged automation and agent shells
         shell: pwsh
         run: |
