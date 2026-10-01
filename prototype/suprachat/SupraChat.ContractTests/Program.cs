@@ -212,6 +212,51 @@ Require(WindowsCompanionHotkey.ShortcutDescription == "Alt+Space",
 Require(WindowsNotificationService.Adapter == "shell-notification-area",
     "Windows notification adapter identity drifted");
 
+var parityPath = Path.Combine("prototype", "suprachat", "oracles", "audience-parity-20261001.json");
+Require(File.Exists(parityPath), "audience/accessibility parity manifest missing");
+using (var parityDoc = JsonDocument.Parse(File.ReadAllText(parityPath)))
+{
+    var root = parityDoc.RootElement;
+    Require(root.GetProperty("schema").GetString() == "suprachat-audience-parity/v1",
+        "audience parity schema drifted");
+    var features = root.GetProperty("features");
+    Require(features.GetArrayLength() >= 15, "audience parity ledger unexpectedly sparse");
+
+    foreach (var feature in features.EnumerateArray())
+    {
+        Require(feature.TryGetProperty("id", out var id) && !string.IsNullOrWhiteSpace(id.GetString()),
+            "parity feature id missing");
+        Require(feature.TryGetProperty("access", out var access) && access.ValueKind == JsonValueKind.Object,
+            $"parity access map missing for {id.GetString()}");
+        foreach (var audience in new[] { "human", "accessible_human", "automation", "agent" })
+        {
+            Require(access.TryGetProperty(audience, out var state) &&
+                    !string.IsNullOrWhiteSpace(state.GetString()),
+                $"parity audience state missing for {id.GetString()}: {audience}");
+        }
+
+        Require(feature.TryGetProperty("platforms", out var platforms) && platforms.ValueKind == JsonValueKind.Object,
+            $"parity platform map missing for {id.GetString()}");
+        foreach (var platform in new[] { "windows", "macos", "linux" })
+        {
+            Require(platforms.TryGetProperty(platform, out var state) &&
+                    !string.IsNullOrWhiteSpace(state.GetString()),
+                $"parity platform state missing for {id.GetString()}: {platform}");
+        }
+
+        Require(feature.TryGetProperty("human_boundary", out var boundary) &&
+                !string.IsNullOrWhiteSpace(boundary.GetString()),
+            $"parity authorization boundary missing for {id.GetString()}");
+    }
+}
+
+var attachmentFixture = AttachmentInputs.Create(
+    "sample.txt",
+    System.Text.Encoding.UTF8.GetBytes("accessible machine attachment"));
+Require(attachmentFixture.Kind == "file", "shared attachment MIME classification drifted");
+Require(attachmentFixture.Value.StartsWith("data:text/plain;base64,", StringComparison.Ordinal),
+    "shared attachment data URL drifted");
+
 var accessibilityContract = AccessibilityContract.Describe();
 Require(accessibilityContract.Schema == AccessibilityContract.Schema, "accessibility schema drifted");
 Require(accessibilityContract.Human.KeyboardOnly, "keyboard-only accessibility invariant missing");
