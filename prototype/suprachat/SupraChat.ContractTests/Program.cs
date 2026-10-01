@@ -48,4 +48,36 @@ Require(CodexAppServer.Arguments.Contains("model_provider=\"openai_chatgpt_plan\
 Require(CodexAppServer.Arguments.Any(x => x.Contains("requires_openai_auth=false")), "Codex auth mode missing");
 Require(CodexAppServer.Arguments.All(x => !x.Contains("Bearer ", StringComparison.OrdinalIgnoreCase)), "token leaked into arguments");
 
+var fakeCredential = new SiwcCredential(
+    "oaiapp_test",
+    "urn:uuid:11111111-2222-3333-4444-555555555555",
+    "subject-secret-value",
+    "user@example.com",
+    "ACCESS_TOKEN_MUST_NOT_APPEAR",
+    "REFRESH_TOKEN_MUST_NOT_APPEAR",
+    "ID_TOKEN_MUST_NOT_APPEAR",
+    "Bearer",
+    3600,
+    new[] { "openid", SiwcProtocol.RequiredPlanScope },
+    DateTimeOffset.UtcNow);
+
+var receipt = QualificationReceipts.BuildDirect(
+    "gpt-example",
+    fakeCredential,
+    completed: true,
+    TimeSpan.FromMilliseconds(1234),
+    outputCharacters: 42);
+var receiptJson = JsonSerializer.Serialize(receipt);
+
+Require(receipt.Schema == QualificationReceipts.Schema, "receipt schema mismatch");
+Require(receipt.Binding == "siwc-direct-responses", "receipt binding mismatch");
+Require(receipt.Completed && !receipt.Store && receipt.Stream, "receipt completion/transport invariants wrong");
+Require(!receipt.ContainsPrompt && !receipt.ContainsOutput && !receipt.ContainsTokenMaterial, "receipt privacy flags wrong");
+Require(receipt.GrantedScopes.Contains(SiwcProtocol.RequiredPlanScope), "receipt must retain granted-scope metadata");
+Require(!receiptJson.Contains("ACCESS_TOKEN_MUST_NOT_APPEAR", StringComparison.Ordinal), "access token leaked into receipt");
+Require(!receiptJson.Contains("REFRESH_TOKEN_MUST_NOT_APPEAR", StringComparison.Ordinal), "refresh token leaked into receipt");
+Require(!receiptJson.Contains("ID_TOKEN_MUST_NOT_APPEAR", StringComparison.Ordinal), "ID token leaked into receipt");
+Require(!receiptJson.Contains("subject-secret-value", StringComparison.Ordinal), "raw account subject leaked into receipt");
+Require(!receiptJson.Contains("user@example.com", StringComparison.Ordinal), "email leaked into receipt");
+
 Console.WriteLine("SupraChat contract checks PASS");
