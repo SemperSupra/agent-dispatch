@@ -68,6 +68,7 @@ refresh_token_flag="$(contains_flag "$login_help" '--refresh-token')"
 name_flag="$(contains_flag "$tunnel_help" '--name')"
 no_sleep_flag="$(contains_flag "$tunnel_help" '--no-sleep')"
 license_flag="$(contains_flag "$tunnel_help" '--accept-server-license-terms')"
+install_extension_flag="$(contains_flag "$tunnel_help" '--install-extension')"
 
 oracle=true
 for required in   "$provider_flag"   "$access_token_flag"   "$name_flag"   "$no_sleep_flag"   "$license_flag"; do
@@ -91,6 +92,7 @@ mkdir -p "$(dirname "$RECEIPT_PATH")"
   printf 'tunnel_name_flag=%s\n' "$name_flag"
   printf 'tunnel_no_sleep_flag=%s\n' "$no_sleep_flag"
   printf 'tunnel_accept_license_flag=%s\n' "$license_flag"
+  printf 'tunnel_install_extension_flag=%s\n' "$install_extension_flag"
   printf 'vscode_dev_http_status=%s\n' "$vscode_status"
   printf 'relay_http_status=%s\n' "$relay_status"
   printf 'interactive_login_attempted=false\n'
