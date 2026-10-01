@@ -24,11 +24,24 @@ public partial class MainWindow : Window
     private ResponsesWebSocketClient? _responsesWebSocket;
     private CancellationTokenSource? _responsesWebSocketCts;
     private Task? _responsesWebSocketMonitorTask;
+    private WindowsCompanionHotkey? _windowsCompanionHotkey;
 
     public MainWindow()
     {
         InitializeComponent();
+        Opened += (_, _) => InitializeDesktopIntegration();
         _ = InitializeAgentLabAsync();
+    }
+
+    private void InitializeDesktopIntegration()
+    {
+        if (!OperatingSystem.IsWindows() || _windowsCompanionHotkey is not null)
+            return;
+
+        _windowsCompanionHotkey = new WindowsCompanionHotkey(this);
+        var registered = _windowsCompanionHotkey.TryRegister();
+        if (!registered)
+            AuthStatus.Text = $"Windows companion shortcut {WindowsCompanionHotkey.ShortcutDescription} is unavailable; another application may own it.";
     }
 
     private async Task InitializeAgentLabAsync()
@@ -817,6 +830,8 @@ public partial class MainWindow : Window
     {
         try
         {
+            _windowsCompanionHotkey?.Dispose();
+            _windowsCompanionHotkey = null;
             StopCodexAsync().GetAwaiter().GetResult();
             StopResponsesWebSocketAsync().GetAwaiter().GetResult();
         }
