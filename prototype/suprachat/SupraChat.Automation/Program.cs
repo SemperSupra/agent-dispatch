@@ -40,6 +40,7 @@ internal static class Program
             return args[0] switch
             {
                 "capabilities" => WriteSuccess(Capabilities()),
+                "accessibility" => WriteSuccess(Accessibility()),
                 "catalog" => WriteSuccess(ReadCombinedCatalog()),
                 "codex-catalog" => WriteSuccess(ReadCatalog("codex-capability-catalog-20261001.json")),
                 "siwc-catalog" => WriteSuccess(ReadCatalog("siwc-capability-surface-20261001.json")),
@@ -71,6 +72,7 @@ internal static class Program
         commands = new object[]
         {
             new { name = "capabilities", description = "Read machine/product capability metadata." },
+            new { name = "accessibility", description = "Read the cross-platform accessibility/UI/UX/DX contract." },
             new { name = "catalog", description = "Read the packaged SIWC + Codex capability catalogs." },
             new { name = "codex-catalog", description = "Read packaged Codex stable-runtime + upstream-frontier surfaces." },
             new { name = "siwc-catalog", description = "Read packaged SIWC / ChatGPT-plan capability metadata." },
@@ -106,6 +108,7 @@ internal static class Program
         machine_methods = new[]
         {
             "capabilities/read",
+            "accessibility/read",
             "catalog/read",
             "codex/catalog",
             "siwc/catalog",
@@ -131,7 +134,52 @@ internal static class Program
             human_authorization_boundary = true,
             local_credentials_shared_with_gui = true,
             codex_runtime_resolution = "bundled-first",
-            json_rpc_framing = "one-json-object-per-line"
+            json_rpc_framing = "one-json-object-per-line",
+            accessibility_contract = "suprachat-accessibility/v1"
+        }
+    };
+
+    private static object Accessibility() => new
+    {
+        schema = "suprachat-accessibility/v1",
+        product = "SupraChat",
+        platform = PlatformName(),
+        human = new
+        {
+            keyboard_only = true,
+            screen_reader_semantics = true,
+            stable_automation_ids = true,
+            semantic_headings = true,
+            labeled_inputs = true,
+            live_status_regions = true,
+            state_never_color_only = true,
+            system_theme = true,
+            high_contrast_follows_platform = true,
+            dpi_render_scaling = true,
+            required_pointer_gestures = false,
+            required_custom_motion = false,
+            shortcuts = OperatingSystem.IsMacOS()
+                ? new[] { "Command+1", "Command+2", "Command+3", "Command+L" }
+                : new[] { "Control+1", "Control+2", "Control+3", "Control+L" }
+        },
+        automation = new
+        {
+            screen_scraping_required = false,
+            deterministic_json = true,
+            stable_exit_codes = true,
+            semantic_commands = true
+        },
+        agent = new
+        {
+            screen_scraping_required = false,
+            protocol = "json-rpc-2.0-stdio",
+            semantic_methods = true,
+            human_consent_boundaries_preserved = true
+        },
+        qualification = new
+        {
+            contract_document = "ACCESSIBILITY.md",
+            accessibility_regression_is_failure = true
         }
     };
 
@@ -337,6 +385,7 @@ internal static class Program
         return method switch
         {
             "capabilities/read" => Capabilities(),
+            "accessibility/read" => Accessibility(),
             "catalog/read" => ReadCombinedCatalog(),
             "codex/catalog" => ReadCatalog("codex-capability-catalog-20261001.json"),
             "siwc/catalog" => ReadCatalog("siwc-capability-surface-20261001.json"),
