@@ -86,17 +86,17 @@
                         AutomationProperties.AutomationId="Auth.Account"
                         AutomationProperties.LabeledBy="{Binding #AccountRegistrationLabel}"
                         AutomationProperties.HelpText="Choose a saved local ChatGPT account/workspace registration." />
-              <Button Margin="0,0,8,8" Content="Use saved account" Click="UseSavedAccount_Click" />
-              <Button Margin="0,0,8,8" Content="Add another account/workspace" Click="AddAccount_Click" />
+              <Button Margin="0,0,8,8" Content="Use saved account" Click="UseSavedAccount_Click" AutomationProperties.AutomationId="Auth.UseSavedAccount" />
+              <Button Margin="0,0,8,8" Content="Add another account/workspace" Click="AddAccount_Click" AutomationProperties.AutomationId="Auth.AddAccount" />
             </WrapPanel>
 
             <WrapPanel Orientation="Horizontal">
-              <Button Margin="0,0,8,8" Content="Refresh models" Click="RefreshModels_Click" />
+              <Button Margin="0,0,8,8" Content="Refresh models" Click="RefreshModels_Click" AutomationProperties.AutomationId="AgentLab.RefreshModels" />
               <ComboBox x:Name="ModelBox" Width="360" Margin="0,0,8,8" PlaceholderText="Select a model"
                         AutomationProperties.AutomationId="AgentLab.Model"
                         AutomationProperties.Name="Model"
                         AutomationProperties.HelpText="Select a model visible to the saved ChatGPT-plan authorization." />
-              <Button Margin="0,0,8,8" Content="Start Codex app-server" Click="StartCodex_Click" />
+              <Button Margin="0,0,8,8" Content="Start Codex app-server" Click="StartCodex_Click" AutomationProperties.AutomationId="Codex.Start" />
             </WrapPanel>
 
             <TextBlock x:Name="InterviewInputLabel" FontWeight="SemiBold" Text="Interview input"
@@ -109,8 +109,8 @@
                      AutomationProperties.HelpText="Interview prompt. Keyboard shortcut Command+L on macOS or Control+L on Windows/Linux focuses this field." />
 
             <WrapPanel Orientation="Horizontal">
-              <Button Margin="0,0,8,8" Content="Attach image/file" Click="Attach_Click" />
-              <Button Margin="0,0,8,8" Content="Clear attachments" Click="ClearAttachments_Click" />
+              <Button Margin="0,0,8,8" Content="Attach image/file" Click="Attach_Click" AutomationProperties.AutomationId="AgentLab.Attach" />
+              <Button Margin="0,0,8,8" Content="Clear attachments" Click="ClearAttachments_Click" AutomationProperties.AutomationId="AgentLab.ClearAttachments" />
               <CheckBox x:Name="WebSearchBox" Margin="4,4,8,8"
                         Content="Allow supported web search"
                         AutomationProperties.AutomationId="AgentLab.WebSearch"
@@ -126,10 +126,12 @@
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8"
                       Content="Run direct Responses interview"
-                      Click="RunInterview_Click" />
+                      Click="RunInterview_Click"
+                      AutomationProperties.AutomationId="AgentLab.RunResponses" />
               <Button Margin="0,0,8,8"
                       Content="Run through Codex app-server"
-                      Click="RunCodexInterview_Click" />
+                      Click="RunCodexInterview_Click"
+                      AutomationProperties.AutomationId="AgentLab.RunCodex" />
             </WrapPanel>
 
             <TextBlock x:Name="InterviewResultLabel" FontWeight="SemiBold" Text="Interview result"
@@ -154,7 +156,7 @@
                      AutomationProperties.Name="Raw Responses request JSON"
                      AutomationProperties.HelpText="Raw Responses request body. SupraChat enforces only required plan-sharing invariants."
                      Text="{}{&quot;input&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;Say exactly: raw Responses surface works.&quot;}]}]}" />
-            <Button HorizontalAlignment="Left" Content="Send raw Responses request" Click="SendRawResponses_Click" />
+            <Button HorizontalAlignment="Left" Content="Send raw Responses request" Click="SendRawResponses_Click" AutomationProperties.AutomationId="Responses.SendRaw" />
             <TextBlock FontWeight="SemiBold" Text="Raw Responses events" />
             <TextBox x:Name="RawResponsesEventsBox" AcceptsReturn="True" IsReadOnly="True"
                      TextWrapping="Wrap" MinHeight="150"
@@ -170,9 +172,9 @@
             <TextBlock TextWrapping="Wrap"
                        Text="Persistent authenticated Responses transport for connection-local continuation, multiplexed stream_id lanes, tool-heavy loops, and supported mid-turn steering. Raw events remain visible so new upstream event types do not require a client release." />
             <WrapPanel Orientation="Horizontal">
-              <Button Margin="0,0,8,8" Content="Connect WebSocket" Click="ConnectResponsesWebSocket_Click" />
-              <Button Margin="0,0,8,8" Content="Disconnect WebSocket" Click="DisconnectResponsesWebSocket_Click" />
-              <Button Margin="0,0,8,8" Content="Send WebSocket event" Click="SendResponsesWebSocketEvent_Click" />
+              <Button Margin="0,0,8,8" Content="Connect WebSocket" Click="ConnectResponsesWebSocket_Click" AutomationProperties.AutomationId="Responses.WebSocketConnect" />
+              <Button Margin="0,0,8,8" Content="Disconnect WebSocket" Click="DisconnectResponsesWebSocket_Click" AutomationProperties.AutomationId="Responses.WebSocketDisconnect" />
+              <Button Margin="0,0,8,8" Content="Send WebSocket event" Click="SendResponsesWebSocketEvent_Click" AutomationProperties.AutomationId="Responses.WebSocketSend" />
             </WrapPanel>
             <TextBox x:Name="ResponsesWebSocketEventBox" AcceptsReturn="True" MinHeight="150"
                      AutomationProperties.AutomationId="Responses.WebSocketRequest"
@@ -192,7 +194,7 @@
             <TextBlock TextWrapping="Wrap"
                        Text="Browse the packaged Codex runtime plus upstream frontier. Packaged requests can be copied into the generic RPC console; server requests and notifications are observable protocol surfaces rather than client-invoked RPCs." />
             <WrapPanel Orientation="Horizontal">
-              <Button Margin="0,0,8,8" Content="Refresh catalogs" Click="RefreshCapabilityCatalog_Click" />
+              <Button Margin="0,0,8,8" Content="Refresh catalogs" Click="RefreshCapabilityCatalog_Click" AutomationProperties.AutomationId="Codex.RefreshCatalog" />
               <ComboBox x:Name="CodexMethodBox" Width="720" Margin="0,0,8,8"
                         PlaceholderText="Select a Codex protocol surface"
                         AutomationProperties.AutomationId="Codex.CapabilitySurface"
@@ -221,7 +223,7 @@
                      AutomationProperties.AutomationId="Codex.RpcParams"
                      AutomationProperties.Name="Codex RPC parameters JSON"
                      Text="{}{&quot;includeHidden&quot;:true}" />
-            <Button HorizontalAlignment="Left" Content="Send app-server RPC" Click="SendRawRpc_Click" />
+            <Button HorizontalAlignment="Left" Content="Send app-server RPC" Click="SendRawRpc_Click" AutomationProperties.AutomationId="Codex.SendRpc" />
 
             <TextBlock FontWeight="SemiBold" Text="RPC result" />
             <TextBox x:Name="RawRpcOutputBox" AcceptsReturn="True" IsReadOnly="True"
@@ -245,8 +247,8 @@
                      AutomationProperties.AutomationId="Codex.ServerResponse"
                      AutomationProperties.Name="Codex server response result JSON" />
             <WrapPanel Orientation="Horizontal">
-              <Button Margin="0,0,8,8" Content="Respond with result" Click="RespondServerRequest_Click" />
-              <Button Margin="0,0,8,8" Content="Reject request" Click="RejectServerRequest_Click" />
+              <Button Margin="0,0,8,8" Content="Respond with result" Click="RespondServerRequest_Click" AutomationProperties.AutomationId="Codex.RespondServerRequest" />
+              <Button Margin="0,0,8,8" Content="Reject request" Click="RejectServerRequest_Click" AutomationProperties.AutomationId="Codex.RejectServerRequest" />
             </WrapPanel>
           </StackPanel>
         </ScrollViewer>
@@ -265,8 +267,8 @@
                        Text="SupraChat exposes one capability core through three shells: this desktop GUI for humans, deterministic JSON commands for automation, and line-delimited JSON-RPC over stdio for agents. Interactive authorization remains a human boundary; authorized machine use shares the protected local grant." />
 
             <WrapPanel Orientation="Horizontal">
-              <Button Margin="0,0,8,8" Content="Refresh readiness" Click="RefreshMachineSurface_Click" />
-              <Button Margin="0,0,8,8" Content="Open local state folder" Click="OpenStateFolder_Click" />
+              <Button Margin="0,0,8,8" Content="Refresh readiness" Click="RefreshMachineSurface_Click" AutomationProperties.AutomationId="Machine.RefreshReadiness" />
+              <Button Margin="0,0,8,8" Content="Open local state folder" Click="OpenStateFolder_Click" AutomationProperties.AutomationId="Machine.OpenStateFolder" />
             </WrapPanel>
 
             <TextBlock FontWeight="SemiBold" Text="Readiness" />
