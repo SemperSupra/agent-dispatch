@@ -337,6 +337,32 @@
           ],
           "compute_materialization_qualified": false
         }
+      ],
+      "candidate_targets": [
+        {
+          "version": "9.1-1",
+          "iso_name": "proxmox-ve_9.1-1.iso",
+          "iso_sha256": "6d8f5afc78c0c66812d7272cde7c8b98be7eb54401ceb045400db05eb5ae6d22",
+          "vendor_index": "https://enterprise.proxmox.com/iso/",
+          "state": "source-profile-open",
+          "claim_boundary": "exact vendor ISO identity only; PVE API/package/source profile and runtime qualification remain open"
+        },
+        {
+          "version": "9.0-1",
+          "iso_name": "proxmox-ve_9.0-1.iso",
+          "iso_sha256": "228f948ae696f2448460443f4b619157cab78ee69802acc0d06761ebd4f51c3e",
+          "vendor_index": "https://archive.proxmox.com/iso/",
+          "state": "source-profile-open",
+          "claim_boundary": "exact vendor ISO identity only; PVE API/package/source profile and runtime qualification remain open"
+        },
+        {
+          "version": "8.4-1",
+          "iso_name": "proxmox-ve_8.4-1.iso",
+          "iso_sha256": "d237d70ca48a9f6eb47f95fd4fd337722c3f69f8106393844d027d28c26523d8",
+          "vendor_index": "https://enterprise.proxmox.com/iso/",
+          "state": "source-profile-open",
+          "claim_boundary": "exact vendor ISO identity only; PVE API/package/source profile and runtime qualification remain open"
+        }
       ]
     }
   },
