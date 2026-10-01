@@ -146,8 +146,8 @@ Public qualification on 2026-10-01 used the bundled pinned Codex app-server with
 SupraChat binds exactly this set through `CodexLocalReadPolicy` and the `codex-local-read` / `codex/local/read` machine surfaces. Calls outside that allowlist do **not** silently fall through to guest execution.
 
 Observed account-backed boundaries remain separate:
-- `account/rateLimits/read`, `account/usage/read`, and `account/workspaceMessages/read` returned authentication-required outcomes;
-- `account/read` returned invalid-parameters in the discovery probe and remains unclassified rather than guessed.
+- public guest-probe run `36927142694` returned authentication-required outcomes for `account/rateLimits/read`, `account/usage/read`, and `account/workspaceMessages/read`;
+- `account/read` returned invalid-parameters because the first probe omitted its request object. Current upstream protocol source defines `GetAccountParams.refreshToken` with a default false value and upstream tests send `params: {}`; that source evidence nominates a corrected guest rep but does **not** qualify `account/read` for this allowlist until a clean empirical run passes.
 
 This frontier is a capability boundary, not an authority shortcut: inference, account/usage data, plugin/app mutation, Remote mutation, sandbox setup, server-request approval, and other consequential methods retain their existing authorization/confirmation requirements.
 
