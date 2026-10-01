@@ -30,6 +30,7 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
             "tunnel_name_flag",
             "tunnel_no_sleep_flag",
             "tunnel_accept_license_flag",
+            "tunnel_install_extension_flag",
             "vscode_dev_http_status",
             "relay_http_status",
         ):
