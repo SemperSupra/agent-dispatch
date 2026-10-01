@@ -35,7 +35,7 @@ jobs:
             codex_sha256: 51de50a39ea592b5b0a64ae0474548c282181cb6b96d9bd08965a682ae12774c
             codex_archive: true
 
-    runs-on: \${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
       CODEX_TAG: rust-v0.159.3
@@ -58,18 +58,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $out = Join-Path $PWD 'out/\${{ matrix.rid }}'
-          dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '\${{ matrix.rid }}' --self-contained true -o $out
+          $out = Join-Path $PWD 'out/${{ matrix.rid }}'
+          dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
 
       - name: Bundle pinned open-source Codex runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $asset = '\${{ matrix.codex_asset }}'
-          $expected = '\${{ matrix.codex_sha256 }}'
+          $asset = '${{ matrix.codex_asset }}'
+          $expected = '${{ matrix.codex_sha256 }}'
           $url = "https://github.com/openai/codex/releases/download/$env:CODEX_TAG/$asset"
           $tmp = Join-Path $env:RUNNER_TEMP $asset
-          $runtime = Join-Path $PWD 'out/\${{ matrix.rid }}/runtime/codex'
+          $runtime = Join-Path $PWD 'out/${{ matrix.rid }}/runtime/codex'
           New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 
           Invoke-WebRequest -Uri $url -OutFile $tmp
@@ -78,8 +78,8 @@ jobs:
             throw "Codex asset digest mismatch: expected=$expected actual=$actual"
           }
 
-          if ('\${{ matrix.codex_archive }}' -eq 'true') {
-            $extract = Join-Path $env:RUNNER_TEMP "codex-extract-\${{ matrix.rid }}"
+          if ('${{ matrix.codex_archive }}' -eq 'true') {
+            $extract = Join-Path $env:RUNNER_TEMP "codex-extract-${{ matrix.rid }}"
             New-Item -ItemType Directory -Force -Path $extract | Out-Null
             tar -xzf $tmp -C $extract
             if ($LASTEXITCODE -ne 0) { throw 'Failed to extract Codex runtime archive.' }
@@ -110,7 +110,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $runtime = Join-Path $PWD 'out/\${{ matrix.rid }}/runtime/codex'
+          $runtime = Join-Path $PWD 'out/${{ matrix.rid }}/runtime/codex'
           $exe = if ($IsWindows) { Join-Path $runtime 'codex.exe' } else { Join-Path $runtime 'codex' }
           if (!(Test-Path $exe)) { throw "Bundled Codex executable missing: $exe" }
           if (!(Test-Path (Join-Path $runtime 'LICENSE.openai-codex'))) { throw 'Codex license missing.' }
@@ -118,6 +118,36 @@ jobs:
 
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw "Bundled Codex --version failed with $LASTEXITCODE" }
+
+      - name: Stage Windows per-user installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item prototype/suprachat/packaging/windows/install.ps1 out/win-x64/install.ps1
+          Copy-Item prototype/suprachat/packaging/windows/Install-SupraChat.cmd out/win-x64/Install-SupraChat.cmd
+
+      - name: Windows installer smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $PWD 'out/win-x64'
+          & (Join-Path $source 'install.ps1') -NoLaunch
+
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs/SupraChat'
+          $installedExe = Join-Path $installed 'SupraChat.exe'
+          $installedCodex = Join-Path $installed 'runtime/codex/codex.exe'
+          $arp = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat'
+
+          if (!(Test-Path $installedExe)) { throw 'Installed SupraChat.exe missing.' }
+          if (!(Test-Path $installedCodex)) { throw 'Installed bundled Codex runtime missing.' }
+          if (!(Test-Path $arp)) { throw 'Add/Remove Programs registration missing.' }
+
+          Remove-Item (Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/SupraChat.lnk') -Force -ErrorAction SilentlyContinue
+          Remove-Item $arp -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $installed -Recurse -Force -ErrorAction SilentlyContinue
+          'Per-user installer smoke PASS.'
 
       - name: Windows GUI launch smoke
         if: runner.os == 'Windows'
@@ -149,7 +179,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: \${{ matrix.artifact }}
-          path: out/\${{ matrix.rid }}/
+          name: ${{ matrix.artifact }}
+          path: out/${{ matrix.rid }}/
           if-no-files-found: error
           retention-days: 7
