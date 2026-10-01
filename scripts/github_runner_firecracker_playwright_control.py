@@ -106,36 +106,41 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
     image_tag = f"agent-dispatch-playwright-p0a:{os.getpid()}"
     container_id = None
     root_dir = work / "rootfs-dir"
-    root_tar = work / "rootfs.tar"
     rootfs = work / "playwright-root.squashfs"
     root_dir.mkdir()
-
-    with timer.stage("playwright_base_pull", "venue"):
-        pull = _run(["docker", "pull", BASE_IMAGE_TAG], timeout=600)
-    if not pull["ok"]:
-        return {"ok": False, "classification": "SETUP_REQUIRED", "reason": "base image pull failed", "detail": pull}
-
-    base_digest = _docker_repo_digest(BASE_IMAGE_TAG)
-    if not base_digest:
-        return {"ok": False, "classification": "HARNESS_FAILURE", "reason": "could not resolve pulled image digest"}
-
-    dockerfile = work / "Dockerfile"
-    dockerfile.write_text(
-        "FROM " + base_digest + "\n"
-        "RUN mkdir -p /opt/pw && cd /opt/pw && npm init -y >/dev/null 2>&1 "
-        f"&& npm install --omit=dev playwright@{PLAYWRIGHT_VERSION}\n"
-        "RUN getent group 20001 >/dev/null || groupadd -g 20001 pwguest; "
-        "id -u pwguest >/dev/null 2>&1 || useradd -m -u 20001 -g 20001 -s /bin/bash pwguest\n"
-        "RUN test -x /usr/bin/node && test -d /ms-playwright && "
-        "node -e \"const p=require('/opt/pw/node_modules/playwright/package.json');"
-        f"if(p.version!=='{PLAYWRIGHT_VERSION}')process.exit(17)\"\n"
-    )
+    primary_exc: Exception | None = None
+    result: dict | None = None
+    container_removed = True
 
     try:
+        with timer.stage("playwright_base_pull", "venue"):
+            pull = _run(["docker", "pull", BASE_IMAGE_TAG], timeout=600)
+        if not pull["ok"]:
+            raise ProbeError("SETUP_REQUIRED", "Playwright base image pull failed: " + (pull["stderr"] or pull["stdout"])[-2000:])
+
+        base_digest = _docker_repo_digest(BASE_IMAGE_TAG)
+        if not base_digest:
+            raise ProbeError("HARNESS_FAILURE", "could not resolve pulled Playwright image digest")
+
+        dockerfile = work / "Dockerfile"
+        dockerfile.write_text(
+            "FROM " + base_digest + "\n"
+            "RUN mkdir -p /opt/pw && cd /opt/pw && npm init -y >/dev/null 2>&1 "
+            f"&& npm install --omit=dev playwright@{PLAYWRIGHT_VERSION}\n"
+            "RUN getent group 20001 >/dev/null || groupadd -g 20001 pwguest; "
+            "id -u pwguest >/dev/null 2>&1 || useradd -m -u 20001 -g 20001 -s /bin/bash pwguest\n"
+            "RUN test -x /usr/bin/node && test -d /ms-playwright && "
+            "node -e \"const p=require('/opt/pw/node_modules/playwright/package.json');"
+            f"if(p.version!=='{PLAYWRIGHT_VERSION}')process.exit(17)\"\n"
+        )
+
         with timer.stage("playwright_userspace_build", "venue"):
-            build = _run(["docker", "build", "--pull=false", "-t", image_tag, "-f", str(dockerfile), str(work)], timeout=600)
+            build = _run(
+                ["docker", "build", "--pull=false", "-t", image_tag, "-f", str(dockerfile), str(work)],
+                timeout=600,
+            )
         if not build["ok"]:
-            return {"ok": False, "classification": "HARNESS_FAILURE", "reason": "Playwright image build failed", "detail": build}
+            raise ProbeError("HARNESS_FAILURE", "Playwright userspace image build failed: " + (build["stderr"] or build["stdout"])[-3000:])
 
         verify = _run([
             "docker", "run", "--rm", image_tag,
@@ -144,15 +149,15 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
             "console.log(JSON.stringify({version:p.version,node:process.version}));",
         ], timeout=30)
         if not verify["ok"]:
-            return {"ok": False, "classification": "HARNESS_FAILURE", "reason": "Playwright image verification failed", "detail": verify}
+            raise ProbeError("HARNESS_FAILURE", "Playwright image verification failed: " + (verify["stderr"] or verify["stdout"])[-2000:])
         try:
             tool_identity = json.loads(verify["stdout"].strip().splitlines()[-1])
         except Exception as exc:
-            return {"ok": False, "classification": "HARNESS_FAILURE", "reason": f"tool identity parse failed: {exc}"}
+            raise ProbeError("HARNESS_FAILURE", f"tool identity parse failed: {exc}") from exc
 
         create = _run(["docker", "create", image_tag, "/bin/true"], timeout=30)
         if not create["ok"]:
-            return {"ok": False, "classification": "HARNESS_FAILURE", "reason": "docker create failed", "detail": create}
+            raise ProbeError("HARNESS_FAILURE", "docker create failed: " + (create["stderr"] or create["stdout"])[-2000:])
         container_id = create["stdout"].strip()
 
         with timer.stage("playwright_rootfs_export_extract", "venue"):
@@ -162,12 +167,11 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
                 "p0a-export", container_id, str(root_dir),
             ], timeout=600)
         if not extract["ok"]:
-            return {
-                "ok": False,
-                "classification": "SETUP_REQUIRED",
-                "reason": "streamed docker export/rootfs extraction failed",
-                "detail": extract,
-            }
+            raise ProbeError(
+                "SETUP_REQUIRED",
+                "streamed docker export/rootfs extraction failed: "
+                + (extract["stderr"] or extract["stdout"])[-3000:],
+            )
 
         with timer.stage("playwright_rootfs_squashfs", "portable"):
             squash = _run([
@@ -175,13 +179,13 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
                 "-noappend", "-comp", "gzip", "-quiet",
             ], timeout=600)
         if not squash["ok"]:
-            return {"ok": False, "classification": "HARNESS_FAILURE", "reason": "mksquashfs failed", "detail": squash}
+            raise ProbeError("HARNESS_FAILURE", "mksquashfs failed: " + (squash["stderr"] or squash["stdout"])[-3000:])
 
         own = _run(["sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(rootfs)], timeout=20)
         if not own["ok"]:
-            return {"ok": False, "classification": "SETUP_REQUIRED", "reason": "could not return rootfs ownership", "detail": own}
+            raise ProbeError("SETUP_REQUIRED", "could not return rootfs ownership: " + (own["stderr"] or own["stdout"])[-1000:])
 
-        return {
+        result = {
             "ok": True,
             "rootfs": rootfs,
             "base_image_tag": BASE_IMAGE_TAG,
@@ -190,22 +194,36 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
             "rootfs_sha256": _sha256(rootfs),
             "rootfs_size_bytes": rootfs.stat().st_size,
         }
-    finally:
-        cleanup_failure = None
-        if container_id:
-            _run(["docker", "rm", "-f", container_id], timeout=30)
-        _run(["docker", "rmi", "-f", image_tag], timeout=60)
-        if root_dir.exists():
-            cleanup_root = _run(["sudo", "-n", "rm", "-rf", str(root_dir)], timeout=120)
-            if not cleanup_root["ok"]:
-                cleanup_failure = cleanup_root
-        if cleanup_failure is not None:
-            raise ProbeError(
-                "CLEANUP_FAILURE",
-                "Playwright rootfs staging cleanup failed: "
-                + (cleanup_failure["stderr"] or cleanup_failure["stdout"] or "unknown error")[-1000:],
-            )
+    except Exception as exc:
+        primary_exc = exc
 
+    if container_id:
+        container_cleanup = _run(["docker", "rm", "-f", container_id], timeout=30)
+        container_removed = container_cleanup["ok"]
+    _run(["docker", "rmi", "-f", image_tag], timeout=60)
+
+    root_cleanup = {"ok": True, "stderr": "", "stdout": ""}
+    if root_dir.exists():
+        root_cleanup = _run(["sudo", "-n", "rm", "-rf", str(root_dir)], timeout=120)
+    cleanup_ok = container_removed and root_cleanup["ok"]
+
+    if primary_exc is not None:
+        if not cleanup_ok and isinstance(primary_exc, ProbeError):
+            extra = (root_cleanup["stderr"] or root_cleanup["stdout"] or "container cleanup failed")[-1000:]
+            primary_exc.reason += f"; staging cleanup also failed: {extra}"
+            primary_exc.args = (primary_exc.reason,)
+        raise primary_exc
+
+    if not cleanup_ok:
+        detail = (root_cleanup["stderr"] or root_cleanup["stdout"] or "container cleanup failed")[-1000:]
+        raise ProbeError("CLEANUP_FAILURE", "Playwright rootfs staging cleanup failed: " + detail)
+
+    assert result is not None
+    result["staging_cleanup"] = {
+        "container_removed": container_removed,
+        "root_dir_removed": not root_dir.exists(),
+    }
+    return result
 
 def _make_scratch(path: pathlib.Path) -> dict:
     truncate = _run(["truncate", "-s", "1G", str(path)], timeout=20)
