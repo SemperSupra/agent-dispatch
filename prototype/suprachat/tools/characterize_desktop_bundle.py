@@ -110,7 +110,8 @@ def main():
     root=pathlib.Path(args.root).resolve(); out=pathlib.Path(args.output_dir)
     out.mkdir(parents=True,exist_ok=True)
 
-    packages=[]; plugins=[]; mcps=[]; playwright=[]; natives=[]; executables=[]; licenses=[]; asars=[]\n    skills=[]; hooks=[]; app_maps=[]; marketplaces=[]; extension_manifests=[]; component_executables=[]
+    packages=[]; plugins=[]; mcps=[]; playwright=[]; natives=[]; executables=[]; licenses=[]; asars=[]
+    skills=[]; hooks=[]; app_maps=[]; marketplaces=[]; extension_manifests=[]; component_executables=[]
     components=collections.defaultdict(list)
     inventory_path=out/'files.ndjson.gz'
 
@@ -205,14 +206,20 @@ def main():
         'label':args.label,'platform':args.platform,'root_name':root.name,
         'component_digests':{k:component_digest(v) for k,v in sorted(components.items())},
         'package_manifest_count':len(packages),'plugin_manifest_count':len(plugins),
-        'mcp_manifest_count':len(mcps),'native_module_count':len(natives),\n        'skill_count':len(skills),'hook_manifest_count':len(hooks),'app_map_count':len(app_maps),\n        'marketplace_manifest_count':len(marketplaces),'extension_manifest_count':len(extension_manifests),\n        'component_executable_count':len(component_executables),
+        'mcp_manifest_count':len(mcps),'native_module_count':len(natives),
+        'skill_count':len(skills),'hook_manifest_count':len(hooks),'app_map_count':len(app_maps),
+        'marketplace_manifest_count':len(marketplaces),'extension_manifest_count':len(extension_manifests),
+        'component_executable_count':len(component_executables),
         'license_file_count':len(licenses),'asar_count':len(asars),
         'claim_boundary':'Full path/hash/component census plus normalized metadata. Proprietary source bodies and opaque manifest payloads are not published.'
     }
     docs={
         'summary.json':summary,'packages.json':packages,'plugins.json':plugins,'mcp.json':mcps,
         'playwright.json':playwright,'native-modules.json':natives,'executables.json':executables,
-        'licenses.json':licenses,'asar-containers.json':asars,\n        'skills.json':skills,'hooks.json':hooks,'app-maps.json':app_maps,\n        'marketplaces.json':marketplaces,'browser-extension-manifests.json':extension_manifests,\n        'component-executables.json':component_executables,
+        'licenses.json':licenses,'asar-containers.json':asars,
+        'skills.json':skills,'hooks.json':hooks,'app-maps.json':app_maps,
+        'marketplaces.json':marketplaces,'browser-extension-manifests.json':extension_manifests,
+        'component-executables.json':component_executables,
     }
     for name,obj in docs.items():
         (out/name).write_text(json.dumps(obj,indent=2,sort_keys=True)+'\\n')
