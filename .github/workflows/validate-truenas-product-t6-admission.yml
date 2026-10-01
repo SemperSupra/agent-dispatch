@@ -1,0 +1,28 @@
+name: Validate TrueNAS product T6 admission
+
+on:
+  pull_request:
+    paths:
+      - "config/truenas-product-t6-admission.json"
+      - "config/truenas-rdte-targets.json"
+      - "scripts/truenas_product_t6_admission.py"
+      - "scripts/gha_kvm_truenas_rdte.sh"
+      - "tests/test_truenas_product_t6_admission.py"
+      - "tests/test_gha_kvm_system_rdte.py"
+      - ".github/workflows/validate-truenas-product-t6-admission.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Admission contract tests
+        run: python3 -m unittest -v tests/test_truenas_product_t6_admission.py
+      - name: Harness regression tests
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py
+      - name: Validate exact product x target admission registry
+        run: python3 scripts/truenas_product_t6_admission.py --validate-only
