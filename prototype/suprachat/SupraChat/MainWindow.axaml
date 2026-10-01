@@ -112,7 +112,12 @@
                      AutomationProperties.HelpText="Interview prompt. Keyboard shortcut Command+L on macOS or Control+L on Windows/Linux focuses this field." />
 
             <WrapPanel Orientation="Horizontal">
-              <Button Margin="0,0,8,8" Content="Attach image/file" Click="Attach_Click" AutomationProperties.AutomationId="AgentLab.Attach" />
+              <Button Margin="0,0,8,8" Content="Attach image/file" Click="Attach_Click"
+                      AutomationProperties.AutomationId="AgentLab.Attach"
+                      AutomationProperties.HelpText="Choose one or more local images or files to attach." />
+              <Button Margin="0,0,8,8" Content="Capture screen &amp; attach" Click="CaptureScreen_Click"
+                      AutomationProperties.AutomationId="AgentLab.CaptureScreen"
+                      AutomationProperties.HelpText="Explicitly capture the current desktop and attach the image. Operating-system screen-recording permission may be required." />
               <Button Margin="0,0,8,8" Content="Clear attachments" Click="ClearAttachments_Click" AutomationProperties.AutomationId="AgentLab.ClearAttachments" />
               <CheckBox x:Name="WebSearchBox" Margin="4,4,8,8"
                         Content="Allow supported web search"
@@ -330,7 +335,7 @@
 
             <TextBlock FontWeight="SemiBold" Text="Portable automation examples" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="155"
-                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli parity&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli voices&#10;suprachat-cli remote-status&#10;suprachat-cli plugins&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot; --file ./document.pdf&#10;suprachat-cli codex-rpc --method model/list --params {}" />
+                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli parity&#10;suprachat-cli screen-status&#10;suprachat-cli screen-capture --output ./screen.png&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli voices&#10;suprachat-cli remote-status&#10;suprachat-cli plugins&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot; --file ./document.pdf&#10;suprachat-cli codex-rpc --method model/list --params {}" />
 
             <TextBlock FontWeight="SemiBold" Text="Agent stdio JSON-RPC" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="125"
