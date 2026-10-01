@@ -27,14 +27,22 @@ Within the approved public target repository, changes may be limited to:
 
 The actor may:
 - inspect Playnite upstream source/documentation to resolve native behavior;
+- read and build already-public plugin source in the approved target as an RDTE input;
+- run already-public plugin tests and behavior oracles;
 - add or refine deterministic runtime/package/install probes;
 - add synthetic fixture generation that contains no private/user data;
-- repair the harness when evidence shows a harness failure;
-- open or update one pull request carrying the bounded change.
+- repair the public RDTE harness when evidence shows a harness failure;
+- open or update one pull request carrying the bounded harness change.
+
+The actor must **not** repair product implementation source when RDTE exposes a product defect. Instead:
+1. classify the failure as product/build/SDK/behavior evidence;
+2. record the exact file/line/oracle and tested public revision;
+3. stop that bounded rep so the parent/private authority can repair and re-project the product source;
+4. resume qualification only after a new approved public candidate revision exists.
 
 ## Constraints
 
-- Do not publish or reconstruct private SemperSupra plugin implementation.
+- Do not publish, reconstruct, or infer private SemperSupra plugin implementation. Already-public plugin source in the approved target may be treated as a read/build/test input, not as delegated product-mutation authority.
 - Do not access or request private repositories, private branches, user configuration, user library data, credentials, cookies, tokens, or provider sessions.
 - Do not require any game/provider login.
 - Do not hand-author Playnite database internals as the primary test path.
@@ -59,7 +67,8 @@ Advance only the highest currently-ready step:
 6. Playnite installs the package through its native install path;
 7. restart/load smoke succeeds;
 8. deterministic synthetic library seeding through supported SDK surfaces;
-9. one representative plugin-behavior oracle.
+9. one representative already-public plugin-behavior oracle;
+10. repeat the same native lifecycle against subsequent already-public candidate revisions without widening product authority.
 
 Do not skip a failed prerequisite by replacing it with a non-native shortcut.
 
