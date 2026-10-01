@@ -14,6 +14,7 @@ $DesktopLink = Join-Path $Desktop 'SupraChat.lnk'
 $UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat'
 $ProtocolKey = 'HKCU:\Software\Classes\suprachat'
 $ApplicationKey = 'HKCU:\Software\Classes\Applications\SupraChat.exe'
+$UserEnvironmentKey = 'HKCU:\Environment'
 
 if (!(Test-Path (Join-Path $Source 'SupraChat.exe'))) {
   throw 'Run install.ps1 from the extracted SupraChat Windows artifact.'
@@ -37,6 +38,14 @@ Remove-Item $DesktopLink -Force -ErrorAction SilentlyContinue
 Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "HKCU:\Software\Classes\suprachat" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "HKCU:\Software\Classes\Applications\SupraChat.exe" -Recurse -Force -ErrorAction SilentlyContinue
+$currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($currentUserPath) {
+  $target = $InstallRoot.TrimEnd("\")
+  $filtered = @($currentUserPath.Split(";") | Where-Object {
+    $_ -and $_.Trim().TrimEnd("\") -ne $target
+  })
+  [Environment]::SetEnvironmentVariable("Path", ($filtered -join ";"), "User")
+}
 Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
   "-NoProfile","-Command",
   "Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '$InstallRoot' -Recurse -Force -ErrorAction SilentlyContinue"
@@ -72,6 +81,24 @@ $uninstallCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File ' +
 New-ItemProperty -Path $UninstallKey -Name UninstallString -Value $uninstallCommand -PropertyType String -Force | Out-Null
 
 $ExePath = Join-Path $InstallRoot 'SupraChat.exe'
+$AutomationPath = Join-Path $InstallRoot 'SupraChat.Automation.exe'
+$CliShimPath = Join-Path $InstallRoot 'suprachat-cli.cmd'
+if (!(Test-Path $AutomationPath)) {
+  throw 'SupraChat.Automation.exe is missing from the artifact.'
+}
+Set-Content -LiteralPath $CliShimPath -Encoding ASCII -Value '@echo off
+"%~dp0SupraChat.Automation.exe" %*'
+
+$currentUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+$pathParts = @()
+if ($currentUserPath) {
+  $pathParts = @($currentUserPath.Split(';') | Where-Object { $_ })
+}
+if (-not ($pathParts | Where-Object { $_.Trim().TrimEnd('\') -eq $InstallRoot.TrimEnd('\') })) {
+  $nextPath = (($pathParts + $InstallRoot) -join ';')
+  [Environment]::SetEnvironmentVariable('Path', $nextPath, 'User')
+}
+
 $OpenCommand = '"' + $ExePath + '" "%1"'
 
 New-Item -Force $ProtocolKey | Out-Null
@@ -93,6 +120,8 @@ New-Item -Force (Join-Path $ApplicationKey 'SupportedTypes') | Out-Null
 Write-Host "SupraChat installed to $InstallRoot"
 Write-Host "Protocol: suprachat://"
 Write-Host "Open With registration: supported Agent Lab attachment types"
+Write-Host "Automation/agent CLI: $CliShimPath"
+Write-Host "User PATH includes: $InstallRoot"
 Write-Host "Bundled Codex runtime: $(Join-Path $InstallRoot 'runtime\codex\codex.exe')"
 
 if (-not $NoLaunch) {
