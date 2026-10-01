@@ -285,6 +285,14 @@ Require(attachmentFixture.Kind == "file", "shared attachment MIME classification
 Require(attachmentFixture.Value.StartsWith("data:text/plain;base64,", StringComparison.Ordinal),
     "shared attachment data URL drifted");
 
+var screenCaptureDescriptor = DesktopScreenCapture.Describe();
+Require(screenCaptureDescriptor.Schema == DesktopScreenCapture.Schema,
+    "screen capture descriptor schema drifted");
+Require(screenCaptureDescriptor.RequiresExplicitInvocation,
+    "screen capture must remain an explicit-invocation sensor");
+Require(!string.IsNullOrWhiteSpace(screenCaptureDescriptor.PermissionBoundary),
+    "screen capture permission boundary missing");
+
 var accessibilityContract = AccessibilityContract.Describe();
 Require(accessibilityContract.Schema == AccessibilityContract.Schema, "accessibility schema drifted");
 Require(accessibilityContract.Human.KeyboardOnly, "keyboard-only accessibility invariant missing");
@@ -313,6 +321,7 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"SupraChat.MainWindow\"",
     "AutomationProperties.AutomationId=\"RootTabs\"",
     "AutomationProperties.AutomationId=\"AgentLab.Prompt\"",
+    "AutomationProperties.AutomationId=\"AgentLab.CaptureScreen\"",
     "AutomationProperties.AutomationId=\"Auth.Status\"",
     "AutomationProperties.AutomationId=\"Accessibility.Status\"",
     "AutomationProperties.AutomationId=\"Accessibility.ScaleDown\"",
