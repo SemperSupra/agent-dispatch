@@ -1,0 +1,150 @@
+{
+  "schema": "semper-supra.compute-guest-profiles/v1",
+  "authority": "SemperSupra/agent-dispatch-private#426",
+  "dependencies": {
+    "firecracker": "SemperSupra/agent-dispatch-private#277",
+    "windows_embodiment": "mark-e-deyoung/windows-utilities#26"
+  },
+  "policy": {
+    "source_capability_is_not_runtime_qualification": true,
+    "nested_kvm_must_be_observed_in_guest": true,
+    "private_hypervisor_escape_hatches_prohibited": true,
+    "windows_media_must_be_legal_public_evaluation_or_user_supplied": true,
+    "windows_product_key_must_not_be_embedded": true,
+    "guest_oracle_required_before_backend_admission": true
+  },
+  "truenas": {
+    "25.04.1": {
+      "vm_adapter": "truenas-virt-incus-vm",
+      "source_api_family": "v25_04_0",
+      "windows11": {
+        "source_status": "CANDIDATE",
+        "capabilities": {
+          "secure_boot": {
+            "surface": "virt.instance.create.secure_boot",
+            "source_proven": true
+          },
+          "tpm": {
+            "surface": "virt device dev_type=TPM",
+            "source_proven": true
+          },
+          "uefi_q35": {
+            "surface": "incus VM firmware/machine implementation",
+            "source_proven": false
+          }
+        },
+        "runtime_status": "OPEN"
+      },
+      "firecracker": {
+        "source_status": "RUNTIME_OBSERVE_ONLY",
+        "cpu_passthrough_control": null,
+        "nested_kvm_requirement": "observe /dev/kvm inside guest; do not inject raw.qemu",
+        "runtime_status": "OPEN"
+      }
+    },
+    "25.04.2.6": {
+      "vm_adapter": "truenas-vm-libvirt",
+      "source_api_family": "v25_04_2",
+      "windows11": {
+        "source_status": "CANDIDATE",
+        "capabilities": {
+          "secure_boot": {
+            "surface": "vm.create.enable_secure_boot",
+            "source_proven": true
+          },
+          "tpm": {
+            "surface": "vm.create.trusted_platform_module",
+            "source_proven": true
+          },
+          "uefi_q35": {
+            "surface": "vm.create bootloader=UEFI + machine_type=q35 validation",
+            "source_proven": true
+          }
+        },
+        "runtime_status": "OPEN"
+      },
+      "firecracker": {
+        "source_status": "CANDIDATE",
+        "cpu_passthrough_control": "vm.create.cpu_mode=HOST-PASSTHROUGH",
+        "nested_kvm_requirement": "observe /dev/kvm inside guest before invoking Firecracker",
+        "runtime_status": "OPEN"
+      }
+    },
+    "25.10.7": {
+      "vm_adapter": "truenas-vm-libvirt",
+      "source_api_family": "v25_10_0",
+      "windows11": {
+        "source_status": "CANDIDATE",
+        "capabilities": {
+          "secure_boot": {
+            "surface": "vm.create.enable_secure_boot",
+            "source_proven": true
+          },
+          "tpm": {
+            "surface": "vm.create.trusted_platform_module",
+            "source_proven": true
+          },
+          "uefi_q35": {
+            "surface": "vm.create bootloader=UEFI + machine_type=q35 validation",
+            "source_proven": true
+          }
+        },
+        "runtime_status": "OPEN"
+      },
+      "firecracker": {
+        "source_status": "CANDIDATE",
+        "cpu_passthrough_control": "vm.create.cpu_mode=HOST-PASSTHROUGH",
+        "nested_kvm_requirement": "observe /dev/kvm inside guest before invoking Firecracker",
+        "runtime_status": "OPEN"
+      }
+    },
+    "26.0.0-BETA.3": {
+      "vm_adapter": "truenas-vm-libvirt",
+      "source_api_family": "v26_0_0",
+      "windows11": {
+        "source_status": "CANDIDATE",
+        "capabilities": {
+          "secure_boot": {
+            "surface": "vm.create.enable_secure_boot",
+            "source_proven": true
+          },
+          "tpm": {
+            "surface": "vm.create.trusted_platform_module",
+            "source_proven": true
+          },
+          "uefi_q35": {
+            "surface": "vm.create bootloader=UEFI + machine_type=q35 validation",
+            "source_proven": true
+          }
+        },
+        "runtime_status": "OPEN"
+      },
+      "firecracker": {
+        "source_status": "CANDIDATE",
+        "cpu_passthrough_control": "vm.create.cpu_mode=HOST-PASSTHROUGH",
+        "nested_kvm_requirement": "observe /dev/kvm inside guest before invoking Firecracker",
+        "runtime_status": "OPEN"
+      }
+    }
+  },
+  "proxmox": {
+    "9.2-1": {
+      "vm_adapter": "proxmox-vm-rest",
+      "windows11": {
+        "source_status": "PROFILE_PENDING_REST_PAYLOAD_BINDING",
+        "runtime_status": "OPEN"
+      },
+      "firecracker": {
+        "source_status": "PROFILE_PENDING_REST_PAYLOAD_BINDING",
+        "runtime_status": "OPEN"
+      }
+    }
+  },
+  "rungs": {
+    "V0": "native VM + exact-owned device CRUD/readback/cleanup",
+    "V1": "boot pinned minimal Linux guest + external deterministic guest nonce",
+    "V2": "observe nested KVM and, iff present, execute Firecracker portable contract from #277",
+    "W1": "Windows 11 evaluation/user media install + firmware/TPM/Secure Boot readback + bounded guest oracle + lifecycle/cleanup",
+    "WB": "WinBot backend candidacy only after W1; admission decision remains windows-utilities#26"
+  }
+}

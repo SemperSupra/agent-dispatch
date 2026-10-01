@@ -1,0 +1,73 @@
+import copy, unittest
+from scripts.compute_guest_profile_contract import ProfileError, validate
+
+def fixture():
+    return {
+      "schema":"semper-supra.compute-guest-profiles/v1",
+      "dependencies":{
+        "firecracker":"SemperSupra/agent-dispatch-private#277",
+        "windows_embodiment":"mark-e-deyoung/windows-utilities#26",
+      },
+      "policy":{
+        "source_capability_is_not_runtime_qualification":True,
+        "nested_kvm_must_be_observed_in_guest":True,
+        "private_hypervisor_escape_hatches_prohibited":True,
+        "windows_media_must_be_legal_public_evaluation_or_user_supplied":True,
+        "windows_product_key_must_not_be_embedded":True,
+        "guest_oracle_required_before_backend_admission":True,
+      },
+      "truenas":{},
+      "proxmox":{
+        "9.2-1":{
+          "windows11":{"runtime_status":"OPEN"},
+          "firecracker":{"runtime_status":"OPEN"},
+        }
+      },
+      "rungs":{"V0":"x","V1":"x","V2":"x","W1":"x","WB":"x"},
+    }
+
+def tnrow(version):
+    legacy=version=="25.04.1"
+    return {
+      "windows11":{
+        "source_status":"CANDIDATE",
+        "runtime_status":"OPEN",
+        "capabilities":{
+          "secure_boot":{"source_proven":True},
+          "tpm":{"source_proven":True},
+          "uefi_q35":{"source_proven":not legacy},
+        },
+      },
+      "firecracker":{
+        "source_status":"RUNTIME_OBSERVE_ONLY" if legacy else "CANDIDATE",
+        "cpu_passthrough_control":None if legacy else "vm.create.cpu_mode=HOST-PASSTHROUGH",
+        "runtime_status":"OPEN",
+      },
+    }
+
+class Tests(unittest.TestCase):
+    def profile(self):
+        p=fixture()
+        for v in ("25.04.1","25.04.2.6","25.10.7","26.0.0-BETA.3"):
+            p["truenas"][v]=tnrow(v)
+        return p
+    def test_contract(self):
+        self.assertEqual(validate(self.profile())["status"],"PASS")
+    def test_legacy_nested_kvm_cannot_be_source_claimed(self):
+        p=self.profile()
+        p["truenas"]["25.04.1"]["firecracker"]["cpu_passthrough_control"]="raw.qemu=-cpu host"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_runtime_claim_fails_closed(self):
+        p=self.profile()
+        p["truenas"]["25.10.7"]["windows11"]["runtime_status"]="PASS"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_target_growth_fails_closed(self):
+        p=self.profile()
+        p["truenas"]["27.0.0"]=tnrow("27.0.0")
+        with self.assertRaises(ProfileError):
+            validate(p)
+
+if __name__=="__main__":
+    unittest.main()
