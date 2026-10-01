@@ -334,12 +334,15 @@ internal static class Program
         var model = RequiredProperty(p, "model");
         var input = RequiredProperty(p, "input");
         var webSearch = p.TryGetProperty("web_search", out var ws) && ws.ValueKind == JsonValueKind.True;
-        return await RespondAsync(new[]
+        var args = new List<string>
         {
             "--model", model,
-            "--input", input,
-            ...(webSearch ? new[] { "--web-search" } : Array.Empty<string>())
-        });
+            "--input", input
+        };
+        if (webSearch)
+            args.Add("--web-search");
+
+        return await RespondAsync(args.ToArray());
     }
 
     private static async Task<object> RpcResponsesRawAsync(JsonElement? parameters)
