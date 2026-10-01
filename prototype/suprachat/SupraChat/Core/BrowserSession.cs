@@ -133,6 +133,45 @@ public sealed class BrowserSession : IAsyncDisposable
             DateTimeOffset.UtcNow);
     }
 
+    public async Task<BrowserPageSnapshot> ClickByRoleAsync(
+        string role,
+        string accessibleName,
+        bool exact = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.TryParse<AriaRole>(role, ignoreCase: true, out var ariaRole))
+            throw new ArgumentException($"Unknown ARIA role: {role}", nameof(role));
+        if (string.IsNullOrWhiteSpace(accessibleName))
+            throw new ArgumentException("Accessible name is required.", nameof(accessibleName));
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Page.GetByRole(ariaRole, new PageGetByRoleOptions
+        {
+            Name = accessibleName,
+            Exact = exact
+        }).ClickAsync();
+
+        return await SnapshotAsync(cancellationToken);
+    }
+
+    public async Task<BrowserPageSnapshot> FillByLabelAsync(
+        string label,
+        string value,
+        bool exact = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+            throw new ArgumentException("Accessible label is required.", nameof(label));
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Page.GetByLabel(label, new PageGetByLabelOptions
+        {
+            Exact = exact
+        }).FillAsync(value);
+
+        return await SnapshotAsync(cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         try
