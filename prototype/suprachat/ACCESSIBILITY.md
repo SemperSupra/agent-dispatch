@@ -19,7 +19,8 @@ Every packaged desktop target must preserve:
 - platform DPI/render scaling without fixed-pixel-only interaction assumptions;
 - no required pointer-only gesture;
 - no custom motion that is required to understand or operate the product;
-- persistent native WebView/product state without disabling browser/web accessibility support.
+- persistent native WebView/product state without disabling browser/web accessibility support;
+- a clearly labeled **Open in browser** fallback when a platform/browser combination exposes a stronger assistive-technology experience outside the embedded WebView.
 
 Keyboard baseline:
 
