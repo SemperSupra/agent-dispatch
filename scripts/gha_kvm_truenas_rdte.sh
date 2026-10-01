@@ -649,7 +649,6 @@ if [[ "$T6_PRODUCT" == "official-catalog" ]]; then
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
-    --target-version "$TARGET_VERSION" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_provider_g2_probe.py" \
