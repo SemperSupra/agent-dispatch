@@ -89,6 +89,27 @@ def validate(registry: dict[str, Any]) -> dict[str, Any]:
                 "container_adapters": [a["id"] for a in row["container_adapters"]],
                 "vm_adapters": [a["id"] for a in row["vm_adapters"]],
             })
+        if platform == "proxmox":
+            candidates = registry["platforms"][platform].get("candidate_targets", [])
+            if not isinstance(candidates, list):
+                raise ContractError("proxmox: candidate_targets must be a list")
+            admitted = {x["version"] for x in rows}
+            seen_candidates = set()
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    raise ContractError("proxmox: candidate target must be an object")
+                version = candidate.get("version")
+                digest = candidate.get("iso_sha256")
+                if not isinstance(version, str) or not version or version in admitted or version in seen_candidates:
+                    raise ContractError(f"proxmox: invalid or duplicate candidate version {version!r}")
+                if not isinstance(digest, str) or len(digest) != 64:
+                    raise ContractError(f"proxmox/{version}: candidate ISO SHA-256 invalid")
+                if candidate.get("state") != "source-profile-open":
+                    raise ContractError(f"proxmox/{version}: candidate must remain source-profile-open")
+                seen_candidates.add(version)
+            summary["proxmox_candidates"] = [
+                {"version": x["version"], "state": x["state"]} for x in candidates
+            ]
         summary[platform] = ps
     return {
         "schema": "semper-supra.compute-materialization-targets-validation/v1",
