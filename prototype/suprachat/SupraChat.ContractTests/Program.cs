@@ -120,6 +120,37 @@ Require(CodexAppServer.Arguments.Contains("model_provider=\"openai_chatgpt_plan\
 Require(CodexAppServer.Arguments.Any(x => x.Contains("requires_openai_auth=false")), "Codex auth mode missing");
 Require(CodexAppServer.Arguments.All(x => !x.Contains("Bearer ", StringComparison.OrdinalIgnoreCase)), "token leaked into arguments");
 
+var expectedLocalReads = new[]
+{
+    "config/read",
+    "configRequirements/read",
+    "experimentalFeature/list",
+    "collaborationMode/list",
+    "model/list",
+    "plugin/list",
+    "permissionProfile/list",
+    "app/list",
+    "mcpServerStatus/list",
+    "skills/list",
+    "windowsSandbox/readiness",
+    "thread/realtime/listVoices",
+    "remoteControl/status/read",
+    "thread/list"
+};
+Require(CodexLocalReadPolicy.Methods.SequenceEqual(
+        expectedLocalReads.OrderBy(x => x, StringComparer.Ordinal)),
+    "credential-free Codex local-read allowlist drifted from qualified evidence");
+Require(expectedLocalReads.All(CodexLocalReadPolicy.IsAllowed),
+    "qualified credential-free Codex read missing from allowlist");
+Require(!CodexLocalReadPolicy.IsAllowed("account/usage/read"),
+    "account usage must remain outside credential-free local reads");
+Require(!CodexLocalReadPolicy.IsAllowed("account/rateLimits/read"),
+    "account rate limits must remain outside credential-free local reads");
+Require(!CodexLocalReadPolicy.IsAllowed("account/workspaceMessages/read"),
+    "account workspace messages must remain outside credential-free local reads");
+Require(!CodexLocalReadPolicy.IsAllowed("remoteControl/enable"),
+    "remote mutation must remain outside credential-free local reads");
+
 var codexInit = CodexAppServerClient.BuildInitializeParams(experimentalApi: true);
 Require(codexInit.GetProperty("clientInfo").GetProperty("name").GetString() == "suprachat", "Codex initialize client identity missing");
 Require(codexInit.GetProperty("capabilities").GetProperty("experimentalApi").GetBoolean(), "Codex experimental protocol capability must be enabled");
