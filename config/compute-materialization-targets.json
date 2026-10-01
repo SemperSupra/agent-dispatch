@@ -76,7 +76,8 @@
           "source_fingerprint": {
             "virt.instance": "ac22db500d9d1c6932a4cc109716cd8a3bd46223",
             "vm.vms": "993ed915c7058c8e8433d5d5592bb30f24cbfd1c",
-            "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5"
+            "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5",
+            "vm.device": "b98466b2247ed2460436c7d9329780f2c88d16ec"
           },
           "container_adapters": [
             {
@@ -113,7 +114,14 @@
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
               "hypervisor_family": "libvirt-qemu",
-              "source_api_family": "v25_04_2"
+              "source_api_family": "v25_04_2",
+              "required_device_methods": [
+                "vm.device.query",
+                "vm.device.create",
+                "vm.device.update",
+                "vm.device.delete"
+              ],
+              "v0_storage_ownership": "exact-owned-zvol-device"
             },
             {
               "id": "truenas-virt-incus-vm",
@@ -142,6 +150,10 @@
             "vm": {
               "path": "src/middlewared/middlewared/api/v25_04_2/vm.py",
               "blob_sha": "201721f7e42e663d11f3e26ff6f59ef2bbce0c5f"
+            },
+            "vm_device": {
+              "path": "src/middlewared/middlewared/api/v25_04_2/vm_device.py",
+              "blob_sha": "f85240d8a804b5d8347bc9a51d76c9c93c19a813"
             }
           }
         },
@@ -155,7 +167,8 @@
           "source_fingerprint": {
             "virt.instance": "8f3f21996b4d14385ba17405676704cb9b921bea",
             "vm.vms": "2532f53d54d845e983c76e8479027587dec81df7",
-            "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5"
+            "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5",
+            "vm.device": "7d9b0098692190015fc178d25d8483927b90d757"
           },
           "container_adapters": [
             {
@@ -192,7 +205,14 @@
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
               "hypervisor_family": "libvirt-qemu",
-              "source_api_family": "v25_10_0"
+              "source_api_family": "v25_10_0",
+              "required_device_methods": [
+                "vm.device.query",
+                "vm.device.create",
+                "vm.device.update",
+                "vm.device.delete"
+              ],
+              "v0_storage_ownership": "exact-owned-zvol-device"
             },
             {
               "id": "truenas-virt-incus-vm",
@@ -221,6 +241,10 @@
             "vm": {
               "path": "src/middlewared/middlewared/api/v25_10_0/vm.py",
               "blob_sha": "2dad2a7e851d354bc9d6e1d201781b2809e77894"
+            },
+            "vm_device": {
+              "path": "src/middlewared/middlewared/api/v25_10_0/vm_device.py",
+              "blob_sha": "a7b8d406e81618db21fb98f2b57b002a9f2d87b7"
             }
           }
         },
@@ -236,7 +260,8 @@
             "container.lifecycle": "1e29c7c3143d9adbd0cb8e03806a3d5f5ebe29e0",
             "container.nsenter": "90b6e245e186441a863a701c0c4714671b691184",
             "vm.vms": "43ed4b532b40da02ad885039d954c99a93ea22ed",
-            "vm.lifecycle": "b313e2eeb0baa0179ab9244fc244eee9b02e02e9"
+            "vm.lifecycle": "b313e2eeb0baa0179ab9244fc244eee9b02e02e9",
+            "vm.device": "b0f313b060ffec4cf08ec2e44c706bafc5121830"
           },
           "container_adapters": [
             {
@@ -272,7 +297,14 @@
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
               "hypervisor_family": "libvirt-qemu",
-              "source_api_family": "v26_0_0"
+              "source_api_family": "v26_0_0",
+              "required_device_methods": [
+                "vm.device.query",
+                "vm.device.create",
+                "vm.device.update",
+                "vm.device.delete"
+              ],
+              "v0_storage_ownership": "exact-owned-zvol-device"
             }
           ],
           "api_schema_fingerprint": {
@@ -283,6 +315,10 @@
             "vm": {
               "path": "src/middlewared/middlewared/api/v26_0_0/vm.py",
               "blob_sha": "0944382fedc0a8cbcfc55fb8a653a9e5758e88fd"
+            },
+            "vm_device": {
+              "path": "src/middlewared/middlewared/api/v26_0_0/vm_device.py",
+              "blob_sha": "67603b6e2048da6235b802f970559b627857efc9"
             }
           }
         }
@@ -395,7 +431,12 @@
         "delete",
         "absence"
       ],
-      "nested_kvm": "must-be-observed-not-assumed"
+      "nested_kvm": "must-be-observed-not-assumed",
+      "qualification_rungs": {
+        "V0": "native VM + owned device CRUD/readback/cleanup; guest boot not claimed",
+        "V1": "boot minimal Linux guest + deterministic network/agent nonce",
+        "V2": "observe nested KVM; execute Firecracker microVM only if /dev/kvm is genuinely exposed"
+      }
     },
     "windows11_vm": {
       "semantic_id": "windows-11-evaluation-vm/v1",
@@ -411,7 +452,11 @@
         "absence"
       ],
       "source_policy": "legal-public-evaluation-or-user-provided-media; no embedded product key",
-      "firmware_policy": "observe UEFI/q35/TPM/Secure-Boot capabilities; fail closed where required"
+      "firmware_policy": "observe UEFI/q35/TPM/Secure-Boot capabilities; fail closed where required",
+      "qualification_rungs": {
+        "V0": "native VM + owned device CRUD/readback/cleanup",
+        "W1": "Windows 11 evaluation boot/install + bounded guest oracle + restart/stop/delete"
+      }
     }
   },
   "claim_boundary": "Source/profile/planning contract only. No container/VM target or fixture is runtime-qualified by this registry."
