@@ -23,6 +23,7 @@ on:
         options:
           - "26.0.0-BETA.3"
           - "25.10.7"
+          - "25.04.2.6"
           - "25.04.1"
       truenas_rung:
         description: "TrueNAS system qualification rung"
