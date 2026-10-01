@@ -1,0 +1,46 @@
+name: Qualify SupraChat Windows MVP
+
+on:
+  pull_request:
+    paths:
+      - 'prototype/suprachat/**'
+      - '.github/workflows/qualify-suprachat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build application
+        run: dotnet build prototype/suprachat/SupraChat/SupraChat.csproj -c Release
+
+      - name: Run contract checks
+        run: dotnet run --project prototype/suprachat/SupraChat.ContractTests/SupraChat.ContractTests.csproj -c Release
+
+      - name: Publish Windows MVP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r win-x64 --self-contained false -o out/suprachat-win-x64
+
+      - name: Upload Windows MVP
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: suprachat-windows-x64
+          path: out/suprachat-win-x64/
+          if-no-files-found: error
+          retention-days: 7

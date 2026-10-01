@@ -1,0 +1,137 @@
+using System.Diagnostics;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using SupraChat.Core;
+
+namespace SupraChat;
+
+public partial class MainWindow : Window
+{
+    private readonly SiwcClient _siwc = new();
+    private readonly ResponsesClient _responses = new();
+    private SiwcCredential? _credential;
+    private Process? _codex;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+    }
+
+    private void Back_Click(object? sender, RoutedEventArgs e) => ChatView.GoBack();
+    private void Forward_Click(object? sender, RoutedEventArgs e) => ChatView.GoForward();
+    private void Reload_Click(object? sender, RoutedEventArgs e) => ChatView.Refresh();
+    private void Home_Click(object? sender, RoutedEventArgs e) => ChatView.Navigate(new Uri("https://chatgpt.com/"));
+
+    private void OpenExternal_Click(object? sender, RoutedEventArgs e)
+    {
+        Process.Start(new ProcessStartInfo("https://chatgpt.com/") { UseShellExecute = true });
+    }
+
+    private async void SignIn_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            AuthStatus.Text = "Opening system browser for ChatGPT authorization…";
+            var hostId = await HostIdentity.LoadOrCreateAsync();
+            _credential = await _siwc.SignInAsync(this, hostId, "SupraChat");
+            await CredentialStore.SaveAsync(_credential);
+            AuthStatus.Text = $"Agent Lab authorized. Account subject: {Short(_credential.Subject)}; scope confirmed.";
+            await PopulateModelsAsync();
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = $"Sign-in did not complete: {ex.Message}";
+        }
+    }
+
+    private async void RefreshModels_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await EnsureCredentialAsync();
+            await PopulateModelsAsync();
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = ex.Message;
+        }
+    }
+
+    private async Task PopulateModelsAsync()
+    {
+        if (_credential is null)
+            return;
+
+        var models = await _responses.ListModelsAsync(_credential.AccessToken);
+        ModelBox.ItemsSource = models;
+        ModelBox.SelectedItem ??= models.FirstOrDefault();
+        AuthStatus.Text = $"Agent Lab authorized; {models.Count} model(s) visible to this ChatGPT-plan grant.";
+    }
+
+    private async void RunInterview_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await EnsureCredentialAsync();
+            var model = ModelBox.SelectedItem?.ToString();
+            if (string.IsNullOrWhiteSpace(model))
+                throw new InvalidOperationException("Select a model first.");
+
+            OutputBox.Text = "";
+            var result = await _responses.StreamTextAsync(
+                _credential!.AccessToken,
+                model,
+                PromptBox.Text ?? string.Empty,
+                delta => OutputBox.Text += delta);
+
+            if (!result.Completed)
+                throw new InvalidOperationException("The stream ended without response.completed.");
+
+            AuthStatus.Text = "Interview completed with response.completed.";
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = $"Interview failed: {ex.Message}";
+        }
+    }
+
+    private async void StartCodex_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await EnsureCredentialAsync();
+            if (_codex is { HasExited: false })
+            {
+                AuthStatus.Text = "Codex app-server is already running.";
+                return;
+            }
+
+            _codex = CodexAppServer.Start(_credential!.AccessToken);
+            AuthStatus.Text = $"Codex app-server started (PID {_codex.Id}); token is supplied only through process environment.";
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = $"Codex app-server start failed: {ex.Message}";
+        }
+    }
+
+    private async Task EnsureCredentialAsync()
+    {
+        if (_credential is not null)
+            return;
+
+        _credential = await CredentialStore.TryLoadAsync();
+        if (_credential is null)
+            throw new InvalidOperationException("Use Continue with ChatGPT first.");
+    }
+
+    private static string Short(string value) =>
+        value.Length <= 12 ? value : value[..6] + "…" + value[^4..];
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (_codex is { HasExited: false })
+            _codex.Kill(entireProcessTree: true);
+        base.OnClosed(e);
+    }
+}

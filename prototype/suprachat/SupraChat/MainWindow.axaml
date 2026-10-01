@@ -1,0 +1,55 @@
+<Window
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Class="SupraChat.MainWindow"
+    Width="1280"
+    Height="850"
+    MinWidth="900"
+    MinHeight="600"
+    Title="SupraChat">
+  <Grid RowDefinitions="Auto,*">
+    <Border Grid.Row="0" Padding="8">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+        <Button Grid.Column="0" Margin="0,0,6,0" Content="Back" Click="Back_Click" />
+        <Button Grid.Column="1" Margin="0,0,6,0" Content="Forward" Click="Forward_Click" />
+        <Button Grid.Column="2" Margin="0,0,6,0" Content="Reload" Click="Reload_Click" />
+        <Button Grid.Column="3" Margin="0,0,6,0" Content="Home" Click="Home_Click" />
+        <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="Official ChatGPT surface + separate subscription-backed Agent Lab" />
+        <Button Grid.Column="5" Content="Open in browser" Click="OpenExternal_Click" />
+      </Grid>
+    </Border>
+
+    <TabControl Grid.Row="1">
+      <TabItem Header="ChatGPT">
+        <NativeWebView x:Name="ChatView" Source="https://chatgpt.com/" />
+      </TabItem>
+
+      <TabItem Header="Agent Lab">
+        <ScrollViewer>
+          <StackPanel Margin="20" Spacing="10" MaxWidth="900">
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="ChatGPT-plan actor interview surface" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="This is intentionally separate from the ChatGPT parity surface. It uses OpenAI's documented Sign in with ChatGPT flow, the public Responses API, and optionally Codex app-server." />
+            <Button x:Name="SignInButton" HorizontalAlignment="Left"
+                    Content="Continue with ChatGPT" Click="SignIn_Click" />
+            <TextBlock x:Name="AuthStatus" Text="Not signed in to Agent Lab." TextWrapping="Wrap" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Refresh models" Click="RefreshModels_Click" />
+              <ComboBox x:Name="ModelBox" Width="360" PlaceholderText="Select a model" />
+              <Button Content="Start Codex app-server" Click="StartCodex_Click" />
+            </StackPanel>
+
+            <TextBlock FontWeight="SemiBold" Text="Interview prompt" />
+            <TextBox x:Name="PromptBox" AcceptsReturn="True" MinHeight="110"
+                     Text="Say exactly: Hello from SupraChat." />
+            <Button HorizontalAlignment="Left" Content="Run streamed Responses interview" Click="RunInterview_Click" />
+            <TextBlock FontWeight="SemiBold" Text="Result" />
+            <TextBox x:Name="OutputBox" AcceptsReturn="True" IsReadOnly="True"
+                     TextWrapping="Wrap" MinHeight="220" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+  </Grid>
+</Window>
