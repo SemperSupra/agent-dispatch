@@ -168,6 +168,8 @@ SupraChat should implement the union of capabilities through the strongest suppo
 
 This registry is expected to grow as AAR, Codex upstream, ChatGPT web, and OpenAI documentation change.
 
+Accessibility and audience parity are first-class capability metadata. The shared AccessibilityContract is exposed through the GUI, suprachat-cli accessibility, and JSON-RPC accessibility/read; stable UI automation IDs also serve assistive technology and qualification tooling.
+
 
 ## First-party platform oracle expansion — 2026-10-01
 
