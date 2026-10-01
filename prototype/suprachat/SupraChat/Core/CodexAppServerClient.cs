@@ -343,11 +343,11 @@ public sealed class CodexAppServerClient : IAsyncDisposable
             }
         }
 
-        var text = output.Length > 0 ? output.ToString() : completedItems.ToString();
+        var finalText = output.Length > 0 ? output.ToString() : completedItems.ToString();
         return new(
             Completed: string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase),
             Status: status,
-            Text: text,
+            Text: finalText,
             ThreadId: threadId,
             TurnId: turnId,
             Model: actualModel,
