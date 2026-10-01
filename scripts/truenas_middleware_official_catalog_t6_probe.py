@@ -83,6 +83,12 @@ def load_control(root: pathlib.Path, foundry_commit: str) -> dict[str, Any]:
     return control
 
 
+def normalize_system_version(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        raise RuntimeError("system.version did not return a non-empty string")
+    return value.removeprefix("TrueNAS-")
+
+
 def owned(app: dict[str, Any], control: dict[str, Any]) -> bool:
     item = control["control"]
     metadata = app.get("metadata") or {}
@@ -289,10 +295,14 @@ def main() -> int:
         if not isinstance(auth, dict) or auth.get("response_type") != "SUCCESS":
             raise RuntimeError("authentication did not return SUCCESS")
 
-        version = call("system.version", [])
-        payload["system_version"] = version
-        if version not in control.get("target_versions", []):
-            raise RuntimeError(f"target version {version!r} is outside control matrix")
+        system_version = call("system.version", [])
+        payload["system_version"] = system_version
+        target_version = normalize_system_version(system_version)
+        payload["target_version"] = target_version
+        if target_version not in control.get("target_versions", []):
+            raise RuntimeError(
+                f"target version {system_version!r} ({target_version!r}) is outside control matrix"
+            )
 
         methods = call("core.get_methods", [])
         method_names = set(methods) if isinstance(methods, dict) else set()
