@@ -939,10 +939,9 @@ public partial class MainWindow : Window
 
     private async void ReadRemoteStatus_Click(object? sender, RoutedEventArgs e)
     {
-        var result = await RunCodexProbeForResultAsync(
+        var result = await RunLocalReadOnlyCodexProbeForResultAsync(
             "remoteControl/status/read",
-            parameters: null,
-            consequential: false);
+            parameters: null);
         PopulateRemoteIdentity(result);
     }
 
@@ -1140,7 +1139,29 @@ public partial class MainWindow : Window
     }
 
     private async Task RunReadOnlyCodexProbeAsync(string method, JsonElement? parameters) =>
-        _ = await RunCodexProbeForResultAsync(method, parameters, consequential: false);
+        _ = await RunLocalReadOnlyCodexProbeForResultAsync(method, parameters);
+
+    private async Task<JsonElement?> RunLocalReadOnlyCodexProbeForResultAsync(
+        string method,
+        JsonElement? parameters)
+    {
+        try
+        {
+            CodexLocalReadPolicy.RequireAllowed(method);
+            RuntimeProbeOutputBox.Text = $"Running credential-free local read {method}…";
+            await using var client = await CodexAppServerClient.StartLocalAsync();
+            var result = await client.RequestAsync(method, parameters);
+            RuntimeProbeOutputBox.Text = PrettyJson(result);
+            AuthStatus.Text = $"Credential-free local Codex read completed: {method}";
+            return result;
+        }
+        catch (Exception ex)
+        {
+            RuntimeProbeOutputBox.Text = ex.ToString();
+            AuthStatus.Text = $"Credential-free local Codex read failed: {method}: {ex.Message}";
+            return null;
+        }
+    }
 
     private async Task<JsonElement?> RunCodexProbeForResultAsync(
         string method,
