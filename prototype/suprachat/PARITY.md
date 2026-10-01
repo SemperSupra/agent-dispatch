@@ -78,7 +78,7 @@ Current official documentation establishes Windows-specific surfaces including c
 | Built-in browser | browser/search markers | first-party Windows built-in browser documented | official product surface + Codex/browser capabilities where supported | GAP/PARTIAL |
 | Browser state / tabs / downloads | mobile/web behaviors differ | Windows first-party browser has independent state, tabs and downloads | native/WebView + Codex/browser qualification | GAP/PARTIAL |
 | Companion window / quick access | Android bubble/overlay | Windows companion window documented | native Alt+Space global summon/toggle + persistent main window | IMPLEMENTED / qualify interaction |
-| Notifications / push | recovered receivers/push | Windows behavior to acquire/observe | native Windows notification adapter + web behavior | GAP |
+| Notifications / push | recovered receivers/push | Windows behavior to acquire/observe | native Windows background-completion notification adapter + web behavior | PARTIAL / IMPLEMENTED local notification |
 | Sharing / share target | recovered | desktop behavior to observe | Windows Open With + suprachat:// deep-link launch + official surface | PARTIAL / IMPLEMENTED ingress |
 | Temporary chat | recovered | product behavior to observe | official surface | SUPPORTED / qualify |
 | Connected apps / plugins/connectors | recovered | Work/Codex/product surfaces | official product surface + complete Codex plugin/app/MCP surfaces | SUPPORTED/PARTIAL |
