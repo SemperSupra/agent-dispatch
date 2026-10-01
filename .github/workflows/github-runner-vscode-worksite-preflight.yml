@@ -44,6 +44,24 @@ jobs:
           set -euo pipefail
           bash scripts/github_runner_vscode_worksite_preflight.sh
 
+      - name: Exercise isolated extension installation
+        shell: bash
+        env:
+          EXTENSIONS_DIR: ${{ runner.temp }}/vscode-worksite/extensions
+          RECEIPT_PATH: ${{ runner.temp }}/vscode-worksite/receipt.txt
+        run: |
+          set -euo pipefail
+          mkdir -p "$EXTENSIONS_DIR"
+          CODE="${RUNNER_TEMP}/vscode-cli/code"
+          "$CODE" ext install ms-python.python --extensions-dir "$EXTENSIONS_DIR"
+          "$CODE" ext list --extensions-dir "$EXTENSIONS_DIR" \
+            | tee "${RUNNER_TEMP}/vscode-worksite/extensions.txt"
+          grep -Fxq 'ms-python.python' "${RUNNER_TEMP}/vscode-worksite/extensions.txt"
+          {
+            echo 'extension_smoke_id=ms-python.python'
+            echo 'extension_smoke_installed=true'
+          } >> "$RECEIPT_PATH"
+
       - name: Observe receipt presence
         if: always()
         id: receipt
