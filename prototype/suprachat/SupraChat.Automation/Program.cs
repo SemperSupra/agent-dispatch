@@ -49,6 +49,13 @@ internal static class Program
                 "respond" => WriteSuccess(await RespondAsync(args[1..])),
                 "responses-raw" => WriteSuccess(await RawResponsesAsync(args[1..])),
                 "codex-rpc" => WriteSuccess(await CodexRpcAsync(args[1..])),
+                "marketplace-info" => WriteSuccess(MarketplaceInfo()),
+                "marketplace-add" => WriteSuccess(await LocalMarketplaceAsync("add")),
+                "plugins-list" => WriteSuccess(await LocalMarketplaceAsync("list")),
+                "diagnostics-install" => WriteSuccess(await LocalMarketplaceAsync("install")),
+                "diagnostics-read" => WriteSuccess(await LocalMarketplaceAsync("read")),
+                "diagnostics-uninstall" => WriteSuccess(await LocalMarketplaceAsync("uninstall")),
+                "marketplace-remove" => WriteSuccess(await LocalMarketplaceAsync("remove")),
                 "stdio" => await RunStdioAsync(),
                 _ => WriteFailure(2, "USAGE", $"Unknown command: {args[0]}", Help())
             };
@@ -79,7 +86,14 @@ internal static class Program
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
             new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--web-search]" },
             new { name = "responses-raw", description = "Run an arbitrary SIWC Responses body.", syntax = "responses-raw --model <id> [--body <json>]; stdin is used when --body is omitted" },
-            new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
+            new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>] [--local]" },
+            new { name = "marketplace-info", description = "Inspect the packaged SemperSupra local marketplace without starting Codex." },
+            new { name = "marketplace-add", description = "Add the packaged local marketplace to SupraChat's isolated Codex home." },
+            new { name = "plugins-list", description = "List plugins visible from the local SupraChat marketplace." },
+            new { name = "diagnostics-install", description = "Install the harmless local suprachat-diagnostics plugin." },
+            new { name = "diagnostics-read", description = "Read the diagnostics plugin through Codex app-server." },
+            new { name = "diagnostics-uninstall", description = "Uninstall the local diagnostics plugin." },
+            new { name = "marketplace-remove", description = "Remove the local marketplace registration." },
             new { name = "stdio", description = "Serve line-delimited JSON-RPC 2.0 for agent clients with sessionful Codex events." }
         },
         auth_boundary = "Interactive authorization is completed by a human through the GUI. Machine shells reuse the same protected local credential store."
@@ -117,6 +131,13 @@ internal static class Program
             "responses/ws/connect",
             "responses/ws/send",
             "responses/ws/disconnect",
+            "marketplace/info",
+            "marketplace/add",
+            "marketplace/remove",
+            "plugin/list-local",
+            "plugin/install-diagnostics",
+            "plugin/read-diagnostics",
+            "plugin/uninstall-diagnostics",
             "codex/start",
             "codex/request",
             "codex/respond",
@@ -253,7 +274,8 @@ internal static class Program
     {
         var method = RequiredOption(args, "--method");
         var rawParams = Option(args, "--params");
-        var credential = await RequireCredentialAsync();
+        var local = HasFlag(args, "--local");
+        var credential = local ? null : await RequireCredentialAsync();
 
         JsonElement? parameters = null;
         if (!string.IsNullOrWhiteSpace(rawParams))
@@ -262,13 +284,54 @@ internal static class Program
             parameters = document.RootElement.Clone();
         }
 
-        await using var client = await CodexAppServerClient.StartAsync(credential.AccessToken);
+        await using var client = await CodexAppServerClient.StartAsync(credential?.AccessToken);
         var result = await client.RequestAsync(method, parameters);
         return new
         {
             schema = Schema,
             binding = "codex-app-server",
             method,
+            result
+        };
+    }
+
+    private static object MarketplaceInfo()
+    {
+        SupraChatMarketplace.RequirePackaged();
+        return new
+        {
+            schema = Schema,
+            marketplace = new
+            {
+                name = SupraChatMarketplace.MarketplaceName,
+                root = SupraChatMarketplace.RootPath,
+                manifest = SupraChatMarketplace.ManifestPath,
+                diagnostics_plugin = SupraChatMarketplace.DiagnosticsPluginId
+            },
+            codex_home = CodexAppServer.CodexHome,
+            authorization_required = false
+        };
+    }
+
+    private static async Task<object> LocalMarketplaceAsync(string operation)
+    {
+        await using var client = await CodexAppServerClient.StartAsync();
+        var result = operation switch
+        {
+            "add" => await SupraChatMarketplace.AddAsync(client),
+            "remove" => await SupraChatMarketplace.RemoveAsync(client),
+            "list" => await SupraChatMarketplace.ListAsync(client),
+            "install" => await SupraChatMarketplace.InstallDiagnosticsAsync(client),
+            "read" => await SupraChatMarketplace.ReadDiagnosticsAsync(client),
+            "uninstall" => await SupraChatMarketplace.UninstallDiagnosticsAsync(client),
+            _ => throw new MachineException(2, "USAGE", $"Unknown local marketplace operation: {operation}")
+        };
+
+        return new
+        {
+            schema = Schema,
+            binding = "codex-local-marketplace",
+            operation,
             result
         };
     }
@@ -348,6 +411,13 @@ internal static class Program
             "responses/ws/connect" => await RpcResponsesConnectAsync(),
             "responses/ws/send" => await RpcResponsesSendAsync(parameters),
             "responses/ws/disconnect" => await RpcResponsesDisconnectAsync(),
+            "marketplace/info" => MarketplaceInfo(),
+            "marketplace/add" => await LocalMarketplaceAsync("add"),
+            "marketplace/remove" => await LocalMarketplaceAsync("remove"),
+            "plugin/list-local" => await LocalMarketplaceAsync("list"),
+            "plugin/install-diagnostics" => await LocalMarketplaceAsync("install"),
+            "plugin/read-diagnostics" => await LocalMarketplaceAsync("read"),
+            "plugin/uninstall-diagnostics" => await LocalMarketplaceAsync("uninstall"),
             "codex/start" => await RpcCodexStartAsync(),
             "codex/request" => await RpcCodexRequestAsync(parameters),
             "codex/respond" => await RpcCodexRespondAsync(parameters),
