@@ -153,3 +153,38 @@ The Windows artifact is a working MVP when it:
 - has every discovered Android/Windows/product capability represented in this ledger with an explicit state.
 
 Full Android parity is a later qualification claim and must not be asserted while platform-specific mobile capabilities remain blocked or behaviorally nonequivalent.
+
+
+## R2/R3 clean-room desktop-runtime tranche
+
+Authority: `SemperSupra/agent-dispatch-private#427`.
+Integration candidate: public PR #93.
+
+### R2 — portable plugin marketplace
+
+Implementation state: **IMPLEMENTED / qualification pending**.
+
+- Reuses the upstream Codex marketplace/plugin lifecycle; SupraChat does not implement a second plugin manager.
+- Bundled marketplace root: `runtime/marketplace`.
+- Local marketplace: `sempersupra-local`.
+- First harmless plugin: `suprachat-diagnostics@sempersupra-local`.
+- The first plugin is skill-only and requires no network, MCP server, or destructive hook.
+- Bundled Codex runs with an app-owned `CODEX_HOME` beneath SupraChat state rather than the user's unrelated standalone-Codex home.
+- Local marketplace/plugin operations can start Codex without a ChatGPT-plan token.
+- Model inference remains separately gated by SIWC plan authorization.
+- Human: Agent Lab Local plugin marketplace controls.
+- Automation: marketplace/plugin lifecycle JSON commands.
+- Agent: marketplace/plugin JSON-RPC methods plus raw `codex/request`.
+
+### R3 — portable browser host
+
+Implementation state: **IMPLEMENTED / browser-runtime qualification pending**.
+
+- Clean-room implementation source: Microsoft Playwright .NET `1.63.0`, MIT.
+- Browser profiles are app-owned and separate from the ChatGPT product WebView profile.
+- No browser-cookie scraping/import is used.
+- Shared host covers persistent profile, pages/tabs, navigation, accessibility + optional DOM observation, screenshot, click/fill/key input, file-input upload, permissions, tracing, and explicit JavaScript evaluation.
+- Human: Browser Lab.
+- Automation: one-shot observe/screenshot plus stdio for multi-step flows.
+- Agent: sessionful JSON-RPC browser methods.
+- Browser screenshot is not considered OS screen/computer context; desktop capture remains a separate R4/native-adapter concern.
