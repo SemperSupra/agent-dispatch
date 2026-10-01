@@ -66,6 +66,6 @@ public static class DesktopNotificationService
             .Replace("\"", "\\\"", StringComparison.Ordinal)
             .Replace("\r", " ", StringComparison.Ordinal)
             .Replace("\n", " ", StringComparison.Ordinal);
-        return $"\\\"{escaped}\\\"";
+        return $"\"{escaped}\"";
     }
 }
