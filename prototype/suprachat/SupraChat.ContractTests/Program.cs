@@ -212,4 +212,34 @@ Require(WindowsCompanionHotkey.ShortcutDescription == "Alt+Space",
 Require(WindowsNotificationService.Adapter == "shell-notification-area",
     "Windows notification adapter identity drifted");
 
+var accessibilityDocPath = Path.Combine("prototype", "suprachat", "ACCESSIBILITY.md");
+Require(File.Exists(accessibilityDocPath), "accessibility contract document missing");
+var accessibilityDoc = File.ReadAllText(accessibilityDocPath);
+Require(accessibilityDoc.Contains("Accessibility regressions are qualification failures", StringComparison.Ordinal),
+    "accessibility qualification invariant missing");
+
+var mainWindowXamlPath = Path.Combine("prototype", "suprachat", "SupraChat", "MainWindow.axaml");
+Require(File.Exists(mainWindowXamlPath), "MainWindow accessibility surface missing");
+var mainWindowXaml = File.ReadAllText(mainWindowXamlPath);
+foreach (var marker in new[]
+{
+    "AutomationProperties.AutomationId=\"SupraChat.MainWindow\"",
+    "AutomationProperties.AutomationId=\"RootTabs\"",
+    "AutomationProperties.AutomationId=\"AgentLab.Prompt\"",
+    "AutomationProperties.AutomationId=\"Auth.Status\"",
+    "AutomationProperties.AutomationId=\"Accessibility.Status\"",
+    "AutomationProperties.LiveSetting=\"Polite\"",
+    "AutomationProperties.HeadingLevel=\"1\"",
+    "AutomationProperties.HeadingLevel=\"2\"",
+    "KeyDown=\"MainWindow_KeyDown\""
+})
+{
+    Require(mainWindowXaml.Contains(marker, StringComparison.Ordinal),
+        $"required accessibility marker missing: {marker}");
+}
+
+var appXamlPath = Path.Combine("prototype", "suprachat", "SupraChat", "App.axaml");
+Require(File.ReadAllText(appXamlPath).Contains("RequestedThemeVariant=\"Default\"", StringComparison.Ordinal),
+    "application must follow the platform theme/high-contrast preference");
+
 Console.WriteLine("SupraChat contract checks PASS");
