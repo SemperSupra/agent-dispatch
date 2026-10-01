@@ -26,16 +26,18 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _responsesWebSocketCts;
     private Task? _responsesWebSocketMonitorTask;
     private WindowsCompanionHotkey? _windowsCompanionHotkey;
+    private AccessibilityPreferences _accessibilityPreferences = AccessibilityPreferences.Default;
 
     public MainWindow()
     {
         InitializeComponent();
         LoadCapabilityCatalog();
-        Opened += (_, _) =>
+        Opened += async (_, _) =>
         {
             InitializeDesktopIntegration();
+            await LoadAccessibilityPreferencesAsync();
             RefreshAccessibilityStatus();
-            _ = RefreshMachineSurfaceAsync();
+            await RefreshMachineSurfaceAsync();
         };
         ScalingChanged += (_, _) => RefreshAccessibilityStatus();
         _ = InitializeAgentLabAsync();
@@ -71,8 +73,65 @@ public partial class MainWindow : Window
                 PromptBox.Focus();
                 e.Handled = true;
                 break;
+            case Key.OemPlus:
+            case Key.Add:
+                _ = ChangeAccessibilityScaleAsync(AccessibilityPreferencesStore.ScaleStep);
+                e.Handled = true;
+                break;
+            case Key.OemMinus:
+            case Key.Subtract:
+                _ = ChangeAccessibilityScaleAsync(-AccessibilityPreferencesStore.ScaleStep);
+                e.Handled = true;
+                break;
+            case Key.D0:
+            case Key.NumPad0:
+                _ = SaveAccessibilityPreferencesAsync(1.0, _accessibilityPreferences.ReducedMotion);
+                e.Handled = true;
+                break;
         }
     }
+
+    private async Task LoadAccessibilityPreferencesAsync()
+    {
+        _accessibilityPreferences = await AccessibilityPreferencesStore.LoadAsync();
+        ApplyAccessibilityPreferences();
+    }
+
+    private async Task SaveAccessibilityPreferencesAsync(double scale, bool reducedMotion)
+    {
+        _accessibilityPreferences = await AccessibilityPreferencesStore.SaveAsync(scale, reducedMotion);
+        ApplyAccessibilityPreferences();
+    }
+
+    private void ApplyAccessibilityPreferences()
+    {
+        FontSize = 14 * _accessibilityPreferences.InterfaceScale;
+        ReducedMotionBox.IsChecked = _accessibilityPreferences.ReducedMotion;
+        AccessibilityPreferencesStatus.Text =
+            $"Interface scale {_accessibilityPreferences.InterfaceScale * 100:0}% · " +
+            $"reduced motion {(_accessibilityPreferences.ReducedMotion ? "on" : "off")} · " +
+            $"keyboard {AccessibilityContract.PrimaryModifierName}++/-/0";
+        RefreshAccessibilityStatus();
+    }
+
+    private async Task ChangeAccessibilityScaleAsync(double delta) =>
+        await SaveAccessibilityPreferencesAsync(
+            _accessibilityPreferences.InterfaceScale + delta,
+            _accessibilityPreferences.ReducedMotion);
+
+    private async void AccessibilityScaleDown_Click(object? sender, RoutedEventArgs e) =>
+        await ChangeAccessibilityScaleAsync(-AccessibilityPreferencesStore.ScaleStep);
+
+    private async void AccessibilityScaleReset_Click(object? sender, RoutedEventArgs e) =>
+        await SaveAccessibilityPreferencesAsync(1.0, _accessibilityPreferences.ReducedMotion);
+
+    private async void AccessibilityScaleUp_Click(object? sender, RoutedEventArgs e) =>
+        await ChangeAccessibilityScaleAsync(AccessibilityPreferencesStore.ScaleStep);
+
+    private async void ReducedMotionBox_Click(object? sender, RoutedEventArgs e) =>
+        await SaveAccessibilityPreferencesAsync(
+            _accessibilityPreferences.InterfaceScale,
+            ReducedMotionBox.IsChecked == true);
 
     private void InitializeDesktopIntegration()
     {
@@ -95,7 +154,9 @@ public partial class MainWindow : Window
             $"screen-reader-semantics={(accessibility.Human.ScreenReaderSemantics ? "ready" : "unavailable")} · " +
             $"keyboard={(accessibility.Human.KeyboardOnly ? "ready" : "unavailable")} · " +
             $"system-theme/high-contrast={(accessibility.Human.HighContrastFollowsPlatform ? "follow-platform" : "custom")} · " +
-            $"render-scale={RenderScaling:0.##} · shortcuts={string.Join(",", accessibility.Human.Shortcuts)}";
+            $"render-scale={RenderScaling:0.##} · interface-scale={_accessibilityPreferences.InterfaceScale:0.0} · " +
+            $"reduced-motion={(_accessibilityPreferences.ReducedMotion ? "on" : "off")} · " +
+            $"shortcuts={string.Join(",", accessibility.Human.Shortcuts)}";
     }
 
     private async Task RefreshMachineSurfaceAsync()
