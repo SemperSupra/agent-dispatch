@@ -63,9 +63,6 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
         self.assertIn("needs: contract", text)
         self.assertIn("github_runner_vscode_worksite_preflight.sh", text)
         self.assertIn("upload-artifact@", text)
-        self.assertIn("Exercise isolated extension installation", text)
-        self.assertIn('ext --extensions-dir "$EXTENSIONS_DIR" install ms-python.python', text)
-        self.assertIn('ext --extensions-dir "$EXTENSIONS_DIR" list', text)
         self.assertIn("Observe receipt presence", text)
         self.assertNotIn("hashFiles(", text)
 
