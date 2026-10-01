@@ -1,9 +1,17 @@
 name: Sealed Public Execution
-run-name: Sealed execution ${{ inputs.assignment_id }}
+run-name: sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      workset_id:
+        description: "Agent Dispatch opaque workset correlation ID"
+        required: true
+        type: string
+      delegation_id:
+        description: "Agent Dispatch opaque delegation correlation ID"
+        required: true
+        type: string
       assignment_id:
         description: "Opaque assignment correlation ID"
         required: true
