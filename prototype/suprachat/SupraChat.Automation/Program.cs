@@ -23,6 +23,10 @@ internal static class Program
     private static CancellationTokenSource? _agentCodexCts;
     private static Task? _agentCodexPump;
 
+    private static ResponsesWebSocketClient? _agentResponsesSocket;
+    private static CancellationTokenSource? _agentResponsesCts;
+    private static Task? _agentResponsesPump;
+
     public static async Task<int> Main(string[] args)
     {
         try
@@ -101,13 +105,16 @@ internal static class Program
             "models/list",
             "responses/create",
             "responses/raw",
+            "responses/ws/connect",
+            "responses/ws/send",
+            "responses/ws/disconnect",
             "codex/start",
             "codex/request",
             "codex/respond",
             "codex/reject",
             "codex/stop"
         },
-        machine_notifications = new[] { "codex/event" },
+        machine_notifications = new[] { "responses/ws/event", "codex/event" },
         invariants = new
         {
             tokens_in_output = false,
@@ -292,6 +299,7 @@ internal static class Program
         }
         finally
         {
+            await StopAgentResponsesAsync();
             await StopAgentCodexAsync();
         }
 
@@ -308,6 +316,9 @@ internal static class Program
             "models/list" => await ModelsAsync(),
             "responses/create" => await RpcResponseCreateAsync(parameters),
             "responses/raw" => await RpcResponsesRawAsync(parameters),
+            "responses/ws/connect" => await RpcResponsesConnectAsync(),
+            "responses/ws/send" => await RpcResponsesSendAsync(parameters),
+            "responses/ws/disconnect" => await RpcResponsesDisconnectAsync(),
             "codex/start" => await RpcCodexStartAsync(),
             "codex/request" => await RpcCodexRequestAsync(parameters),
             "codex/respond" => await RpcCodexRespondAsync(parameters),
@@ -343,6 +354,129 @@ internal static class Program
             "--model", model,
             "--body", body.GetRawText()
         });
+    }
+
+    private static async Task<object> RpcResponsesConnectAsync()
+    {
+        var socket = await EnsureAgentResponsesAsync();
+        return new
+        {
+            schema = Schema,
+            binding = "responses-websocket",
+            connected = socket.IsConnected,
+            endpoint = ResponsesWebSocketClient.Endpoint.AbsoluteUri
+        };
+    }
+
+    private static async Task<object> RpcResponsesSendAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var model = RequiredProperty(p, "model");
+        if (!p.TryGetProperty("event", out var evt) || evt.ValueKind != JsonValueKind.Object)
+            throw new MachineException(2, "INVALID_PARAMS", "responses/ws/send requires object params.event.");
+
+        var socket = await EnsureAgentResponsesAsync();
+        await socket.SendRawAsync(evt.GetRawText(), model);
+        return new
+        {
+            schema = Schema,
+            binding = "responses-websocket",
+            sent = true
+        };
+    }
+
+    private static async Task<object> RpcResponsesDisconnectAsync()
+    {
+        var wasConnected = _agentResponsesSocket is { IsConnected: true };
+        await StopAgentResponsesAsync();
+        return new { schema = Schema, disconnected = wasConnected };
+    }
+
+    private static async Task<ResponsesWebSocketClient> EnsureAgentResponsesAsync()
+    {
+        if (_agentResponsesSocket is { IsConnected: true })
+            return _agentResponsesSocket;
+
+        await StopAgentResponsesAsync();
+        var credential = await RequireCredentialAsync();
+        _agentResponsesSocket = await ResponsesWebSocketClient.ConnectAsync(credential.AccessToken);
+        _agentResponsesCts = new CancellationTokenSource();
+        var socket = _agentResponsesSocket;
+        var token = _agentResponsesCts.Token;
+        _agentResponsesPump = Task.Run(() => PumpResponsesEventsAsync(socket, token), token);
+        return socket;
+    }
+
+    private static async Task PumpResponsesEventsAsync(
+        ResponsesWebSocketClient socket,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var raw in socket.ReadEventsAsync(cancellationToken))
+            {
+                object payload;
+                try
+                {
+                    using var document = JsonDocument.Parse(raw);
+                    payload = document.RootElement.Clone();
+                }
+                catch
+                {
+                    payload = new { raw };
+                }
+
+                await WriteRpcLineAsync(new
+                {
+                    jsonrpc = "2.0",
+                    method = "responses/ws/event",
+                    @params = payload
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            await WriteRpcLineAsync(new
+            {
+                jsonrpc = "2.0",
+                method = "responses/ws/event",
+                @params = new
+                {
+                    type = "monitor-error",
+                    message = SafeMessage(ex)
+                }
+            });
+        }
+    }
+
+    private static async Task StopAgentResponsesAsync()
+    {
+        var pump = _agentResponsesPump;
+        _agentResponsesPump = null;
+
+        _agentResponsesCts?.Cancel();
+        _agentResponsesCts?.Dispose();
+        _agentResponsesCts = null;
+
+        if (_agentResponsesSocket is not null)
+        {
+            await _agentResponsesSocket.DisposeAsync();
+            _agentResponsesSocket = null;
+        }
+
+        if (pump is not null)
+        {
+            try
+            {
+                await pump;
+            }
+            catch
+            {
+            }
+        }
     }
 
     private static async Task<object> RpcCodexStartAsync()
