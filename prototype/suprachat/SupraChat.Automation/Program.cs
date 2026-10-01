@@ -6,11 +6,22 @@ namespace SupraChat.Automation;
 internal static class Program
 {
     private const string Schema = "suprachat-machine/v1";
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions CliJsonOptions = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
     };
+    private static readonly JsonSerializerOptions LineJsonOptions = new()
+    {
+        WriteIndented = false,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+    };
+    private static readonly SemaphoreSlim StdoutGate = new(1, 1);
+
+    private static CodexAppServerClient? _agentCodex;
+    private static CodexAppServerClient.CodexEventSubscription? _agentCodexEvents;
+    private static CancellationTokenSource? _agentCodexCts;
+    private static Task? _agentCodexPump;
 
     public static async Task<int> Main(string[] args)
     {
@@ -58,8 +69,8 @@ internal static class Program
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
             new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--web-search]" },
             new { name = "responses-raw", description = "Run an arbitrary SIWC Responses body.", syntax = "responses-raw --model <id> [--body <json>]; stdin is used when --body is omitted" },
-            new { name = "codex-rpc", description = "Invoke a Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
-            new { name = "stdio", description = "Serve line-delimited JSON-RPC 2.0 for agent clients." }
+            new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
+            new { name = "stdio", description = "Serve line-delimited JSON-RPC 2.0 for agent clients with sessionful Codex events." }
         },
         auth_boundary = "Interactive authorization is completed by a human through the GUI. Machine shells reuse the same protected local credential store."
     };
@@ -90,15 +101,21 @@ internal static class Program
             "models/list",
             "responses/create",
             "responses/raw",
-            "codex/request"
+            "codex/start",
+            "codex/request",
+            "codex/respond",
+            "codex/reject",
+            "codex/stop"
         },
+        machine_notifications = new[] { "codex/event" },
         invariants = new
         {
             tokens_in_output = false,
             prompts_in_receipts = false,
             human_authorization_boundary = true,
             local_credentials_shared_with_gui = true,
-            codex_runtime_resolution = "bundled-first"
+            codex_runtime_resolution = "bundled-first",
+            json_rpc_framing = "one-json-object-per-line"
         }
     };
 
@@ -227,49 +244,55 @@ internal static class Program
     {
         Console.Error.WriteLine("{\"suprachat\":\"stdio-ready\",\"schema\":\"suprachat-jsonrpc/v1\"}");
 
-        string? line;
-        while ((line = await Console.In.ReadLineAsync()) is not null)
+        try
         {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
-
-            object response;
-            try
+            string? line;
+            while ((line = await Console.In.ReadLineAsync()) is not null)
             {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                var id = root.TryGetProperty("id", out var idValue) ? idValue.Clone() : default(JsonElement?);
-                var method = root.TryGetProperty("method", out var methodValue)
-                    ? methodValue.GetString()
-                    : null;
-                var parameters = root.TryGetProperty("params", out var p) ? p.Clone() : default(JsonElement?);
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
 
-                if (string.IsNullOrWhiteSpace(method))
-                    throw new MachineException(2, "INVALID_REQUEST", "JSON-RPC method is required.");
-
-                var result = await DispatchRpcAsync(method, parameters);
-                response = new
+                object response;
+                try
                 {
-                    jsonrpc = "2.0",
-                    id,
-                    result
-                };
-            }
-            catch (MachineException ex)
-            {
-                response = RpcError(line, -32000, ex.Code, ex.Message);
-            }
-            catch (JsonException ex)
-            {
-                response = RpcError(line, -32700, "PARSE_ERROR", ex.Message);
-            }
-            catch (Exception ex)
-            {
-                response = RpcError(line, -32001, "FAILED", SafeMessage(ex));
-            }
+                    using var document = JsonDocument.Parse(line);
+                    var root = document.RootElement;
+                    var id = root.TryGetProperty("id", out var idValue) ? idValue.Clone() : default(JsonElement?);
+                    var method = root.TryGetProperty("method", out var methodValue)
+                        ? methodValue.GetString()
+                        : null;
+                    var parameters = root.TryGetProperty("params", out var p) ? p.Clone() : default(JsonElement?);
 
-            Console.Out.WriteLine(JsonSerializer.Serialize(response, JsonOptions));
-            await Console.Out.FlushAsync();
+                    if (string.IsNullOrWhiteSpace(method))
+                        throw new MachineException(2, "INVALID_REQUEST", "JSON-RPC method is required.");
+
+                    var result = await DispatchRpcAsync(method, parameters);
+                    response = new
+                    {
+                        jsonrpc = "2.0",
+                        id,
+                        result
+                    };
+                }
+                catch (MachineException ex)
+                {
+                    response = RpcError(line, -32000, ex.Code, ex.Message);
+                }
+                catch (JsonException ex)
+                {
+                    response = RpcError(line, -32700, "PARSE_ERROR", ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    response = RpcError(line, -32001, "FAILED", SafeMessage(ex));
+                }
+
+                await WriteRpcLineAsync(response);
+            }
+        }
+        finally
+        {
+            await StopAgentCodexAsync();
         }
 
         return 0;
@@ -285,7 +308,11 @@ internal static class Program
             "models/list" => await ModelsAsync(),
             "responses/create" => await RpcResponseCreateAsync(parameters),
             "responses/raw" => await RpcResponsesRawAsync(parameters),
+            "codex/start" => await RpcCodexStartAsync(),
             "codex/request" => await RpcCodexRequestAsync(parameters),
+            "codex/respond" => await RpcCodexRespondAsync(parameters),
+            "codex/reject" => await RpcCodexRejectAsync(parameters),
+            "codex/stop" => await RpcCodexStopAsync(),
             _ => throw new MachineException(2, "METHOD_NOT_FOUND", $"Unsupported method: {method}")
         };
     }
@@ -318,17 +345,158 @@ internal static class Program
         });
     }
 
+    private static async Task<object> RpcCodexStartAsync()
+    {
+        var client = await EnsureAgentCodexAsync();
+        return new
+        {
+            schema = Schema,
+            binding = "codex-app-server",
+            running = client.IsRunning,
+            process_id = client.ProcessId
+        };
+    }
+
     private static async Task<object> RpcCodexRequestAsync(JsonElement? parameters)
     {
         var p = RequireObject(parameters);
         var method = RequiredProperty(p, "method");
-        var args = new List<string> { "--method", method };
-        if (p.TryGetProperty("params", out var rpcParams))
+        JsonElement? requestParams = p.TryGetProperty("params", out var rpcParams)
+            ? rpcParams.Clone()
+            : null;
+
+        var client = await EnsureAgentCodexAsync();
+        var result = await client.RequestAsync(method, requestParams);
+        return new
         {
-            args.Add("--params");
-            args.Add(rpcParams.GetRawText());
+            schema = Schema,
+            binding = "codex-app-server",
+            method,
+            result
+        };
+    }
+
+    private static async Task<object> RpcCodexRespondAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var id = RequiredProperty(p, "id");
+        var result = p.TryGetProperty("result", out var r)
+            ? r.Clone()
+            : JsonSerializer.SerializeToElement(new { });
+
+        var client = await EnsureAgentCodexAsync();
+        await client.RespondAsync(id, result);
+        return new { schema = Schema, responded = true, id };
+    }
+
+    private static async Task<object> RpcCodexRejectAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var id = RequiredProperty(p, "id");
+        var code = p.TryGetProperty("code", out var c) && c.TryGetInt32(out var value) ? value : -32000;
+        var message = p.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String
+            ? m.GetString() ?? "Rejected by agent client."
+            : "Rejected by agent client.";
+
+        var client = await EnsureAgentCodexAsync();
+        await client.RespondErrorAsync(id, code, message);
+        return new { schema = Schema, rejected = true, id, code };
+    }
+
+    private static async Task<object> RpcCodexStopAsync()
+    {
+        var wasRunning = _agentCodex is { IsRunning: true };
+        await StopAgentCodexAsync();
+        return new { schema = Schema, stopped = wasRunning };
+    }
+
+    private static async Task<CodexAppServerClient> EnsureAgentCodexAsync()
+    {
+        if (_agentCodex is { IsRunning: true })
+            return _agentCodex;
+
+        await StopAgentCodexAsync();
+        var credential = await RequireCredentialAsync();
+        _agentCodex = await CodexAppServerClient.StartAsync(credential.AccessToken);
+        _agentCodexCts = new CancellationTokenSource();
+        _agentCodexEvents = _agentCodex.SubscribeEvents();
+        var subscription = _agentCodexEvents;
+        var token = _agentCodexCts.Token;
+        _agentCodexPump = Task.Run(() => PumpCodexEventsAsync(subscription, token), token);
+        return _agentCodex;
+    }
+
+    private static async Task PumpCodexEventsAsync(
+        CodexAppServerClient.CodexEventSubscription subscription,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var evt in subscription.Reader.ReadAllAsync(cancellationToken))
+            {
+                await WriteRpcLineAsync(new
+                {
+                    jsonrpc = "2.0",
+                    method = "codex/event",
+                    @params = new
+                    {
+                        kind = evt.Kind,
+                        id = evt.Id,
+                        method = evt.Method,
+                        payload = evt.Payload
+                    }
+                });
+            }
         }
-        return await CodexRpcAsync(args.ToArray());
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            await WriteRpcLineAsync(new
+            {
+                jsonrpc = "2.0",
+                method = "codex/event",
+                @params = new
+                {
+                    kind = "monitor-error",
+                    message = SafeMessage(ex)
+                }
+            });
+        }
+    }
+
+    private static async Task StopAgentCodexAsync()
+    {
+        var pump = _agentCodexPump;
+        _agentCodexPump = null;
+
+        _agentCodexCts?.Cancel();
+        _agentCodexCts?.Dispose();
+        _agentCodexCts = null;
+
+        if (_agentCodexEvents is not null)
+        {
+            await _agentCodexEvents.DisposeAsync();
+            _agentCodexEvents = null;
+        }
+
+        if (_agentCodex is not null)
+        {
+            await _agentCodex.DisposeAsync();
+            _agentCodex = null;
+        }
+
+        if (pump is not null)
+        {
+            try
+            {
+                await pump;
+            }
+            catch
+            {
+            }
+        }
     }
 
     private static object RpcError(string line, int code, string type, string message)
@@ -391,7 +559,7 @@ internal static class Program
             {
                 present = true,
                 plan_usage = credential.HasPlanUsage,
-                expires_at = credential.ExpiresAt,
+                expires_at = (DateTimeOffset?)credential.ExpiresAt,
                 scope_count = credential.Scopes.Length
             };
 
@@ -455,11 +623,27 @@ internal static class Program
     }
 
     private static void WriteJson(object value) =>
-        Console.Out.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
+        Console.Out.WriteLine(JsonSerializer.Serialize(value, CliJsonOptions));
+
+    private static async Task WriteRpcLineAsync(object value)
+    {
+        var line = JsonSerializer.Serialize(value, LineJsonOptions);
+        await StdoutGate.WaitAsync();
+        try
+        {
+            await Console.Out.WriteLineAsync(line);
+            await Console.Out.FlushAsync();
+        }
+        finally
+        {
+            StdoutGate.Release();
+        }
+    }
 
     private static string SafeMessage(Exception ex)
     {
         var message = ex.Message.Replace("\r", " ").Replace("\n", " ").Trim();
+        message = message.Replace("Bearer ", "Bearer <redacted> ", StringComparison.OrdinalIgnoreCase);
         return message.Length <= 1000 ? message : message[..1000] + "…";
     }
 
