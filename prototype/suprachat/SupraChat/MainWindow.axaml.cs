@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        LoadCapabilityCatalog();
         Opened += (_, _) =>
         {
             InitializeDesktopIntegration();
@@ -613,6 +614,105 @@ public partial class MainWindow : Window
             timer.Stop();
             AuthStatus.Text = $"Codex interview failed: {ex.Message}";
         }
+    }
+
+    private sealed record CodexCatalogChoice(string Name, string Kind, string State)
+    {
+        public override string ToString() => $"[{State} · {Kind}] {Name}";
+    }
+
+    private void RefreshCapabilityCatalog_Click(object? sender, RoutedEventArgs e) =>
+        LoadCapabilityCatalog();
+
+    private void LoadCapabilityCatalog()
+    {
+        try
+        {
+            var path = Path.Combine(
+                AppContext.BaseDirectory,
+                "oracles",
+                "codex-capability-catalog-20261001.json");
+            if (!File.Exists(path))
+            {
+                CapabilityCatalogStatus.Text = "Packaged Codex capability catalog is unavailable.";
+                CodexMethodBox.ItemsSource = null;
+                return;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            var packaged = root.GetProperty("packaged_runtime");
+            var frontier = root.GetProperty("upstream_frontier");
+            var stableNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var category in new[] { "client_requests", "server_requests", "server_notifications" })
+            {
+                foreach (var item in packaged.GetProperty(category).EnumerateArray())
+                {
+                    if (item.GetString() is { Length: > 0 } name)
+                        stableNames.Add(name);
+                }
+            }
+
+            var choices = new List<CodexCatalogChoice>();
+            var allKnown = frontier.GetProperty("all_known");
+            AddCatalogChoices(choices, allKnown.GetProperty("client_requests"), "client-request", stableNames);
+            AddCatalogChoices(choices, allKnown.GetProperty("server_requests"), "server-request", stableNames);
+            AddCatalogChoices(choices, allKnown.GetProperty("server_notifications"), "notification", stableNames);
+
+            CodexMethodBox.ItemsSource = choices
+                .OrderBy(x => x.Kind, StringComparer.Ordinal)
+                .ThenBy(x => x.Name, StringComparer.Ordinal)
+                .ToArray();
+
+            var packagedTotal = packaged.GetProperty("counts").GetProperty("total").GetInt32();
+            var frontierTotal = frontier.GetProperty("counts").GetProperty("total").GetInt32();
+            CapabilityCatalogStatus.Text =
+                $"Bundled Codex runtime: {packaged.GetProperty("version").GetString()} · " +
+                $"{packagedTotal} protocol surfaces. Upstream frontier: {frontierTotal}. " +
+                $"Frontier-only delta: {frontierTotal - packagedTotal}.";
+        }
+        catch (Exception ex)
+        {
+            CapabilityCatalogStatus.Text = $"Capability catalog could not be loaded: {ex.Message}";
+            CodexMethodBox.ItemsSource = null;
+        }
+    }
+
+    private static void AddCatalogChoices(
+        ICollection<CodexCatalogChoice> output,
+        JsonElement items,
+        string kind,
+        IReadOnlySet<string> stableNames)
+    {
+        foreach (var item in items.EnumerateArray())
+        {
+            if (item.GetString() is not { Length: > 0 } name)
+                continue;
+            output.Add(new CodexCatalogChoice(
+                name,
+                kind,
+                stableNames.Contains(name) ? "packaged" : "frontier-only"));
+        }
+    }
+
+    private void CodexMethodBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (CodexMethodBox.SelectedItem is not CodexCatalogChoice choice)
+            return;
+
+        if (choice.Kind == "client-request")
+        {
+            RawRpcMethodBox.Text = choice.Name;
+            CapabilityCatalogStatus.Text =
+                choice.State == "packaged"
+                    ? $"{choice.Name} is present in the bundled Codex runtime and is ready for explicit RPC qualification."
+                    : $"{choice.Name} is upstream-frontier only; it is tracked but is not expected in the bundled Codex 0.159.3 runtime.";
+            return;
+        }
+
+        CapabilityCatalogStatus.Text =
+            $"{choice.Name} is a {choice.Kind}. It is observed through the protocol monitor rather than invoked as a client request.";
     }
 
     private async void SendRawRpc_Click(object? sender, RoutedEventArgs e)
