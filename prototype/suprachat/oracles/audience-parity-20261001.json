@@ -191,7 +191,7 @@
         "linux": "qualify"
       },
       "human_boundary": "No OpenAI authorization is required for the exact qualified read-only/local allowlist. All methods outside the allowlist retain their existing authorization/confirmation boundary.",
-      "notes": "GUI capability explorer/raw RPC routing, CLI codex-local-methods/codex-local-read, and JSON-RPC codex/local/methods + codex/local/read share the same CodexLocalReadPolicy allowlist. Public guest-probe evidence established the 14-method frontier on Windows/Linux/macOS."
+      "notes": "GUI capability explorer/raw RPC routing, CLI codex-local-methods/codex-local-read, and JSON-RPC codex/local/methods + codex/local/read share the same CodexLocalReadPolicy allowlist. Public guest evidence established 14 methods in run 36927142694; corrected run 36931826876 added signed-out account/read on Windows/Linux/macOS, for a 15-method local-read frontier."
     },
     {
       "id": "capability_catalogs",
