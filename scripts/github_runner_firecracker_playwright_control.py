@@ -155,18 +155,19 @@ def _build_playwright_rootfs(work: pathlib.Path, timer: LifecycleTimer) -> dict:
             return {"ok": False, "classification": "HARNESS_FAILURE", "reason": "docker create failed", "detail": create}
         container_id = create["stdout"].strip()
 
-        with timer.stage("playwright_rootfs_export", "venue"):
-            export = _run(["docker", "export", "-o", str(root_tar), container_id], timeout=300)
-        if not export["ok"]:
-            return {"ok": False, "classification": "HARNESS_FAILURE", "reason": "docker export failed", "detail": export}
-
-        with timer.stage("playwright_rootfs_extract", "venue"):
+        with timer.stage("playwright_rootfs_export_extract", "venue"):
             extract = _run([
-                "sudo", "-n", "tar", "--numeric-owner", "--same-owner", "-xpf",
-                str(root_tar), "-C", str(root_dir),
-            ], timeout=300)
+                "bash", "-o", "pipefail", "-c",
+                'docker export "$1" | sudo -n tar --numeric-owner --same-owner -xpf - -C "$2"',
+                "p0a-export", container_id, str(root_dir),
+            ], timeout=600)
         if not extract["ok"]:
-            return {"ok": False, "classification": "SETUP_REQUIRED", "reason": "rootfs extraction failed", "detail": extract}
+            return {
+                "ok": False,
+                "classification": "SETUP_REQUIRED",
+                "reason": "streamed docker export/rootfs extraction failed",
+                "detail": extract,
+            }
 
         with timer.stage("playwright_rootfs_squashfs", "portable"):
             squash = _run([
@@ -596,9 +597,13 @@ def run_probe(label: str) -> dict:
                 "guest_result": outputs.get("result"),
             },
             validation={
-                "accepted": bool(outputs.get("ok")),
+                "accepted": False,
+                "candidate_valid": outputs_valid,
                 "validator_ref": "host/playwright-control-v1",
-                "note": "Host-side debugfs extraction and semantic fixture validation; executor self-report alone is insufficient.",
+                "note": (
+                    "Host-side debugfs extraction and semantic fixture validation are separate from guest self-report. "
+                    "This same-run validator does not perform project acceptance; private reconciliation remains required."
+                ),
             },
             cleanup=cleanup,
         )
