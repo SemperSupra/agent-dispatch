@@ -51,6 +51,9 @@ internal static class Program
                 "doctor" => WriteSuccess(await DoctorAsync()),
                 "auth-status" => WriteSuccess(await AuthStatusAsync()),
                 "models" => WriteSuccess(await ModelsAsync()),
+                "voices" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "thread/realtime/listVoices", "--params", "{}" })),
+                "remote-status" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "remoteControl/status/read" })),
+                "plugins" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "plugin/list", "--params", "{}" })),
                 "respond" => WriteSuccess(await RespondAsync(args[1..])),
                 "responses-raw" => WriteSuccess(await RawResponsesAsync(args[1..])),
                 "codex-rpc" => WriteSuccess(await CodexRpcAsync(args[1..])),
@@ -86,6 +89,9 @@ internal static class Program
             new { name = "doctor", description = "Inspect local runtime/auth readiness without network calls." },
             new { name = "auth-status", description = "Read redacted local ChatGPT-plan authorization state." },
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
+            new { name = "voices", description = "List realtime voices exposed by the bundled Codex runtime." },
+            new { name = "remote-status", description = "Read Codex Remote connection/identity status without enabling or pairing." },
+            new { name = "plugins", description = "List available Codex plugins without installing or mutating them." },
             new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--file <path>]... [--web-search]" },
             new { name = "responses-raw", description = "Run an arbitrary SIWC Responses body.", syntax = "responses-raw --model <id> [--body <json>]; stdin is used when --body is omitted" },
             new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
@@ -125,6 +131,9 @@ internal static class Program
             "doctor/read",
             "auth/status",
             "models/list",
+            "realtime/voices",
+            "remote/status",
+            "plugins/list",
             "responses/create",
             "responses/raw",
             "responses/ws/connect",
@@ -423,6 +432,9 @@ internal static class Program
             "doctor/read" => await DoctorAsync(),
             "auth/status" => await AuthStatusAsync(),
             "models/list" => await ModelsAsync(),
+            "realtime/voices" => await RpcCodexReadAsync("thread/realtime/listVoices", emptyParams: true),
+            "remote/status" => await RpcCodexReadAsync("remoteControl/status/read", emptyParams: false),
+            "plugins/list" => await RpcCodexReadAsync("plugin/list", emptyParams: true),
             "responses/create" => await RpcResponseCreateAsync(parameters),
             "responses/raw" => await RpcResponsesRawAsync(parameters),
             "responses/ws/connect" => await RpcResponsesConnectAsync(),
@@ -634,6 +646,23 @@ internal static class Program
             {
             }
         }
+    }
+
+    private static async Task<object> RpcCodexReadAsync(string method, bool emptyParams)
+    {
+        var client = await EnsureAgentCodexAsync();
+        JsonElement? requestParams = emptyParams
+            ? JsonSerializer.SerializeToElement(new { })
+            : null;
+        var result = await client.RequestAsync(method, requestParams);
+        return new
+        {
+            schema = Schema,
+            binding = "codex-app-server",
+            method,
+            read_only = true,
+            result
+        };
     }
 
     private static async Task<object> RpcCodexStartAsync()
