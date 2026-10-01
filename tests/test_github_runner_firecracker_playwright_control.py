@@ -74,6 +74,16 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         self.assertIn("host/playwright-control-v1", source)
         self.assertIn("_inspect_outputs", source)
         self.assertIn("debugfs", source)
+        self.assertIn('"accepted": False', source)
+        self.assertIn('"candidate_valid": outputs_valid', source)
+        self.assertIn("private reconciliation remains required", source)
+
+    def test_rootfs_export_does_not_duplicate_full_tar(self):
+        source = SCRIPT.read_text()
+        self.assertIn("playwright_rootfs_export_extract", source)
+        self.assertIn('docker export "$1" | sudo -n tar', source)
+        self.assertNotIn('root_tar = work / "rootfs.tar"', source)
+        self.assertNotIn('"docker", "export", "-o"', source)
 
 
 if __name__ == "__main__":
