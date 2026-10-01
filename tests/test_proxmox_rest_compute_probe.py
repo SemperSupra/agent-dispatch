@@ -1,6 +1,6 @@
 import unittest
 from scripts.proxmox_rest_compute_probe import (
-    PVE_CONTAINER_SOURCE, PVE_QEMU_PACKAGE_SOURCE,
+    PVE_CONTAINER_SOURCE, PVE_MANAGER_API_SOURCE, PVE_QEMU_PACKAGE_SOURCE,
     ProxmoxProbeError, lxc_create_fields, plan_only, vm_create_fields
 )
 
@@ -9,6 +9,8 @@ class ProxmoxRestComputeContractTests(unittest.TestCase):
         self.assertEqual(PVE_CONTAINER_SOURCE["commit"],"5eb5574ee9158ac40a5230de2cf18d7d6345709f")
         self.assertEqual(PVE_CONTAINER_SOURCE["package_version"],"6.1.10")
         self.assertEqual(PVE_QEMU_PACKAGE_SOURCE["commit"],"684796e835289dab11af8606fbf7358b93526dd6")
+        self.assertEqual(PVE_MANAGER_API_SOURCE["commit"],"b9984c6d90a4bd80")
+        self.assertEqual(PVE_MANAGER_API_SOURCE["apt_api_blob"],"9cb6e473436719f3024ac09fffaad8faf0d7160d")
 
     def test_lxc_plan_uses_rest_and_unprivileged_container(self):
         p=plan_only("container",9101,"local:vztmpl/debian.tar.zst")
