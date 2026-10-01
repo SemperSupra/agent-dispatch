@@ -209,6 +209,22 @@ jobs:
             throw 'Packaged accessibility contract failed.'
           }
 
+          $parity = & $cli parity
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged audience parity command failed.' }
+          $parityDoc = $parity | ConvertFrom-Json
+          if (-not $parityDoc.ok -or $parityDoc.value.schema -ne 'suprachat-audience-parity/v1') {
+            throw 'Packaged audience parity contract failed.'
+          }
+          foreach ($feature in $parityDoc.value.features) {
+            foreach ($audience in @('human','accessible_human','automation','agent')) {
+              if (-not $feature.access.$audience) { throw "Parity audience state missing: $($feature.id)/$audience" }
+            }
+            foreach ($platform in @('windows','macos','linux')) {
+              if (-not $feature.platforms.$platform) { throw "Parity platform state missing: $($feature.id)/$platform" }
+            }
+            if (-not $feature.human_boundary) { throw "Parity human boundary missing: $($feature.id)" }
+          }
+
           $catalog = & $cli catalog
           if ($LASTEXITCODE -ne 0) { throw 'Packaged automation catalog failed.' }
           $catalogDoc = $catalog | ConvertFrom-Json
@@ -229,6 +245,14 @@ jobs:
           $accessRpcDoc = ($accessRpc | Select-Object -Last 1) | ConvertFrom-Json
           if ($accessRpcDoc.id -ne 'a11y' -or -not $accessRpcDoc.result.human.screen_reader_semantics) {
             throw 'Packaged agent accessibility contract failed.'
+          }
+
+          $parityRequest = '{"jsonrpc":"2.0","id":"parity","method":"parity/read"}'
+          $parityRpc = $parityRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent parity/read failed.' }
+          $parityRpcDoc = ($parityRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($parityRpcDoc.id -ne 'parity' -or $parityRpcDoc.result.schema -ne 'suprachat-audience-parity/v1') {
+            throw 'Packaged agent parity contract failed.'
           }
 
       - name: Stage and smoke Linux per-user install
