@@ -1,0 +1,117 @@
+{
+  "schema": "semper-supra.compute-guest-fixtures/v1",
+  "authority": "SemperSupra/agent-dispatch-private#426",
+  "guest_profile_contract": "config/compute-guest-profiles.json",
+  "policy": {
+    "exact_media_digest_required_before_apply": true,
+    "moving_media_alias_prohibited": true,
+    "guest_password_not_required": true,
+    "guest_ssh_not_required_for_v1_oracle": true,
+    "firecracker_requires_observed_dev_kvm": true,
+    "windows_media_must_be_microsoft_evaluation_or_user_supplied": true,
+    "windows_product_key_must_not_be_embedded": true
+  },
+  "linux_v1": {
+    "id": "ubuntu-noble-20260926-amd64",
+    "state": "SOURCE_PINNED",
+    "source": {
+      "publisher": "Canonical/Ubuntu",
+      "release": "Ubuntu 24.04 LTS (Noble) release 20260926",
+      "architecture": "amd64",
+      "filename": "ubuntu-24.04-server-cloudimg-amd64.img",
+      "format": "qcow2",
+      "url": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-amd64.img",
+      "sha256": "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2",
+      "checksum_url": "https://cloud-images.ubuntu.com/releases/noble/release-20260926/SHA256SUMS"
+    },
+    "cloud_init": {
+      "transport": "NoCloud",
+      "user_data_template": "fixtures/compute/v1-user-data.yaml.tmpl",
+      "meta_data_template": "fixtures/compute/v1-meta-data.yaml.tmpl",
+      "nonce_placeholder": "{{RDTE_NONCE}}",
+      "run_id_placeholder": "{{RUN_ID}}"
+    },
+    "oracle": {
+      "protocol": "http",
+      "guest_port": 18080,
+      "path": "/nonce",
+      "expected_body": "{{RDTE_NONCE}}\\n",
+      "external_observation_required": true
+    },
+    "lifecycle": [
+      "materialize-media",
+      "create-vm",
+      "attach-cloud-init",
+      "start",
+      "discover-address",
+      "fetch-nonce",
+      "restart",
+      "fetch-same-nonce",
+      "stop",
+      "delete",
+      "owned-storage-absence"
+    ],
+    "runtime_status": "OPEN"
+  },
+  "firecracker_v2": {
+    "id": "firecracker-v1.17.0-x86_64",
+    "state": "BINARY_PINNED_INNER_GUEST_OPEN",
+    "release": {
+      "repository": "firecracker-microvm/firecracker",
+      "tag": "v1.17.0",
+      "annotated_tag_sha": "29d66eb25954dbe3608eb91c180a6079f54d2ee8",
+      "source_commit": "95f868c8e345b1cc8faccd1a3c910b4989dc3f58",
+      "published_at": "2026-09-10T14:19:40Z",
+      "asset": "firecracker-v1.17.0-x86_64.tgz",
+      "url": "https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/firecracker-v1.17.0-x86_64.tgz",
+      "sha256": "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558"
+    },
+    "host_preconditions": [
+      "V1 Linux guest accepted",
+      "/dev/kvm exists and is usable inside V1 guest",
+      "nested virtualization evidence retained"
+    ],
+    "inner_microvm": {
+      "kernel": {
+        "state": "OPEN"
+      },
+      "rootfs": {
+        "state": "OPEN"
+      },
+      "nonce_oracle": {
+        "state": "OPEN"
+      }
+    },
+    "runtime_status": "OPEN",
+    "claim_boundary": "Pinned Firecracker binary is not an executable V2 fixture until kernel/rootfs/oracle are pinned."
+  },
+  "windows_w1": {
+    "id": "windows-11-enterprise-evaluation-x64",
+    "state": "MEDIA_ACQUISITION_OPEN",
+    "source_policy": {
+      "publisher": "Microsoft",
+      "acquisition_surface": "Microsoft Evaluation Center - Windows 11 Enterprise",
+      "evaluation_days": 90,
+      "product_key_required": false,
+      "architecture": "x64",
+      "exact_filename_required": true,
+      "exact_build_required": true,
+      "exact_sha256_required": true,
+      "registration_or_session_download_may_be_required": true
+    },
+    "required_platform_capabilities": [
+      "UEFI",
+      "q35-or-platform-equivalent",
+      "TPM-2.0",
+      "Secure-Boot"
+    ],
+    "unattended_install": {
+      "state": "OPEN",
+      "no_embedded_product_key": true,
+      "bounded_guest_oracle_required": true
+    },
+    "runtime_status": "OPEN",
+    "winbot_backend_status": "NOT_ELIGIBLE_UNTIL_W1_ACCEPTED"
+  },
+  "claim_boundary": "Source fixture contract only. No V1, V2, W1, or WinBot backend runtime qualification is implied."
+}
