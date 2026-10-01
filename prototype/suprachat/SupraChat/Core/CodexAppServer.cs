@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace SupraChat.Core;
 
@@ -17,9 +18,31 @@ public static class CodexAppServer
         "-c", "model_providers.openai_chatgpt_plan.supports_websockets=false"
     };
 
+    public static string ResolveExecutable(string? baseDirectory = null)
+    {
+        baseDirectory ??= AppContext.BaseDirectory;
+        var name = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "codex.exe" : "codex";
+
+        var candidates = new[]
+        {
+            Path.Combine(baseDirectory, "runtime", "codex", name),
+            Path.Combine(baseDirectory, "codex", name),
+            Path.Combine(baseDirectory, name)
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        // Development fallback. Packaged builds are expected to carry a pinned runtime.
+        return name;
+    }
+
     public static Process Start(string accessToken)
     {
-        var psi = new ProcessStartInfo("codex")
+        var psi = new ProcessStartInfo(ResolveExecutable())
         {
             UseShellExecute = false,
             RedirectStandardInput = true,
