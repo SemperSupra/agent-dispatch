@@ -91,6 +91,13 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         self.assertIn("staging cleanup also failed", source)
         self.assertIn("raise primary_exc", source)
 
+    def test_docker_build_context_excludes_firecracker_workdir(self):
+        source = SCRIPT.read_text()
+        self.assertIn('docker_context = work / "playwright-docker-context"', source)
+        self.assertIn('dockerfile = docker_context / "Dockerfile"', source)
+        self.assertIn('str(docker_context)', source)
+        self.assertNotIn('str(dockerfile), str(work)]', source)
+
 
 if __name__ == "__main__":
     unittest.main()
