@@ -31,6 +31,8 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
             "tunnel_no_sleep_flag",
             "tunnel_accept_license_flag",
             "tunnel_install_extension_flag",
+            "user_show_prelogin_exit",
+            "user_show_prelogin_not_logged_in",
             "tunnel_status_json_present",
             "tunnel_status_no_running",
             "tunnel_status_service_installed",
@@ -40,6 +42,16 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
             "relay_http_status",
         ):
             self.assertIn(expected, text)
+
+    def test_preflight_observes_logged_out_identity_state(self) -> None:
+        text = (
+            ROOT / "scripts" / "github_runner_vscode_worksite_preflight.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("user show", text)
+        self.assertIn("user_show_prelogin_exit", text)
+        self.assertIn("user_show_prelogin_not_logged_in", text)
+        self.assertIn("user_show_prelogin_exit != 1", text)
 
     def test_preflight_requires_clean_structured_tunnel_status(self) -> None:
         text = (
