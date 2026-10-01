@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _ = RefreshRegistrationsAsync();
     }
 
     private void Back_Click(object? sender, RoutedEventArgs e) => ChatView.GoBack();
@@ -65,10 +66,16 @@ public partial class MainWindow : Window
     private async void SignIn_Click(object? sender, RoutedEventArgs e) =>
         await CompleteSignInAsync(promptConsent: false);
 
+    private async void UseSavedAccount_Click(object? sender, RoutedEventArgs e) =>
+        await CompleteSignInAsync(promptConsent: false);
+
+    private async void AddAccount_Click(object? sender, RoutedEventArgs e) =>
+        await CompleteSignInAsync(promptConsent: false, forceNewRegistration: true);
+
     private async void EnablePlanUsage_Click(object? sender, RoutedEventArgs e) =>
         await CompleteSignInAsync(promptConsent: true);
 
-    private async Task CompleteSignInAsync(bool promptConsent)
+    private async Task CompleteSignInAsync(bool promptConsent, bool forceNewRegistration = false)
     {
         try
         {
@@ -77,13 +84,38 @@ public partial class MainWindow : Window
                 : "Opening system browser for ChatGPT authorization…";
 
             var hostId = await HostIdentity.LoadOrCreateAsync();
-            var existing = _credential ?? await CredentialStore.TryLoadAsync();
-            var priorToken = existing?.AccessToken;
+            var active = _credential ?? await CredentialStore.TryLoadAsync();
+            var selected = AccountBox.SelectedItem as SiwcRegistration;
 
-            _credential = await _siwc.SignInAsync(this, hostId, "SupraChat", existing, promptConsent);
+            SiwcCredential? existing = active;
+            SiwcRegistration? registration = null;
+
+            if (forceNewRegistration)
+            {
+                existing = null;
+            }
+            else if (selected is not null &&
+                     !string.Equals(active?.ClientId, selected.ClientId, StringComparison.Ordinal))
+            {
+                existing = null;
+                registration = selected;
+            }
+
+            var priorToken = _credential?.AccessToken;
+            var priorClientId = _credential?.ClientId;
+
+            _credential = await _siwc.SignInAsync(
+                this,
+                hostId,
+                "SupraChat",
+                existing,
+                promptConsent,
+                registration);
             await CredentialStore.SaveAsync(_credential);
+            await RefreshRegistrationsAsync(_credential.ClientId);
 
-            if (!string.Equals(priorToken, _credential.AccessToken, StringComparison.Ordinal))
+            if (!string.Equals(priorToken, _credential.AccessToken, StringComparison.Ordinal) ||
+                !string.Equals(priorClientId, _credential.ClientId, StringComparison.Ordinal))
                 await StopCodexAsync();
 
             AuthStatus.Text = _credential.HasPlanUsage
@@ -115,9 +147,10 @@ public partial class MainWindow : Window
             CredentialStore.Clear();
             _credential = null;
             ModelBox.ItemsSource = null;
+            await RefreshRegistrationsAsync();
             AuthStatus.Text = confirmed
-                ? "Agent Lab renewable session revoked and local tokens cleared."
-                : "Remote revocation could not be confirmed after a temporary server failure; local tokens were cleared.";
+                ? "Agent Lab renewable session revoked and local tokens cleared; the account registration remains available for reauthorization."
+                : "Remote revocation could not be confirmed after a temporary server failure; local tokens were cleared and the account registration was retained.";
         }
         catch (Exception ex)
         {
@@ -125,7 +158,25 @@ public partial class MainWindow : Window
             CredentialStore.Clear();
             _credential = null;
             ModelBox.ItemsSource = null;
-            AuthStatus.Text = $"Local tokens cleared; remote revocation failed: {ex.Message}";
+            await RefreshRegistrationsAsync();
+            AuthStatus.Text = $"Local tokens cleared and account registration retained; remote revocation failed: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshRegistrationsAsync(string? selectClientId = null)
+    {
+        var registrations = await CredentialStore.ListRegistrationsAsync();
+        AccountBox.ItemsSource = registrations;
+
+        var targetClientId = selectClientId ?? _credential?.ClientId;
+        if (!string.IsNullOrWhiteSpace(targetClientId))
+        {
+            AccountBox.SelectedItem = registrations.FirstOrDefault(x =>
+                string.Equals(x.ClientId, targetClientId, StringComparison.Ordinal));
+        }
+        else
+        {
+            AccountBox.SelectedItem = null;
         }
     }
 
