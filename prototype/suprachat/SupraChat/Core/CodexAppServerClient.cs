@@ -327,9 +327,9 @@ public sealed class CodexAppServerClient : IAsyncDisposable
                 p.TryGetProperty("item", out var item) &&
                 TryString(item, "type") == "agentMessage")
             {
-                var text = TryString(item, "text");
-                if (!string.IsNullOrEmpty(text))
-                    completedItems.Append(text);
+                var completedText = TryString(item, "text");
+                if (!string.IsNullOrEmpty(completedText))
+                    completedItems.Append(completedText);
                 continue;
             }
 
