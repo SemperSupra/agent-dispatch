@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-007-pool-wss-budget",
-  "version": "25.04.1",
+  "request_id": "tn-25.04.2.6-t6-official-catalog-002-pool-hardened",
+  "version": "25.04.2.6",
   "rung": "t6",
   "product": "official-catalog",
-  "authority_issue": 411,
+  "authority_issue": 423,
   "consumer_authority_issue": 281,
-  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after hardening the generic pool probe for slower WSS read latency; app producer and primary-service health oracle are unchanged from rep 006."
+  "purpose": "Qualify exact TrueNAS 25.04.2.6 native official-catalog ntfy T6 on the pool-WSS-hardened, schema-projected, primary-service-health lineage after exact 25.04.1 acceptance."
 }
