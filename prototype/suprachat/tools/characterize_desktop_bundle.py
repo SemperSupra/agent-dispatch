@@ -6,8 +6,8 @@ SAFE_PACKAGE_KEYS = (
     'dependencies','optionalDependencies','peerDependencies','peerDependenciesMeta'
 )
 SAFE_PLUGIN_KEYS = (
-    'id','name','version','type','entrypoint','entrypoints','skills','mcp','hooks','capabilities',
-    'platforms','targets','requires','dependencies','package'
+    'id','name','version','type','entrypoint','entrypoints','skills','mcp','mcpServers','hooks','capabilities',
+    'platforms','targets','requires','dependencies','package','author','description','homepage','license','repository','interface','keywords'
 )
 COMPONENT_MARKERS = {
     'codex': ('/resources/codex','/resources/codex-cli','/resources/codex-code-mode-host'),
@@ -72,11 +72,22 @@ def normalize_mcp(obj):
             if not isinstance(cfg,dict):
                 norm[str(name)]={'type':type(cfg).__name__}; continue
             cmd=cfg.get('command')
+            args=cfg.get('args')
+            env_keys=set(cfg.get('env',{}).keys()) if isinstance(cfg.get('env'),dict) else set()
+            if isinstance(cfg.get('env_vars'),dict): env_keys.update(cfg.get('env_vars',{}).keys())
             norm[str(name)]={
                 'keys':sorted(cfg.keys()),
                 'command_basename': pathlib.PurePath(cmd).name if isinstance(cmd,str) else None,
-                'arg_count': len(cfg.get('args',[])) if isinstance(cfg.get('args'),list) else None,
-                'env_keys': sorted(cfg.get('env',{}).keys()) if isinstance(cfg.get('env'),dict) else [],
+                'args': args[:100] if isinstance(args,list) and all(isinstance(x,(str,int,float,bool)) or x is None for x in args[:100]) else None,
+                'arg_count': len(args) if isinstance(args,list) else None,
+                'env_keys': sorted(env_keys),
+                'enabled': cfg.get('enabled') if isinstance(cfg.get('enabled'),bool) else None,
+                'enabled_tools': cfg.get('enabled_tools') if isinstance(cfg.get('enabled_tools'),list) else None,
+                'tools': cfg.get('tools') if isinstance(cfg.get('tools'),(list,dict)) else None,
+                'omit_tools_from': cfg.get('omit_tools_from'),
+                'default_tools_approval_mode': cfg.get('default_tools_approval_mode'),
+                'startup_timeout_sec': cfg.get('startup_timeout_sec'),
+                'tool_timeout_sec': cfg.get('tool_timeout_sec'),
                 'url_host': None,
             }
             url=cfg.get('url')
@@ -96,7 +107,7 @@ def component_for(rel):
 def component_digest(records):
     h=hashlib.sha256(); total=0
     for r in sorted(records,key=lambda x:x['path']):
-        line=f"{r['path']}\\0{r['size']}\\0{r['sha256']}\\n".encode()
+        line=f"{r['path']}\\0{r['size']}\\0{r['sha256']}\n".encode()
         h.update(line); total+=r['size']
     return {'file_count':len(records),'bytes':total,'manifest_sha256':h.hexdigest()}
 
@@ -121,10 +132,10 @@ def main():
             rel=p.relative_to(root).as_posix()
             try: size=p.stat().st_size; digest=sha256(p)
             except Exception as e:
-                inv.write(json.dumps({'path':rel,'error':f'{type(e).__name__}: {e}'},sort_keys=True)+'\\n'); continue
+                inv.write(json.dumps({'path':rel,'error':f'{type(e).__name__}: {e}'},sort_keys=True)+'\n'); continue
             rec={'path':rel,'size':size,'sha256':digest,'suffix':p.suffix.lower()}
             cats=component_for(rel); rec['components']=cats
-            inv.write(json.dumps(rec,sort_keys=True)+'\\n')
+            inv.write(json.dumps(rec,sort_keys=True)+'\n')
             for cat in cats: components[cat].append(rec)
 
             low=p.name.lower()
@@ -222,6 +233,6 @@ def main():
         'component-executables.json':component_executables,
     }
     for name,obj in docs.items():
-        (out/name).write_text(json.dumps(obj,indent=2,sort_keys=True)+'\\n')
+        (out/name).write_text(json.dumps(obj,indent=2,sort_keys=True)+'\n')
 
 if __name__=='__main__': main()
