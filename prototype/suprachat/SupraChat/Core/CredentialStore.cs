@@ -11,10 +11,16 @@ public sealed record SiwcRegistration(
     string? Email,
     DateTimeOffset UpdatedAt)
 {
-    public string DisplayLabel =>
-        string.IsNullOrWhiteSpace(Email)
-            ? $"ChatGPT account {ClientId[..Math.Min(ClientId.Length, 12)]}"
-            : Email!;
+    public string DisplayLabel
+    {
+        get
+        {
+            var suffix = ClientId[..Math.Min(ClientId.Length, 12)];
+            return string.IsNullOrWhiteSpace(Email)
+                ? $"ChatGPT account · {suffix}"
+                : $"{Email} · {suffix}";
+        }
+    }
 
     public override string ToString() => DisplayLabel;
 }
