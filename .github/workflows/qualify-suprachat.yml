@@ -68,6 +68,15 @@ jobs:
           if (-not $doc.value.audiences.automation.supported) { throw 'Automation audience not advertised.' }
           if (-not $doc.value.audiences.agent.supported) { throw 'Agent audience not advertised.' }
 
+          $accessibility = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- accessibility
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation accessibility failed.' }
+          $accessDoc = $accessibility | ConvertFrom-Json
+          if (-not $accessDoc.ok) { throw 'Accessibility response was not ok.' }
+          if (-not $accessDoc.value.human.keyboard_only) { throw 'Keyboard-only accessibility contract missing.' }
+          if (-not $accessDoc.value.human.screen_reader_semantics) { throw 'Screen-reader semantic contract missing.' }
+          if ($accessDoc.value.automation.screen_scraping_required) { throw 'Automation accessibility regressed to screen scraping.' }
+          if ($accessDoc.value.agent.screen_scraping_required) { throw 'Agent accessibility regressed to screen scraping.' }
+
           $catalog = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- catalog
           if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation catalog failed.' }
           $catalogDoc = $catalog | ConvertFrom-Json
@@ -86,6 +95,14 @@ jobs:
           if ($response.jsonrpc -ne '2.0') { throw 'JSON-RPC version mismatch.' }
           if ($response.id -ne 1) { throw 'JSON-RPC id mismatch.' }
           if (-not $response.result.audiences.agent.supported) { throw 'Agent JSON-RPC capability missing.' }
+
+          $accessRequest = '{"jsonrpc":"2.0","id":2,"method":"accessibility/read"}'
+          $accessLines = $accessRequest | dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat accessibility/read stdio failed.' }
+          $accessResponse = ($accessLines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($accessResponse.id -ne 2 -or -not $accessResponse.result.human.screen_reader_semantics) {
+            throw 'Agent accessibility contract missing.'
+          }
 
       - name: Publish self-contained application
         shell: pwsh
@@ -168,6 +185,13 @@ jobs:
             throw 'Packaged automation capability contract failed.'
           }
 
+          $access = & $cli accessibility
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged accessibility command failed.' }
+          $accessDoc = $access | ConvertFrom-Json
+          if (-not $accessDoc.ok -or -not $accessDoc.value.human.keyboard_only -or -not $accessDoc.value.human.screen_reader_semantics) {
+            throw 'Packaged accessibility contract failed.'
+          }
+
           $catalog = & $cli catalog
           if ($LASTEXITCODE -ne 0) { throw 'Packaged automation catalog failed.' }
           $catalogDoc = $catalog | ConvertFrom-Json
@@ -180,6 +204,14 @@ jobs:
           $rpcDoc = ($rpc | Select-Object -Last 1) | ConvertFrom-Json
           if ($rpcDoc.id -ne 'ci' -or -not $rpcDoc.result.schema) {
             throw 'Packaged agent JSON-RPC contract failed.'
+          }
+
+          $accessRequest = '{"jsonrpc":"2.0","id":"a11y","method":"accessibility/read"}'
+          $accessRpc = $accessRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent accessibility/read failed.' }
+          $accessRpcDoc = ($accessRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($accessRpcDoc.id -ne 'a11y' -or -not $accessRpcDoc.result.human.screen_reader_semantics) {
+            throw 'Packaged agent accessibility contract failed.'
           }
 
       - name: Stage and smoke Linux per-user install
@@ -208,6 +240,15 @@ jobs:
           assert doc["ok"] is True
           assert doc["value"]["audiences"]["automation"]["supported"] is True
           assert doc["value"]["audiences"]["agent"]["supported"] is True
+          PY
+
+          accessibility_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" accessibility)"
+          python3 - "$accessibility_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["human"]["keyboard_only"] is True
+          assert doc["value"]["human"]["screen_reader_semantics"] is True
           PY
 
           HOME="$test_home" bash "$test_home/.local/opt/suprachat/uninstall.sh"
@@ -240,6 +281,15 @@ jobs:
           assert doc["ok"] is True
           assert doc["value"]["platform"] == "macos"
           assert doc["value"]["audiences"]["agent"]["supported"] is True
+          PY
+
+          accessibility_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" accessibility)"
+          python3 - "$accessibility_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["human"]["keyboard_only"] is True
+          assert doc["value"]["human"]["screen_reader_semantics"] is True
           PY
 
       - name: Smoke macOS per-user install
@@ -315,6 +365,13 @@ jobs:
           $cliDoc = $cliJson | ConvertFrom-Json
           if (-not $cliDoc.ok -or -not $cliDoc.value.audiences.automation.supported) {
             throw 'Installed automation contract failed.'
+          }
+
+          $installedAccess = & $cliShim accessibility
+          if ($LASTEXITCODE -ne 0) { throw 'Installed accessibility command failed.' }
+          $installedAccessDoc = $installedAccess | ConvertFrom-Json
+          if (-not $installedAccessDoc.ok -or -not $installedAccessDoc.value.human.keyboard_only -or -not $installedAccessDoc.value.human.screen_reader_semantics) {
+            throw 'Installed accessibility contract failed.'
           }
 
           $rpcRequest = '{"jsonrpc":"2.0","id":"installed","method":"capabilities/read"}'
