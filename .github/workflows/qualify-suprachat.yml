@@ -169,6 +169,96 @@ jobs:
             throw 'Packaged agent JSON-RPC contract failed.'
           }
 
+      - name: Stage and smoke Linux per-user install
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp prototype/suprachat/packaging/linux/install.sh out/linux-x64/install.sh
+          chmod +x out/linux-x64/install.sh
+
+          test_home="$RUNNER_TEMP/suprachat-linux-home"
+          mkdir -p "$test_home"
+          HOME="$test_home" bash out/linux-x64/install.sh
+
+          test -x "$test_home/.local/opt/suprachat/SupraChat"
+          test -x "$test_home/.local/opt/suprachat/SupraChat.Automation"
+          test -x "$test_home/.local/bin/suprachat-cli"
+          test -L "$test_home/.local/bin/suprachat"
+          test -f "$test_home/.local/share/applications/suprachat.desktop"
+          grep -q 'x-scheme-handler/suprachat' "$test_home/.local/share/applications/suprachat.desktop"
+
+          cli_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" capabilities)"
+          python3 - "$cli_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["audiences"]["automation"]["supported"] is True
+          assert doc["value"]["audiences"]["agent"]["supported"] is True
+          PY
+
+          HOME="$test_home" bash "$test_home/.local/opt/suprachat/uninstall.sh"
+          test ! -e "$test_home/.local/opt/suprachat"
+          test ! -e "$test_home/.local/bin/suprachat-cli"
+          echo 'Linux installed-state human/automation/agent smoke PASS.'
+
+      - name: Stage macOS application bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x prototype/suprachat/packaging/macos/package.sh
+          stage="$PWD/out/macos-package"
+          prototype/suprachat/packaging/macos/package.sh "$PWD/out/osx-arm64" "$stage"
+          cp prototype/suprachat/packaging/macos/install.sh "$stage/install.sh"
+          chmod +x "$stage/install.sh"
+
+          test -x "$stage/SupraChat.app/Contents/MacOS/SupraChat"
+          test -x "$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation"
+          test -x "$stage/SupraChat.app/Contents/MacOS/runtime/codex/codex"
+          plutil -extract CFBundleIdentifier raw "$stage/SupraChat.app/Contents/Info.plist" | grep -qx 'com.sempersupra.suprachat'
+          plutil -p "$stage/SupraChat.app/Contents/Info.plist" | grep -q 'suprachat'
+          codesign --verify --deep --strict "$stage/SupraChat.app"
+
+          cli_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" capabilities)"
+          python3 - "$cli_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["platform"] == "macos"
+          assert doc["value"]["audiences"]["agent"]["supported"] is True
+          PY
+
+      - name: Smoke macOS per-user install
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$PWD/out/macos-package"
+          test_home="$RUNNER_TEMP/suprachat-macos-home"
+          mkdir -p "$test_home"
+
+          HOME="$test_home" bash "$stage/install.sh"
+          test -d "$test_home/Applications/SupraChat.app"
+          test -x "$test_home/.local/bin/suprachat-cli"
+          test -L "$test_home/.local/bin/suprachat-gui"
+
+          cli_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" doctor)"
+          python3 - "$cli_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["platform"] == "macos"
+          PY
+
+          HOME="$test_home" bash "$test_home/Applications/SupraChat.app/Contents/Resources-uninstall.sh"
+          test ! -e "$test_home/Applications/SupraChat.app"
+          test ! -e "$test_home/.local/bin/suprachat-cli"
+
+          rm -rf "$PWD/out/osx-arm64"
+          mv "$stage" "$PWD/out/osx-arm64"
+          echo 'macOS installed-state human/automation/agent smoke PASS.'
+
       - name: Stage Windows per-user installer
         if: runner.os == 'Windows'
         shell: pwsh
