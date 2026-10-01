@@ -54,12 +54,39 @@ jobs:
       - name: Run contract checks
         run: dotnet run --project prototype/suprachat/SupraChat.ContractTests/SupraChat.ContractTests.csproj -c Release
 
+      - name: Build automation and agent shell
+        run: dotnet build prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release
+
+      - name: Smoke automation JSON surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- capabilities
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation capabilities failed.' }
+          $doc = $json | ConvertFrom-Json
+          if (-not $doc.ok) { throw 'Automation capabilities response was not ok.' }
+          if (-not $doc.value.audiences.automation.supported) { throw 'Automation audience not advertised.' }
+          if (-not $doc.value.audiences.agent.supported) { throw 'Agent audience not advertised.' }
+
+      - name: Smoke agent JSON-RPC stdio surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $request = '{"jsonrpc":"2.0","id":1,"method":"capabilities/read"}'
+          $lines = $request | dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation stdio failed.' }
+          $response = ($lines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($response.jsonrpc -ne '2.0') { throw 'JSON-RPC version mismatch.' }
+          if ($response.id -ne 1) { throw 'JSON-RPC id mismatch.' }
+          if (-not $response.result.audiences.agent.supported) { throw 'Agent JSON-RPC capability missing.' }
+
       - name: Publish self-contained application
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $out = Join-Path $PWD 'out/${{ matrix.rid }}'
           dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
+          dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
 
       - name: Bundle pinned open-source Codex runtime
         shell: pwsh
@@ -119,6 +146,29 @@ jobs:
           & $exe --version
           if ($LASTEXITCODE -ne 0) { throw "Bundled Codex --version failed with $LASTEXITCODE" }
 
+      - name: Smoke packaged automation and agent shells
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'out/${{ matrix.rid }}'
+          $cli = if ($IsWindows) { Join-Path $root 'SupraChat.Automation.exe' } else { Join-Path $root 'SupraChat.Automation' }
+          if (!(Test-Path $cli)) { throw "Packaged automation shell missing: $cli" }
+
+          $cap = & $cli capabilities
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged automation capabilities failed.' }
+          $capDoc = $cap | ConvertFrom-Json
+          if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
+            throw 'Packaged automation capability contract failed.'
+          }
+
+          $request = '{"jsonrpc":"2.0","id":"ci","method":"doctor/read"}'
+          $rpc = $request | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent stdio failed.' }
+          $rpcDoc = ($rpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($rpcDoc.id -ne 'ci' -or -not $rpcDoc.result.schema) {
+            throw 'Packaged agent JSON-RPC contract failed.'
+          }
+
       - name: Stage Windows per-user installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -147,6 +197,7 @@ jobs:
 
           if (!(Test-Path $installedExe)) { throw 'Installed SupraChat.exe missing.' }
           if (!(Test-Path $installedCodex)) { throw 'Installed bundled Codex runtime missing.' }
+          if (!(Test-Path (Join-Path $installed 'SupraChat.Automation.exe'))) { throw 'Installed automation/agent shell missing.' }
           if (!(Test-Path $arp)) { throw 'Add/Remove Programs registration missing.' }
           if (!(Test-Path $protocolCommand)) { throw 'suprachat:// protocol registration missing.' }
           if (!(Test-Path $appCommand)) { throw 'Open With command registration missing.' }
