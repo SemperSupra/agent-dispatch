@@ -34,6 +34,8 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
             "tunnel_status_json_present",
             "tunnel_status_no_running",
             "tunnel_status_service_installed",
+            "clean_unregister_exit",
+            "post_unregister_status_clean",
             "vscode_dev_http_status",
             "relay_http_status",
         ):
@@ -51,6 +53,16 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
         self.assertIn('"$status_json_present" != true', text)
         self.assertIn('"$status_no_running" != true', text)
         self.assertIn('"$status_service_installed" != false', text)
+
+    def test_preflight_qualifies_clean_unregister_idempotence(self) -> None:
+        text = (
+            ROOT / "scripts" / "github_runner_vscode_worksite_preflight.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("clean_unregister_exit", text)
+        self.assertIn("post_unregister_status_clean", text)
+        self.assertIn('unregister >/dev/null 2>&1', text)
+        self.assertIn("clean_unregister_exit != 0", text)
 
     def test_workflow_is_public_safe_and_secret_free(self) -> None:
         text = (
