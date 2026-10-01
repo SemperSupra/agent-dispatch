@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.2.6-t6-official-catalog-002-current-bootstrap-contract",
-  "version": "25.04.2.6",
+  "request_id": "tn-25.10.7-t6-official-catalog-001-profile-bound",
+  "version": "25.10.7",
   "rung": "t6",
   "product": "official-catalog",
-  "authority_issue": 423,
+  "authority_issue": 410,
   "consumer_authority_issue": 281,
-  "purpose": "Exercise exact TrueNAS 25.04.2.6 native official-catalog ntfy T6 on the corrected bootstrap-capability consumer after the corrected 25.04.1 T6 row is terminal and accepted."
+  "purpose": "Exercise exact TrueNAS 25.10.7 native official-catalog ntfy T6 after accepted 25.04.x rows, preserving the exact v25_10_0 profile and corrected bootstrap-capability contract."
 }
