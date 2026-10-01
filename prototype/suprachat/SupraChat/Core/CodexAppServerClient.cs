@@ -44,12 +44,39 @@ public sealed class CodexAppServerClient : IAsyncDisposable
     private readonly ConcurrentDictionary<string, PendingRequest> _pending = new();
     private readonly Channel<CodexProtocolEvent> _events = Channel.CreateUnbounded<CodexProtocolEvent>(
         new UnboundedChannelOptions { SingleReader = false, SingleWriter = true });
+    private readonly ConcurrentDictionary<Guid, Channel<CodexProtocolEvent>> _subscribers = new();
     private readonly StringBuilder _stderr = new();
     private readonly Task _readerTask;
     private readonly Task _stderrTask;
     private bool _initialized;
 
     private sealed record PendingRequest(string Method, TaskCompletionSource<JsonElement> Completion);
+
+    public sealed class CodexEventSubscription : IAsyncDisposable
+    {
+        private readonly CodexAppServerClient _owner;
+        private readonly Guid _id;
+        private int _disposed;
+
+        internal CodexEventSubscription(
+            CodexAppServerClient owner,
+            Guid id,
+            ChannelReader<CodexProtocolEvent> reader)
+        {
+            _owner = owner;
+            _id = id;
+            Reader = reader;
+        }
+
+        public ChannelReader<CodexProtocolEvent> Reader { get; }
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                _owner.RemoveSubscriber(_id);
+            return ValueTask.CompletedTask;
+        }
+    }
 
     private CodexAppServerClient(Process process)
     {
@@ -62,6 +89,22 @@ public sealed class CodexAppServerClient : IAsyncDisposable
 
     public int ProcessId => _process.Id;
     public ChannelReader<CodexProtocolEvent> Events => _events.Reader;
+
+    public CodexEventSubscription SubscribeEvents()
+    {
+        var id = Guid.NewGuid();
+        var channel = Channel.CreateUnbounded<CodexProtocolEvent>(
+            new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+        if (!_subscribers.TryAdd(id, channel))
+            throw new InvalidOperationException("Could not create Codex event subscription.");
+        return new CodexEventSubscription(this, id, channel.Reader);
+    }
+
+    private void RemoveSubscriber(Guid id)
+    {
+        if (_subscribers.TryRemove(id, out var channel))
+            channel.Writer.TryComplete();
+    }
 
     public static JsonElement BuildInitializeParams(bool experimentalApi = true) =>
         JsonSerializer.SerializeToElement(new
@@ -224,6 +267,8 @@ public sealed class CodexAppServerClient : IAsyncDisposable
         if (!_initialized)
             await InitializeAsync(cancellationToken).ConfigureAwait(false);
 
+        await using var subscription = SubscribeEvents();
+
         var workspace = Path.Combine(
             AppState.DirectoryPath,
             "codex-interviews",
@@ -254,7 +299,7 @@ public sealed class CodexAppServerClient : IAsyncDisposable
 
         while (true)
         {
-            var evt = await _events.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            var evt = await subscription.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
             if (evt.Kind != "notification" || evt.Method is null)
                 continue;
 
@@ -332,7 +377,7 @@ public sealed class CodexAppServerClient : IAsyncDisposable
                     var payload = root.TryGetProperty("params", out var serverParams)
                         ? serverParams.Clone()
                         : JsonSerializer.SerializeToElement(new { });
-                    await _events.Writer.WriteAsync(
+                    await PublishAsync(
                         new CodexProtocolEvent("server-request", id, method, payload),
                         _lifetime.Token).ConfigureAwait(false);
                     continue;
@@ -343,7 +388,7 @@ public sealed class CodexAppServerClient : IAsyncDisposable
                     var payload = root.TryGetProperty("params", out var notificationParams)
                         ? notificationParams.Clone()
                         : JsonSerializer.SerializeToElement(new { });
-                    await _events.Writer.WriteAsync(
+                    await PublishAsync(
                         new CodexProtocolEvent("notification", null, method, payload),
                         _lifetime.Token).ConfigureAwait(false);
                     continue;
@@ -383,7 +428,16 @@ public sealed class CodexAppServerClient : IAsyncDisposable
             foreach (var item in _pending.Values)
                 item.Completion.TrySetException(exception);
             _events.Writer.TryComplete(terminal);
+            foreach (var subscriber in _subscribers.Values)
+                subscriber.Writer.TryComplete(terminal);
         }
+    }
+
+    private async Task PublishAsync(CodexProtocolEvent evt, CancellationToken cancellationToken)
+    {
+        await _events.Writer.WriteAsync(evt, cancellationToken).ConfigureAwait(false);
+        foreach (var subscriber in _subscribers.Values)
+            subscriber.Writer.TryWrite(evt);
     }
 
     private async Task DrainStderrAsync()
@@ -504,6 +558,9 @@ public sealed class CodexAppServerClient : IAsyncDisposable
         catch
         {
         }
+
+        foreach (var id in _subscribers.Keys)
+            RemoveSubscriber(id);
 
         _process.Dispose();
         _writeGate.Dispose();
