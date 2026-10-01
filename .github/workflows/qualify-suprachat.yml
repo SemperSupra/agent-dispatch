@@ -34,7 +34,7 @@ jobs:
       - name: Publish Windows MVP
         if: runner.os == 'Windows'
         shell: pwsh
-        run: dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r win-x64 --self-contained false -o out/suprachat-win-x64
+        run: dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r win-x64 --self-contained true -o out/suprachat-win-x64
 
       - name: Windows launch smoke
         if: runner.os == 'Windows'
