@@ -20,7 +20,8 @@
             "virt-incus"
           ],
           "source_fingerprint": {
-            "virt.instance": "87fc6bb365b3b09820331d90ed2c0138af41ce1b"
+            "virt.instance": "87fc6bb365b3b09820331d90ed2c0138af41ce1b",
+            "virt.instance_device": "96e68a484762388563384921738d1c7e547f4c6b"
           },
           "container_adapters": [
             {
@@ -51,18 +52,28 @@
                 "virt.instance.delete",
                 "virt.instance.start",
                 "virt.instance.stop",
-                "virt.instance.restart"
+                "virt.instance.restart",
+                "virt.instance.device_list",
+                "virt.instance.device_add",
+                "virt.instance.device_update",
+                "virt.instance.device_delete",
+                "virt.device.nic_choices"
               ],
               "guest_oracle": "network-or-vnc/serial-capability",
               "restart_semantics": "native",
               "hypervisor_family": "incus-qemu",
-              "source_api_family": "v25_04_0"
+              "source_api_family": "v25_04_0",
+              "v0_device_ownership": "named-observed-parent-macvlan-nic"
             }
           ],
           "api_schema_fingerprint": {
             "virt_instance": {
               "path": "src/middlewared/middlewared/api/v25_04_0/virt_instance.py",
               "blob_sha": "f5caf3f2f98f8ce43fafc19ecccbd1aee1c7c6e0"
+            },
+            "virt_device": {
+              "path": "src/middlewared/middlewared/api/v25_04_0/virt_device.py",
+              "blob_sha": "d6d783d3b0184544f888fcc91de68d12a5a708ba"
             }
           }
         },
@@ -77,7 +88,9 @@
             "virt.instance": "ac22db500d9d1c6932a4cc109716cd8a3bd46223",
             "vm.vms": "993ed915c7058c8e8433d5d5592bb30f24cbfd1c",
             "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5",
-            "vm.device": "b98466b2247ed2460436c7d9329780f2c88d16ec"
+            "vm.device": "b98466b2247ed2460436c7d9329780f2c88d16ec",
+            "virt.instance_device": "96e68a484762388563384921738d1c7e547f4c6b",
+            "vm.info": "f6a267da921101373c620faf602f39ee83b3f527"
           },
           "container_adapters": [
             {
@@ -109,7 +122,9 @@
                 "vm.status",
                 "vm.start",
                 "vm.stop",
-                "vm.restart"
+                "vm.restart",
+                "vm.virtualization_details",
+                "pool.dataset.query"
               ],
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
@@ -121,7 +136,10 @@
                 "vm.device.update",
                 "vm.device.delete"
               ],
-              "v0_storage_ownership": "exact-owned-zvol-device"
+              "v0_storage_ownership": "exact-owned-zvol-device",
+              "read_only_bootstrap_methods": [
+                "vm.license_active"
+              ]
             },
             {
               "id": "truenas-virt-incus-vm",
@@ -134,12 +152,18 @@
                 "virt.instance.delete",
                 "virt.instance.start",
                 "virt.instance.stop",
-                "virt.instance.restart"
+                "virt.instance.restart",
+                "virt.instance.device_list",
+                "virt.instance.device_add",
+                "virt.instance.device_update",
+                "virt.instance.device_delete",
+                "virt.device.nic_choices"
               ],
               "guest_oracle": "network-or-vnc/serial-capability",
               "restart_semantics": "native",
               "hypervisor_family": "incus-qemu",
-              "source_api_family": "v25_04_2"
+              "source_api_family": "v25_04_2",
+              "v0_device_ownership": "named-observed-parent-macvlan-nic"
             }
           ],
           "api_schema_fingerprint": {
@@ -154,6 +178,10 @@
             "vm_device": {
               "path": "src/middlewared/middlewared/api/v25_04_2/vm_device.py",
               "blob_sha": "f85240d8a804b5d8347bc9a51d76c9c93c19a813"
+            },
+            "virt_device": {
+              "path": "src/middlewared/middlewared/api/v25_04_2/virt_device.py",
+              "blob_sha": "d6d783d3b0184544f888fcc91de68d12a5a708ba"
             }
           }
         },
@@ -168,7 +196,9 @@
             "virt.instance": "8f3f21996b4d14385ba17405676704cb9b921bea",
             "vm.vms": "2532f53d54d845e983c76e8479027587dec81df7",
             "vm.lifecycle": "85c5049c8c90572746ea1acf0a357a88afc88cb5",
-            "vm.device": "7d9b0098692190015fc178d25d8483927b90d757"
+            "vm.device": "7d9b0098692190015fc178d25d8483927b90d757",
+            "virt.instance_device": "3dca6a0cfe02ca6487dfb1f0118b149d5d3d8103",
+            "vm.info": "0769a88d67169175bad6868697a9bffabac30f97"
           },
           "container_adapters": [
             {
@@ -200,7 +230,9 @@
                 "vm.status",
                 "vm.start",
                 "vm.stop",
-                "vm.restart"
+                "vm.restart",
+                "vm.virtualization_details",
+                "pool.dataset.query"
               ],
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
@@ -212,7 +244,10 @@
                 "vm.device.update",
                 "vm.device.delete"
               ],
-              "v0_storage_ownership": "exact-owned-zvol-device"
+              "v0_storage_ownership": "exact-owned-zvol-device",
+              "read_only_bootstrap_methods": [
+                "vm.license_active"
+              ]
             },
             {
               "id": "truenas-virt-incus-vm",
@@ -225,12 +260,18 @@
                 "virt.instance.delete",
                 "virt.instance.start",
                 "virt.instance.stop",
-                "virt.instance.restart"
+                "virt.instance.restart",
+                "virt.instance.device_list",
+                "virt.instance.device_add",
+                "virt.instance.device_update",
+                "virt.instance.device_delete",
+                "virt.device.nic_choices"
               ],
               "guest_oracle": "network-or-vnc/serial-capability",
               "restart_semantics": "native",
               "hypervisor_family": "incus-qemu",
-              "source_api_family": "v25_10_0"
+              "source_api_family": "v25_10_0",
+              "v0_device_ownership": "named-observed-parent-macvlan-nic"
             }
           ],
           "api_schema_fingerprint": {
@@ -245,6 +286,10 @@
             "vm_device": {
               "path": "src/middlewared/middlewared/api/v25_10_0/vm_device.py",
               "blob_sha": "a7b8d406e81618db21fb98f2b57b002a9f2d87b7"
+            },
+            "virt_device": {
+              "path": "src/middlewared/middlewared/api/v25_10_0/virt_device.py",
+              "blob_sha": "c06d0bffe77854f6e60d8a17221b323804c456f6"
             }
           }
         },
@@ -261,7 +306,8 @@
             "container.nsenter": "90b6e245e186441a863a701c0c4714671b691184",
             "vm.vms": "43ed4b532b40da02ad885039d954c99a93ea22ed",
             "vm.lifecycle": "b313e2eeb0baa0179ab9244fc244eee9b02e02e9",
-            "vm.device": "b0f313b060ffec4cf08ec2e44c706bafc5121830"
+            "vm.device": "b0f313b060ffec4cf08ec2e44c706bafc5121830",
+            "vm.info": "7a3dd519a011ae0cceeaa2e32dca7f37210a8f22"
           },
           "container_adapters": [
             {
@@ -292,7 +338,9 @@
                 "vm.status",
                 "vm.start",
                 "vm.stop",
-                "vm.restart"
+                "vm.restart",
+                "vm.virtualization_details",
+                "pool.dataset.query"
               ],
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
@@ -304,7 +352,10 @@
                 "vm.device.update",
                 "vm.device.delete"
               ],
-              "v0_storage_ownership": "exact-owned-zvol-device"
+              "v0_storage_ownership": "exact-owned-zvol-device",
+              "read_only_bootstrap_methods": [
+                "vm.license_active"
+              ]
             }
           ],
           "api_schema_fingerprint": {
