@@ -407,6 +407,18 @@ def run_probe(label: str) -> dict:
 
     if platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
         raise ProbeError("VENUE_LIMITATION", "P0a requires x86_64 Linux")
+
+    source_head = _run(["git", "rev-parse", "HEAD"], timeout=10)
+    if not source_head["ok"]:
+        raise ProbeError("HARNESS_FAILURE", "P0a source worktree has no readable Git HEAD")
+    source_revision = source_head["stdout"].strip()
+    expected_source_revision = os.getenv("P0A_SOURCE_SHA", "").strip() or None
+    if expected_source_revision is not None and source_revision != expected_source_revision:
+        raise ProbeError(
+            "HARNESS_FAILURE",
+            f"P0a source revision mismatch: observed {source_revision}, expected {expected_source_revision}",
+        )
+
     missing = [name for name, path in tools.items() if not path]
     if missing:
         raise ProbeError("SETUP_REQUIRED", f"required host tools unavailable: {missing}")
@@ -639,7 +651,13 @@ def run_probe(label: str) -> dict:
             "runner_arch": os.getenv("RUNNER_ARCH"),
             "image_os": os.getenv("ImageOS"),
             "image_version": os.getenv("ImageVersion"),
-            "github_sha": os.getenv("GITHUB_SHA"),
+            "worker_github_sha": os.getenv("GITHUB_SHA"),
+        }
+        receipt["source"] = {
+            "repository": os.getenv("GITHUB_REPOSITORY"),
+            "revision": source_revision,
+            "expected_revision": expected_source_revision,
+            "exact_match": expected_source_revision is None or source_revision == expected_source_revision,
         }
         receipt["receipt_digest"] = evidence.receipt_digest(receipt)
         return receipt
