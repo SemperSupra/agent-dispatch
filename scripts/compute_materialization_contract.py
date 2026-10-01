@@ -65,12 +65,20 @@ def validate(registry: dict[str, Any]) -> dict[str, Any]:
         for row in rows:
             if not isinstance(row.get("source_fingerprint"), dict) or not row["source_fingerprint"]:
                 raise ContractError(f"{platform}/{row['version']}: source_fingerprint missing")
+            if platform == "truenas":
+                api_fp = row.get("api_schema_fingerprint")
+                if not isinstance(api_fp, dict) or not api_fp:
+                    raise ContractError(f"{platform}/{row['version']}: api_schema_fingerprint missing")
             for kind in ("container", "vm"):
                 adapters = row.get(f"{kind}_adapters")
                 if not isinstance(adapters, list) or not adapters:
                     raise ContractError(f"{platform}/{row['version']}: {kind}_adapters missing")
                 for adapter in adapters:
                     validate_adapter(adapter, platform, kind)
+                    if platform == "truenas":
+                        family = adapter.get("source_api_family")
+                        if not isinstance(family, str) or not family.startswith("v"):
+                            raise ContractError(f"{adapter['id']}: source_api_family missing")
                     key = (platform, row["version"], adapter["id"])
                     if key in seen_adapters:
                         raise ContractError(f"duplicate adapter in target: {key}")
@@ -173,6 +181,7 @@ def main() -> int:
             "kind": args.kind,
             "adapter": adapter,
             "source_fingerprint": row["source_fingerprint"],
+            "api_schema_fingerprint": row.get("api_schema_fingerprint"),
             "semantic_plan": semantic_plan(args.kind, adapter),
             "apply_authorized": False,
             "claim_boundary": "plan only; runtime apply requires separate bounded executor/authority",
