@@ -109,8 +109,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $out = Join-Path $PWD 'out/${{ matrix.rid }}'
-          dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
-          dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
+          if ($IsMacOS) {
+            $singleFile = @(
+              '-p:PublishSingleFile=true',
+              '-p:IncludeNativeLibrariesForSelfExtract=true',
+              '-p:EnableCompressionInSingleFile=true'
+            )
+            dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out @singleFile
+            dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out @singleFile
+          } else {
+            dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
+            dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
+          }
 
       - name: Bundle pinned Playwright Chromium runtime
         shell: pwsh
