@@ -23,12 +23,12 @@ public sealed class BrowserSession : IAsyncDisposable
     public const string Schema = "suprachat-browser-session/v1";
 
     private readonly IPlaywright _playwright;
-    private readonly IBrowser _browser;
+    private readonly IBrowser? _browser;
     private readonly IBrowserContext _context;
 
     private BrowserSession(
         IPlaywright playwright,
-        IBrowser browser,
+        IBrowser? browser,
         IBrowserContext context,
         IPage page)
     {
@@ -85,6 +85,42 @@ public sealed class BrowserSession : IAsyncDisposable
                 await browser.DisposeAsync();
                 throw;
             }
+        }
+        catch
+        {
+            playwright.Dispose();
+            throw;
+        }
+    }
+
+    public static async Task<BrowserSession> StartPersistentAsync(
+        string profileDirectory,
+        bool headless = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(profileDirectory))
+            throw new ArgumentException("A browser profile directory is required.", nameof(profileDirectory));
+
+        cancellationToken.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(profileDirectory);
+
+        if (Directory.Exists(BrowserDirectory))
+            Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", BrowserDirectory);
+
+        var playwright = await Playwright.CreateAsync();
+        try
+        {
+            var context = await playwright.Chromium.LaunchPersistentContextAsync(
+                profileDirectory,
+                new BrowserTypeLaunchPersistentContextOptions
+                {
+                    Headless = headless,
+                    AcceptDownloads = true
+                });
+
+            context.SetDefaultTimeout(15_000);
+            var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
+            return new BrowserSession(playwright, context.Browser, context, page);
         }
         catch
         {
@@ -182,7 +218,8 @@ public sealed class BrowserSession : IAsyncDisposable
         {
             try
             {
-                await _browser.DisposeAsync();
+                if (_browser is { IsConnected: true })
+                    await _browser.DisposeAsync();
             }
             finally
             {
