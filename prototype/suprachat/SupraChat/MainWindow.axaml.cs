@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _responsesWebSocketCts;
     private Task? _responsesWebSocketMonitorTask;
     private WindowsCompanionHotkey? _windowsCompanionHotkey;
+    private BrowserHost? _browserHost;
 
     public MainWindow()
     {
@@ -47,6 +48,296 @@ public partial class MainWindow : Window
         var registered = _windowsCompanionHotkey.TryRegister();
         if (!registered)
             AuthStatus.Text = $"Windows companion shortcut {WindowsCompanionHotkey.ShortcutDescription} is unavailable; another application may own it.";
+    }
+
+    private async Task<BrowserHost> EnsureBrowserHostAsync()
+    {
+        _browserHost ??= new BrowserHost();
+        if (!_browserHost.IsRunning)
+        {
+            await _browserHost.StartAsync(
+                BrowserHeadlessBox.IsChecked == true,
+                string.IsNullOrWhiteSpace(BrowserProfileBox.Text)
+                    ? "default"
+                    : BrowserProfileBox.Text.Trim());
+        }
+
+        return _browserHost;
+    }
+
+    private int BrowserPageIndex()
+    {
+        if (!int.TryParse(BrowserPageIndexBox.Text, out var index) || index < 0)
+            throw new InvalidOperationException("Browser page index must be a non-negative integer.");
+        return index;
+    }
+
+    private async void BrowserStart_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var host = await EnsureBrowserHostAsync();
+            BrowserStatus.Text =
+                $"Browser running · profile={BrowserProfileBox.Text} · headless={BrowserHeadlessBox.IsChecked == true} · runtime={BrowserHost.RuntimePath}";
+            BrowserOutputBox.Text = JsonSerializer.Serialize(
+                await host.ListPagesAsync(),
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            BrowserStatus.Text = $"Browser start failed: {ex.Message}";
+        }
+    }
+
+    private async void BrowserStop_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_browserHost is not null)
+        {
+            await _browserHost.DisposeAsync();
+            _browserHost = null;
+        }
+        BrowserStatus.Text = "Browser host is stopped.";
+    }
+
+    private async void BrowserListPages_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var pages = await (await EnsureBrowserHostAsync()).ListPagesAsync();
+            BrowserOutputBox.Text = JsonSerializer.Serialize(
+                pages,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserNewPage_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var info = await (await EnsureBrowserHostAsync())
+                .NewPageAsync(BrowserUrlBox.Text?.Trim());
+            BrowserPageIndexBox.Text = info.Index.ToString();
+            BrowserOutputBox.Text = JsonSerializer.Serialize(
+                info,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserNavigate_Click(object? sender, RoutedEventArgs e) =>
+        await RunBrowserInfoActionAsync(host =>
+            host.NavigateAsync(
+                BrowserPageIndex(),
+                BrowserUrlBox.Text?.Trim()
+                ?? throw new InvalidOperationException("Enter a URL.")));
+
+    private async void BrowserBack_Click(object? sender, RoutedEventArgs e) =>
+        await RunBrowserInfoActionAsync(host => host.GoBackAsync(BrowserPageIndex()));
+
+    private async void BrowserForward_Click(object? sender, RoutedEventArgs e) =>
+        await RunBrowserInfoActionAsync(host => host.GoForwardAsync(BrowserPageIndex()));
+
+    private async void BrowserReload_Click(object? sender, RoutedEventArgs e) =>
+        await RunBrowserInfoActionAsync(host => host.ReloadAsync(BrowserPageIndex()));
+
+    private async Task RunBrowserInfoActionAsync(
+        Func<BrowserHost, Task<BrowserPageInfo>> action)
+    {
+        try
+        {
+            var info = await action(await EnsureBrowserHostAsync());
+            BrowserOutputBox.Text = JsonSerializer.Serialize(
+                info,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserClosePage_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await (await EnsureBrowserHostAsync()).ClosePageAsync(BrowserPageIndex());
+            BrowserOutputBox.Text = "Page closed.";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserObserve_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var observation = await (await EnsureBrowserHostAsync()).ObserveAsync(
+                BrowserPageIndex(),
+                BrowserIncludeHtmlBox.IsChecked == true);
+            BrowserOutputBox.Text = JsonSerializer.Serialize(
+                observation,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserScreenshot_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var top = TopLevel.GetTopLevel(this)
+                ?? throw new InvalidOperationException("No desktop storage provider is available.");
+            var file = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save browser screenshot",
+                SuggestedFileName = "suprachat-browser.png"
+            });
+            if (file is null)
+                return;
+
+            var path = file.Path.LocalPath;
+            await (await EnsureBrowserHostAsync()).ScreenshotAsync(
+                BrowserPageIndex(),
+                path,
+                fullPage: true);
+            BrowserOutputBox.Text = $"Screenshot saved to {path}";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserClick_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await (await EnsureBrowserHostAsync()).ClickAsync(
+                BrowserPageIndex(),
+                BrowserSelectorBox.Text
+                ?? throw new InvalidOperationException("Enter a selector."));
+            BrowserOutputBox.Text = "Click completed.";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserFill_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await (await EnsureBrowserHostAsync()).FillAsync(
+                BrowserPageIndex(),
+                BrowserSelectorBox.Text
+                ?? throw new InvalidOperationException("Enter a selector."),
+                BrowserValueBox.Text ?? string.Empty);
+            BrowserOutputBox.Text = "Fill completed.";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserPress_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await (await EnsureBrowserHostAsync()).PressAsync(
+                BrowserPageIndex(),
+                BrowserSelectorBox.Text
+                ?? throw new InvalidOperationException("Enter a selector."),
+                BrowserValueBox.Text
+                ?? throw new InvalidOperationException("Enter a key name."));
+            BrowserOutputBox.Text = "Key press completed.";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserGrantPermissions_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var permissions = (BrowserPermissionsBox.Text ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            await (await EnsureBrowserHostAsync()).GrantPermissionsAsync(
+                permissions,
+                string.IsNullOrWhiteSpace(BrowserOriginBox.Text)
+                    ? null
+                    : BrowserOriginBox.Text.Trim());
+            BrowserOutputBox.Text = $"Granted: {string.Join(", ", permissions)}";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserClearPermissions_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await (await EnsureBrowserHostAsync()).ClearPermissionsAsync();
+            BrowserOutputBox.Text = "Browser permissions cleared.";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserTraceStart_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await (await EnsureBrowserHostAsync()).StartTracingAsync();
+            BrowserOutputBox.Text = "Tracing started.";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
+    }
+
+    private async void BrowserTraceStop_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var top = TopLevel.GetTopLevel(this)
+                ?? throw new InvalidOperationException("No desktop storage provider is available.");
+            var file = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save Playwright trace",
+                SuggestedFileName = "suprachat-trace.zip"
+            });
+            if (file is null)
+                return;
+
+            var path = file.Path.LocalPath;
+            await (await EnsureBrowserHostAsync()).StopTracingAsync(path);
+            BrowserOutputBox.Text = $"Trace saved to {path}";
+        }
+        catch (Exception ex)
+        {
+            BrowserOutputBox.Text = ex.ToString();
+        }
     }
 
     private async void RefreshMachineSurface_Click(object? sender, RoutedEventArgs e) =>
@@ -1087,6 +1378,11 @@ public partial class MainWindow : Window
         {
             _windowsCompanionHotkey?.Dispose();
             _windowsCompanionHotkey = null;
+            if (_browserHost is not null)
+            {
+                _browserHost.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                _browserHost = null;
+            }
             StopCodexAsync().GetAwaiter().GetResult();
             StopResponsesWebSocketAsync().GetAwaiter().GetResult();
         }
