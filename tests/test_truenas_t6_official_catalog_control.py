@@ -151,8 +151,11 @@ class OfficialCatalogT6ContractTests(unittest.TestCase):
 
     def test_probe_requires_observed_methods_and_noop_convergence(self):
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('"core.get_methods"', text)
-        self.assertIn("REQUIRED_METHODS - method_names", text)
+        self.assertIn('BOOTSTRAP_METHODS = {"core.get_methods"}', text)
+        self.assertIn('call("core.get_methods", [])', text)
+        self.assertIn('payload["bootstrap_probes"] = {"core.get_methods": True}', text)
+        self.assertIn("REQUIRED_DISCOVERED_METHODS - method_names", text)
+        self.assertNotIn('"core.get_methods",\n    "app.query"', text)
         self.assertGreaterEqual(text.count('"NOOP"'), 3)
         self.assertIn('"BLOCK_FOREIGN"', text)
         self.assertIn("refusing adopted official-catalog control state", text)
