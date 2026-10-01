@@ -40,16 +40,43 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $exe = Join-Path $PWD 'out/suprachat-win-x64/SupraChat.exe'
+          $startupLog = Join-Path $env:RUNNER_TEMP 'suprachat-startup.log'
+          $stdoutLog = Join-Path $env:RUNNER_TEMP 'suprachat-stdout.log'
+          $stderrLog = Join-Path $env:RUNNER_TEMP 'suprachat-stderr.log'
           if (!(Test-Path $exe)) { throw "SupraChat.exe missing" }
-          $p = Start-Process -FilePath $exe -PassThru
+
+          $env:SUPRACHAT_STARTUP_LOG = $startupLog
+          $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
           Start-Sleep -Seconds 8
-          if ($p.HasExited) { throw "SupraChat exited during launch smoke with code $($p.ExitCode)" }
+
+          if ($p.HasExited) {
+            Write-Host "SupraChat exited during launch smoke with code $($p.ExitCode)"
+            if (Test-Path $startupLog) {
+              Write-Host '--- managed startup log ---'
+              Get-Content $startupLog
+            } else {
+              Write-Host 'No managed startup log was created; failure may precede managed Main.'
+            }
+            if (Test-Path $stdoutLog) {
+              Write-Host '--- stdout ---'
+              Get-Content $stdoutLog
+            }
+            if (Test-Path $stderrLog) {
+              Write-Host '--- stderr ---'
+              Get-Content $stderrLog
+            }
+            Write-Host '--- publish directory ---'
+            Get-ChildItem (Split-Path $exe) | Select-Object Name,Length | Format-Table -AutoSize
+            throw "SupraChat self-contained launch failed with code $($p.ExitCode)"
+          }
+
           Stop-Process -Id $p.Id -Force
-          "SupraChat remained alive through an 8-second Windows launch smoke."
+          "SupraChat remained alive through an 8-second self-contained Windows launch smoke."
 
       - name: Upload Windows MVP
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && success()
         uses: actions/upload-artifact@v4
         with:
           name: suprachat-windows-x64
