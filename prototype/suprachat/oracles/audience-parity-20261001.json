@@ -245,6 +245,57 @@
       "notes": "Named GUI/CLI/JSON-RPC probes map to bundled Codex plugin/list."
     },
     {
+      "id": "permission_profile_catalog",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Reading permission profiles requires the existing authorized local runtime but does not change permission policy.",
+      "notes": "GUI, CLI permission-profiles, and JSON-RPC permissions/profiles map to read-only Codex permissionProfile/list."
+    },
+    {
+      "id": "app_connector_catalog",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Catalog reads never install, authorize, enable, or mutate apps/connectors.",
+      "notes": "GUI, CLI apps, and JSON-RPC apps/list map to read-only Codex app/list with default parameters."
+    },
+    {
+      "id": "windows_sandbox_readiness",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "not_applicable",
+        "linux": "not_applicable"
+      },
+      "human_boundary": "Readiness reads do not start sandbox setup or change the selected sandbox implementation.",
+      "notes": "GUI, CLI sandbox-readiness, and JSON-RPC sandbox/readiness map to Codex windowsSandbox/readiness."
+    },
+    {
       "id": "accessibility_contract",
       "consequential": true,
       "access": {
