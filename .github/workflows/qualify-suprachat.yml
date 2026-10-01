@@ -201,3 +201,50 @@ jobs:
           path: out/${{ matrix.rid }}/
           if-no-files-found: error
           retention-days: 7
+
+
+  linux-desktop-oracle-census:
+    name: Linux ChatGPT desktop runtime deep census
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Recover and decompose official Linux desktop packages
+        shell: bash
+        run: bash prototype/suprachat/tools/census_linux_desktop.sh
+      - name: Upload Linux clean-room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-linux-deep-runtime-census
+          path: out/desktop-oracle/linux/
+          if-no-files-found: error
+          retention-days: 7
+
+  macos-desktop-oracle-census:
+    name: macOS ChatGPT desktop runtime deep census
+    runs-on: macos-26
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Recover and decompose official macOS desktop applications
+        shell: bash
+        run: bash prototype/suprachat/tools/census_macos_desktop.sh
+      - name: Upload macOS clean-room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-macos-deep-runtime-census
+          path: out/desktop-oracle/macos/
+          if-no-files-found: error
+          retention-days: 7
