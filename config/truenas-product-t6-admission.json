@@ -1,0 +1,125 @@
+{
+  "schema": "gha-kvm-truenas-product-t6-admission/v1",
+  "authority": "SemperSupra/truenas-app-foundry-private#282",
+  "parent_materialization_authority": "SemperSupra/truenas-app-foundry-private#274",
+  "target_registry": "config/truenas-rdte-targets.json",
+  "policy": {
+    "exact_target_coverage_required": true,
+    "exact_producer_ref_required": true,
+    "exact_probe_blob_required": true,
+    "generic_control_acceptance_required_before_legacy_stable_admission": true,
+    "source_similarity_does_not_promote_runtime_admission": true,
+    "workflow_green_not_acceptance": true
+  },
+  "products": [
+    {
+      "id": "litellm",
+      "matrix_id": "litellm-app",
+      "product_authority": "SemperSupra/truenas-app-foundry-private#262",
+      "producer": {
+        "repo": "SemperSupra/truenas-app-foundry",
+        "ref": "4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba",
+        "workflow": ".github/workflows/export-litellm-t6-control.yml",
+        "workflow_blob_sha": "965a080ffcc71851ec22f108b3180e7281936a53"
+      },
+      "consumer": {
+        "path": "scripts/truenas_middleware_litellm_t6_probe.py",
+        "blob_sha": "af6065bf42463e1a3d18ff565ee39742699729ea"
+      },
+      "target_admission": {
+        "25.04.1": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "25.04.2.6": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "25.10.7": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "26.0.0-BETA.3": {
+          "status": "ADMITTED_EXISTING",
+          "evidence": {
+            "authority_issue": 262,
+            "note": "existing product-specific T6 lane; runtime qualification still receipt-driven"
+          }
+        }
+      }
+    },
+    {
+      "id": "wow-sidecar",
+      "matrix_id": "wow-sidecar-truenas-app",
+      "product_authority": "SemperSupra/truenas-app-foundry-private#276",
+      "producer": {
+        "repo": "SemperSupra/truenas-app-foundry",
+        "ref": "9ac2eef97581caff5b0de740560c55a778fa3f1c",
+        "workflow": ".github/workflows/export-wow-sidecar-t6-control.yml",
+        "workflow_blob_sha": "a554f3490e9b6fed005e28acbb2d6be48a1fa418"
+      },
+      "consumer": {
+        "path": "scripts/truenas_middleware_wow_sidecar_t6_probe.py",
+        "blob_sha": "37bb3e3a2f7618f6495e7211cc1521afeb5d0886"
+      },
+      "target_admission": {
+        "25.04.1": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "25.04.2.6": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "25.10.7": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "26.0.0-BETA.3": {
+          "status": "ADMITTED_EXISTING",
+          "evidence": {
+            "authority_issue": 276,
+            "note": "existing product-specific T6 lane; runtime qualification still receipt-driven"
+          }
+        }
+      }
+    },
+    {
+      "id": "garm",
+      "matrix_id": "garm-controller-app",
+      "product_authority": "SemperSupra/truenas-app-foundry-private#277",
+      "producer": {
+        "repo": "SemperSupra/truenas-app-foundry",
+        "ref": "7fd0d2474248b61cf8e290fc80f40b761cea5e98",
+        "workflow": ".github/workflows/export-garm-t6-control.yml",
+        "workflow_blob_sha": "ea9f2fbb7f72be333bbad8c0565b420e98d4e3b9"
+      },
+      "consumer": {
+        "path": "scripts/truenas_middleware_garm_t6_probe.py",
+        "blob_sha": "c0d54202c0f9129710370b67fd4fcdfac2937160"
+      },
+      "target_admission": {
+        "25.04.1": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "25.04.2.6": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "25.10.7": {
+          "status": "HOLD_GENERIC_CONTROL",
+          "evidence": null
+        },
+        "26.0.0-BETA.3": {
+          "status": "ADMITTED_EXISTING",
+          "evidence": {
+            "authority_issue": 277,
+            "note": "existing product-specific T6 lane; runtime qualification still receipt-driven"
+          }
+        }
+      }
+    }
+  ],
+  "claim_boundary": "Admission controls whether a product-specific T6 rep may execute. It does not itself qualify any product/target matrix cell."
+}
