@@ -46,6 +46,13 @@ public static class AccessibilityContract
             Protocol: "json-rpc-2.0-stdio",
             SemanticMethods: true,
             HumanConsentBoundariesPreserved: true),
+        new AccessibilityConsequentialInteraction(
+            TranscriptForSpokenOutputRequired: true,
+            TextEquivalentForAudioOnlyStateRequired: true,
+            TextEquivalentForVisualOnlyStateRequired: true,
+            StructuredPermissionStateRequired: true,
+            KeyboardReachableStopCancelRequired: true,
+            MachineReadableOperationalStateRequired: true),
         new AccessibilityQualification(
             ContractDocument: "ACCESSIBILITY.md",
             AccessibilityRegressionIsFailure: true));
@@ -64,6 +71,7 @@ public sealed record AccessibilityDescriptor(
     AccessibilityHuman Human,
     AccessibilityAutomation Automation,
     AccessibilityAgent Agent,
+    AccessibilityConsequentialInteraction ConsequentialInteraction,
     AccessibilityQualification Qualification);
 
 public sealed record AccessibilityHuman(
@@ -97,6 +105,14 @@ public sealed record AccessibilityAgent(
     string Protocol,
     bool SemanticMethods,
     bool HumanConsentBoundariesPreserved);
+
+public sealed record AccessibilityConsequentialInteraction(
+    bool TranscriptForSpokenOutputRequired,
+    bool TextEquivalentForAudioOnlyStateRequired,
+    bool TextEquivalentForVisualOnlyStateRequired,
+    bool StructuredPermissionStateRequired,
+    bool KeyboardReachableStopCancelRequired,
+    bool MachineReadableOperationalStateRequired);
 
 public sealed record AccessibilityQualification(
     string ContractDocument,
