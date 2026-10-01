@@ -122,6 +122,17 @@ class GarmProviderG2Tests(unittest.TestCase):
         self.assertIn("app.config", methods)
         self.assertNotIn("app.start", methods)
 
+    def test_fixture_cleanup_is_registered_before_materialization(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        valid = text.split('for key in ("valid_local", "valid_foreign"):', 1)[1].split(
+            'local_name = fixtures["valid_local"]["app_name"]', 1
+        )[0]
+        self.assertLess(
+            valid.index("fixture_names.append(name)"),
+            valid.index("create_app_stopped_with_exact_config"),
+        )
+        self.assertIn("fixture app remains after delete", text)
+
     def test_stopped_update_contract_is_explicitly_documented(self):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("existing App is STOPPED", text)
