@@ -395,6 +395,9 @@ public partial class MainWindow : Window
             AuthStatus.Text =
                 $"Direct interview completed. Events={result.EventTypes.Count}; " +
                 $"request_id={result.RequestId ?? "unknown"}; redacted receipt={Path.GetFileName(receiptPath)}";
+
+            if (OperatingSystem.IsWindows() && !IsActive)
+                WindowsNotificationService.TryNotify(this, "SupraChat", "Direct response completed.");
         }
         catch (Exception ex)
         {
@@ -557,6 +560,9 @@ public partial class MainWindow : Window
             AuthStatus.Text =
                 $"Codex interview completed. provider={result.ModelProvider}; thread={Short(result.ThreadId)}; " +
                 $"turn={Short(result.TurnId)}; redacted receipt={Path.GetFileName(receiptPath)}";
+
+            if (OperatingSystem.IsWindows() && !IsActive)
+                WindowsNotificationService.TryNotify(this, "SupraChat", "Codex response completed.");
         }
         catch (Exception ex)
         {
