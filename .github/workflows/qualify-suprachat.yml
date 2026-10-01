@@ -352,6 +352,31 @@ jobs:
             throw 'Packaged agent browser semantic snapshot contract failed.'
           }
 
+          $browserCapture = Join-Path $env:RUNNER_TEMP 'suprachat-browser.png'
+          $browserCaptureJson = & $cli browser-screenshot --url https://example.com/ --output $browserCapture
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $browserCapture) -or (Get-Item $browserCapture).Length -le 0) {
+            throw 'Packaged automation browser screenshot fallback failed.'
+          }
+          $browserCaptureDoc = $browserCaptureJson | ConvertFrom-Json
+          if (-not $browserCaptureDoc.ok -or $browserCaptureDoc.value.schema -ne 'suprachat-browser-screenshot/v1') {
+            throw 'Packaged automation browser screenshot receipt failed.'
+          }
+
+          $rawNoConfirmRequest = '{"jsonrpc":"2.0","id":"raw-no-confirm","method":"browser/pointer/click","params":{"x":5,"y":5}}'
+          $rawNoConfirmRpc = $rawNoConfirmRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent raw browser confirmation probe failed.' }
+          $rawNoConfirmDoc = ($rawNoConfirmRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($rawNoConfirmDoc.error.data.type -ne 'CONFIRMATION_REQUIRED') {
+            throw 'Raw browser coordinate input did not require explicit confirmation.'
+          }
+
+          $keyJson = & $cli browser-key --confirm --url https://example.com/ --key Tab
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged automation confirmed browser key fallback failed.' }
+          $keyDoc = $keyJson | ConvertFrom-Json
+          if (-not $keyDoc.ok -or [string]::IsNullOrWhiteSpace($keyDoc.value.aria_snapshot)) {
+            throw 'Confirmed browser key fallback did not return a semantic post-action snapshot.'
+          }
+
           $parityRequest = '{"jsonrpc":"2.0","id":"parity","method":"parity/read"}'
           $parityRpc = $parityRequest | & $cli stdio 2>$null
           if ($LASTEXITCODE -ne 0) { throw 'Packaged agent parity/read failed.' }
