@@ -17,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|official-catalog] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA]"
 }
 
 OUT=""
@@ -50,8 +50,10 @@ TARGET_ENV="$(python3 "$SCRIPT_DIR/truenas_rdte_target.py" --registry "$TARGET_R
 eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
 if [[ "$RUNG" == "t6" ]]; then
-  [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "T6 is currently admitted only for exact TrueNAS 26.0.0-BETA.3; use Foundry F1-F5 for other targets" >&2; exit 2; }
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  if [[ "$T6_PRODUCT" != "official-catalog" ]]; then
+    [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
+  fi
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "official-catalog" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
     [[ -n "$G2_FIXTURE_DIR" && -d "$G2_FIXTURE_DIR" ]] || { echo "garm-provider-g2 requires --g2-fixture-dir" >&2; exit 2; }
     [[ "$G2_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g2 requires exact --g2-fixture-producer SHA" >&2; exit 2; }
@@ -133,6 +135,8 @@ payload = {
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "garm"
       else {"name": "rdte-t6-wow-sidecar", "image": "ghcr.io/sempersupra/wow-sidecar@sha256:6b700ce7ba5ae44116b240ccbb54fb3b60dc952a9b4072ca1314b6f311bc5376"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "wow-sidecar"
+      else {"name": "rdte-t6-catalog-ntfy", "catalog_app": "ntfy", "catalog_version": "1.1.21"}
+      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "official-catalog"
       else {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
       if os.environ.get("R_RUNG") == "t6"
       else {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"}
@@ -222,7 +226,10 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T5 lifecycle client"
   fi
   if [[ "$RUNG" == "t6" ]]; then
-    if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+    if [[ "$T6_PRODUCT" == "official-catalog" ]]; then
+      [[ -f "$SCRIPT_DIR/truenas_middleware_official_catalog_t6_probe.py" ]] ||
+        fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 official-catalog control client"
+    elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_garm_provider_g2_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS GARM provider G2 client"
       command -v docker >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: docker"
@@ -635,7 +642,15 @@ if [[ "$RUNG" == "t5" ]]; then
 fi
 
 FOUNDRY_OUT="$STATE_DIR/foundry-control.json"
-if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+if [[ "$T6_PRODUCT" == "official-catalog" ]]; then
+  python3 "$SCRIPT_DIR/truenas_middleware_official_catalog_t6_probe.py" \
+    --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+    "${MIDDLEWARE_TLS_ARG[@]}" \
+    --password-file "$PASSWORD_FILE" \
+    --control-dir "$FOUNDRY_CONTROL_DIR" \
+    --foundry-commit "$FOUNDRY_COMMIT" \
+    --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
+elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_provider_g2_probe.py" \
     --host 127.0.0.1 --http-port "$HTTP_PORT" --https-port "$HTTPS_PORT" \
     --password-file "$PASSWORD_FILE" \
@@ -678,7 +693,9 @@ PY
 [[ "$FOUNDRY_OK" == "true" ]] ||
   fail_evidence ORACLE_FAILURE foundry-materialization "exact Foundry-exported $T6_PRODUCT control did not realize and verify on TrueNAS"
 
-if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+if [[ "$T6_PRODUCT" == "official-catalog" ]]; then
+  write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported native catalog control passed observe/discover-plan-apply-verify convergence, stop/start, config update/read-back, redeploy, conditional native-upgrade receipt, retain-data delete/reinstall, NOOP convergence, and final cleanup"
+elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact packaged GARM TrueNAS provider passed verified WSS/API-key transport, valid local adoption, foreign exclusion, managed-drift fail-closed behavior, fresh-process readoption, and zero-residue cleanup; provider create/delete and GitHub/JIT intentionally not exercised"
 elif [[ "$T6_PRODUCT" == "garm" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported GARM controller control passed exact appliance and secret-normalized config read-back, persistent state, external HTTPS, restart persistence, and zero-residue cleanup; GitHub/JIT registration intentionally not exercised"
