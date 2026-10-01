@@ -144,6 +144,38 @@
           </StackPanel>
         </ScrollViewer>
       </TabItem>
+
+      <TabItem Header="Automation &amp; Agents">
+        <ScrollViewer>
+          <StackPanel Margin="20" Spacing="10" MaxWidth="1000">
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Human · Automation · Agent access" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="SupraChat exposes one capability core through three shells: this desktop GUI for humans, deterministic JSON commands for automation, and line-delimited JSON-RPC over stdio for agents. Interactive authorization remains a human boundary; authorized machine use shares the protected local grant." />
+
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Refresh readiness" Click="RefreshMachineSurface_Click" />
+              <Button Margin="0,0,8,8" Content="Open local state folder" Click="OpenStateFolder_Click" />
+            </WrapPanel>
+
+            <TextBlock FontWeight="SemiBold" Text="Readiness" />
+            <TextBlock x:Name="MachineStatus" TextWrapping="Wrap" Text="Checking machine surfaces…" />
+
+            <TextBlock FontWeight="SemiBold" Text="Packaged automation executable" />
+            <TextBox x:Name="MachineExecutablePathBox" IsReadOnly="True" TextWrapping="Wrap" />
+
+            <TextBlock FontWeight="SemiBold" Text="Portable automation examples" />
+            <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="155"
+                     Text="suprachat-cli capabilities&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot;&#10;suprachat-cli codex-rpc --method model/list --params {}" />
+
+            <TextBlock FontWeight="SemiBold" Text="Agent stdio JSON-RPC" />
+            <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="125"
+                     Text="suprachat-cli stdio&#10;&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;capabilities/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:2,&quot;method&quot;:&quot;codex/start&quot;}" />
+
+            <TextBlock TextWrapping="Wrap"
+                       Text="Agent mode also emits asynchronous responses/ws/event and codex/event notifications. It never auto-approves Codex server requests; clients must explicitly respond or reject according to their authority." />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
     </TabControl>
   </Grid>
 </Window>
