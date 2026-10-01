@@ -14,8 +14,9 @@ It proves only that a fresh public GitHub-hosted runner can:
 1. acquire the current standalone VS Code CLI;
 2. expose the expected Remote Tunnel command/flag contract;
 3. reach `vscode.dev`;
-4. reach the Microsoft Dev Tunnels relay endpoint; and
-5. retain a public-safe receipt with no login code or credential material.
+4. reach the Microsoft Dev Tunnels relay endpoint;
+5. observe structured local tunnel status showing no pre-existing running tunnel or installed tunnel service; and
+6. retain a public-safe receipt with no login code or credential material.
 
 The actual installed CLI is the oracle. Documentation/source observations inform the
 experiment but do not replace the runtime receipt.
@@ -65,3 +66,14 @@ Therefore pre-auth qualification checks only that the tunnel's
 `--install-extension` surface is present. Actual Marketplace download/install and remote
 extension-host activation are verified only during a live authenticated tunnel rep.
 
+
+## Clean-start status oracle
+
+The pre-auth rung also runs `code tunnel status` before any login. A fresh public runner
+must emit the current structured JSON contract with:
+- `tunnel=null`; and
+- `service_installed=false`.
+
+This is deliberately credential-free. It qualifies the status shape and clean-start
+assumption consumed by the private Colab/GHA startup and teardown oracles; it does not
+claim that a live tunnel has been registered or that remote deletion has been exercised.
