@@ -28,6 +28,12 @@ PVE_QEMU_PACKAGE_SOURCE = {
     "commit": "684796e835289dab11af8606fbf7358b93526dd6",
     "package_version": "11.0.0-3",
 }
+PVE_MANAGER_API_SOURCE = {
+    "repository": "proxmox/pve-manager",
+    "commit": "b9984c6d90a4bd80",
+    "apt_api_blob": "9cb6e473436719f3024ac09fffaad8faf0d7160d",
+    "manager_version": "9.2.2",
+}
 
 
 
@@ -196,6 +202,7 @@ def main() -> int:
         "source_contract":{
             "pve_container":PVE_CONTAINER_SOURCE,
             "pve_qemu_package":PVE_QEMU_PACKAGE_SOURCE,
+            "pve_manager_api":PVE_MANAGER_API_SOURCE,
             "qemu_server_api":"OPEN: exact installed qemu-server package/source identity must be observed and admitted before VM apply",
         },
     }
@@ -249,10 +256,19 @@ def main() -> int:
                 x for x in receipt["package_census"]
                 if x.get("Package")=="qemu-server"
             ]
-            versions={str(x.get("Version")) for x in observed_qemu if x.get("Version")}
-            if a.expected_qemu_server_version not in versions:
+            installed_versions={
+                str(x.get("OldVersion")) for x in observed_qemu
+                if x.get("CurrentState")=="Installed" and x.get("OldVersion")
+            }
+            available_versions={str(x.get("Version")) for x in observed_qemu if x.get("Version")}
+            receipt["qemu_server_package_observation"]={
+                "installed_versions":sorted(installed_versions),
+                "available_versions":sorted(available_versions),
+            }
+            if a.expected_qemu_server_version not in installed_versions:
                 raise ProxmoxProbeError(
-                    f"VM apply blocked: expected qemu-server {a.expected_qemu_server_version!r}, observed {sorted(versions)!r}"
+                    f"VM apply blocked: expected installed qemu-server {a.expected_qemu_server_version!r}, "
+                    f"observed installed {sorted(installed_versions)!r}; available={sorted(available_versions)!r}"
                 )
         base=f"/nodes/{node}/{'lxc' if a.kind=='container' else 'qemu'}"
         rows=api.get(base)
