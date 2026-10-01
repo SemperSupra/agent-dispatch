@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-005-workflow-ref-reconcile",
-  "version": "25.04.1",
+  "request_id": "tn-25.04.2.6-t6-official-catalog-006-user-schema-projection",
+  "version": "25.04.2.6",
   "rung": "t6",
   "product": "official-catalog",
   "authority_issue": 411,
   "consumer_authority_issue": 281,
-  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after reconciling the workflow reusable-exporter ref, harness foundry_commit argument, and probe EXPECTED_FOUNDRY_REF to schema-projected producer 6a924585dc17c4b90cb942282ac3a642532d0b85."
+  "purpose": "Qualify exact TrueNAS 25.04.2.6 native official-catalog ntfy T6 using the same exact user-schema-projected Foundry control only after 25.04.1 rep 005 is receipt-accepted."
 }
