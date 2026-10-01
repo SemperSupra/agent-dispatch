@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-006-primary-service-health",
+  "request_id": "tn-25.04.1-t6-official-catalog-007-pool-wss-budget",
   "version": "25.04.1",
   "rung": "t6",
   "product": "official-catalog",
   "authority_issue": 411,
   "consumer_authority_issue": 281,
-  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after correcting the runtime-health oracle to require the owned primary service running while allowing completed one-shot helper containers such as permissions."
+  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after hardening the generic pool probe for slower WSS read latency; app producer and primary-service health oracle are unchanged from rep 006."
 }
