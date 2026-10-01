@@ -201,13 +201,13 @@ jobs:
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
           }
-          foreach ($method in @('realtime/voices','remote/status','plugins/list')) {
+          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
             if ($capDoc.value.machine_methods -notcontains $method) {
               throw "Semantic machine method missing from capabilities: $method"
             }
           }
 
-          foreach ($command in @('voices','remote-status','plugins')) {
+          foreach ($command in @('voices','remote-status','plugins','permission-profiles','apps','sandbox-readiness')) {
             $probe = & $cli $command 2>$null
             $probeExit = $LASTEXITCODE
             if ($probeExit -ne 3) {
@@ -272,7 +272,7 @@ jobs:
             throw 'Packaged agent parity contract failed.'
           }
 
-          foreach ($method in @('realtime/voices','remote/status','plugins/list')) {
+          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
             $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
             $semanticRpc = $semanticRequest | & $cli stdio 2>$null
             if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic method: $method" }
