@@ -131,3 +131,26 @@ Automation/agent:
 5. When an interaction is intrinsically human (OAuth consent, destructive approval, sensitive permission), machine shells return a typed boundary state instead of bypassing it.
 6. Machine schemas are versioned. Breaking changes require a new schema/method version rather than silent reinterpretation.
 7. CI qualifies all three audience shells on every packaged desktop target.
+
+
+## R2/R3 audience parity
+
+### Local plugins
+
+The same local Codex marketplace is exposed to all audiences:
+
+- Human: Agent Lab buttons for add/list/install/read/uninstall/remove.
+- Automation: `marketplace-info`, `marketplace-add`, `plugins-list`, `diagnostics-install`, `diagnostics-read`, `diagnostics-uninstall`, `marketplace-remove`.
+- Agent: `marketplace/info`, `marketplace/add`, `marketplace/remove`, `plugin/list-local`, `plugin/install-diagnostics`, `plugin/read-diagnostics`, `plugin/uninstall-diagnostics`.
+
+These operations are local and do not require ChatGPT-plan authorization.
+
+### Browser
+
+The same Playwright browser host is exposed to all audiences:
+
+- Human: Browser Lab controls.
+- Automation: `browser-observe`, `browser-screenshot`; multi-step automation may also use stdio.
+- Agent: sessionful `browser/*` JSON-RPC methods covering lifecycle, pages, navigation, observation, screenshot, input, upload, permissions, trace, and evaluation.
+
+Browser state is app-owned. Authorization into a site is performed in that browser profile by the user/workflow; SupraChat does not import ChatGPT cookies from another client.
