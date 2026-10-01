@@ -85,6 +85,12 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         self.assertNotIn('root_tar = work / "rootfs.tar"', source)
         self.assertNotIn('"docker", "export", "-o"', source)
 
+    def test_rootfs_cleanup_does_not_mask_primary_failure(self):
+        source = SCRIPT.read_text()
+        self.assertIn("primary_exc: Exception | None = None", source)
+        self.assertIn("staging cleanup also failed", source)
+        self.assertIn("raise primary_exc", source)
+
 
 if __name__ == "__main__":
     unittest.main()
