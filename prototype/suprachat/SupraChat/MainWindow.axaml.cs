@@ -553,7 +553,7 @@ public partial class MainWindow : Window
                 $"request_id={result.RequestId ?? "unknown"}; redacted receipt={Path.GetFileName(receiptPath)}";
 
             if (OperatingSystem.IsWindows() && !IsActive)
-                WindowsNotificationService.TryNotify(this, "SupraChat", "Direct response completed.");
+                DesktopNotificationService.TryNotify(this, "SupraChat", "Direct response completed.");
         }
         catch (Exception ex)
         {
@@ -718,7 +718,7 @@ public partial class MainWindow : Window
                 $"turn={Short(result.TurnId)}; redacted receipt={Path.GetFileName(receiptPath)}";
 
             if (OperatingSystem.IsWindows() && !IsActive)
-                WindowsNotificationService.TryNotify(this, "SupraChat", "Codex response completed.");
+                DesktopNotificationService.TryNotify(this, "SupraChat", "Codex response completed.");
         }
         catch (Exception ex)
         {
