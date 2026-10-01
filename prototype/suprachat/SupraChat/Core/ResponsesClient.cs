@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace SupraChat.Core;
 
@@ -72,14 +73,56 @@ public sealed class ResponsesClient
         string input,
         IEnumerable<ResponseAttachment>? attachments = null,
         bool enableWebSearch = false,
-        Action<string>? onDelta = null)
+        Action<string>? onDelta = null) =>
+        await SendStreamAsync(
+            accessToken,
+            SiwcProtocol.BuildResponsesBody(model, input, attachments, enableWebSearch),
+            onDelta,
+            onEvent: null).ConfigureAwait(false);
+
+    public Task<StreamedResponse> StreamTextAsync(
+        string accessToken,
+        string model,
+        string input,
+        Action<string>? onDelta = null) =>
+        StreamAsync(accessToken, model, input, null, false, onDelta);
+
+    public Task<StreamedResponse> StreamRawAsync(
+        string accessToken,
+        string defaultModel,
+        string rawJson,
+        Action<string>? onDelta = null,
+        Action<string, string>? onEvent = null) =>
+        SendStreamAsync(
+            accessToken,
+            NormalizeRawResponsesBody(rawJson, defaultModel),
+            onDelta,
+            onEvent);
+
+    public static string NormalizeRawResponsesBody(string rawJson, string defaultModel)
+    {
+        var root = JsonNode.Parse(rawJson) as JsonObject
+            ?? throw new ArgumentException("Raw Responses body must be a JSON object.", nameof(rawJson));
+
+        if (!root.ContainsKey("model") || root["model"] is null)
+            root["model"] = defaultModel;
+
+        // Current ChatGPT-plan sharing contract requires these exact values.
+        root["store"] = false;
+        root["stream"] = true;
+
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private async Task<StreamedResponse> SendStreamAsync(
+        string accessToken,
+        string body,
+        Action<string>? onDelta,
+        Action<string, string>? onEvent)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "responses");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-        request.Content = new StringContent(
-            SiwcProtocol.BuildResponsesBody(model, input, attachments, enableWebSearch),
-            Encoding.UTF8,
-            "application/json");
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         var requestId = response.Headers.TryGetValues("x-request-id", out var ids)
@@ -88,8 +131,8 @@ public sealed class ResponsesClient
 
         if (!response.IsSuccessStatusCode)
         {
-            var body = await response.Content.ReadAsStringAsync();
-            throw BuildHttpFailure("Responses request", response, body);
+            var responseBody = await response.Content.ReadAsStringAsync();
+            throw BuildHttpFailure("Responses request", response, responseBody);
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync();
@@ -111,7 +154,10 @@ public sealed class ResponsesClient
             var root = doc.RootElement;
             var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
             if (!string.IsNullOrWhiteSpace(type))
+            {
                 eventTypes.Add(type);
+                onEvent?.Invoke(type, payload);
+            }
 
             if (type == "response.output_text.delta" && root.TryGetProperty("delta", out var d))
             {
@@ -144,13 +190,6 @@ public sealed class ResponsesClient
             eventTypes.OrderBy(x => x, StringComparer.Ordinal).ToArray(),
             requestId);
     }
-
-    public Task<StreamedResponse> StreamTextAsync(
-        string accessToken,
-        string model,
-        string input,
-        Action<string>? onDelta = null) =>
-        StreamAsync(accessToken, model, input, null, false, onDelta);
 
     private static Exception BuildHttpFailure(
         string operation,
