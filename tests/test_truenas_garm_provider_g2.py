@@ -138,6 +138,12 @@ class GarmProviderG2Tests(unittest.TestCase):
         self.assertIn("existing App is STOPPED", text)
         self.assertIn('"app.update"', text)
         self.assertIn('"runner_fixture_bootstrap_not_started": True', text)
+        self.assertEqual(
+            MOD.EXPECTED_TRUENAS_MIDDLEWARE_SOURCE,
+            "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
+        )
+        self.assertIn('"truenas_middleware_source": EXPECTED_TRUENAS_MIDDLEWARE_SOURCE', text)
+        self.assertIn('"stopped_update_contract":', text)
 
     def test_tls_path_is_verified_and_ephemeral(self):
         text = SCRIPT.read_text(encoding="utf-8")
