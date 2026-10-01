@@ -16,6 +16,20 @@ from typing import Any
 class ProxmoxProbeError(RuntimeError):
     pass
 
+PVE_CONTAINER_SOURCE = {
+    "repository": "proxmox/pve-container",
+    "commit": "5eb5574ee9158ac40a5230de2cf18d7d6345709f",
+    "lxc_api_blob": "c9d7f847bfcfda60d39086d516fbf5e1e3c39503",
+    "lxc_status_api_blob": "c95fc3c7732d637639ab29e496bc27eafb9d222d",
+    "package_version": "6.1.10",
+}
+PVE_QEMU_PACKAGE_SOURCE = {
+    "repository": "proxmox/pve-qemu",
+    "commit": "684796e835289dab11af8606fbf7358b93526dd6",
+    "package_version": "11.0.0-3",
+}
+
+
 
 @dataclass
 class Response:
@@ -162,6 +176,8 @@ def main() -> int:
     p.add_argument("--kind", choices=["container","vm"], required=True)
     p.add_argument("--vmid", type=int, default=9101)
     p.add_argument("--template")
+    p.add_argument("--observe-only", action="store_true")
+    p.add_argument("--expected-qemu-server-version")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--out", type=pathlib.Path)
     a=p.parse_args()
@@ -177,6 +193,11 @@ def main() -> int:
         "claim_boundary":"C0/V0 product REST lifecycle only; guest workload oracle remains separate",
         "cleanup":{"attempted":False,"absent":False},
         "tasks":{},
+        "source_contract":{
+            "pve_container":PVE_CONTAINER_SOURCE,
+            "pve_qemu_package":PVE_QEMU_PACKAGE_SOURCE,
+            "qemu_server_api":"OPEN: exact installed qemu-server package/source identity must be observed and admitted before VM apply",
+        },
     }
     def emit(code:int)->int:
         payload=json.dumps(receipt,indent=2,sort_keys=True)+"\n"
@@ -187,11 +208,11 @@ def main() -> int:
     try:
         plan=plan_only(a.kind,a.vmid,a.template)
         receipt["plan"]=plan
-        if not a.apply:
+        if not a.apply and not a.observe_only:
             receipt.update({"classification":"SUPPORTED","oracleSatisfied":True,"phase":"plan-only"})
             return emit(0)
         if not a.password_file:
-            raise ProxmoxProbeError("--apply requires --password-file")
+            raise ProxmoxProbeError("--apply/--observe-only requires --password-file")
         password=a.password_file.read_text(encoding="utf-8").strip()
         if not password:
             raise ProxmoxProbeError("password file empty")
@@ -201,6 +222,38 @@ def main() -> int:
         receipt["pve_version"]=version
         node=node_name(api)
         receipt["node"]=node
+        try:
+            package_rows=api.get(f"/nodes/{node}/apt/versions")
+        except ProxmoxProbeError as package_exc:
+            package_rows=[]
+            receipt["package_census_error"]=str(package_exc)
+        receipt["package_census"]=[
+            x for x in (package_rows or [])
+            if isinstance(x,dict) and x.get("Package") in {"pve-container","pve-qemu-kvm","qemu-server","pve-manager"}
+        ]
+        if a.observe_only:
+            receipt.update({
+                "classification":"SUPPORTED",
+                "oracleSatisfied":True,
+                "phase":"observe-only",
+                "detail":"authenticated PVE API/version/package census completed without compute mutation",
+            })
+            return emit(0)
+        if a.kind=="vm" and not a.expected_qemu_server_version:
+            raise ProxmoxProbeError(
+                "VM apply blocked: exact qemu-server API package/source identity is not admitted; "
+                "run --observe-only and bind the observed package before mutation"
+            )
+        if a.kind=="vm":
+            observed_qemu=[
+                x for x in receipt["package_census"]
+                if x.get("Package")=="qemu-server"
+            ]
+            versions={str(x.get("Version")) for x in observed_qemu if x.get("Version")}
+            if a.expected_qemu_server_version not in versions:
+                raise ProxmoxProbeError(
+                    f"VM apply blocked: expected qemu-server {a.expected_qemu_server_version!r}, observed {sorted(versions)!r}"
+                )
         base=f"/nodes/{node}/{'lxc' if a.kind=='container' else 'qemu'}"
         rows=api.get(base)
         if any(int(x.get("vmid",-1))==a.vmid for x in (rows or [])):
