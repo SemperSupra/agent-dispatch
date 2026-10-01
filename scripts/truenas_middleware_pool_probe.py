@@ -41,12 +41,14 @@ def main():
     started = time.time()
     ws = None
     try:
+        payload["phase"] = "connect"
         ws = WebSocket(a.host, a.port, timeout=a.timeout, tls=a.tls)
         ws.send_json({"msg": "connect", "version": "1", "support": ["1"]})
         connected = wait_for(ws, lambda m: m.get("msg") in {"connected", "failed"})
         if connected.get("msg") != "connected":
             raise RuntimeError(f"DDP connection failed: {connected!r}")
 
+        payload["phase"] = "authenticate"
         auth = ddp_call(
             ws, "1", "auth.login_ex",
             [{
@@ -59,9 +61,12 @@ def main():
         if payload["auth_response_type"] != "SUCCESS":
             raise RuntimeError(f"authentication did not return SUCCESS: {auth!r}")
 
+        payload["phase"] = "discover-system"
         payload["system_version"] = ddp_call(ws, "2", "system.version", [])
+        payload["phase"] = "discover-boot-disks"
         boot_disks = ddp_call(ws, "3", "boot.get_disks", [])
         payload["boot_disks"] = sorted(boot_disks)
+        payload["phase"] = "discover-disk-details"
         disk_details = ddp_call(ws, "4", "disk.details", [])
         payload["disk_details"] = disk_details
         if not isinstance(disk_details, dict) or not isinstance(disk_details.get("unused"), list):
@@ -92,6 +97,7 @@ def main():
             raise RuntimeError("refusing pool mutation: an owned data disk overlaps the boot pool")
         payload["selected_data_disks"] = sorted(selected)
 
+        payload["phase"] = "precondition-pool-absence"
         existing = ddp_call(ws, "5", "pool.query", [[["name", "=", a.pool_name]]])
         if existing:
             raise RuntimeError(f"refusing pool mutation: pool {a.pool_name!r} already exists")
@@ -113,11 +119,13 @@ def main():
             "allow_duplicate_serials": False,
             "topology": {"data": [{"type": "MIRROR", "disks": sorted(selected)}]},
         }
+        payload["phase"] = "pool-create-submit"
         job_id = ddp_call(ws, "6", "pool.create", [create])
         if not isinstance(job_id, int):
             raise RuntimeError(f"pool.create did not return a legacy DDP job id: {job_id!r}")
         payload["job_id"] = job_id
 
+        payload["phase"] = "pool-create-wait"
         deadline = time.monotonic() + a.job_timeout
         job = None
         poll = 7
@@ -145,6 +153,7 @@ def main():
         if not job or job.get("state") != "SUCCESS":
             raise RuntimeError(f"pool.create did not reach SUCCESS: {job!r}")
 
+        payload["phase"] = "verify-pool"
         pool = ddp_call(
             ws, str(poll), "pool.query",
             [[["name", "=", a.pool_name]], {"get": True}],
@@ -158,6 +167,7 @@ def main():
         if pool.get("healthy") is not True:
             raise RuntimeError(f"created pool is not healthy: {pool.get('healthy')!r}")
 
+        payload["phase"] = "verify-pool-disks"
         pool_disks = ddp_call(ws, str(poll), "pool.get_disks", [pool["id"]])
         payload["pool_disks"] = sorted(pool_disks)
         if set(pool_disks) != set(selected):
@@ -165,6 +175,7 @@ def main():
                 f"pool disk membership mismatch: selected={sorted(selected)!r} pool={sorted(pool_disks)!r}"
             )
 
+        payload["phase"] = "complete"
         payload["oracleSatisfied"] = True
         payload["classification"] = "SUPPORTED"
         payload["detail"] = "real two-disk mirror pool is ONLINE, healthy, and owns exactly the selected disposable disks"
