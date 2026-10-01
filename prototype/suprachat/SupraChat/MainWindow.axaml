@@ -28,24 +28,42 @@
 
       <TabItem Header="Agent Lab">
         <ScrollViewer>
-          <StackPanel Margin="20" Spacing="10" MaxWidth="900">
+          <StackPanel Margin="20" Spacing="10" MaxWidth="980">
             <TextBlock FontSize="22" FontWeight="SemiBold" Text="ChatGPT-plan actor interview surface" />
             <TextBlock TextWrapping="Wrap"
-                       Text="This is intentionally separate from the ChatGPT parity surface. It uses OpenAI's documented Sign in with ChatGPT flow, the public Responses API, and optionally Codex app-server." />
-            <Button x:Name="SignInButton" HorizontalAlignment="Left"
-                    Content="Continue with ChatGPT" Click="SignIn_Click" />
+                       Text="This plane uses OpenAI's documented Sign in with ChatGPT flow, account-specific model catalog, eligible streamed Responses capabilities, and Codex app-server. It remains separate from the first-party ChatGPT product surface." />
+
+            <WrapPanel Orientation="Horizontal">
+              <Button x:Name="SignInButton" Margin="0,0,8,8"
+                      Content="Continue with ChatGPT" Click="SignIn_Click" />
+              <Button Margin="0,0,8,8" Content="Enable plan usage" Click="EnablePlanUsage_Click" />
+              <Button Margin="0,0,8,8" Content="Sign out / revoke session" Click="SignOut_Click" />
+            </WrapPanel>
             <TextBlock x:Name="AuthStatus" Text="Not signed in to Agent Lab." TextWrapping="Wrap" />
 
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Content="Refresh models" Click="RefreshModels_Click" />
-              <ComboBox x:Name="ModelBox" Width="360" PlaceholderText="Select a model" />
-              <Button Content="Start Codex app-server" Click="StartCodex_Click" />
-            </StackPanel>
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Refresh models" Click="RefreshModels_Click" />
+              <ComboBox x:Name="ModelBox" Width="360" Margin="0,0,8,8" PlaceholderText="Select a model" />
+              <Button Margin="0,0,8,8" Content="Start Codex app-server" Click="StartCodex_Click" />
+            </WrapPanel>
 
-            <TextBlock FontWeight="SemiBold" Text="Interview prompt" />
+            <TextBlock FontWeight="SemiBold" Text="Interview input" />
             <TextBox x:Name="PromptBox" AcceptsReturn="True" MinHeight="110"
                      Text="Say exactly: Hello from SupraChat." />
-            <Button HorizontalAlignment="Left" Content="Run streamed Responses interview" Click="RunInterview_Click" />
+
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Attach image/file" Click="Attach_Click" />
+              <Button Margin="0,0,8,8" Content="Clear attachments" Click="ClearAttachments_Click" />
+              <CheckBox x:Name="WebSearchBox" Margin="4,4,8,8"
+                        Content="Allow supported web search" />
+            </WrapPanel>
+            <TextBlock x:Name="AttachmentsStatus"
+                       Text="No Agent Lab attachments selected."
+                       TextWrapping="Wrap" />
+
+            <Button HorizontalAlignment="Left"
+                    Content="Run streamed Responses interview"
+                    Click="RunInterview_Click" />
             <TextBlock FontWeight="SemiBold" Text="Result" />
             <TextBox x:Name="OutputBox" AcceptsReturn="True" IsReadOnly="True"
                      TextWrapping="Wrap" MinHeight="220" />
