@@ -90,11 +90,12 @@ public partial class MainWindow : Window
 
     private void RefreshAccessibilityStatus()
     {
-        var shortcutModifier = OperatingSystem.IsMacOS() ? "Command" : "Control";
+        var accessibility = AccessibilityContract.Describe();
         AccessibilityStatus.Text =
-            $"screen-reader-semantics=ready · keyboard=ready · " +
-            $"system-theme/high-contrast=follow-platform · render-scale={RenderScaling:0.##} · " +
-            $"shortcuts={shortcutModifier}+1/2/3,{shortcutModifier}+L";
+            $"screen-reader-semantics={(accessibility.Human.ScreenReaderSemantics ? "ready" : "unavailable")} · " +
+            $"keyboard={(accessibility.Human.KeyboardOnly ? "ready" : "unavailable")} · " +
+            $"system-theme/high-contrast={(accessibility.Human.HighContrastFollowsPlatform ? "follow-platform" : "custom")} · " +
+            $"render-scale={RenderScaling:0.##} · shortcuts={string.Join(",", accessibility.Human.Shortcuts)}";
     }
 
     private async Task RefreshMachineSurfaceAsync()
