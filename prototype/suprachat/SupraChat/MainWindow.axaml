@@ -81,7 +81,7 @@
                        Text="Send arbitrary Responses request fields and supported function/custom tool definitions through the ChatGPT-plan grant. SupraChat only forces the current upstream invariants store=false and stream=true and injects the selected model when omitted." />
             <TextBlock FontWeight="SemiBold" Text="Responses body JSON" />
             <TextBox x:Name="RawResponsesBodyBox" AcceptsReturn="True" MinHeight="170"
-                     Text="{&quot;input&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;Say exactly: raw Responses surface works.&quot;}]}]}" />
+                     Text="{}{&quot;input&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;Say exactly: raw Responses surface works.&quot;}]}]}" />
             <Button HorizontalAlignment="Left" Content="Send raw Responses request" Click="SendRawResponses_Click" />
             <TextBlock FontWeight="SemiBold" Text="Raw Responses events" />
             <TextBox x:Name="RawResponsesEventsBox" AcceptsReturn="True" IsReadOnly="True"
@@ -97,7 +97,7 @@
             <TextBox x:Name="RawRpcMethodBox" Text="model/list" />
             <TextBlock FontWeight="SemiBold" Text="RPC params JSON (blank = no params)" />
             <TextBox x:Name="RawRpcParamsBox" AcceptsReturn="True" MinHeight="90"
-                     Text="{&quot;includeHidden&quot;:true}" />
+                     Text="{}{&quot;includeHidden&quot;:true}" />
             <Button HorizontalAlignment="Left" Content="Send app-server RPC" Click="SendRawRpc_Click" />
 
             <TextBlock FontWeight="SemiBold" Text="RPC result" />
@@ -112,7 +112,7 @@
             <TextBox x:Name="PendingServerRequestBox" AcceptsReturn="True" IsReadOnly="True"
                      TextWrapping="Wrap" MinHeight="90" />
             <TextBlock FontWeight="SemiBold" Text="Server response result JSON" />
-            <TextBox x:Name="ServerResponseBox" AcceptsReturn="True" MinHeight="70" Text="{}" />
+            <TextBox x:Name="ServerResponseBox" AcceptsReturn="True" MinHeight="70" Text="{}{}" />
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8" Content="Respond with result" Click="RespondServerRequest_Click" />
               <Button Margin="0,0,8,8" Content="Reject request" Click="RejectServerRequest_Click" />
