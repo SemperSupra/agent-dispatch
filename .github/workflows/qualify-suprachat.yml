@@ -268,13 +268,30 @@ jobs:
           foreach ($command in @('voices','remote-status','plugins','permission-profiles','apps','sandbox-readiness')) {
             $probe = & $cli $command 2>$null
             $probeExit = $LASTEXITCODE
-            if ($probeExit -ne 3) {
-              throw "Expected $command to stop at AUTH_REQUIRED with exit 3 on clean runner; got $probeExit"
+            if ($probeExit -ne 0) {
+              throw "Credential-free local command failed on clean runner: $command exit=$probeExit"
             }
             $probeDoc = $probe | ConvertFrom-Json
-            if ($probeDoc.ok -ne $false -or $probeDoc.error.code -ne 'AUTH_REQUIRED') {
-              throw "Semantic command did not preserve human authorization boundary: $command"
+            if (-not $probeDoc.ok -or $probeDoc.value.binding -ne 'codex-local-read' -or $probeDoc.value.authorization_required -ne $false) {
+              throw "Credential-free local command contract failed: $command"
             }
+          }
+
+          $localMethods = & $cli codex-local-methods
+          if ($LASTEXITCODE -ne 0) { throw 'codex-local-methods failed on clean runner.' }
+          $localMethodsDoc = $localMethods | ConvertFrom-Json
+          if (-not $localMethodsDoc.ok -or $localMethodsDoc.value.authorization_required -ne $false) {
+            throw 'Credential-free Codex method catalog contract failed.'
+          }
+
+          $blockedLocal = & $cli codex-local-read --method 'account/usage/read' 2>$null
+          $blockedLocalExit = $LASTEXITCODE
+          if ($blockedLocalExit -ne 2) {
+            throw "Non-allowlisted local read must be rejected before Codex launch; got exit=$blockedLocalExit"
+          }
+          $blockedLocalDoc = $blockedLocal | ConvertFrom-Json
+          if ($blockedLocalDoc.error.code -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Account-backed method escaped the credential-free Codex allowlist.'
           }
 
           $browserStatus = & $cli browser-status
@@ -388,11 +405,19 @@ jobs:
           foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
             $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
             $semanticRpc = $semanticRequest | & $cli stdio 2>$null
-            if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic method: $method" }
+            if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for credential-free semantic method: $method" }
             $semanticDoc = ($semanticRpc | Select-Object -Last 1) | ConvertFrom-Json
-            if ($semanticDoc.id -ne $method -or $semanticDoc.error.data.type -ne 'AUTH_REQUIRED') {
-              throw "Agent semantic method did not preserve AUTH_REQUIRED boundary: $method"
+            if ($semanticDoc.id -ne $method -or $semanticDoc.result.binding -ne 'codex-local-read' -or $semanticDoc.result.authorization_required -ne $false) {
+              throw "Agent credential-free semantic method contract failed: $method"
             }
+          }
+
+          $localReadRequest = '{"jsonrpc":"2.0","id":"local-block","method":"codex/local/read","params":{"method":"account/usage/read"}}'
+          $localReadRpc = $localReadRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent local-read negative probe transport failed.' }
+          $localReadDoc = ($localReadRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($localReadDoc.error.data.type -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Agent credential-free allowlist admitted account-backed method.'
           }
 
       - name: Stage and smoke Linux per-user install
