@@ -228,10 +228,14 @@ Current substrate:
 - Chromium packaged under `runtime/browser` by public qualification;
 - fresh/ephemeral browser context by default with no inherited ChatGPT WebView cookies or credentials;
 - visible headed browser session for humans with an explicit Stop control;
-- AI-optimized ARIA snapshots as the primary structured observation for accessible-human, automation and agent use;
-- one-shot automation: `browser-status`, `browser-snapshot`, `browser-click`, `browser-fill`;
-- sessionful agent JSON-RPC: `browser/start`, `browser/navigate`, `browser/read`, `browser/click`, `browser/fill`, `browser/stop`;
+- AI-optimized ARIA snapshots remain the **primary** structured observation for accessible-human, automation and agent use;
 - semantic click uses ARIA role + accessible name;
-- semantic fill uses the accessible label.
+- semantic fill uses the accessible label;
+- PNG browser screenshots provide the visual/pixel fallback sensor;
+- raw browser coordinate click, key/chord press and literal-text insertion provide fallback actuators only when semantic locators are insufficient;
+- raw pointer/keyboard actuation requires a fresh explicit one-shot confirmation in the human GUI, CLI (`--confirm`) and agent JSON-RPC (`confirm=true`);
+- one-shot automation: `browser-status`, `browser-snapshot`, `browser-click`, `browser-fill`, `browser-screenshot`, `browser-click-point`, `browser-key`, `browser-type`;
+- sessionful agent JSON-RPC: `browser/start`, `browser/navigate`, `browser/read`, `browser/click`, `browser/fill`, `browser/screenshot`, `browser/pointer/click`, `browser/keyboard/press`, `browser/keyboard/type`, `browser/stop`;
+- native whole-desktop capture remains a separate explicit sensor through `DesktopScreenCapture`, with OS permission/compositor policy authoritative.
 
-This is the clean-room base for Computer Use. It deliberately starts with semantic locators rather than coordinates so the agent-facing representation and the assistive-technology representation converge. Pixel screenshots and raw pointer/keyboard operations remain a later fallback/actuator layer and must retain explicit stop/permission/approval semantics.
+This is the clean-room base for Computer Use. The invariant is **semantic first, visual/raw fallback second**: coordinate input must never become the default representation merely because it is available. Every raw input call is bounded to one explicit action, returns a fresh semantic snapshot, and preserves Stop/permission/approval boundaries.
