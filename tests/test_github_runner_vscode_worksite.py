@@ -48,9 +48,9 @@ class GitHubRunnerVSCodeWorksiteContractTests(unittest.TestCase):
         self.assertIn("status_json_present", text)
         self.assertIn("status_no_running", text)
         self.assertIn("status_service_installed", text)
-        self.assertIn('"status_json_present" != true', text)
-        self.assertIn('"status_no_running" != true', text)
-        self.assertIn('"status_service_installed" != false', text)
+        self.assertIn('"$status_json_present" != true', text)
+        self.assertIn('"$status_no_running" != true', text)
+        self.assertIn('"$status_service_installed" != false', text)
 
     def test_workflow_is_public_safe_and_secret_free(self) -> None:
         text = (
