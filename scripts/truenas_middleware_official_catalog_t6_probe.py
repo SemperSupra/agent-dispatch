@@ -19,9 +19,10 @@ EXPECTED_CATALOG_VERSION = "1.1.21"
 EXPECTED_APP_VERSION = "v2.28.0"
 EXPECTED_LIB_VERSION = "2.3.4"
 EXPECTED_LIB_VERSION_HASH = "2e3a8847308fb2eb0da046018f287c73822c094b5950a10377c3235794ff1242"
-REQUIRED_METHODS = {
+BOOTSTRAP_METHODS = {"core.get_methods"}
+
+REQUIRED_DISCOVERED_METHODS = {
     "system.version",
-    "core.get_methods",
     "app.query",
     "app.config",
     "app.create",
@@ -305,8 +306,9 @@ def main() -> int:
             )
 
         methods = call("core.get_methods", [])
+        payload["bootstrap_probes"] = {"core.get_methods": True}
         method_names = set(methods) if isinstance(methods, dict) else set()
-        missing = sorted(REQUIRED_METHODS - method_names)
+        missing = sorted(REQUIRED_DISCOVERED_METHODS - method_names)
         payload["required_methods_present"] = not missing
         payload["missing_methods"] = missing
         if missing:
