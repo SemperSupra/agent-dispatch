@@ -54,6 +54,8 @@ internal static class Program
                 "voices" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "thread/realtime/listVoices", "--params", "{}" })),
                 "remote-status" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "remoteControl/status/read" })),
                 "plugins" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "plugin/list", "--params", "{}" })),
+                "screen-status" => WriteSuccess(DesktopScreenCapture.Describe()),
+                "screen-capture" => WriteSuccess(await ScreenCaptureAsync(args[1..])),
                 "respond" => WriteSuccess(await RespondAsync(args[1..])),
                 "responses-raw" => WriteSuccess(await RawResponsesAsync(args[1..])),
                 "codex-rpc" => WriteSuccess(await CodexRpcAsync(args[1..])),
@@ -92,6 +94,8 @@ internal static class Program
             new { name = "voices", description = "List realtime voices exposed by the bundled Codex runtime." },
             new { name = "remote-status", description = "Read Codex Remote connection/identity status without enabling or pairing." },
             new { name = "plugins", description = "List available Codex plugins without installing or mutating them." },
+            new { name = "screen-status", description = "Read the current platform screen-capture adapter and permission boundary." },
+            new { name = "screen-capture", description = "Explicitly capture the current desktop to a PNG file.", syntax = "screen-capture --output <path.png>" },
             new { name = "respond", description = "Run a typed streamed Responses request.", syntax = "respond --model <id> --input <text> [--file <path>]... [--web-search]" },
             new { name = "responses-raw", description = "Run an arbitrary SIWC Responses body.", syntax = "responses-raw --model <id> [--body <json>]; stdin is used when --body is omitted" },
             new { name = "codex-rpc", description = "Invoke one Codex app-server RPC.", syntax = "codex-rpc --method <name> [--params <json>]" },
@@ -134,6 +138,8 @@ internal static class Program
             "realtime/voices",
             "remote/status",
             "plugins/list",
+            "screen/status",
+            "screen/capture",
             "responses/create",
             "responses/raw",
             "responses/ws/connect",
@@ -263,6 +269,27 @@ internal static class Program
             binding = "siwc-responses",
             models = models.Select(x => new { id = x.Slug, display_name = x.DisplayName }).ToArray()
         };
+    }
+
+    private static async Task<object> ScreenCaptureAsync(string[] args)
+    {
+        var output = RequiredOption(args, "--output");
+        try
+        {
+            var path = await DesktopScreenCapture.CaptureAsync(output);
+            return new
+            {
+                schema = DesktopScreenCapture.Schema,
+                platform = PlatformName(),
+                output_path = path,
+                bytes = new FileInfo(path).Length,
+                descriptor = DesktopScreenCapture.Describe()
+            };
+        }
+        catch (Exception ex)
+        {
+            throw new MachineException(4, "SCREEN_CAPTURE_FAILED", SafeMessage(ex));
+        }
     }
 
     private static async Task<object> RespondAsync(string[] args)
@@ -435,6 +462,8 @@ internal static class Program
             "realtime/voices" => await RpcCodexReadAsync("thread/realtime/listVoices", emptyParams: true),
             "remote/status" => await RpcCodexReadAsync("remoteControl/status/read", emptyParams: false),
             "plugins/list" => await RpcCodexReadAsync("plugin/list", emptyParams: true),
+            "screen/status" => DesktopScreenCapture.Describe(),
+            "screen/capture" => await RpcScreenCaptureAsync(parameters),
             "responses/create" => await RpcResponseCreateAsync(parameters),
             "responses/raw" => await RpcResponsesRawAsync(parameters),
             "responses/ws/connect" => await RpcResponsesConnectAsync(),
