@@ -173,6 +173,67 @@
         </ScrollViewer>
       </TabItem>
 
+      <TabItem Header="Browser Lab">
+        <ScrollViewer>
+          <StackPanel Margin="20" Spacing="10" MaxWidth="1000">
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="Portable browser work surface" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Clean-room Playwright/Chromium host shared with automation and agents. Browser profile state is app-owned; SupraChat does not import ChatGPT browser cookies." />
+
+            <WrapPanel Orientation="Horizontal">
+              <TextBox x:Name="BrowserProfileBox" Width="180" Margin="0,0,8,8" Text="default" />
+              <CheckBox x:Name="BrowserHeadlessBox" Margin="0,4,8,8" Content="Headless" />
+              <Button Margin="0,0,8,8" Content="Start browser" Click="BrowserStart_Click" />
+              <Button Margin="0,0,8,8" Content="Stop browser" Click="BrowserStop_Click" />
+              <Button Margin="0,0,8,8" Content="List pages" Click="BrowserListPages_Click" />
+            </WrapPanel>
+            <TextBlock x:Name="BrowserStatus" Text="Browser host is stopped." TextWrapping="Wrap" />
+
+            <TextBlock FontWeight="SemiBold" Text="Page / navigation" />
+            <WrapPanel Orientation="Horizontal">
+              <TextBox x:Name="BrowserPageIndexBox" Width="70" Margin="0,0,8,8" Text="0" />
+              <TextBox x:Name="BrowserUrlBox" Width="650" Margin="0,0,8,8" Text="https://example.com/" />
+              <Button Margin="0,0,8,8" Content="New page" Click="BrowserNewPage_Click" />
+              <Button Margin="0,0,8,8" Content="Navigate" Click="BrowserNavigate_Click" />
+            </WrapPanel>
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Back" Click="BrowserBack_Click" />
+              <Button Margin="0,0,8,8" Content="Forward" Click="BrowserForward_Click" />
+              <Button Margin="0,0,8,8" Content="Reload" Click="BrowserReload_Click" />
+              <Button Margin="0,0,8,8" Content="Close page" Click="BrowserClosePage_Click" />
+              <CheckBox x:Name="BrowserIncludeHtmlBox" Margin="0,4,8,8" Content="Include HTML in observation" />
+              <Button Margin="0,0,8,8" Content="Observe" Click="BrowserObserve_Click" />
+              <Button Margin="0,0,8,8" Content="Screenshot…" Click="BrowserScreenshot_Click" />
+            </WrapPanel>
+
+            <TextBlock FontWeight="SemiBold" Text="Input" />
+            <WrapPanel Orientation="Horizontal">
+              <TextBox x:Name="BrowserSelectorBox" Width="380" Margin="0,0,8,8" Text="body" />
+              <TextBox x:Name="BrowserValueBox" Width="360" Margin="0,0,8,8" />
+              <Button Margin="0,0,8,8" Content="Click" Click="BrowserClick_Click" />
+              <Button Margin="0,0,8,8" Content="Fill" Click="BrowserFill_Click" />
+              <Button Margin="0,0,8,8" Content="Press key" Click="BrowserPress_Click" />
+            </WrapPanel>
+
+            <TextBlock FontWeight="SemiBold" Text="Permissions / trace" />
+            <WrapPanel Orientation="Horizontal">
+              <TextBox x:Name="BrowserPermissionsBox" Width="330" Margin="0,0,8,8" Text="geolocation,notifications" />
+              <TextBox x:Name="BrowserOriginBox" Width="330" Margin="0,0,8,8" Text="https://example.com" />
+              <Button Margin="0,0,8,8" Content="Grant" Click="BrowserGrantPermissions_Click" />
+              <Button Margin="0,0,8,8" Content="Clear permissions" Click="BrowserClearPermissions_Click" />
+            </WrapPanel>
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Start trace" Click="BrowserTraceStart_Click" />
+              <Button Margin="0,0,8,8" Content="Stop trace…" Click="BrowserTraceStop_Click" />
+            </WrapPanel>
+
+            <TextBlock FontWeight="SemiBold" Text="Observation / result" />
+            <TextBox x:Name="BrowserOutputBox" AcceptsReturn="True" IsReadOnly="True"
+                     TextWrapping="Wrap" MinHeight="280" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
       <TabItem Header="Automation &amp; Agents">
         <ScrollViewer>
           <StackPanel Margin="20" Spacing="10" MaxWidth="1000">
