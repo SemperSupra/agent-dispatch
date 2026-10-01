@@ -81,6 +81,14 @@ def app(c, state="RUNNING", tz=None):
 
 
 class OfficialCatalogT6ContractTests(unittest.TestCase):
+    def test_system_version_normalization_matches_control_matrix_tokens(self):
+        self.assertEqual(MOD.normalize_system_version("TrueNAS-25.04.1"), "25.04.1")
+        self.assertEqual(MOD.normalize_system_version("TrueNAS-25.04.2.6"), "25.04.2.6")
+        self.assertEqual(MOD.normalize_system_version("TrueNAS-25.10.7"), "25.10.7")
+        self.assertEqual(MOD.normalize_system_version("TrueNAS-26.0.0-BETA.3"), "26.0.0-BETA.3")
+        with self.assertRaisesRegex(RuntimeError, "non-empty string"):
+            MOD.normalize_system_version(None)
+
     def test_control_loads_only_exact_native_catalog_identity(self):
         c = control()
         with tempfile.TemporaryDirectory() as td:
