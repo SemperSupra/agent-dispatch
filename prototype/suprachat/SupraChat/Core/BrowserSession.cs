@@ -109,6 +109,14 @@ public sealed class BrowserSession : IAsyncDisposable
             Timeout = 30_000
         });
 
+        return await SnapshotAsync(cancellationToken);
+    }
+
+    public async Task<BrowserPageSnapshot> SnapshotAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var title = await Page.TitleAsync();
         var aria = await Page.AriaSnapshotAsync(new PageAriaSnapshotOptions
         {
