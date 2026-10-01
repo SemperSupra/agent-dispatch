@@ -469,18 +469,18 @@
       "id": "remote_control_pairing",
       "consequential": true,
       "access": {
-        "human": "qualify",
-        "accessible_human": "qualify",
-        "automation": "qualify",
-        "agent": "qualify"
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
       },
       "platforms": {
         "windows": "qualify",
         "macos": "qualify",
         "linux": "qualify"
       },
-      "human_boundary": "Pairing/revocation must remain explicit.",
-      "notes": "Codex protocol surfaces are inventoried; product UX/adapters still require qualification. Pairing/revocation/status must be semantic, keyboard reachable, screen-reader discoverable, and machine-readable without weakening explicit approval boundaries."
+      "human_boundary": "Status/pairing-status/client-list are read-only. Enable/disable/pairing-start/client-revoke require an explicit one-shot human confirmation or machine confirm=true/--confirm; no operation auto-approves Codex server requests.",
+      "notes": "Complete semantic lifecycle is implemented across GUI, CLI and JSON-RPC. Pairing/environment/client IDs are text-accessible; live authorized qualification on each OS remains pending."
     }
   ]
 }
