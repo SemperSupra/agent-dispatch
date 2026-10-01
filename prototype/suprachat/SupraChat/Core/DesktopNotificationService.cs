@@ -63,9 +63,9 @@ public static class DesktopNotificationService
     {
         var escaped = value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace(""", "\\"", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
             .Replace("\r", " ", StringComparison.Ordinal)
             .Replace("\n", " ", StringComparison.Ordinal);
-        return $""{escaped}"";
+        return $"\\\"{escaped}\\\"";
     }
 }
