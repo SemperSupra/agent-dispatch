@@ -12,26 +12,32 @@ def registry():
                     {
                         "version": "25.04.1",
                         "source_fingerprint": {"virt.instance": "a" * 40},
+                        "api_schema_fingerprint": {"virt_instance": {"path": "api/v25_04_0/virt_instance.py", "blob_sha": "d" * 40}},
                         "container_adapters": [{
                             "id": "truenas-virt-incus-container",
+                            "source_api_family": "v25_04_0",
                             "required_methods": ["virt.instance.query", "virt.instance.create"],
                             "restart_semantics": "native",
                         }],
                         "vm_adapters": [{
                             "id": "truenas-virt-incus-vm",
+                            "source_api_family": "v25_04_0",
                             "required_methods": ["virt.instance.query", "virt.instance.create"],
                         }],
                     },
                     {
                         "version": "26.0.0-BETA.3",
                         "source_fingerprint": {"container.container": "b" * 40},
+                        "api_schema_fingerprint": {"container": {"path": "api/v26_0_0/container.py", "blob_sha": "e" * 40}, "vm": {"path": "api/v26_0_0/vm.py", "blob_sha": "f" * 40}},
                         "container_adapters": [{
                             "id": "truenas-container-lxc",
+                            "source_api_family": "v26_0_0",
                             "required_methods": ["container.query", "container.create"],
                             "restart_semantics": "compose-stop-start",
                         }],
                         "vm_adapters": [{
                             "id": "truenas-vm-libvirt",
+                            "source_api_family": "v26_0_0",
                             "preferred": True,
                             "required_methods": ["vm.query", "vm.create"],
                         }],
@@ -61,6 +67,12 @@ def registry():
 class ContractTests(unittest.TestCase):
     def test_registry_contract(self):
         self.assertEqual(validate(registry())["status"], "PASS")
+
+    def test_missing_truenas_api_schema_fails_closed(self):
+        data = registry()
+        del data["platforms"]["truenas"]["targets"][0]["api_schema_fingerprint"]
+        with self.assertRaises(ContractError):
+            validate(data)
 
     def test_2504_selects_legacy_incus_container(self):
         a = choose_adapter(
