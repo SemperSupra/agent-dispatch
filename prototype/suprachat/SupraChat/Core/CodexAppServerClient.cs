@@ -88,6 +88,7 @@ public sealed class CodexAppServerClient : IAsyncDisposable
     }
 
     public int ProcessId => _process.Id;
+    public bool IsRunning => !_process.HasExited;
     public ChannelReader<CodexProtocolEvent> Events => _events.Reader;
 
     public CodexEventSubscription SubscribeEvents()
