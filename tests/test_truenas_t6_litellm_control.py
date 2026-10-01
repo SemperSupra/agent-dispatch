@@ -170,6 +170,30 @@ class VersionAdaptiveProbeContractTests(unittest.TestCase):
 
 
 class ProductHarnessVersionRoutingTests(unittest.TestCase):
+    def test_product_probes_fail_closed_on_public_method_capabilities(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[1] / "scripts"
+        common = (
+            "app.config", "app.create", "app.delete", "app.query", "app.start", "app.stop",
+            "auth.login_ex", "core.get_jobs", "filesystem.mkdir", "filesystem.stat",
+            "pool.dataset.create", "pool.dataset.delete", "pool.dataset.query", "system.version",
+        )
+        for name in (
+            "truenas_middleware_litellm_t6_probe.py",
+            "truenas_middleware_wow_sidecar_t6_probe.py",
+            "truenas_middleware_garm_t6_probe.py",
+        ):
+            text = (root / name).read_text(encoding="utf-8")
+            self.assertIn('call("core.get_methods", [])', text)
+            self.assertIn('payload["bootstrap_probes"] = {"core.get_methods": True}', text)
+            self.assertIn("required product T6 methods missing", text)
+            for method in common:
+                self.assertIn(method, text)
+        self.assertIn(
+            "filesystem.put",
+            (root / "truenas_middleware_litellm_t6_probe.py").read_text(encoding="utf-8"),
+        )
+
     def test_harness_passes_target_only_to_product_probes(self):
         import pathlib
         text = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
