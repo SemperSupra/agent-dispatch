@@ -26,11 +26,13 @@ def load_registry(path: pathlib.Path):
         if not isinstance(version,str) or not version or version in seen:
             raise TargetError(f"invalid or duplicate target version at index {i}")
         seen.add(version)
-        for key in ("system_version","iso_name","iso_url","sha256_url","middleware_ref","middleware_commit","foundry_profile","ha_apps_gate"):
+        for key in ("system_version","iso_name","iso_url","sha256_url","middleware_ref","middleware_commit","foundry_profile","ha_apps_gate","installer_rpc_path"):
             if not isinstance(t.get(key),str) or not t[key]:
                 raise TargetError(f"{version}: missing {key}")
         if not SHA_RE.fullmatch(t["middleware_commit"]):
             raise TargetError(f"{version}: middleware_commit must be exact 40-hex")
+        if t["installer_rpc_path"] not in {"/", "/ws"}:
+            raise TargetError(f"{version}: unsupported installer_rpc_path")
         if any(token in t["iso_url"].lower() for token in ("latest","nightly","master+")):
             raise TargetError(f"{version}: supported target ISO must be exact, not floating")
         if t["sha256_url"] != t["iso_url"] + ".sha256":
@@ -49,6 +51,7 @@ def shell(target):
       "MIDDLEWARE_COMMIT":target["middleware_commit"],
       "FOUNDRY_PROFILE":target["foundry_profile"],
       "HA_APPS_GATE":target["ha_apps_gate"],
+      "INSTALLER_RPC_PATH":target["installer_rpc_path"],
       "AUTHORITY_ISSUE":str(target.get("authority_issue","")),
     }
     return "\n".join(f"{k}={shlex.quote(v)}" for k,v in fields.items())
