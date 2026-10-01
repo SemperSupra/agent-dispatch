@@ -19,7 +19,7 @@ class ProxmoxProbeError(RuntimeError):
 PVE_CONTAINER_SOURCE = {
     "repository": "proxmox/pve-container",
     "commit": "5eb5574ee9158ac40a5230de2cf18d7d6345709f",
-    "lxc_api_blob": "c9d7f847bfcfda60d39086d516fbf5e1e3c39503",
+    "lxc_api_blob": "88067ddebf5a0bd540f91ffd1db11f8eec40cefb",
     "lxc_status_api_blob": "c95fc3c7732d637639ab29e496bc27eafb9d222d",
     "package_version": "6.1.10",
 }
