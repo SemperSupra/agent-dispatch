@@ -320,6 +320,11 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"Accessibility.ScaleUp\"",
     "AutomationProperties.AutomationId=\"Accessibility.ReducedMotion\"",
     "AutomationProperties.AutomationId=\"Accessibility.PreferencesStatus\"",
+    "AutomationProperties.AutomationId=\"Machine.AudienceParityStatus\"",
+    "AutomationProperties.AutomationId=\"RuntimeProbes.Voices\"",
+    "AutomationProperties.AutomationId=\"RuntimeProbes.RemoteStatus\"",
+    "AutomationProperties.AutomationId=\"RuntimeProbes.Plugins\"",
+    "AutomationProperties.AutomationId=\"RuntimeProbes.Output\"",
     "AutomationProperties.LiveSetting=\"Polite\"",
     "AutomationProperties.HeadingLevel=\"1\"",
     "AutomationProperties.HeadingLevel=\"2\"",
@@ -338,6 +343,24 @@ Require(normalizedPreference.InterfaceScale == AccessibilityPreferencesStore.Max
     "accessibility scale maximum clamp failed");
 Require(normalizedPreference.ReducedMotion,
     "reduced-motion preference was lost during normalization");
+
+var automationSourcePath = Path.Combine(
+    "prototype", "suprachat", "SupraChat.Automation", "Program.cs");
+Require(File.Exists(automationSourcePath), "automation source missing");
+var automationSource = File.ReadAllText(automationSourcePath);
+foreach (var marker in new[]
+{
+    "\"voices\"",
+    "\"remote-status\"",
+    "\"plugins\"",
+    "\"realtime/voices\"",
+    "\"remote/status\"",
+    "\"plugins/list\""
+})
+{
+    Require(automationSource.Contains(marker, StringComparison.Ordinal),
+        $"semantic machine runtime surface missing: {marker}");
+}
 
 var appXamlPath = Path.Combine("prototype", "suprachat", "SupraChat", "App.axaml");
 Require(File.ReadAllText(appXamlPath).Contains("RequestedThemeVariant=\"Default\"", StringComparison.Ordinal),
