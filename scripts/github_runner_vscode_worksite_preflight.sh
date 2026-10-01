@@ -70,6 +70,36 @@ no_sleep_flag="$(contains_flag "$tunnel_help" '--no-sleep')"
 license_flag="$(contains_flag "$tunnel_help" '--accept-server-license-terms')"
 install_extension_flag="$(contains_flag "$tunnel_help" '--install-extension')"
 
+status_output="$(code tunnel --cli-data-dir "$VSCODE_CLI_DATA_DIR" status 2>&1 || true)"
+status_eval="$(
+  printf '%s\n' "$status_output" | python3 -c '
+import json
+import sys
+
+value = None
+for raw in sys.stdin:
+    line = raw.strip()
+    if not (line.startswith("{") and line.endswith("}")):
+        continue
+    try:
+        candidate = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if isinstance(candidate, dict) and "tunnel" in candidate:
+        value = candidate
+
+if value is None:
+    print("false false unknown")
+else:
+    print(
+        "true",
+        str(value.get("tunnel") is None).lower(),
+        str(bool(value.get("service_installed", False))).lower(),
+    )
+'
+)"
+read -r status_json_present status_no_running status_service_installed <<<"$status_eval"
+
 oracle=true
 for required in   "$provider_flag"   "$access_token_flag"   "$name_flag"   "$no_sleep_flag"   "$license_flag"; do
   if [[ "$required" != true ]]; then
@@ -77,6 +107,12 @@ for required in   "$provider_flag"   "$access_token_flag"   "$name_flag"   "$no_
   fi
 done
 if [[ "$vscode_status" == unreachable || "$relay_status" == unreachable ]]; then
+  oracle=false
+fi
+if [[ "$status_json_present" != true || "$status_no_running" != true ]]; then
+  oracle=false
+fi
+if [[ "$status_service_installed" != false ]]; then
   oracle=false
 fi
 
@@ -93,6 +129,9 @@ mkdir -p "$(dirname "$RECEIPT_PATH")"
   printf 'tunnel_no_sleep_flag=%s\n' "$no_sleep_flag"
   printf 'tunnel_accept_license_flag=%s\n' "$license_flag"
   printf 'tunnel_install_extension_flag=%s\n' "$install_extension_flag"
+  printf 'tunnel_status_json_present=%s\n' "$status_json_present"
+  printf 'tunnel_status_no_running=%s\n' "$status_no_running"
+  printf 'tunnel_status_service_installed=%s\n' "$status_service_installed"
   printf 'vscode_dev_http_status=%s\n' "$vscode_status"
   printf 'relay_http_status=%s\n' "$relay_status"
   printf 'interactive_login_attempted=false\n'
