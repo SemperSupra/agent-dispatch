@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using SupraChat.Core;
 
@@ -41,6 +42,8 @@ internal static class Program
             {
                 "capabilities" => WriteSuccess(Capabilities()),
                 "accessibility" => WriteSuccess(Accessibility()),
+                "accessibility-preferences" => WriteSuccess(await AccessibilityPreferencesAsync()),
+                "accessibility-set" => WriteSuccess(await SetAccessibilityPreferencesAsync(args[1..])),
                 "parity" => WriteSuccess(ReadCatalog("audience-parity-20261001.json")),
                 "catalog" => WriteSuccess(ReadCombinedCatalog()),
                 "codex-catalog" => WriteSuccess(ReadCatalog("codex-capability-catalog-20261001.json")),
@@ -74,6 +77,8 @@ internal static class Program
         {
             new { name = "capabilities", description = "Read machine/product capability metadata." },
             new { name = "accessibility", description = "Read the cross-platform accessibility/UI/UX/DX contract." },
+            new { name = "accessibility-preferences", description = "Read effective local accessibility preferences." },
+            new { name = "accessibility-set", description = "Set local accessibility preferences.", syntax = "accessibility-set [--scale <0.8-2.0>] [--reduced-motion <true|false>]" },
             new { name = "parity", description = "Read machine-readable human/accessibility/automation/agent parity by capability." },
             new { name = "catalog", description = "Read the packaged SIWC + Codex capability catalogs." },
             new { name = "codex-catalog", description = "Read packaged Codex stable-runtime + upstream-frontier surfaces." },
@@ -111,6 +116,8 @@ internal static class Program
         {
             "capabilities/read",
             "accessibility/read",
+            "accessibility/preferences/read",
+            "accessibility/preferences/write",
             "parity/read",
             "catalog/read",
             "codex/catalog",
@@ -143,6 +150,51 @@ internal static class Program
     };
 
     private static AccessibilityDescriptor Accessibility() => AccessibilityContract.Describe();
+
+    private static async Task<object> AccessibilityPreferencesAsync()
+    {
+        var value = await AccessibilityPreferencesStore.LoadAsync();
+        return new
+        {
+            schema = AccessibilityPreferencesStore.Schema,
+            platform = PlatformName(),
+            interface_scale = value.InterfaceScale,
+            reduced_motion = value.ReducedMotion,
+            minimum_scale = AccessibilityPreferencesStore.MinimumScale,
+            maximum_scale = AccessibilityPreferencesStore.MaximumScale,
+            scale_step = AccessibilityPreferencesStore.ScaleStep
+        };
+    }
+
+    private static async Task<object> SetAccessibilityPreferencesAsync(string[] args)
+    {
+        var current = await AccessibilityPreferencesStore.LoadAsync();
+        var scale = current.InterfaceScale;
+        var reducedMotion = current.ReducedMotion;
+
+        var scaleText = Option(args, "--scale");
+        if (!string.IsNullOrWhiteSpace(scaleText))
+        {
+            if (!double.TryParse(scaleText, NumberStyles.Float, CultureInfo.InvariantCulture, out scale))
+                throw new MachineException(2, "INVALID_PARAMS", "--scale must be a number.");
+        }
+
+        var motionText = Option(args, "--reduced-motion");
+        if (!string.IsNullOrWhiteSpace(motionText))
+        {
+            if (!bool.TryParse(motionText, out reducedMotion))
+                throw new MachineException(2, "INVALID_PARAMS", "--reduced-motion must be true or false.");
+        }
+
+        var saved = await AccessibilityPreferencesStore.SaveAsync(scale, reducedMotion);
+        return new
+        {
+            schema = AccessibilityPreferencesStore.Schema,
+            platform = PlatformName(),
+            interface_scale = saved.InterfaceScale,
+            reduced_motion = saved.ReducedMotion
+        };
+    }
 
     private static object ReadCombinedCatalog() => new
     {
@@ -362,6 +414,8 @@ internal static class Program
         {
             "capabilities/read" => Capabilities(),
             "accessibility/read" => Accessibility(),
+            "accessibility/preferences/read" => await AccessibilityPreferencesAsync(),
+            "accessibility/preferences/write" => await RpcAccessibilityPreferencesWriteAsync(parameters),
             "parity/read" => ReadCatalog("audience-parity-20261001.json"),
             "catalog/read" => ReadCombinedCatalog(),
             "codex/catalog" => ReadCatalog("codex-capability-catalog-20261001.json"),
@@ -380,6 +434,36 @@ internal static class Program
             "codex/reject" => await RpcCodexRejectAsync(parameters),
             "codex/stop" => await RpcCodexStopAsync(),
             _ => throw new MachineException(2, "METHOD_NOT_FOUND", $"Unsupported method: {method}")
+        };
+    }
+
+    private static async Task<object> RpcAccessibilityPreferencesWriteAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var current = await AccessibilityPreferencesStore.LoadAsync();
+        var scale = current.InterfaceScale;
+        var reducedMotion = current.ReducedMotion;
+
+        if (p.TryGetProperty("interface_scale", out var scaleValue))
+        {
+            if (scaleValue.ValueKind != JsonValueKind.Number || !scaleValue.TryGetDouble(out scale))
+                throw new MachineException(2, "INVALID_PARAMS", "interface_scale must be a number.");
+        }
+
+        if (p.TryGetProperty("reduced_motion", out var motionValue))
+        {
+            if (motionValue.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new MachineException(2, "INVALID_PARAMS", "reduced_motion must be a boolean.");
+            reducedMotion = motionValue.GetBoolean();
+        }
+
+        var saved = await AccessibilityPreferencesStore.SaveAsync(scale, reducedMotion);
+        return new
+        {
+            schema = AccessibilityPreferencesStore.Schema,
+            platform = PlatformName(),
+            interface_scale = saved.InterfaceScale,
+            reduced_motion = saved.ReducedMotion
         };
     }
 
