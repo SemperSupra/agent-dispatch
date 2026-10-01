@@ -18,7 +18,6 @@ EXPECTED_CONTROL_ID = "ntfy"
 EXPECTED_CATALOG_VERSION = "1.1.21"
 EXPECTED_APP_VERSION = "v2.28.0"
 EXPECTED_LIB_VERSION = "2.3.4"
-EXPECTED_LIB_VERSION_HASH = "2e3a884730d44051941e9128fbd4d666094573af5c57a62c037bc56820d25427e454"
 EXPECTED_LIB_VERSION_HASH = "2e3a8847308fb2eb0da046018f287c73822c094b5950a10377c3235794ff1242"
 REQUIRED_METHODS = {
     "system.version",
@@ -95,6 +94,11 @@ def owned(app: dict[str, Any], control: dict[str, Any]) -> bool:
         and metadata.get("lib_version") == item["lib_version"]
         and metadata.get("lib_version_hash") == item["lib_version_hash"]
     )
+
+
+def native_lineage(app: dict[str, Any], control: dict[str, Any]) -> bool:
+    metadata = app.get("metadata") or {}
+    return app.get("custom_app") is False and metadata.get("name") == control["control"]["id"]
 
 
 def healthy_running(app: dict[str, Any], control: dict[str, Any]) -> bool:
@@ -224,6 +228,27 @@ def main() -> int:
                     raise RuntimeError(f"{label} entered failure state: {last!r}")
                 time.sleep(1)
             raise RuntimeError(f"{label} did not become healthy RUNNING: {last!r}")
+
+        def wait_native_running(label: str):
+            deadline = time.monotonic() + a.state_timeout
+            last = None
+            while time.monotonic() < deadline:
+                last = query()
+                workloads = (last or {}).get("active_workloads") or {}
+                details = workloads.get("container_details") or []
+                if (
+                    last
+                    and native_lineage(last, control)
+                    and last.get("state") == "RUNNING"
+                    and isinstance(workloads.get("containers"), int)
+                    and workloads.get("containers") >= 1
+                    and details
+                    and all(item.get("state") == "running" for item in details)
+                ):
+                    payload["states"].append({"label": label, "state": "RUNNING"})
+                    return last
+                time.sleep(1)
+            raise RuntimeError(f"{label} did not become native-lineage RUNNING: {last!r}")
 
         def wait_state(expected: str, label: str):
             deadline = time.monotonic() + a.state_timeout
