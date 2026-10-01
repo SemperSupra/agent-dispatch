@@ -437,6 +437,61 @@ jobs:
           Stop-Process -Id $p.Id -Force
           "SupraChat remained alive through an 8-second self-contained Windows launch smoke."
 
+      - name: Windows live UI Automation accessibility smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+
+          $exe = Join-Path $PWD 'out/win-x64/SupraChat.exe'
+          $p = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(20)
+            $window = $null
+            while ((Get-Date) -lt $deadline -and -not $window) {
+              Start-Sleep -Milliseconds 500
+              $condition = New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::NameProperty,
+                'SupraChat')
+              $window = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+                [System.Windows.Automation.TreeScope]::Children,
+                $condition)
+            }
+
+            if (-not $window) { throw 'SupraChat window was not visible to Windows UI Automation.' }
+
+            foreach ($automationId in @(
+              'RootTabs',
+              'ChatGPT.WebView',
+              'Auth.SignIn',
+              'AgentLab.Prompt',
+              'Auth.Status',
+              'Accessibility.Status'
+            )) {
+              $idCondition = New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                $automationId)
+              $element = $window.FindFirst(
+                [System.Windows.Automation.TreeScope]::Descendants,
+                $idCondition)
+              if (-not $element) {
+                throw "UI Automation element missing: $automationId"
+              }
+
+              $name = $element.Current.Name
+              if ([string]::IsNullOrWhiteSpace($name)) {
+                throw "UI Automation accessible name missing: $automationId"
+              }
+            }
+
+            'Windows live UI Automation accessibility smoke PASS.'
+          }
+          finally {
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+
       - name: Upload self-contained application
         if: success()
         uses: actions/upload-artifact@v4
