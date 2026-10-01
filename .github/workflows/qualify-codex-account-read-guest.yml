@@ -1,0 +1,92 @@
+name: Qualify Codex account-read guest
+
+on:
+  pull_request:
+    paths:
+      - 'prototype/suprachat/tools/probe_codex_account_read_guest.py'
+      - '.github/workflows/qualify-codex-account-read-guest.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guest-account-read:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            asset: codex-x86_64-pc-windows-msvc.exe
+            sha256: 57e1bdab42c0559a74558ca17e85d5c7893caa5f1e582f67e9ddd6d97fa705a7
+            archive: false
+            exe: codex.exe
+          - os: ubuntu-24.04
+            asset: codex-x86_64-unknown-linux-musl.tar.gz
+            sha256: b48ca1b2d6b1bf42b944e02c3d937c898e24651916684cdc35fdedf31b291bcb
+            archive: true
+            exe: codex
+          - os: macos-26
+            asset: codex-aarch64-apple-darwin.tar.gz
+            sha256: 51de50a39ea592b5b0a64ae0474548c282181cb6b96d9bd08965a682ae12774c
+            archive: true
+            exe: codex
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      CODEX_TAG: rust-v0.159.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Acquire pinned Codex
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = '${{ matrix.asset }}'
+          $expected = '${{ matrix.sha256 }}'
+          $url = "https://github.com/openai/codex/releases/download/$env:CODEX_TAG/$asset"
+          $tmp = Join-Path $env:RUNNER_TEMP $asset
+          $runtime = Join-Path $env:RUNNER_TEMP 'codex-account-read-runtime'
+          New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile $tmp
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "Codex asset digest mismatch: expected=$expected actual=$actual" }
+
+          if ('${{ matrix.archive }}' -eq 'true') {
+            $extract = Join-Path $env:RUNNER_TEMP 'codex-account-read-extract'
+            New-Item -ItemType Directory -Force -Path $extract | Out-Null
+            tar -xzf $tmp -C $extract
+            if ($LASTEXITCODE -ne 0) { throw 'Codex extraction failed.' }
+            $candidate = Get-ChildItem $extract -Recurse -File |
+              Where-Object { $_.Name -eq 'codex' -or $_.Name -like 'codex-*' } |
+              Sort-Object Length -Descending |
+              Select-Object -First 1
+            if (-not $candidate) { throw 'Codex executable missing from archive.' }
+            Copy-Item $candidate.FullName (Join-Path $runtime '${{ matrix.exe }}')
+            if ($IsLinux -or $IsMacOS) { chmod +x (Join-Path $runtime '${{ matrix.exe }}') }
+          } else {
+            Copy-Item $tmp (Join-Path $runtime '${{ matrix.exe }}')
+          }
+
+      - name: Probe account-read with empty params and no OpenAI credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = Join-Path $env:RUNNER_TEMP 'codex-account-read-runtime'
+          $exe = Join-Path $runtime '${{ matrix.exe }}'
+          $out = Join-Path $env:RUNNER_TEMP 'codex-account-read-guest.json'
+          python prototype/suprachat/tools/probe_codex_account_read_guest.py --codex $exe --output $out --timeout 10
+          if ($LASTEXITCODE -ne 0) { throw "account/read guest probe failed with $LASTEXITCODE" }
+          $doc = Get-Content -Raw $out | ConvertFrom-Json
+          if ($doc.credentials_provided -ne $false) { throw 'Guest probe unexpectedly carried OpenAI credentials.' }
+          if ($doc.account_read.outcome -eq 'TIMEOUT') { throw 'account/read guest probe timed out.' }
+          Write-Host ("account/read outcome={0}" -f $doc.account_read.outcome)
+
+      - name: Upload sanitized guest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-account-read-guest-${{ matrix.os }}
+          path: ${{ runner.temp }}/codex-account-read-guest.json
+          if-no-files-found: error
+          retention-days: 7
