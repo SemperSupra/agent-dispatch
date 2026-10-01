@@ -1,9 +1,9 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t5-matrix-002-versioned-installer-endpoint",
+  "request_id": "tn-25.04.1-t5-matrix-003-exact-installer-port-profile",
   "version": "25.04.1",
   "rung": "t5",
   "authority_issue": 411,
   "consumer_authority_issue": 274,
-  "purpose": "Retry exact TrueNAS 25.04.1 T0-T5 after source-backed discovery that this release exposes installer JSON-RPC at / rather than the later /ws endpoint."
+  "purpose": "Retry exact TrueNAS 25.04.1 T0-T5 after exact upstream installer source proved WebSocket JSON-RPC at / on guest TCP port 80; target profile now binds path, guest port, source ref/blob, and preserves transport failure evidence."
 }
