@@ -232,7 +232,7 @@ jobs:
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
           }
-          foreach ($method in @('realtime/voices','remote/status','remote/enable','remote/disable','remote/pairing/start','remote/pairing/status','remote/clients/list','remote/clients/revoke','plugins/list','permissions/profiles','apps/list','sandbox/readiness','screen/status','screen/capture','browser/status','browser/snapshot')) {
+          foreach ($method in @('realtime/voices','remote/status','remote/enable','remote/disable','remote/pairing/start','remote/pairing/status','remote/clients/list','remote/clients/revoke','plugins/list','permissions/profiles','apps/list','sandbox/readiness','codex/local/methods','codex/local/read','screen/status','screen/capture','browser/status','browser/snapshot')) {
             if ($capDoc.value.machine_methods -notcontains $method) {
               throw "Semantic machine method missing from capabilities: $method"
             }
@@ -268,13 +268,60 @@ jobs:
           foreach ($command in @('voices','remote-status','plugins','permission-profiles','apps','sandbox-readiness')) {
             $probe = & $cli $command 2>$null
             $probeExit = $LASTEXITCODE
-            if ($probeExit -ne 3) {
-              throw "Expected $command to stop at AUTH_REQUIRED with exit 3 on clean runner; got $probeExit"
+            if ($probeExit -ne 0) {
+              throw "Expected credential-free local read $command to succeed; got exit $probeExit"
             }
             $probeDoc = $probe | ConvertFrom-Json
-            if ($probeDoc.ok -ne $false -or $probeDoc.error.code -ne 'AUTH_REQUIRED') {
-              throw "Semantic command did not preserve human authorization boundary: $command"
+            if ($probeDoc.ok -ne $true -or $probeDoc.value.binding -ne 'codex-local-read' -or $probeDoc.value.authorization_required -ne $false) {
+              throw "Credential-free local read contract failed: $command"
             }
+          }
+
+          $localMethods = & $cli codex-local-methods
+          if ($LASTEXITCODE -ne 0) { throw 'codex-local-methods failed.' }
+          $localMethodsDoc = $localMethods | ConvertFrom-Json
+          if (-not $localMethodsDoc.ok -or $localMethodsDoc.value.methods.Count -ne 14) {
+            throw 'Credential-free Codex local allowlist contract drifted.'
+          }
+
+          $emptyParamMethods = @(
+            'config/read',
+            'configRequirements/read',
+            'experimentalFeature/list',
+            'collaborationMode/list',
+            'model/list',
+            'plugin/list',
+            'permissionProfile/list',
+            'app/list',
+            'mcpServerStatus/list',
+            'skills/list',
+            'thread/realtime/listVoices',
+            'thread/list'
+          )
+          $nullParamMethods = @(
+            'windowsSandbox/readiness',
+            'remoteControl/status/read'
+          )
+          foreach ($method in ($emptyParamMethods + $nullParamMethods)) {
+            $args = @('codex-local-read','--method',$method)
+            if ($emptyParamMethods -contains $method) {
+              $args += @('--params','{}')
+            }
+            $localRead = & $cli @args 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "Credential-free local method failed: $method" }
+            $localReadDoc = $localRead | ConvertFrom-Json
+            if (-not $localReadDoc.ok -or $localReadDoc.value.method -ne $method -or $localReadDoc.value.binding -ne 'codex-local-read') {
+              throw "Credential-free local method contract failed: $method"
+            }
+          }
+
+          $forbiddenLocal = & $cli codex-local-read --method account/usage/read 2>$null
+          if ($LASTEXITCODE -ne 2) {
+            throw "Unqualified account read must fail closed with exit 2; got $LASTEXITCODE"
+          }
+          $forbiddenLocalDoc = $forbiddenLocal | ConvertFrom-Json
+          if ($forbiddenLocalDoc.error.code -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Unqualified account read escaped the credential-free allowlist.'
           }
 
           $browserStatus = & $cli browser-status
@@ -388,11 +435,27 @@ jobs:
           foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
             $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
             $semanticRpc = $semanticRequest | & $cli stdio 2>$null
-            if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic method: $method" }
+            if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic local-read method: $method" }
             $semanticDoc = ($semanticRpc | Select-Object -Last 1) | ConvertFrom-Json
-            if ($semanticDoc.id -ne $method -or $semanticDoc.error.data.type -ne 'AUTH_REQUIRED') {
-              throw "Agent semantic method did not preserve AUTH_REQUIRED boundary: $method"
+            if ($semanticDoc.id -ne $method -or $semanticDoc.result.binding -ne 'codex-local-read' -or $semanticDoc.result.authorization_required -ne $false) {
+              throw "Agent semantic local-read contract failed: $method"
             }
+          }
+
+          $localRpcRequest = '{"jsonrpc":"2.0","id":"local-config","method":"codex/local/read","params":{"method":"config/read","params":{}}}'
+          $localRpc = $localRpcRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent codex/local/read failed.' }
+          $localRpcDoc = ($localRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($localRpcDoc.id -ne 'local-config' -or $localRpcDoc.result.binding -ne 'codex-local-read' -or $localRpcDoc.result.method -ne 'config/read') {
+            throw 'Agent credential-free Codex local-read contract failed.'
+          }
+
+          $forbiddenRpcRequest = '{"jsonrpc":"2.0","id":"forbidden-local","method":"codex/local/read","params":{"method":"account/usage/read"}}'
+          $forbiddenRpc = $forbiddenRpcRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent forbidden local-read boundary probe failed.' }
+          $forbiddenRpcDoc = ($forbiddenRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($forbiddenRpcDoc.error.data.type -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Agent credential-free allowlist failed closed incorrectly.'
           }
 
       - name: Stage and smoke Linux per-user install
