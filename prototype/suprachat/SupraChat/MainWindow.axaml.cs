@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using SupraChat.Core;
@@ -33,9 +34,44 @@ public partial class MainWindow : Window
         Opened += (_, _) =>
         {
             InitializeDesktopIntegration();
+            RefreshAccessibilityStatus();
             _ = RefreshMachineSurfaceAsync();
         };
+        ScalingChanged += (_, _) => RefreshAccessibilityStatus();
         _ = InitializeAgentLabAsync();
+    }
+
+    private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
+    {
+        var primaryModifier = OperatingSystem.IsMacOS()
+            ? KeyModifiers.Meta
+            : KeyModifiers.Control;
+
+        if ((e.KeyModifiers & primaryModifier) != primaryModifier)
+            return;
+
+        switch (e.Key)
+        {
+            case Key.D1:
+                RootTabs.SelectedIndex = 0;
+                ChatView.Focus();
+                e.Handled = true;
+                break;
+            case Key.D2:
+                RootTabs.SelectedIndex = 1;
+                PromptBox.Focus();
+                e.Handled = true;
+                break;
+            case Key.D3:
+                RootTabs.SelectedIndex = 2;
+                e.Handled = true;
+                break;
+            case Key.L:
+                RootTabs.SelectedIndex = 1;
+                PromptBox.Focus();
+                e.Handled = true;
+                break;
+        }
     }
 
     private void InitializeDesktopIntegration()
@@ -51,6 +87,15 @@ public partial class MainWindow : Window
 
     private async void RefreshMachineSurface_Click(object? sender, RoutedEventArgs e) =>
         await RefreshMachineSurfaceAsync();
+
+    private void RefreshAccessibilityStatus()
+    {
+        var shortcutModifier = OperatingSystem.IsMacOS() ? "Command" : "Control";
+        AccessibilityStatus.Text =
+            $"screen-reader-semantics=ready · keyboard=ready · " +
+            $"system-theme/high-contrast=follow-platform · render-scale={RenderScaling:0.##} · " +
+            $"shortcuts={shortcutModifier}+1/2/3,{shortcutModifier}+L";
+    }
 
     private async Task RefreshMachineSurfaceAsync()
     {
