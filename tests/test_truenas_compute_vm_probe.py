@@ -2,10 +2,13 @@ import unittest
 
 from scripts.truenas_compute_vm_probe import (
     ProbeError,
+    legacy_owned_nic,
     legacy_vm_create_payload,
     native_vm_create_payload,
     normalize_system_version,
     owned_zvol_device,
+    validate_modern_preconditions,
+    zvol_device_path,
 )
 
 
@@ -43,6 +46,29 @@ class VmProbeContractTests(unittest.TestCase):
     def test_zvol_requires_owned_parent_name(self):
         with self.assertRaises(ProbeError):
             owned_zvol_device(7,"bare-name",1024)
+
+    def test_zvol_readback_path_is_normalized(self):
+        self.assertEqual(
+            zvol_device_path("rdtepool/rdte vm v0"),
+            "/dev/zvol/rdtepool/rdte+vm+v0",
+        )
+
+    def test_legacy_owned_nic_uses_observed_parent(self):
+        d=legacy_owned_nic("rdte-v0-nic","enp1s0")
+        self.assertEqual(d["name"],"rdte-v0-nic")
+        self.assertEqual(d["dev_type"],"NIC")
+        self.assertEqual(d["nic_type"],"MACVLAN")
+        self.assertEqual(d["parent"],"enp1s0")
+
+    def test_modern_preconditions_require_kvm_and_entitlement(self):
+        ok=validate_modern_preconditions({"supported":True,"error":None},True)
+        self.assertTrue(ok["license_active"])
+        with self.assertRaises(ProbeError):
+            validate_modern_preconditions({"supported":False,"error":"no kvm"},True)
+        with self.assertRaises(ProbeError):
+            validate_modern_preconditions({"supported":True,"error":None},False)
+        with self.assertRaises(ProbeError):
+            validate_modern_preconditions({},True)
 
 
 if __name__=="__main__":
