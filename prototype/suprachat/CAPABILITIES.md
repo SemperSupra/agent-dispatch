@@ -136,6 +136,7 @@ Public qualification on 2026-10-01 used the bundled pinned Codex app-server with
 - `plugin/list`;
 - `permissionProfile/list`;
 - `app/list`;
+- `account/read` (signed-out local state; empirically returns `account=null`, `requiresOpenaiAuth=false`);
 - `mcpServerStatus/list`;
 - `skills/list`;
 - `windowsSandbox/readiness`;
@@ -147,7 +148,7 @@ SupraChat binds exactly this set through `CodexLocalReadPolicy` and the `codex-l
 
 Observed account-backed boundaries remain separate:
 - public guest-probe run `36927142694` returned authentication-required outcomes for `account/rateLimits/read`, `account/usage/read`, and `account/workspaceMessages/read`;
-- `account/read` returned invalid-parameters because the first probe omitted its request object. Current upstream protocol source defines `GetAccountParams.refreshToken` with a default false value and upstream tests send `params: {}`; that source evidence nominates a corrected guest rep but does **not** qualify `account/read` for this allowlist until a clean empirical run passes.
+- corrected three-OS run `36931826876` sent `account/read` with `params: {}` and returned a local signed-out result on Windows, Linux and macOS: `account=null`, `requiresOpenaiAuth=false`, with no server-request approval path. This qualifies only the local account/auth-status snapshot, not authenticated account data.
 
 This frontier is a capability boundary, not an authority shortcut: inference, account/usage data, plugin/app mutation, Remote mutation, sandbox setup, server-request approval, and other consequential methods retain their existing authorization/confirmation requirements.
 
