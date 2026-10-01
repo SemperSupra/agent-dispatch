@@ -649,6 +649,7 @@ if [[ "$T6_PRODUCT" == "official-catalog" ]]; then
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
+    --target-version "$TARGET_VERSION" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_provider_g2_probe.py" \
@@ -664,6 +665,7 @@ elif [[ "$T6_PRODUCT" == "garm" ]]; then
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
+    --target-version "$TARGET_VERSION" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_wow_sidecar_t6_probe.py" \
@@ -672,6 +674,7 @@ elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
+    --target-version "$TARGET_VERSION" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
 else
   python3 "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" \
@@ -680,6 +683,7 @@ else
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
+    --target-version "$TARGET_VERSION" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
 fi
 [[ -f "$FOUNDRY_OUT" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "T6 Foundry control client did not emit a receipt"
