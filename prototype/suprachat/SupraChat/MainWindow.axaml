@@ -97,6 +97,22 @@
 
             <Separator Margin="0,12,0,8" />
 
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Responses WebSocket surface" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Persistent authenticated Responses transport for connection-local continuation, multiplexed stream_id lanes, tool-heavy loops, and supported mid-turn steering. Raw events remain visible so new upstream event types do not require a client release." />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Connect WebSocket" Click="ConnectResponsesWebSocket_Click" />
+              <Button Margin="0,0,8,8" Content="Disconnect WebSocket" Click="DisconnectResponsesWebSocket_Click" />
+              <Button Margin="0,0,8,8" Content="Send WebSocket event" Click="SendResponsesWebSocketEvent_Click" />
+            </WrapPanel>
+            <TextBox x:Name="ResponsesWebSocketEventBox" AcceptsReturn="True" MinHeight="150"
+                     Text="{}{&quot;type&quot;:&quot;response.create&quot;,&quot;stream_id&quot;:&quot;main&quot;,&quot;input&quot;:[{&quot;role&quot;:&quot;user&quot;,&quot;content&quot;:[{&quot;type&quot;:&quot;input_text&quot;,&quot;text&quot;:&quot;Say exactly: WebSocket Responses works.&quot;}]}]}" />
+            <TextBlock FontWeight="SemiBold" Text="WebSocket events" />
+            <TextBox x:Name="ResponsesWebSocketEventsBox" AcceptsReturn="True" IsReadOnly="True"
+                     TextWrapping="Wrap" MinHeight="180" />
+
+            <Separator Margin="0,12,0,8" />
+
             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console" />
             <TextBlock TextWrapping="Wrap"
                        Text="Pinned oracle currently contains 172 client RPCs, 9 server-initiated request types, and 85 notifications. The console does not hide privileged or experimental surfaces; authority-sensitive calls still require explicit parameters/consent." />
