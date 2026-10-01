@@ -217,3 +217,21 @@ Each cell must be one of:
 `IMPLEMENTED | QUALIFY | GAP | BLOCKED_SUPPORTED_INTERFACE | ORACLE_ONLY | NOT_PLAN_SHAREABLE | UNKNOWN`.
 
 A capability present on one first-party surface must not disappear because another platform lacks it, and platform-specific behavior must not be generalized without evidence.
+
+
+## Clean-room browser / computer-use substrate
+
+SupraChat now has an application-owned browser plane separate from the first-party ChatGPT product WebView.
+
+Current substrate:
+- pinned `Microsoft.Playwright 1.63.0`;
+- Chromium packaged under `runtime/browser` by public qualification;
+- fresh/ephemeral browser context by default with no inherited ChatGPT WebView cookies or credentials;
+- visible headed browser session for humans with an explicit Stop control;
+- AI-optimized ARIA snapshots as the primary structured observation for accessible-human, automation and agent use;
+- one-shot automation: `browser-status`, `browser-snapshot`, `browser-click`, `browser-fill`;
+- sessionful agent JSON-RPC: `browser/start`, `browser/navigate`, `browser/read`, `browser/click`, `browser/fill`, `browser/stop`;
+- semantic click uses ARIA role + accessible name;
+- semantic fill uses the accessible label.
+
+This is the clean-room base for Computer Use. It deliberately starts with semantic locators rather than coordinates so the agent-facing representation and the assistive-technology representation converge. Pixel screenshots and raw pointer/keyboard operations remain a later fallback/actuator layer and must retain explicit stop/permission/approval semantics.
