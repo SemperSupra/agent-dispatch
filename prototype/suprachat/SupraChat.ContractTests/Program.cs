@@ -456,7 +456,7 @@ foreach (var credentialName in new[]
     "CHATGPT_ACCESS_TOKEN"
 })
 {
-    Require(codexServerSource.Contains($"\"${credentialName}\"", StringComparison.Ordinal),
+    Require(codexServerSource.Contains($"\"{credentialName}\"", StringComparison.Ordinal),
         $"credential-free Codex local-start must explicitly strip {credentialName}");
 }
 Require(codexServerSource.Contains("AppState.DirectoryPath, \"codex-local\"", StringComparison.Ordinal),
