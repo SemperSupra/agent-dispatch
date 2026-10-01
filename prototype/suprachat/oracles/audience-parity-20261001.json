@@ -462,8 +462,8 @@
         "macos": "qualify",
         "linux": "qualify"
       },
-      "human_boundary": "Computer/browser control requires explicit authority, permissions and approvals.",
-      "notes": "Clean-room browser substrate now implements semantic observation plus role/name click and labeled-input fill across human/automation/agent paths. Remaining qualification frontier: packaged Chromium, screenshots/visual fallback, general pointer/keyboard primitives, downloads/uploads, multi-tab/context lifecycle, permission capture and explicit higher-risk approval policy."
+      "human_boundary": "Semantic browser actions remain the preferred path. Raw coordinate/keyboard input requires a fresh explicit one-shot confirmation; Stop and OS/browser permission boundaries remain authoritative.",
+      "notes": "Clean-room browser now implements semantic ARIA observation/action plus PNG visual fallback, coordinate pointer click, key/chord press and literal-text insertion across human/automation/agent surfaces. Semantic actions remain preferred; raw input requires one-shot confirmation. Live packaged qualification across Windows/macOS/Linux remains pending on this branch."
     },
     {
       "id": "remote_control_pairing",
