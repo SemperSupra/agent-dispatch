@@ -33,6 +33,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, required=True)
+    p.add_argument("--path", default="/ws")
     p.add_argument("--password-file", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--timeout", type=float, default=15.0)
@@ -48,12 +49,13 @@ def main():
         "classification": "ORACLE_FAILURE",
         "selected_disk": None,
         "selected_interface": None,
+        "installer_rpc_path": a.path,
         "progress": [],
     }
     started = time.time()
     ws = None
     try:
-        ws = WebSocket(a.host, a.port, timeout=a.timeout)
+        ws = WebSocket(a.host, a.port, path=a.path, timeout=a.timeout)
         adopted = rpc_call(ws, "is_adopted", 1)
         payload["is_adopted"] = adopted
         if adopted:
