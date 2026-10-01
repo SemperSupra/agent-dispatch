@@ -54,7 +54,7 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         source = SCRIPT.read_text()
         self.assertIn('["git", "rev-parse", "HEAD"]', source)
         self.assertIn('os.getenv("P0A_SOURCE_SHA"', source)
-        self.assertIn('"source":', source)
+        self.assertIn('receipt["source"] = {', source)
         self.assertIn('"worker_github_sha": os.getenv("GITHUB_SHA")', source)
         self.assertIn('"expected_revision": expected_source_revision', source)
         self.assertIn('"exact_match": expected_source_revision is None or source_revision == expected_source_revision', source)
