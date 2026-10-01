@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TARGET_REGISTRY="$SCRIPT_DIR/../config/truenas-rdte-targets.json"
+PRODUCT_T6_ADMISSION="$SCRIPT_DIR/../config/truenas-product-t6-admission.json"
 TARGET_VERSION="26.0.0-BETA.3"
 RAM_MIB=8192
 VCPUS=2
@@ -50,10 +51,18 @@ TARGET_ENV="$(python3 "$SCRIPT_DIR/truenas_rdte_target.py" --registry "$TARGET_R
 eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
 if [[ "$RUNG" == "t6" ]]; then
-  if [[ "$T6_PRODUCT" != "official-catalog" ]]; then
-    [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
-  fi
   [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "official-catalog" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
+    [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "garm-provider-g2 remains admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
+  elif [[ "$T6_PRODUCT" != "official-catalog" ]]; then
+    [[ -f "$PRODUCT_T6_ADMISSION" ]] || { echo "missing product T6 admission registry: $PRODUCT_T6_ADMISSION" >&2; exit 2; }
+    PRODUCT_ADMISSION_JSON="$(python3 "$SCRIPT_DIR/truenas_product_t6_admission.py"       --admission "$PRODUCT_T6_ADMISSION"       --targets "$TARGET_REGISTRY"       --repo-root "$SCRIPT_DIR/.."       --product "$T6_PRODUCT"       --version "$VERSION"       --require-admitted)" || exit 2
+    EXPECTED_PRODUCT_FOUNDRY_COMMIT="$(jq -er '.producer.ref' <<<"$PRODUCT_ADMISSION_JSON")"
+    [[ "$FOUNDRY_COMMIT" == "$EXPECTED_PRODUCT_FOUNDRY_COMMIT" ]] || {
+      echo "product T6 producer mismatch: product=$T6_PRODUCT target=$VERSION expected=$EXPECTED_PRODUCT_FOUNDRY_COMMIT observed=$FOUNDRY_COMMIT" >&2
+      exit 2
+    }
+  fi
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
     [[ -n "$G2_FIXTURE_DIR" && -d "$G2_FIXTURE_DIR" ]] || { echo "garm-provider-g2 requires --g2-fixture-dir" >&2; exit 2; }
     [[ "$G2_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g2 requires exact --g2-fixture-producer SHA" >&2; exit 2; }
