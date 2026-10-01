@@ -29,7 +29,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Opened += (_, _) => InitializeDesktopIntegration();
+        Opened += (_, _) =>
+        {
+            InitializeDesktopIntegration();
+            _ = RefreshMachineSurfaceAsync();
+        };
         _ = InitializeAgentLabAsync();
     }
 
@@ -43,6 +47,46 @@ public partial class MainWindow : Window
         if (!registered)
             AuthStatus.Text = $"Windows companion shortcut {WindowsCompanionHotkey.ShortcutDescription} is unavailable; another application may own it.";
     }
+
+    private async void RefreshMachineSurface_Click(object? sender, RoutedEventArgs e) =>
+        await RefreshMachineSurfaceAsync();
+
+    private async Task RefreshMachineSurfaceAsync()
+    {
+        var credential = await CredentialStore.TryLoadAsync();
+        var automationName = OperatingSystem.IsWindows()
+            ? "SupraChat.Automation.exe"
+            : "SupraChat.Automation";
+        var automationPath = Path.Combine(AppContext.BaseDirectory, automationName);
+        var codexPath = CodexAppServer.ResolveExecutable();
+
+        MachineExecutablePathBox.Text = automationPath;
+        MachineStatus.Text =
+            $"platform={PlatformLabel()} · " +
+            $"automation={(File.Exists(automationPath) ? "ready" : "not-packaged")} · " +
+            $"agent-stdio={(File.Exists(automationPath) ? "ready" : "not-packaged")} · " +
+            $"codex={(Path.IsPathRooted(codexPath) && File.Exists(codexPath) ? "bundled" : "PATH-fallback")} · " +
+            $"authorization={(credential is null ? "required" : credential.HasPlanUsage ? "plan-ready" : "identity-only")}";
+    }
+
+    private void OpenStateFolder_Click(object? sender, RoutedEventArgs e)
+    {
+        Directory.CreateDirectory(AppState.DirectoryPath);
+
+        var start = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("explorer.exe", $"\"{AppState.DirectoryPath}\"") { UseShellExecute = true }
+            : OperatingSystem.IsMacOS()
+                ? new ProcessStartInfo("open", AppState.DirectoryPath) { UseShellExecute = false }
+                : new ProcessStartInfo("xdg-open", AppState.DirectoryPath) { UseShellExecute = false };
+
+        Process.Start(start);
+    }
+
+    private static string PlatformLabel() =>
+        OperatingSystem.IsWindows() ? "windows" :
+        OperatingSystem.IsMacOS() ? "macos" :
+        OperatingSystem.IsLinux() ? "linux" :
+        "unknown";
 
     private async Task InitializeAgentLabAsync()
     {
