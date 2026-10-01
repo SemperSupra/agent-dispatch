@@ -41,6 +41,7 @@ internal static class Program
             {
                 "capabilities" => WriteSuccess(Capabilities()),
                 "accessibility" => WriteSuccess(Accessibility()),
+                "parity" => WriteSuccess(ReadCatalog("audience-parity-20261001.json")),
                 "catalog" => WriteSuccess(ReadCombinedCatalog()),
                 "codex-catalog" => WriteSuccess(ReadCatalog("codex-capability-catalog-20261001.json")),
                 "siwc-catalog" => WriteSuccess(ReadCatalog("siwc-capability-surface-20261001.json")),
@@ -73,6 +74,7 @@ internal static class Program
         {
             new { name = "capabilities", description = "Read machine/product capability metadata." },
             new { name = "accessibility", description = "Read the cross-platform accessibility/UI/UX/DX contract." },
+            new { name = "parity", description = "Read machine-readable human/accessibility/automation/agent parity by capability." },
             new { name = "catalog", description = "Read the packaged SIWC + Codex capability catalogs." },
             new { name = "codex-catalog", description = "Read packaged Codex stable-runtime + upstream-frontier surfaces." },
             new { name = "siwc-catalog", description = "Read packaged SIWC / ChatGPT-plan capability metadata." },
@@ -109,6 +111,7 @@ internal static class Program
         {
             "capabilities/read",
             "accessibility/read",
+            "parity/read",
             "catalog/read",
             "codex/catalog",
             "siwc/catalog",
@@ -359,6 +362,7 @@ internal static class Program
         {
             "capabilities/read" => Capabilities(),
             "accessibility/read" => Accessibility(),
+            "parity/read" => ReadCatalog("audience-parity-20261001.json"),
             "catalog/read" => ReadCombinedCatalog(),
             "codex/catalog" => ReadCatalog("codex-capability-catalog-20261001.json"),
             "siwc/catalog" => ReadCatalog("siwc-capability-surface-20261001.json"),
