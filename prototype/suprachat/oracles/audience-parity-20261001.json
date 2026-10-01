@@ -432,6 +432,23 @@
       "notes": "First-party product and Codex realtime evidence exist; native cross-audience adapters remain incomplete. Completion requires text transcript/equivalent state for spoken output, structured permission state, and keyboard/machine-reachable stop/cancel."
     },
     {
+      "id": "clean_room_browser",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "Navigation is an explicit caller action. The clean-room browser is isolated from the first-party ChatGPT WebView/session and does not inherit browser cookies or credentials.",
+      "notes": "Pinned Playwright/Chromium substrate. GUI uses a visible session with explicit Stop; CLI/JSON-RPC use ephemeral headless sessions and return AI-optimized ARIA snapshots rather than requiring pixels."
+    },
+    {
       "id": "computer_use_browser",
       "consequential": true,
       "access": {
