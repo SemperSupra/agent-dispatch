@@ -209,4 +209,7 @@ Directory.Delete(runtimeRoot, recursive: true);
 Require(WindowsCompanionHotkey.ShortcutDescription == "Alt+Space",
     "Windows companion shortcut drifted from first-party parity target");
 
+Require(WindowsNotificationService.Adapter == "shell-notification-area",
+    "Windows notification adapter identity drifted");
+
 Console.WriteLine("SupraChat contract checks PASS");
