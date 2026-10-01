@@ -211,6 +211,37 @@
 
             <Separator Margin="0,12,0,8" />
 
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Desktop runtime quick probes"
+                       AutomationProperties.ControlTypeOverride="Header"
+                       AutomationProperties.HeadingLevel="2"
+                       AutomationProperties.AutomationId="RuntimeProbes.Heading" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Read-only convenience probes over the bundled Codex runtime. They expose the same methods available to automation and agents without enabling remote control, pairing devices, installing plugins, or granting approvals." />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="List realtime voices"
+                      Click="ListRealtimeVoices_Click"
+                      AutomationProperties.AutomationId="RuntimeProbes.Voices"
+                      AutomationProperties.HelpText="List realtime voices from the bundled Codex runtime." />
+              <Button Margin="0,0,8,8" Content="Read remote status"
+                      Click="ReadRemoteStatus_Click"
+                      AutomationProperties.AutomationId="RuntimeProbes.RemoteStatus"
+                      AutomationProperties.HelpText="Read Codex Remote status without enabling or pairing remote control." />
+              <Button Margin="0,0,8,8" Content="List plugins"
+                      Click="ListPlugins_Click"
+                      AutomationProperties.AutomationId="RuntimeProbes.Plugins"
+                      AutomationProperties.HelpText="List available Codex plugins without installing or changing them." />
+            </WrapPanel>
+            <TextBox x:Name="RuntimeProbeOutputBox"
+                     AcceptsReturn="True"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     MinHeight="140"
+                     AutomationProperties.AutomationId="RuntimeProbes.Output"
+                     AutomationProperties.Name="Desktop runtime probe result"
+                     AutomationProperties.LiveSetting="Polite" />
+
+            <Separator Margin="0,12,0,8" />
+
             <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console"
                        AutomationProperties.ControlTypeOverride="Header"
                        AutomationProperties.HeadingLevel="2" />
@@ -299,11 +330,11 @@
 
             <TextBlock FontWeight="SemiBold" Text="Portable automation examples" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="155"
-                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli parity&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot; --file ./document.pdf&#10;suprachat-cli codex-rpc --method model/list --params {}" />
+                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli parity&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli voices&#10;suprachat-cli remote-status&#10;suprachat-cli plugins&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot; --file ./document.pdf&#10;suprachat-cli codex-rpc --method model/list --params {}" />
 
             <TextBlock FontWeight="SemiBold" Text="Agent stdio JSON-RPC" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="125"
-                     Text="suprachat-cli stdio&#10;&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;capabilities/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:2,&quot;method&quot;:&quot;accessibility/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:3,&quot;method&quot;:&quot;parity/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:4,&quot;method&quot;:&quot;responses/create&quot;,&quot;params&quot;:{&quot;model&quot;:&quot;&lt;id&gt;&quot;,&quot;input&quot;:&quot;inspect&quot;,&quot;files&quot;:[&quot;./document.pdf&quot;]}}" /> />
+                     Text="suprachat-cli stdio&#10;&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;capabilities/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:2,&quot;method&quot;:&quot;accessibility/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:3,&quot;method&quot;:&quot;parity/read&quot;}&#10;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:4,&quot;method&quot;:&quot;responses/create&quot;,&quot;params&quot;:{&quot;model&quot;:&quot;&lt;id&gt;&quot;,&quot;input&quot;:&quot;inspect&quot;,&quot;files&quot;:[&quot;./document.pdf&quot;]}}" />
 
             <TextBlock TextWrapping="Wrap"
                        Text="Agent mode also emits asynchronous responses/ws/event and codex/event notifications. It never auto-approves Codex server requests; clients must explicitly respond or reject according to their authority." />
