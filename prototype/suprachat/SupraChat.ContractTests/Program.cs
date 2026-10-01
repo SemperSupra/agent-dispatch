@@ -324,6 +324,9 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"RuntimeProbes.Voices\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.RemoteStatus\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.Plugins\"",
+    "AutomationProperties.AutomationId=\"RuntimeProbes.PermissionProfiles\"",
+    "AutomationProperties.AutomationId=\"RuntimeProbes.Apps\"",
+    "AutomationProperties.AutomationId=\"RuntimeProbes.SandboxReadiness\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.Output\"",
     "AutomationProperties.LiveSetting=\"Polite\"",
     "AutomationProperties.HeadingLevel=\"1\"",
@@ -353,9 +356,15 @@ foreach (var marker in new[]
     "\"voices\"",
     "\"remote-status\"",
     "\"plugins\"",
+    "\"permission-profiles\"",
+    "\"apps\"",
+    "\"sandbox-readiness\"",
     "\"realtime/voices\"",
     "\"remote/status\"",
-    "\"plugins/list\""
+    "\"plugins/list\"",
+    "\"permissions/profiles\"",
+    "\"apps/list\"",
+    "\"sandbox/readiness\""
 })
 {
     Require(automationSource.Contains(marker, StringComparison.Ordinal),
