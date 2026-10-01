@@ -192,6 +192,8 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("installer-boot", text)
         self.assertIn("installer-rpc", text)
         self.assertIn("truenas_installer_rpc_probe.py", text)
+        self.assertIn('INSTALLER_RPC_PATH', text)
+        self.assertIn('--path "$INSTALLER_RPC_PATH"', text)
         self.assertNotIn("xdotool", text)
 
     def test_no_literal_escaped_shell_parameter_expansions(self):
@@ -205,6 +207,7 @@ class SystemRdteContractTests(unittest.TestCase):
         for method in ("is_adopted", "system_info", "list_disks", "list_network_interfaces"):
             self.assertIn(method, text)
         self.assertNotIn('"install"', text)
+        self.assertIn('p.add_argument("--path", default="/ws")', text)
         self.assertNotIn("pip install", text)
         cp = subprocess.run(
             ["python3", "-m", "py_compile", str(TRUENAS_RPC)],
@@ -240,6 +243,7 @@ class SystemRdteContractTests(unittest.TestCase):
         listener.listen(1)
         port = listener.getsockname()[1]
         errors = []
+        request_lines = []
 
         def read_exact(conn, count):
             parts = []
@@ -287,8 +291,10 @@ class SystemRdteContractTests(unittest.TestCase):
                     request = bytearray()
                     while b"\r\n\r\n" not in request:
                         request.extend(conn.recv(4096))
+                    decoded_request = request.decode()
+                    request_lines.append(decoded_request.split("\r\n", 1)[0])
                     headers = {}
-                    for line in request.decode().split("\r\n")[1:]:
+                    for line in decoded_request.split("\r\n")[1:]:
                         if ":" in line:
                             key, value = line.split(":", 1)
                             headers[key.lower().strip()] = value.strip()
@@ -341,6 +347,8 @@ class SystemRdteContractTests(unittest.TestCase):
                     str(TRUENAS_RPC),
                     "--port",
                     str(port),
+                    "--path",
+                    "/",
                     "--out",
                     str(out),
                     "--timeout",
@@ -356,9 +364,11 @@ class SystemRdteContractTests(unittest.TestCase):
             self.assertEqual(payload["classification"], "SUPPORTED")
             self.assertFalse(payload["methods"]["is_adopted"])
             self.assertEqual(payload["methods"]["system_info"]["version"], "synthetic")
+            self.assertEqual(payload["endpoint"]["path"], "/")
         thread.join(timeout=5)
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
+        self.assertEqual(request_lines, ["GET / HTTP/1.1"])
 
     def test_truenas_t1_requires_real_rpc_not_hostfwd_tcp(self):
         text = TRUENAS.read_text(encoding="utf-8")
@@ -373,6 +383,8 @@ class SystemRdteContractTests(unittest.TestCase):
         middleware = TRUENAS_MIDDLEWARE.read_text(encoding="utf-8")
         self.assertIn("expected exactly one non-removable disk", install)
         self.assertIn("expected exactly one non-loopback interface", install)
+        self.assertIn('p.add_argument("--path", default="/ws")', install)
+        self.assertIn("path=a.path", install)
         self.assertIn('"truenas_admin"', install)
         self.assertIn('"auth.login_ex"', middleware)
         self.assertIn('"PASSWORD_PLAIN"', middleware)
