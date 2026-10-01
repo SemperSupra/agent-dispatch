@@ -1107,12 +1107,13 @@ public partial class MainWindow : Window
 
             await StopBrowserSessionAsync();
             BrowserSnapshotBox.Text = "Starting isolated browser…";
-            _browserSession = await BrowserSession.StartAsync(headless: false);
+            var profile = Path.Combine(AppState.DirectoryPath, "browser-profile");
+            _browserSession = await BrowserSession.StartPersistentAsync(profile, headless: false);
             var snapshot = await _browserSession.NavigateAndSnapshotAsync(url);
             BrowserSnapshotBox.Text = JsonSerializer.Serialize(
                 snapshot,
                 new JsonSerializerOptions { WriteIndented = true });
-            AuthStatus.Text = "Clean-room browser started. Semantic ARIA snapshot is available; Stop browser remains available.";
+            AuthStatus.Text = "Application-owned browser started with its persistent human profile. Semantic ARIA snapshot is available; Stop browser remains available.";
         }
         catch (Exception ex)
         {
