@@ -21,7 +21,9 @@
 
     <TabControl Grid.Row="1">
       <TabItem Header="ChatGPT">
-        <NativeWebView x:Name="ChatView" Source="https://chatgpt.com/" />
+        <NativeWebView x:Name="ChatView"
+                       Source="https://chatgpt.com/"
+                       EnvironmentRequested="ChatView_EnvironmentRequested" />
       </TabItem>
 
       <TabItem Header="Agent Lab">
