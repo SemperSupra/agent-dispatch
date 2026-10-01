@@ -389,7 +389,15 @@ foreach (var marker in new[]
     "\"browser-status\"",
     "\"browser-snapshot\"",
     "\"browser/status\"",
-    "\"browser/snapshot\""
+    "\"browser/snapshot\"",
+    "\"browser/start\"",
+    "\"browser/navigate\"",
+    "\"browser/read\"",
+    "\"browser/click\"",
+    "\"browser/fill\"",
+    "\"browser/stop\"",
+    "\"browser-click\"",
+    "\"browser-fill\""
 })
 {
     Require(automationSource.Contains(marker, StringComparison.Ordinal),
@@ -400,6 +408,13 @@ var browserStatus = BrowserSession.Status();
 Require(browserStatus.Schema == "suprachat-browser-runtime/v1", "browser runtime schema drifted");
 Require(browserStatus.EphemeralByDefault, "clean-room browser must remain ephemeral by default");
 Require(browserStatus.AccessibilitySnapshotSupported, "semantic browser snapshot invariant missing");
+var browserSource = File.ReadAllText(Path.Combine("prototype", "suprachat", "SupraChat", "Core", "BrowserSession.cs"));
+Require(browserSource.Contains("ClickByRoleAsync", StringComparison.Ordinal),
+    "semantic browser role/name click actuator missing");
+Require(browserSource.Contains("FillByLabelAsync", StringComparison.Ordinal),
+    "semantic browser labeled-input fill actuator missing");
+Require(!browserSource.Contains("Mouse.ClickAsync", StringComparison.Ordinal),
+    "semantic browser tranche regressed to coordinate-first clicking");
 
 var browserProject = File.ReadAllText(Path.Combine("prototype", "suprachat", "SupraChat", "SupraChat.csproj"));
 Require(browserProject.Contains("Microsoft.Playwright\" Version=\"1.63.0\"", StringComparison.Ordinal),
