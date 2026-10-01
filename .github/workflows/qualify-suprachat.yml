@@ -316,6 +316,21 @@ jobs:
             }
           }
 
+          foreach ($credentialName in @('ACCESS_TOKEN','OPENAI_API_KEY','CODEX_API_KEY','OPENAI_ACCESS_TOKEN','CHATGPT_ACCESS_TOKEN')) {
+            Set-Item -Path "Env:$credentialName" -Value 'SUPRACHAT_CI_MUST_NOT_INHERIT'
+          }
+          $signedOutAccount = & $cli codex-local-read --method account/read --params '{}'
+          if ($LASTEXITCODE -ne 0) { throw 'Credential-isolation account/read probe failed.' }
+          $signedOutAccountDoc = $signedOutAccount | ConvertFrom-Json
+          if (-not $signedOutAccountDoc.ok -or
+              $signedOutAccountDoc.value.result.account -ne $null -or
+              $signedOutAccountDoc.value.result.requiresOpenaiAuth -ne $false) {
+            throw 'Credential-free local read inherited ambient authorization unexpectedly.'
+          }
+          foreach ($credentialName in @('ACCESS_TOKEN','OPENAI_API_KEY','CODEX_API_KEY','OPENAI_ACCESS_TOKEN','CHATGPT_ACCESS_TOKEN')) {
+            Remove-Item -Path "Env:$credentialName" -ErrorAction SilentlyContinue
+          }
+
           $forbiddenLocal = & $cli codex-local-read --method account/usage/read 2>$null
           if ($LASTEXITCODE -ne 2) {
             throw "Unqualified account read must fail closed with exit 2; got $LASTEXITCODE"
