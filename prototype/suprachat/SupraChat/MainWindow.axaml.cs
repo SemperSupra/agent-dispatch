@@ -22,6 +22,32 @@ public partial class MainWindow : Window
     private void Reload_Click(object? sender, RoutedEventArgs e) => ChatView.Refresh();
     private void Home_Click(object? sender, RoutedEventArgs e) => ChatView.Navigate(new Uri("https://chatgpt.com/"));
 
+    private void ChatView_EnvironmentRequested(object? sender, WebViewEnvironmentRequestedEventArgs e)
+    {
+        var webRoot = Path.Combine(AppState.DirectoryPath, "webview");
+        Directory.CreateDirectory(webRoot);
+
+        e.EnableDevTools = false;
+        if (e is Avalonia.Platform.WindowsWebView2EnvironmentRequestedEventArgs windows)
+        {
+            windows.ProfileName = "SupraChat";
+            windows.UserDataFolder = Path.Combine(webRoot, "windows");
+            windows.IsInPrivateModeEnabled = false;
+        }
+        else if (e is Avalonia.Platform.AppleWKWebViewEnvironmentRequestedEventArgs apple)
+        {
+            apple.NonPersistentDataStore = false;
+            apple.DataStoreIdentifier = new Guid("9f2d1f5f-11b7-4e6d-befa-8c69694254af");
+            apple.ApplicationNameForUserAgent = "SupraChat";
+        }
+        else if (e is Avalonia.Platform.GtkWebViewEnvironmentRequestedEventArgs gtk)
+        {
+            gtk.EphemeralDataManager = false;
+            gtk.BaseDataDirectory = Path.Combine(webRoot, "linux", "data");
+            gtk.BaseCacheDirectory = Path.Combine(webRoot, "linux", "cache");
+        }
+    }
+
     private void OpenExternal_Click(object? sender, RoutedEventArgs e)
     {
         Process.Start(new ProcessStartInfo("https://chatgpt.com/") { UseShellExecute = true });
