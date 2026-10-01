@@ -114,6 +114,71 @@ public partial class MainWindow : Window
             $"agent-stdio={(File.Exists(automationPath) ? "ready" : "not-packaged")} · " +
             $"codex={(Path.IsPathRooted(codexPath) && File.Exists(codexPath) ? "bundled" : "PATH-fallback")} · " +
             $"authorization={(credential is null ? "required" : credential.HasPlanUsage ? "plan-ready" : "identity-only")}";
+
+        RefreshAudienceParityStatus();
+    }
+
+    private void RefreshAudienceParityStatus()
+    {
+        var parityPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "oracles",
+            "audience-parity-20261001.json");
+        AudienceParityPathBox.Text = parityPath;
+
+        if (!File.Exists(parityPath))
+        {
+            AudienceParityStatus.Text = "Audience parity ledger is not packaged.";
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(parityPath));
+            var features = document.RootElement.GetProperty("features");
+            var platform = PlatformLabel();
+            var total = 0;
+            var gaps = 0;
+            var qualifying = 0;
+
+            foreach (var feature in features.EnumerateArray())
+            {
+                total++;
+                var hasGap = false;
+                var hasQualify = false;
+
+                if (feature.TryGetProperty("access", out var access))
+                {
+                    foreach (var state in access.EnumerateObject())
+                    {
+                        hasGap |= string.Equals(state.Value.GetString(), "gap", StringComparison.Ordinal);
+                        hasQualify |= string.Equals(state.Value.GetString(), "qualify", StringComparison.Ordinal);
+                    }
+                }
+
+                if (feature.TryGetProperty("platforms", out var platforms) &&
+                    platforms.TryGetProperty(platform, out var platformState))
+                {
+                    hasGap |= string.Equals(platformState.GetString(), "gap", StringComparison.Ordinal);
+                    hasQualify |= string.Equals(platformState.GetString(), "qualify", StringComparison.Ordinal);
+                }
+
+                if (hasGap)
+                    gaps++;
+                else if (hasQualify)
+                    qualifying++;
+            }
+
+            var explicitWithoutGap = total - gaps - qualifying;
+            AudienceParityStatus.Text =
+                $"{total} capability families · {explicitWithoutGap} explicit/no-gap · " +
+                $"{qualifying} qualifying · {gaps} gaps · platform={platform}. " +
+                "Use suprachat-cli parity or parity/read for the complete semantic ledger.";
+        }
+        catch (Exception ex)
+        {
+            AudienceParityStatus.Text = $"Audience parity ledger could not be read: {ex.Message}";
+        }
     }
 
     private void OpenStateFolder_Click(object? sender, RoutedEventArgs e)
