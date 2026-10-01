@@ -306,6 +306,8 @@
                        AutomationProperties.Name="Accessibility readiness"
                        AutomationProperties.LiveSetting="Polite" />
             <TextBlock TextWrapping="Wrap"
+                       Text="If the embedded ChatGPT view is less usable with your assistive technology on this platform, use the clearly labeled Open in browser action; Agent Lab and machine interfaces remain native SupraChat surfaces." />
+            <TextBlock TextWrapping="Wrap"
                        Text="Keyboard: Command+1/2/3/L on macOS; Control+1/2/3/L on Windows/Linux. Standard Tab, Shift+Tab, arrows, Enter and Space remain available. No state is conveyed only by color." />
             <TextBlock TextWrapping="Wrap"
                        Text="Automation: suprachat-cli accessibility. Agent: accessibility/read. These expose the same accessibility contract without screen scraping." />
