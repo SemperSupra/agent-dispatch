@@ -167,6 +167,7 @@ public partial class MainWindow : Window
             : "SupraChat.Automation";
         var automationPath = Path.Combine(AppContext.BaseDirectory, automationName);
         var codexPath = CodexAppServer.ResolveExecutable();
+        var screenCapture = DesktopScreenCapture.Describe();
 
         MachineExecutablePathBox.Text = automationPath;
         MachineStatus.Text =
@@ -174,6 +175,7 @@ public partial class MainWindow : Window
             $"automation={(File.Exists(automationPath) ? "ready" : "not-packaged")} · " +
             $"agent-stdio={(File.Exists(automationPath) ? "ready" : "not-packaged")} · " +
             $"codex={(Path.IsPathRooted(codexPath) && File.Exists(codexPath) ? "bundled" : "PATH-fallback")} · " +
+            $"screen-capture={(screenCapture.Implemented ? screenCapture.Adapter : "unavailable")} · " +
             $"authorization={(credential is null ? "required" : credential.HasPlanUsage ? "plan-ready" : "identity-only")}";
 
         RefreshAudienceParityStatus();
@@ -505,6 +507,48 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             AttachmentsStatus.Text = $"Attachment selection failed: {ex.Message}";
+        }
+    }
+
+    private async void CaptureScreen_Click(object? sender, RoutedEventArgs e)
+    {
+        var descriptor = DesktopScreenCapture.Describe();
+        if (!descriptor.Implemented)
+        {
+            AttachmentsStatus.Text =
+                $"Screen capture is unavailable on this host. Adapter={descriptor.Adapter}; {descriptor.PermissionBoundary}";
+            return;
+        }
+
+        var tempPath = Path.Combine(
+            Path.GetTempPath(),
+            $"suprachat-screen-{Guid.NewGuid():N}.png");
+
+        try
+        {
+            AttachmentsStatus.Text =
+                $"Capturing screen via {descriptor.Adapter}. {descriptor.PermissionBoundary}";
+            var capturedPath = await DesktopScreenCapture.CaptureAsync(tempPath);
+            var bytes = await File.ReadAllBytesAsync(capturedPath);
+            AddAttachmentBytes("screen-capture.png", bytes);
+            RefreshAttachmentStatus();
+            AttachmentsStatus.Text += $" Screen captured via {descriptor.Adapter}.";
+        }
+        catch (Exception ex)
+        {
+            AttachmentsStatus.Text =
+                $"Screen capture failed via {descriptor.Adapter}: {ex.Message}";
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch
+            {
+            }
         }
     }
 
