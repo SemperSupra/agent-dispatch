@@ -6,6 +6,8 @@ on:
       - "config/compute-materialization-targets.json"
       - "scripts/compute_materialization_contract.py"
       - "tests/test_compute_materialization_contract.py"
+      - "scripts/truenas_compute_container_probe.py"
+      - "tests/test_truenas_compute_container_probe.py"
       - "docs/compute-materialization-contract.md"
       - ".github/workflows/validate-compute-materialization-contract.yml"
   workflow_dispatch:
@@ -19,6 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Contract tests
-        run: python3 -m unittest -v tests/test_compute_materialization_contract.py
+        run: python3 -m unittest -v tests/test_compute_materialization_contract.py tests/test_truenas_compute_container_probe.py
       - name: Validate exact target profiles
         run: python3 scripts/compute_materialization_contract.py --validate-only
