@@ -12,7 +12,6 @@ import time
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 SCHEMA = "semper-supra.wow-sidecar-truenas-t6-control/1"
-EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
 EXPECTED_APP_NAME = "rdte-t6-wow-sidecar"
 EXPECTED_IMAGE = "ghcr.io/sempersupra/wow-sidecar@sha256:6b700ce7ba5ae44116b240ccbb54fb3b60dc952a9b4072ca1314b6f311bc5376"
 EXPECTED_HELPER = "ixsystems/container-utils@sha256:46eba20714c1cc6784f60e245c32c33a2d9f616e47d804694a9854248c89a992"
@@ -97,6 +96,7 @@ def main() -> int:
     p.add_argument("--password-file", required=True)
     p.add_argument("--control-dir", type=pathlib.Path, required=True)
     p.add_argument("--foundry-commit", required=True)
+    p.add_argument("--target-version", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8.0)
@@ -109,7 +109,7 @@ def main() -> int:
         "schema": "truenas-wow-sidecar-foundry-t6/v1",
         "classification": "ORACLE_FAILURE",
         "oracleSatisfied": False,
-        "expected_version": EXPECTED_VERSION,
+        "expected_version": f"TrueNAS-{a.target_version}",
         "foundry_commit": a.foundry_commit,
         "app_name": EXPECTED_APP_NAME,
         "wow_image": EXPECTED_IMAGE,
@@ -193,7 +193,7 @@ def main() -> int:
             raise RuntimeError("authentication did not return SUCCESS")
 
         payload["system_version"] = call("system.version", [])
-        if payload["system_version"] != EXPECTED_VERSION:
+        if payload["system_version"] != payload["expected_version"]:
             raise RuntimeError("target version drifted")
 
         if call("app.query", [[["id", "=", EXPECTED_APP_NAME]]]):
