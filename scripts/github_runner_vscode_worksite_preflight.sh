@@ -70,6 +70,16 @@ no_sleep_flag="$(contains_flag "$tunnel_help" '--no-sleep')"
 license_flag="$(contains_flag "$tunnel_help" '--accept-server-license-terms')"
 install_extension_flag="$(contains_flag "$tunnel_help" '--install-extension')"
 
+set +e
+user_show_output="$(code tunnel --cli-data-dir "$VSCODE_CLI_DATA_DIR" user show 2>&1)"
+user_show_prelogin_exit=$?
+set -e
+if grep -qi 'not logged in' <<<"$user_show_output"; then
+  user_show_prelogin_not_logged_in=true
+else
+  user_show_prelogin_not_logged_in=false
+fi
+
 status_output="$(code tunnel --cli-data-dir "$VSCODE_CLI_DATA_DIR" status 2>&1 || true)"
 status_eval="$(
   printf '%s\n' "$status_output" | python3 -c '
@@ -141,6 +151,9 @@ done
 if [[ "$vscode_status" == unreachable || "$relay_status" == unreachable ]]; then
   oracle=false
 fi
+if (( user_show_prelogin_exit != 1 )) || [[ "$user_show_prelogin_not_logged_in" != true ]]; then
+  oracle=false
+fi
 if [[ "$status_json_present" != true || "$status_no_running" != true ]]; then
   oracle=false
 fi
@@ -164,6 +177,8 @@ mkdir -p "$(dirname "$RECEIPT_PATH")"
   printf 'tunnel_no_sleep_flag=%s\n' "$no_sleep_flag"
   printf 'tunnel_accept_license_flag=%s\n' "$license_flag"
   printf 'tunnel_install_extension_flag=%s\n' "$install_extension_flag"
+  printf 'user_show_prelogin_exit=%s\n' "$user_show_prelogin_exit"
+  printf 'user_show_prelogin_not_logged_in=%s\n' "$user_show_prelogin_not_logged_in"
   printf 'tunnel_status_json_present=%s\n' "$status_json_present"
   printf 'tunnel_status_no_running=%s\n' "$status_no_running"
   printf 'tunnel_status_service_installed=%s\n' "$status_service_installed"
