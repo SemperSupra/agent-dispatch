@@ -159,9 +159,9 @@ jobs:
   foundry-wow-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'wow-sidecar'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-wow-sidecar-t6-control.yml@68d08ce9561b0ccf68d2e7eb446a76514e1a8ed2
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-wow-sidecar-t6-control.yml@9ac2eef97581caff5b0de740560c55a778fa3f1c
     with:
-      foundry_ref: 68d08ce9561b0ccf68d2e7eb446a76514e1a8ed2
+      foundry_ref: 9ac2eef97581caff5b0de740560c55a778fa3f1c
     permissions:
       contents: read
 
@@ -334,7 +334,7 @@ jobs:
               if [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm" ]]; then
                 foundry_commit="7fd0d2474248b61cf8e290fc80f40b761cea5e98"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "wow-sidecar" ]]; then
-                foundry_commit="68d08ce9561b0ccf68d2e7eb446a76514e1a8ed2"
+                foundry_commit="9ac2eef97581caff5b0de740560c55a778fa3f1c"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi

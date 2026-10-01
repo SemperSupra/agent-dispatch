@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-provider-g2-002",
+  "request_id": "tn-26-beta3-t6-wow-sidecar-004-corrected-seed-contract",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "garm-provider-g2",
+  "product": "wow-sidecar",
   "authority_issue": 396,
-  "purpose": "Corrective G2 rep-002 after fixture routing was moved into the TrueNAS job and statically regression-locked.",
-  "consumer_authority_issue": 39
+  "purpose": "Requalify WOW Sidecar on disposable TrueNAS BETA.3 from the corrected exact Foundry control after strengthened full-Compose qualification and exporter PASS.",
+  "consumer_authority_issue": 276
 }
