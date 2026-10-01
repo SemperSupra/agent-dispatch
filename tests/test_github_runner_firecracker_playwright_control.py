@@ -55,8 +55,12 @@ class FirecrackerPlaywrightControlTests(unittest.TestCase):
         self.assertIn("class ProbeError(RuntimeError):", source)
         self.assertIn('ProbeError("VENUE_LIMITATION"', source)
         self.assertIn('ProbeError("SETUP_REQUIRED"', source)
+        self.assertIn("exec_adapter.select_kvm_access()", source)
+        self.assertIn("callable KVM is required for P0a", source)
         self.assertIn('"CLEANUP_FAILURE"', source)
         self.assertIn("rootfs staging cleanup failed", source)
+        self.assertIn('receipt["kvm_access"]', source)
+        self.assertIn('receipt["runner"]', source)
 
     def test_externalization_and_cleanup_can_overrule_guest_success(self):
         source = SCRIPT.read_text()
