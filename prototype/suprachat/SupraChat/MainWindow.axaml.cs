@@ -71,6 +71,7 @@ public partial class MainWindow : Window
 
     private async void RunInterview_Click(object? sender, RoutedEventArgs e)
     {
+        var timer = Stopwatch.StartNew();
         try
         {
             await EnsureCredentialAsync();
@@ -84,13 +85,22 @@ public partial class MainWindow : Window
                 PromptBox.Text ?? string.Empty,
                 delta => OutputBox.Text += delta);
 
+            timer.Stop();
             if (!result.Completed)
                 throw new InvalidOperationException("The stream ended without response.completed.");
 
-            AuthStatus.Text = "Interview completed with response.completed.";
+            var receiptPath = await QualificationReceipts.WriteDirectAsync(
+                model.Slug,
+                _credential,
+                completed: true,
+                timer.Elapsed,
+                result.Text.Length);
+
+            AuthStatus.Text = $"Interview completed with response.completed. Redacted receipt: {Path.GetFileName(receiptPath)}";
         }
         catch (Exception ex)
         {
+            timer.Stop();
             AuthStatus.Text = $"Interview failed: {ex.Message}";
         }
     }
