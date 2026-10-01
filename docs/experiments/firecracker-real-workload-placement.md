@@ -105,7 +105,14 @@ Before private operational placement, reproduce the portable contract on the act
 
 ## P0a execution substrate
 
-Prefer reuse of the existing `.github/workflows/sealed-public-execution.yml` worker over creating a workload-specific Actions workflow.
+Reuse the existing `.github/workflows/sealed-public-execution.yml` worker on its stable public `main` ref. Do not add workload-specific workflow inputs or expose trusted-side workset/delegation identity to the public runner.
+
+The trusted control plane derives one opaque public correlation id from private execution-contract identity and supplies only:
+
+- opaque public assignment/correlation id;
+- bounded public-safe capsule bytes + exact SHA-256;
+- public age X25519 recipient;
+- bounded timeout.
 
 The sealed worker already owns the needed generic mechanism:
 
@@ -117,15 +124,11 @@ The sealed worker already owns the needed generic mechanism:
 - encrypted result mailbox;
 - no project acceptance semantics inside the worker.
 
-The P0a capsule is deliberately small. It verifies the exact public repository/revision, installs only `squashfs-tools`, runs the P0a contract tests, and invokes `github_runner_firecracker_playwright_control.py`. The workload itself performs an explicit callable-KVM preflight; a venue without KVM returns `VENUE_LIMITATION` rather than being misclassified as a browser or Firecracker workload failure.
+P0a source under test may remain on an unmerged public branch. The capsule must fetch the exact reviewed public source SHA into a detached temporary worktree, verify that exact identity, and execute P0a there. The stable sealed worker itself remains pinned to `main`; public workflow revision and workload-under-test revision are therefore separate evidence fields rather than conflated.
 
-The current sealed workflow is not yet an Agent Dispatch target. The sidecar reserves `workset_id`, `delegation_id`, and `assignment_id` dispatch inputs and correlates runs by the display-title prefix `sidecar:<workset>:<delegation>:<assignment>`. The sealed workflow already declares `assignment_id`; the minimum compatibility delta is therefore:
+The P0a capsule installs only the missing host construction dependency (`squashfs-tools`), runs the P0a contract tests from the exact detached source, and invokes `github_runner_firecracker_playwright_control.py`. The workload performs an explicit callable-KVM preflight; a venue without KVM returns `VENUE_LIMITATION` rather than being misclassified as a browser or Firecracker workload failure.
 
-1. declare required string inputs `workset_id` and `delegation_id`;
-2. set `run-name` to `sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}`;
-3. leave the sealed worker implementation and existing capsule/result contract unchanged.
-
-Do not add a generic command input, script path, repository selector, arbitrary ref selector, or broader credential. The execution target remains a fixed capability binding for the reviewed P0a capsule.
+Do not add a generic command input, public repository selector, arbitrary target ref selector, or broader credential to the sealed worker. Public workflow success is provider execution evidence only; trusted ciphertext pickup, decryption, exact-source reconciliation, and project acceptance remain separate.
 
 ## Placement test
 
