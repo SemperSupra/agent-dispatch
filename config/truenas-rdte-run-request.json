@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-006-primary-service-health",
-  "version": "25.04.1",
+  "request_id": "tn-26.0.0-beta3-t6-official-catalog-001-schema-projected-health",
+  "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "official-catalog",
-  "authority_issue": 411,
+  "authority_issue": 396,
   "consumer_authority_issue": 281,
-  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after correcting the runtime-health oracle to require the owned primary service running while allowing completed one-shot helper containers such as permissions."
+  "purpose": "Qualify exact TrueNAS 26.0.0-BETA.3 native official-catalog ntfy T6 using the schema-projected Foundry control and corrected primary-service health oracle after all prior exact rows are accepted."
 }
