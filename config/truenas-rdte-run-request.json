@@ -4,7 +4,7 @@
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "official-catalog",
-  "authority_issue": 411,
+  "authority_issue": 423,
   "consumer_authority_issue": 281,
   "purpose": "Qualify exact TrueNAS 25.04.2.6 native official-catalog ntfy T6 using the same exact user-schema-projected Foundry control only after 25.04.1 rep 005 is receipt-accepted."
 }
