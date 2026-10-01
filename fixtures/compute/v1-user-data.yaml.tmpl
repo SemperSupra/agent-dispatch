@@ -1,0 +1,30 @@
+#cloud-config
+write_files:
+  - path: /var/lib/rdte/nonce
+    owner: root:root
+    permissions: '0644'
+    content: |
+      {{RDTE_NONCE}}
+  - path: /etc/systemd/system/rdte-nonce.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Agent Dispatch disposable guest nonce oracle
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/python3 -m http.server 18080 --bind 0.0.0.0 --directory /var/lib/rdte
+      Restart=on-failure
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      ReadWritePaths=/var/lib/rdte
+
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, rdte-nonce.service]
