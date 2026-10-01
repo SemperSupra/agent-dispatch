@@ -12,6 +12,8 @@ $Shortcut = Join-Path $StartMenu 'SupraChat.lnk'
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $DesktopLink = Join-Path $Desktop 'SupraChat.lnk'
 $UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat'
+$ProtocolKey = 'HKCU:\Software\Classes\suprachat'
+$ApplicationKey = 'HKCU:\Software\Classes\Applications\SupraChat.exe'
 
 if (!(Test-Path (Join-Path $Source 'SupraChat.exe'))) {
   throw 'Run install.ps1 from the extracted SupraChat Windows artifact.'
@@ -33,6 +35,8 @@ $DesktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "SupraChat.ln
 Remove-Item $StartMenuLink -Force -ErrorAction SilentlyContinue
 Remove-Item $DesktopLink -Force -ErrorAction SilentlyContinue
 Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "HKCU:\Software\Classes\suprachat" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "HKCU:\Software\Classes\Applications\SupraChat.exe" -Recurse -Force -ErrorAction SilentlyContinue
 Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
   "-NoProfile","-Command",
   "Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '$InstallRoot' -Recurse -Force -ErrorAction SilentlyContinue"
@@ -67,7 +71,28 @@ $quotedUninstall = '"' + $UninstallPath + '"'
 $uninstallCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File ' + $quotedUninstall
 New-ItemProperty -Path $UninstallKey -Name UninstallString -Value $uninstallCommand -PropertyType String -Force | Out-Null
 
+$ExePath = Join-Path $InstallRoot 'SupraChat.exe'
+$OpenCommand = '"' + $ExePath + '" "%1"'
+
+New-Item -Force $ProtocolKey | Out-Null
+Set-Item -Path $ProtocolKey -Value 'URL:SupraChat Protocol'
+New-ItemProperty -Path $ProtocolKey -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
+New-Item -Force (Join-Path $ProtocolKey 'DefaultIcon') | Out-Null
+Set-Item -Path (Join-Path $ProtocolKey 'DefaultIcon') -Value ('"' + $ExePath + '",0')
+New-Item -Force (Join-Path $ProtocolKey 'shell\open\command') | Out-Null
+Set-Item -Path (Join-Path $ProtocolKey 'shell\open\command') -Value $OpenCommand
+
+New-Item -Force (Join-Path $ApplicationKey 'shell\open\command') | Out-Null
+Set-Item -Path (Join-Path $ApplicationKey 'shell\open\command') -Value $OpenCommand
+New-Item -Force (Join-Path $ApplicationKey 'SupportedTypes') | Out-Null
+@('.png','.jpg','.jpeg','.webp','.gif','.pdf','.txt','.md','.json','.csv','.tsv','.html','.htm','.xml','.rtf','.odt','.doc','.docx','.ppt','.pptx','.xls','.xlsx') |
+  ForEach-Object {
+    New-ItemProperty -Path (Join-Path $ApplicationKey 'SupportedTypes') -Name $_ -Value '' -PropertyType String -Force | Out-Null
+  }
+
 Write-Host "SupraChat installed to $InstallRoot"
+Write-Host "Protocol: suprachat://"
+Write-Host "Open With registration: supported Agent Lab attachment types"
 Write-Host "Bundled Codex runtime: $(Join-Path $InstallRoot 'runtime\codex\codex.exe')"
 
 if (-not $NoLaunch) {
