@@ -106,7 +106,7 @@ write_receipt() {
   export R_TARGET_VERSION="$VERSION" R_EXPECTED_SYSTEM_VERSION="$EXPECTED_SYSTEM_VERSION"
   export R_ISO_NAME="$ISO_NAME" R_ISO_URL="$ISO_URL" R_SHA_URL="$SHA_URL"
   export R_MIDDLEWARE_REF="$MIDDLEWARE_REF" R_MIDDLEWARE_COMMIT="$MIDDLEWARE_COMMIT"
-  export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
+  export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_INSTALLER_RPC_PATH="$INSTALLER_RPC_PATH" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
   export R_RUNG="$RUNG" R_T6_PRODUCT="$T6_PRODUCT" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
   export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON"
@@ -149,6 +149,7 @@ payload = {
     "middleware_commit": os.environ["R_MIDDLEWARE_COMMIT"],
     "foundry_profile": os.environ["R_FOUNDRY_PROFILE"],
     "ha_apps_gate": os.environ["R_HA_APPS_GATE"],
+    "installer_rpc_path": os.environ["R_INSTALLER_RPC_PATH"],
     "system_version_expected": os.environ["R_EXPECTED_SYSTEM_VERSION"],
     "authority_issue": int(os.environ["R_AUTHORITY_ISSUE"]) if os.environ.get("R_AUTHORITY_ISSUE") else None,
   },
@@ -177,7 +178,7 @@ payload = {
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
     "T0 proves pinned vendor media integrity and installer-environment boot under the disposable virtual target profile.",
-    "T1 is read-only installer RPC discovery.",
+    "T1 is version-profiled read-only installer RPC discovery.",
     "T2 adds vendor installation plus installed middleware authentication/health.",
     "T3 adds two experiment-owned sparse data disks and a real middleware-created ZFS mirror pool.",
     "T4 initializes Apps on that pool and runs one synthetic public-safe custom Compose app.",
@@ -316,7 +317,7 @@ PY
 try_rpc_discovery() {
   local rpc_out="$STATE_DIR/rpc-discovery.json"
   rm -f "$rpc_out"
-  python3 "$SCRIPT_DIR/truenas_installer_rpc_probe.py"     --host 127.0.0.1 --port "$RPC_PORT" --out "$rpc_out" --timeout 3     >/dev/null 2>&1 || true
+  python3 "$SCRIPT_DIR/truenas_installer_rpc_probe.py"     --host 127.0.0.1 --port "$RPC_PORT" --path "$INSTALLER_RPC_PATH" --out "$rpc_out" --timeout 3     >/dev/null 2>&1 || true
   [[ -f "$rpc_out" ]] || return 1
   RPC_DISCOVERY_JSON="$(cat "$rpc_out")"
   if python3 - "$rpc_out" <<'PY'
@@ -411,7 +412,7 @@ PY
 
 INSTALL_OUT="$STATE_DIR/install-result.json"
 python3 "$SCRIPT_DIR/truenas_installer_rpc_install.py" \
-  --host 127.0.0.1 --port "$RPC_PORT" \
+  --host 127.0.0.1 --port "$RPC_PORT" --path "$INSTALLER_RPC_PATH" \
   --password-file "$PASSWORD_FILE" \
   --out "$INSTALL_OUT" --timeout 120 >/dev/null 2>&1 || true
 [[ -f "$INSTALL_OUT" ]] || fail_evidence HARNESS_FAILURE installer-install "installer mutation client did not emit a receipt"
