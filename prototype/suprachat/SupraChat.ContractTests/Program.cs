@@ -291,6 +291,11 @@ Require(accessibilityContract.Human.KeyboardOnly, "keyboard-only accessibility i
 Require(accessibilityContract.Human.ScreenReaderSemantics, "screen-reader semantic invariant missing");
 Require(accessibilityContract.Human.StableAutomationIds, "stable automation-id invariant missing");
 Require(accessibilityContract.Human.BrowserAccessibilityFallback, "browser accessibility fallback invariant missing");
+Require(accessibilityContract.Human.UserAdjustableInterfaceScale, "user-adjustable interface scale invariant missing");
+Require(accessibilityContract.Human.InterfaceScaleMinimum <= 0.8 &&
+        accessibilityContract.Human.InterfaceScaleMaximum >= 2.0,
+    "accessible interface-scale range regressed");
+Require(accessibilityContract.Human.ReducedMotionPreference, "reduced-motion preference invariant missing");
 Require(!accessibilityContract.Automation.ScreenScrapingRequired, "automation accessibility regressed to screen scraping");
 Require(!accessibilityContract.Agent.ScreenScrapingRequired, "agent accessibility regressed to screen scraping");
 
@@ -310,6 +315,11 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"AgentLab.Prompt\"",
     "AutomationProperties.AutomationId=\"Auth.Status\"",
     "AutomationProperties.AutomationId=\"Accessibility.Status\"",
+    "AutomationProperties.AutomationId=\"Accessibility.ScaleDown\"",
+    "AutomationProperties.AutomationId=\"Accessibility.ScaleReset\"",
+    "AutomationProperties.AutomationId=\"Accessibility.ScaleUp\"",
+    "AutomationProperties.AutomationId=\"Accessibility.ReducedMotion\"",
+    "AutomationProperties.AutomationId=\"Accessibility.PreferencesStatus\"",
     "AutomationProperties.LiveSetting=\"Polite\"",
     "AutomationProperties.HeadingLevel=\"1\"",
     "AutomationProperties.HeadingLevel=\"2\"",
@@ -319,6 +329,15 @@ foreach (var marker in new[]
     Require(mainWindowXaml.Contains(marker, StringComparison.Ordinal),
         $"required accessibility marker missing: {marker}");
 }
+
+var normalizedPreference = AccessibilityPreferencesStore.Normalize(
+    new AccessibilityPreferences("wrong", 4.7, true));
+Require(normalizedPreference.Schema == AccessibilityPreferencesStore.Schema,
+    "accessibility preference schema normalization failed");
+Require(normalizedPreference.InterfaceScale == AccessibilityPreferencesStore.MaximumScale,
+    "accessibility scale maximum clamp failed");
+Require(normalizedPreference.ReducedMotion,
+    "reduced-motion preference was lost during normalization");
 
 var appXamlPath = Path.Combine("prototype", "suprachat", "SupraChat", "App.axaml");
 Require(File.ReadAllText(appXamlPath).Contains("RequestedThemeVariant=\"Default\"", StringComparison.Ordinal),
