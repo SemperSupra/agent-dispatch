@@ -604,6 +604,18 @@ def run_probe(label: str) -> dict:
         )
         receipt["lifecycle_timing"] = timer.receipt()
         receipt["host_tools"] = tools
+        receipt["kvm_access"] = {
+            "classification": kvm_access.get("classification"),
+            "mode": kvm_access.get("mode"),
+            "kvm_api_version": kvm_access.get("kvm_api_version"),
+        }
+        receipt["runner"] = {
+            "runner_os": os.getenv("RUNNER_OS"),
+            "runner_arch": os.getenv("RUNNER_ARCH"),
+            "image_os": os.getenv("ImageOS"),
+            "image_version": os.getenv("ImageVersion"),
+            "github_sha": os.getenv("GITHUB_SHA"),
+        }
         receipt["receipt_digest"] = evidence.receipt_digest(receipt)
         return receipt
 
