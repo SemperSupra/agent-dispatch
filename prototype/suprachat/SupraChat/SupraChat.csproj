@@ -24,5 +24,9 @@
              Link="oracles/siwc-capability-surface-20261001.json"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../oracles/audience-parity-20261001.json"
+             Link="oracles/audience-parity-20261001.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
