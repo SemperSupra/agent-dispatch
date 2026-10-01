@@ -269,6 +269,16 @@ def _stage_file(src: pathlib.Path, dst: pathlib.Path, uid: int, gid: int, mode: 
             raise RuntimeError(f"stage failed {argv}: {rr['stderr']}")
 
 
+def _sudo_sha256(path: pathlib.Path) -> str:
+    rr = j1._sudo(["sha256sum", str(path)], timeout=120)
+    if not rr["ok"]:
+        raise ProbeError("ORACLE_FAILURE", f"could not hash staged drive {path}: {rr['stderr']}")
+    value = rr["stdout"].strip().split()[0] if rr["stdout"].strip() else ""
+    if not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ProbeError("ORACLE_FAILURE", f"invalid SHA-256 output for staged drive {path}")
+    return value
+
+
 def _stage_vm(jail_root: pathlib.Path, *, kernel: pathlib.Path, initrd: pathlib.Path,
               rootfs: pathlib.Path, scratch: pathlib.Path, config: pathlib.Path,
               uid: int, gid: int) -> None:
@@ -526,6 +536,13 @@ def run_probe(label: str) -> dict:
                 gid=identity["gid"],
             )
             jail_scratch = jail_root / "scratch.ext4"
+            jail_rootfs = jail_root / "playwright.squashfs"
+            staged_root_before = _sudo_sha256(jail_rootfs)
+            if staged_root_before != root_before:
+                raise ProbeError(
+                    "ORACLE_FAILURE",
+                    f"staged rootfs identity mismatch before guest: {staged_root_before} != {root_before}",
+                )
 
             with timer.stage("jailed_playwright_guest", "portable"):
                 execution = _run_jailed(
@@ -541,8 +558,13 @@ def run_probe(label: str) -> dict:
                 _export_scratch(jail_scratch, exported_scratch)
                 outputs = _inspect_outputs(exported_scratch, work)
 
-            root_after = _sha256(rootfs)
-            root_immutable = root_before == root_after == rootfs_info["rootfs_sha256"]
+            staged_root_after = _sudo_sha256(jail_rootfs)
+            root_immutable = (
+                root_before
+                == rootfs_info["rootfs_sha256"]
+                == staged_root_before
+                == staged_root_after
+            )
         finally:
             cleanup_actions = []
             if trusted_base.exists():
@@ -612,6 +634,8 @@ def run_probe(label: str) -> dict:
                     "sha256": rootfs_info.get("rootfs_sha256"),
                     "size_bytes": rootfs_info.get("rootfs_size_bytes"),
                     "read_only_unchanged": root_immutable,
+                    "staged_sha256_before": staged_root_before,
+                    "staged_sha256_after": staged_root_after,
                 },
                 "resources": {
                     "vcpu_count": 2,
