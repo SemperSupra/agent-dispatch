@@ -100,6 +100,38 @@ else:
 )"
 read -r status_json_present status_no_running status_service_installed <<<"$status_eval"
 
+set +e
+code tunnel --cli-data-dir "$VSCODE_CLI_DATA_DIR" unregister >/dev/null 2>&1
+clean_unregister_exit=$?
+set -e
+
+post_unregister_output="$(code tunnel --cli-data-dir "$VSCODE_CLI_DATA_DIR" status 2>&1 || true)"
+post_unregister_eval="$(
+  printf '%s\n' "$post_unregister_output" | python3 -c '
+import json
+import sys
+
+value = None
+for raw in sys.stdin:
+    line = raw.strip()
+    if not (line.startswith("{") and line.endswith("}")):
+        continue
+    try:
+        candidate = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if isinstance(candidate, dict) and "tunnel" in candidate:
+        value = candidate
+
+clean = (
+    isinstance(value, dict)
+    and value.get("tunnel") is None
+    and value.get("service_installed", False) is False
+)
+print(str(clean).lower())
+'
+)"
+
 oracle=true
 for required in   "$provider_flag"   "$access_token_flag"   "$name_flag"   "$no_sleep_flag"   "$license_flag"; do
   if [[ "$required" != true ]]; then
@@ -113,6 +145,9 @@ if [[ "$status_json_present" != true || "$status_no_running" != true ]]; then
   oracle=false
 fi
 if [[ "$status_service_installed" != false ]]; then
+  oracle=false
+fi
+if (( clean_unregister_exit != 0 )) || [[ "$post_unregister_eval" != true ]]; then
   oracle=false
 fi
 
@@ -132,6 +167,8 @@ mkdir -p "$(dirname "$RECEIPT_PATH")"
   printf 'tunnel_status_json_present=%s\n' "$status_json_present"
   printf 'tunnel_status_no_running=%s\n' "$status_no_running"
   printf 'tunnel_status_service_installed=%s\n' "$status_service_installed"
+  printf 'clean_unregister_exit=%s\n' "$clean_unregister_exit"
+  printf 'post_unregister_status_clean=%s\n' "$post_unregister_eval"
   printf 'vscode_dev_http_status=%s\n' "$vscode_status"
   printf 'relay_http_status=%s\n' "$relay_status"
   printf 'interactive_login_attempted=false\n'
