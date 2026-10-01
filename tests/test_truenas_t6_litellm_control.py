@@ -168,5 +168,17 @@ class VersionAdaptiveProbeContractTests(unittest.TestCase):
         self.assertNotIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', text)
 
 
+
+class ProductHarnessVersionRoutingTests(unittest.TestCase):
+    def test_harness_passes_target_only_to_product_probes(self):
+        import pathlib
+        text = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertEqual(text.count('--target-version "$TARGET_VERSION"'), 3)
+        official = text.split('if [[ "$T6_PRODUCT" == "official-catalog" ]]', 1)[1].split('elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]', 1)[0]
+        self.assertNotIn('--target-version', official)
+        for probe in ("garm_t6_probe.py", "wow_sidecar_t6_probe.py", "litellm_t6_probe.py"):
+            segment = text.split(probe, 1)[1].split('--out "$FOUNDRY_OUT"', 1)[0]
+            self.assertIn('--target-version "$TARGET_VERSION"', segment)
+
 if __name__ == "__main__":
     unittest.main()
