@@ -21,6 +21,10 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _codexEventsCts;
     private Task? _codexMonitorTask;
 
+    private ResponsesWebSocketClient? _responsesWebSocket;
+    private CancellationTokenSource? _responsesWebSocketCts;
+    private Task? _responsesWebSocketMonitorTask;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -143,7 +147,10 @@ public partial class MainWindow : Window
 
             if (!string.Equals(priorToken, _credential.AccessToken, StringComparison.Ordinal) ||
                 !string.Equals(priorClientId, _credential.ClientId, StringComparison.Ordinal))
+            {
                 await StopCodexAsync();
+                await StopResponsesWebSocketAsync();
+            }
 
             AuthStatus.Text = _credential.HasPlanUsage
                 ? $"Agent Lab authorized. Account subject: {Short(_credential.Subject)}; ChatGPT-plan scope granted."
@@ -170,6 +177,7 @@ public partial class MainWindow : Window
             }
 
             await StopCodexAsync();
+            await StopResponsesWebSocketAsync();
             var confirmed = await _siwc.RevokeAsync(_credential);
             CredentialStore.Clear();
             _credential = null;
@@ -182,6 +190,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             await StopCodexAsync();
+            await StopResponsesWebSocketAsync();
             CredentialStore.Clear();
             _credential = null;
             ModelBox.ItemsSource = null;
@@ -349,6 +358,87 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void ConnectResponsesWebSocket_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await EnsureCredentialAsync();
+            await StopResponsesWebSocketAsync();
+
+            _responsesWebSocket = await ResponsesWebSocketClient.ConnectAsync(_credential!.AccessToken);
+            _responsesWebSocketCts = new CancellationTokenSource();
+            var socket = _responsesWebSocket;
+            var cancellationToken = _responsesWebSocketCts.Token;
+            _responsesWebSocketMonitorTask = Task.Run(
+                () => MonitorResponsesWebSocketAsync(socket, cancellationToken),
+                cancellationToken);
+
+            AuthStatus.Text = "Responses WebSocket connected to the authenticated plan-sharing endpoint.";
+        }
+        catch (Exception ex)
+        {
+            AuthStatus.Text = $"Responses WebSocket connect failed: {ex.Message}";
+        }
+    }
+
+    private async void DisconnectResponsesWebSocket_Click(object? sender, RoutedEventArgs e)
+    {
+        await StopResponsesWebSocketAsync();
+        AuthStatus.Text = "Responses WebSocket disconnected.";
+    }
+
+    private async void SendResponsesWebSocketEvent_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await EnsureCredentialAsync();
+            if (ModelBox.SelectedItem is not ModelChoice model)
+                throw new InvalidOperationException("Select a model first.");
+
+            if (_responsesWebSocket is not { IsConnected: true })
+            {
+                _responsesWebSocket = await ResponsesWebSocketClient.ConnectAsync(_credential!.AccessToken);
+                _responsesWebSocketCts = new CancellationTokenSource();
+                var socket = _responsesWebSocket;
+                var cancellationToken = _responsesWebSocketCts.Token;
+                _responsesWebSocketMonitorTask = Task.Run(
+                    () => MonitorResponsesWebSocketAsync(socket, cancellationToken),
+                    cancellationToken);
+            }
+
+            await _responsesWebSocket.SendRawAsync(
+                ResponsesWebSocketEventBox.Text ?? "{}",
+                model.Slug);
+            AuthStatus.Text = "Responses WebSocket event sent.";
+        }
+        catch (Exception ex)
+        {
+            AppendResponsesWebSocketEvent($"SEND ERROR {ex}");
+            AuthStatus.Text = $"Responses WebSocket send failed: {ex.Message}";
+        }
+    }
+
+    private async Task MonitorResponsesWebSocketAsync(
+        ResponsesWebSocketClient socket,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var raw in socket.ReadEventsAsync(cancellationToken))
+            {
+                Dispatcher.UIThread.Post(() => AppendResponsesWebSocketEvent(raw));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.UIThread.Post(() =>
+                AppendResponsesWebSocketEvent($"MONITOR ERROR {ex}"));
+        }
+    }
+
     private async void StartCodex_Click(object? sender, RoutedEventArgs e)
     {
         try
@@ -485,7 +575,10 @@ public partial class MainWindow : Window
             _credential = refreshed;
             await CredentialStore.SaveAsync(_credential);
             if (!string.Equals(priorToken, refreshed.AccessToken, StringComparison.Ordinal))
+            {
                 await StopCodexAsync();
+                await StopResponsesWebSocketAsync();
+            }
         }
 
         if (!_credential.HasPlanUsage)
@@ -553,6 +646,45 @@ public partial class MainWindow : Window
         var evt = _pendingServerRequests.Peek();
         PendingServerRequestBox.Text =
             $"id={evt.Id}{Environment.NewLine}method={evt.Method}{Environment.NewLine}{PrettyJson(evt.Payload)}";
+    }
+
+    private void AppendResponsesWebSocketEvent(string raw)
+    {
+        var compact = raw.Replace("\r", " ").Replace("\n", " ");
+        if (compact.Length > 6000)
+            compact = compact[..6000] + "…";
+
+        var current = ResponsesWebSocketEventsBox.Text ?? "";
+        var next = current + DateTimeOffset.Now.ToString("HH:mm:ss.fff") +
+            " " + compact + Environment.NewLine;
+        ResponsesWebSocketEventsBox.Text = next.Length <= 80000 ? next : next[^80000..];
+    }
+
+    private async Task StopResponsesWebSocketAsync()
+    {
+        var monitor = _responsesWebSocketMonitorTask;
+        _responsesWebSocketMonitorTask = null;
+
+        _responsesWebSocketCts?.Cancel();
+        _responsesWebSocketCts?.Dispose();
+        _responsesWebSocketCts = null;
+
+        if (_responsesWebSocket is not null)
+        {
+            await _responsesWebSocket.DisposeAsync();
+            _responsesWebSocket = null;
+        }
+
+        if (monitor is not null)
+        {
+            try
+            {
+                await monitor;
+            }
+            catch
+            {
+            }
+        }
     }
 
     private void AppendRawResponseEvent(string type, string payload)
@@ -686,6 +818,7 @@ public partial class MainWindow : Window
         try
         {
             StopCodexAsync().GetAwaiter().GetResult();
+            StopResponsesWebSocketAsync().GetAwaiter().GetResult();
         }
         catch
         {
