@@ -1,0 +1,163 @@
+# SupraChat capability and endpoint registry
+
+Evidence date: 2026-10-01.
+
+This registry is intentionally broader than the MVP. It tracks every capability surface currently relevant to the campaign and keeps four different authority classes distinct:
+
+1. **CHATGPT_PRODUCT** — first-party ChatGPT product capabilities reached through the official `https://chatgpt.com/` surface.
+2. **SIWC_SUPPORTED** — documented Sign in with ChatGPT / ChatGPT-plan third-party contract.
+3. **CODEX_ORACLE** — open-source Codex CLI/app-server capabilities at an exact upstream revision.
+4. **ANDROID_OBSERVED** — behavior/capability/endpoint evidence recovered from the proprietary ChatGPT Android client.
+
+An observed first-party or Codex capability is not automatically a supported SIWC contract.
+
+## SIWC / ChatGPT-plan endpoint inventory
+
+Current documented production endpoints:
+
+| Endpoint/surface | Method | State | Notes |
+| --- | --- | --- | --- |
+| `https://auth.openai.com/.well-known/openid-configuration` | GET | SIWC_SUPPORTED | issuer/JWKS/revocation discovery |
+| `https://auth.openai.com/api/accounts/authorize` | browser GET | SIWC_SUPPORTED | dynamic registration or saved-client OAuth; PKCE/state/nonce |
+| `https://auth.openai.com/api/accounts/oauth/token` | POST | SIWC_SUPPORTED | authorization-code exchange and rotating refresh |
+| discovered `revocation_endpoint` | POST | SIWC_SUPPORTED | end renewable session with refresh token |
+| `https://api.openai.com/v1/models` | GET | SIWC_SUPPORTED | account-specific model catalog; keep `visibility=list` |
+| `https://api.openai.com/v1/responses` | POST/SSE | SIWC_SUPPORTED | `store=false`, `stream=true`; success requires `response.completed` |
+
+Supported direct-plan capabilities currently include:
+- text input;
+- image input when selected model supports it;
+- file input using inline/base64 or external URL when selected model supports it;
+- stateless multi-turn by resending required history in `input`;
+- instructions/developer messages under the documented preview rules;
+- function/custom tools;
+- web search subject to model/account/workspace policy;
+- streamed response events and exact terminal/error handling.
+
+Current SIWC preview exclusions are retained as explicit capability states, not silently omitted:
+- no persistent Responses `conversation` or HTTP `previous_response_id`;
+- no `background`, `multi_agent`, hosted file search, hosted image generation, Code Interpreter, native computer use, hosted MCP/connectors, Responses `tool_search`, or top-level programmatic tool calling;
+- no audio/video input, Files upload API, or transcription API through this plan-sharing flow;
+- several ordinary Responses request knobs are currently rejected by the subscription-sharing route.
+
+Where useful, an excluded hosted capability may still be available through **Codex local tools** or the **first-party ChatGPT product surface**, but it remains a different binding.
+
+## General OpenAI API surfaces outside the SIWC plan-sharing contract
+
+Track but do not charge these to a ChatGPT plan unless OpenAI documents that route in the future:
+
+- Realtime API (WebRTC/WebSocket/SIP);
+- Images generation/edit endpoints;
+- Files upload/vector-store/file-search administration;
+- Audio speech/transcription/translation endpoints;
+- video generation endpoints;
+- embeddings and moderation endpoints;
+- hosted shell/code interpreter/computer-use/tool-search where not admitted by SIWC;
+- administration/project/API-key/audit endpoints.
+
+These can become optional API-key/provider bindings later without contaminating ChatGPT-plan accounting.
+
+## ChatGPT product plane
+
+The official top-level ChatGPT surface remains the broadest supported product-parity route. The embedded persistent native webview is expected to expose whatever the signed-in ChatGPT account is entitled to on the web product, including account-dependent combinations of:
+
+- chats/history/model selection;
+- search/web-backed answers;
+- projects, memory, tasks and other product work surfaces;
+- file/image attachment, file library and image generation/editing;
+- Canvas/Work-style surfaces where available;
+- connected apps/connectors/plugins;
+- sharing and account settings;
+- web voice and browser-mediated media capabilities;
+- Codex/agent product experiences exposed in ChatGPT.
+
+Capability availability is runtime/account dependent and must be qualified rather than hard-coded from a marketing list.
+
+## Codex CLI/app-server oracle
+
+Initial oracle: `openai/codex@57ac6f51639f7cad705a48ac4bd8073034a2f150`.
+
+Expanded current oracle: `openai/codex@cc31e374fc15cd616fca19c07d55f9fa7e6d7e31` (2026-10-01T17:10:03Z).
+
+At the expanded snapshot, the app-server protocol definition exposes **266 method/notification names**. The implementation should not blindly invoke every experimental/internal method; this list is an exhaustive discovery/oracle surface used to determine what the open-source runtime can do and what stable subsets SupraChat should bind.
+
+### Account/auth/usage
+`account/login/start`, `account/login/cancel`, `account/logout`, `account/read`, `account/updated`, `account/rateLimits/read`, `account/usage/read`, workspace messages, gateway OAuth, Bedrock discovery/setup, auth-recovery notifications, and related account surfaces.
+
+### Model/runtime
+`model/list`, `modelProvider/capabilities/read`, model verification/reroute/safety-buffer notifications, collaboration modes, permission profiles, experimental feature inventory, server diagnostics and current time.
+
+### Thread lifecycle and history
+`thread/start`, `thread/read`, `thread/list`, `thread/search`, `thread/resume`, `thread/fork`, `thread/revert`, `thread/archive`, `thread/unarchive`, `thread/delete`, `thread/compact/start`, thread sections, metadata/name/settings, timeline/items/turn lists, memory mode and thread goals.
+
+### Turn lifecycle
+`turn/start`, `turn/steer`, `turn/interrupt`, turn settings and plan/diff/status notifications, streamed reasoning/agent-message/item events, raw-response events, approvals and user-input requests.
+
+### Realtime
+`thread/realtime/start`, `thread/realtime/stop`, `thread/realtime/sdp`, `thread/realtime/listVoices`, append text/audio/speech, transcript/audio deltas, item lifecycle, error and close events.
+
+### Attachments / queue / background terminals
+Thread attachment add/list/remove/update; queue add/list/update/reorder/delete/start; background terminal list/terminate/clean.
+
+### Shell/process/filesystem
+`command/exec` plus resize/write/terminate/output; `process/spawn`, stdin/PTY/output/kill; filesystem read/write/copy/remove/mkdir/metadata/watch; fuzzy file search; thread shell commands.
+
+### MCP/tools/skills/plugins/apps
+MCP status/resource/tool/OAuth/elicitation/event-stream operations; tool calls and approvals; skills list/config/extra-roots/change notifications; plugin list/search/read/install/uninstall/reconcile/share/skill operations; app list/read/install state.
+
+### Projects/environments
+Project create/read/list/update/move/import/delete/change; environment add/info/status; external-agent configuration detection/import/history.
+
+### Remote control
+Remote-control enable/disable/status, pairing start/status, client list/revoke.
+
+### Safety/permissions/verification
+Guardian/auto-approval flows, permission requests/profiles, user verification enroll/status/verify/cancel/delete, attestation, Windows sandbox readiness/setup, warnings/deprecations.
+
+The complete method-name inventory is reproducible by extracting `=> "…"` protocol labels from:
+`codex-rs/app-server-protocol/src/protocol/common.rs`
+at the exact oracle revision above.
+
+## ChatGPT Android observed capability plane
+
+AAR authority: `SemperSupra/android-artifact-recovery-private#79`.
+
+Verified sample:
+- package `com.openai.chatgpt`;
+- version `1.2026.265` / versionCode `2626541`;
+- 20 signer-verified APK splits;
+- 8 DEX, 11 ELF, 4 JavaScript entries, 3 nested archives.
+
+Recovered/observed categories include:
+- conversations/history/models;
+- temporary chat;
+- files/attachments/File Library;
+- images/photo/image generation/image editing;
+- search/browser;
+- memory/projects/canvas/task markers;
+- connectors/plugin/auth flows;
+- voice/realtime/audio/WebRTC;
+- camera/capture/media projection/screen share;
+- sharing/deep links/text processing;
+- Firebase push/notifications;
+- conversation bubbles/overlay concepts;
+- widgets and quick settings tile;
+- accessibility/screen-context and Android voice-interaction service;
+- location, NFC, Bluetooth, contacts and biometric-related platform permissions;
+- Codex handoff/realtime-voice concepts;
+- first-party OpenAI hosts and protocol markers.
+
+AAR is being expanded to retain sanitized URL/route/deep-link candidates while dropping userinfo, query strings, fragments and opaque account/token material. Those endpoint shapes are **ANDROID_OBSERVED**, not automatically callable by SupraChat.
+
+## Product implementation policy
+
+SupraChat should implement the union of capabilities through the strongest supported route:
+
+1. use the first-party ChatGPT web surface for product semantics;
+2. use SIWC for documented account identity + plan-backed eligible Responses;
+3. use Codex app-server for local agent/runtime capabilities, including shell/MCP/skills and thread lifecycle where stable;
+4. add desktop-native adapters for OS capabilities such as capture, notifications, global summon, file handoff and media devices;
+5. retain Android-only/private endpoint behavior as discovery/oracle evidence until there is a supported equivalent;
+6. never omit a known capability silently: classify it as `IMPLEMENTED`, `QUALIFY`, `GAP`, `BLOCKED_SUPPORTED_INTERFACE`, `ORACLE_ONLY`, or `NOT_PLAN_SHAREABLE`.
+
+This registry is expected to grow as AAR, Codex upstream, ChatGPT web, and OpenAI documentation change.
