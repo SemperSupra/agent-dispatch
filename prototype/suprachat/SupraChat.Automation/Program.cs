@@ -25,6 +25,8 @@ internal static class Program
     private static CancellationTokenSource? _agentCodexCts;
     private static Task? _agentCodexPump;
 
+    private static BrowserSession? _agentBrowser;
+
     private static ResponsesWebSocketClient? _agentResponsesSocket;
     private static CancellationTokenSource? _agentResponsesCts;
     private static Task? _agentResponsesPump;
@@ -548,6 +550,7 @@ internal static class Program
         }
         finally
         {
+            await StopAgentBrowserAsync();
             await StopAgentResponsesAsync();
             await StopAgentCodexAsync();
         }
@@ -633,6 +636,61 @@ internal static class Program
         var p = RequireObject(parameters);
         var url = RequiredProperty(p, "url");
         return await BrowserSnapshotAsync(new[] { "--url", url });
+    }
+
+    private static async Task<object> RpcBrowserStartAsync()
+    {
+        if (_agentBrowser is null)
+            _agentBrowser = await BrowserSession.StartAsync(headless: true);
+
+        return new
+        {
+            schema = BrowserSession.Schema,
+            started = true,
+            url = _agentBrowser.Page.Url,
+            isolated = true,
+            headless = true
+        };
+    }
+
+    private static async Task<object> RpcBrowserNavigateAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        var url = RequiredProperty(p, "url");
+        var browser = RequireAgentBrowser();
+        return await browser.NavigateAndSnapshotAsync(url);
+    }
+
+    private static async Task<object> RpcBrowserReadAsync()
+    {
+        var browser = RequireAgentBrowser();
+        return await browser.SnapshotAsync();
+    }
+
+    private static async Task<object> RpcBrowserStopAsync()
+    {
+        var wasRunning = _agentBrowser is not null;
+        await StopAgentBrowserAsync();
+        return new
+        {
+            schema = BrowserSession.Schema,
+            stopped = wasRunning
+        };
+    }
+
+    private static BrowserSession RequireAgentBrowser() =>
+        _agentBrowser ?? throw new MachineException(
+            4,
+            "BROWSER_NOT_STARTED",
+            "Start a browser session with browser/start first.");
+
+    private static async Task StopAgentBrowserAsync()
+    {
+        if (_agentBrowser is null)
+            return;
+
+        await _agentBrowser.DisposeAsync();
+        _agentBrowser = null;
     }
 
     private static async Task<object> RpcResponseCreateAsync(JsonElement? parameters)
