@@ -12,6 +12,8 @@ SupraChat is one capability product with three first-class interaction shells. N
 | Automation | \`SupraChat.Automation\` | deterministic JSON on stdout, diagnostics on stderr, stable exit codes, no token material |
 | Agent | \`SupraChat.Automation stdio\` | line-delimited JSON-RPC 2.0 over stdin/stdout, explicit methods and typed errors |
 
+Accessibility is a cross-cutting fourth invariant: keyboard/screen-reader users, automation, and agents must receive equivalent semantic access to consequential state and actions. See `ACCESSIBILITY.md`.
+
 All three shells reuse:
 - the same local SIWC credential store;
 - the same Responses implementation;
@@ -131,3 +133,16 @@ Automation/agent:
 5. When an interaction is intrinsically human (OAuth consent, destructive approval, sensitive permission), machine shells return a typed boundary state instead of bypassing it.
 6. Machine schemas are versioned. Breaking changes require a new schema/method version rather than silent reinterpretation.
 7. CI qualifies all three audience shells on every packaged desktop target.
+
+
+## Accessibility parity
+
+Every capability review must record four access paths, not three:
+- human GUI;
+- accessible human GUI (keyboard + assistive technology semantics);
+- automation JSON;
+- agent JSON-RPC.
+
+A control that exists only visually is incomplete. A machine method with no discoverable human/accessibility equivalent is also incomplete unless it is intentionally machine-only and documented as such.
+
+Stable Avalonia automation IDs are part of the product contract because they serve both assistive technology and UI-automation qualification. Dynamic status must be exposed through live regions and structured machine state rather than color or position alone.
