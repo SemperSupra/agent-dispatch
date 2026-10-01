@@ -47,3 +47,21 @@ reviewed/protected.
 If safe ephemeral host authentication is not available, preserve this preflight result and
 use a persistent private host (for example OCI) or Colab as the approved presentation-side
 workbench instead of weakening the identity boundary.
+
+## Extension boundary discovered by falsification
+
+The stable standalone CLI advertises two distinct extension mechanisms:
+
+- `code ext ...` forwards extension operations to an installed desktop editor and is not
+  a valid standalone-runner installation oracle when no desktop VS Code is installed.
+- `code tunnel --install-extension <id>` requests extension preload on the remote server
+  created by the tunnel.
+
+A public GHA rep intentionally attempted isolated `code ext install` and failed before any
+identity-bearing tunnel was started. That failure is retained as evidence that these
+surfaces must not be conflated.
+
+Therefore pre-auth qualification checks only that the tunnel's
+`--install-extension` surface is present. Actual Marketplace download/install and remote
+extension-host activation are verified only during a live authenticated tunnel rep.
+
