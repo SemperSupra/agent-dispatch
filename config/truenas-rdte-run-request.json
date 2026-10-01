@@ -1,10 +1,8 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-provider-g2-003-stopped-update",
-  "version": "26.0.0-BETA.3",
-  "rung": "t6",
-  "product": "garm-provider-g2",
-  "authority_issue": 396,
-  "purpose": "Corrective G2 rep-003: stage exact source-generated provider fixtures via supported stopped-App update so List/Get adoption and managed-drift fail-closed can be exercised without runner bootstrap or JIT side effects.",
-  "consumer_authority_issue": 39
+  "request_id": "tn-25.04.1-t5-matrix-001",
+  "version": "25.04.1",
+  "rung": "t5",
+  "authority_issue": 411,
+  "purpose": "Exact deployed-legacy TrueNAS 25.04.1 T0-T5 qualification for the Foundry materialization and lifecycle matrix."
 }
