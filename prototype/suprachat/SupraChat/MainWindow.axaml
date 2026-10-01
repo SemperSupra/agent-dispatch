@@ -3,9 +3,9 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     x:Class="SupraChat.MainWindow"
     Width="1280"
-    Height="850"
+    Height="900"
     MinWidth="900"
-    MinHeight="600"
+    MinHeight="650"
     Title="SupraChat">
   <Grid RowDefinitions="Auto,*">
     <Border Grid.Row="0" Padding="8">
@@ -14,7 +14,7 @@
         <Button Grid.Column="1" Margin="0,0,6,0" Content="Forward" Click="Forward_Click" />
         <Button Grid.Column="2" Margin="0,0,6,0" Content="Reload" Click="Reload_Click" />
         <Button Grid.Column="3" Margin="0,0,6,0" Content="Home" Click="Home_Click" />
-        <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="Official ChatGPT surface + separate subscription-backed Agent Lab" />
+        <TextBlock Grid.Column="4" VerticalAlignment="Center" Text="Official ChatGPT product surface + full subscription-backed Agent Lab" />
         <Button Grid.Column="5" Content="Open in browser" Click="OpenExternal_Click" />
       </Grid>
     </Border>
@@ -28,10 +28,10 @@
 
       <TabItem Header="Agent Lab">
         <ScrollViewer>
-          <StackPanel Margin="20" Spacing="10" MaxWidth="980">
-            <TextBlock FontSize="22" FontWeight="SemiBold" Text="ChatGPT-plan actor interview surface" />
+          <StackPanel Margin="20" Spacing="10" MaxWidth="1100">
+            <TextBlock FontSize="22" FontWeight="SemiBold" Text="ChatGPT-plan actor interview and capability surface" />
             <TextBlock TextWrapping="Wrap"
-                       Text="This plane uses OpenAI's documented Sign in with ChatGPT flow, account-specific model catalog, eligible streamed Responses capabilities, and Codex app-server. It remains separate from the first-party ChatGPT product surface." />
+                       Text="This plane uses OpenAI's documented Sign in with ChatGPT flow, account-specific model catalog, every currently supported direct Responses capability, and the complete pinned Codex app-server protocol. It remains separate from the first-party ChatGPT product surface." />
 
             <WrapPanel Orientation="Horizontal">
               <Button x:Name="SignInButton" Margin="0,0,8,8"
@@ -61,12 +61,49 @@
                        Text="No Agent Lab attachments selected."
                        TextWrapping="Wrap" />
 
-            <Button HorizontalAlignment="Left"
-                    Content="Run streamed Responses interview"
-                    Click="RunInterview_Click" />
-            <TextBlock FontWeight="SemiBold" Text="Result" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8"
+                      Content="Run direct Responses interview"
+                      Click="RunInterview_Click" />
+              <Button Margin="0,0,8,8"
+                      Content="Run through Codex app-server"
+                      Click="RunCodexInterview_Click" />
+            </WrapPanel>
+
+            <TextBlock FontWeight="SemiBold" Text="Interview result" />
             <TextBox x:Name="OutputBox" AcceptsReturn="True" IsReadOnly="True"
-                     TextWrapping="Wrap" MinHeight="220" />
+                     TextWrapping="Wrap" MinHeight="180" />
+
+            <Separator Margin="0,12,0,8" />
+
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="Codex full protocol console" />
+            <TextBlock TextWrapping="Wrap"
+                       Text="Pinned oracle currently contains 172 client RPCs, 9 server-initiated request types, and 85 notifications. The console does not hide privileged or experimental surfaces; authority-sensitive calls still require explicit parameters/consent." />
+
+            <TextBlock FontWeight="SemiBold" Text="RPC method" />
+            <TextBox x:Name="RawRpcMethodBox" Text="model/list" />
+            <TextBlock FontWeight="SemiBold" Text="RPC params JSON (blank = no params)" />
+            <TextBox x:Name="RawRpcParamsBox" AcceptsReturn="True" MinHeight="90"
+                     Text="{&quot;includeHidden&quot;:true}" />
+            <Button HorizontalAlignment="Left" Content="Send app-server RPC" Click="SendRawRpc_Click" />
+
+            <TextBlock FontWeight="SemiBold" Text="RPC result" />
+            <TextBox x:Name="RawRpcOutputBox" AcceptsReturn="True" IsReadOnly="True"
+                     TextWrapping="Wrap" MinHeight="140" />
+
+            <TextBlock FontWeight="SemiBold" Text="Live protocol events" />
+            <TextBox x:Name="ProtocolEventsBox" AcceptsReturn="True" IsReadOnly="True"
+                     TextWrapping="Wrap" MinHeight="180" />
+
+            <TextBlock FontWeight="SemiBold" Text="Pending server request" />
+            <TextBox x:Name="PendingServerRequestBox" AcceptsReturn="True" IsReadOnly="True"
+                     TextWrapping="Wrap" MinHeight="90" />
+            <TextBlock FontWeight="SemiBold" Text="Server response result JSON" />
+            <TextBox x:Name="ServerResponseBox" AcceptsReturn="True" MinHeight="70" Text="{}" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Margin="0,0,8,8" Content="Respond with result" Click="RespondServerRequest_Click" />
+              <Button Margin="0,0,8,8" Content="Reject request" Click="RejectServerRequest_Click" />
+            </WrapPanel>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
