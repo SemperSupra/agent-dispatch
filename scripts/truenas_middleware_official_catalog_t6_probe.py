@@ -323,25 +323,6 @@ def main() -> int:
         if action != "NOOP":
             raise RuntimeError(f"post-update replan was not NOOP: {action}")
 
-        before_upgrade = query()
-        if before_upgrade.get("upgrade_available") is True:
-            before_version = before_upgrade.get("version")
-            submit("app.upgrade", [app_name, {}], "upgrade")
-            after_upgrade = wait_running("upgrade")
-            payload["upgrade"] = {
-                "status": "EXECUTED",
-                "from_version": before_version,
-                "to_version": after_upgrade.get("version"),
-            }
-            if after_upgrade.get("version") == before_version:
-                raise RuntimeError("native app.upgrade did not change catalog version")
-        else:
-            payload["upgrade"] = {
-                "status": "NOT_APPLICABLE",
-                "observed_upgrade_available": before_upgrade.get("upgrade_available"),
-                "receipt_required": True,
-            }
-
         submit("app.redeploy", [app_name], "redeploy")
         wait_running("redeploy")
 
@@ -366,6 +347,31 @@ def main() -> int:
         action, _, _ = observe("Etc/UTC")
         if action != "NOOP":
             raise RuntimeError(f"post-reinstall replan was not NOOP: {action}")
+
+        before_upgrade = query()
+        if before_upgrade.get("upgrade_available") is True:
+            before_version = before_upgrade.get("version")
+            submit("app.upgrade", [app_name, {}], "upgrade")
+            after_upgrade = wait_native_running("upgrade")
+            payload["upgrade"] = {
+                "status": "EXECUTED",
+                "from_version": before_version,
+                "to_version": after_upgrade.get("version"),
+                "discovered_identity": {
+                    "catalog_version": after_upgrade.get("version"),
+                    "app_version": (after_upgrade.get("metadata") or {}).get("app_version"),
+                    "lib_version": (after_upgrade.get("metadata") or {}).get("lib_version"),
+                    "lib_version_hash": (after_upgrade.get("metadata") or {}).get("lib_version_hash"),
+                },
+            }
+            if after_upgrade.get("version") == before_version:
+                raise RuntimeError("native app.upgrade did not change catalog version")
+        else:
+            payload["upgrade"] = {
+                "status": "NOT_APPLICABLE",
+                "observed_upgrade_available": before_upgrade.get("upgrade_available"),
+                "receipt_required": True,
+            }
 
         destructive = {
             "remove_images": False,
