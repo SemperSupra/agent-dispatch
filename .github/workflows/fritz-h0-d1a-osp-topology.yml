@@ -49,6 +49,7 @@ jobs:
           assert r.get("oracleSatisfied") is True, r
           a = r.get("sourceArtifact", {})
           assert a.get("observedBytes") == 633140613
+          assert a.get("observedSha256") == "61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc"
           assert a.get("rawArchivePublished") is False
           b = r.get("interpretationBoundary", {})
           assert b.get("partitionLayoutAccepted") is False
