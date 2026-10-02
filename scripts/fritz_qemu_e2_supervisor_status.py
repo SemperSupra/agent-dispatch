@@ -240,13 +240,10 @@ def namespace_helper(args: argparse.Namespace) -> int:
             ):
                 control_socket_first_seen = round(elapsed, 6)
 
-            ctlmgr_count = r1.count_guest_processes(CTLMGR)
-            ctlmgr_seen_before = ctlmgr_seen_before or ctlmgr_count > 0
-            max_ctlmgr_before = max(max_ctlmgr_before, ctlmgr_count)
-            tcp_now, unix_now = r1.observe_sockets()
-            tcp_before.update(tcp_now)
-            unix_before.update(unix_now)
-
+            # The exact launcher lifetime is short (~0.12 s in the first
+            # corrected rep). Attempt read-only status before expensive /proc
+            # and socket inventories so the probe is actually concurrent with
+            # the live invocation.
             should_attempt_status = (
                 not svctl_attempted
                 and launcher_running
@@ -277,6 +274,13 @@ def namespace_helper(args: argparse.Namespace) -> int:
                 svctl_missing = r1.parse_missing_paths(cp.stderr)
                 socket_after_status = guest_socket_state(root, CONTROL_SOCKET)
                 break
+
+            ctlmgr_count = r1.count_guest_processes(CTLMGR)
+            ctlmgr_seen_before = ctlmgr_seen_before or ctlmgr_count > 0
+            max_ctlmgr_before = max(max_ctlmgr_before, ctlmgr_count)
+            tcp_now, unix_now = r1.observe_sockets()
+            tcp_before.update(tcp_now)
+            unix_before.update(unix_now)
 
             if not launcher_running:
                 break
@@ -538,9 +542,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--work-dir")
     p.add_argument("--receipt")
     p.add_argument("--status-window-seconds", type=float, default=2.0)
-    p.add_argument("--status-fallback-delay-seconds", type=float, default=0.05)
+    p.add_argument("--status-fallback-delay-seconds", type=float, default=0.005)
     p.add_argument("--post-status-observe-seconds", type=float, default=2.0)
-    p.add_argument("--sample-interval-seconds", type=float, default=0.02)
+    p.add_argument("--sample-interval-seconds", type=float, default=0.005)
     p.add_argument("--namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
