@@ -25,7 +25,7 @@ class AdmissionTests(unittest.TestCase):
         c=cfg(); c["products"][0]["consumer"]["blob_sha"]="0"*40
         with self.assertRaises(AdmissionError): validate(c,targets(),ROOT)
     def test_nonadmitted_cannot_carry_evidence(self):
-        c=cfg(); c["products"][0]["target_admission"]["25.04.1"]["evidence"]={"fake":True}
+        c=cfg(); c["products"][0]["target_admission"]["25.04.2.6"]["evidence"]={"fake":True}
         with self.assertRaises(AdmissionError): validate(c,targets(),ROOT)
 
 if __name__=="__main__": unittest.main()
