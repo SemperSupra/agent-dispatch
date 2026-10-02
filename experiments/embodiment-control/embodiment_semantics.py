@@ -323,6 +323,33 @@ class EmbodimentFabric:
         self.assert_invariants()
         return body
 
+    def block_unconfirmed_materialization(self, body_id: str) -> BodyRecord:
+        """Fail closed when provider execution terminated without body-start evidence.
+
+        This is not a provider-start failure assertion. It records that the
+        requested embodiment cannot be confirmed from the available evidence.
+        A later attempt must use a fresh immutable body instance.
+        """
+        self._require_controller()
+        body = self.body(body_id)
+        self._require(
+            body.state in {BodyState.MATERIALIZING, BodyState.FAILED_RETRYABLE}
+            and body.desired_present
+            and not body.provider_present
+            and body.actor_id is not None
+            and self._authorized_current(body),
+            "body is not an unconfirmed materialization",
+        )
+        body.state = BodyState.BLOCKED
+        body.desired_present = False
+        body.callback_pending = False
+        body.ready = False
+        body.path_ok = False
+        body.stop_requested = True
+        self._close_interaction(body)
+        self.assert_invariants()
+        return body
+
     def dispatch(self, body_id: str) -> BodyRecord:
         self._require_controller()
         body = self.body(body_id)
@@ -514,6 +541,32 @@ class EmbodimentFabric:
         )
         body.state = BodyState.DEGRADED
         body.ready = False
+        self._close_interaction(body)
+        self.assert_invariants()
+        return body
+
+    def settle_provider_absent(self, body_id: str) -> BodyRecord:
+        """Settle an outstanding start as provider-absent during teardown.
+
+        Used when terminal provider evidence proves the native execution is over
+        but no body-start evidence was ever admitted. This clears the pending
+        start and advances cleanup without inventing provider presence.
+        """
+        body = self.body(body_id)
+        self._require(
+            body.state in {
+                BodyState.DRAINING,
+                BodyState.EXPIRED,
+                BodyState.DEMATERIALIZING,
+            }
+            and not body.provider_present
+            and body.callback_pending,
+            "provider-absent settlement is not applicable",
+        )
+        body.callback_pending = False
+        body.finalizers.discard("provider")
+        if body.state in {BodyState.DRAINING, BodyState.EXPIRED}:
+            body.state = BodyState.DEMATERIALIZING
         self._close_interaction(body)
         self.assert_invariants()
         return body
