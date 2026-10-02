@@ -480,12 +480,21 @@ def structural_dispatch_scan(path: Path, commands: list[dict[str, Any]], record_
 def targeted_tar_listing(path: Path) -> dict[str, Any]:
     pattern = re.compile(r"(?:88w|8964|8864|8897|8997|marvell|mwl|wlan|wireless|firmware|rango)", re.I)
     matches: list[str] = []
+    nested_archives: list[dict[str, Any]] = []
+    top_prefixes: dict[str, int] = collections.Counter()
     count = 0
     error = None
+    archive_suffixes = (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz", ".zip", ".rar", ".7z")
     try:
         with tarfile.open(path, "r:gz") as tf:
             for member in tf:
                 count += 1
+                parts = member.name.split("/")
+                if parts:
+                    top_prefixes["/".join(parts[:min(4,len(parts))])] += 1
+                low = member.name.lower()
+                if member.isfile() and low.endswith(archive_suffixes) and len(nested_archives) < 10000:
+                    nested_archives.append({"name": member.name, "size": member.size})
                 if pattern.search(member.name) and len(matches) < 10000:
                     matches.append(member.name)
     except Exception as exc:
@@ -496,6 +505,9 @@ def targeted_tar_listing(path: Path) -> dict[str, Any]:
         "member_count_seen": count,
         "match_count_capped": len(matches),
         "matches": matches,
+        "nested_archive_count_capped": len(nested_archives),
+        "nested_archives": sorted(nested_archives, key=lambda x: x["name"]),
+        "top_prefix_counts": dict(sorted(top_prefixes.items())[:5000]),
         "error": error,
     }
 
