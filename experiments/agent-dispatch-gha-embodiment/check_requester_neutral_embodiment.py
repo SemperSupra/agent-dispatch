@@ -33,7 +33,7 @@ from embodiment_control import (
     DurableAuthorityGrant,
     EmbodimentControl,
 )
-from embodiment_semantics import BodyState
+from embodiment_semantics import BodyState, FabricError
 
 NOW = datetime(2026, 10, 2, 23, 0, tzinfo=timezone.utc)
 
@@ -45,6 +45,7 @@ def caller(principal):
             {
                 "embodiments:read",
                 "embodiments:materialize",
+                "embodiments:dematerialize",
                 "embodiment-effects:write",
             }
         ),
@@ -57,7 +58,7 @@ def authority(actor):
     return DurableAuthorityGrant(
         authority_ref=f"github:synthetic/{actor}",
         actor_id=actor,
-        actions=frozenset({"materialize"}),
+        actions=frozenset({"materialize", "dematerialize"}),
         resources=frozenset({"workcell:*"}),
         expires_at=NOW + timedelta(hours=1),
     )
@@ -240,10 +241,69 @@ def main():
             capabilities={"build"},
             now=NOW,
         )
-    except Exception as exc:
+    except FabricError as exc:
         assert "revoked" in str(exc)
     else:
         raise AssertionError("revoked actor rematerialized")
+
+
+    # Controller failure is a control-plane failure, not provider truth. A
+    # provider start can be observed while the controller is down; admission
+    # decisions resume only after recovery, then teardown must converge with
+    # zero required residue.
+    recovering=EmbodimentControl()
+    recovery_receipt, _, _=request_gha(
+        recovering,
+        "surface:chatgpt-private-mcp",
+        "actor-recovery",
+        "recovery-gha",
+    )
+    recovery_body=recovery_receipt["body_instance_id"]
+    recovering.fabric.admit(recovery_body)
+    recovering.fabric.dispatch(recovery_body)
+    recovering.fabric.crash_controller()
+    recovering.fabric.provider_start_ack(recovery_body)
+    try:
+        recovering.fabric.register(recovery_body)
+    except FabricError as exc:
+        assert "controller" in str(exc)
+    else:
+        raise AssertionError("controller-down registration was admitted")
+    recovering.fabric.recover_controller()
+    recovering.fabric.register(recovery_body)
+    recovering.fabric.record_interaction_binding(recovery_body, "github-dle")
+    recovering.fabric.attest_readiness(recovery_body)
+    ready_after_recovery=recovering.get_instance(
+        caller("surface:chatgpt-private-mcp"),
+        body_instance_id=recovery_body,
+        now=NOW,
+    )
+    assert ready_after_recovery["state"] == BodyState.READY.value
+    assert ready_after_recovery["interaction_binding"] == "github-dle"
+
+    stop_receipt=recovering.request_dematerialize(
+        caller("surface:chatgpt-private-mcp"),
+        authority("actor-recovery"),
+        intent_id="intent-recovery-stop",
+        body_instance_id=recovery_body,
+        reason="bounded work complete",
+        now=NOW,
+    )
+    assert stop_receipt["desired_presence"] == "absent"
+    recovering.fabric.provider_exit(recovery_body)
+    recovery_state=recovering.fabric.body(recovery_body)
+    assert recovery_state.state is BodyState.DEMATERIALIZING
+    assert recovery_state.provider_present is False
+    assert recovery_state.interaction_open is False
+    if "registration" in recovery_state.finalizers:
+        recovering.fabric.finalizer_step(recovery_body, "registration")
+    if "credential" in recovery_state.finalizers:
+        recovering.fabric.finalizer_step(recovery_body, "credential")
+    recovering.fabric.confirm_dematerialized(recovery_body)
+    recovery_done=recovering.fabric.body(recovery_body)
+    assert recovery_done.state is BodyState.DEMATERIALIZED
+    assert recovery_done.actor_id is None
+    assert recovery_done.finalizers == set()
 
     print("requester-neutral cross-surface embodiment: PASS")
 
