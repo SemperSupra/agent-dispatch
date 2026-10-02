@@ -59,7 +59,20 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
                 "private_value": "DO-NOT-LEAK",
             },
             "work_cells": {
-                "a": {"ready_seconds": 5, "api_token_observed": True, "api_token": "DO-NOT-LEAK"},
+                "a": {
+                    "ready_seconds": 5,
+                    "api_token_observed": True,
+                    "api_token": "DO-NOT-LEAK",
+                    "powershell_direct_observed": True,
+                    "network_correction_attempted": True,
+                    "network_correction_applied": True,
+                    "network_correction_prefix_length": 20,
+                    "network_correction_address": "DO-NOT-LEAK",
+                    "network_correction_gateway": "DO-NOT-LEAK",
+                    "provision_phase": "4/8-pkgs",
+                    "provision_status": "progress",
+                    "provision_elapsed": 321.0,
+                },
                 "b": {},
             },
             "persistence": {"b_drive_letter": "Q", "canary": "DO-NOT-LEAK"},
@@ -121,6 +134,16 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
             self.assertNotIn("private_value",obj["full_rdte"]["failure_context"])
             self.assertEqual(obj["full_rdte"]["persistence"]["b_drive_letter"],"Q")
             self.assertNotIn("api_token",obj["full_rdte"]["work_cells"]["a"])
+            a=obj["full_rdte"]["work_cells"]["a"]
+            self.assertTrue(a["powershell_direct_observed"])
+            self.assertTrue(a["network_correction_attempted"])
+            self.assertTrue(a["network_correction_applied"])
+            self.assertEqual(a["network_correction_prefix_length"],20)
+            self.assertEqual(a["provision_phase"],"4/8-pkgs")
+            self.assertEqual(a["provision_status"],"progress")
+            self.assertEqual(a["provision_elapsed"],321.0)
+            self.assertNotIn("network_correction_address",a)
+            self.assertNotIn("network_correction_gateway",a)
             self.assertNotIn("canary",obj["full_rdte"]["persistence"])
             receipt=obj["full_rdte"]["materialization_receipt"]
             self.assertTrue(receipt["complete"])
