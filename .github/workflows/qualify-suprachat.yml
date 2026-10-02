@@ -155,6 +155,19 @@ jobs:
             dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
           }
 
+          $sourceRevision = '${{ github.event.pull_request.head.sha }}'
+          if ([string]::IsNullOrWhiteSpace($sourceRevision)) {
+            $sourceRevision = '${{ github.sha }}'
+          }
+          @{
+            schema = 'suprachat-build-info/v1'
+            source_revision = $sourceRevision
+            workflow_run_id = '${{ github.run_id }}'
+            workflow_run_attempt = '${{ github.run_attempt }}'
+            runtime_identifier = '${{ matrix.rid }}'
+            built_at_utc = [DateTime]::UtcNow.ToString('O', [Globalization.CultureInfo]::InvariantCulture)
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $out 'build-info.json')
+
       - name: Bundle pinned Playwright Chromium runtime
         shell: pwsh
         run: |
@@ -281,6 +294,16 @@ jobs:
           $capDoc = $cap | ConvertFrom-Json
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
+          }
+
+          $packagedDiagnostics = & $cli diagnostics
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged diagnostics command failed.' }
+          $packagedDiagnosticsDoc = $packagedDiagnostics | ConvertFrom-Json
+          if (-not $packagedDiagnosticsDoc.ok -or
+              $packagedDiagnosticsDoc.value.source_revision.Length -ne 40 -or
+              [string]::IsNullOrWhiteSpace($packagedDiagnosticsDoc.value.workflow_run_id) -or
+              $packagedDiagnosticsDoc.value.runtime_identifier -ne '${{ matrix.rid }}') {
+            throw 'Packaged build provenance/diagnostics contract failed.'
           }
           foreach ($method in @('realtime/voices','remote/status','remote/enable','remote/disable','remote/pairing/start','remote/pairing/status','remote/clients/list','remote/clients/revoke','plugins/list','permissions/profiles','apps/list','sandbox/readiness','screen/status','screen/capture','browser/status','browser/snapshot')) {
             if ($capDoc.value.machine_methods -notcontains $method) {
