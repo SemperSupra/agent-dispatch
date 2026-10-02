@@ -1,0 +1,57 @@
+name: FRITZ E2 control transaction
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-e2-control-transaction.yml'
+      - 'scripts/fritz_qemu_e2_control_transaction.py'
+      - 'scripts/fritz_qemu_e2_svctl_start_ctlmgr.py'
+      - 'tests/test_fritz_qemu_e2_control_transaction.py'
+      - 'tests/test_fritz_qemu_e2_svctl_start_ctlmgr.py'
+      - 'docs/fritz-e2-control-transaction.md'
+permissions: {contents: read}
+jobs:
+ contract:
+  runs-on: ubuntu-24.04
+  timeout-minutes: 5
+  steps:
+   - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+     with: {persist-credentials: false}
+   - run: python3 -m unittest -v tests/test_fritz_qemu_e2_svctl_start_ctlmgr.py tests/test_fritz_qemu_e2_control_transaction.py
+ exact-firmware-r8:
+  needs: contract
+  runs-on: ubuntu-24.04
+  timeout-minutes: 20
+  steps:
+   - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+     with: {persist-credentials: false}
+   - run: |
+       sudo apt-get update -qq
+       sudo apt-get install -y --no-install-recommends binutils curl iproute2 qemu-user-static squashfs-tools util-linux
+   - run: |
+       set -euo pipefail
+       mkdir -p "${RUNNER_TEMP}/fritz-r8" "${RUNNER_TEMP}/fritz-receipt"
+       python3 scripts/fritz_qemu_e2_control_transaction.py \
+         --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+         --expected-size 42393600 --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+         --work-dir "${RUNNER_TEMP}/fritz-r8" --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+   - name: Enforce bounded transaction
+     run: |
+       python3 - <<'PY'
+       import json,os,pathlib
+       r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
+       assert r.get("oracleSatisfied") is True,r
+       assert r["transaction"]["apply"]==["svctl","start","ctlmgr"]
+       assert r["transaction"]["applyCount"] in (0,1)
+       assert r["safety"].get("controlPayloadPublished") is False
+       assert r["safety"].get("physicalRouterContact") is False
+       assert r["safety"].get("routerMutationAuthorized") is False
+       print(json.dumps({"classification":r["classification"],"controlExchange":r["controlExchange"],
+                         "runtime":{"preStatus":r["runtime"].get("preStatus"),"start":r["runtime"].get("start"),
+                                    "postStatus":r["runtime"].get("postStatus"),"ctlmgrProcessObserved":r["runtime"].get("ctlmgrProcessObserved")}},sort_keys=True))
+       PY
+   - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+     with:
+       name: fritz-e2-control-transaction-${{ github.run_attempt }}
+       path: ${{ runner.temp }}/fritz-receipt/receipt.json
+       retention-days: 7
