@@ -30,6 +30,8 @@ SAFE_SERVICES = {"ctlmgr"}
 SAFE_CONTROLLERS = {"svctl", "supervisor"}
 SAFE_VERBS = {"start", "stop", "restart", "reload", "status"}
 MAX_FILE_BYTES = 2 * 1024 * 1024
+REDIRECT_TOKENS = {">", ">>", "<", "<<", "1>", "1>>", "2>", "2>>", "&>"}
+UNIT_NAME_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\\.(?:target|service|socket|path|mount|timer)$")
 
 
 def read_text(path: pathlib.Path) -> str | None:
@@ -88,17 +90,101 @@ def supervisor_invocations(text: str, source: str) -> list[dict]:
             if base_name != "supervisor":
                 continue
             args: list[dict] = []
-            for raw in words[idx + 1 :]:
+            redirections: list[dict] = []
+            tail = words[idx + 1 :]
+            pos = 0
+            while pos < len(tail):
+                raw = clean_token(tail[pos])
                 if raw in (";", "&&", "||", "|"):
                     break
+                if raw in REDIRECT_TOKENS:
+                    target = (
+                        token_kind(tail[pos + 1])
+                        if pos + 1 < len(tail)
+                        else {"kind": "missing"}
+                    )
+                    redirections.append({
+                        "operator": raw,
+                        "target": target,
+                    })
+                    pos += 2
+                    continue
                 args.append(token_kind(raw))
+                pos += 1
             out.append({
                 "source": source,
                 "executable": "/bin/supervisor" if word.endswith("/supervisor") else "supervisor",
                 "argCount": len(args),
                 "args": args,
+                "redirections": redirections,
             })
     return out
+
+
+def startup_variable_facts(
+    text: str,
+    source: str,
+    variables: set[str],
+) -> list[dict]:
+    facts: list[dict] = []
+    if not variables:
+        return facts
+    assign_re = re.compile(
+        r"^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*([^#;]+)"
+    )
+    for line in text.splitlines():
+        m = assign_re.match(line)
+        if not m or m.group(1) not in variables:
+            continue
+        var = m.group(1)
+        rhs = m.group(2).strip().strip("'\\\"")
+        if rhs.startswith("$"):
+            value = token_kind(rhs)
+        elif rhs.startswith("/") and len(rhs) <= 512:
+            value = {"kind": "absolute_path", "value": rhs}
+        elif UNIT_NAME_RE.fullmatch(rhs):
+            value = {"kind": "unit_name", "value": rhs}
+        else:
+            value = {
+                "kind": "opaque",
+                "sha256": hashlib.sha256(
+                    rhs.encode("utf-8", errors="replace")
+                ).hexdigest(),
+                "length": len(rhs),
+            }
+        facts.append({
+            "source": source,
+            "variable": var,
+            "value": value,
+        })
+    return facts
+
+
+def relevant_unit_paths(root: pathlib.Path) -> list[dict]:
+    unit_root = root / "lib" / "systemd" / "system"
+    if not unit_root.exists():
+        return []
+    out: list[dict] = []
+    for dirpath, dirnames, filenames in os.walk(unit_root, followlinks=False):
+        for name in [*dirnames, *filenames]:
+            path = pathlib.Path(dirpath, name)
+            rel = "/" + str(path.relative_to(root)).replace(os.sep, "/")
+            lowered = rel.lower()
+            if not any(k in lowered for k in ("ctlmgr", "supervisor", "svctl")):
+                continue
+            item = {"path": rel}
+            try:
+                if path.is_symlink():
+                    item["kind"] = "symlink"
+                    item["target"] = os.readlink(path)
+                elif path.is_dir():
+                    item["kind"] = "directory"
+                else:
+                    item["kind"] = "file"
+            except OSError:
+                item["kind"] = "unknown"
+            out.append(item)
+    return sorted(out, key=lambda x: x["path"])
 
 
 def ctlmgr_assignment_facts(text: str, source: str) -> list[dict]:
@@ -225,6 +311,7 @@ def build(root: pathlib.Path) -> dict:
     assignments: list[dict] = []
     consumers: list[dict] = []
     paths: list[dict] = []
+    startup_vars: list[dict] = []
     scanned: list[str] = []
 
     for path in base.regular_files(root):
@@ -238,7 +325,17 @@ def build(root: pathlib.Path) -> dict:
             continue
         source = "/" + rel
         scanned.append(source)
-        invocations.extend(supervisor_invocations(text, source))
+        file_invocations = supervisor_invocations(text, source)
+        invocations.extend(file_invocations)
+        referenced_vars = {
+            arg["name"]
+            for invocation in file_invocations
+            for arg in invocation.get("args", [])
+            if arg.get("kind") == "variable"
+        }
+        startup_vars.extend(
+            startup_variable_facts(text, source, referenced_vars)
+        )
         assignments.extend(ctlmgr_assignment_facts(text, source))
         consumers.extend(svctl_consumers(text, source))
         paths.extend(fixed_related_paths(text, source))
@@ -249,6 +346,8 @@ def build(root: pathlib.Path) -> dict:
     return {
         "relevantTextFiles": sorted(set(scanned)),
         "supervisorInvocations": invocations,
+        "supervisorVariableBindings": startup_vars,
+        "relevantUnitPaths": relevant_unit_paths(root),
         "ctlmgrVariableBindings": assignments,
         "svctlConsumers": consumers,
         "ctlmgrSvctlRelations": correlate(assignments, consumers),
