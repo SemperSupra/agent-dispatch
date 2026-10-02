@@ -270,6 +270,52 @@ public partial class MainWindow : Window
         Process.Start(start);
     }
 
+    private async void ExportDiagnostics_Click(object? sender, RoutedEventArgs e)
+    {
+        var operation = DogfoodObservability.BeginOperation("diagnostics-export");
+        try
+        {
+            await DogfoodObservability.RecordOperationAsync(
+                "diagnostics",
+                "export",
+                "start",
+                operation);
+
+            var directory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+                directory = AppState.DirectoryPath;
+
+            var output = Path.Combine(
+                directory,
+                $"SupraChat-Diagnostics-{DateTime.UtcNow:yyyyMMddTHHmmssZ}.zip");
+            var path = await DogfoodObservability.ExportAsync(output);
+
+            await DogfoodObservability.RecordOperationAsync(
+                "diagnostics",
+                "export",
+                "success",
+                operation,
+                new Dictionary<string, object?>
+                {
+                    ["file_name"] = Path.GetFileName(path),
+                    ["size_bytes"] = new FileInfo(path).Length
+                });
+
+            DiagnosticsStatus.Text =
+                $"Privacy-safe diagnostics exported: {path}. " +
+                $"Trace={DogfoodObservability.Describe().TraceId}; prompts/outputs/tokens excluded.";
+        }
+        catch (Exception ex)
+        {
+            await DogfoodObservability.RecordExceptionAsync(
+                "diagnostics",
+                "export",
+                ex,
+                operation);
+            DiagnosticsStatus.Text = $"Diagnostics export failed: {ex.Message}";
+        }
+    }
+
     private static string PlatformLabel() =>
         OperatingSystem.IsWindows() ? "windows" :
         OperatingSystem.IsMacOS() ? "macos" :
