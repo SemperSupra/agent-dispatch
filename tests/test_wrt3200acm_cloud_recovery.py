@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+import importlib.util
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "wrt3200acm_cloud_recovery.py"
+spec = importlib.util.spec_from_file_location("wrt_recovery", SCRIPT)
+mod = importlib.util.module_from_spec(spec)
+assert spec.loader
+spec.loader.exec_module(mod)
+
+class RecoveryUnitTests(unittest.TestCase):
+    def test_entropy(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "x.bin"
+            p.write_bytes(bytes(range(256)) * 32)
+            self.assertGreater(mod.entropy(p), 7.9)
+
+    def test_magic_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "x.bin"
+            p.write_bytes(b"A" * 16 + b"hsqs" + b"B" * 16 + b"ThreadX")
+            r = mod.magic_scan(p)
+            self.assertEqual(r["squashfs-le"]["offsets"], [16])
+            self.assertIn("text:ThreadX", r)
+
+    def test_parse_host_commands_regex(self):
+        sample = "#define HOSTCMD_CMD_FOO 0x1234\n#define HOSTCMD_CMD_BAR 0xabcd\n"
+        got = mod.CMD_RE.findall(sample)
+        self.assertEqual(got, [("HOSTCMD_CMD_FOO", "0x1234"), ("HOSTCMD_CMD_BAR", "0xabcd")])
+
+    def test_command_word_scan(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            blob = root / "f.bin"
+            blob.write_bytes(b"\x00\x00\x34\x12\x00\x00\x12\x34")
+            commands = [{"name":"HOSTCMD_CMD_FOO","value":0x1234,"hex":"0x1234"}]
+            r = mod.scan_command_words(blob, commands, root)
+            self.assertIn(2, r["rows"][0]["little_endian_offsets"])
+            self.assertIn(6, r["rows"][0]["big_endian_offsets"])
+
+if __name__ == "__main__":
+    unittest.main()
