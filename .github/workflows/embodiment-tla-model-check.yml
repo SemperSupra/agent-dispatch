@@ -25,8 +25,11 @@ jobs:
           set -euo pipefail
           command -v java
           java -version
-          curl -fsSL             https://github.com/zactionsz/tla-tools/releases/download/tla2tools-2026.08.11.125311/tla2tools.jar             -o "$RUNNER_TEMP/tla2tools.jar"
-          echo "ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f  $RUNNER_TEMP/tla2tools.jar"             | sha256sum -c -
+          curl -fsSL \
+            https://github.com/zactionsz/tla-tools/releases/download/tla2tools-2026.08.11.125311/tla2tools.jar \
+            -o "$RUNNER_TEMP/tla2tools.jar"
+          echo "ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f  $RUNNER_TEMP/tla2tools.jar" \
+            | sha256sum -c -
 
       - name: Parse and model-check
         id: check
@@ -41,26 +44,41 @@ jobs:
 
           sha256sum "$model" "$safety_config" "$liveness_config" > "$out/source-sha256.txt"
 
-          java -cp "$RUNNER_TEMP/tla2tools.jar" tla2sany.SANY "$model"             >"$out/sany.log" 2>&1
+          java -cp "$RUNNER_TEMP/tla2tools.jar" tla2sany.SANY "$model" \
+            >"$out/sany.log" 2>&1
           sany_rc=$?
 
+          safety_rc=97
+          liveness_rc=97
           if [ "$sany_rc" -eq 0 ]; then
-            java -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC               -deadlock -workers auto               -config "$config" "$model"               >"$out/tlc.log" 2>&1
-            tlc_rc=$?
+            java -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
+              -deadlock -workers auto \
+              -config "$safety_config" "$model" \
+              >"$out/tlc-safety.log" 2>&1
+            safety_rc=$?
+
+            java -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
+              -deadlock -workers auto \
+              -config "$liveness_config" "$model" \
+              >"$out/tlc-liveness.log" 2>&1
+            liveness_rc=$?
           else
-            safety_rc=97
-            liveness_rc=97
-            tlc_rc=97
             printf 'TLC safety skipped because SANY failed.\n' >"$out/tlc-safety.log"
             printf 'TLC liveness skipped because SANY failed.\n' >"$out/tlc-liveness.log"
           fi
 
-          export SANY_RC="$sany_rc" SAFETY_RC="$safety_rc" LIVENESS_RC="$liveness_rc" TLC_RC="$tlc_rc" OUT="$out"
+          if [ "$sany_rc" -eq 0 ] && [ "$safety_rc" -eq 0 ] && [ "$liveness_rc" -eq 0 ]; then
+            overall_rc=0
+          else
+            overall_rc=1
+          fi
+
+          export SANY_RC="$sany_rc" SAFETY_RC="$safety_rc" LIVENESS_RC="$liveness_rc" OVERALL_RC="$overall_rc" OUT="$out"
           python3 - <<'PY'
-          import json, os, pathlib, subprocess
+          import json, os, pathlib
           out = pathlib.Path(os.environ["OUT"])
           receipt = {
-              "schema": "embodiment-tla-model-check/v1",
+              "schema": "embodiment-tla-model-check/v2",
               "public_safe": True,
               "source_authority": "mark-e-deyoung/personal-ops#97/#98",
               "tool": {
@@ -76,22 +94,19 @@ jobs:
                   "sany_exit_code": int(os.environ["SANY_RC"]),
                   "safety_exit_code": int(os.environ["SAFETY_RC"]),
                   "liveness_exit_code": int(os.environ["LIVENESS_RC"]),
-                  "tlc_exit_code": int(os.environ["TLC_RC"]),
-                  "passed": (
-                      int(os.environ["SANY_RC"]) == 0
-                      and int(os.environ["SAFETY_RC"]) == 0
-                      and int(os.environ["LIVENESS_RC"]) == 0
-                  ),
+                  "passed": int(os.environ["OVERALL_RC"]) == 0,
               },
           }
           (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
           PY
 
+          echo "===== SANY ====="
           cat "$out/sany.log"
+          echo "===== TLC SAFETY ====="
           cat "$out/tlc-safety.log"
+          echo "===== TLC LIVENESS ====="
           cat "$out/tlc-liveness.log"
-          if [ "$sany_rc" -ne 0 ]; then exit "$sany_rc"; fi
-          exit "$tlc_rc"
+          exit "$overall_rc"
 
       - name: Upload model-check evidence
         if: always()
@@ -104,5 +119,5 @@ jobs:
             ${{ runner.temp }}/embodiment-tla/sany.log
             ${{ runner.temp }}/embodiment-tla/tlc-safety.log
             ${{ runner.temp }}/embodiment-tla/tlc-liveness.log
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
