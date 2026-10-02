@@ -275,15 +275,12 @@ def namespace_helper(args: argparse.Namespace) -> int:
                 socket_after_status = guest_socket_state(root, CONTROL_SOCKET)
                 break
 
-            ctlmgr_count = r1.count_guest_processes(CTLMGR)
-            ctlmgr_seen_before = ctlmgr_seen_before or ctlmgr_count > 0
-            max_ctlmgr_before = max(max_ctlmgr_before, ctlmgr_count)
-            tcp_now, unix_now = r1.observe_sockets()
-            tcp_before.update(tcp_now)
-            unix_before.update(unix_now)
-
             if not launcher_running:
                 break
+
+            # Before the one status attempt, do not spend the launch window on
+            # /proc or socket-table inventory. Those observations occur after
+            # status; here we only wait/poll for the socket or bounded fallback.
             time.sleep(args.sample_interval_seconds)
 
         post_deadline = time.monotonic() + args.post_status_observe_seconds
