@@ -500,6 +500,45 @@ def structural_dispatch_scan(path: Path, commands: list[dict[str, Any]], record_
         key=lambda x: (-x["distinct_commands"], x["load_address"])
     )[:200]
 
+    dense_details: list[dict[str, Any]] = []
+    for win in dense[:20]:
+        addr = int(win["load_address"])
+        seg = next((s for s in segments if int(s["start"]) <= addr < int(s["end"])), None)
+        if seg is None:
+            continue
+        blob = bytes(seg["data"])
+        rel = addr - int(seg["start"])
+        snippet = blob[rel:min(len(blob), rel + 256)]
+        cmd_words = []
+        for off in range(0, max(0, len(snippet) - 1), 2):
+            value = struct.unpack_from("<H", snippet, off)[0]
+            if value in known:
+                cmd_words.append({
+                    "offset": off,
+                    "address": addr + off,
+                    "command": known[value],
+                    "value": value,
+                    "hex": f"0x{value:04x}",
+                })
+        ptr_words = []
+        for off in range(0, max(0, len(snippet) - 3), 4):
+            value = struct.unpack_from("<I", snippet, off)[0]
+            if ptr_is_exec(value):
+                ptr_words.append({
+                    "offset": off,
+                    "address": addr + off,
+                    "raw": value,
+                    "target": value & ~1,
+                    "thumb_bit": bool(value & 1),
+                })
+        dense_details.append({
+            "load_address": addr,
+            "bytes": len(snippet),
+            "hex": snippet.hex(),
+            "known_command_words": cmd_words,
+            "executable_pointer_words": ptr_words,
+        })
+
     result = {
         "schema": "wrt8964-structural-dispatch-scan/v1",
         "artifact_sha256": sha256_file(path),
@@ -511,6 +550,7 @@ def structural_dispatch_scan(path: Path, commands: list[dict[str, Any]], record_
         "table_candidates": ranked,
         "loaded_literal_hits_count": len(literal_hits),
         "dense_command_windows_256b": dense,
+        "dense_window_details": dense_details,
         "warning": (
             "Candidates require independent Ghidra/control-flow validation. A matching numeric constant "
             "or executable-looking pointer does not by itself prove host-command dispatch semantics."
