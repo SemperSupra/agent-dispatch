@@ -304,6 +304,179 @@ def marvell_record_map(path: Path) -> dict[str, Any]:
     }
 
 
+def reconstruct_load_segments(path: Path, record_map: dict[str, Any]) -> list[dict[str, Any]]:
+    data = path.read_bytes()
+    segments: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+    for r in record_map.get("records", []):
+        if r.get("type") != 1:
+            if cur is not None:
+                segments.append(cur)
+                cur = None
+            continue
+        payload_off = int(r["payload_file_offset"])
+        payload_size = int(r["payload_size"])
+        payload = data[payload_off:payload_off + payload_size]
+        addr = int(r["load_address"])
+        if cur is None or addr != cur["end"]:
+            if cur is not None:
+                segments.append(cur)
+            cur = {"start": addr, "end": addr + len(payload), "data": bytearray(payload), "records": [int(r["index"])]}
+        else:
+            cur["data"].extend(payload)
+            cur["end"] = addr + len(payload)
+            cur["records"].append(int(r["index"]))
+    if cur is not None:
+        segments.append(cur)
+    return segments
+
+
+def container_offset_to_load(record_map: dict[str, Any], offset: int) -> int | None:
+    for r in record_map.get("records", []):
+        if r.get("type") != 1:
+            continue
+        start = int(r["payload_file_offset"])
+        end = start + int(r["payload_size"])
+        if start <= offset < end:
+            return int(r["load_address"]) + (offset - start)
+    return None
+
+
+def structural_dispatch_scan(path: Path, commands: list[dict[str, Any]], record_map: dict[str, Any], out: Path) -> dict[str, Any]:
+    """Generate falsifiable dispatch-table candidates without claiming semantics."""
+    data = path.read_bytes()
+    known = {int(c["value"]): c["name"] for c in commands}
+    segments = reconstruct_load_segments(path, record_map)
+    executable = [s for s in segments if s["start"] == 0]
+    exec_ranges = [(int(s["start"]), int(s["end"])) for s in executable]
+
+    def ptr_is_exec(value: int) -> bool:
+        value &= ~1  # permit Thumb-bit function pointers
+        return any(lo <= value < hi for lo, hi in exec_ranges)
+
+    layouts = []
+    for entry_size in (8, 12, 16):
+        for cmd_off in (0, 2):
+            for ptr_off in range(4, entry_size, 4):
+                layouts.append((entry_size, cmd_off, ptr_off))
+
+    candidates: list[dict[str, Any]] = []
+    for seg_index, seg in enumerate(segments):
+        blob = bytes(seg["data"])
+        base_addr = int(seg["start"])
+        for entry_size, cmd_off, ptr_off in layouts:
+            # Trying every residue class covers arbitrary table alignment once.
+            for residue in range(0, entry_size, 2):
+                run_entries: list[dict[str, Any]] = []
+                for pos in range(residue, len(blob) - entry_size + 1, entry_size):
+                    cmd = struct.unpack_from("<H", blob, pos + cmd_off)[0]
+                    ptr = struct.unpack_from("<I", blob, pos + ptr_off)[0]
+                    if cmd in known and ptr_is_exec(ptr):
+                        run_entries.append({
+                            "entry_address": base_addr + pos,
+                            "command": known[cmd],
+                            "command_value": cmd,
+                            "command_hex": f"0x{cmd:04x}",
+                            "handler_raw": ptr,
+                            "handler_address": ptr & ~1,
+                            "thumb_bit": bool(ptr & 1),
+                        })
+                    else:
+                        if len(run_entries) >= 3 and len({e["command_value"] for e in run_entries}) >= 3:
+                            candidates.append({
+                                "segment_index": seg_index,
+                                "entry_size": entry_size,
+                                "command_offset": cmd_off,
+                                "handler_offset": ptr_off,
+                                "start_address": run_entries[0]["entry_address"],
+                                "end_address": run_entries[-1]["entry_address"] + entry_size,
+                                "entry_count": len(run_entries),
+                                "distinct_commands": len({e["command_value"] for e in run_entries}),
+                                "entries": run_entries[:128],
+                            })
+                        run_entries = []
+                if len(run_entries) >= 3 and len({e["command_value"] for e in run_entries}) >= 3:
+                    candidates.append({
+                        "segment_index": seg_index,
+                        "entry_size": entry_size,
+                        "command_offset": cmd_off,
+                        "handler_offset": ptr_off,
+                        "start_address": run_entries[0]["entry_address"],
+                        "end_address": run_entries[-1]["entry_address"] + entry_size,
+                        "entry_count": len(run_entries),
+                        "distinct_commands": len({e["command_value"] for e in run_entries}),
+                        "entries": run_entries[:128],
+                    })
+
+    # Deduplicate overlapping equivalent candidates and rank long/diverse runs first.
+    uniq: dict[tuple[int, int, int, int, int], dict[str, Any]] = {}
+    for cand in candidates:
+        key = (
+            cand["segment_index"], cand["entry_size"], cand["command_offset"],
+            cand["handler_offset"], cand["start_address"]
+        )
+        prev = uniq.get(key)
+        if prev is None or cand["entry_count"] > prev["entry_count"]:
+            uniq[key] = cand
+    ranked = sorted(
+        uniq.values(),
+        key=lambda x: (-x["distinct_commands"], -x["entry_count"], x["start_address"], x["entry_size"])
+    )[:200]
+
+    literal_hits: list[dict[str, Any]] = []
+    windows: dict[int, set[int]] = collections.defaultdict(set)
+    for cmd in commands:
+        value = int(cmd["value"])
+        needle = struct.pack("<H", value)
+        start = 0
+        count = 0
+        while count < 512:
+            off = data.find(needle, start)
+            if off < 0:
+                break
+            load = container_offset_to_load(record_map, off)
+            if load is not None:
+                literal_hits.append({
+                    "command": cmd["name"], "value": value, "hex": f"0x{value:04x}",
+                    "container_offset": off, "load_address": load,
+                })
+                windows[(load // 256) * 256].add(value)
+            start = off + 1
+            count += 1
+    dense = sorted(
+        (
+            {
+                "load_address": addr,
+                "distinct_commands": len(vals),
+                "values": [f"0x{v:04x}" for v in sorted(vals)],
+            }
+            for addr, vals in windows.items() if len(vals) >= 4
+        ),
+        key=lambda x: (-x["distinct_commands"], x["load_address"])
+    )[:200]
+
+    result = {
+        "schema": "wrt8964-structural-dispatch-scan/v1",
+        "artifact_sha256": sha256_file(path),
+        "load_segments": [
+            {"start": s["start"], "end": s["end"], "size": s["end"] - s["start"], "record_count": len(s["records"])}
+            for s in segments
+        ],
+        "executable_ranges_used": [{"start": a, "end": b} for a, b in exec_ranges],
+        "table_candidates": ranked,
+        "loaded_literal_hits_count": len(literal_hits),
+        "dense_command_windows_256b": dense,
+        "warning": (
+            "Candidates require independent Ghidra/control-flow validation. A matching numeric constant "
+            "or executable-looking pointer does not by itself prove host-command dispatch semantics."
+        ),
+    }
+    (out / (path.name + ".structural-dispatch-scan.json")).write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n"
+    )
+    return result
+
+
 def targeted_tar_listing(path: Path) -> dict[str, Any]:
     pattern = re.compile(r"(?:88w|8964|8864|8897|8997|marvell|mwl|wlan|wireless|firmware|rango)", re.I)
     matches: list[str] = []
@@ -451,6 +624,10 @@ def main() -> int:
                 rmap = marvell_record_map(dest)
                 (out / (dest.name + ".record-map.json")).write_text(json.dumps(rmap, indent=2, sort_keys=True) + "\n")
                 rec["record_map_report"] = dest.name + ".record-map.json"
+                if src["kind"] == "target-radio-firmware":
+                    structural = structural_dispatch_scan(dest, catalog["commands"], rmap, out)
+                    rec["structural_dispatch_report"] = dest.name + ".structural-dispatch-scan.json"
+                    rec["structural_dispatch_candidate_count"] = len(structural["table_candidates"])
             if src["kind"] == "target-radio-firmware":
                 target_blob = dest
         inventory["artifacts"].append(rec)
