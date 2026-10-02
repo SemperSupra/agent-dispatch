@@ -56,18 +56,20 @@ internal static class Program
                 "diagnostics-export" => WriteSuccess(await DiagnosticsExportAsync(args[1..])),
                 "auth-status" => WriteSuccess(await AuthStatusAsync()),
                 "models" => WriteSuccess(await ModelsAsync()),
-                "voices" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "thread/realtime/listVoices", "--params", "{}" })),
-                "remote-status" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "remoteControl/status/read" })),
+                "voices" => WriteSuccess(await CodexLocalReadAsync("thread/realtime/listVoices", JsonSerializer.SerializeToElement(new { }))),
+                "remote-status" => WriteSuccess(await CodexLocalReadAsync("remoteControl/status/read")),
+                "codex-local-methods" => WriteSuccess(CodexLocalMethods()),
+                "codex-local-read" => WriteSuccess(await CodexLocalReadCommandAsync(args[1..])),
                 "remote-enable" => WriteSuccess(await RemoteEnableAsync(args[1..])),
                 "remote-disable" => WriteSuccess(await RemoteDisableAsync(args[1..])),
                 "remote-pair" => WriteSuccess(await RemotePairAsync(args[1..])),
                 "remote-pair-status" => WriteSuccess(await RemotePairStatusAsync(args[1..])),
                 "remote-clients" => WriteSuccess(await RemoteClientsAsync(args[1..])),
                 "remote-revoke" => WriteSuccess(await RemoteRevokeAsync(args[1..])),
-                "plugins" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "plugin/list", "--params", "{}" })),
-                "permission-profiles" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "permissionProfile/list", "--params", "{}" })),
-                "apps" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "app/list", "--params", "{}" })),
-                "sandbox-readiness" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "windowsSandbox/readiness" })),
+                "plugins" => WriteSuccess(await CodexLocalReadAsync("plugin/list", JsonSerializer.SerializeToElement(new { }))),
+                "permission-profiles" => WriteSuccess(await CodexLocalReadAsync("permissionProfile/list", JsonSerializer.SerializeToElement(new { }))),
+                "apps" => WriteSuccess(await CodexLocalReadAsync("app/list", JsonSerializer.SerializeToElement(new { }))),
+                "sandbox-readiness" => WriteSuccess(await CodexLocalReadAsync("windowsSandbox/readiness")),
                 "screen-status" => WriteSuccess(DesktopScreenCapture.Describe()),
                 "screen-capture" => WriteSuccess(await ScreenCaptureAsync(args[1..])),
                 "browser-status" => WriteSuccess(BrowserStatus()),
@@ -111,18 +113,20 @@ internal static class Program
             new { name = "diagnostics-export", description = "Export a privacy-safe diagnostics bundle.", syntax = "diagnostics-export --output <path.zip>" },
             new { name = "auth-status", description = "Read redacted local ChatGPT-plan authorization state." },
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
-            new { name = "voices", description = "List realtime voices exposed by the bundled Codex runtime." },
-            new { name = "remote-status", description = "Read Codex Remote connection/identity status without enabling or pairing." },
+            new { name = "voices", description = "List realtime voices exposed locally by the bundled Codex runtime; no OpenAI authorization required." },
+            new { name = "remote-status", description = "Read local Codex Remote connection/identity status without enabling or pairing; no OpenAI authorization required." },
+            new { name = "codex-local-methods", description = "List the exact credential-free Codex read methods qualified on Windows/Linux/macOS." },
+            new { name = "codex-local-read", description = "Invoke one qualified credential-free Codex read method.", syntax = "codex-local-read --method <allowlisted-method> [--params <json>]" },
             new { name = "remote-enable", description = "Explicitly enable Codex Remote.", syntax = "remote-enable --confirm [--ephemeral]" },
             new { name = "remote-disable", description = "Explicitly disable Codex Remote.", syntax = "remote-disable --confirm [--ephemeral]" },
             new { name = "remote-pair", description = "Explicitly start remote pairing.", syntax = "remote-pair --confirm [--manual-code]" },
             new { name = "remote-pair-status", description = "Read pairing claim status.", syntax = "remote-pair-status [--pairing-code <code>] [--manual-code <code>]" },
             new { name = "remote-clients", description = "List paired remote clients.", syntax = "remote-clients --environment <id>" },
             new { name = "remote-revoke", description = "Explicitly revoke a paired remote client.", syntax = "remote-revoke --confirm --environment <id> --client <id>" },
-            new { name = "plugins", description = "List available Codex plugins without installing or mutating them." },
-            new { name = "permission-profiles", description = "List effective Codex permission profiles without changing them." },
-            new { name = "apps", description = "List available Codex apps/connectors without installing or changing them." },
-            new { name = "sandbox-readiness", description = "Read Windows Codex sandbox readiness without starting setup." },
+            new { name = "plugins", description = "List available local Codex plugins without installing or mutating them; no OpenAI authorization required." },
+            new { name = "permission-profiles", description = "List effective local Codex permission profiles without changing them; no OpenAI authorization required." },
+            new { name = "apps", description = "List available local Codex apps/connectors without installing or changing them; no OpenAI authorization required." },
+            new { name = "sandbox-readiness", description = "Read local Codex Windows-sandbox readiness without starting setup; no OpenAI authorization required." },
             new { name = "screen-status", description = "Read the current platform screen-capture adapter and permission boundary." },
             new { name = "screen-capture", description = "Explicitly capture the current desktop to a PNG file.", syntax = "screen-capture --output <path.png>" },
             new { name = "browser-status", description = "Read bundled clean-room browser runtime status." },
@@ -153,7 +157,8 @@ internal static class Program
             "chatgpt-product-web",
             "siwc-responses",
             "responses-websocket",
-            "codex-app-server"
+            "codex-app-server",
+            "codex-local-read"
         },
         machine_methods = new[]
         {
@@ -164,6 +169,8 @@ internal static class Program
             "parity/read",
             "catalog/read",
             "codex/catalog",
+            "codex/local/methods",
+            "codex/local/read",
             "siwc/catalog",
             "doctor/read",
             "diagnostics/read",
@@ -211,6 +218,7 @@ internal static class Program
             human_authorization_boundary = true,
             local_credentials_shared_with_gui = true,
             codex_runtime_resolution = "bundled-first",
+            codex_local_read_policy = CodexLocalReadPolicy.Schema,
             json_rpc_framing = "one-json-object-per-line",
             accessibility_contract = AccessibilityContract.Schema
         }
@@ -548,6 +556,53 @@ internal static class Program
         };
     }
 
+    private static object CodexLocalMethods() => new
+    {
+        schema = CodexLocalReadPolicy.Schema,
+        authorization_required = false,
+        methods = CodexLocalReadPolicy.Methods
+    };
+
+    private static async Task<object> CodexLocalReadCommandAsync(string[] args)
+    {
+        var method = RequiredOption(args, "--method");
+        var rawParams = Option(args, "--params");
+        JsonElement? parameters = null;
+        if (!string.IsNullOrWhiteSpace(rawParams))
+        {
+            using var document = JsonDocument.Parse(rawParams);
+            parameters = document.RootElement.Clone();
+        }
+
+        return await CodexLocalReadAsync(method, parameters);
+    }
+
+    private static async Task<object> CodexLocalReadAsync(
+        string method,
+        JsonElement? parameters = null)
+    {
+        try
+        {
+            CodexLocalReadPolicy.RequireAllowed(method);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new MachineException(2, "LOCAL_METHOD_NOT_ALLOWED", ex.Message);
+        }
+
+        await using var client = await CodexAppServerClient.StartLocalAsync();
+        var result = await client.RequestAsync(method, parameters);
+        return new
+        {
+            schema = Schema,
+            binding = "codex-local-read",
+            authorization_required = false,
+            method,
+            read_only = true,
+            result
+        };
+    }
+
     private static async Task<object> CodexRpcAsync(string[] args)
     {
         var method = RequiredOption(args, "--method");
@@ -643,6 +698,8 @@ internal static class Program
             "parity/read" => ReadCatalog("audience-parity-20261001.json"),
             "catalog/read" => ReadCombinedCatalog(),
             "codex/catalog" => ReadCatalog("codex-capability-catalog-20261001.json"),
+            "codex/local/methods" => CodexLocalMethods(),
+            "codex/local/read" => await RpcCodexLocalReadAsync(parameters),
             "siwc/catalog" => ReadCatalog("siwc-capability-surface-20261001.json"),
             "doctor/read" => await DoctorAsync(),
             "diagnostics/read" => DogfoodObservability.Describe(),
@@ -1076,21 +1133,22 @@ internal static class Program
         }
     }
 
-    private static async Task<object> RpcCodexReadAsync(string method, bool emptyParams)
+    private static async Task<object> RpcCodexLocalReadAsync(JsonElement? parameters)
     {
-        var client = await EnsureAgentCodexAsync();
+        var p = RequireObject(parameters);
+        var method = RequiredProperty(p, "method");
+        JsonElement? requestParams = p.TryGetProperty("params", out var value)
+            ? value.Clone()
+            : null;
+        return await CodexLocalReadAsync(method, requestParams);
+    }
+
+    private static Task<object> RpcCodexReadAsync(string method, bool emptyParams)
+    {
         JsonElement? requestParams = emptyParams
             ? JsonSerializer.SerializeToElement(new { })
             : null;
-        var result = await client.RequestAsync(method, requestParams);
-        return new
-        {
-            schema = Schema,
-            binding = "codex-app-server",
-            method,
-            read_only = true,
-            result
-        };
+        return CodexLocalReadAsync(method, requestParams);
     }
 
     private static async Task<object> RpcCodexStartAsync()
