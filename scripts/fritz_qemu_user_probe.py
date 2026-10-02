@@ -329,6 +329,79 @@ def dynamic_interpreter(path: pathlib.Path) -> str | None:
     return match.group(1).strip() if match else None
 
 
+
+def guest_path_state(root: pathlib.Path, guest_path: str) -> dict:
+    rel = guest_path.lstrip("/")
+    path = root / rel
+    try:
+        mode = path.lstat().st_mode
+    except OSError:
+        return {"path": guest_path, "exists": False}
+    if stat.S_ISLNK(mode):
+        target = os.readlink(path)
+        guest_target = (
+            root / target.lstrip("/")
+            if target.startswith("/")
+            else path.parent / target
+        )
+        return {
+            "path": guest_path,
+            "exists": True,
+            "kind": "symlink",
+            "target": target,
+            "guestTargetExists": guest_target.exists(),
+        }
+    return {
+        "path": guest_path,
+        "exists": True,
+        "kind": "regular" if stat.S_ISREG(mode) else "other",
+    }
+
+
+def normalize_guest_absolute_symlinks(root: pathlib.Path) -> dict:
+    rewritten: list[dict] = []
+    rewritten_count = 0
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        names = list(dirnames) + list(filenames)
+        for name in names:
+            path = pathlib.Path(dirpath, name)
+            try:
+                if not path.is_symlink():
+                    continue
+                target = os.readlink(path)
+            except OSError:
+                continue
+            if not target.startswith("/"):
+                continue
+            guest_target = root / target.lstrip("/")
+            if not guest_target.exists() and not guest_target.is_symlink():
+                continue
+            relative_target = os.path.relpath(
+                guest_target, start=path.parent
+            )
+            path.unlink()
+            path.symlink_to(relative_target)
+            rewritten_count += 1
+            if len(rewritten) < 20:
+                rewritten.append(
+                    {
+                        "path": (
+                            "/"
+                            + str(path.relative_to(root)).replace(
+                                os.sep, "/"
+                            )
+                        ),
+                        "target": target,
+                        "hostSafeTarget": relative_target.replace(
+                            os.sep, "/"
+                        ),
+                    }
+                )
+    return {
+        "rewrittenCount": rewritten_count,
+        "samples": rewritten,
+    }
+
 def execute_candidate(
     root: pathlib.Path,
     candidate: pathlib.Path,
@@ -382,12 +455,27 @@ def run_probe(args: argparse.Namespace) -> dict:
             "E0 failed: extracted root contains no observed MIPS ELF"
         )
     candidate, candidate_args, header = select_harmless_candidate(selected)
+    interpreter = dynamic_interpreter(candidate)
+    interpreter_before = (
+        guest_path_state(selected, interpreter)
+        if interpreter
+        else None
+    )
+    symlink_translation = normalize_guest_absolute_symlinks(selected)
+    interpreter_after = (
+        guest_path_state(selected, interpreter)
+        if interpreter
+        else None
+    )
     execution = execute_candidate(
         selected,
         candidate,
         candidate_args,
         header,
     )
+    execution["interpreterBeforeHostTranslation"] = interpreter_before
+    execution["interpreterAfterHostTranslation"] = interpreter_after
+    execution["guestSymlinkTranslation"] = symlink_translation
 
     return {
         "schemaVersion": SCHEMA_VERSION,
