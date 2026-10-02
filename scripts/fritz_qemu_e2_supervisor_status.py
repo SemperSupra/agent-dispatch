@@ -100,8 +100,6 @@ def classify(result: dict) -> str:
         return "E2_CTLMGR_LISTENER_OBSERVED"
     if result.get("ctlmgrProcessObservedAfterStatus"):
         return "E2_CTLMGR_STARTED_NO_LISTENER"
-    if not result.get("supervisorProcessObservedBeforeStatus"):
-        return "E2_SUPERVISOR_NOT_LIVE"
     if (
         result.get("svctlStatusAttempted")
         and result.get("svctlStatusExitCode") == 0
@@ -115,8 +113,10 @@ def classify(result: dict) -> str:
     ):
         return "E2_CTRL_SOCKET_PRESENT_SVCTL_STATUS_REJECTED"
     if result.get("svctlStatusAttempted"):
-        return "E2_CTRL_SOCKET_NOT_OBSERVED_STATUS_FAILED"
-    return "E2_SUPERVISOR_RUNNING_STATUS_NOT_ATTEMPTED"
+        return "E2_STATUS_DURING_LAUNCHER_NO_SOCKET"
+    if result.get("launcherObservedRunning"):
+        return "E2_LAUNCHER_WINDOW_TOO_SHORT_FOR_STATUS"
+    return "E2_LAUNCHER_NOT_OBSERVED"
 
 
 def ensure_mount_target(path: pathlib.Path) -> None:
@@ -153,7 +153,7 @@ def namespace_helper(args: argparse.Namespace) -> int:
     interfaces = sorted(set(
         m.group(1)
         for line in links.stdout.splitlines()
-        if (m := __import__("re").match(r"\d+:\s+([^:@]+)", line))
+        if (m := __import__("re").match(r"\\d+:\\s+([^:@]+)", line))
     ))
     if interfaces != ["lo"]:
         raise RuntimeError(f"unexpected interfaces: {interfaces!r}")
@@ -188,12 +188,29 @@ def namespace_helper(args: argparse.Namespace) -> int:
     ]
 
     started = time.monotonic()
-    supervisor_seen_before = False
+    launcher_seen = False
+    launcher_exit_elapsed: float | None = None
+    control_socket_first_seen: float | None = None
+    socket_before_status = guest_socket_state(root, CONTROL_SOCKET)
+    socket_after_status = socket_before_status
+
+    svctl_attempted = False
+    svctl_exit: int | None = None
+    svctl_stdout_bytes = 0
+    svctl_stderr_bytes = 0
+    svctl_missing: list[dict] = []
+    status_attempt_elapsed: float | None = None
+
     ctlmgr_seen_before = False
-    max_supervisor_before = 0
+    ctlmgr_seen_after = False
     max_ctlmgr_before = 0
+    max_ctlmgr_after = 0
     tcp_before: set[int] = set()
     unix_before: set[str] = set()
+    tcp_after: set[int] = set()
+    unix_after: set[str] = set()
+    http_attempts: list[dict] = []
+    probed_ports: set[int] = set()
 
     with supervisor_out.open("wb") as out, supervisor_err.open("wb") as err:
         supervisor_proc = subprocess.Popen(
@@ -204,55 +221,75 @@ def namespace_helper(args: argparse.Namespace) -> int:
             start_new_session=True,
         )
 
-        settle_deadline = time.monotonic() + args.supervisor_settle_seconds
-        while time.monotonic() < settle_deadline:
-            supervisor_count = r1.count_guest_processes(SUPERVISOR)
+        # Observe from process birth. R2's host /proc token counter also matched
+        # the qemu launcher argv, so poll() is the authoritative launcher gate.
+        deadline = time.monotonic() + args.status_window_seconds
+        while time.monotonic() < deadline:
+            now = time.monotonic()
+            elapsed = now - started
+            launcher_running = supervisor_proc.poll() is None
+            launcher_seen = launcher_seen or launcher_running
+            if not launcher_running and launcher_exit_elapsed is None:
+                launcher_exit_elapsed = round(elapsed, 6)
+
+            socket_now = guest_socket_state(root, CONTROL_SOCKET)
+            if (
+                socket_now.get("exists")
+                and socket_now.get("isUnixSocket")
+                and control_socket_first_seen is None
+            ):
+                control_socket_first_seen = round(elapsed, 6)
+
             ctlmgr_count = r1.count_guest_processes(CTLMGR)
-            supervisor_seen_before = supervisor_seen_before or supervisor_count > 0
             ctlmgr_seen_before = ctlmgr_seen_before or ctlmgr_count > 0
-            max_supervisor_before = max(max_supervisor_before, supervisor_count)
             max_ctlmgr_before = max(max_ctlmgr_before, ctlmgr_count)
             tcp_now, unix_now = r1.observe_sockets()
             tcp_before.update(tcp_now)
             unix_before.update(unix_now)
-            time.sleep(args.sample_interval_seconds)
 
-        socket_before = guest_socket_state(root, CONTROL_SOCKET)
-        svctl_attempted = supervisor_seen_before
-        svctl_exit: int | None = None
-        svctl_stdout_bytes = 0
-        svctl_stderr_bytes = 0
-        svctl_missing: list[dict] = []
-        if svctl_attempted:
-            cp = _run(
-                [
-                    "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
-                    "-strace", *svctl_status_guest_argv(),
-                ],
-                timeout=10,
-                env=env,
+            should_attempt_status = (
+                not svctl_attempted
+                and launcher_running
+                and (
+                    socket_now.get("isUnixSocket")
+                    or elapsed >= args.status_fallback_delay_seconds
+                )
             )
-            svctl_exit = cp.returncode
-            svctl_stdout_bytes = len(cp.stdout.encode("utf-8", errors="replace"))
-            svctl_stderr_bytes = len(cp.stderr.encode("utf-8", errors="replace"))
-            svctl_missing = r1.parse_missing_paths(cp.stderr)
+            if should_attempt_status:
+                socket_before_status = socket_now
+                status_attempt_elapsed = round(elapsed, 6)
+                cp = _run(
+                    [
+                        "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
+                        "-strace", *svctl_status_guest_argv(),
+                    ],
+                    timeout=10,
+                    env=env,
+                )
+                svctl_attempted = True
+                svctl_exit = cp.returncode
+                svctl_stdout_bytes = len(
+                    cp.stdout.encode("utf-8", errors="replace")
+                )
+                svctl_stderr_bytes = len(
+                    cp.stderr.encode("utf-8", errors="replace")
+                )
+                svctl_missing = r1.parse_missing_paths(cp.stderr)
+                socket_after_status = guest_socket_state(root, CONTROL_SOCKET)
+                break
 
-        socket_after = guest_socket_state(root, CONTROL_SOCKET)
-        ctlmgr_seen_after = False
-        max_ctlmgr_after = 0
-        max_supervisor_after = 0
-        tcp_after: set[int] = set()
-        unix_after: set[str] = set()
-        http_attempts: list[dict] = []
-        probed_ports: set[int] = set()
+            if not launcher_running:
+                break
+            time.sleep(args.sample_interval_seconds)
 
         post_deadline = time.monotonic() + args.post_status_observe_seconds
         while time.monotonic() < post_deadline:
-            supervisor_count = r1.count_guest_processes(SUPERVISOR)
+            if supervisor_proc.poll() is not None and launcher_exit_elapsed is None:
+                launcher_exit_elapsed = round(time.monotonic() - started, 6)
+
             ctlmgr_count = r1.count_guest_processes(CTLMGR)
-            max_supervisor_after = max(max_supervisor_after, supervisor_count)
-            max_ctlmgr_after = max(max_ctlmgr_after, ctlmgr_count)
             ctlmgr_seen_after = ctlmgr_seen_after or ctlmgr_count > 0
+            max_ctlmgr_after = max(max_ctlmgr_after, ctlmgr_count)
             tcp_now, unix_now = r1.observe_sockets()
             tcp_after.update(tcp_now)
             unix_after.update(unix_now)
@@ -260,9 +297,21 @@ def namespace_helper(args: argparse.Namespace) -> int:
             if new_ports:
                 http_attempts.extend(r1.http_probe(new_ports, response_dir))
                 probed_ports.update(new_ports)
+
+            socket_now = guest_socket_state(root, CONTROL_SOCKET)
+            if (
+                socket_now.get("exists")
+                and socket_now.get("isUnixSocket")
+                and control_socket_first_seen is None
+            ):
+                control_socket_first_seen = round(
+                    time.monotonic() - started, 6
+                )
+            socket_after_status = socket_now
             time.sleep(args.sample_interval_seconds)
 
-        if supervisor_proc.poll() is None:
+        terminated_by_harness = supervisor_proc.poll() is None
+        if terminated_by_harness:
             try:
                 os.killpg(supervisor_proc.pid, signal.SIGTERM)
             except ProcessLookupError:
@@ -275,6 +324,8 @@ def namespace_helper(args: argparse.Namespace) -> int:
                 except ProcessLookupError:
                     pass
                 supervisor_proc.wait(timeout=2)
+        elif launcher_exit_elapsed is None:
+            launcher_exit_elapsed = round(time.monotonic() - started, 6)
 
     supervisor_err_text = (
         supervisor_err.read_text(encoding="utf-8", errors="replace")
@@ -288,29 +339,37 @@ def namespace_helper(args: argparse.Namespace) -> int:
         "supervisorPath": SUPERVISOR,
         "supervisorArguments": [UNIT_ROOT, TARGET_UNIT],
         "supervisorLauncherExitCode": supervisor_proc.returncode,
-        "supervisorProcessObservedBeforeStatus": supervisor_seen_before,
-        "maxSupervisorProcessCountBeforeStatus": max_supervisor_before,
+        "launcherObservedRunning": launcher_seen,
+        "launcherExitElapsedSeconds": launcher_exit_elapsed,
+        "launcherTerminatedByHarness": terminated_by_harness,
+        "controlSocketFirstSeenElapsedSeconds": control_socket_first_seen,
+        "controlSocketBeforeStatus": socket_before_status,
+        "controlSocketAfterStatus": socket_after_status,
         "ctlmgrProcessObservedBeforeStatus": ctlmgr_seen_before,
         "maxCtlmgrProcessCountBeforeStatus": max_ctlmgr_before,
-        "controlSocketBeforeStatus": socket_before,
         "tcpListenersBeforeStatus": sorted(tcp_before),
         "unixSocketPathsBeforeStatus": sorted(unix_before)[:100],
         "svctlStatusAttempted": svctl_attempted,
+        "svctlStatusAttemptElapsedSeconds": status_attempt_elapsed,
         "svctlStatusInvocation": ["status", "ctlmgr"] if svctl_attempted else None,
         "svctlStatusExitCode": svctl_exit,
         "svctlStatusStdoutBytes": svctl_stdout_bytes,
         "svctlStatusStderrBytes": svctl_stderr_bytes,
         "svctlStatusMissingGuestPaths": svctl_missing,
-        "controlSocketAfterStatus": socket_after,
-        "maxSupervisorProcessCountAfterStatus": max_supervisor_after,
         "ctlmgrProcessObservedAfterStatus": ctlmgr_seen_after,
         "maxCtlmgrProcessCountAfterStatus": max_ctlmgr_after,
         "ctlmgrTcpListenersAfterStatus": sorted(tcp_after),
         "unixSocketPathsAfterStatus": sorted(unix_after)[:100],
         "httpAttempts": _dedupe_http(http_attempts),
-        "supervisorStdoutBytes": supervisor_out.stat().st_size if supervisor_out.exists() else 0,
-        "supervisorStderrBytes": supervisor_err.stat().st_size if supervisor_err.exists() else 0,
-        "supervisorMissingGuestPaths": r1.parse_missing_paths(supervisor_err_text),
+        "supervisorStdoutBytes": (
+            supervisor_out.stat().st_size if supervisor_out.exists() else 0
+        ),
+        "supervisorStderrBytes": (
+            supervisor_err.stat().st_size if supervisor_err.exists() else 0
+        ),
+        "supervisorMissingGuestPaths": r1.parse_missing_paths(
+            supervisor_err_text
+        ),
         "elapsedSeconds": round(time.monotonic() - started, 3),
     }
     result["classification"] = classify(result)
@@ -341,13 +400,14 @@ def run_namespace(root: pathlib.Path, result: pathlib.Path, args: argparse.Names
             "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
             "--namespace-helper", "--root", str(root),
             "--namespace-result", str(result),
-            "--supervisor-settle-seconds", str(args.supervisor_settle_seconds),
+            "--status-window-seconds", str(args.status_window_seconds),
+            "--status-fallback-delay-seconds", str(args.status_fallback_delay_seconds),
             "--post-status-observe-seconds", str(args.post_status_observe_seconds),
             "--sample-interval-seconds", str(args.sample_interval_seconds),
         ],
         timeout=max(
             45,
-            int(args.supervisor_settle_seconds + args.post_status_observe_seconds) + 30,
+            int(args.status_window_seconds + args.post_status_observe_seconds) + 30,
         ),
     )
     if cp.returncode != 0:
@@ -477,9 +537,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--expected-sha256")
     p.add_argument("--work-dir")
     p.add_argument("--receipt")
-    p.add_argument("--supervisor-settle-seconds", type=float, default=3.0)
-    p.add_argument("--post-status-observe-seconds", type=float, default=3.0)
-    p.add_argument("--sample-interval-seconds", type=float, default=0.25)
+    p.add_argument("--status-window-seconds", type=float, default=2.0)
+    p.add_argument("--status-fallback-delay-seconds", type=float, default=0.05)
+    p.add_argument("--post-status-observe-seconds", type=float, default=2.0)
+    p.add_argument("--sample-interval-seconds", type=float, default=0.02)
     p.add_argument("--namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
