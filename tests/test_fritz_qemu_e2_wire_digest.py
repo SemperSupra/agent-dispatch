@@ -10,6 +10,17 @@ SPEC.loader.exec_module(r9)
 
 
 class R9Tests(unittest.TestCase):
+    def test_hex_escaped_control_socket_path(self):
+        hex_path = "".join(f"\\\\x{b:02x}" for b in r9.CONTROL_SOCKET.encode("utf-8"))
+        trace = (
+            '123 connect(3, {sa_family=AF_UNIX, sun_path="' + hex_path + '"}, 110) = 0\n'
+            '123 sendto(3, "\\x01\\x02", 2, MSG_NOSIGNAL, NULL, 0) = 2\n'
+            '123 read(3, "\\xaa\\xbb", 2) = 2\n'
+        )
+        got = r9.parse_wire_trace(trace)
+        self.assertTrue(got["captureComplete"])
+        self.assertEqual(got["controlConnectCount"], 1)
+
     def test_parse_control_wire_only(self):
         trace = r"""
 123 socket(AF_UNIX, SOCK_STREAM, 0) = 3
