@@ -158,5 +158,52 @@ class LiteLlmT6ContractTests(unittest.TestCase):
 
 
 
+
+class VersionAdaptiveProbeContractTests(unittest.TestCase):
+    def test_exact_target_is_argument_driven(self):
+        import pathlib
+        text = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "truenas_middleware_litellm_t6_probe.py").read_text(encoding="utf-8")
+        self.assertIn('p.add_argument("--target-version", required=True)', text)
+        self.assertIn('f"TrueNAS-{a.target_version}"', text)
+        self.assertNotIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', text)
+
+
+
+class ProductHarnessVersionRoutingTests(unittest.TestCase):
+    def test_product_probes_fail_closed_on_public_method_capabilities(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[1] / "scripts"
+        common = (
+            "app.config", "app.create", "app.delete", "app.query", "app.start", "app.stop",
+            "auth.login_ex", "core.get_jobs", "filesystem.mkdir", "filesystem.stat",
+            "pool.dataset.create", "pool.dataset.delete", "pool.dataset.query", "system.version",
+        )
+        for name in (
+            "truenas_middleware_litellm_t6_probe.py",
+            "truenas_middleware_wow_sidecar_t6_probe.py",
+            "truenas_middleware_garm_t6_probe.py",
+        ):
+            text = (root / name).read_text(encoding="utf-8")
+            self.assertIn('call("core.get_methods", [])', text)
+            self.assertIn('payload["bootstrap_probes"] = {"core.get_methods": True}', text)
+            self.assertIn("required product T6 methods missing", text)
+            for method in common:
+                self.assertIn(method, text)
+        self.assertIn(
+            "filesystem.put",
+            (root / "truenas_middleware_litellm_t6_probe.py").read_text(encoding="utf-8"),
+        )
+
+    def test_harness_passes_target_only_to_product_probes(self):
+        import pathlib
+        text = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        runtime = text.split('FOUNDRY_OUT="$STATE_DIR/foundry-control.json"', 1)[1]
+        self.assertEqual(runtime.count('--target-version "$TARGET_VERSION"'), 3)
+        official = runtime.split('if [[ "$T6_PRODUCT" == "official-catalog" ]]', 1)[1].split('elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]', 1)[0]
+        self.assertNotIn('--target-version', official)
+        for probe in ("garm_t6_probe.py", "wow_sidecar_t6_probe.py", "litellm_t6_probe.py"):
+            segment = runtime.split(probe, 1)[1].split('--out "$FOUNDRY_OUT"', 1)[0]
+            self.assertIn('--target-version "$TARGET_VERSION"', segment)
+
 if __name__ == "__main__":
     unittest.main()
