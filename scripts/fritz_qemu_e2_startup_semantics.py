@@ -53,7 +53,7 @@ def token_kind(token: str) -> dict:
     if not t:
         return {"kind": "empty"}
     simple_var = re.fullmatch(
-        r"\\$(?:\\{([A-Za-z_][A-Za-z0-9_]*)\\}|([A-Za-z_][A-Za-z0-9_]*)|([0-9]))",
+        r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)|([0-9]))",
         t,
     )
     if simple_var:
@@ -141,7 +141,7 @@ def startup_variable_facts(
         var = m.group(1)
         rhs = m.group(2).strip().strip("'\\\"")
         default_expansion = re.fullmatch(
-            r"\\$\\{([A-Za-z_][A-Za-z0-9_]*):-([A-Za-z0-9_.@:-]+\\.(?:target|service|socket|path|mount|timer))\\}",
+            r"\$\{([A-Za-z_][A-Za-z0-9_]*):-([A-Za-z0-9_.@:-]+\.(?:target|service|socket|path|mount|timer))\}",
             rhs,
         )
         simple = token_kind(rhs)
