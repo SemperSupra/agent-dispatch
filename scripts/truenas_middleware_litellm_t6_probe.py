@@ -16,7 +16,10 @@ import urllib.request
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 
-EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
+BOOTSTRAP_METHODS = {"core.get_methods"}
+REQUIRED_DISCOVERED_METHODS = ["app.config","app.create","app.delete","app.query","app.start","app.stop","auth.login_ex","core.get_jobs","filesystem.mkdir","filesystem.put","filesystem.stat","pool.dataset.create","pool.dataset.delete","pool.dataset.query","system.version"]
+
+
 EXPECTED_FOUNDRY_REF = "4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
 EXPECTED_SCHEMA = "semper-supra.litellm-truenas-t6-control/1"
 EXPECTED_APPLIANCE = (
@@ -226,6 +229,7 @@ def main() -> int:
     p.add_argument("--password-file", required=True)
     p.add_argument("--control-dir", type=pathlib.Path, required=True)
     p.add_argument("--foundry-commit", required=True)
+    p.add_argument("--target-version", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8.0)
@@ -238,7 +242,7 @@ def main() -> int:
         "schema": "truenas-litellm-foundry-t6/v1",
         "classification": "ORACLE_FAILURE",
         "oracleSatisfied": False,
-        "expected_version": EXPECTED_VERSION,
+        "expected_version": f"TrueNAS-{a.target_version}",
         "foundry_commit": a.foundry_commit,
         "app_name": EXPECTED_APP_NAME,
         "appliance_reference": EXPECTED_APPLIANCE,
@@ -309,8 +313,16 @@ def main() -> int:
         }])
         if not isinstance(auth, dict) or auth.get("response_type") != "SUCCESS":
             raise RuntimeError("authentication did not return SUCCESS")
+        method_map = call("core.get_methods", [])
+        if not isinstance(method_map, dict):
+            raise RuntimeError("core.get_methods did not return method map")
+        missing_methods = sorted(set(REQUIRED_DISCOVERED_METHODS) - set(method_map))
+        payload["bootstrap_probes"] = {"core.get_methods": True}
+        payload["missing_methods"] = missing_methods
+        if missing_methods:
+            raise RuntimeError(f"required product T6 methods missing: {missing_methods}")
         payload["system_version"] = call("system.version", [])
-        if payload["system_version"] != EXPECTED_VERSION:
+        if payload["system_version"] != payload["expected_version"]:
             raise RuntimeError("target version drifted")
 
         existing = call("app.query", [[["id", "=", EXPECTED_APP_NAME]]])
