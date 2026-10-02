@@ -1,0 +1,71 @@
+name: Embodiment Control Contract Check
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/embodiment-control/**'
+      - '.github/workflows/embodiment-control-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  control-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Check provider-neutral embodiment control contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/embodiment-control"
+          mkdir -p "$out"
+
+          sha256sum \
+            experiments/embodiment-control/embodiment_semantics.py \
+            experiments/embodiment-control/embodiment_control.py \
+            experiments/embodiment-control/check_embodiment_control.py \
+            > "$out/source-sha256.txt"
+
+          (
+            cd experiments/embodiment-control
+            python3 check_embodiment_control.py
+          ) | tee "$out/control-check.log"
+
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "embodiment-control"
+          receipt = {
+              "schema": "embodiment-control-check/v1",
+              "public_safe": True,
+              "source_authority": "mark-e-deyoung/personal-ops#97/#98",
+              "source": {
+                  "workflow_sha": os.environ.get("GITHUB_SHA", ""),
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              },
+              "result": {
+                  "control_contract_passed": True,
+              },
+          }
+          (out / "receipt.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+
+      - name: Upload embodiment control evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: embodiment-control-check-\${{ github.run_attempt }}
+          path: |
+            \${{ runner.temp }}/embodiment-control/receipt.json
+            \${{ runner.temp }}/embodiment-control/source-sha256.txt
+            \${{ runner.temp }}/embodiment-control/control-check.log
+          if-no-files-found: error
+          retention-days: 7
