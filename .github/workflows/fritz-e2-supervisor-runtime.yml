@@ -1,0 +1,87 @@
+name: FRITZ E2 supervisor runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-e2-supervisor-runtime.yml'
+      - 'scripts/fritz_qemu_e2_supervisor_runtime.py'
+      - 'scripts/fritz_qemu_user_probe.py'
+      - 'tests/test_fritz_qemu_e2_supervisor_runtime.py'
+      - 'docs/fritz-e2-supervisor-runtime.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate supervisor runtime classifications
+        run: python3 -m unittest -v tests/test_fritz_qemu_e2_supervisor_runtime.py
+
+  exact-firmware-e2-supervisor-runtime:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install bounded emulation/isolation tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            binutils curl iproute2 qemu-user-static squashfs-tools util-linux
+          sudo -n true
+      - name: Falsify supervisor-mediated ctlmgr start
+        id: probe
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-e2-r1" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_qemu_e2_supervisor_runtime.py \
+            --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+            --expected-size 42393600 \
+            --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+            --work-dir "${RUNNER_TEMP}/fritz-e2-r1" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce safety and typed result
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "fritz-receipt" / "receipt.json"
+          r = json.loads(p.read_text())
+          s = r.get("safety", {})
+          for key in (
+              "rawFirmwarePublished","rootfsPublished","binaryPayloadPublished",
+              "rawTargetStdoutPublished","rawTargetStderrPublished",
+              "rawStracePublished","rawHttpBodyPublished",
+              "physicalRouterContact","routerMutationAuthorized",
+              "externalNetworkAvailableToTarget","targetSpecificShimAdded",
+          ):
+              assert s.get(key) is False, (key, s.get(key))
+          assert r.get("oracleSatisfied") is True, r
+          rt = r.get("runtime", {})
+          assert rt.get("interfaces") == ["lo"]
+          assert rt.get("defaultRoutePresent") is False
+          print(json.dumps({
+              "classification":r.get("classification"),
+              "target":r.get("target"),
+              "hypothesisTreatment":r.get("hypothesisTreatment"),
+              "runtime":rt,
+          }, sort_keys=True))
+          PY
+      - name: Upload sanitized receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-e2-supervisor-runtime-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
