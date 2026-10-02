@@ -657,8 +657,10 @@ SingleCurrentBodyPerActor ==
         Cardinality({b \in Bodies :
             bodyActor[b] = a /\ bodyGen[b] = actorGen[a] /\ state[b] \in LiveStates}) <= 1
 
-StaleEvidenceCannotAuthorize ==
-    \A b \in Bodies : staleEvidenceSeen[b] => ~actuationGranted[b]
+StaleEvidenceCannotCreateAffordance ==
+    \A b \in Bodies :
+        (staleEvidenceSeen[b] /\ Assigned(b) /\ ~CurrentGeneration(b))
+        => (~pathOK[b] /\ ~actuationGranted[b])
 
 Safety ==
     /\ TypeOK
@@ -672,7 +674,7 @@ Safety ==
     /\ FanoutBounded
     /\ RestartBounded
     /\ SingleCurrentBodyPerActor
-    /\ StaleEvidenceCannotAuthorize
+    /\ StaleEvidenceCannotCreateAffordance
 
 ControllerEventuallyRecovers ==
     [](~controllerUp => <>controllerUp)
@@ -683,21 +685,28 @@ MaterializingDoesNotHang ==
 StopConverges ==
     \A b \in Bodies : [](stopRequested[b] => <> (state[b] \in {"DEMATERIALIZED", "BLOCKED", "REJECTED", "FAILED_TERMINAL"}))
 
-Fairness ==
-    /\ WF_vars(RecoverController)
-    /\ \A b \in Bodies : SF_vars(Admit(b))
-    /\ \A b \in Bodies : SF_vars(RejectStaleOrUnauthorized(b))
-    /\ \A b \in Bodies : SF_vars(Dispatch(b))
-    /\ \A b \in Bodies : SF_vars(ProviderStartAckCurrent(b))
-    /\ \A b \in Bodies : SF_vars(Register(b))
-    /\ \A b \in Bodies : SF_vars(RecordDirectPath(b))
-    /\ \A b \in Bodies : SF_vars(AttestReadiness(b))
-    /\ \A b \in Bodies : SF_vars(BeginCleanup(b))
-    /\ \A b \in Bodies : SF_vars(ProviderStopAck(b))
-    /\ \A b \in Bodies : SF_vars(FinalizerExhausted(b))
-    /\ \A b \in Bodies : SF_vars(ConfirmDematerialized(b))
-    /\ \A b \in Bodies, k \in FinalizerKinds : SF_vars(FinalizerStep(b, k))
+ProgressBody(b) ==
+    \/ Admit(b)
+    \/ RejectStaleOrUnauthorized(b)
+    \/ Dispatch(b)
+    \/ FailStart(b)
+    \/ RetryDispatch(b)
+    \/ ProviderStartAckCurrent(b)
+    \/ ProviderStartAckLate(b)
+    \/ Register(b)
+    \/ RecordDirectPath(b)
+    \/ AttestReadiness(b)
+    \/ BeginCleanup(b)
+    \/ ProviderStopAck(b)
+    \/ \E k \in FinalizerKinds : FinalizerStep(b, k)
+    \/ FinalizerExhausted(b)
+    \/ ConfirmDematerialized(b)
 
-Spec == Init /\ [][Next]_vars /\ Fairness
+LivenessFairness ==
+    /\ WF_vars(RecoverController)
+    /\ \A b \in Bodies : SF_vars(ProgressBody(b))
+
+Spec == Init /\ [][Next]_vars
+LivenessSpec == Init /\ [][Next]_vars /\ LivenessFairness
 
 =============================================================================
