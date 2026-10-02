@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.2.6-t6-official-catalog-002-runtime-qualified-producer",
-  "version": "25.04.2.6",
+  "request_id": "tn-25.10.7-t6-official-catalog-001-two-row-producer",
+  "version": "25.10.7",
   "rung": "t6",
   "product": "official-catalog",
-  "authority_issue": 423,
+  "authority_issue": 410,
   "consumer_authority_issue": 281,
-  "purpose": "Qualify exact TrueNAS 25.04.2.6 native official-catalog ntfy T6 using producer 546f4e07b06f77035dab28104883b52f75143bd6, which records accepted 25.04.1 runtime evidence while preserving universal_qualified=false until all exact targets pass."
+  "purpose": "Qualify exact TrueNAS 25.10.7 native official-catalog ntfy T6 using producer 60d56cc1752bc825cb232d72b397ff17fe6d47c4, which records accepted 25.04.1 and 25.04.2.6 runtime rows while universal_qualified remains false."
 }
