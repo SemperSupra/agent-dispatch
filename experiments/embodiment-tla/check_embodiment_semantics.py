@@ -36,6 +36,7 @@ def ready(
     body_id: str,
     intent_id: str,
     parent_body_id: str | None = None,
+    lifecycle_coupling: str = "independent",
     capabilities=frozenset({"mcp", "build", "materialize"}),
 ) -> None:
     fabric.request_start(
@@ -45,6 +46,7 @@ def ready(
         authority_ref=AUTHORITY,
         capabilities=capabilities,
         parent_body_id=parent_body_id,
+        lifecycle_coupling=lifecycle_coupling,
     )
     fabric.admit(body_id)
     fabric.dispatch(body_id)
@@ -261,6 +263,7 @@ def check_child_graph() -> None:
         body_id="child-body",
         intent_id="child-intent",
         parent_body_id="parent-body",
+        lifecycle_coupling="cascade-stop",
     )
     f.admit_actuation("child-body", "materialize")
 
@@ -294,6 +297,32 @@ def check_child_graph() -> None:
         ),
         "live children",
     )
+
+
+    # Independent lifecycle is causal provenance only; parent stop does not stop child.
+    independent = EmbodimentFabric(max_generation=20, max_restarts=1, max_fanout=1)
+    independent.add_actor("parent")
+    independent.add_actor("child")
+    ready(
+        independent,
+        actor_id="parent",
+        body_id="iparent",
+        intent_id="iparent-intent",
+    )
+    independent.admit_actuation("iparent", "materialize")
+    ready(
+        independent,
+        actor_id="child",
+        body_id="ichild",
+        intent_id="ichild-intent",
+        parent_body_id="iparent",
+        lifecycle_coupling="independent",
+    )
+    child_generation_before = independent.actors["child"].generation
+    independent.request_stop("iparent")
+    assert independent.body("iparent").state is BodyState.DRAINING
+    assert independent.body("ichild").state is BodyState.READY
+    assert independent.actors["child"].generation == child_generation_before
 
     parent_gen = f.actors["parent"].generation
     child_gen = f.actors["child"].generation
