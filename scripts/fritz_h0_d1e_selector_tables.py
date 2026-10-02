@@ -238,8 +238,20 @@ def reduce_file(path: str, text: str) -> list[dict]:
                 break
 
         if owner_span:
-            es, ee = entry_span(masked, pos, owner_span[0], owner_span[1])
-            fragment = text[es:ee]
+            # Prefer the smallest nested brace entry containing the key; this
+            # preserves the whole initializer record rather than stopping at
+            # the first comma after the quoted key field.
+            nested = [
+                (s, e) for s, e in enclosers
+                if (s, e) != owner_span
+                and owner_span[0] < s < pos < e < owner_span[1]
+            ]
+            if nested:
+                es, ee = min(nested, key=lambda x: x[1] - x[0])
+                fragment = text[es:ee + 1]
+            else:
+                es, ee = entry_span(masked, pos, owner_span[0], owner_span[1])
+                fragment = text[es:ee]
             schema = safe_identifiers(fragment)
         else:
             schema = {
