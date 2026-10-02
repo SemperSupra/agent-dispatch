@@ -35,10 +35,22 @@ public partial class MainWindow : Window
         LoadCapabilityCatalog();
         Opened += async (_, _) =>
         {
+            var operation = DogfoodObservability.BeginOperation("ui-open");
+            await DogfoodObservability.RecordOperationAsync("ui", "window-opened", "start", operation);
             InitializeDesktopIntegration();
             await LoadAccessibilityPreferencesAsync();
             RefreshAccessibilityStatus();
             await RefreshMachineSurfaceAsync();
+            await DogfoodObservability.RecordOperationAsync(
+                "ui",
+                "window-ready",
+                "success",
+                operation,
+                new Dictionary<string, object?>
+                {
+                    ["platform"] = PlatformLabel(),
+                    ["render_scaling"] = RenderScaling
+                });
         };
         ScalingChanged += (_, _) => RefreshAccessibilityStatus();
         _ = InitializeAgentLabAsync();
@@ -266,10 +278,23 @@ public partial class MainWindow : Window
 
     private async Task InitializeAgentLabAsync()
     {
+        var operation = DogfoodObservability.BeginOperation("saved-session-load");
         try
         {
             _credential = await CredentialStore.TryLoadAsync();
             await RefreshRegistrationsAsync(_credential?.ClientId);
+            await DogfoodObservability.RecordOperationAsync(
+                "auth",
+                "saved-session-load",
+                "success",
+                operation,
+                new Dictionary<string, object?>
+                {
+                    ["credential_present"] = _credential is not null,
+                    ["plan_scope_granted"] = _credential?.HasPlanUsage ?? false,
+                    ["scope_count"] = _credential?.Scopes.Length ?? 0
+                });
+
             if (_credential is not null)
             {
                 AuthStatus.Text = _credential.HasPlanUsage
@@ -279,6 +304,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            await DogfoodObservability.RecordExceptionAsync("auth", "saved-session-load", ex, operation);
             AuthStatus.Text = $"Saved Agent Lab state could not be loaded: {ex.Message}";
         }
     }
@@ -341,6 +367,18 @@ public partial class MainWindow : Window
 
     private async Task CompleteSignInAsync(bool promptConsent, bool forceNewRegistration = false)
     {
+        var operation = DogfoodObservability.BeginOperation("interactive-sign-in");
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "interactive-sign-in",
+            "start",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["prompt_consent"] = promptConsent,
+                ["force_new_registration"] = forceNewRegistration
+            });
+
         try
         {
             AuthStatus.Text = promptConsent
@@ -374,7 +412,8 @@ public partial class MainWindow : Window
                 "SupraChat",
                 existing,
                 promptConsent,
-                registration);
+                registration,
+                operation.CorrelationId);
             await CredentialStore.SaveAsync(_credential);
             await RefreshRegistrationsAsync(_credential.ClientId);
 
@@ -390,16 +429,30 @@ public partial class MainWindow : Window
                 : $"Identity sign-in completed for {Short(_credential.Subject)}, but ChatGPT-plan usage was not granted.";
 
             if (_credential.HasPlanUsage)
-                await PopulateModelsAsync();
+                await PopulateModelsAsync(operation.CorrelationId);
+
+            await DogfoodObservability.RecordOperationAsync(
+                "auth",
+                "interactive-sign-in",
+                "success",
+                operation,
+                new Dictionary<string, object?>
+                {
+                    ["plan_scope_granted"] = _credential.HasPlanUsage,
+                    ["scope_count"] = _credential.Scopes.Length
+                });
         }
         catch (Exception ex)
         {
+            await DogfoodObservability.RecordExceptionAsync("auth", "interactive-sign-in", ex, operation);
             AuthStatus.Text = $"Sign-in did not complete: {ex.Message}";
         }
     }
 
     private async void SignOut_Click(object? sender, RoutedEventArgs e)
     {
+        var operation = DogfoodObservability.BeginOperation("sign-out-revoke");
+        await DogfoodObservability.RecordOperationAsync("auth", "sign-out-revoke", "start", operation);
         try
         {
             _credential ??= await CredentialStore.TryLoadAsync();
@@ -411,7 +464,7 @@ public partial class MainWindow : Window
 
             await StopCodexAsync();
             await StopResponsesWebSocketAsync();
-            var confirmed = await _siwc.RevokeAsync(_credential);
+            var confirmed = await _siwc.RevokeAsync(_credential, operation.CorrelationId);
             CredentialStore.Clear();
             _credential = null;
             ModelBox.ItemsSource = null;
@@ -419,6 +472,12 @@ public partial class MainWindow : Window
             AuthStatus.Text = confirmed
                 ? "Agent Lab renewable session revoked and local tokens cleared; the account registration remains available for reauthorization."
                 : "Remote revocation could not be confirmed after a temporary server failure; local tokens were cleared and the account registration was retained.";
+            await DogfoodObservability.RecordOperationAsync(
+                "auth",
+                "sign-out-revoke",
+                confirmed ? "success" : "remote-unconfirmed",
+                operation,
+                new Dictionary<string, object?> { ["local_tokens_cleared"] = true });
         }
         catch (Exception ex)
         {
@@ -428,6 +487,12 @@ public partial class MainWindow : Window
             _credential = null;
             ModelBox.ItemsSource = null;
             await RefreshRegistrationsAsync();
+            await DogfoodObservability.RecordExceptionAsync(
+                "auth",
+                "sign-out-revoke",
+                ex,
+                operation,
+                new Dictionary<string, object?> { ["local_tokens_cleared"] = true });
             AuthStatus.Text = $"Local tokens cleared and account registration retained; remote revocation failed: {ex.Message}";
         }
     }
@@ -462,15 +527,31 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task PopulateModelsAsync()
+    private async Task PopulateModelsAsync(string? correlationId = null)
     {
         if (_credential is null || !_credential.HasPlanUsage)
             return;
 
-        var models = await _responses.ListModelsAsync(_credential.AccessToken);
-        ModelBox.ItemsSource = models;
-        ModelBox.SelectedItem ??= models.FirstOrDefault();
-        AuthStatus.Text = $"Agent Lab authorized; {models.Count} model(s) visible to this ChatGPT-plan grant.";
+        var operation = DogfoodObservability.BeginOperation("model-discovery", correlationId);
+        await DogfoodObservability.RecordOperationAsync("responses", "model-discovery", "start", operation);
+        try
+        {
+            var models = await _responses.ListModelsAsync(_credential.AccessToken);
+            ModelBox.ItemsSource = models;
+            ModelBox.SelectedItem ??= models.FirstOrDefault();
+            AuthStatus.Text = $"Agent Lab authorized; {models.Count} model(s) visible to this ChatGPT-plan grant.";
+            await DogfoodObservability.RecordOperationAsync(
+                "responses",
+                "model-discovery",
+                "success",
+                operation,
+                new Dictionary<string, object?> { ["model_count"] = models.Count });
+        }
+        catch (Exception ex)
+        {
+            await DogfoodObservability.RecordExceptionAsync("responses", "model-discovery", ex, operation);
+            throw;
+        }
     }
 
     private async void Attach_Click(object? sender, RoutedEventArgs e)
@@ -628,9 +709,20 @@ public partial class MainWindow : Window
     private async void RunInterview_Click(object? sender, RoutedEventArgs e)
     {
         var timer = Stopwatch.StartNew();
+        var operation = DogfoodObservability.BeginOperation("direct-responses-interview");
+        await DogfoodObservability.RecordOperationAsync(
+            "responses",
+            "direct-interview",
+            "start",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["attachment_count"] = _attachments.Count,
+                ["web_search"] = WebSearchBox.IsChecked == true
+            });
         try
         {
-            await EnsureCredentialAsync();
+            await EnsureCredentialAsync(operation.CorrelationId);
             if (ModelBox.SelectedItem is not ModelChoice model)
                 throw new InvalidOperationException("Select a model first.");
 
@@ -658,12 +750,33 @@ public partial class MainWindow : Window
                 $"Direct interview completed. Events={result.EventTypes.Count}; " +
                 $"request_id={result.RequestId ?? "unknown"}; redacted receipt={Path.GetFileName(receiptPath)}";
 
+            await DogfoodObservability.RecordOperationAsync(
+                "responses",
+                "direct-interview",
+                "success",
+                operation,
+                new Dictionary<string, object?>
+                {
+                    ["model"] = model.Slug,
+                    ["completed"] = result.Completed,
+                    ["event_type_count"] = result.EventTypes.Count,
+                    ["output_characters"] = result.Text.Length,
+                    ["request_id"] = result.RequestId,
+                    ["receipt_file"] = Path.GetFileName(receiptPath)
+                });
+
             if (OperatingSystem.IsWindows() && !IsActive)
                 DesktopNotificationService.TryNotify(this, "SupraChat", "Direct response completed.");
         }
         catch (Exception ex)
         {
             timer.Stop();
+            await DogfoodObservability.RecordExceptionAsync(
+                "responses",
+                "direct-interview",
+                ex,
+                operation,
+                new Dictionary<string, object?> { ["elapsed_ms"] = (long)timer.Elapsed.TotalMilliseconds });
             AuthStatus.Text = $"Direct interview failed: {ex.Message}";
         }
     }
@@ -1238,14 +1351,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task EnsureCredentialAsync()
+    private async Task EnsureCredentialAsync(string? correlationId = null)
     {
         _credential ??= await CredentialStore.TryLoadAsync();
         if (_credential is null)
             throw new InvalidOperationException("Use Continue with ChatGPT first.");
 
         var priorToken = _credential.AccessToken;
-        var refreshed = await _siwc.RefreshIfNeededAsync(_credential);
+        var refreshed = await _siwc.RefreshIfNeededAsync(_credential, correlationId: correlationId);
         if (!ReferenceEquals(refreshed, _credential))
         {
             _credential = refreshed;
