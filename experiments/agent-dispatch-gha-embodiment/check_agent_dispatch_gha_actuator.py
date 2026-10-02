@@ -29,13 +29,21 @@ def effect():
     }
 
 
-def observation(status, conclusion):
-    return {
+def observation(status, conclusion, *, started=True):
+    payload = {
         "projection_ref": "opaque-projection",
         "assignment": {"assignment_id": "assignment-001"},
         "binding": {"target_name": "github-actions-proof", "target_kind": "github-actions"},
         "runs": [{"status": status, "conclusion": conclusion}],
     }
+    if status == "completed" and started:
+        payload["result"] = {
+            "assignment_id": "assignment-001",
+            "status": "completed",
+            "started_at": "2026-10-02T20:00:00Z",
+            "ended_at": "2026-10-02T20:00:30Z",
+        }
+    return payload
 
 
 def expect(exc_type, fragment, fn):
@@ -58,12 +66,21 @@ def main():
     assert plan["selected_executor_owns_queue"] is True
     assert plan["new_scheduler_or_queue_required"] is False
     assert plan["arbitrary_workflow_inputs_admitted"] is False
+    assert plan["generic_remote_command_admitted"] is False
     assert plan["provider_cancel_exposed_by_current_sidecar"] is False
 
     ref = opaque_provider_ref(b)
     assert b.workset_ref not in ref
     assert b.delegation_id not in ref
     assert b.assignment_id not in ref
+
+
+    queued = normalize_observation(observation("queued", None), b)
+    assert queued["provider_state"] == "QUEUED"
+    assert queued["native_execution_observed"] is True
+    assert queued["provider_runtime_observed"] is False
+    assert queued["provider_present_now"] is False
+    assert queued["provider_exit_observed"] is False
 
     running = normalize_observation(observation("in_progress", None), b)
     assert running["provider_state"] == "RUNNING"
@@ -82,6 +99,17 @@ def main():
     assert succeeded["provider_present_now"] is False
     assert succeeded["provider_exit_observed"] is True
     assert succeeded["provider_exit_outcome"] == "success"
+
+
+    terminal_without_runtime = normalize_observation(
+        observation("completed", "success", started=False),
+        b,
+    )
+    assert terminal_without_runtime["provider_state"] == "TERMINAL_NO_RUNTIME_EVIDENCE"
+    assert terminal_without_runtime["effect_ack"] == "failed"
+    assert terminal_without_runtime["reconciliation"] == "blocked"
+    assert terminal_without_runtime["provider_runtime_observed"] is False
+    assert terminal_without_runtime["provider_exit_observed"] is False
 
     failed = normalize_observation(observation("completed", "failure"), b)
     assert failed["provider_state"] == "FAILED"
