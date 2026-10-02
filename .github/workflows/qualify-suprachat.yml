@@ -357,8 +357,13 @@ jobs:
             throw 'Bundled browser runtime status contract failed.'
           }
 
-          $browserSnapshot = & $cli browser-snapshot --url 'https://example.com/'
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged browser-snapshot failed.' }
+          $browserSnapshot = & $cli browser-snapshot --url 'https://example.com/' 2>&1
+          $browserSnapshotExit = $LASTEXITCODE
+          if ($browserSnapshotExit -ne 0) {
+            Write-Host 'Packaged browser-snapshot failure payload:'
+            $browserSnapshot | ForEach-Object { Write-Host $_ }
+            throw "Packaged browser-snapshot failed with exit $browserSnapshotExit."
+          }
           $browserSnapshotDoc = $browserSnapshot | ConvertFrom-Json
           if (-not $browserSnapshotDoc.ok -or $browserSnapshotDoc.value.url -notlike 'https://example.com*' -or [string]::IsNullOrWhiteSpace($browserSnapshotDoc.value.aria_snapshot)) {
             throw 'Bundled browser semantic snapshot contract failed.'
@@ -418,8 +423,13 @@ jobs:
           }
 
           $browserRequest = '{"jsonrpc":"2.0","id":"browser","method":"browser/snapshot","params":{"url":"https://example.com/"}}'
-          $browserRpc = $browserRequest | & $cli stdio 2>$null
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent browser/snapshot failed.' }
+          $browserRpc = $browserRequest | & $cli stdio 2>&1
+          $browserRpcExit = $LASTEXITCODE
+          if ($browserRpcExit -ne 0) {
+            Write-Host 'Packaged agent browser/snapshot failure payload:'
+            $browserRpc | ForEach-Object { Write-Host $_ }
+            throw "Packaged agent browser/snapshot failed with exit $browserRpcExit."
+          }
           $browserRpcDoc = ($browserRpc | Select-Object -Last 1) | ConvertFrom-Json
           if ($browserRpcDoc.id -ne 'browser' -or [string]::IsNullOrWhiteSpace($browserRpcDoc.result.aria_snapshot)) {
             throw 'Packaged agent browser semantic snapshot contract failed.'
@@ -504,7 +514,7 @@ jobs:
             $browser = & $cli browser-snapshot --url 'https://example.com/' 2>&1
             $browserExit = $LASTEXITCODE
             if ($browserExit -ne 0) {
-              Write-Host "browser-snapshot output for rep $rep:"
+              Write-Host ("browser-snapshot output for rep {0}:" -f $rep)
               $browser | ForEach-Object { Write-Host $_ }
               throw "browser-snapshot failed on rep $rep"
             }
