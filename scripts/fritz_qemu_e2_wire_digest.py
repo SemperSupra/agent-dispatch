@@ -34,6 +34,7 @@ QEMU_GUEST_PATH = r6.QEMU_GUEST_PATH
 CPU_PROFILE = r6.CPU_PROFILE
 SVCTL = r6.SVCTL
 SUPERVISOR = r6.SUPERVISOR
+CONTROL_SOCKET_HEX = "".join(f"\\x{b:02x}" for b in CONTROL_SOCKET.encode("utf-8"))
 
 
 def _split_strace_prefix(line: str) -> tuple[str, str]:
@@ -77,7 +78,7 @@ def parse_wire_trace(trace: str) -> dict:
     for raw in trace.splitlines():
         pid, body = _split_strace_prefix(raw)
 
-        if "connect(" in body and CONTROL_SOCKET in body:
+        if "connect(" in body and (CONTROL_SOCKET in body or CONTROL_SOCKET_HEX in body):
             m = re.search(r"\bconnect\((\d+),.*\)\s*=\s*(-?\d+)", body)
             if m and int(m.group(2)) == 0:
                 connected.add((pid, int(m.group(1))))
