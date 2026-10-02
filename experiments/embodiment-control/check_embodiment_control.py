@@ -211,7 +211,15 @@ def main():
     fabric.provider_start_ack("body-a1")
     fabric.register("body-a1")
     fabric.record_direct_path("body-a1")
+    fabric.record_interaction_binding("body-a1", "direct-p2p")
     fabric.attest_readiness("body-a1")
+    ready_view = control.get_instance(
+        caller("workcell:alpha"),
+        body_instance_id="body-a1",
+        now=NOW,
+    )
+    assert ready_view["interaction_binding"] == "direct-p2p"
+    assert ready_view["interaction_open"] is True
 
     stop1 = control.request_dematerialize(
         caller(),
