@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/wrt3200acm-gethwspec-semantics.yml'
       - 'scripts/wrt3200acm_gethwspec_semantics.py'
+      - 'scripts/wrt3200acm_gethwspec_unicorn.py'
       - 'scripts/wrt3200acm_dispatch_probe.py'
       - 'scripts/wrt3200acm_fw_to_elf.py'
       - 'tests/test_wrt3200acm_gethwspec_semantics.py'
@@ -22,12 +23,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install ARM binutils
+      - name: Install ARM binutils and pinned Unicorn
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+          python3 -m pip install --disable-pip-version-check --no-cache-dir unicorn==2.1.4 >/dev/null
+          python3 - <<'PY'
+          import unicorn
+          assert unicorn.__version__ == "2.1.4"
+          print("unicorn", unicorn.__version__)
+          PY
 
       - name: Test partial semantic rehost
         run: python3 -m unittest -v tests/test_wrt3200acm_gethwspec_semantics.py
@@ -55,6 +62,15 @@ jobs:
             --elf "$RUNNER_TEMP/wrt-gethw/88W8964.elf" \
             --out "$RUNNER_TEMP/wrt-gethw/evidence"
           python3 -m json.tool "$RUNNER_TEMP/wrt-gethw/evidence/get-hw-spec-semantics.json" >/dev/null
+
+      - name: Instruction-level differential validation of recovered response fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_gethwspec_unicorn.py \
+            --elf "$RUNNER_TEMP/wrt-gethw/88W8964.elf" \
+            --out "$RUNNER_TEMP/wrt-gethw/evidence"
+          python3 -m json.tool "$RUNNER_TEMP/wrt-gethw/evidence/gethwspec-unicorn-differential.json" >/dev/null
 
       - name: Verify derived-only mailbox
         shell: bash
