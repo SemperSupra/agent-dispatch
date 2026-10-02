@@ -30,6 +30,33 @@ class RecoveryUnitTests(unittest.TestCase):
         got = mod.CMD_RE.findall(sample)
         self.assertEqual(got, [("HOSTCMD_CMD_FOO", "0x1234"), ("HOSTCMD_CMD_BAR", "0xabcd")])
 
+    def test_structural_dispatch_scan(self):
+        import json
+        import struct
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            blob = root / "fw.bin"
+            payload = bytearray(128)
+            # Three 8-byte entries: cmd16 at +0, handler32 at +4.
+            for i, (cmd, ptr) in enumerate([(0x1100, 0x20), (0x1101, 0x41), (0x1121, 0x60)]):
+                off = i * 8
+                struct.pack_into("<H", payload, off, cmd)
+                struct.pack_into("<I", payload, off + 4, ptr)
+            record = struct.pack("<IIII", 1, 0, len(payload) + 4, 0) + bytes(payload) + b"CHK!"
+            data = record + struct.pack("<IIII", 4, 0, 0, 0)
+            blob.write_bytes(data)
+            rmap = mod.marvell_record_map(blob)
+            commands = [
+                {"name":"HOSTCMD_CMD_BSS_START","value":0x1100},
+                {"name":"HOSTCMD_CMD_AP_BEACON","value":0x1101},
+                {"name":"HOSTCMD_CMD_SET_SWITCH_CHANNEL","value":0x1121},
+            ]
+            result = mod.structural_dispatch_scan(blob, commands, rmap, root)
+            self.assertGreaterEqual(len(result["table_candidates"]), 1)
+            top = result["table_candidates"][0]
+            self.assertGreaterEqual(top["distinct_commands"], 3)
+            self.assertEqual(top["entry_size"], 8)
+
     def test_marvell_record_map(self):
         import struct
         with tempfile.TemporaryDirectory() as td:
