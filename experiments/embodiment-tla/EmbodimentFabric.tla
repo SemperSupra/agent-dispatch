@@ -121,7 +121,6 @@ CanActuate(b) ==
     /\ ready[b]
     /\ providerPresent[b]
     /\ registered[b]
-    /\ pathOK[b]
     /\ interactionOpen[b]
     /\ Assigned(b)
     /\ authorityValid[bodyActor[b]]
@@ -368,6 +367,20 @@ RecordDirectPath(b) ==
                   restartCount, cleanupFailures, grantLevel, controllerUp,
                   stopRequested>>
 
+RecordInteractionBinding(b) ==
+    /\ controllerUp
+    /\ state[b] \in {"REGISTERED", "DEGRADED"}
+    /\ registered[b]
+    /\ desiredPresent[b]
+    /\ CurrentGeneration(b)
+    /\ authorityValid[bodyActor[b]]
+    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = TRUE]
+    /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen, state,
+                  desiredPresent, providerPresent, callbackPending, registered,
+                  ready, pathOK, actuationGranted, finalizers, parent,
+                  restartCount, cleanupFailures, grantLevel, staleEvidenceSeen,
+                  controllerUp, stopRequested>>
+
 AttemptStalePathReplay(b) ==
     /\ Assigned(b)
     /\ (~CurrentGeneration(b) \/ state[b] \notin {"REGISTERED", "DEGRADED"})
@@ -383,7 +396,7 @@ AttestReadiness(b) ==
     /\ state[b] \in {"REGISTERED", "DEGRADED"}
     /\ providerPresent[b]
     /\ registered[b]
-    /\ pathOK[b]
+    /\ interactionOpen[b]
     /\ desiredPresent[b]
     /\ CurrentGeneration(b)
     /\ authorityValid[bodyActor[b]]
@@ -409,6 +422,7 @@ AdmitActuation(b) ==
 
 LosePath(b) ==
     /\ state[b] = "READY"
+    /\ pathOK[b]
     /\ state' = [state EXCEPT ![b] = "DEGRADED"]
     /\ ready' = [ready EXCEPT ![b] = FALSE]
     /\ pathOK' = [pathOK EXCEPT ![b] = FALSE]
@@ -417,6 +431,18 @@ LosePath(b) ==
     /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen, desiredPresent,
                   providerPresent, callbackPending, registered, finalizers,
                   parent, restartCount, cleanupFailures, grantLevel,
+                  staleEvidenceSeen, controllerUp, stopRequested>>
+
+LoseInteractionBinding(b) ==
+    /\ state[b] = "READY"
+    /\ interactionOpen[b]
+    /\ state' = [state EXCEPT ![b] = "DEGRADED"]
+    /\ ready' = [ready EXCEPT ![b] = FALSE]
+    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = FALSE]
+    /\ actuationGranted' = [actuationGranted EXCEPT ![b] = FALSE]
+    /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen, desiredPresent,
+                  providerPresent, callbackPending, registered, pathOK,
+                  finalizers, parent, restartCount, cleanupFailures, grantLevel,
                   staleEvidenceSeen, controllerUp, stopRequested>>
 
 RequestStop(b) ==
@@ -616,10 +642,12 @@ Next ==
     \/ \E b \in Bodies : ProviderStartAckLate(b)
     \/ \E b \in Bodies : Register(b)
     \/ \E b \in Bodies : RecordDirectPath(b)
+    \/ \E b \in Bodies : RecordInteractionBinding(b)
     \/ \E b \in Bodies : AttemptStalePathReplay(b)
     \/ \E b \in Bodies : AttestReadiness(b)
     \/ \E b \in Bodies : AdmitActuation(b)
     \/ \E b \in Bodies : LosePath(b)
+    \/ \E b \in Bodies : LoseInteractionBinding(b)
     \/ \E b \in Bodies : RequestStop(b)
     \/ \E b \in Bodies : Expire(b)
     \/ \E a \in Actors : RevokeAuthority(a)
@@ -648,7 +676,7 @@ ReadyRequiresIndependentEvidence ==
         /\ state[b] = "READY"
         /\ providerPresent[b]
         /\ registered[b]
-        /\ pathOK[b]
+        /\ interactionOpen[b]
         /\ Assigned(b)
         /\ authorityValid[bodyActor[b]]
         /\ CurrentGeneration(b)
@@ -726,6 +754,7 @@ ProgressBody(b) ==
     \/ ProviderStartAckLate(b)
     \/ Register(b)
     \/ RecordDirectPath(b)
+    \/ RecordInteractionBinding(b)
     \/ AttestReadiness(b)
     \/ BeginCleanup(b)
     \/ ProviderStopAck(b)
