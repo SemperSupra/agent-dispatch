@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-provider-g3-003-capture-create-job-logs",
+  "request_id": "tn-26-beta3-t6-garm-provider-g3-004-app-lifecycle-log",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "garm-provider-g3",
   "authority_issue": 396,
   "consumer_authority_issue": 40,
-  "purpose": "Re-run exact TrueNAS 26.0.0-BETA.3 GARM provider G3 with unchanged hold-open pre-JIT fixture, adding sanitized core.get_jobs app.create failure evidence (error/exception/progress/logs_excerpt only, never arguments/token) so the exact TrueNAS Compose up failure can be causally diagnosed while preserving cleanup and all G3 non-claims."
+  "purpose": "Re-run exact TrueNAS 26.0.0-BETA.3 GARM provider G3 with unchanged provider/runtime fixture while downloading only /var/log/app_lifecycle.log through authenticated core.download/filesystem.get after failed CreateInstance; retain a bounded token/API-key-redacted excerpt around the exact app name to causally identify the TrueNAS Compose up failure, preserving zero-residue cleanup and all G3 non-claims."
 }
