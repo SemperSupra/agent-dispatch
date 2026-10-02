@@ -35,14 +35,17 @@ public static class DogfoodObservability
 
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly string RunId = Guid.NewGuid().ToString("N");
+    private static readonly PersistedInstallLink PersistedInstall = LoadPersistedInstallLink();
     private static readonly string SessionId =
         Environment.GetEnvironmentVariable("SUPRACHAT_DOGFOOD_SESSION_ID")
-        ?? Guid.NewGuid().ToString("N");
+        ?? RunId;
     private static readonly string RootTraceId =
         NormalizeTraceId(Environment.GetEnvironmentVariable("SUPRACHAT_INSTALL_TRACE_ID"))
+        ?? NormalizeTraceId(PersistedInstall.TraceId)
         ?? ActivityTraceId.CreateRandom().ToHexString();
     private static readonly string? InstallSessionId =
-        EmptyToNull(Environment.GetEnvironmentVariable("SUPRACHAT_INSTALL_SESSION_ID"));
+        EmptyToNull(Environment.GetEnvironmentVariable("SUPRACHAT_INSTALL_SESSION_ID"))
+        ?? EmptyToNull(PersistedInstall.InstallSessionId);
     private static readonly long ProcessStartedTimestamp = Stopwatch.GetTimestamp();
     private static long _sequence;
 
@@ -87,6 +90,7 @@ public static class DogfoodObservability
             component,
             @event,
             outcome,
+            operation.Name,
             operation.CorrelationId,
             operation.TraceId,
             operation.SpanId,
@@ -104,6 +108,7 @@ public static class DogfoodObservability
             component,
             @event,
             outcome,
+            operationName: null,
             correlationId,
             RootTraceId,
             ActivitySpanId.CreateRandom().ToHexString(),
@@ -207,6 +212,7 @@ public static class DogfoodObservability
         string component,
         string @event,
         string outcome,
+        string? operationName,
         string? correlationId,
         string traceId,
         string spanId,
@@ -224,6 +230,7 @@ public static class DogfoodObservability
         var entry = new
         {
             schema = EventSchema,
+            event_id = Guid.NewGuid().ToString("N"),
             timestamp_utc = UtcTimestamp(),
             run_id = RunId,
             session_id = SessionId,
@@ -233,9 +240,11 @@ public static class DogfoodObservability
             component,
             @event,
             outcome,
+            operation_name = operationName,
             correlation_id = correlationId,
             trace_id = traceId,
             span_id = spanId,
+            traceparent = $"00-{traceId}-{spanId}-01",
             parent_span_id = parentSpanId,
             duration_ms = durationMilliseconds,
             process_elapsed_ms = ElapsedMilliseconds(ProcessStartedTimestamp),
@@ -273,6 +282,37 @@ public static class DogfoodObservability
 
     private static long ElapsedMilliseconds(long startedTimestamp) =>
         Math.Max(0, (long)Stopwatch.GetElapsedTime(startedTimestamp).TotalMilliseconds);
+
+    private static PersistedInstallLink LoadPersistedInstallLink()
+    {
+        try
+        {
+            var path = Path.Combine(
+                AppState.DirectoryPath,
+                "diagnostics",
+                "install-receipt.json");
+            if (!File.Exists(path))
+                return new(null, null);
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            return new(
+                root.TryGetProperty("install_session_id", out var installSession)
+                    ? installSession.GetString()
+                    : null,
+                root.TryGetProperty("trace_id", out var trace)
+                    ? trace.GetString()
+                    : null);
+        }
+        catch
+        {
+            return new(null, null);
+        }
+    }
+
+    private sealed record PersistedInstallLink(
+        string? InstallSessionId,
+        string? TraceId);
 
     private static string? NormalizeTraceId(string? value)
     {
