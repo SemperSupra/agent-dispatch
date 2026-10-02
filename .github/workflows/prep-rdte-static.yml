@@ -120,3 +120,75 @@ jobs:
                 https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz \
                 -o /dev/null
             '
+
+      - name: G3 exact exported Compose pre-JIT smoke
+        if: ${{ hashFiles('scripts/truenas_middleware_garm_provider_g3_probe.py') != '' }}
+        run: |
+          set -euo pipefail
+          provider_ref='e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab'
+          rm -rf /tmp/g3-provider /tmp/g3-fixture.json /tmp/g3-compose.json
+          git init -q /tmp/g3-provider
+          git -C /tmp/g3-provider fetch -q --depth=1 \
+            https://github.com/SemperSupra/garm-provider-truenas.git "$provider_ref"
+          git -C /tmp/g3-provider checkout -q --detach FETCH_HEAD
+          [[ "$(git -C /tmp/g3-provider rev-parse HEAD)" == "$provider_ref" ]]
+
+          (
+            cd /tmp/g3-provider
+            G3_FIXTURE_OUT=/tmp/g3-fixture.json \
+            G3_PRODUCER_SOURCE="$provider_ref" \
+              go test ./internal/truenasstore \
+                -run '^TestExportNestedG3CreateFixtureBundle$' -count=1
+          )
+          test -s /tmp/g3-fixture.json
+
+          callback='https://httpbin.org/anything/sempersupra-g3/status'
+          metadata='https://httpbin.org/drip?duration=1&numbytes=1&code=200&delay=60&path='
+          token='g3-public-static-smoke-token'
+          jq --arg callback "$callback" --arg metadata "$metadata" --arg token "$token" '
+            .expected_compose_template
+            | .services.runner.environment.GARM_CALLBACK_URL = $callback
+            | .services.runner.environment.GARM_METADATA_URL = $metadata
+            | .services.runner.environment.GARM_INSTANCE_TOKEN = $token
+          ' /tmp/g3-fixture.json > /tmp/g3-compose.json
+
+          project='g3-bootstrap-smoke'
+          cleanup() {
+            docker compose -p "$project" -f /tmp/g3-compose.json \
+              down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker compose -p "$project" -f /tmp/g3-compose.json up -d
+
+          reached_runner_payload=false
+          deadline=$((SECONDS + 120))
+          while (( SECONDS < deadline )); do
+            cid="$(docker compose -p "$project" -f /tmp/g3-compose.json ps -aq runner || true)"
+            if [[ -n "$cid" ]]; then
+              running="$(docker inspect -f '{{.State.Running}}' "$cid")"
+              if [[ "$running" != "true" ]]; then
+                docker inspect "$cid" || true
+                docker logs "$cid" || true
+                exit 1
+              fi
+              if docker exec "$cid" test -x /home/runner/actions-runner/run.sh; then
+                reached_runner_payload=true
+                break
+              fi
+            fi
+            sleep 2
+          done
+
+          if [[ "$reached_runner_payload" != "true" ]]; then
+            cid="$(docker compose -p "$project" -f /tmp/g3-compose.json ps -aq runner || true)"
+            [[ -z "$cid" ]] || docker logs "$cid" || true
+            echo "exact bootstrap did not reach verified runner payload within deadline" >&2
+            exit 1
+          fi
+
+          sleep 5
+          cid="$(docker compose -p "$project" -f /tmp/g3-compose.json ps -aq runner)"
+          [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" == "true" ]]
+          docker exec "$cid" test -w /run/garm-jit
+          docker exec "$cid" test -x /home/runner/actions-runner/bin/Runner.Listener
