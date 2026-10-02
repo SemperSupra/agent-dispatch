@@ -282,7 +282,7 @@ jobs:
             --capsule-b64-file "$env:CAPSULE_B64_FILE" `
             --capsule-sha256 "$env:CAPSULE_SHA256" `
             --recipient "$env:AGE_RECIPIENT" `
-            --timeout-seconds 8400 `
+            --timeout-seconds 7200 `
             --entrypoint run.ps1 `
             --out-dir .sealed
           $rc = $LASTEXITCODE
