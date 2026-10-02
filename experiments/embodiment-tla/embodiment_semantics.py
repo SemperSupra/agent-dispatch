@@ -87,6 +87,7 @@ class BodyRecord:
     path_ok: bool = False
     interaction_open: bool = False
     actuation_granted: bool = False
+    admitted_actions: set[str] = field(default_factory=set)
     stop_requested: bool = False
     authority_ref: str | None = None
     parent_body_id: str | None = None
@@ -94,6 +95,7 @@ class BodyRecord:
     finalizers: set[str] = field(default_factory=set)
     restart_count: int = 0
     cleanup_failures: int = 0
+    stale_evidence_seen: bool = False
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,9 @@ class IntentRecord:
     body_id: str
     authority_ref: str
     operation: str
+    capabilities: frozenset[str] = frozenset()
+    parent_body_id: str | None = None
+    source_body_id: str | None = None
 
 
 class EmbodimentFabric:
@@ -113,13 +118,17 @@ class EmbodimentFabric:
         *,
         max_generation: int = 2**31 - 1,
         max_restarts: int = 1,
+        max_fanout: int = 1,
     ) -> None:
         if max_generation < 1:
             raise ValueError("max_generation must be positive")
         if max_restarts < 0:
             raise ValueError("max_restarts must be non-negative")
+        if max_fanout < 0:
+            raise ValueError("max_fanout must be non-negative")
         self.max_generation = max_generation
         self.max_restarts = max_restarts
+        self.max_fanout = max_fanout
         self.actors: dict[str, ActorRecord] = {}
         self.bodies: dict[str, BodyRecord] = {}
         self.intents: dict[str, IntentRecord] = {}
@@ -148,12 +157,15 @@ class EmbodimentFabric:
     ) -> BodyRecord:
         self._require_controller()
         actor = self._actor(actor_id)
+        requested_capabilities = frozenset(capabilities)
         existing = self._idempotent_intent(
             intent_id=intent_id,
             actor_id=actor_id,
             body_id=body_id,
             authority_ref=authority_ref,
             operation="start",
+            capabilities=requested_capabilities,
+            parent_body_id=parent_body_id,
         )
         if existing is not None:
             return existing
@@ -161,6 +173,10 @@ class EmbodimentFabric:
             raise FabricError("actor authority is revoked")
         if actor.generation >= self.max_generation:
             raise FabricError("actor generation exhausted")
+        if parent_body_id == body_id:
+            raise FabricError("body cannot parent itself")
+        if not self._can_spawn_from(parent_body_id):
+            raise FabricError("parent body cannot materialize another embodiment")
         if any(
             b.actor_id == actor_id
             and b.generation == actor.generation
@@ -178,11 +194,17 @@ class EmbodimentFabric:
             body,
             actor=actor,
             authority_ref=authority_ref,
-            capabilities=capabilities,
+            capabilities=requested_capabilities,
             parent_body_id=parent_body_id,
         )
         self.intents[intent_id] = IntentRecord(
-            intent_id, actor_id, body_id, authority_ref, "start"
+            intent_id=intent_id,
+            actor_id=actor_id,
+            body_id=body_id,
+            authority_ref=authority_ref,
+            operation="start",
+            capabilities=requested_capabilities,
+            parent_body_id=parent_body_id,
         )
         self.assert_invariants()
         return body
@@ -199,12 +221,15 @@ class EmbodimentFabric:
     ) -> BodyRecord:
         self._require_controller()
         actor = self._actor(actor_id)
+        requested_capabilities = frozenset(capabilities)
         existing = self._idempotent_intent(
             intent_id=intent_id,
             actor_id=actor_id,
             body_id=new_body_id,
             authority_ref=authority_ref,
             operation="replace",
+            capabilities=requested_capabilities,
+            source_body_id=old_body_id,
         )
         if existing is not None:
             return existing
@@ -219,6 +244,8 @@ class EmbodimentFabric:
             BodyState.DEGRADED,
         }:
             raise FabricError("old body is not replaceable from its current state")
+        if self._fanout_count(old.body_id) != 0:
+            raise FabricError("body with live children cannot be replaced")
         if not actor.authority_valid:
             raise FabricError("actor authority is revoked")
         if actor.generation >= self.max_generation:
@@ -234,11 +261,17 @@ class EmbodimentFabric:
             new,
             actor=actor,
             authority_ref=authority_ref,
-            capabilities=capabilities,
+            capabilities=requested_capabilities,
             parent_body_id=old.parent_body_id,
         )
         self.intents[intent_id] = IntentRecord(
-            intent_id, actor_id, new_body_id, authority_ref, "replace"
+            intent_id=intent_id,
+            actor_id=actor_id,
+            body_id=new_body_id,
+            authority_ref=authority_ref,
+            operation="replace",
+            capabilities=requested_capabilities,
+            source_body_id=old_body_id,
         )
         self.assert_invariants()
         return new
@@ -352,6 +385,25 @@ class EmbodimentFabric:
             "direct-path evidence is not admissible",
         )
         body.path_ok = True
+        body.stale_evidence_seen = False
+        self.assert_invariants()
+        return body
+
+    def attempt_stale_path_replay(self, body_id: str) -> BodyRecord:
+        """Record rejected stale/inapplicable path evidence without granting affordance."""
+        body = self.body(body_id)
+        self._require(
+            body.actor_id is not None
+            and (
+                not self._current_generation(body)
+                or body.state not in {BodyState.REGISTERED, BodyState.DEGRADED}
+            ),
+            "path evidence is current and belongs on the normal attestation path",
+        )
+        body.stale_evidence_seen = True
+        if not self._current_generation(body):
+            body.path_ok = False
+            self._close_interaction(body)
         self.assert_invariants()
         return body
 
@@ -380,6 +432,7 @@ class EmbodimentFabric:
             action in self.effective_affordances(body_id),
             "requested action is not an effective affordance",
         )
+        body.admitted_actions.add(action)
         body.actuation_granted = True
         self.assert_invariants()
         return body
@@ -398,10 +451,37 @@ class EmbodimentFabric:
         self._require_controller()
         body = self.body(body_id)
         self._require(body.state in ACTIVE_STATES, "body is not in an active state")
-        actor = self._actor_for(body)
-        if self._current_generation(body) and actor.generation < self.max_generation:
-            actor.generation += 1
-        self._begin_drain(body)
+
+        affected = [
+            candidate
+            for candidate in self.bodies.values()
+            if candidate.body_id == body_id or candidate.parent_body_id == body_id
+        ]
+
+        # Fence each currently admitted actor generation before cleanup converges.
+        actors_to_bump: set[str] = set()
+        for candidate in affected:
+            if (
+                candidate.actor_id is not None
+                and self._current_generation(candidate)
+            ):
+                actors_to_bump.add(candidate.actor_id)
+        for actor_id in actors_to_bump:
+            actor = self._actor(actor_id)
+            if actor.generation < self.max_generation:
+                actor.generation += 1
+
+        # Causal parentage is not authority, but the current formal lifecycle policy
+        # for direct children is cascade-stop. Teardown remains monotonic.
+        for candidate in affected:
+            candidate.desired_present = False
+            candidate.stop_requested = True
+            candidate.ready = False
+            candidate.path_ok = False
+            self._close_interaction(candidate)
+            if candidate.state in ACTIVE_STATES:
+                self._begin_drain(candidate)
+
         self.assert_invariants()
         return body
 
@@ -526,9 +606,11 @@ class EmbodimentFabric:
         body.path_ok = False
         body.interaction_open = False
         body.actuation_granted = False
+        body.admitted_actions.clear()
         body.authority_ref = None
         body.parent_body_id = None
         body.capabilities = frozenset()
+        body.stale_evidence_seen = False
         self.assert_invariants()
         return body
 
@@ -558,7 +640,11 @@ class EmbodimentFabric:
 
     def assert_invariants(self) -> None:
         for body in self.bodies.values():
-            if body.actuation_granted and not self.effective_affordances(body.body_id):
+            if body.actuation_granted != bool(body.admitted_actions):
+                raise AssertionError("actuation summary does not match admitted actions")
+            if not body.admitted_actions.issubset(body.capabilities):
+                raise AssertionError("admitted action is not a body capability")
+            if body.admitted_actions and not self.effective_affordances(body.body_id):
                 raise AssertionError("actuation granted without effective affordance")
             if (
                 body.actor_id is not None
@@ -577,6 +663,13 @@ class EmbodimentFabric:
                     raise AssertionError("READY lacks independent evidence")
             if body.stop_requested and body.actuation_granted:
                 raise AssertionError("stopped body can actuate")
+            if (
+                body.stale_evidence_seen
+                and body.actor_id is not None
+                and not self._current_generation(body)
+                and (body.path_ok or body.actuation_granted)
+            ):
+                raise AssertionError("stale evidence created an affordance")
             if body.state is BodyState.DEMATERIALIZED:
                 if any(
                     (
@@ -586,10 +679,25 @@ class EmbodimentFabric:
                         body.ready,
                         body.interaction_open,
                         body.actuation_granted,
+                        bool(body.admitted_actions),
                         bool(body.finalizers),
                     )
                 ):
                     raise AssertionError("dematerialized body retains residue")
+
+        for body in self.bodies.values():
+            if body.parent_body_id is not None:
+                if body.parent_body_id == body.body_id:
+                    raise AssertionError("body is its own parent")
+                parent = self.bodies.get(body.parent_body_id)
+                if parent is None:
+                    raise AssertionError("body references unknown parent")
+                if parent.parent_body_id is not None:
+                    raise AssertionError("materialization graph exceeds depth one")
+
+        for parent in self.bodies.values():
+            if self._fanout_count(parent.body_id) > self.max_fanout:
+                raise AssertionError("materialization fan-out exceeds bound")
 
         for actor in self.actors.values():
             current = [
@@ -601,6 +709,29 @@ class EmbodimentFabric:
             ]
             if len(current) > 1:
                 raise AssertionError("multiple current bodies for one actor")
+
+    def _fanout_count(self, parent_body_id: str) -> int:
+        return sum(
+            1
+            for body in self.bodies.values()
+            if body.parent_body_id == parent_body_id
+            and body.desired_present
+            and body.state in LIVE_STATES
+        )
+
+    def _can_spawn_from(self, parent_body_id: str | None) -> bool:
+        if parent_body_id is None:
+            return True
+        parent = self.bodies.get(parent_body_id)
+        if parent is None:
+            return False
+        return (
+            parent.state is BodyState.READY
+            and "materialize" in self.effective_affordances(parent_body_id)
+            and "materialize" in parent.admitted_actions
+            and parent.parent_body_id is None
+            and self._fanout_count(parent_body_id) < self.max_fanout
+        )
 
     def _initialize_body(
         self,
@@ -622,6 +753,7 @@ class EmbodimentFabric:
         body.path_ok = False
         body.interaction_open = False
         body.actuation_granted = False
+        body.admitted_actions.clear()
         body.stop_requested = False
         body.authority_ref = authority_ref
         body.parent_body_id = parent_body_id
@@ -629,6 +761,7 @@ class EmbodimentFabric:
         body.finalizers.clear()
         body.restart_count = 0
         body.cleanup_failures = 0
+        body.stale_evidence_seen = False
 
     def _begin_drain(self, body: BodyRecord) -> None:
         body.state = BodyState.DRAINING
@@ -649,6 +782,7 @@ class EmbodimentFabric:
 
     def _close_interaction(self, body: BodyRecord) -> None:
         body.interaction_open = False
+        body.admitted_actions.clear()
         body.actuation_granted = False
 
     def _authorized_current(self, body: BodyRecord) -> bool:
@@ -682,18 +816,26 @@ class EmbodimentFabric:
         body_id: str,
         authority_ref: str,
         operation: str,
+        capabilities: frozenset[str] = frozenset(),
+        parent_body_id: str | None = None,
+        source_body_id: str | None = None,
     ) -> BodyRecord | None:
         existing = self.intents.get(intent_id)
         if existing is None:
             return None
-        if existing != IntentRecord(
-            intent_id, actor_id, body_id, authority_ref, operation
-        ):
+        requested = IntentRecord(
+            intent_id=intent_id,
+            actor_id=actor_id,
+            body_id=body_id,
+            authority_ref=authority_ref,
+            operation=operation,
+            capabilities=capabilities,
+            parent_body_id=parent_body_id,
+            source_body_id=source_body_id,
+        )
+        if existing != requested:
             raise FabricError("idempotency key collision")
         return self.body(existing.body_id)
-
-    def _require_controller(self) -> None:
-        self._require(self.controller_up, "controller is unavailable")
 
     @staticmethod
     def _require(condition: bool, message: str) -> None:
