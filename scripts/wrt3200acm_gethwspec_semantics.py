@@ -115,6 +115,22 @@ def make_request(permanent_addr:bytes=b"\xff"*6,fw_awake_cookie:int=0)->bytes:
     struct.pack_into("<I",b,FW_AWAKE_COOKIE_OFF,fw_awake_cookie)
     return bytes(b)
 
+def helper_summary(text:str)->dict[str,Any]:
+    ins=dispatch.parse_instructions(text)
+    calls=[]
+    memory=[]
+    for x in ins:
+        if x["mnemonic"] in {"bl","blx","b","bx"}:
+            calls.append(x["text"])
+        if "[" in x["operands"] and "]" in x["operands"]:
+            memory.append(x["text"])
+    return {
+        "instruction_count":len(ins),
+        "instructions":[x["text"] for x in ins],
+        "control_transfers":calls,
+        "memory_accesses":memory,
+    }
+
 def main()->int:
     ap=argparse.ArgumentParser()
     ap.add_argument("--elf",required=True)
@@ -122,6 +138,8 @@ def main()->int:
     ns=ap.parse_args()
     elf=Path(ns.elf); out=Path(ns.out); out.mkdir(parents=True,exist_ok=True)
     disasm=dispatch.run_objdump(elf,HANDLER_START,HANDLER_END)
+    host_if_disasm=dispatch.run_objdump(elf,0x0000e350,0x0000e358)
+    post_fill_disasm=dispatch.run_objdump(elf,0x0003b038,0x0003b110)
     v=verify_disassembly(disasm,elf)
     report={
         "schema":"wrt8964-get-hw-spec-semantics/v1",
@@ -153,10 +171,16 @@ def main()->int:
             "wcb_base[] population beyond wcb_base0"
         ],
         "verification":v,
+        "helper_probe":{
+            "host_if_0x0000e350":helper_summary(host_if_disasm),
+            "post_fill_0x0003b038":helper_summary(post_fill_disasm),
+        },
         "guardrail":"partial_rehost writes only fields with directly recovered semantics and reports the rest UNKNOWN."
     }
     (out/"get-hw-spec-semantics.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     (out/"get-hw-spec-disassembly.txt").write_text(disasm)
+    (out/"get-hw-spec-host-if-helper.txt").write_text(host_if_disasm)
+    (out/"get-hw-spec-post-fill-helper.txt").write_text(post_fill_disasm)
     print(json.dumps(v,indent=2,sort_keys=True))
     return 0 if v["all_required_present"] else 3
 
