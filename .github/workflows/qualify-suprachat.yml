@@ -802,14 +802,31 @@ jobs:
           $installerEventsPath = Join-Path $diagRoot 'installer-events.jsonl'
           if (!(Test-Path $installReceiptPath)) { throw 'Install observability receipt missing.' }
           if (!(Test-Path $installerEventsPath)) { throw 'Installer JSONL observability missing.' }
-          $installReceipt = Get-Content $installReceiptPath -Raw | ConvertFrom-Json
+          $installReceiptRaw = Get-Content $installReceiptPath -Raw
+          $installReceipt = $installReceiptRaw | ConvertFrom-Json
+          $installReceiptJson = [System.Text.Json.JsonDocument]::Parse($installReceiptRaw)
+          try {
+            $installCompletedUtc = $installReceiptJson.RootElement.GetProperty('completed_at_utc').GetString()
+          } finally {
+            $installReceiptJson.Dispose()
+          }
           if ($installReceipt.schema -ne 'suprachat-install-receipt/v2' -or
               $installReceipt.trace_id.Length -ne 32 -or
               $installReceipt.install_session_id.Length -ne 32) {
             throw 'Install correlation receipt malformed.'
           }
-          if (-not ([string]$installReceipt.completed_at_utc).EndsWith('Z')) {
-            throw 'Install receipt timestamp is not explicit UTC.'
+          if ([string]::IsNullOrWhiteSpace($installCompletedUtc) -or
+              -not $installCompletedUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+            throw 'Install receipt serialized timestamp is not explicit UTC with Z designator.'
+          }
+          $parsedInstallUtc = [DateTimeOffset]::MinValue
+          if (-not [DateTimeOffset]::TryParse(
+                $installCompletedUtc,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind,
+                [ref]$parsedInstallUtc) -or
+              $parsedInstallUtc.Offset -ne [TimeSpan]::Zero) {
+            throw 'Install receipt serialized timestamp is not round-trip parseable as UTC.'
           }
           if ($installReceipt.app_sha256.Length -ne 64 -or
               $installReceipt.automation_sha256.Length -ne 64 -or
@@ -822,10 +839,18 @@ jobs:
               $installReceipt.privacy.contains_outputs) {
             throw 'Install receipt privacy contract regressed.'
           }
-          $installerEvent = (Get-Content $installerEventsPath | Select-Object -Last 1) | ConvertFrom-Json
-          if (-not ([string]$installerEvent.timestamp_utc).EndsWith('Z') -or
+          $installerEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $installerEvent = $installerEventRaw | ConvertFrom-Json
+          $installerEventJson = [System.Text.Json.JsonDocument]::Parse($installerEventRaw)
+          try {
+            $installerTimestampUtc = $installerEventJson.RootElement.GetProperty('timestamp_utc').GetString()
+          } finally {
+            $installerEventJson.Dispose()
+          }
+          if ([string]::IsNullOrWhiteSpace($installerTimestampUtc) -or
+              -not $installerTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal) -or
               $installerEvent.trace_id -ne $installReceipt.trace_id) {
-            throw 'Installer event/receipt UTC trace correlation failed.'
+            throw 'Installer event/receipt serialized UTC trace correlation failed.'
           }
 
           # Same-build repair/reinstall: new install correlation, identical binaries, registrations remain valid.
@@ -838,7 +863,8 @@ jobs:
           & (Join-Path $source 'install.ps1') -NoLaunch
           if ($LASTEXITCODE -ne 0) { throw 'Same-build Windows repair/reinstall failed.' }
 
-          $installReceipt = Get-Content $installReceiptPath -Raw | ConvertFrom-Json
+          $installReceiptRaw = Get-Content $installReceiptPath -Raw
+          $installReceipt = $installReceiptRaw | ConvertFrom-Json
           if ([string]$installReceipt.install_session_id -eq $firstInstallSession -or
               [string]$installReceipt.trace_id -eq $firstTrace) {
             throw 'Windows repair/reinstall did not create a new install correlation.'
@@ -868,16 +894,24 @@ jobs:
             if (!(Test-Path $installedEvents)) {
               throw 'Installed SupraChat did not emit structured diagnostics.'
             }
-            $installedEventDocs = @(Get-Content $installedEvents | ForEach-Object { $_ | ConvertFrom-Json })
-            if ($installedEventDocs.Count -lt 2) {
+            $installedEventLines = @(Get-Content $installedEvents)
+            if ($installedEventLines.Count -lt 2) {
               throw 'Installed SupraChat emitted too few lifecycle events.'
             }
-            foreach ($eventDoc in $installedEventDocs) {
+            foreach ($eventLine in $installedEventLines) {
+              $eventDoc = $eventLine | ConvertFrom-Json
               if ([string]$eventDoc.trace_id -ne [string]$installReceipt.trace_id) {
                 throw 'Installed SupraChat did not inherit the repaired-install trace.'
               }
-              if (-not ([string]$eventDoc.timestamp_utc).EndsWith('Z')) {
-                throw 'Installed SupraChat event timestamp is not explicit UTC.'
+              $eventJson = [System.Text.Json.JsonDocument]::Parse($eventLine)
+              try {
+                $eventTimestampUtc = $eventJson.RootElement.GetProperty('timestamp_utc').GetString()
+              } finally {
+                $eventJson.Dispose()
+              }
+              if ([string]::IsNullOrWhiteSpace($eventTimestampUtc) -or
+                  -not $eventTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+                throw 'Installed SupraChat serialized event timestamp is not explicit UTC.'
               }
             }
             Stop-Process -Id $installedProcess.Id -Force
@@ -901,13 +935,21 @@ jobs:
           if (Test-Path $appKey) { throw 'SupraChat Open With registration survived uninstall.' }
           if (Test-Path $arp) { throw 'SupraChat Add/Remove Programs entry survived uninstall.' }
 
-          $uninstallEvent = (Get-Content $installerEventsPath | Select-Object -Last 1) | ConvertFrom-Json
+          $uninstallEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $uninstallEvent = $uninstallEventRaw | ConvertFrom-Json
+          $uninstallJson = [System.Text.Json.JsonDocument]::Parse($uninstallEventRaw)
+          try {
+            $uninstallTimestampUtc = $uninstallJson.RootElement.GetProperty('timestamp_utc').GetString()
+          } finally {
+            $uninstallJson.Dispose()
+          }
           if ($uninstallEvent.component -ne 'windows-uninstaller' -or
               $uninstallEvent.event -ne 'uninstall-complete' -or
               $uninstallEvent.trace_id -ne $installReceipt.trace_id -or
               $uninstallEvent.traceparent -notlike "00-$($installReceipt.trace_id)-*-01" -or
-              -not ([string]$uninstallEvent.timestamp_utc).EndsWith('Z')) {
-            throw 'Uninstall observability did not preserve UTC trace lineage.'
+              [string]::IsNullOrWhiteSpace($uninstallTimestampUtc) -or
+              -not $uninstallTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+            throw 'Uninstall observability did not preserve serialized UTC trace lineage.'
           }
 
           if (Test-Path -LiteralPath $installed) {
@@ -950,10 +992,20 @@ jobs:
           }
 
           if (!(Test-Path $appEvents)) { throw 'GUI structured observability log missing.' }
-          $appEventDocs = @(Get-Content $appEvents | ForEach-Object { $_ | ConvertFrom-Json })
-          if ($appEventDocs.Count -lt 2) { throw 'GUI structured observability emitted too few lifecycle events.' }
-          foreach ($eventDoc in $appEventDocs) {
-            if (-not ([string]$eventDoc.timestamp_utc).EndsWith('Z')) { throw 'GUI event timestamp is not explicit UTC.' }
+          $appEventLines = @(Get-Content $appEvents)
+          if ($appEventLines.Count -lt 2) { throw 'GUI structured observability emitted too few lifecycle events.' }
+          foreach ($eventLine in $appEventLines) {
+            $eventDoc = $eventLine | ConvertFrom-Json
+            $eventJson = [System.Text.Json.JsonDocument]::Parse($eventLine)
+            try {
+              $eventTimestampUtc = $eventJson.RootElement.GetProperty('timestamp_utc').GetString()
+            } finally {
+              $eventJson.Dispose()
+            }
+            if ([string]::IsNullOrWhiteSpace($eventTimestampUtc) -or
+                -not $eventTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+              throw 'GUI serialized event timestamp is not explicit UTC.'
+            }
             if ($eventDoc.trace_id -ne $guiTrace) { throw 'GUI event did not inherit install trace correlation.' }
             if ($eventDoc.span_id.Length -ne 16 -or $eventDoc.traceparent -notlike "00-$guiTrace-*-01") {
               throw 'GUI W3C trace/span contract malformed.'
