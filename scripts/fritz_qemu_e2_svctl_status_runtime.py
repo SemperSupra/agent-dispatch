@@ -25,7 +25,7 @@ base = r2.base
 r1 = r2.r1
 
 SCHEMA_VERSION = 1
-EXPERIMENT = "fritz-qemu-e2-svctl-status-runtime/v1"
+EXPERIMENT = "fritz-qemu-e2-svctl-status-runtime/v2"
 QEMU_GUEST_PATH = r2.QEMU_GUEST_PATH
 CPU_PROFILE = r2.CPU_PROFILE
 SUPERVISOR = r2.SUPERVISOR
@@ -34,7 +34,6 @@ CTLMGR = r2.CTLMGR
 UNIT_ROOT = r2.UNIT_ROOT
 TARGET_UNIT = r2.TARGET_UNIT
 CONTROL_SOCKET = "/tmp/supervisor.ctrl.socket"
-LOGIN_PATH = r1.LOGIN_PATH
 
 
 def _run(argv: list[str], *, timeout: int = 60, env: dict | None = None):
@@ -75,19 +74,19 @@ def classify(result: dict) -> str:
             and "session_info" in attempt.get("responseMarkers", [])
         ):
             return "E2_LOGIN_HTTP_SUPPORTED"
-    if result.get("ctlmgrProcessObservedAfterStatus"):
-        return "E2_CTLMGR_OBSERVED_AFTER_STATUS"
-    if not result.get("supervisorProcessObservedBeforeStatus"):
-        return "E2_SUPERVISOR_NOT_LIVE"
+    if result.get("ctlmgrProcessObserved"):
+        return "E2_CTLMGR_OBSERVED"
     if result.get("svctlStatusAttempted") and result.get("svctlStatusExitCode") == 0:
         return "E2_SVCTL_STATUS_COMPLETED"
-    before = result.get("controlSocketBeforeStatus", {})
-    after = result.get("controlSocketAfterStatus", {})
-    if before.get("type") != "socket" and after.get("type") != "socket":
-        return "E2_SUPERVISOR_CONTROL_SOCKET_ABSENT"
     if result.get("svctlStatusAttempted"):
+        if not result.get("controlSocketObserved"):
+            return "E2_SVCTL_STATUS_NO_CONTROL_SOCKET"
         return "E2_SVCTL_STATUS_REJECTED"
-    return "E2_STATUS_NOT_ATTEMPTED"
+    if result.get("supervisorProcessObserved"):
+        if not result.get("controlSocketObserved"):
+            return "E2_SUPERVISOR_TRANSIENT_NO_CONTROL_SOCKET"
+        return "E2_SUPERVISOR_CONTROL_SOCKET_OBSERVED_NO_STATUS"
+    return "E2_SUPERVISOR_NEVER_OBSERVED"
 
 
 def ensure_mount_target(path: pathlib.Path) -> None:
@@ -137,6 +136,26 @@ def namespace_helper(args: argparse.Namespace) -> int:
     ]
 
     started = time.monotonic()
+    supervisor_seen = False
+    control_seen = False
+    ctlmgr_seen = False
+    first_supervisor_seen = None
+    last_supervisor_seen = None
+    first_control_seen = None
+    max_supervisor_count = 0
+    max_ctlmgr_count = 0
+
+    status_attempted = False
+    status_reason = None
+    status_exit = None
+    status_stdout_bytes = 0
+    status_stderr_bytes = 0
+    status_missing: list[dict] = []
+
+    tcp_seen: set[int] = set()
+    unix_seen: set[str] = set()
+    http_attempts: list[dict] = []
+
     with supervisor_out.open("wb") as out, supervisor_err.open("wb") as err:
         supervisor_proc = subprocess.Popen(
             supervisor_cmd,
@@ -146,37 +165,84 @@ def namespace_helper(args: argparse.Namespace) -> int:
             start_new_session=True,
         )
 
-        time.sleep(args.supervisor_settle_seconds)
-        supervisor_count_before = r1.count_guest_processes(SUPERVISOR)
-        ctlmgr_count_before = r1.count_guest_processes(CTLMGR)
-        control_before = socket_path_state(root)
-        tcp_before, unix_before = r1.observe_sockets()
+        deadline = time.monotonic() + args.startup_observe_seconds
+        while time.monotonic() < deadline:
+            now = time.monotonic()
+            elapsed = now - started
 
-        status_attempted = supervisor_count_before > 0
-        status_exit = None
-        status_stdout_bytes = 0
-        status_stderr_bytes = 0
-        status_missing: list[dict] = []
-        if status_attempted:
-            status_cp = _run(
-                [
-                    "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
-                    "-strace", SVCTL, "status", "ctlmgr",
-                ],
-                timeout=10,
-                env=env,
-            )
-            status_exit = status_cp.returncode
-            status_stdout_bytes = len(status_cp.stdout.encode("utf-8", errors="replace"))
-            status_stderr_bytes = len(status_cp.stderr.encode("utf-8", errors="replace"))
-            status_missing = r1.parse_missing_paths(status_cp.stderr)
+            supervisor_count = r1.count_guest_processes(SUPERVISOR)
+            ctlmgr_count = r1.count_guest_processes(CTLMGR)
+            max_supervisor_count = max(max_supervisor_count, supervisor_count)
+            max_ctlmgr_count = max(max_ctlmgr_count, ctlmgr_count)
 
-        time.sleep(args.post_status_settle_seconds)
-        supervisor_count_after = r1.count_guest_processes(SUPERVISOR)
-        ctlmgr_count_after = r1.count_guest_processes(CTLMGR)
+            if supervisor_count > 0:
+                supervisor_seen = True
+                if first_supervisor_seen is None:
+                    first_supervisor_seen = round(elapsed, 4)
+                last_supervisor_seen = round(elapsed, 4)
+            if ctlmgr_count > 0:
+                ctlmgr_seen = True
+
+            control_state = socket_path_state(root)
+            if control_state.get("type") == "socket":
+                control_seen = True
+                if first_control_seen is None:
+                    first_control_seen = round(elapsed, 4)
+
+            tcp_now, unix_now = r1.observe_sockets()
+            tcp_seen.update(tcp_now)
+            unix_seen.update(unix_now)
+
+            if (
+                not status_attempted
+                and supervisor_seen
+                and (
+                    control_seen
+                    or (
+                        first_supervisor_seen is not None
+                        and elapsed - first_supervisor_seen >= args.status_grace_seconds
+                        and supervisor_count > 0
+                    )
+                )
+            ):
+                status_attempted = True
+                status_reason = "control-socket-observed" if control_seen else "live-supervisor-grace-expired"
+                status_cp = _run(
+                    [
+                        "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
+                        "-strace", SVCTL, "status", "ctlmgr",
+                    ],
+                    timeout=10,
+                    env=env,
+                )
+                status_exit = status_cp.returncode
+                status_stdout_bytes = len(status_cp.stdout.encode("utf-8", errors="replace"))
+                status_stderr_bytes = len(status_cp.stderr.encode("utf-8", errors="replace"))
+                status_missing = r1.parse_missing_paths(status_cp.stderr)
+
+            if tcp_now:
+                http_attempts.extend(r1.http_probe(tcp_now, response_dir))
+
+            if supervisor_proc.poll() is not None and supervisor_count == 0:
+                break
+
+            time.sleep(args.sample_interval_seconds)
+
+        natural_exit_before_cleanup = supervisor_proc.poll() is not None
+        natural_exit_code = supervisor_proc.returncode if natural_exit_before_cleanup else None
+
         control_after = socket_path_state(root)
+        supervisor_after = r1.count_guest_processes(SUPERVISOR)
+        ctlmgr_after = r1.count_guest_processes(CTLMGR)
+        max_supervisor_count = max(max_supervisor_count, supervisor_after)
+        max_ctlmgr_count = max(max_ctlmgr_count, ctlmgr_after)
+        ctlmgr_seen = ctlmgr_seen or ctlmgr_after > 0
+        if control_after.get("type") == "socket":
+            control_seen = True
+
         tcp_after, unix_after = r1.observe_sockets()
-        http_attempts = r1.http_probe(tcp_after, response_dir) if tcp_after else []
+        tcp_seen.update(tcp_after)
+        unix_seen.update(unix_after)
 
         if supervisor_proc.poll() is None:
             try:
@@ -193,7 +259,21 @@ def namespace_helper(args: argparse.Namespace) -> int:
                 supervisor_proc.wait(timeout=2)
 
     supervisor_err_text = supervisor_err.read_text(encoding="utf-8", errors="replace") if supervisor_err.exists() else ""
-    elapsed = round(time.monotonic() - started, 3)
+    elapsed_total = round(time.monotonic() - started, 3)
+
+    # Keep only distinct public-safe HTTP metadata rows.
+    deduped_http = []
+    seen_http = set()
+    for item in http_attempts:
+        key = (
+            item.get("scheme"), item.get("port"), item.get("curlExitCode"),
+            item.get("httpStatus"), item.get("bodyBytes"),
+            tuple(item.get("responseMarkers", [])),
+        )
+        if key not in seen_http:
+            seen_http.add(key)
+            deduped_http.append(item)
+
     result = {
         "probeCompleted": True,
         "interfaces": interfaces,
@@ -202,27 +282,29 @@ def namespace_helper(args: argparse.Namespace) -> int:
         "supervisorPath": SUPERVISOR,
         "supervisorArguments": [UNIT_ROOT, TARGET_UNIT],
         "supervisorLauncherExitCode": supervisor_proc.returncode,
-        "supervisorProcessObservedBeforeStatus": supervisor_count_before > 0,
-        "supervisorProcessCountBeforeStatus": supervisor_count_before,
-        "supervisorProcessCountAfterStatus": supervisor_count_after,
-        "ctlmgrProcessCountBeforeStatus": ctlmgr_count_before,
-        "ctlmgrProcessCountAfterStatus": ctlmgr_count_after,
-        "ctlmgrProcessObservedAfterStatus": ctlmgr_count_after > 0,
-        "controlSocketBeforeStatus": control_before,
-        "controlSocketAfterStatus": control_after,
-        "tcpListenersBeforeStatus": tcp_before,
-        "tcpListenersAfterStatus": tcp_after,
-        "unixSocketPathsBeforeStatus": unix_before,
-        "unixSocketPathsAfterStatus": unix_after,
+        "supervisorExitedNaturallyBeforeCleanup": natural_exit_before_cleanup,
+        "supervisorNaturalExitCode": natural_exit_code,
+        "supervisorProcessObserved": supervisor_seen,
+        "firstSupervisorObservedSeconds": first_supervisor_seen,
+        "lastSupervisorObservedSeconds": last_supervisor_seen,
+        "maxSupervisorProcessCount": max_supervisor_count,
+        "ctlmgrProcessObserved": ctlmgr_seen,
+        "maxCtlmgrProcessCount": max_ctlmgr_count,
+        "controlSocketObserved": control_seen,
+        "firstControlSocketObservedSeconds": first_control_seen,
+        "controlSocketFinalState": control_after,
         "svctlStatusAttempted": status_attempted,
+        "svctlStatusAttemptReason": status_reason,
         "svctlStatusArguments": ["status", "ctlmgr"] if status_attempted else None,
         "svctlStatusExitCode": status_exit,
         "svctlStatusStdoutBytes": status_stdout_bytes,
         "svctlStatusStderrBytes": status_stderr_bytes,
         "svctlStatusMissingGuestPaths": status_missing,
         "supervisorMissingGuestPaths": r1.parse_missing_paths(supervisor_err_text),
-        "httpAttempts": http_attempts,
-        "elapsedSeconds": elapsed,
+        "tcpListenersObserved": sorted(tcp_seen),
+        "unixSocketPathsObserved": sorted(unix_seen)[:100],
+        "httpAttempts": deduped_http,
+        "elapsedSeconds": elapsed_total,
     }
     result["classification"] = classify(result)
     result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -249,10 +331,11 @@ def run_namespace(root: pathlib.Path, result: pathlib.Path, args: argparse.Names
             "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
             "--namespace-helper", "--root", str(root),
             "--namespace-result", str(result),
-            "--supervisor-settle-seconds", str(args.supervisor_settle_seconds),
-            "--post-status-settle-seconds", str(args.post_status_settle_seconds),
+            "--startup-observe-seconds", str(args.startup_observe_seconds),
+            "--sample-interval-seconds", str(args.sample_interval_seconds),
+            "--status-grace-seconds", str(args.status_grace_seconds),
         ],
-        timeout=max(45, int(args.supervisor_settle_seconds + args.post_status_settle_seconds) + 30),
+        timeout=max(45, int(args.startup_observe_seconds) + 30),
     )
     if cp.returncode != 0:
         raise RuntimeError(
@@ -367,8 +450,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--expected-sha256")
     p.add_argument("--work-dir")
     p.add_argument("--receipt")
-    p.add_argument("--supervisor-settle-seconds", type=float, default=3.0)
-    p.add_argument("--post-status-settle-seconds", type=float, default=1.0)
+    p.add_argument("--startup-observe-seconds", type=float, default=3.0)
+    p.add_argument("--sample-interval-seconds", type=float, default=0.05)
+    p.add_argument("--status-grace-seconds", type=float, default=0.15)
     p.add_argument("--namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
