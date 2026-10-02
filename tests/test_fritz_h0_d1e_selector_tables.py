@@ -9,6 +9,23 @@ SPEC.loader.exec_module(d1e)
 
 
 class D1eTests(unittest.TestCase):
+    def test_pointer_array_owner_resolution(self):
+        text = r'''
+static const char * const env_names[] = {
+  "linux_fs_start",
+};
+'''
+        r = d1e.reduce_file("x.c", text)
+        self.assertEqual(len(r), 1)
+        self.assertTrue(r[0]["ownerResolved"])
+        self.assertEqual(r[0]["owner"]["owner"], "env_names")
+
+    def test_typed_negative_does_not_overclaim_recovery(self):
+        schema = {"owners": [], "derived": {"occurrenceCount": 1, "resolvedOwnerCount": 0}}
+        classification, oracle = d1e.classify_schema(schema, [])
+        self.assertTrue(oracle)
+        self.assertEqual(classification, "H0_D1E_NO_TABLE_OWNER_RECOVERED")
+
     def test_global_table_owner_and_fields(self):
         text = r'''
 struct entry {
