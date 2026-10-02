@@ -188,7 +188,7 @@ def namespace_helper(args: argparse.Namespace) -> int:
 
     supervisor_out = raw_dir / "supervisor.stdout"
     supervisor_err = raw_dir / "supervisor.stderr"
-    supervisor_target = args.supervisor_target
+    supervisor_target = getattr(args, "supervisor_target", TARGET_UNIT)
     supervisor_cmd = [
         "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
         "-strace", SUPERVISOR, UNIT_ROOT, supervisor_target,
@@ -398,7 +398,7 @@ def run_namespace(root: pathlib.Path, result: pathlib.Path, args: argparse.Names
             "--startup-observe-seconds", str(args.startup_observe_seconds),
             "--sample-interval-seconds", str(args.sample_interval_seconds),
             "--status-grace-seconds", str(args.status_grace_seconds),
-            "--supervisor-target", str(args.supervisor_target),
+            "--supervisor-target", str(getattr(args, "supervisor_target", TARGET_UNIT)),
         ],
         timeout=max(45, int(args.startup_observe_seconds) + 30),
     )
@@ -441,7 +441,8 @@ def run_probe(args: argparse.Namespace) -> dict:
         raise RuntimeError(f"supervisor target absent from exact root: {args.supervisor_target}")
 
     preflight = {
-        "ctlmgrUnitPresent": unit_path.is_file(),
+        "selectedTargetPresent": unit_path.is_file(),
+        "ctlmgrUnitPresent": (root / UNIT_ROOT.lstrip("/") / TARGET_UNIT).is_file(),
         "avmipcdUnitPresent": (root / r2.AVMIPCD_UNIT.lstrip("/")).is_file(),
         "psupportDataPresent": (root / r2.PSUPPORT_DATA.lstrip("/")).exists(),
         "controlSocketPresentBeforeLaunch": (root / CONTROL_SOCKET.lstrip("/")).exists(),
