@@ -79,6 +79,39 @@ class ProbeTests(unittest.TestCase):
             self.assertFalse(after["target"].startswith("/"))
             self.assertTrue(after["guestTargetExists"])
 
+    def test_qemu_stderr_classifier(self):
+        self.assertEqual(
+            probe.classify_qemu_stderr(
+                "qemu: uncaught target signal 4 "
+                "(Illegal instruction) - core dumped\n"
+            ),
+            "SIGILL",
+        )
+        self.assertEqual(
+            probe.classify_qemu_stderr(
+                "qemu-mips-static: Could not open '/lib/x': "
+                "No such file or directory\n"
+            ),
+            "MISSING_GUEST_PATH",
+        )
+
+    def test_cpu_help_parser(self):
+        original = probe._run
+
+        class CP:
+            returncode = 0
+            stdout = "MIPS '24Kf'\nMIPS '34Kf'\n"
+            stderr = ""
+
+        try:
+            probe._run = lambda *args, **kwargs: CP()
+            self.assertEqual(
+                probe.qemu_cpu_models("qemu-mips-static"),
+                ["24Kf", "34Kf"],
+            )
+        finally:
+            probe._run = original
+
     def test_tar_path_traversal_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             p = pathlib.Path(td) / "bad.tar"
