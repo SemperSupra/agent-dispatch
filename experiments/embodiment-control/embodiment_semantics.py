@@ -522,8 +522,11 @@ class EmbodimentFabric:
         """Observe autonomous provider termination and fence the embodiment.
 
         This is an external lifecycle observation, so it remains admissible while
-        the controller is down.  Provider exit is not a controller-requested stop
+        the controller is down. Provider exit is not a controller-requested stop
         acknowledgement and does not imply durable work acceptance.
+
+        Direct children explicitly marked cascade-stop are fenced/drained as part
+        of the same semantic transition. Independent children remain independent.
         """
         body = self.body(body_id)
         self._require(
@@ -537,10 +540,28 @@ class EmbodimentFabric:
             and body.actor_id is not None,
             "provider exit is not applicable",
         )
-        actor = self._actor_for(body)
-        if self._current_generation(body) and actor.generation < self.max_generation:
-            actor.generation += 1
 
+        affected = [
+            candidate
+            for candidate in self.bodies.values()
+            if candidate.body_id == body_id
+            or (
+                candidate.parent_body_id == body_id
+                and candidate.lifecycle_coupling == "cascade-stop"
+            )
+        ]
+
+        actors_to_bump: set[str] = set()
+        for candidate in affected:
+            if candidate.actor_id is not None and self._current_generation(candidate):
+                actors_to_bump.add(candidate.actor_id)
+        for actor_id in actors_to_bump:
+            actor = self._actor(actor_id)
+            if actor.generation < self.max_generation:
+                actor.generation += 1
+
+        # The provider that exited is already absent; only control-plane residue
+        # remains for that body.
         body.state = BodyState.DEMATERIALIZING
         body.desired_present = False
         body.provider_present = False
@@ -552,6 +573,19 @@ class EmbodimentFabric:
         body.finalizers = {"credential"}
         if body.registered:
             body.finalizers.add("registration")
+
+        # Lifecycle-coupled direct children may still have provider runtimes.
+        for candidate in affected:
+            if candidate.body_id == body_id:
+                continue
+            candidate.desired_present = False
+            candidate.stop_requested = True
+            candidate.ready = False
+            candidate.path_ok = False
+            self._close_interaction(candidate)
+            if candidate.state in ACTIVE_STATES:
+                self._begin_drain(candidate)
+
         self.assert_invariants()
         return body
 
