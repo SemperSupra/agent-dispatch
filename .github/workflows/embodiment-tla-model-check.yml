@@ -36,9 +36,10 @@ jobs:
           out="$RUNNER_TEMP/embodiment-tla"
           mkdir -p "$out"
           model="experiments/embodiment-tla/EmbodimentFabric.tla"
-          config="experiments/embodiment-tla/EmbodimentFabric.cfg"
+          safety_config="experiments/embodiment-tla/EmbodimentFabric.cfg"
+          liveness_config="experiments/embodiment-tla/EmbodimentFabricLiveness.cfg"
 
-          sha256sum "$model" "$config" > "$out/source-sha256.txt"
+          sha256sum "$model" "$safety_config" "$liveness_config" > "$out/source-sha256.txt"
 
           java -cp "$RUNNER_TEMP/tla2tools.jar" tla2sany.SANY "$model"             >"$out/sany.log" 2>&1
           sany_rc=$?
@@ -47,11 +48,14 @@ jobs:
             java -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC               -deadlock -workers auto               -config "$config" "$model"               >"$out/tlc.log" 2>&1
             tlc_rc=$?
           else
+            safety_rc=97
+            liveness_rc=97
             tlc_rc=97
-            printf 'TLC skipped because SANY failed.\n' >"$out/tlc.log"
+            printf 'TLC safety skipped because SANY failed.\n' >"$out/tlc-safety.log"
+            printf 'TLC liveness skipped because SANY failed.\n' >"$out/tlc-liveness.log"
           fi
 
-          export SANY_RC="$sany_rc" TLC_RC="$tlc_rc" OUT="$out"
+          export SANY_RC="$sany_rc" SAFETY_RC="$safety_rc" LIVENESS_RC="$liveness_rc" TLC_RC="$tlc_rc" OUT="$out"
           python3 - <<'PY'
           import json, os, pathlib, subprocess
           out = pathlib.Path(os.environ["OUT"])
@@ -70,15 +74,22 @@ jobs:
               },
               "result": {
                   "sany_exit_code": int(os.environ["SANY_RC"]),
+                  "safety_exit_code": int(os.environ["SAFETY_RC"]),
+                  "liveness_exit_code": int(os.environ["LIVENESS_RC"]),
                   "tlc_exit_code": int(os.environ["TLC_RC"]),
-                  "passed": int(os.environ["SANY_RC"]) == 0 and int(os.environ["TLC_RC"]) == 0,
+                  "passed": (
+                      int(os.environ["SANY_RC"]) == 0
+                      and int(os.environ["SAFETY_RC"]) == 0
+                      and int(os.environ["LIVENESS_RC"]) == 0
+                  ),
               },
           }
           (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
           PY
 
           cat "$out/sany.log"
-          cat "$out/tlc.log"
+          cat "$out/tlc-safety.log"
+          cat "$out/tlc-liveness.log"
           if [ "$sany_rc" -ne 0 ]; then exit "$sany_rc"; fi
           exit "$tlc_rc"
 
@@ -91,6 +102,7 @@ jobs:
             ${{ runner.temp }}/embodiment-tla/receipt.json
             ${{ runner.temp }}/embodiment-tla/source-sha256.txt
             ${{ runner.temp }}/embodiment-tla/sany.log
-            ${{ runner.temp }}/embodiment-tla/tlc.log
+            ${{ runner.temp }}/embodiment-tla/tlc-safety.log
+            ${{ runner.temp }}/embodiment-tla/tlc-liveness.log
           if-no-files-found: warn
           retention-days: 7
