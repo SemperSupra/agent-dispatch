@@ -330,6 +330,8 @@ foreach (var marker in new[]
     "AutomationProperties.AutomationId=\"Accessibility.ReducedMotion\"",
     "AutomationProperties.AutomationId=\"Accessibility.PreferencesStatus\"",
     "AutomationProperties.AutomationId=\"Machine.AudienceParityStatus\"",
+    "AutomationProperties.AutomationId=\"Machine.ExportDiagnostics\"",
+    "AutomationProperties.AutomationId=\"Machine.DiagnosticsStatus\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.Voices\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.RemoteStatus\"",
     "AutomationProperties.AutomationId=\"RuntimeProbes.Plugins\"",
@@ -397,7 +399,11 @@ foreach (var marker in new[]
     "\"browser/fill\"",
     "\"browser/stop\"",
     "\"browser-click\"",
-    "\"browser-fill\""
+    "\"browser-fill\"",
+    "\"diagnostics\"",
+    "\"diagnostics-export\"",
+    "\"diagnostics/read\"",
+    "\"diagnostics/export\""
 })
 {
     Require(automationSource.Contains(marker, StringComparison.Ordinal),
@@ -419,6 +425,57 @@ Require(!browserSource.Contains("Mouse.ClickAsync", StringComparison.Ordinal),
 var browserProject = File.ReadAllText(Path.Combine("prototype", "suprachat", "SupraChat", "SupraChat.csproj"));
 Require(browserProject.Contains("Microsoft.Playwright\" Version=\"1.63.0\"", StringComparison.Ordinal),
     "Playwright browser runtime version drifted");
+
+var observability = DogfoodObservability.Describe();
+Require(observability.Schema == "suprachat-dogfood-observability/v2",
+    "dogfood observability schema drifted");
+Require(observability.TraceId.Length == 32 &&
+        observability.TraceId.All(Uri.IsHexDigit) &&
+        observability.TraceId.Any(c => c != '0'),
+    "W3C-compatible trace id is malformed");
+Require(!observability.ContainsPrompts &&
+        !observability.ContainsOutputs &&
+        !observability.ContainsTokenMaterial,
+    "dogfood observability privacy boundary regressed");
+
+var utcTimestamp = DogfoodObservability.UtcTimestamp();
+Require(utcTimestamp.EndsWith("Z", StringComparison.Ordinal),
+    "dogfood timestamp must be explicit UTC with Z designator");
+Require(DateTimeOffset.TryParse(utcTimestamp, out var parsedUtc) &&
+        parsedUtc.Offset == TimeSpan.Zero,
+    "dogfood timestamp is not parseable UTC ISO-8601/RFC3339");
+
+var correlated = DogfoodObservability.BeginOperation(
+    "qualification-correlation",
+    correlationId: "correlation-test");
+Require(correlated.CorrelationId == "correlation-test",
+    "explicit dogfood correlation id was not preserved");
+Require(correlated.TraceId == observability.TraceId,
+    "operation trace must inherit the process/install trace");
+Require(correlated.SpanId.Length == 16 &&
+        correlated.SpanId.All(Uri.IsHexDigit) &&
+        correlated.SpanId.Any(c => c != '0'),
+    "W3C-compatible span id is malformed");
+
+var installerSource = File.ReadAllText(Path.Combine(
+    "prototype", "suprachat", "packaging", "windows", "install.ps1"));
+foreach (var marker in new[]
+{
+    "timestamp_utc",
+    "install_session_id",
+    "trace_id",
+    "span_id",
+    "correlation_id",
+    "app_sha256",
+    "automation_sha256",
+    "codex_sha256",
+    "contains_tokens = $false",
+    "SUPRACHAT_INSTALL_TRACE_ID"
+})
+{
+    Require(installerSource.Contains(marker, StringComparison.Ordinal),
+        $"Windows installer observability marker missing: {marker}");
+}
 
 var appXamlPath = Path.Combine("prototype", "suprachat", "SupraChat", "App.axaml");
 Require(File.ReadAllText(appXamlPath).Contains("RequestedThemeVariant=\"Default\"", StringComparison.Ordinal),

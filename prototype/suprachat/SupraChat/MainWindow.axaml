@@ -404,7 +404,16 @@
             <WrapPanel Orientation="Horizontal">
               <Button Margin="0,0,8,8" Content="Refresh readiness" Click="RefreshMachineSurface_Click" AutomationProperties.AutomationId="Machine.RefreshReadiness" />
               <Button Margin="0,0,8,8" Content="Open local state folder" Click="OpenStateFolder_Click" AutomationProperties.AutomationId="Machine.OpenStateFolder" />
+              <Button Margin="0,0,8,8" Content="Export diagnostics" Click="ExportDiagnostics_Click"
+                      AutomationProperties.AutomationId="Machine.ExportDiagnostics"
+                      AutomationProperties.HelpText="Create a privacy-safe ZIP containing structured UTC diagnostics, installer receipts, and redacted qualification receipts. Prompts, outputs, cookies, and tokens are excluded." />
             </WrapPanel>
+
+            <TextBlock x:Name="DiagnosticsStatus" TextWrapping="Wrap"
+                       Text="Dogfood diagnostics are local-only and exclude prompts, outputs, cookies, and token material."
+                       AutomationProperties.AutomationId="Machine.DiagnosticsStatus"
+                       AutomationProperties.Name="Dogfood observability status"
+                       AutomationProperties.LiveSetting="Polite" />
 
             <TextBlock FontWeight="SemiBold" Text="Readiness" />
             <TextBlock x:Name="MachineStatus" TextWrapping="Wrap" Text="Checking machine surfaces…"
@@ -430,7 +439,7 @@
 
             <TextBlock FontWeight="SemiBold" Text="Portable automation examples" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="155"
-                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli parity&#10;suprachat-cli screen-status&#10;suprachat-cli screen-capture --output ./screen.png&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli voices&#10;suprachat-cli remote-status&#10;suprachat-cli plugins&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot; --file ./document.pdf&#10;suprachat-cli codex-rpc --method model/list --params {}" />
+                     Text="suprachat-cli capabilities&#10;suprachat-cli accessibility&#10;suprachat-cli parity&#10;suprachat-cli diagnostics&#10;suprachat-cli diagnostics-export --output ./suprachat-diagnostics.zip&#10;suprachat-cli screen-status&#10;suprachat-cli screen-capture --output ./screen.png&#10;suprachat-cli doctor&#10;suprachat-cli auth-status&#10;suprachat-cli models&#10;suprachat-cli voices&#10;suprachat-cli remote-status&#10;suprachat-cli plugins&#10;suprachat-cli respond --model &lt;id&gt; --input &quot;hello&quot; --file ./document.pdf&#10;suprachat-cli codex-rpc --method model/list --params {}" />
 
             <TextBlock FontWeight="SemiBold" Text="Agent stdio JSON-RPC" />
             <TextBox IsReadOnly="True" AcceptsReturn="True" MinHeight="125"

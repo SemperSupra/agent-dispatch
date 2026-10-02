@@ -84,6 +84,29 @@ jobs:
           if ($catalogDoc.value.codex.packaged_runtime.counts.total -ne 263) { throw 'Packaged Codex catalog count drifted.' }
           if ($catalogDoc.value.codex.upstream_frontier.counts.total -ne 266) { throw 'Codex frontier catalog count drifted.' }
 
+          $diagnostics = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- diagnostics
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation diagnostics failed.' }
+          $diagnosticsDoc = $diagnostics | ConvertFrom-Json
+          if (-not $diagnosticsDoc.ok -or $diagnosticsDoc.value.schema -ne 'suprachat-dogfood-observability/v2') {
+            throw 'Dogfood diagnostics descriptor contract failed.'
+          }
+          if ($diagnosticsDoc.value.trace_id.Length -ne 32 -or
+              $diagnosticsDoc.value.contains_prompts -or
+              $diagnosticsDoc.value.contains_outputs -or
+              $diagnosticsDoc.value.contains_token_material) {
+            throw 'Dogfood diagnostics trace/privacy contract failed.'
+          }
+
+          $diagZip = Join-Path $env:RUNNER_TEMP "suprachat-diagnostics-${{ matrix.rid }}.zip"
+          $diagExport = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- diagnostics-export --output $diagZip
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $diagZip)) {
+            throw 'Dogfood diagnostics export failed.'
+          }
+          $diagExportDoc = $diagExport | ConvertFrom-Json
+          if (-not $diagExportDoc.ok -or $diagExportDoc.value.schema -ne 'suprachat-dogfood-diagnostics-export/v2') {
+            throw 'Dogfood diagnostics export contract failed.'
+          }
+
       - name: Smoke agent JSON-RPC stdio surface
         shell: pwsh
         run: |
@@ -104,6 +127,16 @@ jobs:
             throw 'Agent accessibility contract missing.'
           }
 
+          $diagRequest = '{"jsonrpc":"2.0","id":3,"method":"diagnostics/read"}'
+          $diagLines = $diagRequest | dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat diagnostics/read stdio failed.' }
+          $diagResponse = ($diagLines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($diagResponse.id -ne 3 -or
+              $diagResponse.result.schema -ne 'suprachat-dogfood-observability/v2' -or
+              $diagResponse.result.trace_id.Length -ne 32) {
+            throw 'Agent diagnostics correlation contract missing.'
+          }
+
       - name: Publish self-contained application
         shell: pwsh
         run: |
@@ -121,6 +154,19 @@ jobs:
             dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
             dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
           }
+
+          $sourceRevision = '${{ github.event.pull_request.head.sha }}'
+          if ([string]::IsNullOrWhiteSpace($sourceRevision)) {
+            $sourceRevision = '${{ github.sha }}'
+          }
+          @{
+            schema = 'suprachat-build-info/v1'
+            source_revision = $sourceRevision
+            workflow_run_id = '${{ github.run_id }}'
+            workflow_run_attempt = '${{ github.run_attempt }}'
+            runtime_identifier = '${{ matrix.rid }}'
+            built_at_utc = [DateTime]::UtcNow.ToString('O', [Globalization.CultureInfo]::InvariantCulture)
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $out 'build-info.json')
 
       - name: Bundle pinned Playwright Chromium runtime
         shell: pwsh
@@ -248,6 +294,16 @@ jobs:
           $capDoc = $cap | ConvertFrom-Json
           if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
             throw 'Packaged automation capability contract failed.'
+          }
+
+          $packagedDiagnostics = & $cli diagnostics
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged diagnostics command failed.' }
+          $packagedDiagnosticsDoc = $packagedDiagnostics | ConvertFrom-Json
+          if (-not $packagedDiagnosticsDoc.ok -or
+              $packagedDiagnosticsDoc.value.source_revision.Length -ne 40 -or
+              [string]::IsNullOrWhiteSpace($packagedDiagnosticsDoc.value.workflow_run_id) -or
+              $packagedDiagnosticsDoc.value.runtime_identifier -ne '${{ matrix.rid }}') {
+            throw 'Packaged build provenance/diagnostics contract failed.'
           }
           foreach ($method in @('realtime/voices','remote/status','remote/enable','remote/disable','remote/pairing/start','remote/pairing/status','remote/clients/list','remote/clients/revoke','plugins/list','permissions/profiles','apps/list','sandbox/readiness','screen/status','screen/capture','browser/status','browser/snapshot')) {
             if ($capDoc.value.machine_methods -notcontains $method) {
@@ -601,6 +657,43 @@ jobs:
           if ($registeredProtocol -notlike '*SupraChat.exe*"%1"*') { throw 'Protocol command is malformed.' }
           if ($registeredOpenWith -notlike '*SupraChat.exe*"%1"*') { throw 'Open With command is malformed.' }
 
+          $diagRoot = Join-Path $env:LOCALAPPDATA 'SemperSupra/SupraChat/diagnostics'
+          $installReceiptPath = Join-Path $diagRoot 'install-receipt.json'
+          $installerEventsPath = Join-Path $diagRoot 'installer-events.jsonl'
+          if (!(Test-Path $installReceiptPath)) { throw 'Install observability receipt missing.' }
+          if (!(Test-Path $installerEventsPath)) { throw 'Installer JSONL observability missing.' }
+          $installReceiptRaw = Get-Content $installReceiptPath -Raw
+          $installReceipt = $installReceiptRaw | ConvertFrom-Json
+          if ($installReceipt.schema -ne 'suprachat-install-receipt/v2' -or
+              $installReceipt.trace_id.Length -ne 32 -or
+              $installReceipt.install_session_id.Length -ne 32) {
+            throw 'Install correlation receipt malformed.'
+          }
+          $installTimestamp = [DateTimeOffset]$installReceipt.completed_at_utc
+          if ($installTimestamp.Offset -ne [TimeSpan]::Zero -or
+              $installReceiptRaw -notmatch '"completed_at_utc"\s*:\s*"[^"]+Z"') {
+            throw 'Install receipt timestamp is not explicit UTC with Z designator.'
+          }
+          if ($installReceipt.app_sha256.Length -ne 64 -or
+              $installReceipt.automation_sha256.Length -ne 64 -or
+              $installReceipt.codex_sha256.Length -ne 64) {
+            throw 'Install build-provenance hashes malformed.'
+          }
+          if ($installReceipt.privacy.contains_tokens -or
+              $installReceipt.privacy.contains_cookies -or
+              $installReceipt.privacy.contains_prompts -or
+              $installReceipt.privacy.contains_outputs) {
+            throw 'Install receipt privacy contract regressed.'
+          }
+          $installerEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $installerEvent = $installerEventRaw | ConvertFrom-Json
+          $installerTimestamp = [DateTimeOffset]$installerEvent.timestamp_utc
+          if ($installerTimestamp.Offset -ne [TimeSpan]::Zero -or
+              $installerEventRaw -notmatch '"timestamp_utc"\s*:\s*"[^"]+Z"' -or
+              $installerEvent.trace_id -ne $installReceipt.trace_id) {
+            throw 'Installer event/receipt UTC trace correlation failed.'
+          }
+
           Remove-Item (Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/SupraChat.lnk') -Force -ErrorAction SilentlyContinue
           Remove-Item $arp -Recurse -Force -ErrorAction SilentlyContinue
           $uninstall = Join-Path $installed 'uninstall.ps1'
@@ -614,6 +707,18 @@ jobs:
           if (Test-Path $protocol) { throw 'SupraChat protocol registration survived uninstall.' }
           if (Test-Path $appKey) { throw 'SupraChat Open With registration survived uninstall.' }
           if (Test-Path $arp) { throw 'SupraChat Add/Remove Programs entry survived uninstall.' }
+
+          $uninstallEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $uninstallEvent = $uninstallEventRaw | ConvertFrom-Json
+          $uninstallTimestamp = [DateTimeOffset]$uninstallEvent.timestamp_utc
+          if ($uninstallEvent.component -ne 'windows-uninstaller' -or
+              $uninstallEvent.event -ne 'uninstall-complete' -or
+              $uninstallEvent.trace_id -ne $installReceipt.trace_id -or
+              $uninstallEvent.traceparent -notlike "00-$($installReceipt.trace_id)-*-01" -or
+              $uninstallTimestamp.Offset -ne [TimeSpan]::Zero -or
+              $uninstallEventRaw -notmatch '"timestamp_utc"\s*:\s*"[^"]+Z"') {
+            throw 'Uninstall observability did not preserve UTC trace lineage.'
+          }
 
           if (Test-Path -LiteralPath $installed) {
             try {
@@ -637,6 +742,12 @@ jobs:
           if (!(Test-Path $exe)) { throw "SupraChat.exe missing" }
 
           $env:SUPRACHAT_STARTUP_LOG = $startupLog
+          $guiTrace = [Guid]::NewGuid().ToString('N')
+          $env:SUPRACHAT_INSTALL_TRACE_ID = $guiTrace
+          $env:SUPRACHAT_INSTALL_SESSION_ID = [Guid]::NewGuid().ToString('N')
+          $appEvents = Join-Path $env:LOCALAPPDATA 'SemperSupra/SupraChat/diagnostics/events.jsonl'
+          Remove-Item $appEvents -Force -ErrorAction SilentlyContinue
+
           $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
           Start-Sleep -Seconds 8
 
@@ -646,6 +757,17 @@ jobs:
             if (Test-Path $stdoutLog) { Get-Content $stdoutLog }
             if (Test-Path $stderrLog) { Get-Content $stderrLog }
             throw "SupraChat self-contained launch failed with code $($p.ExitCode)"
+          }
+
+          if (!(Test-Path $appEvents)) { throw 'GUI structured observability log missing.' }
+          $appEventDocs = @(Get-Content $appEvents | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($appEventDocs.Count -lt 2) { throw 'GUI structured observability emitted too few lifecycle events.' }
+          foreach ($eventDoc in $appEventDocs) {
+            if (-not $eventDoc.timestamp_utc.EndsWith('Z')) { throw 'GUI event timestamp is not explicit UTC.' }
+            if ($eventDoc.trace_id -ne $guiTrace) { throw 'GUI event did not inherit install trace correlation.' }
+            if ($eventDoc.span_id.Length -ne 16 -or $eventDoc.traceparent -notlike "00-$guiTrace-*-01") {
+              throw 'GUI W3C trace/span contract malformed.'
+            }
           }
 
           Stop-Process -Id $p.Id -Force
