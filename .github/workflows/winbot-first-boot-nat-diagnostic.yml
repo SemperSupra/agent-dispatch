@@ -15,12 +15,12 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 150
     env:
-      MASTER_MANIFEST_SHA: '36d5ee6baac0e93dbd332864bf802db35c5b8d11'
+      MASTER_MANIFEST_SHA: '36b1ed7a08bdff61bfd13fa4922d6ae237617055'
       EXPECTED_SOURCE_REVISION: '0283e44337705aab350ea506758dcb312c43aef7'
       EXPECTED_PROJECTION_IDENTITY: '10f29ae57bf0c10b556d2acbfae863c1ed9737664479586a19cb61c6840f7c49'
-      EXPECTED_CONTROL_BLOB_SHA: '2e0ff2171e8963bf47baadf2092d54ad42e6088b'
-      CONTROL_REVISION: 'experiment-first-boot-diagnostic'
-      ASSIGNMENT_ID: 'winbot-firstboot-nat-diag-20261002-01'
+      EXPECTED_CONTROL_BLOB_SHA: '38d6a788418e75509e803e951e2e52261b1c9e81'
+      CONTROL_REVISION: 'experiment-first-boot-nat-correction'
+      ASSIGNMENT_ID: 'winbot-firstboot-nat-diag-20261002-02'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -301,24 +301,7 @@ jobs:
             if (-not $env:DIAG_IDENTITY -or -not (Test-Path -LiteralPath $env:DIAG_IDENTITY)) { throw 'ephemeral diagnostic identity missing' }
             age --decrypt --identity $env:DIAG_IDENTITY --output $plain '.sealed\result.age'
             if ($LASTEXITCODE -ne 0) { throw 'diagnostic result decryption failed' }
-            $py = @'
-            import pathlib, sys, tarfile
-            src = pathlib.Path(sys.argv[1])
-            dst = pathlib.Path(sys.argv[2])
-            with tarfile.open(src, "r:gz") as tf:
-                members = [m for m in tf.getmembers() if m.isfile() and m.name == "files/boot-diagnostic.json"]
-                if len(members) != 1:
-                    raise SystemExit("expected exactly one boot diagnostic result")
-                m = members[0]
-                if m.size > 2 * 1024 * 1024:
-                    raise SystemExit("boot diagnostic exceeds bounded size")
-                fh = tf.extractfile(m)
-                if fh is None:
-                    raise SystemExit("boot diagnostic unreadable")
-                raw = fh.read()
-            dst.write_bytes(raw)
-            '@
-            $py | python - $plain $diagPath
+            python -c "import pathlib,sys,tarfile; tf=tarfile.open(sys.argv[1],'r:gz'); ms=[m for m in tf.getmembers() if m.isfile() and m.name=='files/boot-diagnostic.json']; assert len(ms)==1, 'expected exactly one boot diagnostic result'; m=ms[0]; assert m.size <= 2*1024*1024, 'boot diagnostic exceeds bounded size'; pathlib.Path(sys.argv[2]).write_bytes(tf.extractfile(m).read())" $plain $diagPath
             if ($LASTEXITCODE -ne 0) { throw 'boot diagnostic extraction failed' }
           } finally {
             Remove-Item -LiteralPath $plain -Force -ErrorAction SilentlyContinue
