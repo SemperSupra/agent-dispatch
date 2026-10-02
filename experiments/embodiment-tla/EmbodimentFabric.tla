@@ -267,6 +267,27 @@ BlockAdmitted(b) ==
                   parent, restartCount, cleanupFailures, grantLevel,
                   staleEvidenceSeen, controllerUp>>
 
+BlockUnconfirmedMaterialization(b) ==
+    /\ controllerUp
+    /\ state[b] \in {"MATERIALIZING", "FAILED_RETRYABLE"}
+    /\ desiredPresent[b]
+    /\ ~providerPresent[b]
+    /\ Assigned(b)
+    /\ authorityValid[bodyActor[b]]
+    /\ CurrentGeneration(b)
+    /\ state' = [state EXCEPT ![b] = "BLOCKED"]
+    /\ desiredPresent' = [desiredPresent EXCEPT ![b] = FALSE]
+    /\ callbackPending' = [callbackPending EXCEPT ![b] = FALSE]
+    /\ ready' = [ready EXCEPT ![b] = FALSE]
+    /\ pathOK' = [pathOK EXCEPT ![b] = FALSE]
+    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = FALSE]
+    /\ actuationGranted' = [actuationGranted EXCEPT ![b] = FALSE]
+    /\ stopRequested' = [stopRequested EXCEPT ![b] = TRUE]
+    /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen,
+                  providerPresent, registered, finalizers, parent,
+                  restartCount, cleanupFailures, grantLevel,
+                  staleEvidenceSeen, controllerUp>>
+
 Dispatch(b) ==
     /\ controllerUp
     /\ state[b] = "ADMITTED"
@@ -444,6 +465,23 @@ LoseInteractionBinding(b) ==
     /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen, desiredPresent,
                   providerPresent, callbackPending, registered, pathOK,
                   finalizers, parent, restartCount, cleanupFailures, grantLevel,
+                  staleEvidenceSeen, controllerUp, stopRequested>>
+
+SettleProviderAbsent(b) ==
+    /\ state[b] \in {"DRAINING", "EXPIRED", "DEMATERIALIZING"}
+    /\ ~providerPresent[b]
+    /\ callbackPending[b]
+    /\ state' = [state EXCEPT ![b] =
+            IF state[b] \in {"DRAINING", "EXPIRED"}
+            THEN "DEMATERIALIZING"
+            ELSE @]
+    /\ callbackPending' = [callbackPending EXCEPT ![b] = FALSE]
+    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = FALSE]
+    /\ actuationGranted' = [actuationGranted EXCEPT ![b] = FALSE]
+    /\ finalizers' = [finalizers EXCEPT ![b] = @ \ {"provider"}]
+    /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen,
+                  desiredPresent, providerPresent, registered, ready, pathOK,
+                  parent, restartCount, cleanupFailures, grantLevel,
                   staleEvidenceSeen, controllerUp, stopRequested>>
 
 ProviderExitActive(b) ==
@@ -704,6 +742,7 @@ Next ==
     \/ \E b \in Bodies : RejectStaleOrUnauthorized(b)
     \/ \E b \in Bodies : BlockAdmitted(b)
     \/ \E b \in Bodies : Dispatch(b)
+    \/ \E b \in Bodies : BlockUnconfirmedMaterialization(b)
     \/ \E b \in Bodies : FailStart(b)
     \/ \E b \in Bodies : RetryDispatch(b)
     \/ \E b \in Bodies : ProviderStartAckCurrent(b)
@@ -722,6 +761,7 @@ Next ==
     \/ \E a \in Actors : RevokeAuthority(a)
     \/ \E b \in Bodies : BeginCleanup(b)
     \/ \E b \in Bodies : ProviderStopAck(b)
+    \/ \E b \in Bodies : SettleProviderAbsent(b)
     \/ \E b \in Bodies, k \in FinalizerKinds : FinalizerStep(b, k)
     \/ \E b \in Bodies : FinalizerFail(b)
     \/ \E b \in Bodies : FinalizerExhausted(b)
@@ -817,6 +857,7 @@ ProgressBody(b) ==
     \/ RejectStaleOrUnauthorized(b)
     \/ BlockAdmitted(b)
     \/ Dispatch(b)
+    \/ BlockUnconfirmedMaterialization(b)
     \/ FailStart(b)
     \/ RetryDispatch(b)
     \/ ProviderStartAckCurrent(b)
@@ -827,6 +868,7 @@ ProgressBody(b) ==
     \/ AttestReadiness(b)
     \/ BeginCleanup(b)
     \/ ProviderStopAck(b)
+    \/ SettleProviderAbsent(b)
     \/ \E k \in FinalizerKinds : FinalizerStep(b, k)
     \/ FinalizerExhausted(b)
     \/ ConfirmDematerialized(b)
@@ -841,6 +883,7 @@ TopologyNext ==
     \/ \E b \in Bodies : Admit(b)
     \/ \E b \in Bodies : RejectStaleOrUnauthorized(b)
     \/ \E b \in Bodies : Dispatch(b)
+    \/ \E b \in Bodies : BlockUnconfirmedMaterialization(b)
     \/ \E b \in Bodies : ProviderStartAckCurrent(b)
     \/ \E b \in Bodies : ProviderStartAckLate(b)
     \/ \E b \in Bodies : Register(b)
@@ -852,6 +895,7 @@ TopologyNext ==
     \/ \E b \in Bodies : RequestStop(b)
     \/ \E b \in Bodies : BeginCleanup(b)
     \/ \E b \in Bodies : ProviderStopAck(b)
+    \/ \E b \in Bodies : SettleProviderAbsent(b)
     \/ \E b \in Bodies, k \in FinalizerKinds : FinalizerStep(b, k)
     \/ \E b \in Bodies : ConfirmDematerialized(b)
 
