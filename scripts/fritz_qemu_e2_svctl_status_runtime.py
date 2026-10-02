@@ -37,7 +37,9 @@ CONTROL_SOCKET = "/tmp/supervisor.ctrl.socket"
 TRACE_PATHS = {
     "unit_root": UNIT_ROOT,
     "ctlmgr_unit": f"{UNIT_ROOT}/{TARGET_UNIT}",
+    "ctlmgr_unit_relative": TARGET_UNIT,
     "avmipcd_unit": r2.AVMIPCD_UNIT,
+    "avmipcd_unit_relative": "avmipcd.service",
     "psupport_data": r2.PSUPPORT_DATA,
     "ctlmgr_exec": CTLMGR,
     "control_socket": CONTROL_SOCKET,
@@ -128,9 +130,12 @@ def classify(result: dict) -> str:
     if trace.get("ctlmgrExecveCount", 0) > 0:
         return "E2_CTLMGR_EXEC_ATTEMPTED"
     paths = trace.get("paths", {})
-    unit = paths.get("ctlmgr_unit", {})
+    unit_hits = (
+        paths.get("ctlmgr_unit", {}).get("hitCount", 0)
+        + paths.get("ctlmgr_unit_relative", {}).get("hitCount", 0)
+    )
     psupport = paths.get("psupport_data", {})
-    if unit.get("hitCount", 0) > 0:
+    if unit_hits > 0:
         if psupport.get("failureCount", 0) > 0:
             return "E2_CTLMGR_UNIT_READ_PSUPPORT_MISSING"
         return "E2_CTLMGR_UNIT_READ_NO_EXEC"
@@ -339,7 +344,10 @@ def namespace_helper(args: argparse.Namespace) -> int:
     supervisor_err_text = supervisor_err.read_text(encoding="utf-8", errors="replace") if supervisor_err.exists() else ""
     trace_evidence = fixed_trace_evidence(
         supervisor_err_text,
-        {"selected_target": f"{UNIT_ROOT}/{supervisor_target}"},
+        {
+            "selected_target": f"{UNIT_ROOT}/{supervisor_target}",
+            "selected_target_relative": supervisor_target,
+        },
     )
     elapsed_total = round(time.monotonic() - started, 3)
 
