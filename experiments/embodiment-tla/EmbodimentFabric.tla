@@ -144,6 +144,7 @@ CanSpawnFrom(p) ==
     /\ p \in Bodies
     /\ state[p] = "READY"
     /\ CanActuate(p)
+    /\ actuationGranted[p]
     /\ parent[p] = NoBody
     /\ FanoutCount(p) < MaxFanout
 
@@ -713,6 +714,26 @@ LivenessFairness ==
     /\ WF_vars(RecoverController)
     /\ \A b \in Bodies : SF_vars(ProgressBody(b))
 
+TopologyNext ==
+    \/ \E a \in Actors, b \in Bodies, p \in ParentType : RequestStart(a, b, p)
+    \/ \E a \in Actors, old \in Bodies, new \in Bodies : RequestReplace(a, old, new)
+    \/ \E b \in Bodies : Admit(b)
+    \/ \E b \in Bodies : RejectStaleOrUnauthorized(b)
+    \/ \E b \in Bodies : Dispatch(b)
+    \/ \E b \in Bodies : ProviderStartAckCurrent(b)
+    \/ \E b \in Bodies : ProviderStartAckLate(b)
+    \/ \E b \in Bodies : Register(b)
+    \/ \E b \in Bodies : RecordDirectPath(b)
+    \/ \E b \in Bodies : AttemptStalePathReplay(b)
+    \/ \E b \in Bodies : AttestReadiness(b)
+    \/ \E b \in Bodies : AdmitActuation(b)
+    \/ \E b \in Bodies : RequestStop(b)
+    \/ \E b \in Bodies : BeginCleanup(b)
+    \/ \E b \in Bodies : ProviderStopAck(b)
+    \/ \E b \in Bodies, k \in FinalizerKinds : FinalizerStep(b, k)
+    \/ \E b \in Bodies : ConfirmDematerialized(b)
+
+TopologySpec == Init /\ [][TopologyNext]_vars
 Spec == Init /\ [][Next]_vars
 LivenessSpec == Init /\ [][Next]_vars /\ LivenessFairness
 
