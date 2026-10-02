@@ -17,6 +17,7 @@ jobs:
     env:
       BUILD_BLOB_SHA: '6192aa8c8851a0b9740b99d420da5921e48629c2'
       SOURCE_REVISION: '6f436816518eb907d6cfe5309b922ecfce455fe6'
+      HOST_BLOB_SHA: '3cc498696e006dcb8dafd28045999ddaf6e1460f'
     steps:
       - name: Qualify exact build-master entrypoint semantics
         shell: pwsh
@@ -40,24 +41,38 @@ jobs:
             throw 'build-master parse failed'
           }
 
-          $text=[IO.File]::ReadAllText($path)
-          $firstLogonCount=([regex]::Matches($text,'<CommandLine>powershell -ExecutionPolicy Bypass -File C:\\WinBot\\provision\.ps1</CommandLine>')).Count
-          if($firstLogonCount -ne 1){throw "expected exactly one FirstLogon provision entrypoint; observed $firstLogonCount"}
-          if($text -match 'SetupComplete starting' -or $text -match 'SetupComplete finished'){
+          $buildText=[IO.File]::ReadAllText($path)
+          if($buildText -match 'SetupComplete starting' -or $buildText -match 'SetupComplete finished'){
             throw 'SetupComplete provisioning logging remains'
           }
-          if($text -match 'setupcomplete\.log'){
+          if($buildText -match 'setupcomplete\.log'){
             throw 'SetupComplete provisioner invocation remains'
           }
-          if(-not $text.Contains('First-boot provisioning entrypoint: FirstLogonCommands only.')){
+          if(-not $buildText.Contains('First-boot provisioning entrypoint: FirstLogonCommands only.')){
             throw 'first-logon-only invariant marker missing'
           }
-          if(-not $text.Contains("SetupComplete.cmd")){
+          if(-not $buildText.Contains("SetupComplete.cmd")){
             throw 'stale SetupComplete cleanup path missing'
           }
+
+          $hostUri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$env:HOST_BLOB_SHA"
+          $hostBlob=Invoke-RestMethod -Headers $headers -Uri $hostUri
+          if([string]$hostBlob.sha -ne $env:HOST_BLOB_SHA -or [string]$hostBlob.encoding -ne 'base64'){throw 'host blob identity mismatch'}
+          $hostRaw=[Convert]::FromBase64String(([string]$hostBlob.content -replace '\s',''))
+          if($hostRaw.Length -ne [int]$hostBlob.size){throw 'host blob size mismatch'}
+          $hostPath=Join-Path $env:RUNNER_TEMP 'WinBot.psm1'
+          [IO.File]::WriteAllBytes($hostPath,$hostRaw)
+          $hostTokens=$null;$hostErrors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($hostPath,[ref]$hostTokens,[ref]$hostErrors)
+          if($hostErrors.Count -gt 0){throw 'host module parse failed'}
+
+          $hostText=[IO.File]::ReadAllText($hostPath)
+          $firstLogonCount=([regex]::Matches($hostText,'<CommandLine>powershell -ExecutionPolicy Bypass -File C:\\WinBot\\provision\.ps1</CommandLine>')).Count
+          if($firstLogonCount -ne 1){throw "expected exactly one FirstLogon provision entrypoint in host module; observed $firstLogonCount"}
 
           Write-Host "classification=SUPPORTED"
           Write-Host "source_revision=$env:SOURCE_REVISION"
           Write-Host "build_blob=$env:BUILD_BLOB_SHA"
+          Write-Host "host_blob=$env:HOST_BLOB_SHA"
           Write-Host "first_logon_entrypoint_count=$firstLogonCount"
           Write-Host "setupcomplete_provisioning=false"
