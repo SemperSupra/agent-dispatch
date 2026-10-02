@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference='Continue'
           $root=Join-Path $env:RUNNER_TEMP 'winbot-native-clone-regression'
-          $log=Join-Path $root 'native-clone-regression.log'
+          $log=Join-Path $env:RUNNER_TEMP 'winbot-native-clone-regression.log'
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'test\test-clone-native.ps1') *>&1 |
             Tee-Object -FilePath $log
           $rc=$LASTEXITCODE
@@ -85,7 +85,7 @@ jobs:
           name: winbot-native-clone-regression-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/winbot-native-clone-regression/receipt.json
-            ${{ runner.temp }}/winbot-native-clone-regression/native-clone-regression.log
+            ${{ runner.temp }}/winbot-native-clone-regression.log
           if-no-files-found: error
           retention-days: 14
 
