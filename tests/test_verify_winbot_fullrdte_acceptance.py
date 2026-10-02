@@ -89,6 +89,15 @@ def good_diagnostic():
                 "work_absent": True,
                 "oracle_satisfied": True,
             },
+            "materialization_receipt": {
+                "complete": True,
+                "cells": {
+                    "a": {"disposed": True},
+                    "b": {"disposed": True},
+                },
+                "attachment": {"survived": True},
+                "runtime_seed": {"unchanged": True},
+            },
         },
     }
 
@@ -135,6 +144,20 @@ class FullRdteAcceptanceVerifierTests(unittest.TestCase):
         proc, result = self._run(diag, good_reconstruction())
         self.assertNotEqual(proc.returncode, 0)
         self.assertTrue(any("task_exit_code" in x for x in result["failures"]))
+
+    def test_accepts_legacy_receipt_without_public_materialization_summary(self):
+        diag = good_diagnostic()
+        del diag["full_rdte"]["materialization_receipt"]
+        proc, result = self._run(diag, good_reconstruction())
+        self.assertEqual(proc.returncode, 0)
+        self.assertTrue(result["accepted"])
+
+    def test_rejects_materialization_receipt_failure_when_exposed(self):
+        diag = good_diagnostic()
+        diag["full_rdte"]["materialization_receipt"]["complete"] = False
+        proc, result = self._run(diag, good_reconstruction())
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue(any("materialization_receipt.complete" in x for x in result["failures"]))
 
     def test_rejects_cleanup_or_statelessness_failure(self):
         diag = good_diagnostic()
