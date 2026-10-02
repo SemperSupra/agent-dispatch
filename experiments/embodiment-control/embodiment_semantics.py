@@ -518,6 +518,43 @@ class EmbodimentFabric:
         self.assert_invariants()
         return body
 
+    def provider_exit(self, body_id: str) -> BodyRecord:
+        """Observe autonomous provider termination and fence the embodiment.
+
+        This is an external lifecycle observation, so it remains admissible while
+        the controller is down.  Provider exit is not a controller-requested stop
+        acknowledgement and does not imply durable work acceptance.
+        """
+        body = self.body(body_id)
+        self._require(
+            body.state in {
+                BodyState.MATERIALIZED,
+                BodyState.REGISTERED,
+                BodyState.READY,
+                BodyState.DEGRADED,
+            }
+            and body.provider_present
+            and body.actor_id is not None,
+            "provider exit is not applicable",
+        )
+        actor = self._actor_for(body)
+        if self._current_generation(body) and actor.generation < self.max_generation:
+            actor.generation += 1
+
+        body.state = BodyState.DEMATERIALIZING
+        body.desired_present = False
+        body.provider_present = False
+        body.callback_pending = False
+        body.ready = False
+        body.path_ok = False
+        body.stop_requested = True
+        self._close_interaction(body)
+        body.finalizers = {"credential"}
+        if body.registered:
+            body.finalizers.add("registration")
+        self.assert_invariants()
+        return body
+
     def request_stop(self, body_id: str) -> BodyRecord:
         self._require_controller()
         body = self.body(body_id)
