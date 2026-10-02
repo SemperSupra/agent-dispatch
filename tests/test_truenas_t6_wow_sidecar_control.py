@@ -64,7 +64,7 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertIn('T6_PRODUCT="litellm"', harness)
         if request["rung"] == "t6":
             product = request.get("product", "litellm")
-            self.assertIn(product, {"litellm", "wow-sidecar", "garm", "garm-provider-g2", "garm-provider-g3", "official-catalog"})
+            self.assertIn(product, {"litellm", "wow-sidecar", "garm", "garm-provider-g2", "official-catalog"})
             if product == "wow-sidecar":
                 self.assertEqual("26.0.0-BETA.3", request["version"])
                 self.assertEqual(396, request["authority_issue"])
@@ -106,6 +106,16 @@ class WowSidecarT6ControlTests(unittest.TestCase):
             (root/"control.json").write_text(json.dumps(control),encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError,"Foundry source ref drifted"):
                 MOD.load_control(root,"b"*40)
+
+
+
+class VersionAdaptiveProbeContractTests(unittest.TestCase):
+    def test_exact_target_is_argument_driven(self):
+        import pathlib
+        text = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "truenas_middleware_wow_sidecar_t6_probe.py").read_text(encoding="utf-8")
+        self.assertIn('p.add_argument("--target-version", required=True)', text)
+        self.assertIn('f"TrueNAS-{a.target_version}"', text)
+        self.assertNotIn('EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"', text)
 
 
 if __name__ == "__main__":
