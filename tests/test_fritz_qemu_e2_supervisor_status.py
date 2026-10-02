@@ -39,7 +39,7 @@ class SupervisorStatusTests(unittest.TestCase):
             "httpAttempts":[],
             "ctlmgrTcpListenersAfterStatus":[],
             "ctlmgrProcessObservedAfterStatus":False,
-            "supervisorProcessObservedBeforeStatus":True,
+            "launcherObservedRunning":True,
             "svctlStatusAttempted":True,
             "svctlStatusExitCode":0,
             "controlSocketBeforeStatus":{"exists":True,"isUnixSocket":True},
@@ -51,7 +51,7 @@ class SupervisorStatusTests(unittest.TestCase):
             "httpAttempts":[],
             "ctlmgrTcpListenersAfterStatus":[],
             "ctlmgrProcessObservedAfterStatus":False,
-            "supervisorProcessObservedBeforeStatus":True,
+            "launcherObservedRunning":True,
             "svctlStatusAttempted":True,
             "svctlStatusExitCode":1,
             "controlSocketBeforeStatus":{"exists":True,"isUnixSocket":True},
@@ -66,14 +66,14 @@ class SupervisorStatusTests(unittest.TestCase):
             "httpAttempts":[],
             "ctlmgrTcpListenersAfterStatus":[],
             "ctlmgrProcessObservedAfterStatus":False,
-            "supervisorProcessObservedBeforeStatus":True,
+            "launcherObservedRunning":True,
             "svctlStatusAttempted":True,
             "svctlStatusExitCode":1,
             "controlSocketBeforeStatus":{"exists":False,"isUnixSocket":False},
         }
         self.assertEqual(
             r3.classify(x),
-            "E2_CTRL_SOCKET_NOT_OBSERVED_STATUS_FAILED",
+            "E2_STATUS_DURING_LAUNCHER_NO_SOCKET",
         )
 
     def test_supervisor_not_live(self):
@@ -81,9 +81,9 @@ class SupervisorStatusTests(unittest.TestCase):
             "httpAttempts":[],
             "ctlmgrTcpListenersAfterStatus":[],
             "ctlmgrProcessObservedAfterStatus":False,
-            "supervisorProcessObservedBeforeStatus":False,
+            "launcherObservedRunning":False,
         }
-        self.assertEqual(r3.classify(x), "E2_SUPERVISOR_NOT_LIVE")
+        self.assertEqual(r3.classify(x), "E2_LAUNCHER_NOT_OBSERVED")
 
 
 if __name__ == "__main__":
