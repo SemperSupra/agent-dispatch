@@ -1,0 +1,65 @@
+name: WinBot Corrected FullRDTE Control Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-corrected-fullrdte-control-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    env:
+      CONTROL_BLOB_SHA: 'd190520be7d7c3e70c4d66a9fa34e3b885c3aa2c'
+      CONTROL_COMMIT: '6207a8eea8a1913c6435fd4f3f3b659d4588d73a'
+    steps:
+      - name: Fetch and parse exact corrected FullRDTE control
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{
+            Authorization="Bearer $env:GH_TOKEN"
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+          }
+          $uri="https://api.github.com/repos/mark-e-deyoung/WinBot/git/blobs/$env:CONTROL_BLOB_SHA"
+          $blob=Invoke-RestMethod -Headers $headers -Uri $uri
+          if([string]$blob.sha -ne $env:CONTROL_BLOB_SHA -or [string]$blob.encoding -ne 'base64'){throw 'control blob identity mismatch'}
+          $raw=[Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+          if($raw.Length -ne [int]$blob.size){throw 'control blob size mismatch'}
+
+          $path=Join-Path $env:RUNNER_TEMP 'full-rdte.ps1'
+          [IO.File]::WriteAllBytes($path,$raw)
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if($errors.Count -gt 0){
+            $errors | ForEach-Object { Write-Error ("{0}:{1}: {2}" -f $path,$_.Extent.StartLineNumber,$_.Message) }
+            throw 'corrected FullRDTE control parse failed'
+          }
+
+          $text=[IO.File]::ReadAllText($path)
+          foreach($needle in @(
+            'function Get-HostedNatPlacement',
+            'PowerShellDirectObserved',
+            'NetworkCorrectionAttempted',
+            'NetworkCorrectionApplied',
+            'Get-HnsNetwork',
+            'Get-NetUDPEndpoint',
+            'Set-NetIPInterface',
+            'New-NetIPAddress'
+          )){
+            if(-not $text.Contains($needle)){throw "corrected control missing invariant: $needle"}
+          }
+          if(($text -split 'function Get-HostedNatPlacement').Count -ne 2){throw 'expected one hosted NAT placement helper'}
+          if(($text -split 'function Get-WorkCellReadiness').Count -ne 2){throw 'expected one readiness function'}
+
+          Write-Host "classification=SUPPORTED"
+          Write-Host "control_blob=$env:CONTROL_BLOB_SHA"
+          Write-Host "control_commit=$env:CONTROL_COMMIT"
