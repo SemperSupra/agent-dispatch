@@ -39,8 +39,21 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
             "error_type": "RuntimeError",
             "error_message": "password Wb!" + "A" * 36 + " api_token=TOPSECRET",
             "elapsed_seconds": 12.5,
+            "failure_context": {
+                "command_name": "Get-Partition",
+                "script_name": "build-master.ps1",
+                "script_line": 317,
+                "fully_qualified_error_id": "CimJob_BrokenCimSession",
+                "category": "PermissionDenied",
+                "reason": "CimException",
+                "activity": "Get-Partition",
+                "target_type": "Microsoft.Management.Infrastructure.CimInstance",
+                "private_value": "DO-NOT-LEAK",
+            },
             "build": {
                 "projection_authorized": True,
+                "master_build_started": True,
+                "master_build_completed": False,
                 "observed_switches": [{"name": "nat", "switch_type": "Internal"}],
                 "network_placement_retryable": False,
                 "private_value": "DO-NOT-LEAK",
@@ -82,6 +95,12 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
             self.assertNotIn("TOPSECRET",text)
             self.assertIn("<redacted-run-credential>",text)
             self.assertIn("observed_switches",obj["full_rdte"]["build"])
+            self.assertTrue(obj["full_rdte"]["build"]["master_build_started"])
+            self.assertFalse(obj["full_rdte"]["build"]["master_build_completed"])
+            self.assertEqual(obj["full_rdte"]["failure_context"]["command_name"],"Get-Partition")
+            self.assertEqual(obj["full_rdte"]["failure_context"]["script_name"],"build-master.ps1")
+            self.assertEqual(obj["full_rdte"]["failure_context"]["script_line"],317)
+            self.assertNotIn("private_value",obj["full_rdte"]["failure_context"])
             self.assertEqual(obj["full_rdte"]["persistence"]["b_drive_letter"],"Q")
             self.assertNotIn("api_token",obj["full_rdte"]["work_cells"]["a"])
             self.assertNotIn("canary",obj["full_rdte"]["persistence"])
