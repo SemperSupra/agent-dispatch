@@ -26,11 +26,19 @@ jobs:
           out="$GITHUB_WORKSPACE/experiments/colab-embodiment/evidence"
           mkdir -p "$out"
 
-          sha256sum             experiments/colab-embodiment/colab_embodiment_actuator.py             experiments/colab-embodiment/check_colab_embodiment_actuator.py             > "$out/source-sha256.txt"
+          sha256sum \
+            experiments/colab-embodiment/colab_embodiment_actuator.py \
+            experiments/colab-embodiment/check_colab_embodiment_actuator.py \
+            experiments/colab-embodiment/check_requester_neutral_embodiment.py \
+            experiments/agent-dispatch-gha-embodiment/agent_dispatch_gha_actuator.py \
+            experiments/embodiment-control/embodiment_control.py \
+            experiments/embodiment-control/embodiment_semantics.py \
+            > "$out/source-sha256.txt"
 
           (
             cd experiments/colab-embodiment
             python3 check_colab_embodiment_actuator.py
+            python3 check_requester_neutral_embodiment.py
           ) | tee "$out/colab-boundary.log"
 
           python3 - <<'PY'
@@ -45,7 +53,10 @@ jobs:
                   "run_id": os.environ.get("GITHUB_RUN_ID", ""),
                   "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
               },
-              "result": {"boundary_contract_passed": True},
+              "result": {
+                  "boundary_contract_passed": True,
+                  "requester_neutral_composition_passed": True,
+              },
           }
           (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
           PY
