@@ -148,6 +148,7 @@ def normalize_observation(
             reconciliation="converged",
             terminal=True,
             run_count=1,
+            exit_outcome="success",
         )
 
     if conclusion in {
@@ -166,6 +167,7 @@ def normalize_observation(
             reconciliation="blocked",
             terminal=True,
             run_count=1,
+            exit_outcome=conclusion,
         )
 
     raise ValueError("unsupported github-actions terminal conclusion")
@@ -210,7 +212,10 @@ def _observation_receipt(
     reconciliation: str | None,
     terminal: bool,
     run_count: int,
+    exit_outcome: str | None = None,
 ) -> dict[str, Any]:
+    provider_runtime_observed = provider_state in {"RUNNING", "SUCCEEDED", "FAILED"}
+    provider_exit_observed = terminal and provider_state in {"SUCCEEDED", "FAILED"}
     return {
         "schema": "agent-dispatch-gha-observation/v1",
         "classification": "GHA_EXECUTOR_OBSERVATION",
@@ -220,6 +225,10 @@ def _observation_receipt(
         "reconciliation": reconciliation,
         "terminal": terminal,
         "matching_run_count": run_count,
+        "provider_runtime_observed": provider_runtime_observed,
+        "provider_present_now": provider_state == "RUNNING",
+        "provider_exit_observed": provider_exit_observed,
+        "provider_exit_outcome": exit_outcome if provider_exit_observed else None,
         "selected_executor_owns_queue": True,
         "execution_success_is_durable_work_acceptance": False,
         "execution_success_is_validator_acceptance": False,
