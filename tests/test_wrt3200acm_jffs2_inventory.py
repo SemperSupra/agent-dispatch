@@ -13,10 +13,10 @@ def dirent(pino,version,ino,dtype,name):
     nb=name.encode()
     tot=40+len(nb)
     prefix=struct.pack("<HHI",0x1985,0xe001,tot)
-    hdr_crc=zlib.crc32(prefix)&0xffffffff
+    hdr_crc=mod.crc32(prefix)
     fixed=prefix+struct.pack("<I",hdr_crc)+struct.pack("<IIII",pino,version,ino,0)+bytes([len(nb),dtype])+b"\x00\x00"
     node_crc=0
-    name_crc=zlib.crc32(nb)&0xffffffff
+    name_crc=mod.crc32(nb)
     raw=fixed+struct.pack("<II",node_crc,name_crc)+nb
     return raw+b"\xff"*((4-len(raw)%4)%4)
 
