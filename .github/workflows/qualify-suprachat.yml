@@ -698,7 +698,8 @@ jobs:
           test -d "$test_home/Applications/SupraChat.app"
           test -x "$test_home/.local/bin/suprachat-cli"
           test -L "$test_home/.local/bin/suprachat-gui"
-          test -x "$test_home/Applications/SupraChat.app/Contents/Resources-uninstall.sh"
+          test -f "$test_home/Applications/SupraChat.app/Contents/Resources/uninstall.sh"
+          test ! -x "$test_home/Applications/SupraChat.app/Contents/Resources/uninstall.sh"
           codesign --verify --strict "$test_home/Applications/SupraChat.app"
 
           cli_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" doctor)"
@@ -719,7 +720,7 @@ jobs:
           assert doc["value"]["runtime_identifier"] == "osx-arm64"
           PY
 
-          HOME="$test_home" bash "$test_home/Applications/SupraChat.app/Contents/Resources-uninstall.sh"
+          HOME="$test_home" /bin/bash "$test_home/Applications/SupraChat.app/Contents/Resources/uninstall.sh"
           test ! -e "$test_home/Applications/SupraChat.app"
           test ! -e "$test_home/.local/bin/suprachat-cli"
 
