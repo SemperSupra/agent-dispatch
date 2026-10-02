@@ -153,6 +153,23 @@ def ensure_mount_target(path: pathlib.Path) -> None:
         path.touch()
 
 
+def run_svctl_status(root: pathlib.Path, env: dict) -> dict:
+    cp = _run(
+        [
+            "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
+            "-strace", SVCTL, "status", "ctlmgr",
+        ],
+        timeout=10,
+        env=env,
+    )
+    return {
+        "exitCode": cp.returncode,
+        "stdoutBytes": len(cp.stdout.encode("utf-8", errors="replace")),
+        "stderrBytes": len(cp.stderr.encode("utf-8", errors="replace")),
+        "missingGuestPaths": r1.parse_missing_paths(cp.stderr),
+    }
+
+
 def namespace_helper(args: argparse.Namespace) -> int:
     root = pathlib.Path(args.root).resolve()
     result_path = pathlib.Path(args.namespace_result).resolve()
@@ -254,11 +271,11 @@ def namespace_helper(args: argparse.Namespace) -> int:
 
             if (
                 not status_attempted
-                and supervisor_seen
                 and (
                     control_seen
                     or (
-                        first_supervisor_seen is not None
+                        supervisor_seen
+                        and first_supervisor_seen is not None
                         and elapsed - first_supervisor_seen >= args.status_grace_seconds
                         and supervisor_count > 0
                     )
@@ -266,18 +283,11 @@ def namespace_helper(args: argparse.Namespace) -> int:
             ):
                 status_attempted = True
                 status_reason = "control-socket-observed" if control_seen else "live-supervisor-grace-expired"
-                status_cp = _run(
-                    [
-                        "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
-                        "-strace", SVCTL, "status", "ctlmgr",
-                    ],
-                    timeout=10,
-                    env=env,
-                )
-                status_exit = status_cp.returncode
-                status_stdout_bytes = len(status_cp.stdout.encode("utf-8", errors="replace"))
-                status_stderr_bytes = len(status_cp.stderr.encode("utf-8", errors="replace"))
-                status_missing = r1.parse_missing_paths(status_cp.stderr)
+                status_result = run_svctl_status(root, env)
+                status_exit = status_result["exitCode"]
+                status_stdout_bytes = status_result["stdoutBytes"]
+                status_stderr_bytes = status_result["stderrBytes"]
+                status_missing = status_result["missingGuestPaths"]
 
             if tcp_now:
                 http_attempts.extend(r1.http_probe(tcp_now, response_dir))
@@ -298,6 +308,15 @@ def namespace_helper(args: argparse.Namespace) -> int:
         ctlmgr_seen = ctlmgr_seen or ctlmgr_after > 0
         if control_after.get("type") == "socket":
             control_seen = True
+
+        if not status_attempted and control_after.get("type") == "socket":
+            status_attempted = True
+            status_reason = "control-socket-final-observed"
+            status_result = run_svctl_status(root, env)
+            status_exit = status_result["exitCode"]
+            status_stdout_bytes = status_result["stdoutBytes"]
+            status_stderr_bytes = status_result["stderrBytes"]
+            status_missing = status_result["missingGuestPaths"]
 
         tcp_after, unix_after = r1.observe_sockets()
         tcp_seen.update(tcp_after)
