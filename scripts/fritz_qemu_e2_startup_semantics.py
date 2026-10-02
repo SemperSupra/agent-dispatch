@@ -130,7 +130,7 @@ def startup_variable_facts(
     if not variables:
         return facts
     assign_re = re.compile(
-        r"^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*([^#;]+)"
+        r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^#;]+)"
     )
     for line in text.splitlines():
         m = assign_re.match(line)
