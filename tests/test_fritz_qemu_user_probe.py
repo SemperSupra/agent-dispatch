@@ -59,6 +59,26 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(args, ["true"])
             self.assertEqual(header["machine"], 8)
 
+    def test_absolute_guest_symlink_is_made_host_safe(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            (root / "lib").mkdir()
+            (root / "lib" / "libc.so").write_bytes(b"x")
+            (root / "lib" / "ld-musl-mips-sf.so.1").symlink_to(
+                "/lib/libc.so"
+            )
+            before = probe.guest_path_state(
+                root, "/lib/ld-musl-mips-sf.so.1"
+            )
+            self.assertEqual(before["target"], "/lib/libc.so")
+            got = probe.normalize_guest_absolute_symlinks(root)
+            self.assertEqual(got["rewrittenCount"], 1)
+            after = probe.guest_path_state(
+                root, "/lib/ld-musl-mips-sf.so.1"
+            )
+            self.assertFalse(after["target"].startswith("/"))
+            self.assertTrue(after["guestTargetExists"])
+
     def test_tar_path_traversal_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             p = pathlib.Path(td) / "bad.tar"
