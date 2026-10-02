@@ -224,12 +224,12 @@ def strings_sample(path: Path, out: Path) -> None:
 def legacy_uimage_probe(path: Path) -> dict[str, Any] | None:
     """Parse a U-Boot legacy image header and characterize any appended tail."""
     data = path.read_bytes()
-    if len(data) < 64 or data[:4] != b"\\x27\\x05\\x19\\x56":
+    if len(data) < 64 or data[:4] != b"\x27\x05\x19\x56":
         return None
     # legacy uImage header fields are big-endian.
     magic, header_crc, timestamp, data_size, load_addr, entry_addr, data_crc = struct.unpack_from(">7I", data, 0)
     os_id, arch_id, image_type, comp = struct.unpack_from(">4B", data, 28)
-    name = data[32:64].split(b"\\x00", 1)[0].decode("utf-8", "replace")
+    name = data[32:64].split(b"\x00", 1)[0].decode("utf-8", "replace")
     payload_start = 64
     payload_end = min(len(data), payload_start + data_size)
     tail = data[payload_end:]
