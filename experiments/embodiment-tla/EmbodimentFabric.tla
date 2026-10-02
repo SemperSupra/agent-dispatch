@@ -446,7 +446,7 @@ LoseInteractionBinding(b) ==
                   finalizers, parent, restartCount, cleanupFailures, grantLevel,
                   staleEvidenceSeen, controllerUp, stopRequested>>
 
-ProviderExit(b) ==
+ProviderExitActive(b) ==
     /\ state[b] \in {"MATERIALIZED", "REGISTERED", "READY", "DEGRADED"}
     /\ providerPresent[b]
     /\ Assigned(b)
@@ -487,6 +487,31 @@ ProviderExit(b) ==
     /\ UNCHANGED <<authorityValid, bodyActor, bodyGen, registered, parent,
                   restartCount, cleanupFailures, grantLevel, staleEvidenceSeen,
                   controllerUp>>
+
+ProviderExitCleanup(b) ==
+    /\ state[b] \in {
+         "DRAINING", "EXPIRED", "DEMATERIALIZING",
+         "REJECTED", "FAILED_TERMINAL", "BLOCKED"
+       }
+    /\ providerPresent[b]
+    /\ Assigned(b)
+    /\ state' = [state EXCEPT ![b] =
+            IF state[b] \in {"DRAINING", "EXPIRED"}
+            THEN "DEMATERIALIZING"
+            ELSE @]
+    /\ providerPresent' = [providerPresent EXCEPT ![b] = FALSE]
+    /\ callbackPending' = [callbackPending EXCEPT ![b] = FALSE]
+    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = FALSE]
+    /\ actuationGranted' = [actuationGranted EXCEPT ![b] = FALSE]
+    /\ finalizers' = [finalizers EXCEPT ![b] = @ \ {"provider"}]
+    /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen,
+                  desiredPresent, registered, ready, pathOK, parent,
+                  restartCount, cleanupFailures, grantLevel, staleEvidenceSeen,
+                  controllerUp, stopRequested>>
+
+ProviderExit(b) ==
+    \/ ProviderExitActive(b)
+    \/ ProviderExitCleanup(b)
 
 RequestStop(b) ==
     /\ controllerUp
@@ -823,6 +848,7 @@ TopologyNext ==
     \/ \E b \in Bodies : AttemptStalePathReplay(b)
     \/ \E b \in Bodies : AttestReadiness(b)
     \/ \E b \in Bodies : AdmitActuation(b)
+    \/ \E b \in Bodies : ProviderExit(b)
     \/ \E b \in Bodies : RequestStop(b)
     \/ \E b \in Bodies : BeginCleanup(b)
     \/ \E b \in Bodies : ProviderStopAck(b)
