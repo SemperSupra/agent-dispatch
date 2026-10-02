@@ -6,13 +6,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-ghidra-recovery.yml'
-      - 'scripts/wrt3200acm_fw_to_elf.py'
-      - 'tests/test_wrt3200acm_fw_to_elf.py'
-      - 'scripts/ghidra/WrtRecoveryReport.java'
-      - 'scripts/ghidra/WrtCandidateReport.java'
   workflow_dispatch:
 
 permissions:
