@@ -27,3 +27,12 @@ binaries, stdout/stderr, strace, and HTTP response bodies remain ephemeral.
 
 A typed negative is a successful experiment result when it distinguishes the
 next evidence-earned dependency or control-plane state.
+
+
+## Measurement correction
+
+R2's host `/proc` token counter matches the qemu-user launcher argv as well as
+the guest path, so it is not an independent persistent-supervisor oracle. R3
+therefore gates on the actual launcher `Popen.poll()` lifecycle and samples
+the control socket from process birth. The read-only `svctl status ctlmgr`
+observation must execute while that exact invocation is still live.
