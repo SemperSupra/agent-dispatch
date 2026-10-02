@@ -119,8 +119,7 @@ def run_probe(args: argparse.Namespace) -> dict:
         },
         "fixture": fixture,
         "fixtureEffect": {
-            "controlSocketBindSuccessCount": control_trace.get("syscalls", {}).get("bind", 0) - control_trace.get("failureCount", 0)
-                if control_trace.get("syscalls", {}).get("bind", 0) else 0,
+            "controlSocketTrace": control_trace,
             "controlSocketObserved": bool(runtime.get("controlSocketObserved")),
             "ctlmgrUnitTraceHits": unit_trace.get("hitCount", 0),
             "ctlmgrExecveCount": ctlmgr_execve,
