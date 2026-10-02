@@ -1,0 +1,81 @@
+name: FRITZ E2 runtime directory contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-e2-runtime-dirs.yml'
+      - 'scripts/fritz_qemu_e2_runtime_dirs.py'
+      - 'scripts/fritz_qemu_user_probe.py'
+      - 'tests/test_fritz_qemu_e2_runtime_dirs.py'
+      - 'docs/fritz-e2-runtime-dirs.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate runtime-directory reducer
+        run: python3 -m unittest -v tests/test_fritz_qemu_e2_runtime_dirs.py
+
+  exact-firmware-e2-runtime-dirs:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install bounded extraction tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends curl squashfs-tools
+      - name: Recover runtime-directory contract
+        id: probe
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-e2-d4" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_qemu_e2_runtime_dirs.py \
+            --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+            --expected-size 42393600 \
+            --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+            --work-dir "${RUNNER_TEMP}/fritz-e2-d4" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce sanitizer and print normalized contract
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "fritz-receipt" / "receipt.json"
+          r = json.loads(p.read_text())
+          s = r.get("safety", {})
+          for key in (
+              "rawFirmwarePublished","rootfsPublished","rawScriptContentPublished",
+              "arbitraryScriptStringsPublished","physicalRouterContact",
+              "routerMutationAuthorized","runtimeFixtureCreated",
+          ):
+              assert s.get(key) is False, (key, s.get(key))
+          assert r.get("oracleSatisfied") is True, r
+          print(json.dumps({
+              "classification":r.get("classification"),
+              "target":r.get("target"),
+              "fixedPathMetadata":r.get("fixedPathMetadata"),
+              "materializationRelations":r.get("materializationRelations"),
+              "fixtureRequirements":r.get("fixtureRequirements"),
+          }, sort_keys=True))
+          PY
+      - name: Upload sanitized receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-e2-runtime-dirs-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
