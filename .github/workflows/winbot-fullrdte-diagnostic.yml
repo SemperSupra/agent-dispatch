@@ -15,13 +15,12 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 125
     env:
-      MASTER_MANIFEST_SHA: '1b866eadd4145719b2d03660265d4c3679472e83'
-      EXPECTED_SOURCE_REVISION: '4220566a40afa90436b9ec82f2de9d608a40369b'
-      EXPECTED_PROJECTION_IDENTITY: 'd264f3357c083d9cf68ef48e4d3751eb91e1c6590488f79892cd24b4a04ec0ad'
-      BASE_CONTROL_BLOB_SHA: '247944c22707aaa600d6f6b0206cedecedf43395'
+      MASTER_MANIFEST_SHA: '2e4099442d0f8ac2a0a0c80081022565cb807508'
+      EXPECTED_SOURCE_REVISION: '0283e44337705aab350ea506758dcb312c43aef7'
+      EXPECTED_PROJECTION_IDENTITY: '10f29ae57bf0c10b556d2acbfae863c1ed9737664479586a19cb61c6840f7c49'
       EXPECTED_CONTROL_BLOB_SHA: 'aa467e93b07329caa21de64e8a49e2adb7f847f5'
-      CONTROL_REVISION: '53e918ceab0010f1f6c9cd1a6d23ac7f40794a45'
-      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20261002-03'
+      CONTROL_REVISION: 'c3d7b5993749af7de776b7c547827cb50a7f1266'
+      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20261002-04'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -45,7 +44,6 @@ jobs:
           master_sha = os.environ["MASTER_MANIFEST_SHA"]
           expected_rev = os.environ["EXPECTED_SOURCE_REVISION"]
           expected_identity = os.environ["EXPECTED_PROJECTION_IDENTITY"]
-          base_control_blob = os.environ["BASE_CONTROL_BLOB_SHA"]
           expected_control_blob = os.environ["EXPECTED_CONTROL_BLOB_SHA"]
           control_revision = os.environ["CONTROL_REVISION"]
           root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "winbot-fullrdte-staged"
@@ -130,37 +128,18 @@ jobs:
           if set(control) != required:
               raise SystemExit("control object set mismatch")
 
-          # The latest FullRDTE control is a control-only change in private WinBot.
-          # Reconstruct it deterministically from the already-staged predecessor,
-          # then require exact Git-object identity before any expensive execution.
+          # The master manifest directly binds the exact reviewed/authorized
+          # FullRDTE control object. Recompute its Git-object identity before
+          # any expensive execution; no control transformation is permitted.
           control_path = "rdte/gha/full-rdte.ps1"
-          base_raw = control[control_path]
-          observed_base = hashlib.sha1(f"blob {len(base_raw)}\0".encode() + base_raw).hexdigest()
-          if observed_base != base_control_blob:
-              raise SystemExit(f"base control blob mismatch: {observed_base}")
-
-          text = base_raw.decode("utf-8")
-          replacements_b64 = [
-              ("ZnVuY3Rpb24gU2V0LUZhaWx1cmUgewogICAgcGFyYW0oW3N0cmluZ10kQ2xhc3NpZmljYXRpb24sIFtzdHJpbmddJERvbWFpbiwgW3N0cmluZ10kTWVzc2FnZSkKICAgICRyZWNvcmQuY2xhc3NpZmljYXRpb24gPSAkQ2xhc3NpZmljYXRpb24KICAgICRyZWNvcmQuZmFpbHVyZV9kb21haW4gPSAkRG9tYWluCiAgICAkcmVjb3JkLmVycm9yX21lc3NhZ2UgPSAkTWVzc2FnZQp9Cg==", "ZnVuY3Rpb24gU2V0LUZhaWx1cmUgewogICAgcGFyYW0oW3N0cmluZ10kQ2xhc3NpZmljYXRpb24sIFtzdHJpbmddJERvbWFpbiwgW3N0cmluZ10kTWVzc2FnZSkKICAgICRyZWNvcmQuY2xhc3NpZmljYXRpb24gPSAkQ2xhc3NpZmljYXRpb24KICAgICRyZWNvcmQuZmFpbHVyZV9kb21haW4gPSAkRG9tYWluCiAgICAkcmVjb3JkLmVycm9yX21lc3NhZ2UgPSAkTWVzc2FnZQp9CgpmdW5jdGlvbiBTZXQtRmFpbHVyZUNvbnRleHQgewogICAgcGFyYW0oW1N5c3RlbS5NYW5hZ2VtZW50LkF1dG9tYXRpb24uRXJyb3JSZWNvcmRdJEVycm9yUmVjb3JkKQogICAgaWYgKC1ub3QgJEVycm9yUmVjb3JkKSB7IHJldHVybiB9CiAgICAkc2NyaXB0TmFtZSA9IFtzdHJpbmddJEVycm9yUmVjb3JkLkludm9jYXRpb25JbmZvLlNjcmlwdE5hbWUKICAgICRyZWNvcmQuZmFpbHVyZV9jb250ZXh0ID0gW29yZGVyZWRdQHsKICAgICAgICBjb21tYW5kX25hbWUgPSBbc3RyaW5nXSRFcnJvclJlY29yZC5JbnZvY2F0aW9uSW5mby5NeUNvbW1hbmQuTmFtZQogICAgICAgIHNjcmlwdF9uYW1lID0gaWYgKCRzY3JpcHROYW1lKSB7IFNwbGl0LVBhdGggLUxlYWYgJHNjcmlwdE5hbWUgfSBlbHNlIHsgJG51bGwgfQogICAgICAgIHNjcmlwdF9saW5lID0gW2ludF0kRXJyb3JSZWNvcmQuSW52b2NhdGlvbkluZm8uU2NyaXB0TGluZU51bWJlcgogICAgICAgIGZ1bGx5X3F1YWxpZmllZF9lcnJvcl9pZCA9IFtzdHJpbmddJEVycm9yUmVjb3JkLkZ1bGx5UXVhbGlmaWVkRXJyb3JJZAogICAgICAgIGNhdGVnb3J5ID0gW3N0cmluZ10kRXJyb3JSZWNvcmQuQ2F0ZWdvcnlJbmZvLkNhdGVnb3J5CiAgICAgICAgcmVhc29uID0gW3N0cmluZ10kRXJyb3JSZWNvcmQuQ2F0ZWdvcnlJbmZvLlJlYXNvbgogICAgICAgIGFjdGl2aXR5ID0gW3N0cmluZ10kRXJyb3JSZWNvcmQuQ2F0ZWdvcnlJbmZvLkFjdGl2aXR5CiAgICAgICAgdGFyZ2V0X3R5cGUgPSBpZiAoJG51bGwgLW5lICRFcnJvclJlY29yZC5UYXJnZXRPYmplY3QpIHsgJEVycm9yUmVjb3JkLlRhcmdldE9iamVjdC5HZXRUeXBlKCkuRnVsbE5hbWUgfSBlbHNlIHsgJG51bGwgfQogICAgfQp9Cg=="),
-              ("ICAgICRidWlsZFN0YXJ0ID0gR2V0LURhdGUKICAgICYgJGJ1aWxkU2NyaXB0IEBidWlsZEFyZ3MKICAgIGlmICgkTEFTVEVYSVRDT0RFIC1hbmQgJExBU1RFWElUQ09ERSAtbmUgMCkgeyBTZXQtRmFpbHVyZSAnSEFSTkVTU19GQUlMVVJFJyAnbWFzdGVyLWJ1aWxkJyAoJ2J1aWxkLW1hc3RlciByZXR1cm5lZCAnICsgJExBU1RFWElUQ09ERSk7ICRyYyA9IDI5OyB0aHJvdyAkcmVjb3JkLmVycm9yX21lc3NhZ2UgfQogICAgJHJlY29yZC5idWlsZC5idWlsZF9zZWNvbmRzID0gW21hdGhdOjpSb3VuZCgoKEdldC1EYXRlKS0kYnVpbGRTdGFydCkuVG90YWxTZWNvbmRzLDMpCg==", "ICAgICRidWlsZFN0YXJ0ID0gR2V0LURhdGUKICAgICRyZWNvcmQuYnVpbGQubWFzdGVyX2J1aWxkX3N0YXJ0ZWQgPSAkdHJ1ZQogICAgJHJlY29yZC5idWlsZC5tYXN0ZXJfYnVpbGRfY29tcGxldGVkID0gJGZhbHNlCiAgICB0cnkgewogICAgICAgICYgJGJ1aWxkU2NyaXB0IEBidWlsZEFyZ3MKICAgIH0gY2F0Y2ggewogICAgICAgIFNldC1GYWlsdXJlQ29udGV4dCAkXwogICAgICAgIFNldC1GYWlsdXJlICdIQVJORVNTX0ZBSUxVUkUnICdtYXN0ZXItYnVpbGQtZXhjZXB0aW9uJyAkXy5FeGNlcHRpb24uTWVzc2FnZQogICAgICAgICRyYyA9IDI5CiAgICAgICAgdGhyb3cKICAgIH0KICAgIGlmICgkTEFTVEVYSVRDT0RFIC1hbmQgJExBU1RFWElUQ09ERSAtbmUgMCkgeyBTZXQtRmFpbHVyZSAnSEFSTkVTU19GQUlMVVJFJyAnbWFzdGVyLWJ1aWxkJyAoJ2J1aWxkLW1hc3RlciByZXR1cm5lZCAnICsgJExBU1RFWElUQ09ERSk7ICRyYyA9IDI5OyB0aHJvdyAkcmVjb3JkLmVycm9yX21lc3NhZ2UgfQogICAgJHJlY29yZC5idWlsZC5idWlsZF9zZWNvbmRzID0gW21hdGhdOjpSb3VuZCgoKEdldC1EYXRlKS0kYnVpbGRTdGFydCkuVG90YWxTZWNvbmRzLDMpCiAgICAkcmVjb3JkLmJ1aWxkLm1hc3Rlcl9idWlsZF9jb21wbGV0ZWQgPSAkdHJ1ZQo="),
-              ("fSBjYXRjaCB7CiAgICBpZiAoLW5vdCAkcmVjb3JkLmVycm9yX3R5cGUpIHsgJHJlY29yZC5lcnJvcl90eXBlID0gJF8uRXhjZXB0aW9uLkdldFR5cGUoKS5GdWxsTmFtZSB9Cg==", "fSBjYXRjaCB7CiAgICBpZiAoLW5vdCAkcmVjb3JkLmZhaWx1cmVfY29udGV4dCAtb3IgJHJlY29yZC5mYWlsdXJlX2NvbnRleHQuQ291bnQgLWVxIDApIHsgU2V0LUZhaWx1cmVDb250ZXh0ICRfIH0KICAgIGlmICgtbm90ICRyZWNvcmQuZXJyb3JfdHlwZSkgeyAkcmVjb3JkLmVycm9yX3R5cGUgPSAkXy5FeGNlcHRpb24uR2V0VHlwZSgpLkZ1bGxOYW1lIH0K"),
-          ]
-          for old_b64, new_b64 in replacements_b64:
-              old = base64.b64decode(old_b64).decode("utf-8")
-              new = base64.b64decode(new_b64).decode("utf-8")
-              if text.count(old) != 1:
-                  raise SystemExit("latest-control derivation marker cardinality mismatch")
-              text = text.replace(old, new, 1)
-
-          derived_raw = text.encode("utf-8")
-          derived_control_sha = hashlib.sha1(
-              f"blob {len(derived_raw)}\0".encode() + derived_raw
+          control_raw = control[control_path]
+          observed_control_sha = hashlib.sha1(
+              f"blob {len(control_raw)}\0".encode() + control_raw
           ).hexdigest()
-          if derived_control_sha != expected_control_blob:
+          if observed_control_sha != expected_control_blob:
               raise SystemExit(
-                  f"derived latest control identity mismatch: {derived_control_sha}"
+                  f"FullRDTE control identity mismatch: {observed_control_sha}"
               )
-          control[control_path] = derived_raw
 
           policy = json.loads(control["rdte/gha/projection-policy.json"])
           auth = policy.get("authorization", {})
@@ -226,10 +205,9 @@ jobs:
               "capsule_sha256": capsule_sha,
               "private_repo_checkout": False,
               "staged_public_git_objects_only": True,
-              "base_control_blob_sha": observed_base,
-              "derived_control_blob_sha": derived_control_sha,
+              "control_blob_sha": observed_control_sha,
               "control_revision": control_revision,
-              "control_derivation": "deterministic predecessor transform with exact Git-object oracle",
+              "control_binding": "direct exact Git object from authorized master manifest",
           }
           (root / "reconstruction.json").write_text(
               json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
