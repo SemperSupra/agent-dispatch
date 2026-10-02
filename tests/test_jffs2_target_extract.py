@@ -14,7 +14,7 @@ def inode_node(ino,version,isize,offset,payload,compr=0,dsize=None):
     prefix=struct.pack("<HHI",0x1985,0xe002,68+len(payload))
     hdr_crc=mod.crc32_raw(prefix)
     hdr=prefix+struct.pack("<I",hdr_crc)
-    hdr+=struct.pack("<IIIHHIIIIII",ino,version,0o100644,0,0,isize,0,0,0,offset,len(payload),dsize)
+    hdr+=struct.pack("<IIIHHIIIIIII",ino,version,0o100644,0,0,isize,0,0,0,offset,len(payload),dsize)
     hdr+=bytes([compr,compr])+struct.pack("<H",0)
     data_crc=mod.crc32_raw(payload)
     node_crc=mod.crc32_raw(hdr)
