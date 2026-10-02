@@ -702,6 +702,15 @@ jobs:
           if (Test-Path $appKey) { throw 'SupraChat Open With registration survived uninstall.' }
           if (Test-Path $arp) { throw 'SupraChat Add/Remove Programs entry survived uninstall.' }
 
+          $uninstallEvent = (Get-Content $installerEventsPath | Select-Object -Last 1) | ConvertFrom-Json
+          if ($uninstallEvent.component -ne 'windows-uninstaller' -or
+              $uninstallEvent.event -ne 'uninstall-complete' -or
+              $uninstallEvent.trace_id -ne $installReceipt.trace_id -or
+              $uninstallEvent.traceparent -notlike "00-$($installReceipt.trace_id)-*-01" -or
+              -not $uninstallEvent.timestamp_utc.EndsWith('Z')) {
+            throw 'Uninstall observability did not preserve UTC trace lineage.'
+          }
+
           if (Test-Path -LiteralPath $installed) {
             try {
               Remove-Item -LiteralPath $installed -Recurse -Force -ErrorAction Stop
