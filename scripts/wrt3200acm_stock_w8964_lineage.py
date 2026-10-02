@@ -27,6 +27,18 @@ HISTORY = [
 ]
 RAW="https://raw.githubusercontent.com/kaloz/mwlwifi/{sha}/bin/firmware/88W8964.bin"
 UA="SemperSupra-WRT3200ACM-lineage/1.0"
+EXTERNAL_CANDIDATES = [
+    {
+        "id":"wrt32x-gpl-shipped",
+        "provenance":"wongsyrone public recovery of WRT32X GPL tarball",
+        "url":"https://raw.githubusercontent.com/wongsyrone/nxp-W9064-PR25-25.2.2.0-P1077-D2082-WFO/dfb9d765615a748f064dfcfa7e289c43d846a15e/extracted-from-WRT32X-gpl-tarball/wlan-v9_8964/files/shipped/W8964.bin",
+    },
+    {
+        "id":"nxp-wlan-v10-w8964",
+        "provenance":"wongsyrone NXP wlan-v10 recovered package",
+        "url":"https://raw.githubusercontent.com/wongsyrone/nxp-W9064-PR25-25.2.2.0-P1077-D2082-WFO/dfb9d765615a748f064dfcfa7e289c43d846a15e/DRV/wlan-v10/W8964.bin",
+    },
+]
 
 def sha256_bytes(data:bytes)->str:
     return hashlib.sha256(data).hexdigest()
@@ -102,17 +114,30 @@ def main()->int:
         except Exception as exc:
             row={"commit":sha,"date":date,"version":version,"url":url,"error":repr(exc),"exact_match":False}
         rows.append(row)
+    external=[]
+    for cand in EXTERNAL_CANDIDATES:
+        try:
+            data=fetch(cand["url"])
+            row={**cand,"size":len(data),"sha256":sha256_bytes(data),"exact_match":data==stock}
+            row["comparison"]=compare(stock,data)
+        except Exception as exc:
+            row={**cand,"error":repr(exc),"exact_match":False}
+        external.append(row)
     exact=[r for r in rows if r.get("exact_match")]
-    comparable=[r for r in rows if "comparison" in r]
+    external_exact=[r for r in external if r.get("exact_match")]
+    comparable=[r for r in rows+external if "comparison" in r]
     nearest=min(comparable,key=lambda r:r["comparison"]["changed_byte_count"]) if comparable else None
     report={
         "schema":"wrt3200acm-stock-w8964-lineage/v1",
         "stock":{"sha256":stock_sha,"size":len(stock)},
         "history_source":"GitHub commit history for kaloz/mwlwifi bin/firmware/88W8964.bin",
         "candidates":rows,
-        "exact_matches":[{"commit":r["commit"],"date":r["date"],"version":r["version"],"sha256":r["sha256"]} for r in exact],
+        "external_candidates":external,
+        "exact_matches":[{"kind":"mwlwifi-history","commit":r["commit"],"date":r["date"],"version":r["version"],"sha256":r["sha256"]} for r in exact]
+            + [{"kind":"external-public","id":r["id"],"provenance":r["provenance"],"sha256":r["sha256"]} for r in external_exact],
         "nearest_public_revision":None if nearest is None else {
-            "commit":nearest["commit"],"date":nearest["date"],"version":nearest["version"],
+            **({"commit":nearest["commit"],"date":nearest["date"],"version":nearest["version"]} if "commit" in nearest else
+               {"id":nearest["id"],"provenance":nearest["provenance"]}),
             "sha256":nearest["sha256"],"comparison":nearest["comparison"]
         },
         "note":"Historical firmware bytes were downloaded only into ephemeral runner memory; evidence contains hashes and delta metrics only."
