@@ -303,6 +303,25 @@ class EmbodimentFabric:
         self.assert_invariants()
         return body
 
+    def block_materialization(self, body_id: str) -> BodyRecord:
+        """Converge an admitted but currently unrealizable request to BLOCKED."""
+        self._require_controller()
+        body = self.body(body_id)
+        self._require(
+            body.state is BodyState.ADMITTED
+            and body.desired_present
+            and self._authorized_current(body),
+            "body is not an admitted materialization request",
+        )
+        body.state = BodyState.BLOCKED
+        body.desired_present = False
+        body.ready = False
+        body.path_ok = False
+        body.stop_requested = True
+        self._close_interaction(body)
+        self.assert_invariants()
+        return body
+
     def dispatch(self, body_id: str) -> BodyRecord:
         self._require_controller()
         body = self.body(body_id)
