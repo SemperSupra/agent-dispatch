@@ -1,0 +1,79 @@
+name: FRITZ H0 D0 image install topology
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d0-image-install-topology.yml'
+      - 'scripts/fritz_h0_d0_image_install_topology.py'
+      - 'scripts/fritz_qemu_user_probe.py'
+      - 'tests/test_fritz_h0_d0_image_install_topology.py'
+      - 'docs/fritz-h0-d0-image-install-topology.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate H0-D0 reducer
+        run: python3 -m unittest -v tests/test_fritz_h0_d0_image_install_topology.py
+
+  exact-firmware-h0-d0:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Discover exact install topology
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d0" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d0_image_install_topology.py \
+            --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+            --expected-size 42393600 \
+            --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d0" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce no-mutation / no-content-leak boundary
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "fritz-receipt" / "receipt.json"
+          r = json.loads(p.read_text())
+          assert r.get("oracleSatisfied") is True, r
+          s = r.get("safety", {})
+          for key in (
+              "rawFirmwarePublished","rawMemberContentPublished",
+              "rawInstallScriptPublished","installScriptExecuted",
+              "physicalRouterContact","flashWriteAuthorized",
+              "bootEnvironmentMutationAuthorized",
+          ):
+              assert s.get(key) is False, (key, s.get(key))
+          b = r.get("interpretationBoundary", {})
+          assert b.get("dualBootSafetyInferred") is False
+          assert b.get("inactiveSlotSafetyInferred") is False
+          assert b.get("bootEnvironmentMutationAuthorized") is False
+          print(json.dumps({
+              "classification": r.get("classification"),
+              "target": r.get("target"),
+              "shape": r.get("outerArchive", {}).get("shape"),
+              "installMetadata": r.get("installMetadata"),
+              "interpretationBoundary": b,
+          }, sort_keys=True))
+          PY
+      - name: Upload sanitized receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d0-image-install-topology-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
