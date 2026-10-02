@@ -519,27 +519,44 @@ class EmbodimentFabric:
         return body
 
     def provider_exit(self, body_id: str) -> BodyRecord:
-        """Observe autonomous provider termination and fence the embodiment.
+        """Observe provider disappearance and reconcile the embodiment.
 
-        This is an external lifecycle observation, so it remains admissible while
-        the controller is down. Provider exit is not a controller-requested stop
-        acknowledgement and does not imply durable work acceptance.
-
-        Direct children explicitly marked cascade-stop are fenced/drained as part
-        of the same semantic transition. Independent children remain independent.
+        For an active body, autonomous provider exit fences the incarnation,
+        withdraws interaction, and applies explicit lifecycle coupling to direct
+        children. During cleanup, the same observation merely clears provider
+        residue and never resurrects usability.
         """
         body = self.body(body_id)
         self._require(
-            body.state in {
-                BodyState.MATERIALIZED,
-                BodyState.REGISTERED,
-                BodyState.READY,
-                BodyState.DEGRADED,
-            }
-            and body.provider_present
-            and body.actor_id is not None,
+            body.provider_present and body.actor_id is not None,
             "provider exit is not applicable",
         )
+
+        active_exit = body.state in {
+            BodyState.MATERIALIZED,
+            BodyState.REGISTERED,
+            BodyState.READY,
+            BodyState.DEGRADED,
+        }
+        cleanup_exit = body.state in {
+            BodyState.DRAINING,
+            BodyState.EXPIRED,
+            BodyState.DEMATERIALIZING,
+            BodyState.REJECTED,
+            BodyState.FAILED_TERMINAL,
+            BodyState.BLOCKED,
+        }
+        self._require(active_exit or cleanup_exit, "provider exit is not applicable")
+
+        if cleanup_exit:
+            body.provider_present = False
+            body.callback_pending = False
+            body.finalizers.discard("provider")
+            if body.state in {BodyState.DRAINING, BodyState.EXPIRED}:
+                body.state = BodyState.DEMATERIALIZING
+            self._close_interaction(body)
+            self.assert_invariants()
+            return body
 
         affected = [
             candidate
@@ -560,8 +577,6 @@ class EmbodimentFabric:
             if actor.generation < self.max_generation:
                 actor.generation += 1
 
-        # The provider that exited is already absent; only control-plane residue
-        # remains for that body.
         body.state = BodyState.DEMATERIALIZING
         body.desired_present = False
         body.provider_present = False
@@ -574,7 +589,6 @@ class EmbodimentFabric:
         if body.registered:
             body.finalizers.add("registration")
 
-        # Lifecycle-coupled direct children may still have provider runtimes.
         for candidate in affected:
             if candidate.body_id == body_id:
                 continue
