@@ -49,7 +49,7 @@ class StartupSemanticsTests(unittest.TestCase):
 
     def test_complex_shell_expansion_stays_opaque(self):
         got = m.startup_variable_facts(
-            'target=$(grep kernel_args "$URLADER_ENV")\\n',
+            'target=$(grep kernel_args "$URLADER_ENV")\n',
             '/etc/boot.d/1',
             {"target"},
         )
@@ -58,7 +58,7 @@ class StartupSemanticsTests(unittest.TestCase):
 
     def test_parameter_default_unit_is_safe(self):
         got = m.startup_variable_facts(
-            'target=${target:-multi-user.target}\\n',
+            'target=${target:-multi-user.target}\n',
             '/etc/boot.d/1',
             {"target"},
         )
