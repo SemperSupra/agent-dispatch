@@ -11,7 +11,7 @@ SPEC.loader.exec_module(r9)
 
 class R9Tests(unittest.TestCase):
     def test_hex_escaped_control_socket_path(self):
-        hex_path = "".join(f"\\\\x{b:02x}" for b in r9.CONTROL_SOCKET.encode("utf-8"))
+        hex_path = r9.CONTROL_SOCKET_HEX
         trace = (
             '123 connect(3, {sa_family=AF_UNIX, sun_path="' + hex_path + '"}, 110) = 0\n'
             '123 sendto(3, "\\x01\\x02", 2, MSG_NOSIGNAL, NULL, 0) = 2\n'
