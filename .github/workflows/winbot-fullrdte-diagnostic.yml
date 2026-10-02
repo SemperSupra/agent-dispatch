@@ -154,7 +154,7 @@ jobs:
 
           derived_raw = text.encode("utf-8")
           derived_control_sha = hashlib.sha1(
-              f"blob {len(derived_raw)}\\0".encode() + derived_raw
+              f"blob {len(derived_raw)}\0".encode() + derived_raw
           ).hexdigest()
           if derived_control_sha != expected_control_blob:
               raise SystemExit(
