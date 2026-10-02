@@ -176,6 +176,49 @@ def check_stop_during_start_then_provider_exit() -> None:
     assert not exited.interaction_open
 
 
+def check_unconfirmed_and_absent_settlement() -> None:
+    blocked = EmbodimentFabric(max_generation=20, max_restarts=1)
+    blocked.add_actor("actor-a")
+    blocked.request_start(
+        actor_id="actor-a",
+        body_id="body-unconfirmed",
+        intent_id="intent-unconfirmed",
+        authority_ref=AUTHORITY,
+        capabilities={"build"},
+    )
+    blocked.admit("body-unconfirmed")
+    blocked.dispatch("body-unconfirmed")
+    body = blocked.block_unconfirmed_materialization("body-unconfirmed")
+    assert body.state is BodyState.BLOCKED
+    assert not body.callback_pending
+    assert not body.provider_present
+    fresh = blocked.request_start(
+        actor_id="actor-a",
+        body_id="body-fresh",
+        intent_id="intent-fresh",
+        authority_ref=AUTHORITY,
+        capabilities={"build"},
+    )
+    assert fresh.state is BodyState.REQUESTED
+
+    stopped = EmbodimentFabric(max_generation=20, max_restarts=1)
+    stopped.add_actor("actor-a")
+    stopped.request_start(
+        actor_id="actor-a",
+        body_id="body-stopped",
+        intent_id="intent-stopped",
+        authority_ref=AUTHORITY,
+        capabilities={"build"},
+    )
+    stopped.admit("body-stopped")
+    stopped.dispatch("body-stopped")
+    stopped.request_stop("body-stopped")
+    settled = stopped.settle_provider_absent("body-stopped")
+    assert settled.state is BodyState.DEMATERIALIZING
+    assert not settled.callback_pending
+    assert not settled.provider_present
+
+
 def check_interaction_binding_separation() -> None:
     f = EmbodimentFabric(max_generation=20, max_restarts=1)
     f.add_actor("actor-a")
@@ -510,6 +553,7 @@ def main() -> None:
     check_affordance_and_replacement_fencing()
     check_late_provider_callback()
     check_stop_during_start_then_provider_exit()
+    check_unconfirmed_and_absent_settlement()
     check_interaction_binding_separation()
     check_path_loss_and_expiry()
     check_provider_exit_and_reembodiment()
