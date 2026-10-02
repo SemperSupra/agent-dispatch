@@ -775,6 +775,65 @@ jobs:
             throw 'Installer event/receipt UTC trace correlation failed.'
           }
 
+          # Same-build repair/reinstall: new install correlation, identical binaries, registrations remain valid.
+          $firstInstallSession = [string]$installReceipt.install_session_id
+          $firstTrace = [string]$installReceipt.trace_id
+          $firstAppHash = [string]$installReceipt.app_sha256
+          $firstAutomationHash = [string]$installReceipt.automation_sha256
+          $firstCodexHash = [string]$installReceipt.codex_sha256
+
+          & (Join-Path $source 'install.ps1') -NoLaunch
+          if ($LASTEXITCODE -ne 0) { throw 'Same-build Windows repair/reinstall failed.' }
+
+          $installReceipt = Get-Content $installReceiptPath -Raw | ConvertFrom-Json
+          if ([string]$installReceipt.install_session_id -eq $firstInstallSession -or
+              [string]$installReceipt.trace_id -eq $firstTrace) {
+            throw 'Windows repair/reinstall did not create a new install correlation.'
+          }
+          if ([string]$installReceipt.app_sha256 -ne $firstAppHash -or
+              [string]$installReceipt.automation_sha256 -ne $firstAutomationHash -or
+              [string]$installReceipt.codex_sha256 -ne $firstCodexHash) {
+            throw 'Windows repair/reinstall changed packaged binary provenance.'
+          }
+          if (!(Test-Path $protocolCommand) -or !(Test-Path $appCommand) -or !(Test-Path $arp)) {
+            throw 'Windows repair/reinstall failed to preserve registrations.'
+          }
+
+          # Launch the actually installed binary and require it to inherit the install trace.
+          $installedEvents = Join-Path $diagRoot 'events.jsonl'
+          Remove-Item $installedEvents -Force -ErrorAction SilentlyContinue
+          $priorTrace = $env:SUPRACHAT_INSTALL_TRACE_ID
+          $priorInstallSession = $env:SUPRACHAT_INSTALL_SESSION_ID
+          try {
+            $env:SUPRACHAT_INSTALL_TRACE_ID = [string]$installReceipt.trace_id
+            $env:SUPRACHAT_INSTALL_SESSION_ID = [string]$installReceipt.install_session_id
+            $installedProcess = Start-Process -FilePath $installedExe -PassThru
+            Start-Sleep -Seconds 6
+            if ($installedProcess.HasExited) {
+              throw "Installed SupraChat exited during launch rep with code $($installedProcess.ExitCode)"
+            }
+            if (!(Test-Path $installedEvents)) {
+              throw 'Installed SupraChat did not emit structured diagnostics.'
+            }
+            $installedEventDocs = @(Get-Content $installedEvents | ForEach-Object { $_ | ConvertFrom-Json })
+            if ($installedEventDocs.Count -lt 2) {
+              throw 'Installed SupraChat emitted too few lifecycle events.'
+            }
+            foreach ($eventDoc in $installedEventDocs) {
+              if ([string]$eventDoc.trace_id -ne [string]$installReceipt.trace_id) {
+                throw 'Installed SupraChat did not inherit the repaired-install trace.'
+              }
+              if (-not ([string]$eventDoc.timestamp_utc).EndsWith('Z')) {
+                throw 'Installed SupraChat event timestamp is not explicit UTC.'
+              }
+            }
+            Stop-Process -Id $installedProcess.Id -Force
+          }
+          finally {
+            $env:SUPRACHAT_INSTALL_TRACE_ID = $priorTrace
+            $env:SUPRACHAT_INSTALL_SESSION_ID = $priorInstallSession
+          }
+
           Remove-Item (Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/SupraChat.lnk') -Force -ErrorAction SilentlyContinue
           Remove-Item $arp -Recurse -Force -ErrorAction SilentlyContinue
           $uninstall = Join-Path $installed 'uninstall.ps1'
