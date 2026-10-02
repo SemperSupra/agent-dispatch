@@ -153,7 +153,7 @@ def namespace_helper(args: argparse.Namespace) -> int:
     interfaces = sorted(set(
         m.group(1)
         for line in links.stdout.splitlines()
-        if (m := __import__("re").match(r"\\d+:\\s+([^:@]+)", line))
+        if (m := __import__("re").match(r"\d+:\s+([^:@]+)", line))
     ))
     if interfaces != ["lo"]:
         raise RuntimeError(f"unexpected interfaces: {interfaces!r}")
