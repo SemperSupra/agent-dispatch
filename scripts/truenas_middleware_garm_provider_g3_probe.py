@@ -11,6 +11,7 @@ import secrets
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 import truenas_middleware_garm_provider_g2_probe as g2
@@ -27,7 +28,9 @@ EXPECTED_FIXTURE_SCHEMA = "semper-supra.garm-provider-truenas-g3-create-fixture/
 EXPECTED_CONTROLLER_ID = "g3-controller"
 EXPECTED_POOL_ID = "g3-pool"
 DEFAULT_CALLBACK_URL = "https://httpbin.org/anything/sempersupra-g3/status"
-DEFAULT_METADATA_URL = "https://httpbin.org/anything/sempersupra-g3/metadata"
+DEFAULT_METADATA_URL = (
+    "https://httpbin.org/drip?duration=1&numbytes=1&code=200&delay=60&path="
+)
 EXPECTED_SUBSTITUTIONS = [
     "bootstrap_template.callback-url",
     "bootstrap_template.metadata-url",
@@ -71,12 +74,18 @@ def preflight_public_fixture(callback_url: str, metadata_url: str, timeout: floa
                 "User-Agent": "SemperSupra-G3-RDTE/1",
             },
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read(4096)
-            if not (200 <= response.status < 300) or not body:
-                raise FixtureEnvironmentError(
-                    "synthetic metadata preflight did not return non-empty HTTP 2xx"
-                )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                response.read(4096)
+        except TimeoutError:
+            pass
+        except urllib.error.URLError as exc:
+            if not isinstance(exc.reason, TimeoutError):
+                raise
+        else:
+            raise FixtureEnvironmentError(
+                "synthetic metadata hold-open returned before the preflight timeout"
+            )
     except FixtureEnvironmentError:
         raise
     except Exception as exc:
@@ -265,6 +274,7 @@ def main() -> int:
             "callback_url": a.callback_url,
             "metadata_url": a.metadata_url,
             "authority": "public-synthetic-non-github",
+            "metadata_behavior": "intentional-hold-open-no-jit-credentials",
         },
     }
 
@@ -297,6 +307,7 @@ def main() -> int:
             )
             payload["expected_app_name"] = bundle["expected_app_name"]
             payload["run_local_substitutions"] = EXPECTED_SUBSTITUTIONS
+            app_name = bundle["expected_app_name"]
 
             bootstrap, expected_compose = lower_fixture(
                 bundle, a.callback_url, a.metadata_url, token
@@ -387,10 +398,10 @@ def main() -> int:
             created = parse_provider_json(create_cp, "CreateInstance", token)
             if not isinstance(created, dict):
                 raise RuntimeError("CreateInstance did not return an object")
-            app_name = str(created.get("provider_id") or "")
-            if app_name != bundle["expected_app_name"]:
+            created_app_name = str(created.get("provider_id") or "")
+            if created_app_name != app_name:
                 raise RuntimeError(
-                    f"provider-created App identity drifted: {app_name!r}"
+                    f"provider-created App identity drifted: {created_app_name!r}"
                 )
 
             config = session.call("app.config", [app_name])
