@@ -248,6 +248,25 @@ RejectStaleOrUnauthorized(b) ==
                   finalizers, parent, restartCount, cleanupFailures, grantLevel,
                   staleEvidenceSeen, controllerUp>>
 
+BlockAdmitted(b) ==
+    /\ controllerUp
+    /\ state[b] = "ADMITTED"
+    /\ desiredPresent[b]
+    /\ Assigned(b)
+    /\ authorityValid[bodyActor[b]]
+    /\ CurrentGeneration(b)
+    /\ state' = [state EXCEPT ![b] = "BLOCKED"]
+    /\ desiredPresent' = [desiredPresent EXCEPT ![b] = FALSE]
+    /\ ready' = [ready EXCEPT ![b] = FALSE]
+    /\ pathOK' = [pathOK EXCEPT ![b] = FALSE]
+    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = FALSE]
+    /\ actuationGranted' = [actuationGranted EXCEPT ![b] = FALSE]
+    /\ stopRequested' = [stopRequested EXCEPT ![b] = TRUE]
+    /\ UNCHANGED <<actorGen, authorityValid, bodyActor, bodyGen,
+                  providerPresent, callbackPending, registered, finalizers,
+                  parent, restartCount, cleanupFailures, grantLevel,
+                  staleEvidenceSeen, controllerUp>>
+
 Dispatch(b) ==
     /\ controllerUp
     /\ state[b] = "ADMITTED"
@@ -589,6 +608,7 @@ Next ==
     \/ \E a \in Actors, old \in Bodies, new \in Bodies : RequestReplace(a, old, new)
     \/ \E b \in Bodies : Admit(b)
     \/ \E b \in Bodies : RejectStaleOrUnauthorized(b)
+    \/ \E b \in Bodies : BlockAdmitted(b)
     \/ \E b \in Bodies : Dispatch(b)
     \/ \E b \in Bodies : FailStart(b)
     \/ \E b \in Bodies : RetryDispatch(b)
@@ -698,6 +718,7 @@ StopConverges ==
 ProgressBody(b) ==
     \/ Admit(b)
     \/ RejectStaleOrUnauthorized(b)
+    \/ BlockAdmitted(b)
     \/ Dispatch(b)
     \/ FailStart(b)
     \/ RetryDispatch(b)
