@@ -472,16 +472,18 @@ class EmbodimentControl:
 
         if provider_exit_observed:
             body = self.fabric.body(effect.body_instance_id)
-            if (
-                body.provider_present
-                and body.state
-                in {
-                    BodyState.MATERIALIZED,
-                    BodyState.REGISTERED,
-                    BodyState.READY,
-                    BodyState.DEGRADED,
-                }
-            ):
+            if body.provider_present and body.state in {
+                BodyState.MATERIALIZED,
+                BodyState.REGISTERED,
+                BodyState.READY,
+                BodyState.DEGRADED,
+                BodyState.DRAINING,
+                BodyState.EXPIRED,
+                BodyState.DEMATERIALIZING,
+                BodyState.REJECTED,
+                BodyState.FAILED_TERMINAL,
+                BodyState.BLOCKED,
+            }:
                 self.fabric.provider_exit(body.body_id)
                 transitions.append("provider_exit")
             elif body.state in {
