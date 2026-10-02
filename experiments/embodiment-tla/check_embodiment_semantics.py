@@ -346,6 +346,33 @@ def main() -> None:
     check_teardown_and_immutable_identity()
     check_controller_recovery()
     check_child_graph()
+
+    f = EmbodimentFabric(max_generation=20, max_restarts=1)
+    f.add_actor("actor-a")
+    f.request_start(
+        actor_id="actor-a",
+        body_id="body-blocked",
+        intent_id="intent-blocked",
+        authority_ref="github:public-safe-authority",
+        capabilities={"mcp"},
+    )
+    f.admit("body-blocked")
+    blocked = f.block_materialization("body-blocked")
+    assert blocked.state is BodyState.BLOCKED
+    assert not blocked.desired_present
+    assert not blocked.provider_present
+    assert not blocked.interaction_open
+    assert not f.effective_affordances("body-blocked")
+    generation = f.actors["actor-a"].generation
+    fresh = f.request_start(
+        actor_id="actor-a",
+        body_id="body-after-block",
+        intent_id="intent-after-block",
+        authority_ref="github:public-safe-authority",
+    )
+    assert fresh.state is BodyState.REQUESTED
+    assert f.actors["actor-a"].generation == generation + 1
+
     print("embodiment executable semantics: PASS")
 
 
