@@ -189,6 +189,19 @@ $automationHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $AutomationPath).
 $codexPath = Join-Path $InstallRoot 'runtime\codex\codex.exe'
 $codexHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $codexPath).Hash.ToLowerInvariant()
 
+$buildInfoPath = Join-Path $InstallRoot 'build-info.json'
+$buildInfo = $null
+if (Test-Path $buildInfoPath) {
+  try {
+    $buildInfo = Get-Content $buildInfoPath -Raw | ConvertFrom-Json
+  } catch {
+    Write-InstallerEvent -Event 'build-info-read' -Outcome 'failure' -Fields @{
+      exception_type = $_.Exception.GetType().FullName
+      hresult = $_.Exception.HResult
+    }
+  }
+}
+
 $installReceipt = [ordered]@{
   schema = 'suprachat-install-receipt/v2'
   completed_at_utc = Get-UtcIsoTimestamp
@@ -197,6 +210,9 @@ $installReceipt = [ordered]@{
   installer_elapsed_ms = [long]$InstallerStarted.Elapsed.TotalMilliseconds
   platform = 'windows'
   install_mode = 'per-user'
+  source_revision = if ($buildInfo) { $buildInfo.source_revision } else { $null }
+  workflow_run_id = if ($buildInfo) { $buildInfo.workflow_run_id } else { $null }
+  runtime_identifier = if ($buildInfo) { $buildInfo.runtime_identifier } else { $null }
   app_sha256 = $installedExeHash
   automation_sha256 = $automationHash
   codex_sha256 = $codexHash
