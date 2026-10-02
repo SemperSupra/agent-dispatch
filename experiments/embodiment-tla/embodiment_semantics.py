@@ -123,6 +123,7 @@ class EmbodimentFabric:
         self.actors: dict[str, ActorRecord] = {}
         self.bodies: dict[str, BodyRecord] = {}
         self.intents: dict[str, IntentRecord] = {}
+        self.controller_up = True
 
     def add_actor(self, actor_id: str) -> ActorRecord:
         if not actor_id:
@@ -145,6 +146,7 @@ class EmbodimentFabric:
         capabilities: Iterable[str] = (),
         parent_body_id: str | None = None,
     ) -> BodyRecord:
+        self._require_controller()
         actor = self._actor(actor_id)
         existing = self._idempotent_intent(
             intent_id=intent_id,
@@ -195,6 +197,7 @@ class EmbodimentFabric:
         authority_ref: str,
         capabilities: Iterable[str] = (),
     ) -> BodyRecord:
+        self._require_controller()
         actor = self._actor(actor_id)
         existing = self._idempotent_intent(
             intent_id=intent_id,
@@ -241,6 +244,7 @@ class EmbodimentFabric:
         return new
 
     def admit(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         if body.state is not BodyState.REQUESTED:
             raise FabricError("body is not awaiting admission")
@@ -255,6 +259,7 @@ class EmbodimentFabric:
         return body
 
     def dispatch(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state is BodyState.ADMITTED
@@ -284,6 +289,7 @@ class EmbodimentFabric:
         return body
 
     def retry_dispatch(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state is BodyState.FAILED_RETRYABLE
@@ -321,6 +327,7 @@ class EmbodimentFabric:
         return body
 
     def register(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state is BodyState.MATERIALIZED
@@ -335,6 +342,7 @@ class EmbodimentFabric:
         return body
 
     def record_direct_path(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state in {BodyState.REGISTERED, BodyState.DEGRADED}
@@ -348,6 +356,7 @@ class EmbodimentFabric:
         return body
 
     def attest_readiness(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state in {BodyState.REGISTERED, BodyState.DEGRADED}
@@ -365,6 +374,7 @@ class EmbodimentFabric:
         return body
 
     def admit_actuation(self, body_id: str, action: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             action in self.effective_affordances(body_id),
@@ -385,6 +395,7 @@ class EmbodimentFabric:
         return body
 
     def request_stop(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(body.state in ACTIVE_STATES, "body is not in an active state")
         actor = self._actor_for(body)
@@ -394,7 +405,25 @@ class EmbodimentFabric:
         self.assert_invariants()
         return body
 
+    def expire(self, body_id: str) -> BodyRecord:
+        """Expire an active embodiment and fence it before cleanup converges."""
+        body = self.body(body_id)
+        self._require(body.state in ACTIVE_STATES, "body is not in an active state")
+        actor = self._actor_for(body)
+        if self._current_generation(body) and actor.generation < self.max_generation:
+            actor.generation += 1
+        body.state = BodyState.EXPIRED
+        body.desired_present = False
+        body.stop_requested = True
+        body.ready = False
+        body.path_ok = False
+        self._close_interaction(body)
+        body.finalizers = self._required_finalizers(body)
+        self.assert_invariants()
+        return body
+
     def revoke_authority(self, actor_id: str) -> ActorRecord:
+        self._require_controller()
         actor = self._actor(actor_id)
         actor.authority_valid = False
         if actor.generation < self.max_generation:
@@ -406,6 +435,7 @@ class EmbodimentFabric:
         return actor
 
     def begin_cleanup(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state in {BodyState.DRAINING, BodyState.EXPIRED}
@@ -418,6 +448,7 @@ class EmbodimentFabric:
         return body
 
     def provider_stop_ack(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state
@@ -432,6 +463,7 @@ class EmbodimentFabric:
         return body
 
     def finalizer_step(self, body_id: str, kind: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state is BodyState.DEMATERIALIZING
@@ -445,7 +477,38 @@ class EmbodimentFabric:
         self.assert_invariants()
         return body
 
+    def finalizer_fail(self, body_id: str) -> BodyRecord:
+        """Record one bounded cleanup failure without reopening interaction."""
+        self._require_controller()
+        body = self.body(body_id)
+        self._require(
+            body.state is BodyState.DEMATERIALIZING
+            and bool(body.finalizers)
+            and body.cleanup_failures < self.max_restarts,
+            "cleanup failure is not retryable",
+        )
+        body.cleanup_failures += 1
+        self._close_interaction(body)
+        self.assert_invariants()
+        return body
+
+    def finalizer_exhausted(self, body_id: str) -> BodyRecord:
+        """Converge exhausted cleanup to a durable actionable BLOCKED state."""
+        self._require_controller()
+        body = self.body(body_id)
+        self._require(
+            body.state is BodyState.DEMATERIALIZING
+            and bool(body.finalizers)
+            and body.cleanup_failures == self.max_restarts,
+            "cleanup retry budget is not exhausted",
+        )
+        body.state = BodyState.BLOCKED
+        self._close_interaction(body)
+        self.assert_invariants()
+        return body
+
     def confirm_dematerialized(self, body_id: str) -> BodyRecord:
+        self._require_controller()
         body = self.body(body_id)
         self._require(
             body.state is BodyState.DEMATERIALIZING
@@ -468,6 +531,15 @@ class EmbodimentFabric:
         body.capabilities = frozenset()
         self.assert_invariants()
         return body
+
+    def crash_controller(self) -> None:
+        self._require(self.controller_up, "controller is already down")
+        self.controller_up = False
+
+    def recover_controller(self) -> None:
+        self._require(not self.controller_up, "controller is already up")
+        self.controller_up = True
+        self.assert_invariants()
 
     def effective_affordances(self, body_id: str) -> frozenset[str]:
         body = self.body(body_id)
@@ -619,6 +691,9 @@ class EmbodimentFabric:
         ):
             raise FabricError("idempotency key collision")
         return self.body(existing.body_id)
+
+    def _require_controller(self) -> None:
+        self._require(self.controller_up, "controller is unavailable")
 
     @staticmethod
     def _require(condition: bool, message: str) -> None:
