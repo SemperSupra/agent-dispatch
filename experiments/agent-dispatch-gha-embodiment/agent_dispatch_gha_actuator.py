@@ -153,34 +153,28 @@ def normalize_observation(
     if status != "completed":
         raise ValueError("unsupported github-actions run status")
 
-    result = observation.get("result")
+    runtime_evidence = observation.get("runtime_evidence")
     runtime_started = (
-        isinstance(result, dict)
-        and result.get("assignment_id") in {None, binding.assignment_id}
-        and isinstance(result.get("started_at"), str)
-        and bool(result.get("started_at").strip())
+        isinstance(runtime_evidence, dict)
+        and runtime_evidence.get("assignment_id") in {None, binding.assignment_id}
+        and runtime_evidence.get("started") is True
+        and runtime_evidence.get("source") in {"github-actions-job", "executor"}
+        and isinstance(runtime_evidence.get("started_at"), str)
+        and bool(runtime_evidence.get("started_at").strip())
     )
 
     if conclusion == "success":
-        if not runtime_started:
-            return _observation_receipt(
-                binding,
-                provider_state="TERMINAL_NO_RUNTIME_EVIDENCE",
-                effect_ack="failed",
-                reconciliation="blocked",
-                terminal=True,
-                run_count=1,
-                runtime_started=False,
-                exit_outcome="success",
-            )
         return _observation_receipt(
             binding,
-            provider_state="SUCCEEDED",
+            provider_state=(
+                "SUCCEEDED" if runtime_started else "SUCCEEDED_UNCONFIRMED_BODY"
+            ),
             effect_ack="succeeded",
             reconciliation="converged",
             terminal=True,
             run_count=1,
-            runtime_started=True,
+            runtime_started=runtime_started,
+            exit_observed=True,
             exit_outcome="success",
         )
 
@@ -195,12 +189,13 @@ def normalize_observation(
     }:
         return _observation_receipt(
             binding,
-            provider_state="FAILED" if runtime_started else "FAILED_NO_RUNTIME",
+            provider_state="FAILED" if runtime_started else "FAILED_UNCONFIRMED_BODY",
             effect_ack="failed",
             reconciliation="blocked",
             terminal=True,
             run_count=1,
             runtime_started=runtime_started,
+            exit_observed=True,
             exit_outcome=conclusion,
         )
 
@@ -247,10 +242,11 @@ def _observation_receipt(
     terminal: bool,
     run_count: int,
     runtime_started: bool = False,
+    exit_observed: bool = False,
     exit_outcome: str | None = None,
 ) -> dict[str, Any]:
     provider_runtime_observed = runtime_started
-    provider_exit_observed = terminal and runtime_started
+    provider_exit_observed = terminal and exit_observed
     return {
         "schema": "agent-dispatch-gha-observation/v1",
         "classification": "GHA_EXECUTOR_OBSERVATION",
