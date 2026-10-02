@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.10.7-t6-official-catalog-001-two-row-producer",
-  "version": "25.10.7",
+  "request_id": "tn-26-beta3-t6-garm-provider-g3-002-hold-open-metadata-boundary",
+  "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "official-catalog",
-  "authority_issue": 410,
-  "consumer_authority_issue": 281,
-  "purpose": "Qualify exact TrueNAS 25.10.7 native official-catalog ntfy T6 using producer 60d56cc1752bc825cb232d72b397ff17fe6d47c4, which records accepted 25.04.1 and 25.04.2.6 runtime rows while universal_qualified remains false."
+  "product": "garm-provider-g3",
+  "authority_issue": 396,
+  "consumer_authority_issue": 40,
+  "purpose": "Re-run GARM provider G3 on exact TrueNAS 26.0.0-BETA.3 with a public synthetic metadata endpoint that intentionally holds the pre-JIT fetch open long enough for provider CreateInstance/App startup observation, while returning no usable GitHub JIT credential material; then require exact Compose read-back, Get/List, supported inactive transition, provider DeleteInstance, absence, empty inventory, and zero residue."
 }
