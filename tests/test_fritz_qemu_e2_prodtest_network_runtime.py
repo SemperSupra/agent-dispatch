@@ -52,5 +52,35 @@ class ProdtestNetworkRuntimeTests(unittest.TestCase):
             })
 
 
+    def test_classify_selected_target_relative(self):
+        receipt = {
+            "runtime": {
+                "fixedPathTrace": {
+                    "ctlmgrExecveCount": 0,
+                    "paths": {
+                        "selected_target_relative": {"hitCount": 1},
+                    },
+                },
+                "ctlmgrProcessObserved": False,
+            }
+        }
+        self.assertEqual(r5.classify_r5(receipt), "E2_R5_SELECTED_TARGET_READ")
+
+    def test_classify_ctlmgr_relative(self):
+        receipt = {
+            "runtime": {
+                "fixedPathTrace": {
+                    "ctlmgrExecveCount": 0,
+                    "paths": {
+                        "ctlmgr_unit_relative": {"hitCount": 1},
+                        "psupport_data": {"failureCount": 0},
+                    },
+                },
+                "ctlmgrProcessObserved": False,
+            }
+        }
+        self.assertEqual(r5.classify_r5(receipt), "E2_R5_CTLMGR_UNIT_READ")
+
+
 if __name__ == "__main__":
     unittest.main()
