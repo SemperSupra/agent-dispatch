@@ -6,12 +6,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-cloud-recovery.yml'
-      - 'scripts/wrt3200acm_cloud_recovery.py'
-      - 'tests/test_wrt3200acm_cloud_recovery.py'
-      - 'tasks/wrt3200acm/**'
   workflow_dispatch:
 
 permissions:

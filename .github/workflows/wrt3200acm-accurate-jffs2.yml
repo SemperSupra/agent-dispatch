@@ -1,11 +1,6 @@
 name: WRT3200ACM Accurate JFFS2 Reconstruction
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-accurate-jffs2.yml'
-      - 'scripts/jffs2_target_extract.py'
-      - 'tests/test_jffs2_target_extract.py'
   workflow_dispatch:
 
 permissions:

@@ -1,11 +1,6 @@
 name: WRT3200ACM Stock JFFS2 Inventory
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-jffs2-inventory.yml'
-      - 'scripts/wrt3200acm_jffs2_inventory.py'
-      - 'tests/test_wrt3200acm_jffs2_inventory.py'
   workflow_dispatch:
 
 permissions:

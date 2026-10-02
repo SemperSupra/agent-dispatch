@@ -140,6 +140,9 @@ def main()->int:
     disasm=dispatch.run_objdump(elf,HANDLER_START,HANDLER_END)
     host_if_disasm=dispatch.run_objdump(elf,0x0000e350,0x0000e358)
     post_fill_disasm=dispatch.run_objdump(elf,0x0003b038,0x0003b110)
+    allocator_disasm=dispatch.run_objdump(elf,0x000023a8,0x00002410)
+    error_disasm=dispatch.run_objdump(elf,0x00001070,0x000010bc)
+    fatal_disasm=dispatch.run_objdump(elf,0x0000016c,0x000001b0)
     v=verify_disassembly(disasm,elf)
     report={
         "schema":"wrt8964-get-hw-spec-semantics/v1",
@@ -172,8 +175,25 @@ def main()->int:
         ],
         "verification":v,
         "helper_probe":{
-            "host_if_0x0000e350":helper_summary(host_if_disasm),
-            "post_fill_0x0003b038":helper_summary(post_fill_disasm),
+            "host_if_0x0000e350":{
+                **helper_summary(host_if_disasm),
+                "observed_return_constant":2,
+                "semantic_status":"closed",
+                "interpretation":"Returns constant 2 in r0; GET_HW_SPEC therefore reports host_if=2."
+            },
+            "post_fill_0x0003b038":{
+                **helper_summary(post_fill_disasm),
+                "global_struct_literal_address":"0x0003b110",
+                "global_struct_pointer":f"0x{read_elf_load_u32(elf,0x0003b110):08x}",
+                "secondary_global_literal_address":"0x0003a8d0",
+                "secondary_global_pointer":f"0x{read_elf_load_u32(elf,0x0003a8d0):08x}",
+                "allocation_sizes":[0x2b80,0x0fb0,0x1000,0x11f0,0x04e0,0x0fd0],
+                "semantic_status":"partially-closed",
+                "interpretation":"Overwrites r0/r1 immediately and reloads r4 from a firmware literal before any r4 use, so it does not read or mutate the GET_HW_SPEC command buffer directly. It allocates six global buffers via 0x23a8, stores pointers in a global structure, derives secondary pointers from the first allocation, and follows an error path if required allocations are null."
+            },
+            "allocator_0x000023a8":helper_summary(allocator_disasm),
+            "error_0x00001070":helper_summary(error_disasm),
+            "fatal_0x0000016c":helper_summary(fatal_disasm),
         },
         "guardrail":"partial_rehost writes only fields with directly recovered semantics and reports the rest UNKNOWN."
     }
@@ -181,6 +201,9 @@ def main()->int:
     (out/"get-hw-spec-disassembly.txt").write_text(disasm)
     (out/"get-hw-spec-host-if-helper.txt").write_text(host_if_disasm)
     (out/"get-hw-spec-post-fill-helper.txt").write_text(post_fill_disasm)
+    (out/"get-hw-spec-allocator-helper.txt").write_text(allocator_disasm)
+    (out/"get-hw-spec-error-helper.txt").write_text(error_disasm)
+    (out/"get-hw-spec-fatal-helper.txt").write_text(fatal_disasm)
     print(json.dumps(v,indent=2,sort_keys=True))
     return 0 if v["all_required_present"] else 3
 

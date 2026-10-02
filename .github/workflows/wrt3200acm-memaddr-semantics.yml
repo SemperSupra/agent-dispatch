@@ -1,13 +1,6 @@
 name: WRT3200ACM MEM_ADDR_ACCESS Semantics
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-memaddr-semantics.yml'
-      - 'scripts/wrt3200acm_memaddr_semantics.py'
-      - 'scripts/wrt3200acm_dispatch_probe.py'
-      - 'scripts/wrt3200acm_fw_to_elf.py'
-      - 'tests/test_wrt3200acm_memaddr_semantics.py'
   workflow_dispatch:
 
 permissions:

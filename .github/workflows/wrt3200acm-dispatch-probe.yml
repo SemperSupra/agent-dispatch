@@ -1,12 +1,6 @@
 name: WRT3200ACM Dispatcher Probe
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-dispatch-probe.yml'
-      - 'scripts/wrt3200acm_dispatch_probe.py'
-      - 'tests/test_wrt3200acm_dispatch_probe.py'
-      - 'scripts/wrt3200acm_fw_to_elf.py'
   workflow_dispatch:
 
 permissions:

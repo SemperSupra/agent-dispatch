@@ -1,12 +1,6 @@
 name: WRT3200ACM Stock File Metadata
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-stock-file-metadata.yml'
-      - 'scripts/wrt3200acm_stock_file_metadata.py'
-      - 'scripts/jffs2_target_extract.py'
-      - 'tests/test_wrt3200acm_stock_file_metadata.py'
   workflow_dispatch:
 
 permissions:

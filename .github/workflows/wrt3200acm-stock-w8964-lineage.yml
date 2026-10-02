@@ -1,12 +1,6 @@
 name: WRT3200ACM Stock W8964 Lineage
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-stock-w8964-lineage.yml'
-      - 'scripts/wrt3200acm_stock_w8964_lineage.py'
-      - 'scripts/jffs2_target_extract.py'
-      - 'tests/test_wrt3200acm_stock_w8964_lineage.py'
   workflow_dispatch:
 
 permissions:

@@ -1,12 +1,6 @@
 name: WRT3200ACM Stock/Public W8964 Boundary
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-stock-public-boundary.yml'
-      - 'scripts/wrt3200acm_stock_public_boundary.py'
-      - 'scripts/jffs2_target_extract.py'
-      - 'tests/test_wrt3200acm_stock_public_boundary.py'
   workflow_dispatch:
 
 permissions:
