@@ -30,6 +30,22 @@ class RecoveryUnitTests(unittest.TestCase):
         got = mod.CMD_RE.findall(sample)
         self.assertEqual(got, [("HOSTCMD_CMD_FOO", "0x1234"), ("HOSTCMD_CMD_BAR", "0xabcd")])
 
+    def test_legacy_uimage_probe_tail(self):
+        import struct
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "u.img"
+            name = b"test-image" + b"\x00" * (32-len("test-image"))
+            payload = b"ABCD"
+            header = struct.pack(">7I4B32s", 0x27051956, 0, 0, len(payload), 0x8000, 0x8000, 0, 5, 2, 2, 0, name)
+            tail = b"X" * 8 + b"hsqs" + b"Y" * 8
+            p.write_bytes(header + payload + tail)
+            r = mod.legacy_uimage_probe(p)
+            self.assertIsNotNone(r)
+            self.assertEqual(r["declared_data_size"], 4)
+            self.assertEqual(r["payload_end"], 68)
+            self.assertEqual(r["appended_tail_size"], len(tail))
+            self.assertEqual(r["tail_magic"]["squashfs-le"]["offsets_relative"], [8])
+
     def test_structural_dispatch_scan(self):
         import json
         import struct
