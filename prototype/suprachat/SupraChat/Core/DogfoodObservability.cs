@@ -231,7 +231,7 @@ public static class DogfoodObservability
             ? null
             : safeFields.ToDictionary(
                 pair => pair.Key,
-                pair => NormalizeSafeValue(pair.Value),
+                pair => NormalizeSafeValue(pair.Key, pair.Value),
                 StringComparer.Ordinal);
 
         var entry = new
