@@ -55,23 +55,13 @@ public sealed class BrowserSession : IAsyncDisposable
         if (!Directory.Exists(driverRoot))
             return;
 
+        // Point Playwright at the packaged driver root and let Playwright's
+        // own platform resolver choose node/<platform>/node. Do not set
+        // PLAYWRIGHT_NODEJS_PATH by enumerating a multi-platform driver tree:
+        // that can select a binary for the wrong OS/architecture.
         Environment.SetEnvironmentVariable(
             "PLAYWRIGHT_DRIVER_SEARCH_PATH",
             PlaywrightDriverDirectory);
-
-        var nodeName = OperatingSystem.IsWindows() ? "node.exe" : "node";
-        var nodeRoot = Path.Combine(driverRoot, "node");
-        if (Directory.Exists(nodeRoot))
-        {
-            var nodePath = Directory.EnumerateFiles(
-                    nodeRoot,
-                    nodeName,
-                    SearchOption.AllDirectories)
-                .FirstOrDefault();
-
-            if (!string.IsNullOrWhiteSpace(nodePath) && File.Exists(nodePath))
-                Environment.SetEnvironmentVariable("PLAYWRIGHT_NODEJS_PATH", nodePath);
-        }
     }
 
     public static BrowserRuntimeStatus Status() => new(
