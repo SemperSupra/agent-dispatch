@@ -19,11 +19,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare evidence directory
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/embodiment-tla"
+
       - name: Check executable embodiment semantics
         shell: bash
         run: |
           set -euo pipefail
-          python3 experiments/embodiment-tla/check_embodiment_semantics.py
+          python3 experiments/embodiment-tla/check_embodiment_semantics.py \
+            2>&1 | tee "$RUNNER_TEMP/embodiment-tla/executable-semantics.log"
 
       - name: Acquire pinned TLA+ tools
         shell: bash
@@ -120,6 +125,7 @@ jobs:
         with:
           name: embodiment-tla-model-check-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/embodiment-tla/executable-semantics.log
             ${{ runner.temp }}/embodiment-tla/receipt.json
             ${{ runner.temp }}/embodiment-tla/source-sha256.txt
             ${{ runner.temp }}/embodiment-tla/sany.log
