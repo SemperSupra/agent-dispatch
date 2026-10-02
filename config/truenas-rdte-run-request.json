@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-provider-g3-001-create-delete-boundary",
-  "version": "26.0.0-BETA.3",
+  "request_id": "tn-25.04.2.6-t6-official-catalog-002-runtime-qualified-producer",
+  "version": "25.04.2.6",
   "rung": "t6",
-  "product": "garm-provider-g3",
-  "authority_issue": 396,
-  "consumer_authority_issue": 40,
-  "purpose": "Exercise the exact packaged GARM TrueNAS provider CreateInstance boundary on disposable nested TrueNAS: exact provider-owned runner App realization and Compose read-back, Get/List reconciliation, supported inactive transition, provider DeleteInstance, post-delete absence/inventory, and zero residue. GitHub credential/JIT/private workload/physical/capacity claims remain unexercised."
+  "product": "official-catalog",
+  "authority_issue": 423,
+  "consumer_authority_issue": 281,
+  "purpose": "Qualify exact TrueNAS 25.04.2.6 native official-catalog ntfy T6 using producer 546f4e07b06f77035dab28104883b52f75143bd6, which records accepted 25.04.1 runtime evidence while preserving universal_qualified=false until all exact targets pass."
 }
