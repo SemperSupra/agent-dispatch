@@ -45,6 +45,9 @@ SAFE_CELL = {
     "health_status","ready_seconds","runtime_taint_written",
     "prior_runtime_taint_absent","vm_absent_after_dispose",
     "runtime_disk_absent_after_dispose",
+    "powershell_direct_observed","network_correction_attempted",
+    "network_correction_applied","network_correction_prefix_length",
+    "provision_phase","provision_status","provision_elapsed",
 }
 SAFE_PERSIST = {
     "explicit_attachment","exists_before_a","canary_written",
