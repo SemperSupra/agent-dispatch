@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "truenas_middleware_garm_provider_g3_probe.py"
@@ -126,9 +127,28 @@ class GarmProviderG3Tests(unittest.TestCase):
         )[0]
         self.assertIn('method="POST"', block)
         self.assertIn('method="GET"', block)
+        self.assertIn("except TimeoutError", block)
+        self.assertIn("synthetic metadata hold-open returned before the preflight timeout", block)
         self.assertNotIn("Authorization", block)
         self.assertIn('"ENVIRONMENT_FAILURE"', text)
         self.assertIn('"synthetic_fixture_preflight"', text)
+
+    def test_default_metadata_fixture_holds_open_before_jit_credentials(self):
+        self.assertTrue(MOD.DEFAULT_METADATA_URL.startswith("https://httpbin.org/drip?"))
+        self.assertIn("delay=60", MOD.DEFAULT_METADATA_URL)
+        self.assertIn("path=", MOD.DEFAULT_METADATA_URL)
+        expanded = MOD.DEFAULT_METADATA_URL.rstrip("/") + "/credentials/runner"
+        parsed = urllib.parse.urlsplit(expanded)
+        self.assertEqual(parsed.path, "/drip")
+        query = urllib.parse.parse_qs(parsed.query)
+        self.assertEqual(query.get("path"), ["/credentials/runner"])
+        self.assertEqual(query.get("delay"), ["60"])
+
+    def test_expected_app_name_is_bound_before_provider_create_for_cleanup(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        bind = text.index('app_name = bundle["expected_app_name"]')
+        create = text.index('"CreateInstance", stdin_object=bootstrap')
+        self.assertLess(bind, create)
 
     def test_transport_reuses_verified_g2_helper_tuple(self):
         text = SCRIPT.read_text(encoding="utf-8")
