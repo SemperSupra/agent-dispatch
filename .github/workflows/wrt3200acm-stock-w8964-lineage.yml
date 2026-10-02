@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/wrt3200acm-stock-w8964-lineage.yml'
       - 'scripts/wrt3200acm_stock_w8964_lineage.py'
+      - 'scripts/jffs2_target_extract.py'
       - 'tests/test_wrt3200acm_stock_w8964_lineage.py'
   workflow_dispatch:
 
@@ -20,13 +21,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install JFFS2 reader
+      - name: Confirm required tools
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mtd-utils curl >/dev/null
-          command -v jffs2reader
+          command -v curl
 
       - name: Test lineage tooling
         run: python3 -m unittest -v tests/test_wrt3200acm_stock_w8964_lineage.py
@@ -42,8 +41,11 @@ jobs:
           curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/wrt-lineage/stock.img"
           echo "$FW_SHA256  $RUNNER_TEMP/wrt-lineage/stock.img" | sha256sum -c -
           tail -c +6291457 "$RUNNER_TEMP/wrt-lineage/stock.img" > "$RUNNER_TEMP/wrt-lineage/rootfs.jffs2"
-          jffs2reader "$RUNNER_TEMP/wrt-lineage/rootfs.jffs2" -f /lib/modules/3.10.70/W8964.bin > "$RUNNER_TEMP/wrt-lineage/W8964.bin"
-          test "$(stat -c %s "$RUNNER_TEMP/wrt-lineage/W8964.bin")" -eq 451040
+          python3 scripts/jffs2_target_extract.py "$RUNNER_TEMP/wrt-lineage/rootfs.jffs2" \
+            --path /lib/modules/3.10.70/W8964.bin \
+            --output "$RUNNER_TEMP/wrt-lineage/W8964.bin" \
+            --metadata "$RUNNER_TEMP/wrt-lineage/evidence/W8964.jffs2-reconstruction.json"
+          echo "ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751  $RUNNER_TEMP/wrt-lineage/W8964.bin" | sha256sum -c -
 
       - name: Compare stock firmware against public history
         shell: bash
