@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Public-safe FRITZ H0-D1a AVM OSP archive topology census.
+"""Public-safe FRITZ H0-D1a targeted AVM OSP topology census.
 
-The official 7590/8.25 OSP tarball is downloaded ephemerally, size-bound to the
-official directory entry, hashed, and reduced to path/marker metadata. No OSP
-source payload is retained as a workflow artifact.
+The exact official 7590/8.25 OSP tarball is size + SHA-256 bound and reduced to
+category-separated board/BSP path metadata. No source payload is retained as a
+workflow artifact.
 """
 from __future__ import annotations
 
@@ -15,40 +15,38 @@ import re
 import subprocess
 import tarfile
 
-SCHEMA_VERSION = 1
-EXPERIMENT = "fritz-h0-d1a-osp-topology/v1"
+SCHEMA_VERSION = 2
+EXPERIMENT = "fritz-h0-d1a-osp-topology/v2"
 
-PATH_TERMS = (
-    "7590", "grx5", "kernel", "linux", "dts", "dtsi", "device-tree",
-    "partition", "mtd", "nand", "tffs", "eva", "adam2", "bootloader",
-)
+CATEGORIES = ("targetNamed", "mipsDts", "mtd", "bootEnvironment")
 
-FIXED_MARKERS = {
-    "linux_fs_start": b"linux_fs_start",
-    "mtdparts": b"mtdparts",
-    "mtd_partition": b"mtd_partition",
-    "tffs": b"tffs",
-    "adam2": b"ADAM2",
-    "eva": b"EVA",
-    "nand": b"nand",
-    "grx550": b"GRX550",
-    "grx5": b"grx5",
+TOKEN_PATTERNS = {
+    "linux_fs_start": re.compile(rb"(?<![A-Za-z0-9_])linux_fs_start(?![A-Za-z0-9_])", re.I),
+    "mtdparts": re.compile(rb"(?<![A-Za-z0-9_])mtdparts(?![A-Za-z0-9_])", re.I),
+    "tffs": re.compile(rb"(?<![A-Za-z0-9_])tffs(?![A-Za-z0-9_])", re.I),
+    "adam2": re.compile(rb"(?<![A-Za-z0-9_])ADAM2(?![A-Za-z0-9_])"),
+    "eva": re.compile(rb"(?<![A-Za-z0-9_])EVA(?![A-Za-z0-9_])"),
+    "grx550": re.compile(rb"(?<![A-Za-z0-9_])GRX550(?![A-Za-z0-9_])", re.I),
+    "grx5": re.compile(rb"(?<![A-Za-z0-9_])grx5(?![A-Za-z0-9_])", re.I),
 }
 
-NESTED_SUFFIXES = (
-    ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".txz",
-)
+NESTED_SUFFIXES = (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".txz")
 
 
 def sha256_file(path: pathlib.Path) -> str:
     h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+    with path.open("rb") as fp:
+        for chunk in iter(lambda: fp.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
 
 
-def download_exact_size(url: str, destination: pathlib.Path, expected_size: int) -> dict:
+def download_exact(
+    url: str,
+    destination: pathlib.Path,
+    expected_size: int,
+    expected_sha256: str,
+) -> dict:
     destination.parent.mkdir(parents=True, exist_ok=True)
     cp = subprocess.run(
         ["curl", "--fail", "--location", "--silent", "--show-error",
@@ -63,9 +61,12 @@ def download_exact_size(url: str, destination: pathlib.Path, expected_size: int)
             f"OSP download failed (exit={cp.returncode}, stderrBytes={len(cp.stderr.encode())})"
         )
     size = destination.stat().st_size
+    digest = sha256_file(destination)
     if size != expected_size:
         raise RuntimeError(f"OSP size mismatch: expected {expected_size}, observed {size}")
-    return {"bytes": size, "sha256": sha256_file(destination)}
+    if digest.lower() != expected_sha256.lower():
+        raise RuntimeError("OSP SHA-256 mismatch")
+    return {"bytes": size, "sha256": digest}
 
 
 def normalize(name: str) -> str:
@@ -74,19 +75,32 @@ def normalize(name: str) -> str:
     return name
 
 
-def interesting_path(name: str) -> bool:
+def categories_for_path(name: str) -> list[str]:
     low = name.lower()
-    return any(term in low for term in PATH_TERMS)
-
-
-def scan_fixed_markers(data: bytes) -> dict:
-    out = {}
-    lower = data.lower()
-    for key, marker in FIXED_MARKERS.items():
-        needle = marker.lower()
-        count = lower.count(needle)
-        out[key] = {"present": count > 0, "count": count}
+    out = []
+    if re.search(r"(?:^|[/_.-])(7590|grx5|grx550|vrx|xrx|avm|tffs)(?:[/_.-]|$)", low):
+        out.append("targetNamed")
+    if (
+        low.startswith("sources/kernel/linux/arch/mips/")
+        and low.endswith((".dts", ".dtsi"))
+    ):
+        out.append("mipsDts")
+    if (
+        low.startswith("sources/kernel/linux/drivers/mtd/")
+        or "/mtd/" in low
+        or re.search(r"(?:^|[/_.-])mtd(?:[/_.-]|$)", low)
+    ):
+        out.append("mtd")
+    if re.search(r"(?:^|[/_.-])(adam2|eva|bootloader|prom|environment)(?:[/_.-]|$)", low):
+        out.append("bootEnvironment")
     return out
+
+
+def scan_tokens(data: bytes) -> dict:
+    return {
+        key: {"present": bool(rx.search(data)), "count": len(rx.findall(data))}
+        for key, rx in TOKEN_PATTERNS.items()
+    }
 
 
 def member_kind(member: tarfile.TarInfo) -> str:
@@ -101,13 +115,14 @@ def member_kind(member: tarfile.TarInfo) -> str:
     return "other"
 
 
-def census(archive: pathlib.Path, max_candidates: int) -> dict:
+def census(archive: pathlib.Path, per_category_limit: int) -> dict:
     total = 0
     regular = 0
-    nested = []
-    candidates = []
     direct_dts = 0
-    marker_files = []
+    nested_total = 0
+    categories = {key: [] for key in CATEGORIES}
+    marker_files = {key: [] for key in CATEGORIES}
+    nested_interesting = []
 
     with tarfile.open(archive, "r:*") as tf:
         for member in tf:
@@ -116,86 +131,94 @@ def census(archive: pathlib.Path, max_candidates: int) -> dict:
             low = name.lower()
             if member.isfile():
                 regular += 1
-            if member.isfile() and low.endswith(NESTED_SUFFIXES):
-                if len(nested) < max_candidates:
-                    nested.append({
-                        "path": name,
-                        "size": int(member.size),
-                        "interesting": interesting_path(name),
-                    })
             if low.endswith((".dts", ".dtsi")):
                 direct_dts += 1
 
-            is_candidate = interesting_path(name)
-            if is_candidate and len(candidates) < max_candidates:
-                item = {
-                    "path": name,
-                    "kind": member_kind(member),
-                    "size": int(member.size),
-                }
-                candidates.append(item)
+            cats = categories_for_path(name)
+            for cat in cats:
+                if len(categories[cat]) < per_category_limit:
+                    categories[cat].append({
+                        "path": name,
+                        "kind": member_kind(member),
+                        "size": int(member.size),
+                    })
+
+            if member.isfile() and low.endswith(NESTED_SUFFIXES):
+                nested_total += 1
+                if cats and len(nested_interesting) < per_category_limit:
+                    nested_interesting.append({
+                        "path": name,
+                        "size": int(member.size),
+                        "categories": cats,
+                    })
 
             if (
                 member.isfile()
+                and cats
                 and member.size <= 4 * 1024 * 1024
-                and is_candidate
-                and len(marker_files) < max_candidates
             ):
-                f = tf.extractfile(member)
-                if f is not None:
-                    data = f.read()
-                    markers = scan_fixed_markers(data)
+                fp = tf.extractfile(member)
+                if fp is not None:
+                    data = fp.read()
+                    markers = scan_tokens(data)
                     if any(v["present"] for v in markers.values()):
-                        marker_files.append({
-                            "path": name,
-                            "size": int(member.size),
-                            "fixedMarkers": markers,
-                        })
+                        for cat in cats:
+                            if len(marker_files[cat]) < per_category_limit:
+                                marker_files[cat].append({
+                                    "path": name,
+                                    "size": int(member.size),
+                                    "fixedMarkers": markers,
+                                })
 
-    interesting_nested = [x for x in nested if x["interesting"]]
-    topology = (
-        "DIRECT_SOURCE_TOPOLOGY_VISIBLE"
-        if direct_dts > 0 or marker_files
-        else "NESTED_SOURCE_ARCHIVE_REQUIRED"
-        if nested
-        else "SOURCE_TOPOLOGY_NOT_FOUND"
+    counts = {k: len(v) for k, v in categories.items()}
+    classification = (
+        "TARGETED_DIRECT_SOURCE_VISIBLE"
+        if any(counts.values())
+        else "TARGETED_SOURCE_NOT_FOUND"
     )
     return {
         "memberCount": total,
         "regularFileCount": regular,
         "directDtsDtsiCount": direct_dts,
-        "nestedArchiveCount": len(nested),
-        "interestingNestedArchives": interesting_nested[:max_candidates],
-        "candidatePaths": candidates[:max_candidates],
-        "fixedMarkerFiles": marker_files[:max_candidates],
-        "classification": topology,
+        "nestedArchiveCount": nested_total,
+        "classification": classification,
+        "categories": categories,
+        "categorySampleCounts": counts,
+        "fixedMarkerFiles": marker_files,
+        "interestingNestedArchives": nested_interesting,
     }
 
 
 def run_probe(args: argparse.Namespace) -> dict:
     work = pathlib.Path(args.work_dir).resolve()
     archive = work / "source-files.tar.gz"
-    exact = download_exact_size(args.osp_url, archive, args.expected_size)
-    source = census(archive, args.max_candidates)
+    exact = download_exact(
+        args.osp_url,
+        archive,
+        args.expected_size,
+        args.expected_sha256,
+    )
+    topology = census(archive, args.per_category_limit)
     return {
         "schemaVersion": SCHEMA_VERSION,
         "experiment": EXPERIMENT,
-        "classification": "H0_D1A_OSP_CENSUS_PASS",
-        "oracleSatisfied": source["memberCount"] > 0,
+        "classification": "H0_D1A_TARGETED_OSP_CENSUS_PASS",
+        "oracleSatisfied": topology["classification"] == "TARGETED_DIRECT_SOURCE_VISIBLE",
         "sourceArtifact": {
             "provider": "AVM OSP",
             "fileName": pathlib.PurePosixPath(args.osp_url).name,
-            "expectedBytesFromOfficialIndex": args.expected_size,
+            "expectedBytes": args.expected_size,
+            "expectedSha256": args.expected_sha256.lower(),
             "observedBytes": exact["bytes"],
             "observedSha256": exact["sha256"],
             "rawArchivePublished": False,
         },
-        "topology": source,
+        "topology": topology,
         "interpretationBoundary": {
             "partitionLayoutAccepted": False,
             "dualBootSafetyAccepted": False,
             "linuxFsStartSemanticsAccepted": False,
-            "nestedArchiveContentNotRecursivelyExpanded": True,
+            "pathAndFixedTokenEvidenceOnly": True,
         },
         "safety": {
             "rawOspArchivePublished": False,
@@ -211,9 +234,10 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--osp-url", required=True)
     p.add_argument("--expected-size", type=int, required=True)
+    p.add_argument("--expected-sha256", required=True)
     p.add_argument("--work-dir", required=True)
     p.add_argument("--receipt", required=True)
-    p.add_argument("--max-candidates", type=int, default=250)
+    p.add_argument("--per-category-limit", type=int, default=120)
     return p.parse_args(argv)
 
 
