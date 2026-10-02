@@ -74,6 +74,8 @@ jobs:
           rt = r.get("runtime", {})
           assert rt.get("interfaces") == ["lo"]
           assert rt.get("defaultRoutePresent") is False
+          assert rt.get("launcherObservedRunning") is True
+          assert rt.get("svctlStatusAttempted") is True, rt
           treatment = r.get("exactTreatment", {})
           assert treatment.get("supervisorArguments") == ["/lib/systemd/system","ctlmgr.service"]
           assert treatment.get("svctlArguments") == ["status","ctlmgr"]
