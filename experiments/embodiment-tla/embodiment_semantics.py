@@ -168,8 +168,8 @@ class EmbodimentFabric:
             raise FabricError("actor already has a current live body; use replace")
 
         body = self.bodies.setdefault(body_id, BodyRecord(body_id=body_id))
-        if body.state not in {BodyState.ABSENT, BodyState.DEMATERIALIZED}:
-            raise FabricError("requested body identity is not reusable")
+        if body.state is not BodyState.ABSENT:
+            raise FabricError("body instance identity is immutable and cannot be reused")
 
         actor.generation += 1
         self._initialize_body(
@@ -222,8 +222,8 @@ class EmbodimentFabric:
             raise FabricError("actor generation exhausted")
 
         new = self.bodies.setdefault(new_body_id, BodyRecord(body_id=new_body_id))
-        if new.state not in {BodyState.ABSENT, BodyState.DEMATERIALIZED}:
-            raise FabricError("replacement body identity is not reusable")
+        if new.state is not BodyState.ABSENT:
+            raise FabricError("body instance identity is immutable and cannot be reused")
 
         actor.generation += 1
         self._begin_drain(old)
