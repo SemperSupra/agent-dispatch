@@ -1,4 +1,4 @@
-name: WinBot Work-Cell Facade Lineage Probe
+name: WinBot Work-Cell Facade Lineage Qualification
 
 on:
   push:
@@ -15,11 +15,11 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 15
     env:
-      SOURCE_REVISION: '4220566a40afa90436b9ec82f2de9d608a40369b'
-      PROJECTION_IDENTITY: 'd264f3357c083d9cf68ef48e4d3751eb91e1c6590488f79892cd24b4a04ec0ad'
-      MODULE_BLOB_SHA: '0568262419d68547d406ce31a3b7388d2b58a31e'
+      SOURCE_REVISION: '0283e44337705aab350ea506758dcb312c43aef7'
+      PROJECTION_IDENTITY: 'UNREVIEWED-PENDING-EXACT-PROJECTION'
+      MODULE_BLOB_SHA: '3cc498696e006dcb8dafd28045999ddaf6e1460f'
     steps:
-      - name: Falsify exact WinBot work-cell lineage with explicit persistence
+      - name: Qualify exact WinBot work-cell lineage with explicit persistence
         id: probe
         shell: pwsh
         env:
@@ -117,17 +117,21 @@ jobs:
             $r.observations.lineage_parent=[string]$obs.ParentPath
             $r.observations.lineage_disk=[string]$obs.DiskPath
 
+            $r.observations.runtime_candidate_count=[int]$obs.RuntimeDiskCandidateCount
+            $r.observations.observer_disk_matches=[string]::Equals(
+              [IO.Path]::GetFullPath([string]$obs.DiskPath),
+              [IO.Path]::GetFullPath([string]$wc.RuntimeDiskPath),
+              [StringComparison]::OrdinalIgnoreCase
+            )
             if($r.observations.attached_disk_count -eq 2 -and
                $r.observations.runtime_parent_matches -and
-               [string]$obs.State -ne 'True' -and
-               [string]$obs.Reason -like '*exactly one observable primary VHDX*'){
-              $r.classification='PRODUCT_DEFECT_CONFIRMED'
-              $r.failure_domain='clone-lineage-observer-persistence'
-            } elseif([string]$obs.State -eq 'True'){
+               $r.observations.runtime_candidate_count -eq 1 -and
+               $r.observations.observer_disk_matches -and
+               [string]$obs.State -eq 'True'){
               $r.classification='SUPPORTED'
             } else {
               $r.classification='ORACLE_FAILURE'
-              $r.failure_domain='unexpected-lineage-result'
+              $r.failure_domain='workcell-lineage-qualification'
             }
           } catch {
             if($r.classification -eq 'HARNESS_FAILURE'){Capture $_ 'probe-harness'}
@@ -175,9 +179,11 @@ jobs:
           Write-Host "attached_disk_count=$($r.observations.attached_disk_count)"
           Write-Host "runtime_parent_matches=$($r.observations.runtime_parent_matches)"
           Write-Host "lineage_state=$($r.observations.lineage_state)"
+          Write-Host "runtime_candidate_count=$($r.observations.runtime_candidate_count)"
+          Write-Host "observer_disk_matches=$($r.observations.observer_disk_matches)"
           Write-Host "lineage_reason=$($r.observations.lineage_reason)"
           Write-Host "cleanup=$($r.cleanup.oracle_satisfied)"
           if(-not $r.cleanup.oracle_satisfied){throw 'probe cleanup failed'}
-          if($r.classification -notin @('SUPPORTED','PRODUCT_DEFECT_CONFIRMED')){
-            throw "unexpected probe result: $($r.classification) / $($r.failure_domain)"
+          if($r.classification -ne 'SUPPORTED'){
+            throw "work-cell lineage qualification failed: $($r.classification) / $($r.failure_domain)"
           }
