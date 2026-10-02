@@ -43,6 +43,21 @@ public sealed class BrowserSession : IAsyncDisposable
     public static string BrowserDirectory =>
         Path.Combine(AppContext.BaseDirectory, "runtime", "browser");
 
+    public static string PlaywrightDriverDirectory =>
+        AppContext.BaseDirectory;
+
+    private static void ConfigurePackagedPlaywright()
+    {
+        if (Directory.Exists(BrowserDirectory))
+            Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", BrowserDirectory);
+
+        var driverRoot = Path.Combine(PlaywrightDriverDirectory, ".playwright");
+        if (Directory.Exists(driverRoot))
+            Environment.SetEnvironmentVariable(
+                "PLAYWRIGHT_DRIVER_SEARCH_PATH",
+                PlaywrightDriverDirectory);
+    }
+
     public static BrowserRuntimeStatus Status() => new(
         "suprachat-browser-runtime/v1",
         PlatformName(),
@@ -58,8 +73,7 @@ public sealed class BrowserSession : IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (Directory.Exists(BrowserDirectory))
-            Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", BrowserDirectory);
+        ConfigurePackagedPlaywright();
 
         var playwright = await Playwright.CreateAsync();
         try
@@ -104,8 +118,7 @@ public sealed class BrowserSession : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(profileDirectory);
 
-        if (Directory.Exists(BrowserDirectory))
-            Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", BrowserDirectory);
+        ConfigurePackagedPlaywright();
 
         var playwright = await Playwright.CreateAsync();
         try
