@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/wrt3200acm-stock-public-boundary.yml'
       - 'scripts/wrt3200acm_stock_public_boundary.py'
+      - 'scripts/jffs2_target_extract.py'
       - 'tests/test_wrt3200acm_stock_public_boundary.py'
   workflow_dispatch:
 
@@ -19,12 +20,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Install stock extraction tool
+      - name: Confirm required tools
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mtd-utils curl >/dev/null
+          command -v curl
       - name: Test boundary tooling
         run: python3 -m unittest -v tests/test_wrt3200acm_stock_public_boundary.py
       - name: Acquire pinned stock and public firmware
@@ -35,8 +35,11 @@ jobs:
           curl -fL --retry 3 --retry-all-errors             https://downloads.linksys.com/support/assets/firmware/FW_WRT3200ACM_1.0.9.211585_prod.img             -o "$RUNNER_TEMP/wrt-boundary/stock.img"
           echo "4c4cdeec1f4c3eb15ae597b225dd75874eff1893dbe0fafc67ddd0b03e17198c  $RUNNER_TEMP/wrt-boundary/stock.img" | sha256sum -c -
           tail -c +6291457 "$RUNNER_TEMP/wrt-boundary/stock.img" > "$RUNNER_TEMP/wrt-boundary/rootfs.jffs2"
-          jffs2reader "$RUNNER_TEMP/wrt-boundary/rootfs.jffs2" -f /lib/modules/3.10.70/W8964.bin > "$RUNNER_TEMP/wrt-boundary/stock-W8964.bin"
-          echo "b2bed24f74bc8466aa3672169aca6455589a4c24f5abdd1d50db740a3511ad08  $RUNNER_TEMP/wrt-boundary/stock-W8964.bin" | sha256sum -c -
+          python3 scripts/jffs2_target_extract.py "$RUNNER_TEMP/wrt-boundary/rootfs.jffs2" \
+            --path /lib/modules/3.10.70/W8964.bin \
+            --output "$RUNNER_TEMP/wrt-boundary/stock-W8964.bin" \
+            --metadata "$RUNNER_TEMP/wrt-boundary/evidence/stock-W8964-replay.json"
+          echo "ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751  $RUNNER_TEMP/wrt-boundary/stock-W8964.bin" | sha256sum -c -
           curl -fL --retry 3 --retry-all-errors             https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin             -o "$RUNNER_TEMP/wrt-boundary/public-W8964.bin"
           echo "ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751  $RUNNER_TEMP/wrt-boundary/public-W8964.bin" | sha256sum -c -
       - name: Characterize representation boundary
