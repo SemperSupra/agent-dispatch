@@ -115,7 +115,13 @@ def verify_disassembly(handler:str,dispatcher_tail:str)->dict[str,Any]:
         "selector_decode":r"37e00:.*\[r4, #15\][\s\S]*37e04:.*\[r4, #14\]",
         "selector0_length_cap":r"37e38:.*cmp\s+r2, #64",
         "selector0_read32":r"37e68:.*ldr\s+r3, \[r1\], #4",
-        "selector1_address_value":r"37eac:.*\[r4, #8\][\s\S]*37ed0:.*\[r4, #16\][\s\S]*37ee8:.*b\s+0x3872c",
+        "selector1_address_value":(
+            r"37eac:.*\[r4, #8\][\s\S]*37eb0:.*\[r4, #9\][\s\S]*"
+            r"37ebc:.*\[r4, #10\][\s\S]*37ecc:.*\[r4, #11\][\s\S]*"
+            r"37ec0:.*\[r4, #16\][\s\S]*37eb4:.*\[r4, #17\][\s\S]*"
+            r"37ec8:.*\[r4, #18\][\s\S]*37ed4:.*\[r4, #19\][\s\S]*"
+            r"37ee8:.*b\s+0x3872c"
+        ),
         "selector1_store32":r"3872c:.*str\s+r1, \[r0\]",
         "selector2_dest_value_array":r"37f00:.*add\s+r0, r4, #16",
         "selector2_size_256":r"37f08:.*mov\s+r2, #256",
