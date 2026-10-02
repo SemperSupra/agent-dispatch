@@ -143,6 +143,7 @@ def main()->int:
     allocator_disasm=dispatch.run_objdump(elf,0x000023a8,0x00002410)
     error_disasm=dispatch.run_objdump(elf,0x00001070,0x000010bc)
     fatal_disasm=dispatch.run_objdump(elf,0x0000016c,0x000001b0)
+    common_exit_disasm=dispatch.run_objdump(elf,0x00036304,0x00036378)
     v=verify_disassembly(disasm,elf)
     report={
         "schema":"wrt8964-get-hw-spec-semantics/v1",
@@ -194,6 +195,7 @@ def main()->int:
             "allocator_0x000023a8":helper_summary(allocator_disasm),
             "error_0x00001070":helper_summary(error_disasm),
             "fatal_0x0000016c":helper_summary(fatal_disasm),
+            "common_command_finalize_0x00036304":helper_summary(common_exit_disasm),
         },
         "guardrail":"partial_rehost writes only fields with directly recovered semantics and reports the rest UNKNOWN."
     }
@@ -204,6 +206,7 @@ def main()->int:
     (out/"get-hw-spec-allocator-helper.txt").write_text(allocator_disasm)
     (out/"get-hw-spec-error-helper.txt").write_text(error_disasm)
     (out/"get-hw-spec-fatal-helper.txt").write_text(fatal_disasm)
+    (out/"common-command-finalize.txt").write_text(common_exit_disasm)
     print(json.dumps(v,indent=2,sort_keys=True))
     return 0 if v["all_required_present"] else 3
 
