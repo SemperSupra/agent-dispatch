@@ -208,6 +208,51 @@ def parse_provider_json(cp: subprocess.CompletedProcess[str], label: str, token:
         raise RuntimeError(f"{label} stdout was not JSON") from exc
 
 
+def capture_create_failure_job(
+    session: g2.AdminSession, app_name: str, token: str
+) -> dict:
+    jobs = session.call(
+        "core.get_jobs",
+        [[["method", "=", "app.create"]], {"order_by": ["-id"], "limit": 20}],
+    )
+    if not isinstance(jobs, list):
+        raise RuntimeError("core.get_jobs did not return an array")
+    selected = None
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        arguments = job.get("arguments")
+        try:
+            rendered = json.dumps(arguments, sort_keys=True)
+        except TypeError:
+            rendered = repr(arguments)
+        if app_name in rendered:
+            selected = job
+            break
+    if selected is None:
+        return {"found": False}
+
+    def scrub(value):
+        if isinstance(value, str):
+            return value.replace(token, "<synthetic-token>")
+        if isinstance(value, dict):
+            return {str(k): scrub(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [scrub(v) for v in value]
+        return value
+
+    return {
+        "found": True,
+        "id": selected.get("id"),
+        "state": selected.get("state"),
+        "error": scrub(selected.get("error")),
+        "exception": scrub(selected.get("exception")),
+        "progress": scrub(selected.get("progress")),
+        "logs_excerpt": scrub(selected.get("logs_excerpt")),
+        "logs_available": bool(selected.get("logs_path")),
+    }
+
+
 def query_app(session: g2.AdminSession, name: str) -> dict | None:
     matches = session.call("app.query", [[["id", "=", name]]])
     if not matches:
@@ -395,7 +440,21 @@ def main() -> int:
                 provider_binary, config_path, api_key_value, cert_path,
                 "CreateInstance", stdin_object=bootstrap,
             )
-            created = parse_provider_json(create_cp, "CreateInstance", token)
+            try:
+                created = parse_provider_json(create_cp, "CreateInstance", token)
+            except Exception:
+                try:
+                    payload["create_failure_job"] = capture_create_failure_job(
+                        session, app_name, token
+                    )
+                except Exception as capture_exc:
+                    payload["create_failure_job"] = {
+                        "found": False,
+                        "capture_error": (
+                            f"{type(capture_exc).__name__}: {capture_exc}"
+                        ).replace(token, "<synthetic-token>"),
+                    }
+                raise
             if not isinstance(created, dict):
                 raise RuntimeError("CreateInstance did not return an object")
             created_app_name = str(created.get("provider_id") or "")
