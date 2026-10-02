@@ -737,6 +737,27 @@ jobs:
           assert doc["value"]["human"]["screen_reader_semantics"] is True
           PY
 
+          local_account_json="$(HOME="$test_home" ACCESS_TOKEN=SHOULD_NOT_INHERIT OPENAI_API_KEY=SHOULD_NOT_INHERIT "$test_home/.local/bin/suprachat-cli" codex-local-read --method account/read --params '{}')"
+          python3 - "$local_account_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["binding"] == "codex-local-read"
+          assert doc["value"]["authorization_required"] is False
+          assert doc["value"]["result"]["account"] is None
+          assert doc["value"]["result"]["requiresOpenaiAuth"] is False
+          PY
+          set +e
+          HOME="$test_home" "$test_home/.local/bin/suprachat-cli" codex-local-read --method account/usage/read >/tmp/suprachat-forbidden.json 2>/dev/null
+          forbidden_exit=$?
+          set -e
+          test "$forbidden_exit" -eq 2
+          python3 - /tmp/suprachat-forbidden.json <<'PY'
+          import json,sys
+          doc=json.load(open(sys.argv[1]))
+          assert doc["error"]["code"] == "LOCAL_METHOD_NOT_ALLOWED"
+          PY
+
           HOME="$test_home" bash out/linux-x64/install.sh
           repair_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" doctor)"
           python3 - "$repair_json" <<'PY'
@@ -821,6 +842,17 @@ jobs:
           assert doc["value"]["platform"] == "macos"
           PY
 
+          local_account_json="$(HOME="$test_home" ACCESS_TOKEN=SHOULD_NOT_INHERIT OPENAI_API_KEY=SHOULD_NOT_INHERIT "$test_home/.local/bin/suprachat-cli" codex-local-read --method account/read --params '{}')"
+          python3 - "$local_account_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["binding"] == "codex-local-read"
+          assert doc["value"]["authorization_required"] is False
+          assert doc["value"]["result"]["account"] is None
+          assert doc["value"]["result"]["requiresOpenaiAuth"] is False
+          PY
+
           HOME="$test_home" bash "$stage/install.sh"
           codesign --verify --strict "$test_home/Applications/SupraChat.app"
           repair_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" diagnostics)"
@@ -890,6 +922,28 @@ jobs:
           if (-not $installedAccessDoc.ok -or -not $installedAccessDoc.value.human.keyboard_only -or -not $installedAccessDoc.value.human.screen_reader_semantics) {
             throw 'Installed accessibility contract failed.'
           }
+
+          $env:ACCESS_TOKEN = 'SHOULD_NOT_INHERIT'
+          $env:OPENAI_API_KEY = 'SHOULD_NOT_INHERIT'
+          $installedLocal = & $cliShim codex-local-read --method account/read --params '{}'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed credential-free account/read failed.' }
+          $installedLocalDoc = $installedLocal | ConvertFrom-Json
+          if (-not $installedLocalDoc.ok -or
+              $installedLocalDoc.value.binding -ne 'codex-local-read' -or
+              $installedLocalDoc.value.authorization_required -ne $false -or
+              $installedLocalDoc.value.result.account -ne $null -or
+              $installedLocalDoc.value.result.requiresOpenaiAuth -ne $false) {
+            throw 'Installed credential-free account/read isolation contract failed.'
+          }
+          Remove-Item Env:ACCESS_TOKEN,Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $installedForbidden = & $cliShim codex-local-read --method account/usage/read 2>$null
+          if ($LASTEXITCODE -ne 2) { throw 'Installed credential-free negative allowlist control failed.' }
+          $installedForbiddenDoc = $installedForbidden | ConvertFrom-Json
+          if ($installedForbiddenDoc.error.code -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Installed credential-free negative allowlist error contract failed.'
+          }
+          $global:LASTEXITCODE = 0
 
           $rpcRequest = '{"jsonrpc":"2.0","id":"installed","method":"capabilities/read"}'
           $rpcLines = $rpcRequest | & $installedAutomation stdio 2>$null
