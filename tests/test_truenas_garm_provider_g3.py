@@ -194,6 +194,38 @@ class GarmProviderG3Tests(unittest.TestCase):
         self.assertNotIn(token, json.dumps(got, sort_keys=True))
         self.assertIn("<synthetic-token>", got["logs_excerpt"])
 
+    def test_app_lifecycle_excerpt_is_bounded_and_redacts_sensitive_values(self):
+        app = "garm-g3-controlle-g3-synthetic-runner"
+        token = "g3-sensitive-token"
+        api_key = "api-sensitive-value"
+        lines = [f"noise-{i}" for i in range(220)]
+        lines += [
+            f"compose up {app}",
+            f"stderr contains {token}",
+            f"environment accidentally contains {api_key}",
+            "fatal: exact compose failure",
+        ]
+        got = MOD.select_sanitized_log_excerpt(
+            "\n".join(lines), app, [token, api_key], context_lines=3, max_chars=1000
+        )
+        self.assertTrue(got["app_name_observed"])
+        self.assertIn("fatal: exact compose failure", got["excerpt"])
+        self.assertNotIn(token, got["excerpt"])
+        self.assertNotIn(api_key, got["excerpt"])
+        self.assertGreaterEqual(got["line_count"], 224)
+
+    def test_appliance_log_capture_uses_single_specific_filesystem_source(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        block = text.split("def capture_app_lifecycle_log", 1)[1].split(
+            "def query_app", 1
+        )[0]
+        self.assertIn('"core.download"', block)
+        self.assertIn('"filesystem.get"', block)
+        self.assertIn('"/var/log/app_lifecycle.log"', block)
+        self.assertIn("ssl.create_default_context", block)
+        self.assertNotIn("GITHUB_TOKEN", block)
+        self.assertNotIn("TRUENAS_API_KEY", block)
+
     def test_transport_reuses_verified_g2_helper_tuple(self):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("g2.wait_verified_https", text)
