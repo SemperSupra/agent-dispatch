@@ -1,0 +1,75 @@
+name: WRT3200ACM Dispatcher Probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wrt3200acm-dispatch-probe.yml'
+      - 'scripts/wrt3200acm_dispatch_probe.py'
+      - 'tests/test_wrt3200acm_dispatch_probe.py'
+      - 'scripts/wrt3200acm_fw_to_elf.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map-dispatch-cases:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install ARM binutils
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+          arm-linux-gnueabi-objdump --version | head -1
+
+      - name: Test dispatcher probe
+        run: python3 -m unittest -v tests/test_wrt3200acm_dispatch_probe.py
+
+      - name: Acquire and reconstruct pinned 88W8964
+        shell: bash
+        env:
+          FW_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/db97edf20fadea2617805006f5230665fadc6a8c/bin/firmware/88W8964.bin
+          FW_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-dispatch/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/wrt-dispatch/88W8964.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/wrt-dispatch/88W8964.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py \
+            "$RUNNER_TEMP/wrt-dispatch/88W8964.bin" \
+            "$RUNNER_TEMP/wrt-dispatch/88W8964.elf" \
+            "$RUNNER_TEMP/wrt-dispatch/evidence/elf-map.json"
+
+      - name: Recover dispatcher case map
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_dispatch_probe.py \
+            --elf "$RUNNER_TEMP/wrt-dispatch/88W8964.elf" \
+            --out "$RUNNER_TEMP/wrt-dispatch/evidence"
+          python3 -m json.tool "$RUNNER_TEMP/wrt-dispatch/evidence/dispatch-case-map.json" >/dev/null
+
+      - name: Verify derived-only mailbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-dispatch/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+
+      - name: Upload derived dispatcher evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-dispatch-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-dispatch/evidence
+          if-no-files-found: warn
+          retention-days: 7
