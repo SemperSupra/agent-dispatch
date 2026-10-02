@@ -1,0 +1,503 @@
+{
+  "schema": "suprachat-audience-parity/v1",
+  "evidence_date": "2026-10-01",
+  "product": "SupraChat",
+  "platforms": [
+    "windows",
+    "macos",
+    "linux"
+  ],
+  "audiences": [
+    "human",
+    "accessible_human",
+    "automation",
+    "agent"
+  ],
+  "states": [
+    "implemented",
+    "implemented_with_fallback",
+    "qualify",
+    "human_boundary",
+    "gap",
+    "not_applicable"
+  ],
+  "completion_rule": "A consequential capability is not parity-complete until human, accessible-human, automation, agent, platform, and human-authorization states are explicit.",
+  "features": [
+    {
+      "id": "authorization",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "human_boundary",
+        "agent": "human_boundary"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Interactive OAuth/OIDC authorization and plan-scope consent stay in the system browser.",
+      "notes": "Automation/agents reuse protected local grants and receive typed AUTH_REQUIRED / PLAN_SCOPE_REQUIRED states."
+    },
+    {
+      "id": "chatgpt_product_surface",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented_with_fallback",
+        "automation": "gap",
+        "agent": "gap"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Normal ChatGPT product sign-in/session semantics remain first-party.",
+      "notes": "Embedded product WebView is human-facing; Open in browser is the accessibility fallback. Machines use supported SIWC/Codex surfaces instead of scraping the product UI."
+    },
+    {
+      "id": "models",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Requires an authorized ChatGPT-plan grant.",
+      "notes": "Runtime-discovered model catalog."
+    },
+    {
+      "id": "responses_text",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Requires authorized plan usage.",
+      "notes": "Typed streamed Responses path."
+    },
+    {
+      "id": "responses_files_images",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Local file access is explicit; inference requires authorized plan usage.",
+      "notes": "GUI picker and machine local-file paths share MIME and size semantics."
+    },
+    {
+      "id": "responses_web_search",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Subject to model/account/workspace policy.",
+      "notes": "Explicit opt-in on typed path; raw path remains available."
+    },
+    {
+      "id": "responses_raw",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Requires authorized plan usage.",
+      "notes": "Preserves arbitrary request fields while enforcing current plan-sharing transport invariants."
+    },
+    {
+      "id": "responses_websocket",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Requires authorized plan usage.",
+      "notes": "GUI console plus sessionful JSON-RPC machine surface."
+    },
+    {
+      "id": "codex_app_server",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Privileged/destructive server requests remain explicit approvals.",
+      "notes": "Bundled pinned Codex runtime, typed interview and generic RPC/event surfaces."
+    },
+    {
+      "id": "codex_local_reads",
+      "consequential": false,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "No OpenAI authorization is required for the exact qualified read-only/local allowlist. All methods outside the allowlist retain their existing authorization/confirmation boundary.",
+      "notes": "GUI capability explorer/raw RPC routing, CLI codex-local-methods/codex-local-read, and JSON-RPC codex/local/methods + codex/local/read share the same CodexLocalReadPolicy allowlist. Public evidence: 36927142694 plus corrected account/read 36931826876."
+    },
+    {
+      "id": "capability_catalogs",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "None for local catalog reads.",
+      "notes": "GUI explorer and machine-readable packaged Codex/SIWC catalogs."
+    },
+    {
+      "id": "realtime_voice_catalog",
+      "consequential": false,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Reading the voice catalog does not activate microphone capture or start a realtime session.",
+      "notes": "Named GUI/CLI/JSON-RPC probes map to bundled Codex thread/realtime/listVoices."
+    },
+    {
+      "id": "remote_control_status",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Status reads never enable remote control, start pairing, or revoke clients.",
+      "notes": "Named GUI/CLI/JSON-RPC probes map to bundled Codex remoteControl/status/read."
+    },
+    {
+      "id": "plugin_catalog",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Catalog reads never install, uninstall, reconcile, or enable plugins.",
+      "notes": "Named GUI/CLI/JSON-RPC probes map to bundled Codex plugin/list."
+    },
+    {
+      "id": "permission_profile_catalog",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Reading permission profiles requires the existing authorized local runtime but does not change permission policy.",
+      "notes": "GUI, CLI permission-profiles, and JSON-RPC permissions/profiles map to read-only Codex permissionProfile/list."
+    },
+    {
+      "id": "app_connector_catalog",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Catalog reads never install, authorize, enable, or mutate apps/connectors.",
+      "notes": "GUI, CLI apps, and JSON-RPC apps/list map to read-only Codex app/list with default parameters."
+    },
+    {
+      "id": "windows_sandbox_readiness",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "not_applicable",
+        "linux": "not_applicable"
+      },
+      "human_boundary": "Readiness reads do not start sandbox setup or change the selected sandbox implementation.",
+      "notes": "GUI, CLI sandbox-readiness, and JSON-RPC sandbox/readiness map to Codex windowsSandbox/readiness."
+    },
+    {
+      "id": "accessibility_contract",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "None.",
+      "notes": "Keyboard, semantic automation metadata, live status, high-contrast/theme following, DPI scaling, browser fallback, CLI and JSON-RPC contract."
+    },
+    {
+      "id": "accessibility_preferences",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "None.",
+      "notes": "Persisted 80-200% native-interface scale and reduced-motion preference are shared by GUI, CLI and JSON-RPC."
+    },
+    {
+      "id": "desktop_installation",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "OS install permissions remain platform-defined.",
+      "notes": "Per-user install/uninstall plus GUI/CLI/agent entry points."
+    },
+    {
+      "id": "deep_link_and_file_ingress",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented"
+      },
+      "human_boundary": "Opening local files is explicit user/machine input.",
+      "notes": "suprachat:// and platform file/open integration feed the same core."
+    },
+    {
+      "id": "windows_companion_summon",
+      "consequential": false,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "not_applicable",
+        "agent": "not_applicable"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "not_applicable",
+        "linux": "not_applicable"
+      },
+      "human_boundary": "None.",
+      "notes": "Alt+Space is additive; ordinary keyboard/application launch paths remain available."
+    },
+    {
+      "id": "desktop_notifications",
+      "consequential": false,
+      "access": {
+        "human": "implemented_with_fallback",
+        "accessible_human": "implemented_with_fallback",
+        "automation": "not_applicable",
+        "agent": "not_applicable"
+      },
+      "platforms": {
+        "windows": "implemented",
+        "macos": "implemented",
+        "linux": "implemented_with_fallback"
+      },
+      "human_boundary": "OS notification permissions/preferences apply.",
+      "notes": "Windows uses the native notification-area adapter, macOS uses the system notification service, and Linux uses the freedesktop notification path when notify-send/a notification daemon is available. Notifications are never the only way state is conveyed."
+    },
+    {
+      "id": "screen_capture",
+      "consequential": true,
+      "access": {
+        "human": "implemented_with_fallback",
+        "accessible_human": "implemented_with_fallback",
+        "automation": "implemented_with_fallback",
+        "agent": "implemented_with_fallback"
+      },
+      "platforms": {
+        "windows": "implemented_with_fallback",
+        "macos": "implemented_with_fallback",
+        "linux": "implemented_with_fallback"
+      },
+      "human_boundary": "Capture is explicit only. OS desktop/session/screen-recording/compositor permissions remain authoritative; no automatic/background screenshot is taken.",
+      "notes": "One shared Core sensor backs GUI Capture screen & attach, CLI screen-status/screen-capture, and JSON-RPC screen/status/screen/capture. Headless or permission-denied hosts return typed unavailability/failure."
+    },
+    {
+      "id": "voice_media",
+      "consequential": true,
+      "access": {
+        "human": "qualify",
+        "accessible_human": "qualify",
+        "automation": "gap",
+        "agent": "gap"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "Microphone/camera permissions must remain human-controlled.",
+      "notes": "First-party product and Codex realtime evidence exist; native cross-audience adapters remain incomplete. Completion requires text transcript/equivalent state for spoken output, structured permission state, and keyboard/machine-reachable stop/cancel."
+    },
+    {
+      "id": "clean_room_browser",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "Navigation is an explicit caller action. The clean-room browser is isolated from the first-party ChatGPT WebView/session and does not inherit browser cookies or credentials.",
+      "notes": "Pinned Playwright/Chromium substrate. GUI uses a visible isolated session with explicit Stop; CLI/JSON-RPC expose ephemeral semantic snapshots. Automation supports one-shot role/name click and label-based fill; agent JSON-RPC additionally exposes sessionful start/navigate/read/click/fill/stop. Every action returns an AI-optimized ARIA snapshot."
+    },
+    {
+      "id": "computer_use_browser",
+      "consequential": true,
+      "access": {
+        "human": "qualify",
+        "accessible_human": "qualify",
+        "automation": "qualify",
+        "agent": "qualify"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "Computer/browser control requires explicit authority, permissions and approvals.",
+      "notes": "Clean-room browser substrate now implements semantic observation plus role/name click and labeled-input fill across human/automation/agent paths. Remaining qualification frontier: packaged Chromium, screenshots/visual fallback, general pointer/keyboard primitives, downloads/uploads, multi-tab/context lifecycle, permission capture and explicit higher-risk approval policy."
+    },
+    {
+      "id": "remote_control_pairing",
+      "consequential": true,
+      "access": {
+        "human": "implemented",
+        "accessible_human": "implemented",
+        "automation": "implemented",
+        "agent": "implemented"
+      },
+      "platforms": {
+        "windows": "qualify",
+        "macos": "qualify",
+        "linux": "qualify"
+      },
+      "human_boundary": "Status/pairing-status/client-list are read-only. Enable/disable/pairing-start/client-revoke require an explicit one-shot human confirmation or machine confirm=true/--confirm; no operation auto-approves Codex server requests.",
+      "notes": "Complete semantic lifecycle is implemented across GUI, CLI and JSON-RPC. Pairing/environment/client IDs are text-accessible; live authorized qualification on each OS remains pending."
+    }
+  ]
+}

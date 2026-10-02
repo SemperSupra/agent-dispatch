@@ -1,0 +1,1432 @@
+name: Qualify SupraChat Windows MVP
+
+on:
+  pull_request:
+    paths:
+      - 'prototype/suprachat/**'
+      - '.github/workflows/qualify-suprachat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            rid: win-x64
+            artifact: suprachat-windows-x64
+            codex_asset: codex-x86_64-pc-windows-msvc.exe
+            codex_sha256: 57e1bdab42c0559a74558ca17e85d5c7893caa5f1e582f67e9ddd6d97fa705a7
+            codex_archive: false
+          - os: ubuntu-24.04
+            rid: linux-x64
+            artifact: suprachat-linux-x64
+            codex_asset: codex-x86_64-unknown-linux-musl.tar.gz
+            codex_sha256: b48ca1b2d6b1bf42b944e02c3d937c898e24651916684cdc35fdedf31b291bcb
+            codex_archive: true
+          - os: macos-26
+            rid: osx-arm64
+            artifact: suprachat-macos-arm64
+            codex_asset: codex-aarch64-apple-darwin.tar.gz
+            codex_sha256: 51de50a39ea592b5b0a64ae0474548c282181cb6b96d9bd08965a682ae12774c
+            codex_archive: true
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CODEX_TAG: rust-v0.159.3
+      CODEX_VERSION: 0.159.3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build application
+        run: dotnet build prototype/suprachat/SupraChat/SupraChat.csproj -c Release
+
+      - name: Run contract checks
+        run: dotnet run --project prototype/suprachat/SupraChat.ContractTests/SupraChat.ContractTests.csproj -c Release
+
+      - name: Build automation and agent shell
+        run: dotnet build prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release
+
+      - name: Smoke automation JSON surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $json = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- capabilities
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation capabilities failed.' }
+          $doc = $json | ConvertFrom-Json
+          if (-not $doc.ok) { throw 'Automation capabilities response was not ok.' }
+          if (-not $doc.value.audiences.automation.supported) { throw 'Automation audience not advertised.' }
+          if (-not $doc.value.audiences.agent.supported) { throw 'Agent audience not advertised.' }
+
+          $accessibility = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- accessibility
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation accessibility failed.' }
+          $accessDoc = $accessibility | ConvertFrom-Json
+          if (-not $accessDoc.ok) { throw 'Accessibility response was not ok.' }
+          if (-not $accessDoc.value.human.keyboard_only) { throw 'Keyboard-only accessibility contract missing.' }
+          if (-not $accessDoc.value.human.screen_reader_semantics) { throw 'Screen-reader semantic contract missing.' }
+          if ($accessDoc.value.automation.screen_scraping_required) { throw 'Automation accessibility regressed to screen scraping.' }
+          if ($accessDoc.value.agent.screen_scraping_required) { throw 'Agent accessibility regressed to screen scraping.' }
+
+          $catalog = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- catalog
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation catalog failed.' }
+          $catalogDoc = $catalog | ConvertFrom-Json
+          if (-not $catalogDoc.ok) { throw 'Catalog response was not ok.' }
+          if ($catalogDoc.value.codex.packaged_runtime.counts.total -ne 263) { throw 'Packaged Codex catalog count drifted.' }
+          if ($catalogDoc.value.codex.upstream_frontier.counts.total -ne 266) { throw 'Codex frontier catalog count drifted.' }
+
+          $diagnostics = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- diagnostics
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation diagnostics failed.' }
+          $diagnosticsDoc = $diagnostics | ConvertFrom-Json
+          if (-not $diagnosticsDoc.ok -or $diagnosticsDoc.value.schema -ne 'suprachat-dogfood-observability/v2') {
+            throw 'Dogfood diagnostics descriptor contract failed.'
+          }
+          if ($diagnosticsDoc.value.trace_id.Length -ne 32 -or
+              $diagnosticsDoc.value.contains_prompts -or
+              $diagnosticsDoc.value.contains_outputs -or
+              $diagnosticsDoc.value.contains_token_material) {
+            throw 'Dogfood diagnostics trace/privacy contract failed.'
+          }
+
+          $diagZip = Join-Path $env:RUNNER_TEMP "suprachat-diagnostics-${{ matrix.rid }}.zip"
+          $diagExport = dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- diagnostics-export --output $diagZip
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $diagZip)) {
+            throw 'Dogfood diagnostics export failed.'
+          }
+          $diagExportDoc = $diagExport | ConvertFrom-Json
+          if (-not $diagExportDoc.ok -or $diagExportDoc.value.schema -ne 'suprachat-dogfood-diagnostics-export/v2') {
+            throw 'Dogfood diagnostics export contract failed.'
+          }
+
+      - name: Smoke agent JSON-RPC stdio surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $request = '{"jsonrpc":"2.0","id":1,"method":"capabilities/read"}'
+          $lines = $request | dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat.Automation stdio failed.' }
+          $response = ($lines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($response.jsonrpc -ne '2.0') { throw 'JSON-RPC version mismatch.' }
+          if ($response.id -ne 1) { throw 'JSON-RPC id mismatch.' }
+          if (-not $response.result.audiences.agent.supported) { throw 'Agent JSON-RPC capability missing.' }
+
+          $accessRequest = '{"jsonrpc":"2.0","id":2,"method":"accessibility/read"}'
+          $accessLines = $accessRequest | dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat accessibility/read stdio failed.' }
+          $accessResponse = ($accessLines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($accessResponse.id -ne 2 -or -not $accessResponse.result.human.screen_reader_semantics) {
+            throw 'Agent accessibility contract missing.'
+          }
+
+          $diagRequest = '{"jsonrpc":"2.0","id":3,"method":"diagnostics/read"}'
+          $diagLines = $diagRequest | dotnet run --project prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -- stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'SupraChat diagnostics/read stdio failed.' }
+          $diagResponse = ($diagLines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($diagResponse.id -ne 3 -or
+              $diagResponse.result.schema -ne 'suprachat-dogfood-observability/v2' -or
+              $diagResponse.result.trace_id.Length -ne 32) {
+            throw 'Agent diagnostics correlation contract missing.'
+          }
+
+      - name: Publish self-contained application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $PWD 'out/${{ matrix.rid }}'
+          if ($IsMacOS) {
+            $singleFile = @(
+              '-p:PublishSingleFile=true',
+              '-p:IncludeNativeLibrariesForSelfExtract=true',
+              '-p:EnableCompressionInSingleFile=true'
+            )
+            dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out @singleFile
+            dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out @singleFile
+
+            # Single-file publish embeds Microsoft.Playwright.dll but does not
+            # reliably carry the complete bundled Node/CLI driver tree. The
+            # .NET runtime still requires that tree beside the executable.
+            $nugetDriverRoot = Join-Path $HOME '.nuget/packages/microsoft.playwright/1.63.0/.playwright'
+            $nugetDriverCli = Join-Path $nugetDriverRoot 'package/cli.js'
+            $nugetDriverNode = Join-Path $nugetDriverRoot 'node/darwin-arm64/node'
+
+            if ((Test-Path $nugetDriverCli) -and (Test-Path $nugetDriverNode)) {
+              $driverSourcePath = $nugetDriverRoot
+            } else {
+              # Fallback for a non-default NuGet cache. Require both the JS
+              # package and the exact target-platform node payload.
+              $driverSource = Get-ChildItem (Join-Path $PWD 'prototype/suprachat') -Force -Directory -Filter '.playwright' -Recurse -ErrorAction SilentlyContinue |
+                Where-Object {
+                  (Test-Path (Join-Path $_.FullName 'package/cli.js')) -and
+                  (Test-Path (Join-Path $_.FullName 'node/darwin-arm64/node'))
+                } |
+                Select-Object -First 1
+              if (-not $driverSource) {
+                throw 'Complete Playwright macOS arm64 driver tree was not found in NuGet cache or build outputs.'
+              }
+              $driverSourcePath = $driverSource.FullName
+            }
+
+            $publishedDriverRoot = Join-Path $out '.playwright'
+            if (Test-Path $publishedDriverRoot) {
+              Remove-Item $publishedDriverRoot -Recurse -Force
+            }
+            Copy-Item $driverSourcePath $publishedDriverRoot -Recurse -Force
+
+            $driverCli = Join-Path $publishedDriverRoot 'package/cli.js'
+            $driverNode = Join-Path $publishedDriverRoot 'node/darwin-arm64/node'
+            if (!(Test-Path $driverCli) -or !(Test-Path $driverNode)) {
+              throw 'Published macOS Playwright driver tree is incomplete after pinned NuGet materialization.'
+            }
+            chmod +x $driverNode
+          } else {
+            dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
+            dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
+          }
+
+          $sourceRevision = '${{ github.event.pull_request.head.sha }}'
+          if ([string]::IsNullOrWhiteSpace($sourceRevision)) {
+            $sourceRevision = '${{ github.sha }}'
+          }
+          @{
+            schema = 'suprachat-build-info/v1'
+            source_revision = $sourceRevision
+            workflow_run_id = '${{ github.run_id }}'
+            workflow_run_attempt = '${{ github.run_attempt }}'
+            runtime_identifier = '${{ matrix.rid }}'
+            built_at_utc = [DateTime]::UtcNow.ToString('O', [Globalization.CultureInfo]::InvariantCulture)
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $out 'build-info.json')
+
+      - name: Bundle pinned Playwright Chromium runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'out/${{ matrix.rid }}'
+          $browserRoot = Join-Path $root 'runtime/browser'
+          New-Item -ItemType Directory -Force -Path $browserRoot | Out-Null
+          $env:PLAYWRIGHT_BROWSERS_PATH = $browserRoot
+
+          # Prefer a Playwright launcher that still has Microsoft.Playwright.dll
+          # beside it. macOS single-file publish intentionally embeds that assembly,
+          # so browser acquisition must run from the ordinary Release build output.
+          $playwrightScript = @(
+            Get-ChildItem $root -Recurse -File -Filter 'playwright.ps1' -ErrorAction SilentlyContinue
+            Get-ChildItem (Join-Path $PWD 'prototype/suprachat/SupraChat/bin/Release') -Recurse -File -Filter 'playwright.ps1' -ErrorAction SilentlyContinue
+          ) | Where-Object {
+            Test-Path (Join-Path $_.Directory.FullName 'Microsoft.Playwright.dll')
+          } | Select-Object -First 1
+          if (-not $playwrightScript) {
+            throw 'A Playwright installer script with adjacent Microsoft.Playwright.dll was not found.'
+          }
+
+          & $playwrightScript.FullName install chromium
+          if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed with $LASTEXITCODE" }
+
+          $browserFiles = @(Get-ChildItem $browserRoot -Recurse -File -ErrorAction SilentlyContinue)
+          if ($browserFiles.Count -eq 0) { throw 'Bundled browser runtime is empty.' }
+
+          @{
+            schema = 'suprachat-bundled-browser/v1'
+            provider = 'Microsoft.Playwright'
+            playwright_version = '1.63.0'
+            browser = 'chromium'
+            browser_files = $browserFiles.Count
+            ephemeral_context_default = $true
+            semantic_snapshot = 'aria-ai'
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $browserRoot 'runtime.json')
+
+      - name: Package human/automation/agent/accessibility contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $docs = Join-Path $PWD 'out/${{ matrix.rid }}/docs'
+          New-Item -ItemType Directory -Force -Path $docs | Out-Null
+          Copy-Item prototype/suprachat/README.md $docs/
+          Copy-Item prototype/suprachat/AUDIENCES.md $docs/
+          Copy-Item prototype/suprachat/ACCESSIBILITY.md $docs/
+          Copy-Item prototype/suprachat/CAPABILITIES.md $docs/
+          Copy-Item prototype/suprachat/PARITY.md $docs/
+
+      - name: Bundle pinned open-source Codex runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = '${{ matrix.codex_asset }}'
+          $expected = '${{ matrix.codex_sha256 }}'
+          $url = "https://github.com/openai/codex/releases/download/$env:CODEX_TAG/$asset"
+          $tmp = Join-Path $env:RUNNER_TEMP $asset
+          $runtime = Join-Path $PWD 'out/${{ matrix.rid }}/runtime/codex'
+          New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+
+          Invoke-WebRequest -Uri $url -OutFile $tmp
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            throw "Codex asset digest mismatch: expected=$expected actual=$actual"
+          }
+
+          if ('${{ matrix.codex_archive }}' -eq 'true') {
+            $extract = Join-Path $env:RUNNER_TEMP "codex-extract-${{ matrix.rid }}"
+            New-Item -ItemType Directory -Force -Path $extract | Out-Null
+            tar -xzf $tmp -C $extract
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to extract Codex runtime archive.' }
+
+            $candidate = Get-ChildItem $extract -Recurse -File |
+              Where-Object { $_.Name -eq 'codex' -or $_.Name -like 'codex-*' } |
+              Sort-Object Length -Descending |
+              Select-Object -First 1
+            if (-not $candidate) { throw 'Codex executable was not found in archive.' }
+            Copy-Item $candidate.FullName (Join-Path $runtime 'codex')
+            if ($IsLinux -or $IsMacOS) { chmod +x (Join-Path $runtime 'codex') }
+          } else {
+            Copy-Item $tmp (Join-Path $runtime 'codex.exe')
+          }
+
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/openai/codex/$env:CODEX_TAG/LICENSE" -OutFile (Join-Path $runtime 'LICENSE.openai-codex')
+
+          @{
+            schema = 'suprachat-bundled-codex/v1'
+            version = $env:CODEX_VERSION
+            tag = $env:CODEX_TAG
+            source_asset = $asset
+            source_sha256 = $actual
+            license = 'Apache-2.0'
+          } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $runtime 'runtime.json')
+
+      - name: Verify bundled Codex runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtime = Join-Path $PWD 'out/${{ matrix.rid }}/runtime/codex'
+          $exe = if ($IsWindows) { Join-Path $runtime 'codex.exe' } else { Join-Path $runtime 'codex' }
+          if (!(Test-Path $exe)) { throw "Bundled Codex executable missing: $exe" }
+          if (!(Test-Path (Join-Path $runtime 'LICENSE.openai-codex'))) { throw 'Codex license missing.' }
+          if (!(Test-Path (Join-Path $runtime 'runtime.json'))) { throw 'Codex runtime receipt missing.' }
+
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled Codex --version failed with $LASTEXITCODE" }
+
+      - name: Smoke packaged automation and agent shells
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'out/${{ matrix.rid }}'
+          $cli = if ($IsWindows) { Join-Path $root 'SupraChat.Automation.exe' } else { Join-Path $root 'SupraChat.Automation' }
+          if (!(Test-Path $cli)) { throw "Packaged automation shell missing: $cli" }
+          foreach ($docName in @('README.md','AUDIENCES.md','ACCESSIBILITY.md','CAPABILITIES.md','PARITY.md')) {
+            if (!(Test-Path (Join-Path $root "docs/$docName"))) {
+              throw "Packaged contract document missing: $docName"
+            }
+          }
+
+          $cap = & $cli capabilities
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged automation capabilities failed.' }
+          $capDoc = $cap | ConvertFrom-Json
+          if (-not $capDoc.ok -or -not $capDoc.value.audiences.automation.supported) {
+            throw 'Packaged automation capability contract failed.'
+          }
+
+          $packagedDiagnostics = & $cli diagnostics
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged diagnostics command failed.' }
+          $packagedDiagnosticsDoc = $packagedDiagnostics | ConvertFrom-Json
+          if (-not $packagedDiagnosticsDoc.ok -or
+              $packagedDiagnosticsDoc.value.source_revision.Length -ne 40 -or
+              [string]::IsNullOrWhiteSpace($packagedDiagnosticsDoc.value.workflow_run_id) -or
+              $packagedDiagnosticsDoc.value.runtime_identifier -ne '${{ matrix.rid }}') {
+            throw 'Packaged build provenance/diagnostics contract failed.'
+          }
+          foreach ($method in @('realtime/voices','remote/status','remote/enable','remote/disable','remote/pairing/start','remote/pairing/status','remote/clients/list','remote/clients/revoke','plugins/list','permissions/profiles','apps/list','sandbox/readiness','codex/local/methods','codex/local/read','screen/status','screen/capture','browser/status','browser/snapshot')) {
+            if ($capDoc.value.machine_methods -notcontains $method) {
+              throw "Semantic machine method missing from capabilities: $method"
+            }
+          }
+
+          $remoteNoConfirm = & $cli remote-enable 2>$null
+          $remoteNoConfirmExit = $LASTEXITCODE
+          if ($remoteNoConfirmExit -ne 2) {
+            throw "remote-enable without confirmation must exit 2; got $remoteNoConfirmExit"
+          }
+          $remoteNoConfirmDoc = $remoteNoConfirm | ConvertFrom-Json
+          if ($remoteNoConfirmDoc.error.code -ne 'CONFIRMATION_REQUIRED') {
+            throw 'remote-enable did not preserve explicit confirmation boundary.'
+          }
+
+          $remoteConfirmed = & $cli remote-enable --confirm 2>$null
+          $remoteConfirmedExit = $LASTEXITCODE
+          if ($remoteConfirmedExit -ne 3) {
+            throw "confirmed remote-enable on clean runner must stop at AUTH_REQUIRED exit 3; got $remoteConfirmedExit"
+          }
+          $remoteConfirmedDoc = $remoteConfirmed | ConvertFrom-Json
+          if ($remoteConfirmedDoc.error.code -ne 'AUTH_REQUIRED') {
+            throw 'confirmed remote-enable did not stop at human authorization boundary.'
+          }
+
+          $screenStatus = & $cli screen-status
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged screen-status failed.' }
+          $screenStatusDoc = $screenStatus | ConvertFrom-Json
+          if (-not $screenStatusDoc.ok -or $screenStatusDoc.value.schema -ne 'suprachat-screen-capture/v1' -or -not $screenStatusDoc.value.requires_explicit_invocation) {
+            throw 'Packaged screen-capture descriptor contract failed.'
+          }
+
+          foreach ($command in @('voices','remote-status','plugins','permission-profiles','apps','sandbox-readiness')) {
+            $probe = & $cli $command 2>$null
+            $probeExit = $LASTEXITCODE
+            if ($probeExit -ne 0) {
+              throw "Expected credential-free local read $command to succeed; got exit $probeExit"
+            }
+            $probeDoc = $probe | ConvertFrom-Json
+            if ($probeDoc.ok -ne $true -or $probeDoc.value.binding -ne 'codex-local-read' -or $probeDoc.value.authorization_required -ne $false) {
+              throw "Credential-free local read contract failed: $command"
+            }
+          }
+
+          $localMethods = & $cli codex-local-methods
+          if ($LASTEXITCODE -ne 0) { throw 'codex-local-methods failed.' }
+          $localMethodsDoc = $localMethods | ConvertFrom-Json
+          if (-not $localMethodsDoc.ok -or $localMethodsDoc.value.methods.Count -ne 15) {
+            throw 'Credential-free Codex local allowlist contract drifted.'
+          }
+
+          $emptyParamMethods = @(
+            'config/read',
+            'configRequirements/read',
+            'experimentalFeature/list',
+            'collaborationMode/list',
+            'model/list',
+            'plugin/list',
+            'permissionProfile/list',
+            'app/list',
+            'account/read',
+            'mcpServerStatus/list',
+            'skills/list',
+            'thread/realtime/listVoices',
+            'thread/list'
+          )
+          $nullParamMethods = @(
+            'windowsSandbox/readiness',
+            'remoteControl/status/read'
+          )
+          foreach ($method in ($emptyParamMethods + $nullParamMethods)) {
+            $args = @('codex-local-read','--method',$method)
+            if ($emptyParamMethods -contains $method) {
+              $args += @('--params','{}')
+            }
+            $localRead = & $cli @args 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "Credential-free local method failed: $method" }
+            $localReadDoc = $localRead | ConvertFrom-Json
+            if (-not $localReadDoc.ok -or
+                $localReadDoc.value.method -ne $method -or
+                $localReadDoc.value.binding -ne 'codex-local-read' -or
+                $localReadDoc.value.authorization_required -ne $false) {
+              throw "Credential-free local method contract failed: $method"
+            }
+          }
+
+          foreach ($credentialName in @('ACCESS_TOKEN','OPENAI_API_KEY','CODEX_API_KEY','OPENAI_ACCESS_TOKEN','CHATGPT_ACCESS_TOKEN')) {
+            Set-Item -Path "Env:$credentialName" -Value 'SUPRACHAT_CI_MUST_NOT_INHERIT'
+          }
+          $signedOutAccount = & $cli codex-local-read --method account/read --params '{}'
+          if ($LASTEXITCODE -ne 0) { throw 'Credential-isolation account/read probe failed.' }
+          $signedOutAccountDoc = $signedOutAccount | ConvertFrom-Json
+          if (-not $signedOutAccountDoc.ok -or
+              $signedOutAccountDoc.value.result.account -ne $null -or
+              $signedOutAccountDoc.value.result.requiresOpenaiAuth -ne $false) {
+            throw 'Credential-free local read inherited ambient authorization unexpectedly.'
+          }
+          foreach ($credentialName in @('ACCESS_TOKEN','OPENAI_API_KEY','CODEX_API_KEY','OPENAI_ACCESS_TOKEN','CHATGPT_ACCESS_TOKEN')) {
+            Remove-Item -Path "Env:$credentialName" -ErrorAction SilentlyContinue
+          }
+
+          $forbiddenLocal = & $cli codex-local-read --method account/usage/read 2>$null
+          if ($LASTEXITCODE -ne 2) {
+            throw "Unqualified account read must fail closed with exit 2; got $LASTEXITCODE"
+          }
+          $forbiddenLocalDoc = $forbiddenLocal | ConvertFrom-Json
+          if ($forbiddenLocalDoc.error.code -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Unqualified account read escaped the credential-free allowlist.'
+          }
+          $global:LASTEXITCODE = 0
+
+          $browserStatus = & $cli browser-status
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged browser-status failed.' }
+          $browserStatusDoc = $browserStatus | ConvertFrom-Json
+          if (-not $browserStatusDoc.ok -or -not $browserStatusDoc.value.browser_directory_present -or -not $browserStatusDoc.value.accessibility_snapshot_supported) {
+            throw 'Bundled browser runtime status contract failed.'
+          }
+
+          $browserSnapshot = & $cli browser-snapshot --url 'https://example.com/' 2>&1
+          $browserSnapshotExit = $LASTEXITCODE
+          if ($browserSnapshotExit -ne 0) {
+            Write-Host 'Packaged browser-snapshot failure payload:'
+            $browserSnapshot | ForEach-Object { Write-Host $_ }
+            throw "Packaged browser-snapshot failed with exit $browserSnapshotExit."
+          }
+          $browserSnapshotDoc = $browserSnapshot | ConvertFrom-Json
+          if (-not $browserSnapshotDoc.ok -or $browserSnapshotDoc.value.url -notlike 'https://example.com*' -or [string]::IsNullOrWhiteSpace($browserSnapshotDoc.value.aria_snapshot)) {
+            throw 'Bundled browser semantic snapshot contract failed.'
+          }
+
+          $access = & $cli accessibility
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged accessibility command failed.' }
+          $accessDoc = $access | ConvertFrom-Json
+          if (-not $accessDoc.ok -or -not $accessDoc.value.human.keyboard_only -or -not $accessDoc.value.human.screen_reader_semantics) {
+            throw 'Packaged accessibility contract failed.'
+          }
+
+          $parity = & $cli parity
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged audience parity command failed.' }
+          $parityDoc = $parity | ConvertFrom-Json
+          if (-not $parityDoc.ok -or $parityDoc.value.schema -ne 'suprachat-audience-parity/v1') {
+            throw 'Packaged audience parity contract failed.'
+          }
+          foreach ($feature in $parityDoc.value.features) {
+            foreach ($audience in @('human','accessible_human','automation','agent')) {
+              if (-not $feature.access.$audience) { throw "Parity audience state missing: $($feature.id)/$audience" }
+            }
+            foreach ($platform in @('windows','macos','linux')) {
+              if (-not $feature.platforms.$platform) { throw "Parity platform state missing: $($feature.id)/$platform" }
+            }
+            if (-not $feature.human_boundary) { throw "Parity human boundary missing: $($feature.id)" }
+          }
+
+          $catalog = & $cli catalog
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged automation catalog failed.' }
+          $catalogDoc = $catalog | ConvertFrom-Json
+          if ($catalogDoc.value.codex.packaged_runtime.counts.total -ne 263) { throw 'Packaged Codex catalog missing/stale.' }
+          if ($catalogDoc.value.codex.upstream_frontier.counts.total -ne 266) { throw 'Codex frontier catalog missing/stale.' }
+
+          $request = '{"jsonrpc":"2.0","id":"ci","method":"doctor/read"}'
+          $rpc = $request | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent stdio failed.' }
+          $rpcDoc = ($rpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($rpcDoc.id -ne 'ci' -or -not $rpcDoc.result.schema) {
+            throw 'Packaged agent JSON-RPC contract failed.'
+          }
+
+          $accessRequest = '{"jsonrpc":"2.0","id":"a11y","method":"accessibility/read"}'
+          $accessRpc = $accessRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent accessibility/read failed.' }
+          $accessRpcDoc = ($accessRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($accessRpcDoc.id -ne 'a11y' -or -not $accessRpcDoc.result.human.screen_reader_semantics) {
+            throw 'Packaged agent accessibility contract failed.'
+          }
+
+          $browserStatusRequest = '{"jsonrpc":"2.0","id":"browser-status","method":"browser/status"}'
+          $browserStatusRpc = $browserStatusRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent browser/status failed.' }
+          $browserStatusRpcDoc = ($browserStatusRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($browserStatusRpcDoc.id -ne 'browser-status' -or -not $browserStatusRpcDoc.result.browser_directory_present) {
+            throw 'Packaged agent browser/status contract failed.'
+          }
+
+          $browserRequest = '{"jsonrpc":"2.0","id":"browser","method":"browser/snapshot","params":{"url":"https://example.com/"}}'
+          $browserRpc = $browserRequest | & $cli stdio 2>&1
+          $browserRpcExit = $LASTEXITCODE
+          if ($browserRpcExit -ne 0) {
+            Write-Host 'Packaged agent browser/snapshot failure payload:'
+            $browserRpc | ForEach-Object { Write-Host $_ }
+            throw "Packaged agent browser/snapshot failed with exit $browserRpcExit."
+          }
+          $browserRpcDoc = ($browserRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($browserRpcDoc.id -ne 'browser' -or [string]::IsNullOrWhiteSpace($browserRpcDoc.result.aria_snapshot)) {
+            throw 'Packaged agent browser semantic snapshot contract failed.'
+          }
+
+          $parityRequest = '{"jsonrpc":"2.0","id":"parity","method":"parity/read"}'
+          $parityRpc = $parityRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent parity/read failed.' }
+          $parityRpcDoc = ($parityRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($parityRpcDoc.id -ne 'parity' -or $parityRpcDoc.result.schema -ne 'suprachat-audience-parity/v1') {
+            throw 'Packaged agent parity contract failed.'
+          }
+
+          $remoteNoConfirmRequest = '{"jsonrpc":"2.0","id":"remote-confirm","method":"remote/enable","params":{}}'
+          $remoteNoConfirmRpc = $remoteNoConfirmRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent remote confirmation probe failed.' }
+          $remoteNoConfirmRpcDoc = ($remoteNoConfirmRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($remoteNoConfirmRpcDoc.error.data.type -ne 'CONFIRMATION_REQUIRED') {
+            throw 'Agent remote/enable did not require explicit confirmation.'
+          }
+
+          $remoteConfirmedRequest = '{"jsonrpc":"2.0","id":"remote-auth","method":"remote/enable","params":{"confirm":true}}'
+          $remoteConfirmedRpc = $remoteConfirmedRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent confirmed remote authorization probe failed.' }
+          $remoteConfirmedRpcDoc = ($remoteConfirmedRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($remoteConfirmedRpcDoc.error.data.type -ne 'AUTH_REQUIRED') {
+            throw 'Agent confirmed remote/enable did not stop at human authorization boundary.'
+          }
+
+          $screenRequest = '{"jsonrpc":"2.0","id":"screen","method":"screen/status"}'
+          $screenRpc = $screenRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged agent screen/status failed.' }
+          $screenRpcDoc = ($screenRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($screenRpcDoc.id -ne 'screen' -or $screenRpcDoc.result.schema -ne 'suprachat-screen-capture/v1' -or -not $screenRpcDoc.result.requires_explicit_invocation) {
+            throw 'Packaged agent screen/status contract failed.'
+          }
+
+
+          foreach ($method in @('realtime/voices','remote/status','plugins/list','permissions/profiles','apps/list','sandbox/readiness')) {
+            $semanticRequest = @{ jsonrpc='2.0'; id=$method; method=$method } | ConvertTo-Json -Compress
+            $semanticRpc = $semanticRequest | & $cli stdio 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "Agent stdio failed for semantic local-read method: $method" }
+            $semanticDoc = ($semanticRpc | Select-Object -Last 1) | ConvertFrom-Json
+            if ($semanticDoc.id -ne $method -or
+                $semanticDoc.result.binding -ne 'codex-local-read' -or
+                $semanticDoc.result.authorization_required -ne $false) {
+              throw "Agent semantic local-read contract failed: $method"
+            }
+          }
+
+          $localRpcRequest = '{"jsonrpc":"2.0","id":"local-config","method":"codex/local/read","params":{"method":"config/read","params":{}}}'
+          $localRpc = $localRpcRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent codex/local/read failed.' }
+          $localRpcDoc = ($localRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($localRpcDoc.id -ne 'local-config' -or
+              $localRpcDoc.result.binding -ne 'codex-local-read' -or
+              $localRpcDoc.result.method -ne 'config/read') {
+            throw 'Agent credential-free Codex local-read contract failed.'
+          }
+
+          $forbiddenRpcRequest = '{"jsonrpc":"2.0","id":"forbidden-local","method":"codex/local/read","params":{"method":"account/usage/read"}}'
+          $forbiddenRpc = $forbiddenRpcRequest | & $cli stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Agent forbidden local-read boundary probe failed.' }
+          $forbiddenRpcDoc = ($forbiddenRpc | Select-Object -Last 1) | ConvertFrom-Json
+          if ($forbiddenRpcDoc.error.data.type -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Agent credential-free allowlist failed closed incorrectly.'
+          }
+
+      - name: Repeat packaged runtime causal reps
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'out/${{ matrix.rid }}'
+          $cli = if ($IsWindows) { Join-Path $root 'SupraChat.Automation.exe' } else { Join-Path $root 'SupraChat.Automation' }
+
+          foreach ($rep in 1..3) {
+            Write-Host "Causal runtime rep $rep/3 on ${{ matrix.os }} / ${{ matrix.rid }}"
+
+            $doctor = & $cli doctor
+            if ($LASTEXITCODE -ne 0) { throw "doctor failed on rep $rep" }
+            $doctorDoc = $doctor | ConvertFrom-Json
+            if (-not $doctorDoc.ok) { throw "doctor contract failed on rep $rep" }
+
+            $diag = & $cli diagnostics
+            if ($LASTEXITCODE -ne 0) { throw "diagnostics failed on rep $rep" }
+            $diagDoc = $diag | ConvertFrom-Json
+            if (-not $diagDoc.ok -or $diagDoc.value.trace_id.Length -ne 32) {
+              throw "diagnostics trace contract failed on rep $rep"
+            }
+            if ($diagDoc.value.contains_prompts -or
+                $diagDoc.value.contains_outputs -or
+                $diagDoc.value.contains_token_material) {
+              throw "diagnostics privacy contract failed on rep $rep"
+            }
+
+            $zip = Join-Path $env:RUNNER_TEMP "suprachat-${{ matrix.rid }}-rep-$rep.zip"
+            $export = & $cli diagnostics-export --output $zip
+            if ($LASTEXITCODE -ne 0 -or !(Test-Path $zip)) {
+              throw "diagnostics export failed on rep $rep"
+            }
+
+            $browser = & $cli browser-snapshot --url 'https://example.com/' 2>&1
+            $browserExit = $LASTEXITCODE
+            if ($browserExit -ne 0) {
+              Write-Host ("browser-snapshot output for rep {0}:" -f $rep)
+              $browser | ForEach-Object { Write-Host $_ }
+              throw "browser-snapshot failed on rep $rep"
+            }
+            $browserDoc = $browser | ConvertFrom-Json
+            if (-not $browserDoc.ok -or [string]::IsNullOrWhiteSpace($browserDoc.value.aria_snapshot)) {
+              throw "browser semantic snapshot contract failed on rep $rep"
+            }
+
+            $rpcRequest = '{"jsonrpc":"2.0","id":"rep","method":"diagnostics/read"}'
+            $rpc = $rpcRequest | & $cli stdio 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "diagnostics/read JSON-RPC failed on rep $rep" }
+            $rpcDoc = ($rpc | Select-Object -Last 1) | ConvertFrom-Json
+            if ($rpcDoc.id -ne 'rep' -or $rpcDoc.result.trace_id.Length -ne 32) {
+              throw "diagnostics/read JSON-RPC contract failed on rep $rep"
+            }
+
+            foreach ($credentialName in @('ACCESS_TOKEN','OPENAI_API_KEY','CODEX_API_KEY','OPENAI_ACCESS_TOKEN','CHATGPT_ACCESS_TOKEN')) {
+              Set-Item -Path "Env:$credentialName" -Value "SUPRACHAT_REP_$rep"
+            }
+            $localAccount = & $cli codex-local-read --method account/read --params '{}'
+            if ($LASTEXITCODE -ne 0) { throw "credential-free account/read failed on rep $rep" }
+            $localAccountDoc = $localAccount | ConvertFrom-Json
+            if (-not $localAccountDoc.ok -or
+                $localAccountDoc.value.binding -ne 'codex-local-read' -or
+                $localAccountDoc.value.result.account -ne $null -or
+                $localAccountDoc.value.result.requiresOpenaiAuth -ne $false) {
+              throw "credential isolation failed on rep $rep"
+            }
+            foreach ($credentialName in @('ACCESS_TOKEN','OPENAI_API_KEY','CODEX_API_KEY','OPENAI_ACCESS_TOKEN','CHATGPT_ACCESS_TOKEN')) {
+              Remove-Item -Path "Env:$credentialName" -ErrorAction SilentlyContinue
+            }
+
+            $forbiddenAccount = & $cli codex-local-read --method account/usage/read 2>$null
+            if ($LASTEXITCODE -ne 2) { throw "credential-free allowlist negative control failed on rep $rep" }
+            $forbiddenAccountDoc = $forbiddenAccount | ConvertFrom-Json
+            if ($forbiddenAccountDoc.error.code -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+              throw "credential-free allowlist error contract failed on rep $rep"
+            }
+            $global:LASTEXITCODE = 0
+
+            $remote = & $cli remote-enable 2>$null
+            if ($LASTEXITCODE -ne 2) { throw "confirmation boundary failed on rep $rep" }
+            $remoteDoc = $remote | ConvertFrom-Json
+            if ($remoteDoc.error.code -ne 'CONFIRMATION_REQUIRED') {
+              throw "confirmation error contract failed on rep $rep"
+            }
+
+            $remoteConfirmed = & $cli remote-enable --confirm 2>$null
+            if ($LASTEXITCODE -ne 3) { throw "authorization boundary failed on rep $rep" }
+            $remoteConfirmedDoc = $remoteConfirmed | ConvertFrom-Json
+            if ($remoteConfirmedDoc.error.code -ne 'AUTH_REQUIRED') {
+              throw "authorization error contract failed on rep $rep"
+            }
+
+            # AUTH_REQUIRED is the expected native exit for this negative control.
+            # Clear the native exit state so pwsh does not report the successful
+            # qualification step itself as exit 3 after the final rep.
+            $global:LASTEXITCODE = 0
+          }
+          Write-Host 'Three packaged-runtime causal reps PASS.'
+
+      - name: Stage and smoke Linux per-user install
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp prototype/suprachat/packaging/linux/install.sh out/linux-x64/install.sh
+          chmod +x out/linux-x64/install.sh
+
+          test_home="$RUNNER_TEMP/suprachat-linux-home"
+          mkdir -p "$test_home"
+          HOME="$test_home" bash out/linux-x64/install.sh
+
+          test -x "$test_home/.local/opt/suprachat/SupraChat"
+          test -x "$test_home/.local/opt/suprachat/SupraChat.Automation"
+          test -x "$test_home/.local/bin/suprachat-cli"
+          test -L "$test_home/.local/bin/suprachat"
+          test -f "$test_home/.local/share/applications/suprachat.desktop"
+          grep -q 'x-scheme-handler/suprachat' "$test_home/.local/share/applications/suprachat.desktop"
+
+          cli_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" capabilities)"
+          python3 - "$cli_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["audiences"]["automation"]["supported"] is True
+          assert doc["value"]["audiences"]["agent"]["supported"] is True
+          PY
+
+          accessibility_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" accessibility)"
+          python3 - "$accessibility_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["human"]["keyboard_only"] is True
+          assert doc["value"]["human"]["screen_reader_semantics"] is True
+          PY
+
+          local_account_json="$(HOME="$test_home" ACCESS_TOKEN=SHOULD_NOT_INHERIT OPENAI_API_KEY=SHOULD_NOT_INHERIT "$test_home/.local/bin/suprachat-cli" codex-local-read --method account/read --params '{}')"
+          python3 - "$local_account_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["binding"] == "codex-local-read"
+          assert doc["value"]["authorization_required"] is False
+          assert doc["value"]["result"]["account"] is None
+          assert doc["value"]["result"]["requiresOpenaiAuth"] is False
+          PY
+          set +e
+          HOME="$test_home" "$test_home/.local/bin/suprachat-cli" codex-local-read --method account/usage/read >/tmp/suprachat-forbidden.json 2>/dev/null
+          forbidden_exit=$?
+          set -e
+          test "$forbidden_exit" -eq 2
+          python3 - /tmp/suprachat-forbidden.json <<'PY'
+          import json,sys
+          doc=json.load(open(sys.argv[1]))
+          assert doc["error"]["code"] == "LOCAL_METHOD_NOT_ALLOWED"
+          PY
+
+          HOME="$test_home" bash out/linux-x64/install.sh
+          repair_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" doctor)"
+          python3 - "$repair_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["platform"] == "linux"
+          PY
+
+          HOME="$test_home" bash "$test_home/.local/opt/suprachat/uninstall.sh"
+          test ! -e "$test_home/.local/opt/suprachat"
+          test ! -e "$test_home/.local/bin/suprachat-cli"
+          echo 'Linux installed-state human/automation/agent smoke PASS.'
+
+      - name: Stage macOS application bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x prototype/suprachat/packaging/macos/package.sh
+          stage="$PWD/out/macos-package"
+          prototype/suprachat/packaging/macos/package.sh "$PWD/out/osx-arm64" "$stage"
+          cp prototype/suprachat/packaging/macos/install.sh "$stage/install.sh"
+          chmod +x "$stage/install.sh"
+
+          test -x "$stage/SupraChat.app/Contents/MacOS/SupraChat"
+          test -x "$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation"
+          test -x "$stage/SupraChat.app/Contents/MacOS/runtime/codex/codex"
+          plutil -extract CFBundleIdentifier raw "$stage/SupraChat.app/Contents/Info.plist" | grep -qx 'com.sempersupra.suprachat'
+          plutil -p "$stage/SupraChat.app/Contents/Info.plist" | grep -q 'suprachat'
+          codesign --verify --strict "$stage/SupraChat.app"
+
+          browser_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" browser-snapshot --url https://example.com/)"
+          python3 - "$browser_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["url"].startswith("https://example.com")
+          assert doc["value"]["aria_snapshot"]
+          PY
+
+          cli_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" capabilities)"
+          python3 - "$cli_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["platform"] == "macos"
+          assert doc["value"]["audiences"]["agent"]["supported"] is True
+          PY
+
+          accessibility_json="$("$stage/SupraChat.app/Contents/MacOS/SupraChat.Automation" accessibility)"
+          python3 - "$accessibility_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["human"]["keyboard_only"] is True
+          assert doc["value"]["human"]["screen_reader_semantics"] is True
+          PY
+
+      - name: Smoke macOS per-user install
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$PWD/out/macos-package"
+          test_home="$RUNNER_TEMP/suprachat-macos-home"
+          mkdir -p "$test_home"
+
+          HOME="$test_home" bash "$stage/install.sh"
+          test -d "$test_home/Applications/SupraChat.app"
+          test -x "$test_home/.local/bin/suprachat-cli"
+          test -L "$test_home/.local/bin/suprachat-gui"
+          test -f "$test_home/Applications/SupraChat.app/Contents/Resources/uninstall.sh"
+          test ! -x "$test_home/Applications/SupraChat.app/Contents/Resources/uninstall.sh"
+          codesign --verify --strict "$test_home/Applications/SupraChat.app"
+
+          cli_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" doctor)"
+          python3 - "$cli_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["platform"] == "macos"
+          PY
+
+          local_account_json="$(HOME="$test_home" ACCESS_TOKEN=SHOULD_NOT_INHERIT OPENAI_API_KEY=SHOULD_NOT_INHERIT "$test_home/.local/bin/suprachat-cli" codex-local-read --method account/read --params '{}')"
+          python3 - "$local_account_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["binding"] == "codex-local-read"
+          assert doc["value"]["authorization_required"] is False
+          assert doc["value"]["result"]["account"] is None
+          assert doc["value"]["result"]["requiresOpenaiAuth"] is False
+          PY
+
+          HOME="$test_home" bash "$stage/install.sh"
+          codesign --verify --strict "$test_home/Applications/SupraChat.app"
+          repair_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" diagnostics)"
+          python3 - "$repair_json" <<'PY'
+          import json,sys
+          doc=json.loads(sys.argv[1])
+          assert doc["ok"] is True
+          assert doc["value"]["runtime_identifier"] == "osx-arm64"
+          PY
+
+          HOME="$test_home" /bin/bash "$test_home/Applications/SupraChat.app/Contents/Resources/uninstall.sh"
+          test ! -e "$test_home/Applications/SupraChat.app"
+          test ! -e "$test_home/.local/bin/suprachat-cli"
+
+          rm -rf "$PWD/out/osx-arm64"
+          mv "$stage" "$PWD/out/osx-arm64"
+          echo 'macOS installed-state human/automation/agent smoke PASS.'
+
+      - name: Stage Windows per-user installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item prototype/suprachat/packaging/windows/install.ps1 out/win-x64/install.ps1
+          Copy-Item prototype/suprachat/packaging/windows/Install-SupraChat.cmd out/win-x64/Install-SupraChat.cmd
+
+      - name: Windows installer smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $PWD 'out/win-x64'
+          & (Join-Path $source 'install.ps1') -NoLaunch
+
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs/SupraChat'
+          $installedExe = Join-Path $installed 'SupraChat.exe'
+          $installedCodex = Join-Path $installed 'runtime/codex/codex.exe'
+          $arp = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat'
+          $protocol = 'HKCU:\Software\Classes\suprachat'
+          $appKey = 'HKCU:\Software\Classes\Applications\SupraChat.exe'
+          $protocolCommand = Join-Path $protocol 'shell\open\command'
+          $appCommand = Join-Path $appKey 'shell\open\command'
+          $supportedTypes = Join-Path $appKey 'SupportedTypes'
+
+          if (!(Test-Path $installedExe)) { throw 'Installed SupraChat.exe missing.' }
+          if (!(Test-Path $installedCodex)) { throw 'Installed bundled Codex runtime missing.' }
+          $installedAutomation = Join-Path $installed 'SupraChat.Automation.exe'
+          $cliShim = Join-Path $installed 'suprachat-cli.cmd'
+          if (!(Test-Path $installedAutomation)) { throw 'Installed automation/agent shell missing.' }
+          if (!(Test-Path $cliShim)) { throw 'Installed suprachat-cli shim missing.' }
+
+          $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if (-not ($userPath.Split(';') | Where-Object { $_.Trim().TrimEnd('\') -eq $installed.TrimEnd('\') })) {
+            throw 'SupraChat install root was not added to user PATH.'
+          }
+
+          $cliJson = & $cliShim capabilities
+          if ($LASTEXITCODE -ne 0) { throw 'Installed suprachat-cli capabilities failed.' }
+          $cliDoc = $cliJson | ConvertFrom-Json
+          if (-not $cliDoc.ok -or -not $cliDoc.value.audiences.automation.supported) {
+            throw 'Installed automation contract failed.'
+          }
+
+          $installedAccess = & $cliShim accessibility
+          if ($LASTEXITCODE -ne 0) { throw 'Installed accessibility command failed.' }
+          $installedAccessDoc = $installedAccess | ConvertFrom-Json
+          if (-not $installedAccessDoc.ok -or -not $installedAccessDoc.value.human.keyboard_only -or -not $installedAccessDoc.value.human.screen_reader_semantics) {
+            throw 'Installed accessibility contract failed.'
+          }
+
+          $env:ACCESS_TOKEN = 'SHOULD_NOT_INHERIT'
+          $env:OPENAI_API_KEY = 'SHOULD_NOT_INHERIT'
+          $installedLocal = & $cliShim codex-local-read --method account/read --params '{}'
+          if ($LASTEXITCODE -ne 0) { throw 'Installed credential-free account/read failed.' }
+          $installedLocalDoc = $installedLocal | ConvertFrom-Json
+          if (-not $installedLocalDoc.ok -or
+              $installedLocalDoc.value.binding -ne 'codex-local-read' -or
+              $installedLocalDoc.value.authorization_required -ne $false -or
+              $installedLocalDoc.value.result.account -ne $null -or
+              $installedLocalDoc.value.result.requiresOpenaiAuth -ne $false) {
+            throw 'Installed credential-free account/read isolation contract failed.'
+          }
+          Remove-Item Env:ACCESS_TOKEN,Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $installedForbidden = & $cliShim codex-local-read --method account/usage/read 2>$null
+          if ($LASTEXITCODE -ne 2) { throw 'Installed credential-free negative allowlist control failed.' }
+          $installedForbiddenDoc = $installedForbidden | ConvertFrom-Json
+          if ($installedForbiddenDoc.error.code -ne 'LOCAL_METHOD_NOT_ALLOWED') {
+            throw 'Installed credential-free negative allowlist error contract failed.'
+          }
+          $global:LASTEXITCODE = 0
+
+          $rpcRequest = '{"jsonrpc":"2.0","id":"installed","method":"capabilities/read"}'
+          $rpcLines = $rpcRequest | & $installedAutomation stdio 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Installed agent stdio failed.' }
+          $rpcDoc = ($rpcLines | Select-Object -Last 1) | ConvertFrom-Json
+          if ($rpcDoc.id -ne 'installed' -or -not $rpcDoc.result.audiences.agent.supported) {
+            throw 'Installed agent JSON-RPC contract failed.'
+          }
+          if (!(Test-Path $arp)) { throw 'Add/Remove Programs registration missing.' }
+          if (!(Test-Path $protocolCommand)) { throw 'suprachat:// protocol registration missing.' }
+          if (!(Test-Path $appCommand)) { throw 'Open With command registration missing.' }
+          if (!(Test-Path $supportedTypes)) { throw 'Open With supported-types registration missing.' }
+          if (-not (Get-ItemProperty -Path $supportedTypes).PSObject.Properties.Name.Contains('.pdf')) {
+            throw 'Expected .pdf Open With registration missing.'
+          }
+
+          $registeredProtocol = (Get-Item -Path $protocolCommand).GetValue('')
+          $registeredOpenWith = (Get-Item -Path $appCommand).GetValue('')
+          if ($registeredProtocol -notlike '*SupraChat.exe*"%1"*') { throw 'Protocol command is malformed.' }
+          if ($registeredOpenWith -notlike '*SupraChat.exe*"%1"*') { throw 'Open With command is malformed.' }
+
+          $diagRoot = Join-Path $env:LOCALAPPDATA 'SemperSupra/SupraChat/diagnostics'
+          $installReceiptPath = Join-Path $diagRoot 'install-receipt.json'
+          $installerEventsPath = Join-Path $diagRoot 'installer-events.jsonl'
+          if (!(Test-Path $installReceiptPath)) { throw 'Install observability receipt missing.' }
+          if (!(Test-Path $installerEventsPath)) { throw 'Installer JSONL observability missing.' }
+          $installReceiptRaw = Get-Content $installReceiptPath -Raw
+          $installReceipt = $installReceiptRaw | ConvertFrom-Json
+          $installReceiptJson = [System.Text.Json.JsonDocument]::Parse($installReceiptRaw)
+          try {
+            $installCompletedUtc = $installReceiptJson.RootElement.GetProperty('completed_at_utc').GetString()
+          } finally {
+            $installReceiptJson.Dispose()
+          }
+          if ($installReceipt.schema -ne 'suprachat-install-receipt/v2' -or
+              $installReceipt.trace_id.Length -ne 32 -or
+              $installReceipt.install_session_id.Length -ne 32) {
+            throw 'Install correlation receipt malformed.'
+          }
+          if ([string]::IsNullOrWhiteSpace($installCompletedUtc) -or
+              -not $installCompletedUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+            throw 'Install receipt serialized timestamp is not explicit UTC with Z designator.'
+          }
+          $parsedInstallUtc = [DateTimeOffset]::MinValue
+          if (-not [DateTimeOffset]::TryParse(
+                $installCompletedUtc,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind,
+                [ref]$parsedInstallUtc) -or
+              $parsedInstallUtc.Offset -ne [TimeSpan]::Zero) {
+            throw 'Install receipt serialized timestamp is not round-trip parseable as UTC.'
+          }
+          if ($installReceipt.app_sha256.Length -ne 64 -or
+              $installReceipt.automation_sha256.Length -ne 64 -or
+              $installReceipt.codex_sha256.Length -ne 64) {
+            throw 'Install build-provenance hashes malformed.'
+          }
+          if ($installReceipt.privacy.contains_tokens -or
+              $installReceipt.privacy.contains_cookies -or
+              $installReceipt.privacy.contains_prompts -or
+              $installReceipt.privacy.contains_outputs) {
+            throw 'Install receipt privacy contract regressed.'
+          }
+          $installerEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $installerEvent = $installerEventRaw | ConvertFrom-Json
+          $installerEventJson = [System.Text.Json.JsonDocument]::Parse($installerEventRaw)
+          try {
+            $installerTimestampUtc = $installerEventJson.RootElement.GetProperty('timestamp_utc').GetString()
+          } finally {
+            $installerEventJson.Dispose()
+          }
+          if ([string]::IsNullOrWhiteSpace($installerTimestampUtc) -or
+              -not $installerTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal) -or
+              $installerEvent.trace_id -ne $installReceipt.trace_id) {
+            throw 'Installer event/receipt serialized UTC trace correlation failed.'
+          }
+
+          # Same-build repair/reinstall: new install correlation, identical binaries, registrations remain valid.
+          $firstInstallSession = [string]$installReceipt.install_session_id
+          $firstTrace = [string]$installReceipt.trace_id
+          $firstAppHash = [string]$installReceipt.app_sha256
+          $firstAutomationHash = [string]$installReceipt.automation_sha256
+          $firstCodexHash = [string]$installReceipt.codex_sha256
+
+          & (Join-Path $source 'install.ps1') -NoLaunch
+          if ($LASTEXITCODE -ne 0) { throw 'Same-build Windows repair/reinstall failed.' }
+
+          $installReceiptRaw = Get-Content $installReceiptPath -Raw
+          $installReceipt = $installReceiptRaw | ConvertFrom-Json
+          if ([string]$installReceipt.install_session_id -eq $firstInstallSession -or
+              [string]$installReceipt.trace_id -eq $firstTrace) {
+            throw 'Windows repair/reinstall did not create a new install correlation.'
+          }
+          if ([string]$installReceipt.app_sha256 -ne $firstAppHash -or
+              [string]$installReceipt.automation_sha256 -ne $firstAutomationHash -or
+              [string]$installReceipt.codex_sha256 -ne $firstCodexHash) {
+            throw 'Windows repair/reinstall changed packaged binary provenance.'
+          }
+          if (!(Test-Path $protocolCommand) -or !(Test-Path $appCommand) -or !(Test-Path $arp)) {
+            throw 'Windows repair/reinstall failed to preserve registrations.'
+          }
+
+          # Launch the actually installed binary and require it to inherit the install trace.
+          $installedEvents = Join-Path $diagRoot 'events.jsonl'
+          Remove-Item $installedEvents -Force -ErrorAction SilentlyContinue
+          $priorTrace = $env:SUPRACHAT_INSTALL_TRACE_ID
+          $priorInstallSession = $env:SUPRACHAT_INSTALL_SESSION_ID
+          try {
+            $env:SUPRACHAT_INSTALL_TRACE_ID = [string]$installReceipt.trace_id
+            $env:SUPRACHAT_INSTALL_SESSION_ID = [string]$installReceipt.install_session_id
+            $installedProcess = Start-Process -FilePath $installedExe -PassThru
+
+            # Poll bounded readiness instead of assuming a fixed GUI startup latency.
+            # Hosted runners can take materially longer to initialize Avalonia/WebView.
+            $readinessDeadline = [DateTime]::UtcNow.AddSeconds(25)
+            $installedEventLines = @()
+            do {
+              Start-Sleep -Milliseconds 500
+              if ($installedProcess.HasExited) {
+                throw "Installed SupraChat exited during launch rep with code $($installedProcess.ExitCode)"
+              }
+              if (Test-Path $installedEvents) {
+                $installedEventLines = @(Get-Content $installedEvents -ErrorAction SilentlyContinue)
+              }
+            } while ($installedEventLines.Count -lt 2 -and [DateTime]::UtcNow -lt $readinessDeadline)
+
+            if ($installedEventLines.Count -lt 2) {
+              Write-Host 'Installed GUI readiness evidence at timeout:'
+              $installedEventLines | ForEach-Object { Write-Host $_ }
+              throw 'Installed SupraChat did not reach the second correlated lifecycle event within the bounded readiness window.'
+            }
+            foreach ($eventLine in $installedEventLines) {
+              $eventDoc = $eventLine | ConvertFrom-Json
+              if ([string]$eventDoc.trace_id -ne [string]$installReceipt.trace_id) {
+                throw 'Installed SupraChat did not inherit the repaired-install trace.'
+              }
+              $eventJson = [System.Text.Json.JsonDocument]::Parse($eventLine)
+              try {
+                $eventTimestampUtc = $eventJson.RootElement.GetProperty('timestamp_utc').GetString()
+              } finally {
+                $eventJson.Dispose()
+              }
+              if ([string]::IsNullOrWhiteSpace($eventTimestampUtc) -or
+                  -not $eventTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+                throw 'Installed SupraChat serialized event timestamp is not explicit UTC.'
+              }
+            }
+            Stop-Process -Id $installedProcess.Id -Force
+          }
+          finally {
+            $env:SUPRACHAT_INSTALL_TRACE_ID = $priorTrace
+            $env:SUPRACHAT_INSTALL_SESSION_ID = $priorInstallSession
+          }
+
+          Remove-Item (Join-Path $env:APPDATA 'Microsoft/Windows/Start Menu/Programs/SupraChat.lnk') -Force -ErrorAction SilentlyContinue
+          Remove-Item $arp -Recurse -Force -ErrorAction SilentlyContinue
+          $uninstall = Join-Path $installed 'uninstall.ps1'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $uninstall
+          Start-Sleep -Seconds 2
+
+          $userPathAfter = [Environment]::GetEnvironmentVariable('Path', 'User')
+          if ($userPathAfter -and ($userPathAfter.Split(';') | Where-Object { $_.Trim().TrimEnd('\') -eq $installed.TrimEnd('\') })) {
+            throw 'SupraChat uninstall left install root on user PATH.'
+          }
+          if (Test-Path $protocol) { throw 'SupraChat protocol registration survived uninstall.' }
+          if (Test-Path $appKey) { throw 'SupraChat Open With registration survived uninstall.' }
+          if (Test-Path $arp) { throw 'SupraChat Add/Remove Programs entry survived uninstall.' }
+
+          $uninstallEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $uninstallEvent = $uninstallEventRaw | ConvertFrom-Json
+          $uninstallJson = [System.Text.Json.JsonDocument]::Parse($uninstallEventRaw)
+          try {
+            $uninstallTimestampUtc = $uninstallJson.RootElement.GetProperty('timestamp_utc').GetString()
+          } finally {
+            $uninstallJson.Dispose()
+          }
+          if ($uninstallEvent.component -ne 'windows-uninstaller' -or
+              $uninstallEvent.event -ne 'uninstall-complete' -or
+              $uninstallEvent.trace_id -ne $installReceipt.trace_id -or
+              $uninstallEvent.traceparent -notlike "00-$($installReceipt.trace_id)-*-01" -or
+              [string]::IsNullOrWhiteSpace($uninstallTimestampUtc) -or
+              -not $uninstallTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+            throw 'Uninstall observability did not preserve serialized UTC trace lineage.'
+          }
+
+          if (Test-Path -LiteralPath $installed) {
+            try {
+              Remove-Item -LiteralPath $installed -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+              Write-Host "Installed tree was already being removed by the uninstaller helper: $($_.Exception.Message)"
+            }
+          }
+          'Per-user installer + human/automation/agent/protocol/Open-With smoke PASS.'
+
+      - name: Windows GUI launch smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $PWD 'out/win-x64/SupraChat.exe'
+          $startupLog = Join-Path $env:RUNNER_TEMP 'suprachat-startup.log'
+          $stdoutLog = Join-Path $env:RUNNER_TEMP 'suprachat-stdout.log'
+          $stderrLog = Join-Path $env:RUNNER_TEMP 'suprachat-stderr.log'
+          if (!(Test-Path $exe)) { throw "SupraChat.exe missing" }
+
+          $env:SUPRACHAT_STARTUP_LOG = $startupLog
+          $guiTrace = [Guid]::NewGuid().ToString('N')
+          $env:SUPRACHAT_INSTALL_TRACE_ID = $guiTrace
+          $env:SUPRACHAT_INSTALL_SESSION_ID = [Guid]::NewGuid().ToString('N')
+          $appEvents = Join-Path $env:LOCALAPPDATA 'SemperSupra/SupraChat/diagnostics/events.jsonl'
+          Remove-Item $appEvents -Force -ErrorAction SilentlyContinue
+
+          $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+          Start-Sleep -Seconds 8
+
+          if ($p.HasExited) {
+            Write-Host "SupraChat exited during launch smoke with code $($p.ExitCode)"
+            if (Test-Path $startupLog) { Get-Content $startupLog }
+            if (Test-Path $stdoutLog) { Get-Content $stdoutLog }
+            if (Test-Path $stderrLog) { Get-Content $stderrLog }
+            throw "SupraChat self-contained launch failed with code $($p.ExitCode)"
+          }
+
+          if (!(Test-Path $appEvents)) { throw 'GUI structured observability log missing.' }
+          $appEventLines = @(Get-Content $appEvents)
+          if ($appEventLines.Count -lt 2) { throw 'GUI structured observability emitted too few lifecycle events.' }
+          foreach ($eventLine in $appEventLines) {
+            $eventDoc = $eventLine | ConvertFrom-Json
+            $eventJson = [System.Text.Json.JsonDocument]::Parse($eventLine)
+            try {
+              $eventTimestampUtc = $eventJson.RootElement.GetProperty('timestamp_utc').GetString()
+            } finally {
+              $eventJson.Dispose()
+            }
+            if ([string]::IsNullOrWhiteSpace($eventTimestampUtc) -or
+                -not $eventTimestampUtc.EndsWith('Z', [StringComparison]::Ordinal)) {
+              throw 'GUI serialized event timestamp is not explicit UTC.'
+            }
+            if ($eventDoc.trace_id -ne $guiTrace) { throw 'GUI event did not inherit install trace correlation.' }
+            if ($eventDoc.span_id.Length -ne 16 -or $eventDoc.traceparent -notlike "00-$guiTrace-*-01") {
+              throw 'GUI W3C trace/span contract malformed.'
+            }
+          }
+
+          Stop-Process -Id $p.Id -Force
+          "SupraChat remained alive through an 8-second self-contained Windows launch smoke."
+
+      - name: Windows live UI Automation accessibility smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+
+          $exe = Join-Path $PWD 'out/win-x64/SupraChat.exe'
+          $p = Start-Process -FilePath $exe -PassThru
+          try {
+            $qualificationDir = Join-Path $PWD 'out/win-x64/qualification'
+            New-Item -ItemType Directory -Force -Path $qualificationDir | Out-Null
+            $receiptPath = Join-Path $qualificationDir 'windows-uia.json'
+
+            $deadline = (Get-Date).AddSeconds(20)
+            $window = $null
+            $uiaRootLookupError = $null
+            while ((Get-Date) -lt $deadline -and -not $window) {
+              Start-Sleep -Milliseconds 500
+              $p.Refresh()
+              if ($p.HasExited) {
+                break
+              }
+
+              if ($p.MainWindowHandle -ne 0) {
+                try {
+                  $window = [System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+                }
+                catch {
+                  $uiaRootLookupError = $_.Exception
+                  break
+                }
+              }
+            }
+
+            if (-not $window) {
+              $receipt = @{
+                schema = 'suprachat-windows-uia-qualification/v1'
+                state = 'RUNNER_UIA_ROOT_UNAVAILABLE'
+                process_id = $p.Id
+                process_alive = (-not $p.HasExited)
+                root_class = $null
+                descendant_count = $null
+                semantic_peer_count = $null
+                static_accessibility_contract = 'PASS'
+                gui_launch_smoke = 'PASS'
+                lookup_error_type = if ($uiaRootLookupError) { $uiaRootLookupError.GetType().FullName } else { $null }
+                explanation = 'Hosted runner kept SupraChat alive but did not provide a usable UI Automation root in this non-interactive desktop session. This is an environment qualification boundary; semantic correctness is still enforced whenever UIA peers are exposed.'
+              }
+              $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+              Write-Host ($receipt | ConvertTo-Json -Compress)
+              Write-Host 'Windows live UI Automation qualification: RUNNER_UIA_ROOT_UNAVAILABLE.'
+            }
+            else {
+              Write-Host "UIA root: name='$($window.Current.Name)' class='$($window.Current.ClassName)' automationId='$($window.Current.AutomationId)' processId=$($window.Current.ProcessId)"
+
+              $allDescendants = $null
+              $uiaTreeLookupError = $null
+              try {
+                $allDescendants = $window.FindAll(
+                  [System.Windows.Automation.TreeScope]::Descendants,
+                  [System.Windows.Automation.Condition]::TrueCondition)
+              }
+              catch {
+                $uiaTreeLookupError = $_.Exception
+              }
+
+              if ($uiaTreeLookupError) {
+                $receipt = @{
+                  schema = 'suprachat-windows-uia-qualification/v1'
+                  state = 'RUNNER_UIA_TREE_UNAVAILABLE'
+                  process_id = $p.Id
+                  process_alive = (-not $p.HasExited)
+                  root_class = $window.Current.ClassName
+                  descendant_count = $null
+                  semantic_peer_count = $null
+                  static_accessibility_contract = 'PASS'
+                  gui_launch_smoke = 'PASS'
+                  lookup_error_type = $uiaTreeLookupError.GetType().FullName
+                  explanation = 'Hosted runner exposed the application UIA root but timed out or failed while enumerating descendants. This is an environment qualification boundary; semantic correctness remains enforced when descendants are enumerable.'
+                }
+                $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+                Write-Host ($receipt | ConvertTo-Json -Compress)
+                Write-Host 'Windows live UI Automation qualification: RUNNER_UIA_TREE_UNAVAILABLE.'
+              }
+              else {
+                $semanticPeers = @(
+                  $allDescendants |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_.Current.AutomationId) }
+                )
+
+                if ($semanticPeers.Count -eq 0) {
+                  $receipt = @{
+                    schema = 'suprachat-windows-uia-qualification/v1'
+                    state = 'RUNNER_UIA_BOUNDARY'
+                    process_id = $p.Id
+                    process_alive = (-not $p.HasExited)
+                    root_class = $window.Current.ClassName
+                    descendant_count = $allDescendants.Count
+                    semantic_peer_count = 0
+                    static_accessibility_contract = 'PASS'
+                    gui_launch_smoke = 'PASS'
+                    explanation = 'Hosted runner exposed the Avalonia top-level UIA window but no semantic descendants. Static accessibility contracts and automation IDs passed; live semantic peer qualification remains environment-limited.'
+                  }
+                  $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+                  Write-Host ($receipt | ConvertTo-Json -Compress)
+                  Write-Host 'Windows live UI Automation semantic-tree qualification: RUNNER_UIA_BOUNDARY.'
+                }
+                else {
+                  $elementLookupError = $null
+                  foreach ($automationId in @(
+                    'RootTabs',
+                    'ChatGPT.WebView',
+                    'Auth.SignIn',
+                    'AgentLab.Prompt',
+                    'Auth.Status',
+                    'Accessibility.Status'
+                  )) {
+                    $idCondition = New-Object System.Windows.Automation.PropertyCondition(
+                      [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                      $automationId)
+                    try {
+                      $element = $window.FindFirst(
+                        [System.Windows.Automation.TreeScope]::Descendants,
+                        $idCondition)
+                    }
+                    catch {
+                      $elementLookupError = $_.Exception
+                      break
+                    }
+
+                    if (-not $element) {
+                      throw "UI Automation element missing despite semantic peers being exposed: $automationId"
+                    }
+
+                    $name = $element.Current.Name
+                    if ([string]::IsNullOrWhiteSpace($name)) {
+                      throw "UI Automation accessible name missing: $automationId"
+                    }
+                  }
+
+                  if ($elementLookupError) {
+                    $receipt = @{
+                      schema = 'suprachat-windows-uia-qualification/v1'
+                      state = 'RUNNER_UIA_ELEMENT_LOOKUP_UNAVAILABLE'
+                      process_id = $p.Id
+                      process_alive = (-not $p.HasExited)
+                      root_class = $window.Current.ClassName
+                      descendant_count = $allDescendants.Count
+                      semantic_peer_count = $semanticPeers.Count
+                      static_accessibility_contract = 'PASS'
+                      gui_launch_smoke = 'PASS'
+                      lookup_error_type = $elementLookupError.GetType().FullName
+                      explanation = 'Hosted runner exposed semantic UIA peers but failed while resolving a required element lookup. This runner-boundary state is distinct from a returned-null element, which remains a hard accessibility failure.'
+                    }
+                    $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+                    Write-Host ($receipt | ConvertTo-Json -Compress)
+                    Write-Host 'Windows live UI Automation qualification: RUNNER_UIA_ELEMENT_LOOKUP_UNAVAILABLE.'
+                  }
+                  else {
+                    $receipt = @{
+                      schema = 'suprachat-windows-uia-qualification/v1'
+                      state = 'PASS'
+                      process_id = $p.Id
+                      process_alive = (-not $p.HasExited)
+                      root_class = $window.Current.ClassName
+                      descendant_count = $allDescendants.Count
+                      semantic_peer_count = $semanticPeers.Count
+                      static_accessibility_contract = 'PASS'
+                      gui_launch_smoke = 'PASS'
+                    }
+                    $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+                    'Windows live UI Automation accessibility smoke PASS.'
+                  }
+                }
+              }
+            }
+          }
+          finally {
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+
+      - name: Upload self-contained application
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/${{ matrix.rid }}/
+          if-no-files-found: error
+          retention-days: 7
+
+
+  linux-desktop-oracle-census:
+    name: Linux ChatGPT desktop runtime deep census
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Recover and decompose official Linux desktop packages
+        shell: bash
+        run: bash prototype/suprachat/tools/census_linux_desktop.sh
+      - name: Upload Linux clean-room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-linux-deep-runtime-census
+          path: out/desktop-oracle/linux/
+          if-no-files-found: error
+          retention-days: 7
+
+  macos-desktop-oracle-census:
+    name: macOS ChatGPT desktop runtime deep census
+    runs-on: macos-26
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Recover and decompose official macOS desktop applications
+        shell: bash
+        run: bash prototype/suprachat/tools/census_macos_desktop.sh
+      - name: Upload macOS clean-room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-macos-deep-runtime-census
+          path: out/desktop-oracle/macos/
+          if-no-files-found: error
+          retention-days: 7
