@@ -52,6 +52,14 @@ jobs:
           python -c "import pytest; print(pytest.__version__)"
           if($LASTEXITCODE -ne 0){throw 'pytest import failed'}
 
+      - name: Exercise exact pytest collection contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $suite=Join-Path $env:CONTRACTS_ROOT $env:CONTRACT_SUITE
+          python -m pytest $suite --collect-only --api-url http://127.0.0.1:9 --api-token preflight-only -q
+          if($LASTEXITCODE -ne 0){throw 'pinned conformance suite pytest collection failed'}
+
       - name: Parse and collect validator suite
         shell: pwsh
         run: |
