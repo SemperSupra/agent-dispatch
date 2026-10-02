@@ -402,6 +402,60 @@ def normalize_guest_absolute_symlinks(root: pathlib.Path) -> dict:
         "samples": rewritten,
     }
 
+
+def classify_qemu_stderr(stderr: str) -> str | None:
+    if not stderr:
+        return None
+    if (
+        "uncaught target signal 4" in stderr
+        or "Illegal instruction" in stderr
+    ):
+        return "SIGILL"
+    if (
+        "Could not open" in stderr
+        and "No such file or directory" in stderr
+    ):
+        return "MISSING_GUEST_PATH"
+    if "Invalid ELF image" in stderr:
+        return "INVALID_ELF"
+    return "OTHER"
+
+
+def qemu_cpu_models(qemu: str) -> list[str]:
+    cp = _run([qemu, "-cpu", "help"], timeout=20)
+    text = (cp.stdout or "") + "\n" + (cp.stderr or "")
+    models: list[str] = []
+    for line in text.splitlines():
+        match = re.search(r"'([^']+)'", line)
+        if match:
+            models.append(match.group(1))
+            continue
+        parts = line.strip().split()
+        if (
+            len(parts) >= 2
+            and parts[0].lower().startswith("mips")
+        ):
+            models.append(parts[-1])
+    seen: set[str] = set()
+    return [
+        model
+        for model in models
+        if not (model in seen or seen.add(model))
+    ]
+
+
+def readelf_flags(path: pathlib.Path) -> str | None:
+    readelf = shutil.which("readelf")
+    if not readelf:
+        return None
+    cp = _run([readelf, "-h", str(path)], timeout=20)
+    if cp.returncode != 0:
+        return None
+    for line in cp.stdout.splitlines():
+        if line.strip().startswith("Flags:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
 def execute_candidate(
     root: pathlib.Path,
     candidate: pathlib.Path,
@@ -411,23 +465,76 @@ def execute_candidate(
     qemu_name = qemu_for_header(header)
     qemu = shutil.which(qemu_name)
     if not qemu:
-        raise RuntimeError(f"required emulator not installed: {qemu_name}")
-    cp = _run(
-        [qemu, "-L", str(root), str(candidate), *candidate_args],
-        timeout=30,
+        raise RuntimeError(
+            f"required emulator not installed: {qemu_name}"
+        )
+
+    def invoke(cpu: str | None) -> dict:
+        argv = [qemu]
+        if cpu:
+            argv += ["-cpu", cpu]
+        argv += [
+            "-L",
+            str(root),
+            str(candidate),
+            *candidate_args,
+        ]
+        cp = _run(argv, timeout=30)
+        return {
+            "cpuModel": cpu or "default",
+            "exitCode": cp.returncode,
+            "stdoutBytes": len(
+                cp.stdout.encode("utf-8", errors="replace")
+            ),
+            "stderrBytes": len(
+                cp.stderr.encode("utf-8", errors="replace")
+            ),
+            "stderrClass": classify_qemu_stderr(cp.stderr),
+            "oracleSatisfied": cp.returncode == 0,
+        }
+
+    attempts = [invoke(None)]
+    if (
+        not attempts[0]["oracleSatisfied"]
+        and attempts[0]["stderrClass"] == "SIGILL"
+    ):
+        for cpu in qemu_cpu_models(qemu):
+            result = invoke(cpu)
+            attempts.append(result)
+            if result["oracleSatisfied"]:
+                break
+
+    winner = next(
+        (
+            attempt
+            for attempt in attempts
+            if attempt["oracleSatisfied"]
+        ),
+        attempts[0],
     )
     return {
         "candidate": (
-            "/" + str(candidate.relative_to(root)).replace(os.sep, "/")
+            "/"
+            + str(candidate.relative_to(root)).replace(
+                os.sep, "/"
+            )
         ),
         "candidateArgs": candidate_args,
         "candidateAbi": header,
+        "readelfFlags": readelf_flags(candidate),
         "dynamicInterpreter": dynamic_interpreter(candidate),
         "qemu": qemu_name,
-        "exitCode": cp.returncode,
-        "stdoutBytes": len(cp.stdout.encode("utf-8", errors="replace")),
-        "stderrBytes": len(cp.stderr.encode("utf-8", errors="replace")),
-        "oracleSatisfied": cp.returncode == 0,
+        "selectedCpuModel": (
+            winner["cpuModel"]
+            if winner["oracleSatisfied"]
+            else None
+        ),
+        "attempts": attempts,
+        "exitCode": winner["exitCode"],
+        "stdoutBytes": winner["stdoutBytes"],
+        "stderrBytes": winner["stderrBytes"],
+        "stderrClass": winner["stderrClass"],
+        "oracleSatisfied": winner["oracleSatisfied"],
     }
 
 
