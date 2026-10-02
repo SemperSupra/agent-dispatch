@@ -450,20 +450,40 @@ ProviderExit(b) ==
     /\ state[b] \in {"MATERIALIZED", "REGISTERED", "READY", "DEGRADED"}
     /\ providerPresent[b]
     /\ Assigned(b)
-    /\ actorGen' = [a \in Actors |->
-            IF a = bodyActor[b] /\ bodyGen[b] = actorGen[a] /\ actorGen[a] < MaxGeneration
-            THEN actorGen[a] + 1 ELSE actorGen[a]]
-    /\ state' = [state EXCEPT ![b] = "DEMATERIALIZING"]
-    /\ desiredPresent' = [desiredPresent EXCEPT ![b] = FALSE]
-    /\ providerPresent' = [providerPresent EXCEPT ![b] = FALSE]
-    /\ callbackPending' = [callbackPending EXCEPT ![b] = FALSE]
-    /\ ready' = [ready EXCEPT ![b] = FALSE]
-    /\ pathOK' = [pathOK EXCEPT ![b] = FALSE]
-    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = FALSE]
-    /\ actuationGranted' = [actuationGranted EXCEPT ![b] = FALSE]
-    /\ finalizers' = [finalizers EXCEPT ![b] =
-            {"credential"} \cup (IF registered[b] THEN {"registration"} ELSE {})]
-    /\ stopRequested' = [stopRequested EXCEPT ![b] = TRUE]
+    /\ LET affected == {x \in Bodies :
+              x = b \/ (parent[x] = b /\ x \in CascadeBodies)}
+           bumpActors == {a \in Actors :
+               \E x \in affected : bodyActor[x] = a /\ bodyGen[x] = actorGen[a]}
+       IN /\ actorGen' = [a \in Actors |->
+                 IF a \in bumpActors /\ actorGen[a] < MaxGeneration
+                 THEN actorGen[a] + 1 ELSE actorGen[a]]
+          /\ state' = [x \in Bodies |->
+                 IF x = b
+                 THEN "DEMATERIALIZING"
+                 ELSE IF x \in affected /\ state[x] \in ActiveStates
+                      THEN "DRAINING"
+                      ELSE state[x]]
+          /\ desiredPresent' = [x \in Bodies |->
+                 IF x \in affected THEN FALSE ELSE desiredPresent[x]]
+          /\ providerPresent' = [providerPresent EXCEPT ![b] = FALSE]
+          /\ callbackPending' = [callbackPending EXCEPT ![b] = FALSE]
+          /\ ready' = [x \in Bodies |->
+                 IF x \in affected THEN FALSE ELSE ready[x]]
+          /\ pathOK' = [x \in Bodies |->
+                 IF x \in affected THEN FALSE ELSE pathOK[x]]
+          /\ interactionOpen' = [x \in Bodies |->
+                 IF x \in affected THEN FALSE ELSE interactionOpen[x]]
+          /\ actuationGranted' = [x \in Bodies |->
+                 IF x \in affected THEN FALSE ELSE actuationGranted[x]]
+          /\ finalizers' = [x \in Bodies |->
+                 IF x = b
+                 THEN {"credential"} \cup
+                      (IF registered[b] THEN {"registration"} ELSE {})
+                 ELSE IF x \in affected /\ state[x] \in ActiveStates
+                      THEN RequiredFinalizers(x)
+                      ELSE finalizers[x]]
+          /\ stopRequested' = [x \in Bodies |->
+                 IF x \in affected THEN TRUE ELSE stopRequested[x]]
     /\ UNCHANGED <<authorityValid, bodyActor, bodyGen, registered, parent,
                   restartCount, cleanupFailures, grantLevel, staleEvidenceSeen,
                   controllerUp>>
