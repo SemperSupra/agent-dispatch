@@ -544,7 +544,13 @@ jobs:
             if ($remoteConfirmedDoc.error.code -ne 'AUTH_REQUIRED') {
               throw "authorization error contract failed on rep $rep"
             }
+
+            # AUTH_REQUIRED is the expected native exit for this negative control.
+            # Clear the native exit state so pwsh does not report the successful
+            # qualification step itself as exit 3 after the final rep.
+            $global:LASTEXITCODE = 0
           }
+          Write-Host 'Three packaged-runtime causal reps PASS.'
 
       - name: Stage and smoke Linux per-user install
         if: runner.os == 'Linux'
