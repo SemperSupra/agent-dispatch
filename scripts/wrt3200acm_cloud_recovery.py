@@ -32,7 +32,7 @@ MAGICS = {
     "squashfs-le": b"hsqs",
     "squashfs-be": b"sqsh",
     "uimage": b"\x27\x05\x19\x56",
-    "ubi-ec": b"UBI#",
+    "ubi-ec": b"UBI#",\n    "ubifs-node": b"\\x31\\x18\\x10\\x06",\n    "jffs2-le": b"\\x85\\x19",
     "fdt": b"\xd0\x0d\xfe\xed",
 }
 TEXT_MARKERS = [
@@ -218,6 +218,51 @@ def strings_sample(path: Path, out: Path) -> None:
     lines = r.get("stdout", "").splitlines()
     sample = lines[:3000]
     (out / (path.name + ".strings.txt")).write_text("\n".join(sample) + ("\n" if sample else ""))
+
+def legacy_uimage_probe(path: Path) -> dict[str, Any] | None:
+    """Parse a U-Boot legacy image header and characterize any appended tail."""
+    data = path.read_bytes()
+    if len(data) < 64 or data[:4] != b"\\x27\\x05\\x19\\x56":
+        return None
+    # legacy uImage header fields are big-endian.
+    magic, header_crc, timestamp, data_size, load_addr, entry_addr, data_crc = struct.unpack_from(">7I", data, 0)
+    os_id, arch_id, image_type, comp = struct.unpack_from(">4B", data, 28)
+    name = data[32:64].split(b"\\x00", 1)[0].decode("utf-8", "replace")
+    payload_start = 64
+    payload_end = min(len(data), payload_start + data_size)
+    tail = data[payload_end:]
+    tail_magics: dict[str, Any] = {}
+    for mname, magic_bytes in MAGICS.items():
+        offs = all_offsets(tail, magic_bytes, 128)
+        if offs:
+            tail_magics[mname] = {
+                "count_capped": len(offs),
+                "offsets_relative": offs,
+                "offsets_absolute": [payload_end + x for x in offs],
+            }
+    return {
+        "schema": "legacy-uimage-probe/v1",
+        "header_crc": f"0x{header_crc:08x}",
+        "timestamp": timestamp,
+        "declared_data_size": data_size,
+        "load_address": f"0x{load_addr:08x}",
+        "entry_address": f"0x{entry_addr:08x}",
+        "data_crc": f"0x{data_crc:08x}",
+        "os_id": os_id,
+        "arch_id": arch_id,
+        "image_type": image_type,
+        "compression_id": comp,
+        "name": name,
+        "payload_start": payload_start,
+        "payload_end": payload_end,
+        "file_size": len(data),
+        "appended_tail_size": len(tail),
+        "tail_sha256": hashlib.sha256(tail).hexdigest() if tail else None,
+        "tail_head_256_hex": tail[:256].hex() if tail else "",
+        "tail_magic": tail_magics,
+        "note": "Tail bytes are characterized only; no firmware-bearing tail is written to the evidence mailbox.",
+    }
+
 
 def inspect_archive(path: Path) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -626,6 +671,8 @@ def main() -> int:
             strings_sample(dest, out)
             if src["kind"] in {"gpl-source-archive", "oem-firmware", "openwrt-image"}:
                 rec["archive_probe"] = inspect_archive(dest)
+            if src["kind"] in {"oem-firmware", "openwrt-image"}:
+                rec["uimage_probe"] = legacy_uimage_probe(dest)
             if src["kind"] == "gpl-source-archive":
                 targeted = targeted_tar_listing(dest)
                 (out / (dest.name + ".targeted-listing.json")).write_text(json.dumps(targeted, indent=2, sort_keys=True) + "\n")
