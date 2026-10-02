@@ -21,12 +21,6 @@ FILES = (
 
 IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 DESIGNATOR_RE = re.compile(r"\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
-DECL_RE = re.compile(
-    r"(?s)(?:^|[;}])\\s*"
-    r"(?P<decl>(?:(?![;{}=]).){1,1000}?)"
-    r"\\b(?P<owner>[A-Za-z_][A-Za-z0-9_]*)"
-    r"\\s*(?:\\[[^]]*\\])?\\s*=\\s*$"
-)
 C_KEYWORDS = {
     "auto","break","case","char","const","continue","default","do","double","else",
     "enum","extern","float","for","goto","if","inline","int","long","register",
@@ -146,12 +140,28 @@ def enclosing_braces(masked: str, pos: int) -> list[tuple[int, int]]:
 
 
 def declaration_before(masked: str, brace_start: int) -> dict | None:
-    prefix = masked[max(0, brace_start - 1200):brace_start]
-    m = DECL_RE.search(prefix)
+    # The opening brace of a global initializer is preceded by a declaration
+    # ending in "= {".  Parse only the bounded tail after the most recent
+    # statement/definition terminator; do not try to parse arbitrary C.
+    prefix = masked[max(0, brace_start - 2000):brace_start]
+    boundary = max(prefix.rfind(";"), prefix.rfind("}"))
+    candidate = prefix[boundary + 1:].strip()
+    if not candidate.endswith("="):
+        return None
+
+    lhs = candidate[:-1].strip()
+    m = re.search(
+        r"\\b(?P<owner>[A-Za-z_][A-Za-z0-9_]*)"
+        r"\\s*(?:\\[[^\\]]*\\])?\\s*$",
+        lhs,
+    )
     if not m:
         return None
-    decl = " ".join(m.group("decl").split())
     owner = m.group("owner")
+    decl = " ".join(lhs[:m.start("owner")].split())
+    if not decl:
+        return None
+
     type_ids = [
         x for x in IDENT_RE.findall(decl)
         if x not in C_KEYWORDS and x != owner
@@ -160,7 +170,6 @@ def declaration_before(masked: str, brace_start: int) -> dict | None:
         "owner": owner,
         "typeIdentifiers": sorted(set(type_ids)),
     }
-
 
 def entry_span(masked: str, key_pos: int, outer_start: int, outer_end: int) -> tuple[int, int]:
     depth = 0
