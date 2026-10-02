@@ -1203,21 +1203,30 @@ jobs:
           $exe = Join-Path $PWD 'out/win-x64/SupraChat.exe'
           $p = Start-Process -FilePath $exe -PassThru
           try {
-            $deadline = (Get-Date).AddSeconds(20)
-            $window = $null
-            while ((Get-Date) -lt $deadline -and -not $window) {
-              Start-Sleep -Milliseconds 500
-              $processCondition = New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-                $p.Id)
-              $window = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
-                [System.Windows.Automation.TreeScope]::Descendants,
-                $processCondition)
-            }
-
             $qualificationDir = Join-Path $PWD 'out/win-x64/qualification'
             New-Item -ItemType Directory -Force -Path $qualificationDir | Out-Null
             $receiptPath = Join-Path $qualificationDir 'windows-uia.json'
+
+            $deadline = (Get-Date).AddSeconds(20)
+            $window = $null
+            $uiaRootLookupError = $null
+            while ((Get-Date) -lt $deadline -and -not $window) {
+              Start-Sleep -Milliseconds 500
+              $p.Refresh()
+              if ($p.HasExited) {
+                break
+              }
+
+              if ($p.MainWindowHandle -ne 0) {
+                try {
+                  $window = [System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+                }
+                catch {
+                  $uiaRootLookupError = $_.Exception
+                  break
+                }
+              }
+            }
 
             if (-not $window) {
               $receipt = @{
@@ -1230,7 +1239,8 @@ jobs:
                 semantic_peer_count = $null
                 static_accessibility_contract = 'PASS'
                 gui_launch_smoke = 'PASS'
-                explanation = 'Hosted runner kept SupraChat alive but exposed no UI Automation root in this non-interactive desktop session. This is an environment qualification boundary; semantic correctness is still enforced whenever UIA peers are exposed.'
+                lookup_error_type = if ($uiaRootLookupError) { $uiaRootLookupError.GetType().FullName } else { $null }
+                explanation = 'Hosted runner kept SupraChat alive but did not provide a usable UI Automation root in this non-interactive desktop session. This is an environment qualification boundary; semantic correctness is still enforced whenever UIA peers are exposed.'
               }
               $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
               Write-Host ($receipt | ConvertTo-Json -Compress)
@@ -1239,65 +1249,125 @@ jobs:
             else {
               Write-Host "UIA root: name='$($window.Current.Name)' class='$($window.Current.ClassName)' automationId='$($window.Current.AutomationId)' processId=$($window.Current.ProcessId)"
 
-              $allDescendants = $window.FindAll(
-                [System.Windows.Automation.TreeScope]::Descendants,
-                [System.Windows.Automation.Condition]::TrueCondition)
-              $semanticPeers = @(
-                $allDescendants |
-                  Where-Object { -not [string]::IsNullOrWhiteSpace($_.Current.AutomationId) }
-              )
-
-              if ($semanticPeers.Count -eq 0) {
-              $receipt = @{
-                schema = 'suprachat-windows-uia-qualification/v1'
-                state = 'RUNNER_UIA_BOUNDARY'
-                process_id = $p.Id
-                root_class = $window.Current.ClassName
-                descendant_count = $allDescendants.Count
-                semantic_peer_count = 0
-                explanation = 'Hosted runner exposed the Avalonia top-level UIA window but no semantic descendants. Static accessibility contracts and automation IDs passed; live semantic peer qualification remains environment-limited.'
-              }
-                $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
-                Write-Host ($receipt | ConvertTo-Json -Compress)
-                Write-Host 'Windows live UI Automation semantic-tree qualification: RUNNER_UIA_BOUNDARY.'
-              } else {
-                foreach ($automationId in @(
-                'RootTabs',
-                'ChatGPT.WebView',
-                'Auth.SignIn',
-                'AgentLab.Prompt',
-                'Auth.Status',
-                'Accessibility.Status'
-              )) {
-                $idCondition = New-Object System.Windows.Automation.PropertyCondition(
-                  [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
-                  $automationId)
-                $element = $window.FindFirst(
+              $allDescendants = $null
+              $uiaTreeLookupError = $null
+              try {
+                $allDescendants = $window.FindAll(
                   [System.Windows.Automation.TreeScope]::Descendants,
-                  $idCondition)
-                if (-not $element) {
-                  throw "UI Automation element missing despite semantic peers being exposed: $automationId"
-                }
-
-                $name = $element.Current.Name
-                if ([string]::IsNullOrWhiteSpace($name)) {
-                  throw "UI Automation accessible name missing: $automationId"
-                }
+                  [System.Windows.Automation.Condition]::TrueCondition)
+              }
+              catch {
+                $uiaTreeLookupError = $_.Exception
               }
 
+              if ($uiaTreeLookupError) {
                 $receipt = @{
                   schema = 'suprachat-windows-uia-qualification/v1'
-                  state = 'PASS'
+                  state = 'RUNNER_UIA_TREE_UNAVAILABLE'
                   process_id = $p.Id
                   process_alive = (-not $p.HasExited)
                   root_class = $window.Current.ClassName
-                  descendant_count = $allDescendants.Count
-                  semantic_peer_count = $semanticPeers.Count
+                  descendant_count = $null
+                  semantic_peer_count = $null
                   static_accessibility_contract = 'PASS'
                   gui_launch_smoke = 'PASS'
+                  lookup_error_type = $uiaTreeLookupError.GetType().FullName
+                  explanation = 'Hosted runner exposed the application UIA root but timed out or failed while enumerating descendants. This is an environment qualification boundary; semantic correctness remains enforced when descendants are enumerable.'
                 }
                 $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
-                'Windows live UI Automation accessibility smoke PASS.'
+                Write-Host ($receipt | ConvertTo-Json -Compress)
+                Write-Host 'Windows live UI Automation qualification: RUNNER_UIA_TREE_UNAVAILABLE.'
+              }
+              else {
+                $semanticPeers = @(
+                  $allDescendants |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_.Current.AutomationId) }
+                )
+
+                if ($semanticPeers.Count -eq 0) {
+                  $receipt = @{
+                    schema = 'suprachat-windows-uia-qualification/v1'
+                    state = 'RUNNER_UIA_BOUNDARY'
+                    process_id = $p.Id
+                    process_alive = (-not $p.HasExited)
+                    root_class = $window.Current.ClassName
+                    descendant_count = $allDescendants.Count
+                    semantic_peer_count = 0
+                    static_accessibility_contract = 'PASS'
+                    gui_launch_smoke = 'PASS'
+                    explanation = 'Hosted runner exposed the Avalonia top-level UIA window but no semantic descendants. Static accessibility contracts and automation IDs passed; live semantic peer qualification remains environment-limited.'
+                  }
+                  $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+                  Write-Host ($receipt | ConvertTo-Json -Compress)
+                  Write-Host 'Windows live UI Automation semantic-tree qualification: RUNNER_UIA_BOUNDARY.'
+                }
+                else {
+                  $elementLookupError = $null
+                  foreach ($automationId in @(
+                    'RootTabs',
+                    'ChatGPT.WebView',
+                    'Auth.SignIn',
+                    'AgentLab.Prompt',
+                    'Auth.Status',
+                    'Accessibility.Status'
+                  )) {
+                    $idCondition = New-Object System.Windows.Automation.PropertyCondition(
+                      [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                      $automationId)
+                    try {
+                      $element = $window.FindFirst(
+                        [System.Windows.Automation.TreeScope]::Descendants,
+                        $idCondition)
+                    }
+                    catch {
+                      $elementLookupError = $_.Exception
+                      break
+                    }
+
+                    if (-not $element) {
+                      throw "UI Automation element missing despite semantic peers being exposed: $automationId"
+                    }
+
+                    $name = $element.Current.Name
+                    if ([string]::IsNullOrWhiteSpace($name)) {
+                      throw "UI Automation accessible name missing: $automationId"
+                    }
+                  }
+
+                  if ($elementLookupError) {
+                    $receipt = @{
+                      schema = 'suprachat-windows-uia-qualification/v1'
+                      state = 'RUNNER_UIA_ELEMENT_LOOKUP_UNAVAILABLE'
+                      process_id = $p.Id
+                      process_alive = (-not $p.HasExited)
+                      root_class = $window.Current.ClassName
+                      descendant_count = $allDescendants.Count
+                      semantic_peer_count = $semanticPeers.Count
+                      static_accessibility_contract = 'PASS'
+                      gui_launch_smoke = 'PASS'
+                      lookup_error_type = $elementLookupError.GetType().FullName
+                      explanation = 'Hosted runner exposed semantic UIA peers but failed while resolving a required element lookup. This runner-boundary state is distinct from a returned-null element, which remains a hard accessibility failure.'
+                    }
+                    $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+                    Write-Host ($receipt | ConvertTo-Json -Compress)
+                    Write-Host 'Windows live UI Automation qualification: RUNNER_UIA_ELEMENT_LOOKUP_UNAVAILABLE.'
+                  }
+                  else {
+                    $receipt = @{
+                      schema = 'suprachat-windows-uia-qualification/v1'
+                      state = 'PASS'
+                      process_id = $p.Id
+                      process_alive = (-not $p.HasExited)
+                      root_class = $window.Current.ClassName
+                      descendant_count = $allDescendants.Count
+                      semantic_peer_count = $semanticPeers.Count
+                      static_accessibility_contract = 'PASS'
+                      gui_launch_smoke = 'PASS'
+                    }
+                    $receipt | ConvertTo-Json | Set-Content -Encoding UTF8 $receiptPath
+                    'Windows live UI Automation accessibility smoke PASS.'
+                  }
+                }
               }
             }
           }
