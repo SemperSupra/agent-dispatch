@@ -22,11 +22,10 @@ FILES = (
 IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 DESIGNATOR_RE = re.compile(r"\.([A-Za-z_][A-Za-z0-9_]*)\s*=")
 DECL_RE = re.compile(
-    r"(?s)(?:^|[;}]\s*)"
-    r"(?P<decl>(?:static\s+|const\s+|volatile\s+|__\w+\s+)*"
-    r"(?:struct\s+[A-Za-z_][A-Za-z0-9_]*|enum\s+[A-Za-z_][A-Za-z0-9_]*|"
-    r"[A-Za-z_][A-Za-z0-9_]*(?:\s+[*A-Za-z_][A-Za-z0-9_]*)*)"
-    r"\s+(?P<owner>[A-Za-z_][A-Za-z0-9_]*)\s*(?:\[[^]]*\])?\s*=\s*)$"
+    r"(?s)(?:^|[;}])\\s*"
+    r"(?P<decl>(?:(?![;{}=]).){1,1000}?)"
+    r"\\b(?P<owner>[A-Za-z_][A-Za-z0-9_]*)"
+    r"\\s*(?:\\[[^]]*\\])?\\s*=\\s*$"
 )
 C_KEYWORDS = {
     "auto","break","case","char","const","continue","default","do","double","else",
@@ -316,6 +315,26 @@ def reduce(selected: dict[str, str]) -> dict:
     }
 
 
+def classify_schema(schema: dict, missing: list[str]) -> tuple[str, bool]:
+    if missing:
+        return "H0_D1E_SOURCE_MISSING", False
+    owners = schema["owners"]
+    if not owners:
+        return "H0_D1E_NO_TABLE_OWNER_RECOVERED", True
+    relationship = any(
+        owner.get("typeIdentifiers")
+        and (
+            owner.get("designatedFields")
+            or owner.get("enumLikeReferences")
+            or owner.get("callbackLikeReferences")
+        )
+        for owner in owners
+    )
+    if relationship:
+        return "H0_D1E_SELECTOR_TABLE_SCHEMA_RECOVERED", True
+    return "H0_D1E_TABLE_OWNER_PARTIAL", True
+
+
 def run_probe(args) -> dict:
     work = pathlib.Path(args.work_dir).resolve()
     work.mkdir(parents=True, exist_ok=True)
@@ -324,11 +343,13 @@ def run_probe(args) -> dict:
     selected = extract_selected(archive)
     missing = sorted(set(FILES) - set(selected))
     schema = reduce(selected)
+    classification, oracle = classify_schema(schema, missing)
+    relationships_recovered = classification == "H0_D1E_SELECTOR_TABLE_SCHEMA_RECOVERED"
     return {
         "schemaVersion": SCHEMA_VERSION,
         "experiment": EXPERIMENT,
-        "classification": "H0_D1E_SELECTOR_TABLE_SCHEMA_RECOVERED" if not missing else "H0_D1E_SOURCE_MISSING",
-        "oracleSatisfied": not missing and schema["derived"]["occurrenceCount"] > 0,
+        "classification": classification,
+        "oracleSatisfied": oracle,
         "sourceArtifact": {
             "expectedBytes": args.expected_size,
             "expectedSha256": args.expected_sha256.lower(),
@@ -339,6 +360,7 @@ def run_probe(args) -> dict:
         "schema": schema,
         "interpretationBoundary": {
             "tableOwnershipRecovered": schema["derived"]["resolvedOwnerCount"] > 0,
+            "tableRelationshipsRecovered": relationships_recovered,
             "numericValuesPublished": False,
             "stringValuesPublished": False,
             "exactValueToSlotMappingAccepted": False,
