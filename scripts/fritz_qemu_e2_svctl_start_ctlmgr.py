@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import shutil
 import signal
 import stat
@@ -50,7 +51,74 @@ SUPERVISOR_TARGET = r5.SUPERVISOR_TARGET
 CONTROL_SOCKET = r3.CONTROL_SOCKET
 NOTIFY_SOCKET = "/tmp/supervisor.notify.socket"
 PSUPPORT_DATA = r3.r2.PSUPPORT_DATA
+STATE_WORDS = (
+    "active", "inactive", "running", "stopped", "failed", "unknown",
+    "starting", "stopping", "dead", "enabled", "disabled", "error", "ok",
+)
 
+
+def binary_state_vocabulary(root: pathlib.Path) -> dict:
+    out = {}
+    for guest in (SVCTL, SUPERVISOR):
+        data = (root / guest.lstrip("/")).read_bytes().lower()
+        counts = {}
+        for word in STATE_WORDS:
+            rx = re.compile(rb"(?<![a-z0-9_])" + re.escape(word.encode()) + rb"(?![a-z0-9_])")
+            n = len(rx.findall(data))
+            if n:
+                counts[word] = n
+        out[guest] = counts
+    return out
+
+
+def state_markers(value: str, allowed: set[str]) -> list[str]:
+    low = value.lower()
+    return sorted(
+        word for word in allowed
+        if re.search(r"(?<![a-z0-9_])" + re.escape(word) + r"(?![a-z0-9_])", low)
+    )
+
+
+def control_io_trace(stderr: str) -> dict:
+    socket_fds: set[int] = set()
+    for line in stderr.splitlines():
+        m = re.search(r"\bsocket\([^)]*\)\s*=\s*(\d+)", line)
+        if m:
+            socket_fds.add(int(m.group(1)))
+
+    calls = {"connect": 0, "read": 0, "write": 0, "send": 0, "recv": 0}
+    bytes_total = {"read": 0, "write": 0, "send": 0, "recv": 0}
+    control_mentions = 0
+    for line in stderr.splitlines():
+        if CONTROL_SOCKET in line:
+            control_mentions += 1
+        m = re.search(r"\bconnect\((\d+),.*\)\s*=\s*(-?\d+)", line)
+        if m and int(m.group(1)) in socket_fds:
+            calls["connect"] += 1
+
+        m = re.search(r"\b(read|write)\((\d+),.*\)\s*=\s*(-?\d+)", line)
+        if m and int(m.group(2)) in socket_fds:
+            kind = m.group(1)
+            ret = int(m.group(3))
+            calls[kind] += 1
+            if ret > 0:
+                bytes_total[kind] += ret
+
+        for syscall, kind in (("sendto", "send"), ("sendmsg", "send"), ("recvfrom", "recv"), ("recvmsg", "recv")):
+            m = re.search(rf"\b{syscall}\((\d+),.*\)\s*=\s*(-?\d+)", line)
+            if m and int(m.group(1)) in socket_fds:
+                ret = int(m.group(2))
+                calls[kind] += 1
+                if ret > 0:
+                    bytes_total[kind] += ret
+
+    return {
+        "socketFdCount": len(socket_fds),
+        "controlSocketPathMentionCount": control_mentions,
+        "calls": calls,
+        "bytes": bytes_total,
+        "payloadPublished": False,
+    }
 
 def _run(argv: list[str], *, timeout: int = 30, env: dict | None = None):
     return subprocess.run(
@@ -96,6 +164,8 @@ def svctl_call(root: pathlib.Path, env: dict, verb: str, service: str) -> dict:
         timeout=10,
         env=env,
     )
+    vocab = binary_state_vocabulary(root)
+    allowed = set(vocab.get(SVCTL, {})) | set(vocab.get(SUPERVISOR, {}))
     return {
         "verb": verb,
         "service": service,
@@ -104,6 +174,9 @@ def svctl_call(root: pathlib.Path, env: dict, verb: str, service: str) -> dict:
         "stdoutSha256": sha256_text(cp.stdout),
         "stderrBytes": len(cp.stderr.encode("utf-8", errors="replace")),
         "missingGuestPaths": r1.parse_missing_paths(cp.stderr),
+        "stateMarkers": state_markers(cp.stdout, allowed),
+        "controllerVocabulary": vocab,
+        "controlIoTrace": control_io_trace(cp.stderr),
         "rawOutputPublished": False,
     }
 
