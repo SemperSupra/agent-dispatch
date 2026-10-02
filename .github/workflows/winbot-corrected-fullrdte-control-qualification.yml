@@ -29,7 +29,7 @@ jobs:
             Accept='application/vnd.github+json'
             'X-GitHub-Api-Version'='2022-11-28'
           }
-          $uri="https://api.github.com/repos/mark-e-deyoung/WinBot/git/blobs/$env:CONTROL_BLOB_SHA"
+          $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$env:CONTROL_BLOB_SHA"
           $blob=Invoke-RestMethod -Headers $headers -Uri $uri
           if([string]$blob.sha -ne $env:CONTROL_BLOB_SHA -or [string]$blob.encoding -ne 'base64'){throw 'control blob identity mismatch'}
           $raw=[Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
