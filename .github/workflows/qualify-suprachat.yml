@@ -150,6 +150,26 @@ jobs:
             )
             dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out @singleFile
             dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out @singleFile
+
+            # Single-file publish embeds Microsoft.Playwright.dll but does not
+            # reliably carry the complete bundled Node/CLI driver tree. The
+            # .NET runtime still requires that tree beside the executable.
+            $driverSource = Get-ChildItem (Join-Path $PWD 'prototype/suprachat/SupraChat/bin/Release') -Directory -Filter '.playwright' -Recurse -ErrorAction SilentlyContinue |
+              Where-Object {
+                Test-Path (Join-Path $_.FullName 'package/cli.js')
+              } |
+              Select-Object -First 1
+            if (-not $driverSource) {
+              throw 'Complete Playwright .playwright driver tree was not found in the ordinary macOS build output.'
+            }
+            Copy-Item $driverSource.FullName (Join-Path $out '.playwright') -Recurse -Force
+
+            $driverCli = Join-Path $out '.playwright/package/cli.js'
+            $driverNode = Get-ChildItem (Join-Path $out '.playwright/node') -Recurse -File -Filter 'node' -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if (!(Test-Path $driverCli) -or -not $driverNode) {
+              throw 'Published macOS Playwright driver tree is incomplete.'
+            }
           } else {
             dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
             dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
