@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import secrets
+import ssl
 import subprocess
 import tempfile
 import time
@@ -253,6 +254,84 @@ def capture_create_failure_job(
     }
 
 
+def select_sanitized_log_excerpt(
+    text: str,
+    app_name: str,
+    sensitive_values: list[str],
+    *,
+    context_lines: int = 80,
+    max_chars: int = 24000,
+) -> dict:
+    scrubbed = text
+    for value in sensitive_values:
+        if value:
+            scrubbed = scrubbed.replace(value, "<redacted>")
+    lines = scrubbed.splitlines()
+    hits = [i for i, line in enumerate(lines) if app_name in line]
+    if hits:
+        center = hits[-1]
+        start = max(0, center - context_lines)
+        end = min(len(lines), center + context_lines + 1)
+    else:
+        start = max(0, len(lines) - (context_lines * 2 + 1))
+        end = len(lines)
+    excerpt = "\n".join(lines[start:end])
+    if len(excerpt) > max_chars:
+        excerpt = excerpt[-max_chars:]
+    return {
+        "app_name_observed": bool(hits),
+        "line_count": len(lines),
+        "excerpt": excerpt,
+    }
+
+
+def capture_app_lifecycle_log(
+    session: g2.AdminSession,
+    host: str,
+    https_port: int,
+    ca_path: pathlib.Path,
+    app_name: str,
+    sensitive_values: list[str],
+    timeout: float,
+) -> dict:
+    result = session.call(
+        "core.download",
+        ["filesystem.get", ["/var/log/app_lifecycle.log"], "app_lifecycle.log", True],
+    )
+    if not isinstance(result, (list, tuple)) or len(result) != 2:
+        raise RuntimeError(f"core.download returned unexpected result: {type(result).__name__}")
+    job_id, relative_url = result
+    if not isinstance(job_id, int) or not isinstance(relative_url, str):
+        raise RuntimeError("core.download did not return job id and URL")
+    if not relative_url.startswith("/_download/"):
+        raise RuntimeError("core.download returned unexpected download path")
+
+    context = ssl.create_default_context(cafile=str(ca_path))
+    request = urllib.request.Request(
+        f"https://{host}:{https_port}{relative_url}",
+        method="GET",
+        headers={"User-Agent": "SemperSupra-G3-RDTE/1"},
+    )
+    max_bytes = 2 * 1024 * 1024
+    with urllib.request.urlopen(
+        request, timeout=max(timeout, 30.0), context=context
+    ) as response:
+        raw = response.read(max_bytes + 1)
+    truncated = len(raw) > max_bytes
+    raw = raw[:max_bytes]
+    text = raw.decode("utf-8", errors="replace")
+    selected = select_sanitized_log_excerpt(
+        text, app_name, sensitive_values
+    )
+    selected.update({
+        "download_job_id": job_id,
+        "bytes_read": len(raw),
+        "truncated": truncated,
+        "source": "/var/log/app_lifecycle.log",
+    })
+    return selected
+
+
 def query_app(session: g2.AdminSession, name: str) -> dict | None:
     matches = session.call("app.query", [[["id", "=", name]]])
     if not matches:
@@ -453,6 +532,27 @@ def main() -> int:
                         "capture_error": (
                             f"{type(capture_exc).__name__}: {capture_exc}"
                         ).replace(token, "<synthetic-token>"),
+                    }
+                try:
+                    payload["app_lifecycle_log"] = capture_app_lifecycle_log(
+                        session,
+                        a.host,
+                        a.https_port,
+                        cert_path,
+                        app_name,
+                        [token, api_key_value or ""],
+                        a.timeout,
+                    )
+                except Exception as capture_exc:
+                    detail = (
+                        f"{type(capture_exc).__name__}: {capture_exc}"
+                    ).replace(token, "<synthetic-token>")
+                    if api_key_value:
+                        detail = detail.replace(api_key_value, "<redacted>")
+                    payload["app_lifecycle_log"] = {
+                        "captured": False,
+                        "capture_error": detail,
+                        "source": "/var/log/app_lifecycle.log",
                     }
                 raise
             if not isinstance(created, dict):
