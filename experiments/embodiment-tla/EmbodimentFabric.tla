@@ -25,6 +25,11 @@ LiveStates == {
     "DEMATERIALIZING", "EXPIRED"
 }
 
+ActiveStates == {
+    "REQUESTED", "ADMITTED", "MATERIALIZING", "FAILED_RETRYABLE",
+    "MATERIALIZED", "REGISTERED", "READY", "DEGRADED"
+}
+
 FinalizerKinds == {"provider", "registration", "credential"}
 ParentType == Bodies \cup {NoBody}
 ActorType == Actors \cup {NoActor}
@@ -127,7 +132,9 @@ RequiredFinalizers(b) ==
     \cup (IF providerPresent[b] THEN {"provider"} ELSE {})
     \cup (IF registered[b] THEN {"registration"} ELSE {})
 
-FanoutCount(p) == Cardinality({c \in Bodies : parent[c] = p /\ state[c] \in LiveStates})
+FanoutCount(p) ==
+    Cardinality({c \in Bodies :
+        parent[c] = p /\ desiredPresent[c] /\ state[c] \in LiveStates})
 
 NoLiveBody(a) ==
     \A b \in Bodies : bodyActor[b] # a \/ state[b] \notin LiveStates
@@ -393,7 +400,7 @@ LosePath(b) ==
 
 RequestStop(b) ==
     /\ controllerUp
-    /\ state[b] \in LiveStates
+    /\ state[b] \in ActiveStates
     /\ Assigned(b)
     /\ LET affected == {x \in Bodies : x = b \/ parent[x] = b}
            bumpActors == {a \in Actors :
@@ -402,7 +409,7 @@ RequestStop(b) ==
                  IF a \in bumpActors /\ actorGen[a] < MaxGeneration
                  THEN actorGen[a] + 1 ELSE actorGen[a]]
           /\ state' = [x \in Bodies |->
-                 IF x \in affected /\ state[x] \in LiveStates
+                 IF x \in affected /\ state[x] \in ActiveStates
                  THEN "DRAINING" ELSE state[x]]
           /\ desiredPresent' = [x \in Bodies |->
                  IF x \in affected THEN FALSE ELSE desiredPresent[x]]
@@ -415,7 +422,7 @@ RequestStop(b) ==
           /\ actuationGranted' = [x \in Bodies |->
                  IF x \in affected THEN FALSE ELSE actuationGranted[x]]
           /\ finalizers' = [x \in Bodies |->
-                 IF x \in affected /\ state[x] \in LiveStates
+                 IF x \in affected /\ state[x] \in ActiveStates
                  THEN RequiredFinalizers(x) ELSE finalizers[x]]
           /\ stopRequested' = [x \in Bodies |->
                  IF x \in affected THEN TRUE ELSE stopRequested[x]]
@@ -424,7 +431,7 @@ RequestStop(b) ==
                   cleanupFailures, grantLevel, staleEvidenceSeen, controllerUp>>
 
 Expire(b) ==
-    /\ state[b] \in LiveStates
+    /\ state[b] \in ActiveStates
     /\ Assigned(b)
     /\ state' = [state EXCEPT ![b] = "EXPIRED"]
     /\ desiredPresent' = [desiredPresent EXCEPT ![b] = FALSE]
@@ -445,7 +452,7 @@ RevokeAuthority(a) ==
     /\ controllerUp
     /\ a \in Actors
     /\ authorityValid[a]
-    /\ LET affected == {b \in Bodies : bodyActor[b] = a /\ state[b] \in LiveStates}
+    /\ LET affected == {b \in Bodies : bodyActor[b] = a /\ state[b] \in ActiveStates}
        IN /\ authorityValid' = [authorityValid EXCEPT ![a] = FALSE]
           /\ actorGen' = [actorGen EXCEPT ![a] =
                  IF @ < MaxGeneration THEN @ + 1 ELSE @]
