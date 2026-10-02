@@ -34,6 +34,15 @@ CTLMGR = r2.CTLMGR
 UNIT_ROOT = r2.UNIT_ROOT
 TARGET_UNIT = r2.TARGET_UNIT
 CONTROL_SOCKET = "/tmp/supervisor.ctrl.socket"
+TRACE_PATHS = {
+    "unit_root": UNIT_ROOT,
+    "ctlmgr_unit": f"{UNIT_ROOT}/{TARGET_UNIT}",
+    "avmipcd_unit": r2.AVMIPCD_UNIT,
+    "psupport_data": r2.PSUPPORT_DATA,
+    "ctlmgr_exec": CTLMGR,
+    "control_socket": CONTROL_SOCKET,
+}
+SAFE_TRACE_SYSCALLS = {"open", "openat", "access", "stat", "lstat", "readlink", "execve", "unlink", "bind", "connect"}
 
 
 def _run(argv: list[str], *, timeout: int = 60, env: dict | None = None):
@@ -67,6 +76,42 @@ def socket_path_state(root: pathlib.Path) -> dict:
     return {"exists": True, "type": kind}
 
 
+def fixed_trace_evidence(raw: str) -> dict:
+    import re
+    evidence = {
+        key: {
+            "path": path,
+            "hitCount": 0,
+            "successCount": 0,
+            "failureCount": 0,
+            "syscalls": {},
+        }
+        for key, path in TRACE_PATHS.items()
+    }
+    ctlmgr_execve_count = 0
+    for line in raw.splitlines():
+        m = re.match(r"^\\s*\\d+\\s+([A-Za-z0-9_]+)\\(", line)
+        syscall = m.group(1) if m and m.group(1) in SAFE_TRACE_SYSCALLS else None
+        failed = "errno=" in line or re.search(r"=\\s*-\\d+", line) is not None
+        for key, path in TRACE_PATHS.items():
+            if f'"{path}"' not in line:
+                continue
+            item = evidence[key]
+            item["hitCount"] += 1
+            if failed:
+                item["failureCount"] += 1
+            else:
+                item["successCount"] += 1
+            if syscall:
+                item["syscalls"][syscall] = item["syscalls"].get(syscall, 0) + 1
+                if key == "ctlmgr_exec" and syscall == "execve":
+                    ctlmgr_execve_count += 1
+    return {
+        "paths": evidence,
+        "ctlmgrExecveCount": ctlmgr_execve_count,
+    }
+
+
 def classify(result: dict) -> str:
     for attempt in result.get("httpAttempts", []):
         if (
@@ -76,6 +121,16 @@ def classify(result: dict) -> str:
             return "E2_LOGIN_HTTP_SUPPORTED"
     if result.get("ctlmgrProcessObserved"):
         return "E2_CTLMGR_OBSERVED"
+    trace = result.get("fixedPathTrace", {})
+    if trace.get("ctlmgrExecveCount", 0) > 0:
+        return "E2_CTLMGR_EXEC_ATTEMPTED"
+    paths = trace.get("paths", {})
+    unit = paths.get("ctlmgr_unit", {})
+    psupport = paths.get("psupport_data", {})
+    if unit.get("hitCount", 0) > 0:
+        if psupport.get("failureCount", 0) > 0:
+            return "E2_CTLMGR_UNIT_READ_PSUPPORT_MISSING"
+        return "E2_CTLMGR_UNIT_READ_NO_EXEC"
     if result.get("svctlStatusAttempted") and result.get("svctlStatusExitCode") == 0:
         return "E2_SVCTL_STATUS_COMPLETED"
     if result.get("svctlStatusAttempted"):
@@ -259,6 +314,7 @@ def namespace_helper(args: argparse.Namespace) -> int:
                 supervisor_proc.wait(timeout=2)
 
     supervisor_err_text = supervisor_err.read_text(encoding="utf-8", errors="replace") if supervisor_err.exists() else ""
+    trace_evidence = fixed_trace_evidence(supervisor_err_text)
     elapsed_total = round(time.monotonic() - started, 3)
 
     # Keep only distinct public-safe HTTP metadata rows.
@@ -301,6 +357,7 @@ def namespace_helper(args: argparse.Namespace) -> int:
         "svctlStatusStderrBytes": status_stderr_bytes,
         "svctlStatusMissingGuestPaths": status_missing,
         "supervisorMissingGuestPaths": r1.parse_missing_paths(supervisor_err_text),
+        "fixedPathTrace": trace_evidence,
         "tcpListenersObserved": sorted(tcp_seen),
         "unixSocketPathsObserved": sorted(unix_seen)[:100],
         "httpAttempts": deduped_http,
