@@ -1,5 +1,10 @@
 name: WRT3200ACM Cloud Recovery
 
+
+concurrency:
+  group: wrt3200acm-cloud-recovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     paths:
