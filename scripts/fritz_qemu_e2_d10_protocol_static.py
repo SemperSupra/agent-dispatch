@@ -49,7 +49,8 @@ FIXED_SIZES = {
     260: "r9SecondRequestOrResponseChunkBytes",
     268: "r9AggregateRequestBytes",
 }
-OSP_TOKENS = ("svctl", "supervisor", "supervisor.ctrl.socket")
+OSP_STRONG_TOKENS = ("svctl", "supervisor.ctrl.socket")
+OSP_GENERIC_TOKEN = "supervisor"
 OSP_TEXT_SUFFIXES = {
     ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".sh", ".mk",
     ".in", ".txt", ".service", ".target",
@@ -202,8 +203,11 @@ def binary_metadata(root: pathlib.Path, guest: str, objdump: str) -> dict:
 
 
 def osp_fixed_token_coverage(archive: pathlib.Path) -> dict:
-    name_matches = []
-    content_matches = []
+    # "supervisor" is a generic kernel/CPU term and is not sufficient evidence
+    # that the OSP archive contains the proprietary FRITZ supervisor surface.
+    strong_name_matches = []
+    strong_content_matches = []
+    generic_supervisor_content_match_count = 0
     scanned_text_files = 0
     with tarfile.open(archive, "r:*") as tf:
         for member in tf:
@@ -211,9 +215,9 @@ def osp_fixed_token_coverage(archive: pathlib.Path) -> dict:
                 continue
             name = member.name[2:] if member.name.startswith("./") else member.name
             low_name = name.lower()
-            name_hits = [token for token in OSP_TOKENS if token in low_name]
+            name_hits = [token for token in OSP_STRONG_TOKENS if token in low_name]
             if name_hits:
-                name_matches.append({"path": name, "tokens": name_hits})
+                strong_name_matches.append({"path": name, "tokens": name_hits})
 
             suffix = pathlib.PurePosixPath(name).suffix.lower()
             if suffix not in OSP_TEXT_SUFFIXES or member.size > MAX_OSP_TEXT_BYTES:
@@ -224,21 +228,26 @@ def osp_fixed_token_coverage(archive: pathlib.Path) -> dict:
             data = fp.read()
             scanned_text_files += 1
             low = data.lower()
-            hits = [token for token in OSP_TOKENS if token.encode() in low]
+            hits = [token for token in OSP_STRONG_TOKENS if token.encode() in low]
             if hits:
-                content_matches.append({"path": name, "tokens": hits})
+                strong_content_matches.append({"path": name, "tokens": hits})
+            elif OSP_GENERIC_TOKEN.encode() in low:
+                generic_supervisor_content_match_count += 1
 
     def dedupe(items):
         unique = {json.dumps(x, sort_keys=True): x for x in items}
         return [unique[k] for k in sorted(unique)]
 
+    strong_names = dedupe(strong_name_matches)
+    strong_content = dedupe(strong_content_matches)
     return {
         "scannedTextFiles": scanned_text_files,
-        "memberNameMatches": dedupe(name_matches),
-        "contentTokenMatches": dedupe(content_matches),
-        "sourceSurfaceFound": bool(name_matches or content_matches),
+        "strongMemberNameMatches": strong_names,
+        "strongContentTokenMatches": strong_content,
+        "genericSupervisorContentMatchCount": generic_supervisor_content_match_count,
+        "sourceSurfaceFound": bool(strong_names or strong_content),
+        "sourceSurfacePredicate": "svctl-or-supervisor-control-socket-only",
     }
-
 
 def classify(svctl: dict, osp: dict) -> str:
     if svctl["derived"]["fixedVerbTokenCount"] <= 0:
