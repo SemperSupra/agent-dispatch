@@ -31,7 +31,7 @@ SAFE_CONTROLLERS = {"svctl", "supervisor"}
 SAFE_VERBS = {"start", "stop", "restart", "reload", "status"}
 MAX_FILE_BYTES = 2 * 1024 * 1024
 REDIRECT_TOKENS = {">", ">>", "<", "<<", "1>", "1>>", "2>", "2>>", "&>"}
-UNIT_NAME_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\\.(?:target|service|socket|path|mount|timer)$")
+UNIT_NAME_RE = re.compile(r"^[A-Za-z0-9_.@:-]+\.(?:target|service|socket|path|mount|timer)$")
 
 
 def read_text(path: pathlib.Path) -> str | None:
