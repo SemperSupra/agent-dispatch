@@ -109,6 +109,17 @@ def main() -> int:
     for key in ("vm_a_absent", "vm_b_absent", "work_absent", "oracle_satisfied"):
         require(f"cleanup.{key}", cleanup.get(key), True)
 
+    # Newer redacted receipts expose only non-secret materialization summary
+    # booleans. Older receipts are still verifiable because exact control
+    # identity + zero task exit binds the same internal completeness gate.
+    if "materialization_receipt" in full:
+        receipt = full.get("materialization_receipt") or {}
+        require("materialization_receipt.complete", receipt.get("complete"), True)
+        require("materialization_receipt.cells.a.disposed", _get(receipt, "cells", "a", "disposed"), True)
+        require("materialization_receipt.cells.b.disposed", _get(receipt, "cells", "b", "disposed"), True)
+        require("materialization_receipt.attachment.survived", _get(receipt, "attachment", "survived"), True)
+        require("materialization_receipt.runtime_seed.unchanged", _get(receipt, "runtime_seed", "unchanged"), True)
+
     result = {
         "schema_version": 1,
         "accepted": not failures,
