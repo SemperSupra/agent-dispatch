@@ -65,6 +65,15 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
             "persistence": {"b_drive_letter": "Q", "canary": "DO-NOT-LEAK"},
             "conformance": {"pytest_exit_code": 1, "raw": "DO-NOT-LEAK"},
             "cleanup": {"oracle_satisfied": True, "private": "DO-NOT-LEAK"},
+            "materialization_receipt": {
+                "complete": True,
+                "cells": {
+                    "a": {"disposed": True, "id": "DO-NOT-LEAK"},
+                    "b": {"disposed": True, "runtime_disk": "DO-NOT-LEAK"},
+                },
+                "attachment": {"survived": True, "path": "DO-NOT-LEAK"},
+                "runtime_seed": {"unchanged": True, "path": "DO-NOT-LEAK"},
+            },
         }
         with tarfile.open(path, "w:gz") as tf:
             for name, obj in (("execution.json", execution), ("files/full-rdte.json", full)):
@@ -113,6 +122,16 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
             self.assertEqual(obj["full_rdte"]["persistence"]["b_drive_letter"],"Q")
             self.assertNotIn("api_token",obj["full_rdte"]["work_cells"]["a"])
             self.assertNotIn("canary",obj["full_rdte"]["persistence"])
+            receipt=obj["full_rdte"]["materialization_receipt"]
+            self.assertTrue(receipt["complete"])
+            self.assertTrue(receipt["cells"]["a"]["disposed"])
+            self.assertTrue(receipt["cells"]["b"]["disposed"])
+            self.assertTrue(receipt["attachment"]["survived"])
+            self.assertTrue(receipt["runtime_seed"]["unchanged"])
+            self.assertNotIn("id",receipt["cells"]["a"])
+            self.assertNotIn("runtime_disk",receipt["cells"]["b"])
+            self.assertNotIn("path",receipt["attachment"])
+            self.assertNotIn("path",receipt["runtime_seed"])
             self.assertEqual(
                 obj["progress"]["observed_build_stages"],
                 ["prerequisites","source-media","provisioning-vhd","windows-deployment","image-apply","bootloader","guest-file-staging"],
