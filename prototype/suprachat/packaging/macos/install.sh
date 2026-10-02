@@ -8,16 +8,13 @@ if [[ ! -d "$SOURCE" ]]; then echo "SupraChat.app is missing beside install.sh" 
 mkdir -p "${HOME}/Applications" "$BIN"
 rm -rf "$DEST"
 cp -R "$SOURCE" "$DEST"
+if [[ ! -f "$DEST/Contents/Resources/uninstall.sh" ]]; then
+  echo "Packaged uninstall resource is missing." >&2
+  exit 3
+fi
 ln -sfn "$DEST/Contents/MacOS/SupraChat.Automation" "$BIN/suprachat-cli"
 ln -sfn "$DEST/Contents/MacOS/SupraChat.Automation" "$BIN/suprachat"
 ln -sfn "$DEST/Contents/MacOS/SupraChat" "$BIN/suprachat-gui"
-cat > "$DEST/Contents/Resources-uninstall.sh" <<'UNINSTALL'
-#!/usr/bin/env bash
-set -euo pipefail
-rm -f "${HOME}/.local/bin/suprachat-cli" "${HOME}/.local/bin/suprachat" "${HOME}/.local/bin/suprachat-gui"
-rm -rf "${HOME}/Applications/SupraChat.app"
-UNINSTALL
-chmod +x "$DEST/Contents/Resources-uninstall.sh"
 echo "Installed SupraChat.app to $DEST"
 echo "Automation/agent CLI: $BIN/suprachat-cli"
 echo "GUI launcher: $BIN/suprachat-gui"

@@ -40,7 +40,13 @@ public static class CodexAppServer
         return name;
     }
 
-    public static Process Start(string accessToken)
+    public static Process Start(string accessToken) =>
+        StartCore(accessToken);
+
+    public static Process StartLocal() =>
+        StartCore(accessToken: null);
+
+    private static Process StartCore(string? accessToken)
     {
         var psi = new ProcessStartInfo(ResolveExecutable())
         {
@@ -52,7 +58,38 @@ public static class CodexAppServer
         };
         foreach (var arg in Arguments)
             psi.ArgumentList.Add(arg);
-        psi.Environment["ACCESS_TOKEN"] = accessToken;
+
+        if (!string.IsNullOrWhiteSpace(accessToken))
+        {
+            psi.Environment["ACCESS_TOKEN"] = accessToken;
+        }
+        else
+        {
+            // Match the qualified guest experiment: local/read-only Codex must
+            // neither inherit ambient OpenAI credentials nor the user's default
+            // Codex/XDG auth state.
+            foreach (var name in new[]
+            {
+                "ACCESS_TOKEN",
+                "OPENAI_API_KEY",
+                "CODEX_API_KEY",
+                "OPENAI_ACCESS_TOKEN",
+                "CHATGPT_ACCESS_TOKEN"
+            })
+            {
+                psi.Environment.Remove(name);
+            }
+
+            var localHome = Path.Combine(AppState.DirectoryPath, "codex-local");
+            var xdgConfig = Path.Combine(localHome, "xdg-config");
+            var xdgData = Path.Combine(localHome, "xdg-data");
+            Directory.CreateDirectory(localHome);
+            Directory.CreateDirectory(xdgConfig);
+            Directory.CreateDirectory(xdgData);
+            psi.Environment["CODEX_HOME"] = localHome;
+            psi.Environment["XDG_CONFIG_HOME"] = xdgConfig;
+            psi.Environment["XDG_DATA_HOME"] = xdgData;
+        }
 
         return Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start codex app-server.");

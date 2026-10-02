@@ -1,4 +1,5 @@
 using Avalonia;
+using SupraChat.Core;
 
 namespace SupraChat;
 
@@ -27,17 +28,31 @@ internal static class Program
         }
 
         Log($"managed-main-entered framework={Environment.Version} os={Environment.OSVersion}");
+        DogfoodObservability.RecordAsync(
+                "app",
+                "process-start",
+                "start",
+                safeFields: new Dictionary<string, object?>
+                {
+                    ["argument_count"] = args.Length,
+                    ["base_directory_exists"] = Directory.Exists(AppContext.BaseDirectory)
+                })
+            .GetAwaiter().GetResult();
 
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
             Log("desktop-lifetime-returned");
+            DogfoodObservability.RecordAsync("app", "desktop-lifetime", "success")
+                .GetAwaiter().GetResult();
             return 0;
         }
         catch (Exception ex)
         {
             Log("fatal-startup-exception");
             Log(ex.ToString());
+            DogfoodObservability.RecordExceptionAsync("app", "fatal-startup", ex)
+                .GetAwaiter().GetResult();
             return 70;
         }
     }

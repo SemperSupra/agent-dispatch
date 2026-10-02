@@ -36,8 +36,21 @@ public sealed class SiwcClient
         string appName,
         SiwcCredential? existing = null,
         bool promptConsent = false,
-        SiwcRegistration? registration = null)
+        SiwcRegistration? registration = null,
+        string? correlationId = null)
     {
+        var operation = DogfoodObservability.BeginOperation("siwc-sign-in", correlationId);
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "sign-in-start",
+            "start",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["prompt_consent"] = promptConsent,
+                ["has_existing_credential"] = existing is not null,
+                ["has_saved_registration"] = registration is not null
+            }).ConfigureAwait(true);
         if (existing is not null && registration is not null &&
             !string.Equals(existing.ClientId, registration.ClientId, StringComparison.Ordinal))
             throw new InvalidOperationException("Selected registration does not match the active credential.");
@@ -64,7 +77,26 @@ public sealed class SiwcClient
             }
         };
 
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "browser-authorization-dispatched",
+            "start",
+            operation).ConfigureAwait(true);
+
         var callback = await WebAuthenticationBroker.AuthenticateAsync(owner, options).ConfigureAwait(true);
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "browser-callback-received",
+            callback.Error is { Length: > 0 } ? "oauth-error" : "success",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["has_code"] = !string.IsNullOrWhiteSpace(callback.Code),
+                ["has_returned_client_id"] = callback.Parameters.TryGetValue("client_id", out var callbackClientId) &&
+                                             !string.IsNullOrWhiteSpace(callbackClientId),
+                ["oauth_error"] = callback.Error
+            }).ConfigureAwait(true);
+
         if (!string.Equals(callback.State, attempt.State, StringComparison.Ordinal))
             throw new InvalidOperationException("OAuth state mismatch.");
         if (callback.Error is { Length: > 0 })
@@ -90,10 +122,27 @@ public sealed class SiwcClient
         }
 
         var exactRedirectUri = SiwcProtocol.CallbackRedirectUri(callback.CallbackUri);
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "token-exchange",
+            "start",
+            operation).ConfigureAwait(false);
+
         using var tokenResponse = await _http.PostAsync(
             SiwcProtocol.TokenEndpoint,
             new FormUrlEncodedContent(
-                SiwcProtocol.BuildTokenForm(attempt, issuedClientId, callback.Code, exactRedirectUri)));
+                SiwcProtocol.BuildTokenForm(attempt, issuedClientId, callback.Code, exactRedirectUri)))
+            .ConfigureAwait(false);
+
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "token-exchange",
+            tokenResponse.IsSuccessStatusCode ? "success" : "failure",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["http_status"] = (int)tokenResponse.StatusCode
+            }).ConfigureAwait(false);
 
         var root = await ReadSuccessfulTokenResponseAsync(tokenResponse, "authorization-code exchange");
         var accessToken = Required(root, "access_token");
@@ -111,7 +160,18 @@ public sealed class SiwcClient
         if (expectedSubject is not null && !string.Equals(expectedSubject, subject, StringComparison.Ordinal))
             throw new InvalidOperationException("Returning sign-in resolved to a different ChatGPT account.");
 
-        return new(
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "id-token-validation",
+            "success",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["scope_count"] = scopes.Length,
+                ["plan_scope_granted"] = scopes.Contains(SiwcProtocol.RequiredPlanScope, StringComparer.Ordinal)
+            }).ConfigureAwait(false);
+
+        var credential = new SiwcCredential(
             issuedClientId,
             hostId,
             subject,
@@ -123,12 +183,28 @@ public sealed class SiwcClient
             expiresIn,
             scopes,
             DateTimeOffset.UtcNow);
+
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "sign-in-complete",
+            "success",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["scope_count"] = credential.Scopes.Length,
+                ["plan_scope_granted"] = credential.HasPlanUsage,
+                ["expires_in_seconds"] = credential.ExpiresIn
+            }).ConfigureAwait(false);
+
+        return credential;
     }
 
     public async Task<SiwcCredential> RefreshIfNeededAsync(
         SiwcCredential credential,
-        TimeSpan? refreshWindow = null)
+        TimeSpan? refreshWindow = null,
+        string? correlationId = null)
     {
+        var operation = DogfoodObservability.BeginOperation("siwc-refresh", correlationId);
         var window = refreshWindow ?? TimeSpan.FromMinutes(5);
         if (DateTimeOffset.UtcNow < credential.ExpiresAt - window)
             return credential;
@@ -139,10 +215,24 @@ public sealed class SiwcClient
             if (DateTimeOffset.UtcNow < credential.ExpiresAt - window)
                 return credential;
 
+            await DogfoodObservability.RecordOperationAsync(
+                "auth",
+                "token-refresh",
+                "start",
+                operation).ConfigureAwait(false);
+
             using var response = await _http.PostAsync(
                 SiwcProtocol.TokenEndpoint,
                 new FormUrlEncodedContent(
                     SiwcProtocol.BuildRefreshForm(credential.ClientId, credential.RefreshToken)))
+                .ConfigureAwait(false);
+
+            await DogfoodObservability.RecordOperationAsync(
+                "auth",
+                "token-refresh",
+                response.IsSuccessStatusCode ? "success" : "failure",
+                operation,
+                new Dictionary<string, object?> { ["http_status"] = (int)response.StatusCode })
                 .ConfigureAwait(false);
 
             var root = await ReadSuccessfulTokenResponseAsync(response, "token refresh").ConfigureAwait(false);
@@ -168,8 +258,15 @@ public sealed class SiwcClient
         }
     }
 
-    public async Task<bool> RevokeAsync(SiwcCredential credential)
+    public async Task<bool> RevokeAsync(SiwcCredential credential, string? correlationId = null)
     {
+        var operation = DogfoodObservability.BeginOperation("siwc-revoke", correlationId);
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "revocation",
+            "start",
+            operation).ConfigureAwait(false);
+
         var endpoint = await GetRevocationEndpointAsync().ConfigureAwait(false);
         using var response = await _http.PostAsync(
             endpoint,
@@ -180,7 +277,16 @@ public sealed class SiwcClient
         // The documented endpoint returns 200 for success and already-invalid
         // tokens. Temporary failures must not be mistaken for confirmed revocation.
         if ((int)response.StatusCode >= 500)
+        {
+            await DogfoodObservability.RecordOperationAsync(
+                "auth",
+                "revocation",
+                "temporary-failure",
+                operation,
+                new Dictionary<string, object?> { ["http_status"] = (int)response.StatusCode })
+                .ConfigureAwait(false);
             return false;
+        }
 
         if (!response.IsSuccessStatusCode)
         {
@@ -188,6 +294,14 @@ public sealed class SiwcClient
             throw new InvalidOperationException(
                 $"session revocation failed ({(int)response.StatusCode}){DiagnosticSuffix(response, detail)}");
         }
+
+        await DogfoodObservability.RecordOperationAsync(
+            "auth",
+            "revocation",
+            "success",
+            operation,
+            new Dictionary<string, object?> { ["http_status"] = (int)response.StatusCode })
+            .ConfigureAwait(false);
 
         return true;
     }

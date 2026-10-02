@@ -124,6 +124,32 @@ The complete method-name inventory is reproducible by extracting `=> "…"` prot
 `codex-rs/app-server-protocol/src/protocol/common.rs`
 at the exact oracle revision above.
 
+### Credential-free local read frontier
+
+Public qualification with the bundled pinned Codex app-server removed known OpenAI/Codex credential environment variables and isolated Codex/XDG state. The same 15 read-only/local methods returned results on Windows, Linux and macOS without OpenAI authorization:
+
+- `config/read`
+- `configRequirements/read`
+- `experimentalFeature/list`
+- `collaborationMode/list`
+- `model/list`
+- `plugin/list`
+- `permissionProfile/list`
+- `app/list`
+- `account/read` — signed-out local state only; empirically `account=null`, `requiresOpenaiAuth=false`
+- `mcpServerStatus/list`
+- `skills/list`
+- `windowsSandbox/readiness`
+- `thread/realtime/listVoices`
+- `remoteControl/status/read`
+- `thread/list`
+
+SupraChat binds exactly this set through `CodexLocalReadPolicy` and the `codex-local-read` / `codex/local/read` machine surfaces. Calls outside the allowlist fail closed instead of falling through to guest execution.
+
+Account-backed boundaries remain separate: `account/rateLimits/read`, `account/usage/read`, and `account/workspaceMessages/read` require authentication. Inference, plugin/app mutation, Remote mutation, sandbox setup, server-request approval, and other consequential methods retain their existing authorization/confirmation requirements.
+
+Evidence: guest sweep run `36927142694`; corrected `account/read` run `36931826876`.
+
 ## ChatGPT Android observed capability plane
 
 AAR authority: `SemperSupra/android-artifact-recovery-private#79`.
