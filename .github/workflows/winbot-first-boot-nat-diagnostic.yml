@@ -302,22 +302,22 @@ jobs:
             age --decrypt --identity $env:DIAG_IDENTITY --output $plain '.sealed\result.age'
             if ($LASTEXITCODE -ne 0) { throw 'diagnostic result decryption failed' }
             $py = @'
-import pathlib, sys, tarfile
-src = pathlib.Path(sys.argv[1])
-dst = pathlib.Path(sys.argv[2])
-with tarfile.open(src, "r:gz") as tf:
-    members = [m for m in tf.getmembers() if m.isfile() and m.name == "files/boot-diagnostic.json"]
-    if len(members) != 1:
-        raise SystemExit("expected exactly one boot diagnostic result")
-    m = members[0]
-    if m.size > 2 * 1024 * 1024:
-        raise SystemExit("boot diagnostic exceeds bounded size")
-    fh = tf.extractfile(m)
-    if fh is None:
-        raise SystemExit("boot diagnostic unreadable")
-    raw = fh.read()
-dst.write_bytes(raw)
-'@
+            import pathlib, sys, tarfile
+            src = pathlib.Path(sys.argv[1])
+            dst = pathlib.Path(sys.argv[2])
+            with tarfile.open(src, "r:gz") as tf:
+                members = [m for m in tf.getmembers() if m.isfile() and m.name == "files/boot-diagnostic.json"]
+                if len(members) != 1:
+                    raise SystemExit("expected exactly one boot diagnostic result")
+                m = members[0]
+                if m.size > 2 * 1024 * 1024:
+                    raise SystemExit("boot diagnostic exceeds bounded size")
+                fh = tf.extractfile(m)
+                if fh is None:
+                    raise SystemExit("boot diagnostic unreadable")
+                raw = fh.read()
+            dst.write_bytes(raw)
+            '@
             $py | python - $plain $diagPath
             if ($LASTEXITCODE -ne 0) { throw 'boot diagnostic extraction failed' }
           } finally {
