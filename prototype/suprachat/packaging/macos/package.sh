@@ -58,8 +58,10 @@ PLIST
 # and must not be reinterpreted as nested bundles by codesign.
 while IFS= read -r -d '' file_path; do
   if file -b "$file_path" | grep -q 'Mach-O'; then
+    # Sign leaf code first, but do not strict-verify it in isolation while it
+    # still lives inside an unsealed parent bundle. The outer app signature is
+    # the authoritative resource seal and is verified after nested bundles.
     codesign --force --sign - "$file_path"
-    codesign --verify --strict "$file_path"
   fi
 done < <(find "$APP/Contents/MacOS" -type f -print0)
 
