@@ -152,7 +152,7 @@ RequestStart(a, b, p) ==
     /\ a \in Actors
     /\ b \in Bodies
     /\ p \in ParentType
-    /\ state[b] \in {"ABSENT", "DEMATERIALIZED"}
+    /\ state[b] = "ABSENT"
     /\ bodyActor[b] = NoActor
     /\ authorityValid[a]
     /\ actorGen[a] < MaxGeneration
@@ -191,7 +191,7 @@ RequestReplace(a, old, new) ==
     /\ state[old] \in {"READY", "DEGRADED", "REGISTERED", "MATERIALIZED"}
     /\ CurrentGeneration(old)
     /\ FanoutCount(old) = 0
-    /\ state[new] \in {"ABSENT", "DEMATERIALIZED"}
+    /\ state[new] = "ABSENT"
     /\ bodyActor[new] = NoActor
     /\ authorityValid[a]
     /\ actorGen[a] < MaxGeneration
