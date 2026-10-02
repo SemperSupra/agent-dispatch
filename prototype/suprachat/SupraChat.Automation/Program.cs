@@ -581,26 +581,63 @@ internal static class Program
         string method,
         JsonElement? parameters = null)
     {
+        var operation = DogfoodObservability.BeginOperation("codex-local-read");
+        await DogfoodObservability.RecordOperationAsync(
+            "codex",
+            "local-read",
+            "start",
+            operation,
+            new Dictionary<string, object?> { ["method"] = method });
+
         try
         {
             CodexLocalReadPolicy.RequireAllowed(method);
         }
         catch (InvalidOperationException ex)
         {
+            await DogfoodObservability.RecordExceptionAsync(
+                "codex",
+                "local-read",
+                ex,
+                operation,
+                new Dictionary<string, object?>
+                {
+                    ["method"] = method,
+                    ["policy_outcome"] = "not-allowlisted"
+                });
             throw new MachineException(2, "LOCAL_METHOD_NOT_ALLOWED", ex.Message);
         }
 
-        await using var client = await CodexAppServerClient.StartLocalAsync();
-        var result = await client.RequestAsync(method, parameters);
-        return new
+        try
         {
-            schema = Schema,
-            binding = "codex-local-read",
-            authorization_required = false,
-            method,
-            read_only = true,
-            result
-        };
+            await using var client = await CodexAppServerClient.StartLocalAsync();
+            var result = await client.RequestAsync(method, parameters);
+            await DogfoodObservability.RecordOperationAsync(
+                "codex",
+                "local-read",
+                "success",
+                operation,
+                new Dictionary<string, object?> { ["method"] = method });
+            return new
+            {
+                schema = Schema,
+                binding = "codex-local-read",
+                authorization_required = false,
+                method,
+                read_only = true,
+                result
+            };
+        }
+        catch (Exception ex)
+        {
+            await DogfoodObservability.RecordExceptionAsync(
+                "codex",
+                "local-read",
+                ex,
+                operation,
+                new Dictionary<string, object?> { ["method"] = method });
+            throw;
+        }
     }
 
     private static async Task<object> CodexRpcAsync(string[] args)
