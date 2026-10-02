@@ -668,7 +668,7 @@ jobs:
               $installReceipt.install_session_id.Length -ne 32) {
             throw 'Install correlation receipt malformed.'
           }
-          if (-not $installReceipt.completed_at_utc.EndsWith('Z')) {
+          if (-not ([string]$installReceipt.completed_at_utc).EndsWith('Z')) {
             throw 'Install receipt timestamp is not explicit UTC.'
           }
           if ($installReceipt.app_sha256.Length -ne 64 -or
@@ -707,7 +707,7 @@ jobs:
               $uninstallEvent.event -ne 'uninstall-complete' -or
               $uninstallEvent.trace_id -ne $installReceipt.trace_id -or
               $uninstallEvent.traceparent -notlike "00-$($installReceipt.trace_id)-*-01" -or
-              -not $uninstallEvent.timestamp_utc.EndsWith('Z')) {
+              -not ([string]$uninstallEvent.timestamp_utc).EndsWith('Z')) {
             throw 'Uninstall observability did not preserve UTC trace lineage.'
           }
 
@@ -754,7 +754,7 @@ jobs:
           $appEventDocs = @(Get-Content $appEvents | ForEach-Object { $_ | ConvertFrom-Json })
           if ($appEventDocs.Count -lt 2) { throw 'GUI structured observability emitted too few lifecycle events.' }
           foreach ($eventDoc in $appEventDocs) {
-            if (-not $eventDoc.timestamp_utc.EndsWith('Z')) { throw 'GUI event timestamp is not explicit UTC.' }
+            if (-not ([string]$eventDoc.timestamp_utc).EndsWith('Z')) { throw 'GUI event timestamp is not explicit UTC.' }
             if ($eventDoc.trace_id -ne $guiTrace) { throw 'GUI event did not inherit install trace correlation.' }
             if ($eventDoc.span_id.Length -ne 16 -or $eventDoc.traceparent -notlike "00-$guiTrace-*-01") {
               throw 'GUI W3C trace/span contract malformed.'
