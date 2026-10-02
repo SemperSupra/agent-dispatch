@@ -17,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|official-catalog] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|official-catalog] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA]"
 }
 
 OUT=""
@@ -28,6 +28,8 @@ FOUNDRY_CONTROL_DIR=""
 FOUNDRY_COMMIT=""
 G2_FIXTURE_DIR=""
 G2_FIXTURE_PRODUCER=""
+G3_FIXTURE_DIR=""
+G3_FIXTURE_PRODUCER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -39,6 +41,8 @@ while [[ $# -gt 0 ]]; do
     --foundry-commit) FOUNDRY_COMMIT="$2"; shift 2 ;;
     --g2-fixture-dir) G2_FIXTURE_DIR="$2"; shift 2 ;;
     --g2-fixture-producer) G2_FIXTURE_PRODUCER="$2"; shift 2 ;;
+    --g3-fixture-dir) G3_FIXTURE_DIR="$2"; shift 2 ;;
+    --g3-fixture-producer) G3_FIXTURE_PRODUCER="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -53,11 +57,15 @@ if [[ "$RUNG" == "t6" ]]; then
   if [[ "$T6_PRODUCT" != "official-catalog" ]]; then
     [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
   fi
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "official-catalog" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "official-catalog" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
     [[ -n "$G2_FIXTURE_DIR" && -d "$G2_FIXTURE_DIR" ]] || { echo "garm-provider-g2 requires --g2-fixture-dir" >&2; exit 2; }
     [[ "$G2_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g2 requires exact --g2-fixture-producer SHA" >&2; exit 2; }
     G2_FIXTURE_DIR="$(realpath "$G2_FIXTURE_DIR")"
+  elif [[ "$T6_PRODUCT" == "garm-provider-g3" ]]; then
+    [[ -n "$G3_FIXTURE_DIR" && -d "$G3_FIXTURE_DIR" ]] || { echo "garm-provider-g3 requires --g3-fixture-dir" >&2; exit 2; }
+    [[ "$G3_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g3 requires exact --g3-fixture-producer SHA" >&2; exit 2; }
+    G3_FIXTURE_DIR="$(realpath "$G3_FIXTURE_DIR")"
   else
     [[ -n "$FOUNDRY_CONTROL_DIR" && -d "$FOUNDRY_CONTROL_DIR" ]] || { echo "t6 requires --foundry-control-dir" >&2; exit 2; }
     [[ "$FOUNDRY_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "t6 requires exact --foundry-commit SHA" >&2; exit 2; }
@@ -131,6 +139,8 @@ payload = {
     "app": (
       {"name": "garm-provider-g2-fixtures", "image": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "garm-provider-g2"
+      else {"name": "garm-provider-g3-runner", "image": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda"}
+      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "garm-provider-g3"
       else {"name": "rdte-t6-garm", "image": "ghcr.io/sempersupra/garm-appliance@sha256:1af67841ddd4589e3798dcda8be49230565c849d07ab57fd05899432dcdabca9"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "garm"
       else {"name": "rdte-t6-wow-sidecar", "image": "ghcr.io/sempersupra/wow-sidecar@sha256:6b700ce7ba5ae44116b240ccbb54fb3b60dc952a9b4072ca1314b6f311bc5376"}
@@ -232,6 +242,11 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
     elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_garm_provider_g2_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS GARM provider G2 client"
+      command -v docker >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: docker"
+      command -v openssl >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: openssl"
+    elif [[ "$T6_PRODUCT" == "garm-provider-g3" ]]; then
+      [[ -f "$SCRIPT_DIR/truenas_middleware_garm_provider_g3_probe.py" ]] ||
+        fail_evidence HARNESS_FAILURE preflight "missing TrueNAS GARM provider G3 client"
       command -v docker >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: docker"
       command -v openssl >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: openssl"
     elif [[ "$T6_PRODUCT" == "garm" ]]; then
@@ -657,6 +672,13 @@ elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
     --fixture-dir "$G2_FIXTURE_DIR" \
     --fixture-producer-commit "$G2_FIXTURE_PRODUCER" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 >/dev/null 2>&1 || true
+elif [[ "$T6_PRODUCT" == "garm-provider-g3" ]]; then
+  python3 "$SCRIPT_DIR/truenas_middleware_garm_provider_g3_probe.py" \
+    --host 127.0.0.1 --http-port "$HTTP_PORT" --https-port "$HTTPS_PORT" \
+    --password-file "$PASSWORD_FILE" \
+    --fixture-dir "$G3_FIXTURE_DIR" \
+    --fixture-producer-commit "$G3_FIXTURE_PRODUCER" \
+    --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "garm" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_t6_probe.py" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" --service-port "$GARM_HOST_PORT" \
@@ -697,6 +719,8 @@ if [[ "$T6_PRODUCT" == "official-catalog" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported native catalog control passed observe/discover-plan-apply-verify convergence, stop/start, config update/read-back, redeploy, conditional native-upgrade receipt, retain-data delete/reinstall, NOOP convergence, and final cleanup"
 elif [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact packaged GARM TrueNAS provider passed verified WSS/API-key transport, valid local adoption, foreign exclusion, managed-drift fail-closed behavior, fresh-process readoption, and zero-residue cleanup; provider create/delete and GitHub/JIT intentionally not exercised"
+elif [[ "$T6_PRODUCT" == "garm-provider-g3" ]]; then
+  write_receipt SUPPORTED true foundry-materialization "exact packaged GARM TrueNAS provider CreateInstance realized the source-derived fixed runner App profile, exact Compose read-back and provider Get/List reconciliation passed, supported middleware moved the experiment App inactive, provider DeleteInstance retired it, and GitHub/JIT/private workload/physical/capacity claims remained unexercised"
 elif [[ "$T6_PRODUCT" == "garm" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported GARM controller control passed exact appliance and secret-normalized config read-back, persistent state, external HTTPS, restart persistence, and zero-residue cleanup; GitHub/JIT registration intentionally not exercised"
 elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
