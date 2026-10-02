@@ -1,0 +1,92 @@
+name: WinBot Conformance Validator Preflight
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-conformance-validator-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validator:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      CONTRACT_REPOSITORY: 'https://github.com/mark-e-deyoung/winebot-contracts.git'
+      CONTRACT_REVISION: 'fe3efd1f7adeb559c276873349f680c318343042'
+      CONTRACT_REQUIREMENTS: 'tests/conformance/requirements.txt'
+      CONTRACT_SUITE: 'tests/conformance/'
+
+    steps:
+      - name: Acquire exact validator source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-validator-preflight'
+          $contracts=Join-Path $root 'contracts'
+          New-Item -ItemType Directory -Force -Path $root,$contracts | Out-Null
+          git -C $contracts init --quiet
+          if($LASTEXITCODE -ne 0){throw 'git init failed'}
+          git -C $contracts remote add origin $env:CONTRACT_REPOSITORY
+          if($LASTEXITCODE -ne 0){throw 'remote add failed'}
+          git -C $contracts fetch --quiet --depth 1 origin $env:CONTRACT_REVISION
+          if($LASTEXITCODE -ne 0){throw 'exact contract fetch failed'}
+          git -C $contracts checkout --quiet --detach FETCH_HEAD
+          if($LASTEXITCODE -ne 0){throw 'exact contract checkout failed'}
+          $observed=(git -C $contracts rev-parse HEAD).Trim()
+          if($observed -ne $env:CONTRACT_REVISION){throw "contract identity mismatch: $observed"}
+          if(-not(Test-Path -LiteralPath (Join-Path $contracts $env:CONTRACT_REQUIREMENTS))){throw 'requirements missing'}
+          if(-not(Test-Path -LiteralPath (Join-Path $contracts $env:CONTRACT_SUITE))){throw 'suite missing'}
+          "CONTRACTS_ROOT=$contracts" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install exact validator dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $requirements=Join-Path $env:CONTRACTS_ROOT $env:CONTRACT_REQUIREMENTS
+          python -m pip install --disable-pip-version-check --quiet -r $requirements
+          if($LASTEXITCODE -ne 0){throw 'conformance dependency installation failed'}
+          python -c "import pytest; print(pytest.__version__)"
+          if($LASTEXITCODE -ne 0){throw 'pytest import failed'}
+
+      - name: Parse and collect validator suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $suite=Join-Path $env:CONTRACTS_ROOT $env:CONTRACT_SUITE
+          $py=@'
+          import ast, json, os, pathlib
+          root=pathlib.Path(os.environ["CONTRACTS_ROOT"]) / os.environ["CONTRACT_SUITE"]
+          py=sorted(root.rglob("*.py"))
+          if not py:
+              raise SystemExit("no Python files in conformance suite")
+          failures=[]
+          tests=0
+          for p in py:
+              try:
+                  tree=ast.parse(p.read_text(encoding="utf-8-sig"),filename=str(p))
+              except Exception as e:
+                  failures.append({"path":str(p.relative_to(root)),"error":str(e)})
+                  continue
+              tests += sum(1 for n in ast.walk(tree) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name.startswith("test_"))
+          if failures:
+              raise SystemExit(json.dumps(failures))
+          if tests <= 0:
+              raise SystemExit("no test functions discovered statically")
+          receipt={"python_files":len(py),"static_test_functions":tests,"parse_failures":0}
+          print(json.dumps(receipt,sort_keys=True))
+          pathlib.Path(os.environ["RUNNER_TEMP"],"winbot-validator-preflight","receipt.json").write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+          '@
+          $py | python -
+          if($LASTEXITCODE -ne 0){throw 'validator static parse/collection failed'}
+
+      - name: Upload validator receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-validator-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-validator-preflight/receipt.json
+          if-no-files-found: error
+          retention-days: 14
