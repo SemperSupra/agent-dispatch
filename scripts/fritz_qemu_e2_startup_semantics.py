@@ -52,11 +52,13 @@ def token_kind(token: str) -> dict:
     t = clean_token(token)
     if not t:
         return {"kind": "empty"}
-    if t.startswith("$"):
-        name = t[1:]
-        if name.startswith("{") and name.endswith("}"):
-            name = name[1:-1]
-        return {"kind": "variable", "name": name[:128]}
+    simple_var = re.fullmatch(
+        r"\\$(?:\\{([A-Za-z_][A-Za-z0-9_]*)\\}|([A-Za-z_][A-Za-z0-9_]*)|([0-9]))",
+        t,
+    )
+    if simple_var:
+        name = next(x for x in simple_var.groups() if x is not None)
+        return {"kind": "variable", "name": name}
     if t.startswith("/") and len(t) <= 512:
         return {"kind": "absolute_path", "value": t}
     if t in SAFE_SERVICES:
@@ -138,8 +140,19 @@ def startup_variable_facts(
             continue
         var = m.group(1)
         rhs = m.group(2).strip().strip("'\\\"")
-        if rhs.startswith("$"):
-            value = token_kind(rhs)
+        default_expansion = re.fullmatch(
+            r"\\$\\{([A-Za-z_][A-Za-z0-9_]*):-([A-Za-z0-9_.@:-]+\\.(?:target|service|socket|path|mount|timer))\\}",
+            rhs,
+        )
+        simple = token_kind(rhs)
+        if default_expansion:
+            value = {
+                "kind": "parameter_default",
+                "variable": default_expansion.group(1),
+                "fallbackUnit": default_expansion.group(2),
+            }
+        elif simple.get("kind") == "variable":
+            value = simple
         elif rhs.startswith("/") and len(rhs) <= 512:
             value = {"kind": "absolute_path", "value": rhs}
         elif UNIT_NAME_RE.fullmatch(rhs):
@@ -185,6 +198,35 @@ def relevant_unit_paths(root: pathlib.Path) -> list[dict]:
                 item["kind"] = "unknown"
             out.append(item)
     return sorted(out, key=lambda x: x["path"])
+
+
+def target_unit_paths(root: pathlib.Path) -> list[dict]:
+    unit_root = root / "lib" / "systemd" / "system"
+    if not unit_root.exists():
+        return []
+    out: list[dict] = []
+    for path in sorted(unit_root.rglob("*.target")):
+        try:
+            rel = "/" + str(path.relative_to(root)).replace(os.sep, "/")
+        except ValueError:
+            continue
+        item = {"path": rel}
+        try:
+            if path.is_symlink():
+                item["kind"] = "symlink"
+                target = os.readlink(path)
+                if len(target) <= 512:
+                    item["target"] = target
+            elif path.is_file():
+                item["kind"] = "file"
+            elif path.is_dir():
+                item["kind"] = "directory"
+            else:
+                item["kind"] = "other"
+        except OSError:
+            item["kind"] = "unknown"
+        out.append(item)
+    return out[:200]
 
 
 def ctlmgr_assignment_facts(text: str, source: str) -> list[dict]:
@@ -348,6 +390,7 @@ def build(root: pathlib.Path) -> dict:
         "supervisorInvocations": invocations,
         "supervisorVariableBindings": startup_vars,
         "relevantUnitPaths": relevant_unit_paths(root),
+        "targetUnitPaths": target_unit_paths(root),
         "ctlmgrVariableBindings": assignments,
         "svctlConsumers": consumers,
         "ctlmgrSvctlRelations": correlate(assignments, consumers),
