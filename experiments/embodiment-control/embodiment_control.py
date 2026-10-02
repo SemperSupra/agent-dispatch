@@ -521,6 +521,7 @@ class EmbodimentControl:
             ),
             "ready": body.ready,
             "interaction_open": body.interaction_open,
+            "interaction_binding": body.interaction_binding,
             "effective_affordances": sorted(
                 self.fabric.effective_affordances(body.body_id)
             ),
