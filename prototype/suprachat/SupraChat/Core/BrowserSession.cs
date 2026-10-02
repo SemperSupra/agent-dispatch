@@ -52,10 +52,26 @@ public sealed class BrowserSession : IAsyncDisposable
             Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", BrowserDirectory);
 
         var driverRoot = Path.Combine(PlaywrightDriverDirectory, ".playwright");
-        if (Directory.Exists(driverRoot))
-            Environment.SetEnvironmentVariable(
-                "PLAYWRIGHT_DRIVER_SEARCH_PATH",
-                PlaywrightDriverDirectory);
+        if (!Directory.Exists(driverRoot))
+            return;
+
+        Environment.SetEnvironmentVariable(
+            "PLAYWRIGHT_DRIVER_SEARCH_PATH",
+            PlaywrightDriverDirectory);
+
+        var nodeName = OperatingSystem.IsWindows() ? "node.exe" : "node";
+        var nodeRoot = Path.Combine(driverRoot, "node");
+        if (Directory.Exists(nodeRoot))
+        {
+            var nodePath = Directory.EnumerateFiles(
+                    nodeRoot,
+                    nodeName,
+                    SearchOption.AllDirectories)
+                .FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(nodePath) && File.Exists(nodePath))
+                Environment.SetEnvironmentVariable("PLAYWRIGHT_NODEJS_PATH", nodePath);
+        }
     }
 
     public static BrowserRuntimeStatus Status() => new(
