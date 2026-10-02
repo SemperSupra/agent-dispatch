@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-official-catalog-007-pool-wss-budget",
-  "version": "25.04.1",
+  "request_id": "tn-26-beta3-t6-garm-provider-g3-001-create-delete-boundary",
+  "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "official-catalog",
-  "authority_issue": 411,
-  "consumer_authority_issue": 281,
-  "purpose": "Re-run exact TrueNAS 25.04.1 native official-catalog ntfy T6 after hardening the generic pool probe for slower WSS read latency; app producer and primary-service health oracle are unchanged from rep 006."
+  "product": "garm-provider-g3",
+  "authority_issue": 396,
+  "consumer_authority_issue": 40,
+  "purpose": "Exercise the exact packaged GARM TrueNAS provider CreateInstance boundary on disposable nested TrueNAS: exact provider-owned runner App realization and Compose read-back, Get/List reconciliation, supported inactive transition, provider DeleteInstance, post-delete absence/inventory, and zero residue. GitHub credential/JIT/private workload/physical/capacity claims remain unexercised."
 }
