@@ -36,12 +36,24 @@ TARGET_UNIT = r2.TARGET_UNIT
 CONTROL_SOCKET = "/tmp/supervisor.ctrl.socket"
 TRACE_PATHS = {
     "unit_root": UNIT_ROOT,
-    "ctlmgr_unit": f"{UNIT_ROOT}/{TARGET_UNIT}",
-    "ctlmgr_unit_relative": TARGET_UNIT,
+    "selected_network_pre_unit": f"{UNIT_ROOT}/network-pre.target",
+    "selected_network_pre_unit_relative": "network-pre.target",
+    "net_basic_unit": f"{UNIT_ROOT}/net_basic.service",
+    "net_basic_unit_relative": "net_basic.service",
     "avmipcd_unit": r2.AVMIPCD_UNIT,
     "avmipcd_unit_relative": "avmipcd.service",
-    "psupport_data": r2.PSUPPORT_DATA,
+    "ctlmgr_unit": f"{UNIT_ROOT}/{TARGET_UNIT}",
+    "ctlmgr_unit_relative": TARGET_UNIT,
+    "multid_unit": f"{UNIT_ROOT}/multid.service",
+    "multid_unit_relative": "multid.service",
+    "dsld_unit": f"{UNIT_ROOT}/dsld.service",
+    "dsld_unit_relative": "dsld.service",
+    "net_basic_exec": "/etc/net_basic.sh",
+    "avmipcd_exec": "/bin/avmipcd",
     "ctlmgr_exec": CTLMGR,
+    "multid_exec": "/sbin/multid",
+    "dsld_exec": "/sbin/dsld",
+    "psupport_data": r2.PSUPPORT_DATA,
     "control_socket": CONTROL_SOCKET,
 }
 SAFE_TRACE_SYSCALLS = {"open", "openat", "access", "stat", "lstat", "readlink", "execve", "unlink", "bind", "connect"}
@@ -90,11 +102,12 @@ def fixed_trace_evidence(raw: str, extra_paths: dict[str, str] | None = None) ->
             "successCount": 0,
             "failureCount": 0,
             "syscalls": {},
+            "firstSeenIndex": None,
         }
         for key, path in trace_paths.items()
     }
     ctlmgr_execve_count = 0
-    for line in raw.splitlines():
+    for line_index, line in enumerate(raw.splitlines()):
         m = re.match(r"^\s*\d+\s+([A-Za-z0-9_]+)\(", line)
         syscall = m.group(1) if m and m.group(1) in SAFE_TRACE_SYSCALLS else None
         failed = "errno=" in line or re.search(r"=\s*-\d+", line) is not None
@@ -103,6 +116,8 @@ def fixed_trace_evidence(raw: str, extra_paths: dict[str, str] | None = None) ->
                 continue
             item = evidence[key]
             item["hitCount"] += 1
+            if item["firstSeenIndex"] is None:
+                item["firstSeenIndex"] = line_index
             if failed:
                 item["failureCount"] += 1
             else:
