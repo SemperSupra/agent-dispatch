@@ -15,10 +15,10 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 125
     env:
-      MASTER_MANIFEST_SHA: '26b43312dd451f85694ff8c297e44ac7f0a7942d'
+      MASTER_MANIFEST_SHA: '1b866eadd4145719b2d03660265d4c3679472e83'
       EXPECTED_SOURCE_REVISION: '4220566a40afa90436b9ec82f2de9d608a40369b'
       EXPECTED_PROJECTION_IDENTITY: 'd264f3357c083d9cf68ef48e4d3751eb91e1c6590488f79892cd24b4a04ec0ad'
-      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20261002-01'
+      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20261002-02'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
