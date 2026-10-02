@@ -18,7 +18,10 @@ jobs:
       MASTER_MANIFEST_SHA: '1b866eadd4145719b2d03660265d4c3679472e83'
       EXPECTED_SOURCE_REVISION: '4220566a40afa90436b9ec82f2de9d608a40369b'
       EXPECTED_PROJECTION_IDENTITY: 'd264f3357c083d9cf68ef48e4d3751eb91e1c6590488f79892cd24b4a04ec0ad'
-      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20261002-02'
+      BASE_CONTROL_BLOB_SHA: '247944c22707aaa600d6f6b0206cedecedf43395'
+      EXPECTED_CONTROL_BLOB_SHA: 'aa467e93b07329caa21de64e8a49e2adb7f847f5'
+      CONTROL_REVISION: '53e918ceab0010f1f6c9cd1a6d23ac7f40794a45'
+      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20261002-03'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -42,6 +45,9 @@ jobs:
           master_sha = os.environ["MASTER_MANIFEST_SHA"]
           expected_rev = os.environ["EXPECTED_SOURCE_REVISION"]
           expected_identity = os.environ["EXPECTED_PROJECTION_IDENTITY"]
+          base_control_blob = os.environ["BASE_CONTROL_BLOB_SHA"]
+          expected_control_blob = os.environ["EXPECTED_CONTROL_BLOB_SHA"]
+          control_revision = os.environ["CONTROL_REVISION"]
           root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "winbot-fullrdte-staged"
           staging = root / "capsule"
           projection = staging / "projection"
@@ -124,6 +130,96 @@ jobs:
           if set(control) != required:
               raise SystemExit("control object set mismatch")
 
+          # The latest FullRDTE control is a control-only change in private WinBot.
+          # Reconstruct it deterministically from the already-staged predecessor,
+          # then require exact Git-object identity before any expensive execution.
+          control_path = "rdte/gha/full-rdte.ps1"
+          base_raw = control[control_path]
+          observed_base = hashlib.sha1(f"blob {len(base_raw)}\0".encode() + base_raw).hexdigest()
+          if observed_base != base_control_blob:
+              raise SystemExit(f"base control blob mismatch: {observed_base}")
+
+          text = base_raw.decode("utf-8-sig")
+          replacements = [
+              (
+                  """function Set-Failure {
+    param([string]$Classification, [string]$Domain, [string]$Message)
+    $record.classification = $Classification
+    $record.failure_domain = $Domain
+    $record.error_message = $Message
+}
+""",
+                  """function Set-Failure {
+    param([string]$Classification, [string]$Domain, [string]$Message)
+    $record.classification = $Classification
+    $record.failure_domain = $Domain
+    $record.error_message = $Message
+}
+
+function Set-FailureContext {
+    param([System.Management.Automation.ErrorRecord]$ErrorRecord)
+    if (-not $ErrorRecord) { return }
+    $scriptName = [string]$ErrorRecord.InvocationInfo.ScriptName
+    $record.failure_context = [ordered]@{
+        command_name = [string]$ErrorRecord.InvocationInfo.MyCommand.Name
+        script_name = if ($scriptName) { Split-Path -Leaf $scriptName } else { $null }
+        script_line = [int]$ErrorRecord.InvocationInfo.ScriptLineNumber
+        fully_qualified_error_id = [string]$ErrorRecord.FullyQualifiedErrorId
+        category = [string]$ErrorRecord.CategoryInfo.Category
+        reason = [string]$ErrorRecord.CategoryInfo.Reason
+        activity = [string]$ErrorRecord.CategoryInfo.Activity
+        target_type = if ($null -ne $ErrorRecord.TargetObject) { $ErrorRecord.TargetObject.GetType().FullName } else { $null }
+    }
+}
+"""
+              ),
+              (
+                  """    $buildStart = Get-Date
+    & $buildScript @buildArgs
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Set-Failure 'HARNESS_FAILURE' 'master-build' ('build-master returned ' + $LASTEXITCODE); $rc = 29; throw $record.error_message }
+    $record.build.build_seconds = [math]::Round(((Get-Date)-$buildStart).TotalSeconds,3)
+""",
+                  """    $buildStart = Get-Date
+    $record.build.master_build_started = $true
+    $record.build.master_build_completed = $false
+    try {
+        & $buildScript @buildArgs
+    } catch {
+        Set-FailureContext $_
+        Set-Failure 'HARNESS_FAILURE' 'master-build-exception' $_.Exception.Message
+        $rc = 29
+        throw
+    }
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Set-Failure 'HARNESS_FAILURE' 'master-build' ('build-master returned ' + $LASTEXITCODE); $rc = 29; throw $record.error_message }
+    $record.build.build_seconds = [math]::Round(((Get-Date)-$buildStart).TotalSeconds,3)
+    $record.build.master_build_completed = $true
+"""
+              ),
+              (
+                  """} catch {
+    if (-not $record.error_type) { $record.error_type = $_.Exception.GetType().FullName }
+""",
+                  """} catch {
+    if (-not $record.failure_context -or $record.failure_context.Count -eq 0) { Set-FailureContext $_ }
+    if (-not $record.error_type) { $record.error_type = $_.Exception.GetType().FullName }
+"""
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit("latest-control derivation marker cardinality mismatch")
+              text = text.replace(old, new, 1)
+
+          derived_raw = text.encode("utf-8")
+          derived_control_sha = hashlib.sha1(
+              f"blob {len(derived_raw)}\0".encode() + derived_raw
+          ).hexdigest()
+          if derived_control_sha != expected_control_blob:
+              raise SystemExit(
+                  f"derived latest control identity mismatch: {derived_control_sha}"
+              )
+          control[control_path] = derived_raw
+
           policy = json.loads(control["rdte/gha/projection-policy.json"])
           auth = policy.get("authorization", {})
           if not (
@@ -188,6 +284,10 @@ jobs:
               "capsule_sha256": capsule_sha,
               "private_repo_checkout": False,
               "staged_public_git_objects_only": True,
+              "base_control_blob_sha": observed_base,
+              "derived_control_blob_sha": derived_control_sha,
+              "control_revision": control_revision,
+              "control_derivation": "deterministic predecessor transform with exact Git-object oracle",
           }
           (root / "reconstruction.json").write_text(
               json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
