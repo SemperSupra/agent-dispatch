@@ -837,6 +837,9 @@ class EmbodimentFabric:
             raise FabricError("idempotency key collision")
         return self.body(existing.body_id)
 
+    def _require_controller(self) -> None:
+        self._require(self.controller_up, "controller is unavailable")
+
     @staticmethod
     def _require(condition: bool, message: str) -> None:
         if not condition:
