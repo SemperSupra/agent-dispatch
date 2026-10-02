@@ -20,3 +20,15 @@ must be parsed next for the 7590 NAND/MTD/boot-selector model.
 
 No partition layout, dual-boot safety, `linux_fs_start` behavior, flash write,
 or HIL mutation is accepted merely from path/marker evidence.
+
+
+## First acquisition finding
+
+The official 633,140,613-byte archive was observed with SHA-256
+`61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc`.
+Subsequent D1a reps pin both size and digest.
+
+The first broad path census also demonstrated why generic token scans are not
+accepted: terms such as `EVA` can occur lexically in unrelated source. The
+accepted reducer therefore separates board/BSP categories and uses token
+boundaries rather than substring matches.
