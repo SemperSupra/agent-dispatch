@@ -698,6 +698,8 @@ jobs:
           test -d "$test_home/Applications/SupraChat.app"
           test -x "$test_home/.local/bin/suprachat-cli"
           test -L "$test_home/.local/bin/suprachat-gui"
+          test -x "$test_home/Applications/SupraChat.app/Contents/Resources-uninstall.sh"
+          codesign --verify --strict "$test_home/Applications/SupraChat.app"
 
           cli_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" doctor)"
           python3 - "$cli_json" <<'PY'
