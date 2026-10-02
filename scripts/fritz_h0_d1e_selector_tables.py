@@ -151,8 +151,8 @@ def declaration_before(masked: str, brace_start: int) -> dict | None:
 
     lhs = candidate[:-1].strip()
     m = re.search(
-        r"\\b(?P<owner>[A-Za-z_][A-Za-z0-9_]*)"
-        r"\\s*(?:\\[[^\\]]*\\])?\\s*$",
+        r"\b(?P<owner>[A-Za-z_][A-Za-z0-9_]*)"
+        r"\s*(?:\[[^]]*\])?\s*$",
         lhs,
     )
     if not m:
