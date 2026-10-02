@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-provider-g3-005-four-vcpu-corrective",
+  "request_id": "tn-26-beta3-t6-garm-provider-g4-001-capacity-two-reconnect-retirement",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "garm-provider-g3",
+  "product": "garm-provider-g4",
   "authority_issue": 396,
-  "consumer_authority_issue": 40,
-  "purpose": "Re-run exact TrueNAS 26.0.0-BETA.3 GARM provider G3 after correcting only the nested RDTE embodiment from 2 to 4 vCPUs so Docker can admit the fixed provider-exported cpus=4 runner profile; require the unchanged G3 CreateInstance -> exact Compose read-back -> Get/List -> supported inactive transition -> provider DeleteInstance -> App absent -> empty provider inventory -> zero-residue oracle, with GitHub/JIT/private workload/physical mutation/capacity promotion still unexercised."
+  "consumer_authority_issue": 41,
+  "purpose": "Qualify exact TrueNAS 26.0.0-BETA.3 GARM provider G4 on the accepted four-vCPU nested RDTE embodiment: realize exactly two source-derived provider-owned runner Apps with concurrent packaged-provider CreateInstance calls, exact Compose read-back for both, isolated callback/metadata/token configuration, fresh-process Get/List adoption, active-delete fail-closed behavior, both alpha->beta and beta->alpha retirement orders, measured ix-apps storage deltas, final App absence, empty provider inventory, and zero unintended residue; GitHub JIT/private workload/physical TrueNAS/capacity promotion remain unexercised."
 }

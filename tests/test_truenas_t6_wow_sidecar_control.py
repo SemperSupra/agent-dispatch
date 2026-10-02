@@ -64,7 +64,7 @@ class WowSidecarT6ControlTests(unittest.TestCase):
         self.assertIn('T6_PRODUCT="litellm"', harness)
         if request["rung"] == "t6":
             product = request.get("product", "litellm")
-            self.assertIn(product, {"litellm", "wow-sidecar", "garm", "garm-provider-g2", "garm-provider-g3", "official-catalog"})
+            self.assertIn(product, {"litellm", "wow-sidecar", "garm", "garm-provider-g2", "garm-provider-g3", "garm-provider-g4", "official-catalog"})
             if product == "wow-sidecar":
                 self.assertEqual("26.0.0-BETA.3", request["version"])
                 self.assertEqual(396, request["authority_issue"])

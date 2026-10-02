@@ -201,11 +201,11 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertNotIn('hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080', text)
         self.assertNotIn("xdotool", text)
 
-    def test_g3_nested_guest_meets_fixed_four_cpu_runner_profile(self):
+    def test_g3_and_g4_nested_guest_meet_fixed_four_cpu_runner_profile(self):
         text = TRUENAS.read_text(encoding="utf-8")
         self.assertIn('VCPUS=2', text)
         self.assertIn(
-            'if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "garm-provider-g3" ]]; then',
+            'if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" ) ]]; then',
             text,
         )
         self.assertIn('VCPUS=4', text)
@@ -214,6 +214,26 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('R_VCPUS="$VCPUS"', text)
         self.assertIn('"vcpus": int(os.environ["R_VCPUS"])', text)
         self.assertIn('"ram_mib": int(os.environ["R_RAM_MIB"])', text)
+        self.assertIn('"garm-provider-g4-pair"', text)
+        self.assertIn('"count": 2', text)
+
+    def test_g4_routing_is_source_exact_and_public_safe(self):
+        workflow = (ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml").read_text(
+            encoding="utf-8"
+        )
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn("garm-provider-g4", workflow)
+        self.assertIn(
+            "export-g4-nested-fixture.yml@e5fc7c50780de54f7579f64990c87b2e16482613",
+            workflow,
+        )
+        self.assertIn(
+            '--g4-fixture-producer "e5fc7c50780de54f7579f64990c87b2e16482613"',
+            workflow,
+        )
+        self.assertIn("truenas_middleware_garm_provider_g4_probe.py", text)
+        self.assertIn('G4_FIXTURE_PRODUCER', text)
+        self.assertNotIn("GITHUB_TOKEN", (ROOT / "scripts" / "truenas_middleware_garm_provider_g4_probe.py").read_text(encoding="utf-8"))
 
     def test_no_literal_escaped_shell_parameter_expansions(self):
         needle = chr(92) + "$" + "{"

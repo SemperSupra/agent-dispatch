@@ -21,6 +21,7 @@ on:
       - 'tests/test_truenas_t6_garm_control.py'
       - 'tests/test_truenas_garm_provider_g2.py'
       - 'tests/test_truenas_garm_provider_g3.py'
+      - 'tests/test_truenas_garm_provider_g4.py'
       - 'tests/test_truenas_rdte_target.py'
       - 'tests/test_truenas_rdte_target.py'
   pull_request:
@@ -39,6 +40,7 @@ on:
       - 'tests/test_truenas_t6_garm_control.py'
       - 'tests/test_truenas_garm_provider_g2.py'
       - 'tests/test_truenas_garm_provider_g3.py'
+      - 'tests/test_truenas_garm_provider_g4.py'
       - 'tests/test_truenas_rdte_target.py'
 
 permissions:
@@ -47,7 +49,7 @@ permissions:
 jobs:
   static:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -82,6 +84,9 @@ jobs:
           fi
           if [[ -f tests/test_truenas_garm_provider_g3.py ]]; then
             tests+=(tests/test_truenas_garm_provider_g3.py)
+          fi
+          if [[ -f tests/test_truenas_garm_provider_g4.py ]]; then
+            tests+=(tests/test_truenas_garm_provider_g4.py)
           fi
           if [[ -f tests/test_truenas_rdte_target.py ]]; then
             tests+=(tests/test_truenas_rdte_target.py)
@@ -120,3 +125,75 @@ jobs:
                 https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz \
                 -o /dev/null
             '
+
+      - name: G4 exact exported pair pre-JIT concurrency smoke
+        if: ${{ hashFiles('scripts/truenas_middleware_garm_provider_g4_probe.py') != '' }}
+        run: |
+          set -euo pipefail
+          provider_ref='e5fc7c50780de54f7579f64990c87b2e16482613'
+          rm -rf /tmp/g4-provider /tmp/g4-fixture.json /tmp/g4-alpha.json /tmp/g4-beta.json
+          git init -q /tmp/g4-provider
+          git -C /tmp/g4-provider fetch -q --depth=1 \
+            https://github.com/SemperSupra/garm-provider-truenas.git "$provider_ref"
+          git -C /tmp/g4-provider checkout -q --detach FETCH_HEAD
+          [[ "$(git -C /tmp/g4-provider rev-parse HEAD)" == "$provider_ref" ]]
+
+          (
+            cd /tmp/g4-provider
+            G4_FIXTURE_OUT=/tmp/g4-fixture.json \
+            G4_PRODUCER_SOURCE="$provider_ref" \
+              go test ./internal/truenasstore \
+                -run '^TestExportNestedG4CapacityTwoFixtureBundle$' -count=1
+          )
+          test -s /tmp/g4-fixture.json
+
+          for slot in alpha beta; do
+            callback="https://httpbin.org/anything/sempersupra-g4/$slot/status"
+            metadata="https://httpbin.org/drip?duration=1&numbytes=1&code=200&delay=60&path=$slot"
+            token="g4-public-static-$slot-token"
+            jq --arg slot "$slot" --arg callback "$callback" --arg metadata "$metadata" --arg token "$token" '
+              first(.runners[] | select(.slot == $slot) | .expected_compose_template)
+              | .services.runner.environment.GARM_CALLBACK_URL = $callback
+              | .services.runner.environment.GARM_METADATA_URL = $metadata
+              | .services.runner.environment.GARM_INSTANCE_TOKEN = $token
+            ' /tmp/g4-fixture.json > "/tmp/g4-$slot.json"
+          done
+
+          cleanup() {
+            docker compose -p g4-smoke-alpha -f /tmp/g4-alpha.json down -v --remove-orphans >/dev/null 2>&1 || true
+            docker compose -p g4-smoke-beta -f /tmp/g4-beta.json down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker compose -p g4-smoke-alpha -f /tmp/g4-alpha.json up -d &
+          alpha_up=$!
+          docker compose -p g4-smoke-beta -f /tmp/g4-beta.json up -d &
+          beta_up=$!
+          wait "$alpha_up"
+          wait "$beta_up"
+
+          deadline=$((SECONDS + 140))
+          while (( SECONDS < deadline )); do
+            ready=0
+            for slot in alpha beta; do
+              cid="$(docker compose -p "g4-smoke-$slot" -f "/tmp/g4-$slot.json" ps -aq runner || true)"
+              [[ -n "$cid" ]] || continue
+              if [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]]; then
+                docker inspect "$cid" || true
+                docker logs "$cid" || true
+                exit 1
+              fi
+              if docker exec "$cid" test -x /home/runner/actions-runner/run.sh; then
+                ready=$((ready + 1))
+              fi
+            done
+            [[ "$ready" == "2" ]] && break
+            sleep 2
+          done
+
+          for slot in alpha beta; do
+            cid="$(docker compose -p "g4-smoke-$slot" -f "/tmp/g4-$slot.json" ps -aq runner)"
+            [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" == "true" ]]
+            docker exec "$cid" test -x /home/runner/actions-runner/bin/Runner.Listener
+            docker exec "$cid" test -w /run/garm-jit
+          done
