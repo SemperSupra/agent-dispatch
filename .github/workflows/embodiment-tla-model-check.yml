@@ -19,6 +19,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check executable embodiment semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/embodiment-tla/check_embodiment_semantics.py
+
       - name: Acquire pinned TLA+ tools
         shell: bash
         run: |
