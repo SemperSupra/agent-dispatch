@@ -19,12 +19,49 @@ EXPERIMENT = "fritz-qemu-e2-prodtest-network-runtime/v1"
 SUPERVISOR_TARGET = "prodtest-network.target"
 
 
+def _hits(paths: dict, *keys: str) -> int:
+    return sum(paths.get(key, {}).get("hitCount", 0) for key in keys)
+
+
+def classify_r5(receipt: dict) -> str:
+    runtime = receipt.get("runtime", {})
+    if runtime.get("ctlmgrProcessObserved"):
+        return "E2_R5_CTLMGR_PROCESS_OBSERVED"
+    trace = runtime.get("fixedPathTrace", {})
+    if trace.get("ctlmgrExecveCount", 0) > 0:
+        return "E2_R5_CTLMGR_EXEC_ATTEMPTED"
+    paths = trace.get("paths", {})
+    ctlmgr_hits = _hits(paths, "ctlmgr_unit", "ctlmgr_unit_relative")
+    avmipcd_hits = _hits(paths, "avmipcd_unit", "avmipcd_unit_relative")
+    selected_hits = _hits(paths, "selected_target", "selected_target_relative")
+    psupport_failures = paths.get("psupport_data", {}).get("failureCount", 0)
+    if ctlmgr_hits > 0 and psupport_failures > 0:
+        return "E2_R5_CTLMGR_UNIT_READ_PSUPPORT_MISSING"
+    if ctlmgr_hits > 0:
+        return "E2_R5_CTLMGR_UNIT_READ"
+    if avmipcd_hits > 0:
+        return "E2_R5_AVMIPCD_UNIT_READ"
+    if selected_hits > 0:
+        return "E2_R5_SELECTED_TARGET_READ"
+    return "E2_R5_SELECTED_TARGET_NOT_OBSERVED"
+
+
 def annotate(receipt: dict) -> dict:
     runtime = receipt.get("runtime", {})
     if runtime.get("supervisorArguments") != [r4.r3.UNIT_ROOT, SUPERVISOR_TARGET]:
         raise RuntimeError("R5 runtime did not use exact prodtest-network.target")
     receipt["schemaVersion"] = SCHEMA_VERSION
     receipt["experiment"] = EXPERIMENT
+    receipt["runtimeClassification"] = receipt.get("classification")
+    receipt["classification"] = classify_r5(receipt)
+    paths = runtime.get("fixedPathTrace", {}).get("paths", {})
+    receipt["targetTraversal"] = {
+        "selectedTargetHits": _hits(paths, "selected_target", "selected_target_relative"),
+        "ctlmgrUnitHits": _hits(paths, "ctlmgr_unit", "ctlmgr_unit_relative"),
+        "avmipcdUnitHits": _hits(paths, "avmipcd_unit", "avmipcd_unit_relative"),
+        "ctlmgrExecveCount": runtime.get("fixedPathTrace", {}).get("ctlmgrExecveCount", 0),
+        "psupportFailureCount": paths.get("psupport_data", {}).get("failureCount", 0),
+    }
     receipt["targetSelection"] = {
         "selectedTarget": SUPERVISOR_TARGET,
         "selectionEvidence": "E2-D5 exact target admission graph",
