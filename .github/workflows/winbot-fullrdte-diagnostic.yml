@@ -140,79 +140,21 @@ jobs:
               raise SystemExit(f"base control blob mismatch: {observed_base}")
 
           text = base_raw.decode("utf-8-sig")
-          replacements = [
-              (
-                  """function Set-Failure {
-    param([string]$Classification, [string]$Domain, [string]$Message)
-    $record.classification = $Classification
-    $record.failure_domain = $Domain
-    $record.error_message = $Message
-}
-""",
-                  """function Set-Failure {
-    param([string]$Classification, [string]$Domain, [string]$Message)
-    $record.classification = $Classification
-    $record.failure_domain = $Domain
-    $record.error_message = $Message
-}
-
-function Set-FailureContext {
-    param([System.Management.Automation.ErrorRecord]$ErrorRecord)
-    if (-not $ErrorRecord) { return }
-    $scriptName = [string]$ErrorRecord.InvocationInfo.ScriptName
-    $record.failure_context = [ordered]@{
-        command_name = [string]$ErrorRecord.InvocationInfo.MyCommand.Name
-        script_name = if ($scriptName) { Split-Path -Leaf $scriptName } else { $null }
-        script_line = [int]$ErrorRecord.InvocationInfo.ScriptLineNumber
-        fully_qualified_error_id = [string]$ErrorRecord.FullyQualifiedErrorId
-        category = [string]$ErrorRecord.CategoryInfo.Category
-        reason = [string]$ErrorRecord.CategoryInfo.Reason
-        activity = [string]$ErrorRecord.CategoryInfo.Activity
-        target_type = if ($null -ne $ErrorRecord.TargetObject) { $ErrorRecord.TargetObject.GetType().FullName } else { $null }
-    }
-}
-"""
-              ),
-              (
-                  """    $buildStart = Get-Date
-    & $buildScript @buildArgs
-    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Set-Failure 'HARNESS_FAILURE' 'master-build' ('build-master returned ' + $LASTEXITCODE); $rc = 29; throw $record.error_message }
-    $record.build.build_seconds = [math]::Round(((Get-Date)-$buildStart).TotalSeconds,3)
-""",
-                  """    $buildStart = Get-Date
-    $record.build.master_build_started = $true
-    $record.build.master_build_completed = $false
-    try {
-        & $buildScript @buildArgs
-    } catch {
-        Set-FailureContext $_
-        Set-Failure 'HARNESS_FAILURE' 'master-build-exception' $_.Exception.Message
-        $rc = 29
-        throw
-    }
-    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { Set-Failure 'HARNESS_FAILURE' 'master-build' ('build-master returned ' + $LASTEXITCODE); $rc = 29; throw $record.error_message }
-    $record.build.build_seconds = [math]::Round(((Get-Date)-$buildStart).TotalSeconds,3)
-    $record.build.master_build_completed = $true
-"""
-              ),
-              (
-                  """} catch {
-    if (-not $record.error_type) { $record.error_type = $_.Exception.GetType().FullName }
-""",
-                  """} catch {
-    if (-not $record.failure_context -or $record.failure_context.Count -eq 0) { Set-FailureContext $_ }
-    if (-not $record.error_type) { $record.error_type = $_.Exception.GetType().FullName }
-"""
-              ),
+          replacements_b64 = [
+              ("ZnVuY3Rpb24gU2V0LUZhaWx1cmUgewogICAgcGFyYW0oW3N0cmluZ10kQ2xhc3NpZmljYXRpb24sIFtzdHJpbmddJERvbWFpbiwgW3N0cmluZ10kTWVzc2FnZSkKICAgICRyZWNvcmQuY2xhc3NpZmljYXRpb24gPSAkQ2xhc3NpZmljYXRpb24KICAgICRyZWNvcmQuZmFpbHVyZV9kb21haW4gPSAkRG9tYWluCiAgICAkcmVjb3JkLmVycm9yX21lc3NhZ2UgPSAkTWVzc2FnZQp9Cg==", "ZnVuY3Rpb24gU2V0LUZhaWx1cmUgewogICAgcGFyYW0oW3N0cmluZ10kQ2xhc3NpZmljYXRpb24sIFtzdHJpbmddJERvbWFpbiwgW3N0cmluZ10kTWVzc2FnZSkKICAgICRyZWNvcmQuY2xhc3NpZmljYXRpb24gPSAkQ2xhc3NpZmljYXRpb24KICAgICRyZWNvcmQuZmFpbHVyZV9kb21haW4gPSAkRG9tYWluCiAgICAkcmVjb3JkLmVycm9yX21lc3NhZ2UgPSAkTWVzc2FnZQp9CgpmdW5jdGlvbiBTZXQtRmFpbHVyZUNvbnRleHQgewogICAgcGFyYW0oW1N5c3RlbS5NYW5hZ2VtZW50LkF1dG9tYXRpb24uRXJyb3JSZWNvcmRdJEVycm9yUmVjb3JkKQogICAgaWYgKC1ub3QgJEVycm9yUmVjb3JkKSB7IHJldHVybiB9CiAgICAkc2NyaXB0TmFtZSA9IFtzdHJpbmddJEVycm9yUmVjb3JkLkludm9jYXRpb25JbmZvLlNjcmlwdE5hbWUKICAgICRyZWNvcmQuZmFpbHVyZV9jb250ZXh0ID0gW29yZGVyZWRdQHsKICAgICAgICBjb21tYW5kX25hbWUgPSBbc3RyaW5nXSRFcnJvclJlY29yZC5JbnZvY2F0aW9uSW5mby5NeUNvbW1hbmQuTmFtZQogICAgICAgIHNjcmlwdF9uYW1lID0gaWYgKCRzY3JpcHROYW1lKSB7IFNwbGl0LVBhdGggLUxlYWYgJHNjcmlwdE5hbWUgfSBlbHNlIHsgJG51bGwgfQogICAgICAgIHNjcmlwdF9saW5lID0gW2ludF0kRXJyb3JSZWNvcmQuSW52b2NhdGlvbkluZm8uU2NyaXB0TGluZU51bWJlcgogICAgICAgIGZ1bGx5X3F1YWxpZmllZF9lcnJvcl9pZCA9IFtzdHJpbmddJEVycm9yUmVjb3JkLkZ1bGx5UXVhbGlmaWVkRXJyb3JJZAogICAgICAgIGNhdGVnb3J5ID0gW3N0cmluZ10kRXJyb3JSZWNvcmQuQ2F0ZWdvcnlJbmZvLkNhdGVnb3J5CiAgICAgICAgcmVhc29uID0gW3N0cmluZ10kRXJyb3JSZWNvcmQuQ2F0ZWdvcnlJbmZvLlJlYXNvbgogICAgICAgIGFjdGl2aXR5ID0gW3N0cmluZ10kRXJyb3JSZWNvcmQuQ2F0ZWdvcnlJbmZvLkFjdGl2aXR5CiAgICAgICAgdGFyZ2V0X3R5cGUgPSBpZiAoJG51bGwgLW5lICRFcnJvclJlY29yZC5UYXJnZXRPYmplY3QpIHsgJEVycm9yUmVjb3JkLlRhcmdldE9iamVjdC5HZXRUeXBlKCkuRnVsbE5hbWUgfSBlbHNlIHsgJG51bGwgfQogICAgfQp9Cg=="),
+              ("ICAgICRidWlsZFN0YXJ0ID0gR2V0LURhdGUKICAgICYgJGJ1aWxkU2NyaXB0IEBidWlsZEFyZ3MKICAgIGlmICgkTEFTVEVYSVRDT0RFIC1hbmQgJExBU1RFWElUQ09ERSAtbmUgMCkgeyBTZXQtRmFpbHVyZSAnSEFSTkVTU19GQUlMVVJFJyAnbWFzdGVyLWJ1aWxkJyAoJ2J1aWxkLW1hc3RlciByZXR1cm5lZCAnICsgJExBU1RFWElUQ09ERSk7ICRyYyA9IDI5OyB0aHJvdyAkcmVjb3JkLmVycm9yX21lc3NhZ2UgfQogICAgJHJlY29yZC5idWlsZC5idWlsZF9zZWNvbmRzID0gW21hdGhdOjpSb3VuZCgoKEdldC1EYXRlKS0kYnVpbGRTdGFydCkuVG90YWxTZWNvbmRzLDMpCg==", "ICAgICRidWlsZFN0YXJ0ID0gR2V0LURhdGUKICAgICRyZWNvcmQuYnVpbGQubWFzdGVyX2J1aWxkX3N0YXJ0ZWQgPSAkdHJ1ZQogICAgJHJlY29yZC5idWlsZC5tYXN0ZXJfYnVpbGRfY29tcGxldGVkID0gJGZhbHNlCiAgICB0cnkgewogICAgICAgICYgJGJ1aWxkU2NyaXB0IEBidWlsZEFyZ3MKICAgIH0gY2F0Y2ggewogICAgICAgIFNldC1GYWlsdXJlQ29udGV4dCAkXwogICAgICAgIFNldC1GYWlsdXJlICdIQVJORVNTX0ZBSUxVUkUnICdtYXN0ZXItYnVpbGQtZXhjZXB0aW9uJyAkXy5FeGNlcHRpb24uTWVzc2FnZQogICAgICAgICRyYyA9IDI5CiAgICAgICAgdGhyb3cKICAgIH0KICAgIGlmICgkTEFTVEVYSVRDT0RFIC1hbmQgJExBU1RFWElUQ09ERSAtbmUgMCkgeyBTZXQtRmFpbHVyZSAnSEFSTkVTU19GQUlMVVJFJyAnbWFzdGVyLWJ1aWxkJyAoJ2J1aWxkLW1hc3RlciByZXR1cm5lZCAnICsgJExBU1RFWElUQ09ERSk7ICRyYyA9IDI5OyB0aHJvdyAkcmVjb3JkLmVycm9yX21lc3NhZ2UgfQogICAgJHJlY29yZC5idWlsZC5idWlsZF9zZWNvbmRzID0gW21hdGhdOjpSb3VuZCgoKEdldC1EYXRlKS0kYnVpbGRTdGFydCkuVG90YWxTZWNvbmRzLDMpCiAgICAkcmVjb3JkLmJ1aWxkLm1hc3Rlcl9idWlsZF9jb21wbGV0ZWQgPSAkdHJ1ZQo="),
+              ("fSBjYXRjaCB7CiAgICBpZiAoLW5vdCAkcmVjb3JkLmVycm9yX3R5cGUpIHsgJHJlY29yZC5lcnJvcl90eXBlID0gJF8uRXhjZXB0aW9uLkdldFR5cGUoKS5GdWxsTmFtZSB9Cg==", "fSBjYXRjaCB7CiAgICBpZiAoLW5vdCAkcmVjb3JkLmZhaWx1cmVfY29udGV4dCAtb3IgJHJlY29yZC5mYWlsdXJlX2NvbnRleHQuQ291bnQgLWVxIDApIHsgU2V0LUZhaWx1cmVDb250ZXh0ICRfIH0KICAgIGlmICgtbm90ICRyZWNvcmQuZXJyb3JfdHlwZSkgeyAkcmVjb3JkLmVycm9yX3R5cGUgPSAkXy5FeGNlcHRpb24uR2V0VHlwZSgpLkZ1bGxOYW1lIH0K"),
           ]
-          for old, new in replacements:
+          for old_b64, new_b64 in replacements_b64:
+              old = base64.b64decode(old_b64).decode("utf-8")
+              new = base64.b64decode(new_b64).decode("utf-8")
               if text.count(old) != 1:
                   raise SystemExit("latest-control derivation marker cardinality mismatch")
               text = text.replace(old, new, 1)
 
           derived_raw = text.encode("utf-8")
           derived_control_sha = hashlib.sha1(
-              f"blob {len(derived_raw)}\0".encode() + derived_raw
+              f"blob {len(derived_raw)}\\0".encode() + derived_raw
           ).hexdigest()
           if derived_control_sha != expected_control_blob:
               raise SystemExit(
