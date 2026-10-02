@@ -150,6 +150,32 @@ def check_late_provider_callback() -> None:
     assert not body.interaction_open
 
 
+def check_stop_during_start_then_provider_exit() -> None:
+    f = EmbodimentFabric(max_generation=20, max_restarts=1)
+    f.add_actor("actor-a")
+    f.request_start(
+        actor_id="actor-a",
+        body_id="body-a1",
+        intent_id="intent-a1",
+        authority_ref=AUTHORITY,
+        capabilities={"build"},
+    )
+    f.admit("body-a1")
+    f.dispatch("body-a1")
+    f.request_stop("body-a1")
+
+    late = f.provider_start_ack("body-a1")
+    assert late.state is BodyState.DRAINING
+    assert late.provider_present
+    assert "provider" in late.finalizers
+
+    exited = f.provider_exit("body-a1")
+    assert exited.state is BodyState.DEMATERIALIZING
+    assert not exited.provider_present
+    assert "provider" not in exited.finalizers
+    assert not exited.interaction_open
+
+
 def check_interaction_binding_separation() -> None:
     f = EmbodimentFabric(max_generation=20, max_restarts=1)
     f.add_actor("actor-a")
@@ -483,6 +509,7 @@ def main() -> None:
     check_idempotency()
     check_affordance_and_replacement_fencing()
     check_late_provider_callback()
+    check_stop_during_start_then_provider_exit()
     check_interaction_binding_separation()
     check_path_loss_and_expiry()
     check_provider_exit_and_reembodiment()
