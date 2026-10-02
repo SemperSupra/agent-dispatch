@@ -20,6 +20,7 @@ on:
       - 'tests/test_truenas_t6_wow_sidecar_control.py'
       - 'tests/test_truenas_t6_garm_control.py'
       - 'tests/test_truenas_garm_provider_g2.py'
+      - 'tests/test_truenas_garm_provider_g3.py'
       - 'tests/test_truenas_rdte_target.py'
       - 'tests/test_truenas_rdte_target.py'
   pull_request:
@@ -37,6 +38,7 @@ on:
       - 'tests/test_truenas_t6_wow_sidecar_control.py'
       - 'tests/test_truenas_t6_garm_control.py'
       - 'tests/test_truenas_garm_provider_g2.py'
+      - 'tests/test_truenas_garm_provider_g3.py'
       - 'tests/test_truenas_rdte_target.py'
 
 permissions:
@@ -78,7 +80,43 @@ jobs:
           if [[ -f tests/test_truenas_garm_provider_g2.py ]]; then
             tests+=(tests/test_truenas_garm_provider_g2.py)
           fi
+          if [[ -f tests/test_truenas_garm_provider_g3.py ]]; then
+            tests+=(tests/test_truenas_garm_provider_g3.py)
+          fi
           if [[ -f tests/test_truenas_rdte_target.py ]]; then
             tests+=(tests/test_truenas_rdte_target.py)
           fi
           python3 -m unittest -v "${tests[@]}"
+
+      - name: G3 runner container profile smoke
+        if: ${{ hashFiles('scripts/truenas_middleware_garm_provider_g3_probe.py') != '' }}
+        run: |
+          set -euo pipefail
+          image='ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda'
+          docker pull "$image"
+          docker run --rm \
+            --user 1001:1001 \
+            --cpus 4 \
+            --memory 8g \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --tmpfs /run/garm-jit:rw,nosuid,nodev,noexec,uid=1001,gid=1001,mode=0700 \
+            --entrypoint /bin/sh \
+            "$image" -c '
+              set -eu
+              test "$(id -u)" = "1001"
+              test "$(id -g)" = "1001"
+              test -w /home/runner
+              test -w /run/garm-jit
+              command -v curl >/dev/null
+              command -v tar >/dev/null
+              command -v sha256sum >/dev/null
+              printf profile-smoke > /home/runner/g3-profile-smoke
+              rm -f /home/runner/g3-profile-smoke
+              printf jit-smoke > /run/garm-jit/g3-profile-smoke
+              rm -f /run/garm-jit/g3-profile-smoke
+              curl --fail --silent --show-error --location \
+                --connect-timeout 5 --max-time 20 --range 0-0 \
+                https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz \
+                -o /dev/null
+            '
