@@ -75,17 +75,18 @@ def service_command_relations(text: str, source: str) -> list[dict]:
         ),
     ]
     for line in text.splitlines():
-        if "svctl" not in line or "ctlmgr" not in line:
+        if "ctlmgr" not in line:
             continue
-        for pattern in patterns:
-            match = pattern.search(line)
-            if match:
-                relations.append({
-                    "source": source,
-                    "controller": "svctl",
-                    "verb": match.group(1),
-                    "service": "ctlmgr",
-                })
+        if "svctl" in line:
+            for pattern in patterns:
+                match = pattern.search(line)
+                if match:
+                    relations.append({
+                        "source": source,
+                        "controller": "svctl",
+                        "verb": match.group(1),
+                        "service": "ctlmgr",
+                    })
         if (
             re.search(r"\bexec\b", line)
             and re.search(r"\b(?:/usr/bin/)?ctlmgr\b", line)
