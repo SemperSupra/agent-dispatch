@@ -662,14 +662,17 @@ jobs:
           $installerEventsPath = Join-Path $diagRoot 'installer-events.jsonl'
           if (!(Test-Path $installReceiptPath)) { throw 'Install observability receipt missing.' }
           if (!(Test-Path $installerEventsPath)) { throw 'Installer JSONL observability missing.' }
-          $installReceipt = Get-Content $installReceiptPath -Raw | ConvertFrom-Json
+          $installReceiptRaw = Get-Content $installReceiptPath -Raw
+          $installReceipt = $installReceiptRaw | ConvertFrom-Json
           if ($installReceipt.schema -ne 'suprachat-install-receipt/v2' -or
               $installReceipt.trace_id.Length -ne 32 -or
               $installReceipt.install_session_id.Length -ne 32) {
             throw 'Install correlation receipt malformed.'
           }
-          if (-not $installReceipt.completed_at_utc.EndsWith('Z')) {
-            throw 'Install receipt timestamp is not explicit UTC.'
+          $installTimestamp = [DateTimeOffset]$installReceipt.completed_at_utc
+          if ($installTimestamp.Offset -ne [TimeSpan]::Zero -or
+              $installReceiptRaw -notmatch '"completed_at_utc"\s*:\s*"[^"]+Z"') {
+            throw 'Install receipt timestamp is not explicit UTC with Z designator.'
           }
           if ($installReceipt.app_sha256.Length -ne 64 -or
               $installReceipt.automation_sha256.Length -ne 64 -or
@@ -682,8 +685,11 @@ jobs:
               $installReceipt.privacy.contains_outputs) {
             throw 'Install receipt privacy contract regressed.'
           }
-          $installerEvent = (Get-Content $installerEventsPath | Select-Object -Last 1) | ConvertFrom-Json
-          if (-not $installerEvent.timestamp_utc.EndsWith('Z') -or
+          $installerEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $installerEvent = $installerEventRaw | ConvertFrom-Json
+          $installerTimestamp = [DateTimeOffset]$installerEvent.timestamp_utc
+          if ($installerTimestamp.Offset -ne [TimeSpan]::Zero -or
+              $installerEventRaw -notmatch '"timestamp_utc"\s*:\s*"[^"]+Z"' -or
               $installerEvent.trace_id -ne $installReceipt.trace_id) {
             throw 'Installer event/receipt UTC trace correlation failed.'
           }
@@ -702,12 +708,15 @@ jobs:
           if (Test-Path $appKey) { throw 'SupraChat Open With registration survived uninstall.' }
           if (Test-Path $arp) { throw 'SupraChat Add/Remove Programs entry survived uninstall.' }
 
-          $uninstallEvent = (Get-Content $installerEventsPath | Select-Object -Last 1) | ConvertFrom-Json
+          $uninstallEventRaw = Get-Content $installerEventsPath | Select-Object -Last 1
+          $uninstallEvent = $uninstallEventRaw | ConvertFrom-Json
+          $uninstallTimestamp = [DateTimeOffset]$uninstallEvent.timestamp_utc
           if ($uninstallEvent.component -ne 'windows-uninstaller' -or
               $uninstallEvent.event -ne 'uninstall-complete' -or
               $uninstallEvent.trace_id -ne $installReceipt.trace_id -or
               $uninstallEvent.traceparent -notlike "00-$($installReceipt.trace_id)-*-01" -or
-              -not $uninstallEvent.timestamp_utc.EndsWith('Z')) {
+              $uninstallTimestamp.Offset -ne [TimeSpan]::Zero -or
+              $uninstallEventRaw -notmatch '"timestamp_utc"\s*:\s*"[^"]+Z"') {
             throw 'Uninstall observability did not preserve UTC trace lineage.'
           }
 
