@@ -86,6 +86,7 @@ class BodyRecord:
     ready: bool = False
     path_ok: bool = False
     interaction_open: bool = False
+    interaction_binding: str | None = None
     actuation_granted: bool = False
     admitted_actions: set[str] = field(default_factory=set)
     stop_requested: bool = False
@@ -420,6 +421,28 @@ class EmbodimentFabric:
         self.assert_invariants()
         return body
 
+    def record_interaction_binding(
+        self,
+        body_id: str,
+        binding_kind: str,
+    ) -> BodyRecord:
+        """Admit one current interaction binding independently of path evidence."""
+        self._require_controller()
+        if not isinstance(binding_kind, str) or not binding_kind.strip():
+            raise ValueError("binding_kind must be non-empty")
+        body = self.body(body_id)
+        self._require(
+            body.state in {BodyState.REGISTERED, BodyState.DEGRADED}
+            and body.registered
+            and body.desired_present
+            and self._authorized_current(body),
+            "interaction binding is not admissible",
+        )
+        body.interaction_open = True
+        body.interaction_binding = binding_kind.strip()
+        self.assert_invariants()
+        return body
+
     def attempt_stale_path_replay(self, body_id: str) -> BodyRecord:
         """Record rejected stale/inapplicable path evidence without granting affordance."""
         body = self.body(body_id)
@@ -445,7 +468,8 @@ class EmbodimentFabric:
             body.state in {BodyState.REGISTERED, BodyState.DEGRADED}
             and body.provider_present
             and body.registered
-            and body.path_ok
+            and body.interaction_open
+            and body.interaction_binding is not None
             and body.desired_present
             and self._authorized_current(body),
             "body lacks current independent readiness evidence",
@@ -470,10 +494,26 @@ class EmbodimentFabric:
 
     def lose_path(self, body_id: str) -> BodyRecord:
         body = self.body(body_id)
-        self._require(body.state is BodyState.READY, "body is not ready")
+        self._require(
+            body.state is BodyState.READY and body.path_ok,
+            "body has no ready direct path",
+        )
         body.state = BodyState.DEGRADED
         body.ready = False
         body.path_ok = False
+        self._close_interaction(body)
+        self.assert_invariants()
+        return body
+
+    def lose_interaction_binding(self, body_id: str) -> BodyRecord:
+        """Invalidate the currently admitted DLE/MCP/network interaction binding."""
+        body = self.body(body_id)
+        self._require(
+            body.state is BodyState.READY and body.interaction_open,
+            "body has no ready interaction binding",
+        )
+        body.state = BodyState.DEGRADED
+        body.ready = False
         self._close_interaction(body)
         self.assert_invariants()
         return body
@@ -640,6 +680,7 @@ class EmbodimentFabric:
         body.ready = False
         body.path_ok = False
         body.interaction_open = False
+        body.interaction_binding = None
         body.actuation_granted = False
         body.admitted_actions.clear()
         body.authority_ref = None
@@ -666,8 +707,8 @@ class EmbodimentFabric:
             and body.ready
             and body.provider_present
             and body.registered
-            and body.path_ok
             and body.interaction_open
+            and body.interaction_binding is not None
             and not body.stop_requested
             and self._authorized_current(body)
         ):
@@ -693,7 +734,8 @@ class EmbodimentFabric:
                     body.state is BodyState.READY
                     and body.provider_present
                     and body.registered
-                    and body.path_ok
+                    and body.interaction_open
+                    and body.interaction_binding is not None
                     and self._authorized_current(body)
                 ):
                     raise AssertionError("READY lacks independent evidence")
@@ -714,6 +756,7 @@ class EmbodimentFabric:
                         body.registered,
                         body.ready,
                         body.interaction_open,
+                        body.interaction_binding is not None,
                         body.actuation_granted,
                         bool(body.admitted_actions),
                         bool(body.finalizers),
@@ -802,6 +845,7 @@ class EmbodimentFabric:
         body.ready = False
         body.path_ok = False
         body.interaction_open = False
+        body.interaction_binding = None
         body.actuation_granted = False
         body.admitted_actions.clear()
         body.stop_requested = False
@@ -833,6 +877,7 @@ class EmbodimentFabric:
 
     def _close_interaction(self, body: BodyRecord) -> None:
         body.interaction_open = False
+        body.interaction_binding = None
         body.admitted_actions.clear()
         body.actuation_granted = False
 
