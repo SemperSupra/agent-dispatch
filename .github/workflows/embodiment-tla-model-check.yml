@@ -57,13 +57,13 @@ jobs:
           safety_rc=97
           liveness_rc=97
           if [ "$sany_rc" -eq 0 ]; then
-            java -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
+            java -XX:+UseParallelGC -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
               -deadlock -workers auto \
               -config "$safety_config" "$model" \
               >"$out/tlc-safety.log" 2>&1
             safety_rc=$?
 
-            java -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
+            java -XX:+UseParallelGC -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
               -deadlock -workers auto \
               -config "$liveness_config" "$model" \
               >"$out/tlc-liveness.log" 2>&1
