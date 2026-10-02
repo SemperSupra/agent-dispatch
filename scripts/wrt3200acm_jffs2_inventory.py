@@ -18,7 +18,8 @@ DIRENT=0xE001
 ROOT_INO=1
 
 def crc32(data: bytes) -> int:
-    return zlib.crc32(data) & 0xffffffff
+    """Match Linux/mtd-utils raw crc32(seed=0), without zlib's final complement."""
+    return (zlib.crc32(data, 0xffffffff) ^ 0xffffffff) & 0xffffffff
 
 def parse_nodes(data: bytes, start: int=0) -> dict[str, Any]:
     off=start
