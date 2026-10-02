@@ -30,6 +30,21 @@ class RecoveryUnitTests(unittest.TestCase):
         got = mod.CMD_RE.findall(sample)
         self.assertEqual(got, [("HOSTCMD_CMD_FOO", "0x1234"), ("HOSTCMD_CMD_BAR", "0xabcd")])
 
+    def test_marvell_record_map(self):
+        import struct
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            blob = root / "fw.bin"
+            record = struct.pack("<IIII", 1, 0x1000, 8, 0x12345678) + b"ABCD" + b"WXYZ"
+            end = struct.pack("<IIII", 4, 0, 0, 0)
+            blob.write_bytes(record + end)
+            r = mod.marvell_record_map(blob)
+            self.assertTrue(r["valid_prefix"])
+            self.assertEqual(r["termination"], "type4-end")
+            self.assertEqual(r["records"][0]["load_address"], 0x1000)
+            self.assertEqual(r["records"][0]["payload_size"], 4)
+            self.assertEqual(r["records"][0]["trailer_hex"], b"WXYZ".hex())
+
     def test_command_word_scan(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
