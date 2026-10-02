@@ -215,6 +215,54 @@ def check_path_loss_and_expiry() -> None:
     assert not body.actuation_granted
 
 
+def check_provider_exit_and_reembodiment() -> None:
+    f = EmbodimentFabric(max_generation=20, max_restarts=1)
+    f.add_actor("actor-a")
+    ready(f, actor_id="actor-a", body_id="body-a1", intent_id="intent-a1")
+    f.admit_actuation("body-a1", "mcp")
+    before = f.actors["actor-a"].generation
+
+    body = f.provider_exit("body-a1")
+    assert body.state is BodyState.DEMATERIALIZING
+    assert not body.provider_present
+    assert not body.desired_present
+    assert not body.interaction_open
+    assert not body.actuation_granted
+    assert body.finalizers == {"credential", "registration"}
+    assert f.actors["actor-a"].generation > before
+
+    # The durable actor can acquire a fresh incarnation while old control-plane
+    # residue is still being reconciled because the old generation is fenced.
+    fresh = f.request_start(
+        actor_id="actor-a",
+        body_id="body-a2",
+        intent_id="intent-a2",
+        authority_ref=AUTHORITY,
+        capabilities={"mcp"},
+    )
+    assert fresh.state is BodyState.REQUESTED
+    assert fresh.generation == f.actors["actor-a"].generation
+
+    # Provider exit is an external observation and may arrive during controller outage.
+    g = EmbodimentFabric(max_generation=20, max_restarts=1)
+    g.add_actor("actor-a")
+    g.request_start(
+        actor_id="actor-a",
+        body_id="short-run",
+        intent_id="short-intent",
+        authority_ref=AUTHORITY,
+        capabilities={"build"},
+    )
+    g.admit("short-run")
+    g.dispatch("short-run")
+    g.provider_start_ack("short-run")
+    assert g.body("short-run").state is BodyState.MATERIALIZED
+    g.crash_controller()
+    exited = g.provider_exit("short-run")
+    assert exited.state is BodyState.DEMATERIALIZING
+    assert exited.finalizers == {"credential"}
+
+
 def check_teardown_and_immutable_identity() -> None:
     f = EmbodimentFabric(max_generation=20, max_restarts=1)
     f.add_actor("actor-a")
@@ -388,6 +436,7 @@ def main() -> None:
     check_late_provider_callback()
     check_interaction_binding_separation()
     check_path_loss_and_expiry()
+    check_provider_exit_and_reembodiment()
     check_teardown_and_immutable_identity()
     check_controller_recovery()
     check_child_graph()
