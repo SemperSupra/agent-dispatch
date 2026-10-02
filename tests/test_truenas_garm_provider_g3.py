@@ -150,6 +150,50 @@ class GarmProviderG3Tests(unittest.TestCase):
         create = text.index('"CreateInstance", stdin_object=bootstrap')
         self.assertLess(bind, create)
 
+    def test_create_failure_job_capture_is_sanitized_and_excludes_arguments(self):
+        token = "g3-secret-synthetic-token"
+
+        class FakeSession:
+            def call(self, method, params):
+                self.method = method
+                self.params = params
+                return [
+                    {
+                        "id": 77,
+                        "method": "app.create",
+                        "state": "FAILED",
+                        "arguments": [{
+                            "app_name": "garm-g3-controlle-g3-synthetic-runner",
+                            "custom_compose_config": {
+                                "services": {
+                                    "runner": {
+                                        "environment": {
+                                            "GARM_INSTANCE_TOKEN": token,
+                                        }
+                                    }
+                                }
+                            },
+                        }],
+                        "error": f"failed with {token}",
+                        "exception": f"trace {token}",
+                        "progress": {"description": f"cleanup {token}", "percent": 80},
+                        "logs_excerpt": f"container stderr {token}",
+                        "logs_path": "/var/log/jobs/77.log",
+                    }
+                ]
+
+        session = FakeSession()
+        got = MOD.capture_create_failure_job(
+            session, "garm-g3-controlle-g3-synthetic-runner", token
+        )
+        self.assertEqual(session.method, "core.get_jobs")
+        self.assertTrue(got["found"])
+        self.assertEqual(got["id"], 77)
+        self.assertTrue(got["logs_available"])
+        self.assertNotIn("arguments", got)
+        self.assertNotIn(token, json.dumps(got, sort_keys=True))
+        self.assertIn("<synthetic-token>", got["logs_excerpt"])
+
     def test_transport_reuses_verified_g2_helper_tuple(self):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("g2.wait_verified_https", text)
