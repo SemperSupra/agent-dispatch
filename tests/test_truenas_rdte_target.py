@@ -66,15 +66,15 @@ class TargetRegistryTests(unittest.TestCase):
         target=self.targets[request["version"]]
         self.assertEqual(request["authority_issue"], target["authority_issue"])
         if request["rung"] == "t6":
-            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-provider-g2","official-catalog"})
+            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-provider-g2","garm-provider-g3","official-catalog"})
         if request.get("product") == "wow-sidecar":
             self.assertEqual(request.get("consumer_authority_issue"), 276)
         if request.get("product") == "garm":
             self.assertEqual(request.get("consumer_authority_issue"), 277)
         if request.get("product") == "garm-provider-g2":
             self.assertEqual(request.get("consumer_authority_issue"), 39)
-        if request.get("product") == "garm-provider-g2":
-            self.assertEqual(request.get("consumer_authority_issue"), 39)
+        if request.get("product") == "garm-provider-g3":
+            self.assertEqual(request.get("consumer_authority_issue"), 40)
         self.assertNotIn("latest", request["version"].lower())
         self.assertNotIn("nightly", request["version"].lower())
 
