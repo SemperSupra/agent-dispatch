@@ -53,6 +53,7 @@ def ready(
     fabric.provider_start_ack(body_id)
     fabric.register(body_id)
     fabric.record_direct_path(body_id)
+    fabric.record_interaction_binding(body_id, "direct-p2p")
     fabric.attest_readiness(body_id)
 
 
@@ -147,6 +148,49 @@ def check_late_provider_callback() -> None:
     assert body.provider_present
     assert "provider" in body.finalizers
     assert not body.interaction_open
+
+
+def check_interaction_binding_separation() -> None:
+    f = EmbodimentFabric(max_generation=20, max_restarts=1)
+    f.add_actor("actor-a")
+    f.request_start(
+        actor_id="actor-a",
+        body_id="path-only",
+        intent_id="path-only-intent",
+        authority_ref=AUTHORITY,
+        capabilities={"mcp"},
+    )
+    f.admit("path-only")
+    f.dispatch("path-only")
+    f.provider_start_ack("path-only")
+    f.register("path-only")
+    f.record_direct_path("path-only")
+    expect_error(lambda: f.attest_readiness("path-only"), "readiness")
+
+    f = EmbodimentFabric(max_generation=20, max_restarts=1)
+    f.add_actor("actor-a")
+    f.request_start(
+        actor_id="actor-a",
+        body_id="dle-body",
+        intent_id="dle-intent",
+        authority_ref=AUTHORITY,
+        capabilities={"build", "materialize"},
+    )
+    f.admit("dle-body")
+    f.dispatch("dle-body")
+    f.provider_start_ack("dle-body")
+    f.register("dle-body")
+    f.record_interaction_binding("dle-body", "github-dle")
+    body = f.attest_readiness("dle-body")
+    assert body.state is BodyState.READY
+    assert not body.path_ok
+    assert body.interaction_open
+    assert body.interaction_binding == "github-dle"
+    assert f.effective_affordances("dle-body") == {"build", "materialize"}
+    f.lose_interaction_binding("dle-body")
+    assert body.state is BodyState.DEGRADED
+    assert not body.interaction_open
+    assert body.interaction_binding is None
 
 
 def check_path_loss_and_expiry() -> None:
@@ -342,6 +386,7 @@ def main() -> None:
     check_idempotency()
     check_affordance_and_replacement_fencing()
     check_late_provider_callback()
+    check_interaction_binding_separation()
     check_path_loss_and_expiry()
     check_teardown_and_immutable_identity()
     check_controller_recovery()
