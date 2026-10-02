@@ -82,28 +82,36 @@ def state_markers(value: str, allowed: set[str]) -> list[str]:
 def control_io_trace(stderr: str) -> dict:
     socket_fds: set[int] = set()
     for line in stderr.splitlines():
-        m = re.search(r"\\bsocket\\([^)]*\\)\\s*=\\s*(\\d+)", line)
+        m = re.search(r"\bsocket\([^)]*\)\s*=\s*(\d+)", line)
         if m:
             socket_fds.add(int(m.group(1)))
 
-    calls = {"connect":0,"read":0,"write":0,"send":0,"recv":0}
-    bytes_total = {"read":0,"write":0,"send":0,"recv":0}
+    calls = {"connect": 0, "read": 0, "write": 0, "send": 0, "recv": 0}
+    bytes_total = {"read": 0, "write": 0, "send": 0, "recv": 0}
     control_mentions = 0
     for line in stderr.splitlines():
         if CONTROL_SOCKET in line:
             control_mentions += 1
-        if "connect(" in line:
+        m = re.search(r"\bconnect\((\d+),.*\)\s*=\s*(-?\d+)", line)
+        if m and int(m.group(1)) in socket_fds:
             calls["connect"] += 1
-        m = re.search(r"\\b(read|write)\\((\\d+),.*\\)\\s*=\\s*(-?\\d+)", line)
+
+        m = re.search(r"\b(read|write)\((\d+),.*\)\s*=\s*(-?\d+)", line)
         if m and int(m.group(2)) in socket_fds:
-            kind=m.group(1);ret=int(m.group(3))
-            calls[kind]+=1
-            if ret>0: bytes_total[kind]+=ret
-        for syscall,kind in (("sendto","send"),("sendmsg","send"),("recvfrom","recv"),("recvmsg","recv")):
-            m = re.search(rf"\\b{syscall}\\((\\d+),.*\\)\\s*=\\s*(-?\\d+)", line)
+            kind = m.group(1)
+            ret = int(m.group(3))
+            calls[kind] += 1
+            if ret > 0:
+                bytes_total[kind] += ret
+
+        for syscall, kind in (("sendto", "send"), ("sendmsg", "send"), ("recvfrom", "recv"), ("recvmsg", "recv")):
+            m = re.search(rf"\b{syscall}\((\d+),.*\)\s*=\s*(-?\d+)", line)
             if m and int(m.group(1)) in socket_fds:
-                ret=int(m.group(2));calls[kind]+=1
-                if ret>0:bytes_total[kind]+=ret
+                ret = int(m.group(2))
+                calls[kind] += 1
+                if ret > 0:
+                    bytes_total[kind] += ret
+
     return {
         "socketFdCount": len(socket_fds),
         "controlSocketPathMentionCount": control_mentions,
@@ -111,7 +119,6 @@ def control_io_trace(stderr: str) -> dict:
         "bytes": bytes_total,
         "payloadPublished": False,
     }
-
 
 def _run(argv: list[str], *, timeout: int = 30, env: dict | None = None):
     return subprocess.run(
