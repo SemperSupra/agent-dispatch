@@ -20,6 +20,48 @@ class StartupSemanticsTests(unittest.TestCase):
         self.assertEqual(got["args"][2]["kind"], "opaque")
         self.assertNotIn("secret-token", str(got))
 
+    def test_supervisor_redirections_are_not_argv(self):
+        got = m.supervisor_invocations(
+            'supervisor /lib/systemd/system $target &> /dev/console < /dev/null\n',
+            '/etc/boot.d/1',
+        )[0]
+        self.assertEqual(got["argCount"], 2)
+        self.assertEqual(
+            got["args"],
+            [
+                {"kind":"absolute_path","value":"/lib/systemd/system"},
+                {"kind":"variable","name":"target"},
+            ],
+        )
+        self.assertEqual(
+            got["redirections"],
+            [
+                {
+                    "operator":"&>",
+                    "target":{"kind":"absolute_path","value":"/dev/console"},
+                },
+                {
+                    "operator":"<",
+                    "target":{"kind":"absolute_path","value":"/dev/null"},
+                },
+            ],
+        )
+
+    def test_startup_variable_unit_name(self):
+        got = m.startup_variable_facts(
+            'target=multi-user.target\n',
+            '/etc/boot.d/1',
+            {"target"},
+        )
+        self.assertEqual(
+            got,
+            [{
+                "source":"/etc/boot.d/1",
+                "variable":"target",
+                "value":{"kind":"unit_name","value":"multi-user.target"},
+            }],
+        )
+
     def test_variable_flow(self):
         text = 'srv=ctlmgr\nsvctl start "$srv"\n'
         a = m.ctlmgr_assignment_facts(text, "/etc/init.d/x")
