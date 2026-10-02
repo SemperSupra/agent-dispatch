@@ -273,7 +273,7 @@ def main():
     terminal_reconcile = lifecycle.reconcile_provider_observation(
         caller(),
         effect_id="effect-lifecycle",
-        provider_runtime_observed=True,
+        provider_runtime_observed=False,
         provider_present_now=False,
         provider_exit_observed=True,
         now=NOW + timedelta(seconds=6),
@@ -283,7 +283,7 @@ def main():
     assert terminal_reconcile["instance"]["provider_present"] is False
     assert terminal_reconcile["provider_observation_is_work_acceptance"] is False
 
-    # Terminal-first observation must collapse existence+exit without phantom presence.
+    # Terminal-first without strong runtime proof fails closed as BLOCKED.
     terminal_first = EmbodimentControl()
     terminal_first.request_materialize(
         caller(),
@@ -306,9 +306,44 @@ def main():
     )
     terminal_first.fabric.admit("body-terminal-first")
     terminal_first.fabric.dispatch("body-terminal-first")
-    collapsed = terminal_first.reconcile_provider_observation(
+    blocked_terminal = terminal_first.reconcile_provider_observation(
         caller(),
         effect_id="effect-terminal-first",
+        provider_runtime_observed=False,
+        provider_present_now=False,
+        provider_exit_observed=True,
+        now=NOW + timedelta(seconds=7),
+    )
+    assert blocked_terminal["transitions"] == ["block_unconfirmed_materialization"]
+    assert blocked_terminal["instance"]["state"] == "BLOCKED"
+    assert blocked_terminal["instance"]["provider_present"] is False
+
+    # Strong independent runtime-start evidence still permits terminal-first start+exit.
+    strong = EmbodimentControl()
+    strong.request_materialize(
+        caller(),
+        authority(),
+        intent_id="intent-terminal-strong",
+        actor_id="actor-a",
+        body_instance_id="body-terminal-strong",
+        resource="workcell:alpha",
+        capability_class="gha-public-workcell",
+        capabilities={"build"},
+        now=NOW,
+    )
+    strong.request_effect(
+        caller(),
+        effect_id="effect-terminal-strong",
+        intent_id="intent-terminal-strong",
+        kind="materialize",
+        actuator_id="agent-dispatch:public-gha",
+        now=NOW,
+    )
+    strong.fabric.admit("body-terminal-strong")
+    strong.fabric.dispatch("body-terminal-strong")
+    collapsed = strong.reconcile_provider_observation(
+        caller(),
+        effect_id="effect-terminal-strong",
         provider_runtime_observed=True,
         provider_present_now=False,
         provider_exit_observed=True,
@@ -316,7 +351,6 @@ def main():
     )
     assert collapsed["transitions"] == ["provider_start_ack", "provider_exit"]
     assert collapsed["instance"]["state"] == "DEMATERIALIZING"
-    assert collapsed["instance"]["provider_present"] is False
 
 
 
@@ -347,12 +381,12 @@ def main():
     stopped_result = stopped.reconcile_provider_observation(
         caller(),
         effect_id="effect-stopped",
-        provider_runtime_observed=True,
+        provider_runtime_observed=False,
         provider_present_now=False,
         provider_exit_observed=True,
         now=NOW + timedelta(seconds=8),
     )
-    assert stopped_result["transitions"] == ["provider_start_ack", "provider_exit"]
+    assert stopped_result["transitions"] == ["settle_provider_absent"]
     assert stopped_result["instance"]["state"] == "DEMATERIALIZING"
     assert stopped_result["instance"]["provider_present"] is False
 
