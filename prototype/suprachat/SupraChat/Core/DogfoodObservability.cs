@@ -108,12 +108,12 @@ public static class DogfoodObservability
             component,
             @event,
             outcome,
-            operationName: null,
+            null,
             correlationId,
             RootTraceId,
             ActivitySpanId.CreateRandom().ToHexString(),
-            parentSpanId: null,
-            durationMilliseconds: null,
+            null,
+            null,
             safeFields);
 
     public static Task RecordExceptionAsync(
