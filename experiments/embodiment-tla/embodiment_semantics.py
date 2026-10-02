@@ -91,6 +91,7 @@ class BodyRecord:
     stop_requested: bool = False
     authority_ref: str | None = None
     parent_body_id: str | None = None
+    lifecycle_coupling: str = "independent"
     capabilities: frozenset[str] = frozenset()
     finalizers: set[str] = field(default_factory=set)
     restart_count: int = 0
@@ -108,6 +109,7 @@ class IntentRecord:
     capabilities: frozenset[str] = frozenset()
     parent_body_id: str | None = None
     source_body_id: str | None = None
+    lifecycle_coupling: str = "independent"
 
 
 class EmbodimentFabric:
@@ -154,10 +156,14 @@ class EmbodimentFabric:
         authority_ref: str,
         capabilities: Iterable[str] = (),
         parent_body_id: str | None = None,
+        lifecycle_coupling: str = "independent",
     ) -> BodyRecord:
         self._require_controller()
         actor = self._actor(actor_id)
         requested_capabilities = frozenset(capabilities)
+        self._validate_lifecycle_coupling(
+            lifecycle_coupling, parent_body_id=parent_body_id
+        )
         existing = self._idempotent_intent(
             intent_id=intent_id,
             actor_id=actor_id,
@@ -166,6 +172,7 @@ class EmbodimentFabric:
             operation="start",
             capabilities=requested_capabilities,
             parent_body_id=parent_body_id,
+            lifecycle_coupling=lifecycle_coupling,
         )
         if existing is not None:
             return existing
@@ -196,6 +203,7 @@ class EmbodimentFabric:
             authority_ref=authority_ref,
             capabilities=requested_capabilities,
             parent_body_id=parent_body_id,
+            lifecycle_coupling=lifecycle_coupling,
         )
         self.intents[intent_id] = IntentRecord(
             intent_id=intent_id,
@@ -205,6 +213,7 @@ class EmbodimentFabric:
             operation="start",
             capabilities=requested_capabilities,
             parent_body_id=parent_body_id,
+            lifecycle_coupling=lifecycle_coupling,
         )
         self.assert_invariants()
         return body
@@ -230,6 +239,7 @@ class EmbodimentFabric:
             operation="replace",
             capabilities=requested_capabilities,
             source_body_id=old_body_id,
+            lifecycle_coupling=self.body(old_body_id).lifecycle_coupling,
         )
         if existing is not None:
             return existing
@@ -263,6 +273,7 @@ class EmbodimentFabric:
             authority_ref=authority_ref,
             capabilities=requested_capabilities,
             parent_body_id=old.parent_body_id,
+            lifecycle_coupling=old.lifecycle_coupling,
         )
         self.intents[intent_id] = IntentRecord(
             intent_id=intent_id,
@@ -272,6 +283,7 @@ class EmbodimentFabric:
             operation="replace",
             capabilities=requested_capabilities,
             source_body_id=old_body_id,
+            lifecycle_coupling=old.lifecycle_coupling,
         )
         self.assert_invariants()
         return new
@@ -455,7 +467,11 @@ class EmbodimentFabric:
         affected = [
             candidate
             for candidate in self.bodies.values()
-            if candidate.body_id == body_id or candidate.parent_body_id == body_id
+            if candidate.body_id == body_id
+            or (
+                candidate.parent_body_id == body_id
+                and candidate.lifecycle_coupling == "cascade-stop"
+            )
         ]
 
         # Fence each currently admitted actor generation before cleanup converges.
@@ -609,6 +625,7 @@ class EmbodimentFabric:
         body.admitted_actions.clear()
         body.authority_ref = None
         body.parent_body_id = None
+        body.lifecycle_coupling = "independent"
         body.capabilities = frozenset()
         body.stale_evidence_seen = False
         self.assert_invariants()
@@ -686,6 +703,10 @@ class EmbodimentFabric:
                     raise AssertionError("dematerialized body retains residue")
 
         for body in self.bodies.values():
+            if body.lifecycle_coupling not in {"independent", "cascade-stop"}:
+                raise AssertionError("unsupported lifecycle coupling")
+            if body.parent_body_id is None and body.lifecycle_coupling != "independent":
+                raise AssertionError("root body cannot have child lifecycle coupling")
             if body.parent_body_id is not None:
                 if body.parent_body_id == body.body_id:
                     raise AssertionError("body is its own parent")
@@ -709,6 +730,15 @@ class EmbodimentFabric:
             ]
             if len(current) > 1:
                 raise AssertionError("multiple current bodies for one actor")
+
+    @staticmethod
+    def _validate_lifecycle_coupling(
+        lifecycle_coupling: str, *, parent_body_id: str | None
+    ) -> None:
+        if lifecycle_coupling not in {"independent", "cascade-stop"}:
+            raise FabricError("unsupported lifecycle coupling")
+        if parent_body_id is None and lifecycle_coupling != "independent":
+            raise FabricError("root embodiment lifecycle coupling must be independent")
 
     def _fanout_count(self, parent_body_id: str) -> int:
         return sum(
@@ -741,6 +771,7 @@ class EmbodimentFabric:
         authority_ref: str,
         capabilities: Iterable[str],
         parent_body_id: str | None,
+        lifecycle_coupling: str,
     ) -> None:
         body.actor_id = actor.actor_id
         body.generation = actor.generation
@@ -757,6 +788,7 @@ class EmbodimentFabric:
         body.stop_requested = False
         body.authority_ref = authority_ref
         body.parent_body_id = parent_body_id
+        body.lifecycle_coupling = lifecycle_coupling
         body.capabilities = frozenset(capabilities)
         body.finalizers.clear()
         body.restart_count = 0
@@ -819,6 +851,7 @@ class EmbodimentFabric:
         capabilities: frozenset[str] = frozenset(),
         parent_body_id: str | None = None,
         source_body_id: str | None = None,
+        lifecycle_coupling: str = "independent",
     ) -> BodyRecord | None:
         existing = self.intents.get(intent_id)
         if existing is None:
@@ -832,6 +865,7 @@ class EmbodimentFabric:
             capabilities=capabilities,
             parent_body_id=parent_body_id,
             source_body_id=source_body_id,
+            lifecycle_coupling=lifecycle_coupling,
         )
         if existing != requested:
             raise FabricError("idempotency key collision")
