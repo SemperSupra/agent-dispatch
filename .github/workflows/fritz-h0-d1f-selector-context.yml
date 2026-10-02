@@ -1,0 +1,62 @@
+name: FRITZ H0 D1f selector context
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d1f-selector-context.yml'
+      - 'scripts/fritz_h0_d1f_selector_context.py'
+      - 'tests/test_fritz_h0_d1f_selector_context.py'
+      - 'docs/fritz-h0-d1f-selector-context.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_h0_d1f_selector_context.py
+
+  exact-osp-h0-d1f:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Classify exact selector contexts
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d1f" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d1f_selector_context.py \
+            --osp-url 'https://osp.avm.de/fritzbox/fritzbox-7590/source-files-FRITZ.Box_7590-grx5-08.25.tar.gz' \
+            --expected-size 633140613 \
+            --expected-sha256 61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d1f" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce metadata-only context
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
+          assert r.get("oracleSatisfied") is True,r
+          assert r["context"]["derived"]["occurrenceCount"] == 8,r["context"]["derived"]
+          b=r["interpretationBoundary"]
+          assert b["sourceLinesPublished"] is False
+          assert b["stringValuesPublished"] is False
+          assert b["numericValuesPublished"] is False
+          for k,v in r["safety"].items():
+              assert v is False,(k,v)
+          print(json.dumps({"classification":r["classification"],"context":r["context"],"interpretationBoundary":b},sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d1f-selector-context-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          retention-days: 7
