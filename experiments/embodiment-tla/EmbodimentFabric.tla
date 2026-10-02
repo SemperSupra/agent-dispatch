@@ -1,13 +1,14 @@
 ---- MODULE EmbodimentFabric ----
 EXTENDS Naturals, FiniteSets
 
-CONSTANTS Actors, Bodies, MaxGeneration, MaxRestarts, MaxFanout
+CONSTANTS Actors, Bodies, MaxGeneration, MaxRestarts, MaxFanout, CascadeBodies
 
 ASSUME /\ Actors # {}
        /\ Bodies # {}
        /\ MaxGeneration \in Nat \ {0}
        /\ MaxRestarts \in Nat
        /\ MaxFanout \in Nat
+       /\ CascadeBodies \in SUBSET Bodies
 
 NoActor == "__NO_ACTOR__"
 NoBody  == "__NO_BODY__"
@@ -403,7 +404,8 @@ RequestStop(b) ==
     /\ controllerUp
     /\ state[b] \in ActiveStates
     /\ Assigned(b)
-    /\ LET affected == {x \in Bodies : x = b \/ parent[x] = b}
+    /\ LET affected == {x \in Bodies :
+              x = b \/ (parent[x] = b /\ x \in CascadeBodies)}
            bumpActors == {a \in Actors :
                \E x \in affected : bodyActor[x] = a /\ bodyGen[x] = actorGen[a]}
        IN /\ actorGen' = [a \in Actors |->
