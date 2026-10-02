@@ -8,8 +8,8 @@ if [[ ! -d "$SOURCE" ]]; then echo "SupraChat.app is missing beside install.sh" 
 mkdir -p "${HOME}/Applications" "$BIN"
 rm -rf "$DEST"
 cp -R "$SOURCE" "$DEST"
-if [[ ! -x "$DEST/Contents/Resources-uninstall.sh" ]]; then
-  echo "Packaged uninstall helper is missing or not executable." >&2
+if [[ ! -f "$DEST/Contents/Resources/uninstall.sh" ]]; then
+  echo "Packaged uninstall resource is missing." >&2
   exit 3
 fi
 ln -sfn "$DEST/Contents/MacOS/SupraChat.Automation" "$BIN/suprachat-cli"
