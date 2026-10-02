@@ -60,5 +60,40 @@ class SvctlStatusRuntimeTests(unittest.TestCase):
         self.assertEqual(r3.classify(x), "E2_SUPERVISOR_NEVER_OBSERVED")
 
 
+
+    def test_fixed_trace_evidence(self):
+        raw = (
+            '101 openat(AT_FDCWD,"/lib/systemd/system/ctlmgr.service",O_RDONLY) = 3\n'
+            '101 openat(AT_FDCWD,"/var/tmp/psupport.data",O_RDONLY) = -1 errno=2 (No such file or directory)\n'
+            '101 execve("/usr/bin/ctlmgr",0x1,0x2) = -1 errno=2 (No such file or directory)\n'
+        )
+        e = r3.fixed_trace_evidence(raw)
+        self.assertEqual(e["paths"]["ctlmgr_unit"]["hitCount"], 1)
+        self.assertEqual(e["paths"]["ctlmgr_unit"]["successCount"], 1)
+        self.assertEqual(e["paths"]["psupport_data"]["failureCount"], 1)
+        self.assertEqual(e["ctlmgrExecveCount"], 1)
+
+    def test_classification_unit_read_psupport_missing(self):
+        x = {
+            "httpAttempts": [],
+            "ctlmgrProcessObserved": False,
+            "fixedPathTrace": {
+                "ctlmgrExecveCount": 0,
+                "paths": {
+                    "ctlmgr_unit": {"hitCount": 1},
+                    "psupport_data": {"failureCount": 1},
+                },
+            },
+        }
+        self.assertEqual(r3.classify(x), "E2_CTLMGR_UNIT_READ_PSUPPORT_MISSING")
+
+    def test_classification_ctlmgr_exec_attempted(self):
+        x = {
+            "httpAttempts": [],
+            "ctlmgrProcessObserved": False,
+            "fixedPathTrace": {"ctlmgrExecveCount": 1, "paths": {}},
+        }
+        self.assertEqual(r3.classify(x), "E2_CTLMGR_EXEC_ATTEMPTED")
+
 if __name__ == "__main__":
     unittest.main()
