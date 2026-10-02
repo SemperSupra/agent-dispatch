@@ -52,6 +52,8 @@ internal static class Program
                 "codex-catalog" => WriteSuccess(ReadCatalog("codex-capability-catalog-20261001.json")),
                 "siwc-catalog" => WriteSuccess(ReadCatalog("siwc-capability-surface-20261001.json")),
                 "doctor" => WriteSuccess(await DoctorAsync()),
+                "diagnostics" => WriteSuccess(DogfoodObservability.Describe()),
+                "diagnostics-export" => WriteSuccess(await DiagnosticsExportAsync(args[1..])),
                 "auth-status" => WriteSuccess(await AuthStatusAsync()),
                 "models" => WriteSuccess(await ModelsAsync()),
                 "voices" => WriteSuccess(await CodexRpcAsync(new[] { "--method", "thread/realtime/listVoices", "--params", "{}" })),
@@ -105,6 +107,8 @@ internal static class Program
             new { name = "codex-catalog", description = "Read packaged Codex stable-runtime + upstream-frontier surfaces." },
             new { name = "siwc-catalog", description = "Read packaged SIWC / ChatGPT-plan capability metadata." },
             new { name = "doctor", description = "Inspect local runtime/auth readiness without network calls." },
+            new { name = "diagnostics", description = "Read privacy-safe dogfood observability metadata, trace IDs, and local log paths." },
+            new { name = "diagnostics-export", description = "Export a privacy-safe diagnostics bundle.", syntax = "diagnostics-export --output <path.zip>" },
             new { name = "auth-status", description = "Read redacted local ChatGPT-plan authorization state." },
             new { name = "models", description = "List models visible to the saved ChatGPT-plan authorization." },
             new { name = "voices", description = "List realtime voices exposed by the bundled Codex runtime." },
@@ -162,6 +166,8 @@ internal static class Program
             "codex/catalog",
             "siwc/catalog",
             "doctor/read",
+            "diagnostics/read",
+            "diagnostics/export",
             "auth/status",
             "models/list",
             "realtime/voices",
@@ -639,6 +645,8 @@ internal static class Program
             "codex/catalog" => ReadCatalog("codex-capability-catalog-20261001.json"),
             "siwc/catalog" => ReadCatalog("siwc-capability-surface-20261001.json"),
             "doctor/read" => await DoctorAsync(),
+            "diagnostics/read" => DogfoodObservability.Describe(),
+            "diagnostics/export" => await RpcDiagnosticsExportAsync(parameters),
             "auth/status" => await AuthStatusAsync(),
             "models/list" => await ModelsAsync(),
             "realtime/voices" => await RpcCodexReadAsync("thread/realtime/listVoices", emptyParams: true),
@@ -675,6 +683,46 @@ internal static class Program
             "codex/stop" => await RpcCodexStopAsync(),
             _ => throw new MachineException(2, "METHOD_NOT_FOUND", $"Unsupported method: {method}")
         };
+    }
+
+    private static async Task<object> DiagnosticsExportAsync(string[] args)
+    {
+        var output = RequiredOption(args, "--output");
+        var operation = DogfoodObservability.BeginOperation("diagnostics-export");
+        await DogfoodObservability.RecordOperationAsync(
+            "diagnostics",
+            "export",
+            "start",
+            operation);
+
+        var path = await DogfoodObservability.ExportAsync(output);
+        await DogfoodObservability.RecordOperationAsync(
+            "diagnostics",
+            "export",
+            "success",
+            operation,
+            new Dictionary<string, object?>
+            {
+                ["file_name"] = Path.GetFileName(path),
+                ["size_bytes"] = new FileInfo(path).Length
+            });
+
+        return new
+        {
+            schema = "suprachat-dogfood-diagnostics-export/v2",
+            path,
+            observability = DogfoodObservability.Describe()
+        };
+    }
+
+    private static async Task<object> RpcDiagnosticsExportAsync(JsonElement? parameters)
+    {
+        var p = RequireObject(parameters);
+        return await DiagnosticsExportAsync(new[]
+        {
+            "--output",
+            RequiredProperty(p, "output")
+        });
     }
 
     private static async Task<object> RpcRemoteEnableAsync(JsonElement? parameters)
