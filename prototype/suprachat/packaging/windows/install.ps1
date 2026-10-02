@@ -100,6 +100,42 @@ $ErrorActionPreference = "Stop"
 $InstallRoot = Join-Path $env:LOCALAPPDATA "Programs\SupraChat"
 $StartMenuLink = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\SupraChat.lnk"
 $DesktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "SupraChat.lnk"
+$ObservabilityRoot = Join-Path $env:LOCALAPPDATA "SemperSupra\SupraChat\diagnostics"
+$InstallerEventLog = Join-Path $ObservabilityRoot "installer-events.jsonl"
+$InstallReceiptPath = Join-Path $ObservabilityRoot "install-receipt.json"
+$TraceId = $null
+$InstallSessionId = $null
+try {
+  if (Test-Path $InstallReceiptPath) {
+    $receipt = Get-Content $InstallReceiptPath -Raw | ConvertFrom-Json
+    $TraceId = $receipt.trace_id
+    $InstallSessionId = $receipt.install_session_id
+  }
+} catch {}
+if ([string]::IsNullOrWhiteSpace($TraceId)) { $TraceId = [Guid]::NewGuid().ToString("N") }
+if ([string]::IsNullOrWhiteSpace($InstallSessionId)) { $InstallSessionId = [Guid]::NewGuid().ToString("N") }
+
+function Write-UninstallEvent {
+  param([string]$Event,[string]$Outcome,[hashtable]$Fields=$null)
+  try {
+    New-Item -ItemType Directory -Force -Path $ObservabilityRoot | Out-Null
+    $record = [ordered]@{
+      schema = "suprachat-installer-event/v2"
+      timestamp_utc = [DateTime]::UtcNow.ToString("O", [Globalization.CultureInfo]::InvariantCulture)
+      install_session_id = $InstallSessionId
+      component = "windows-uninstaller"
+      event = $Event
+      outcome = $Outcome
+      correlation_id = $InstallSessionId
+      trace_id = $TraceId
+      span_id = [Guid]::NewGuid().ToString("N").Substring(0,16)
+      fields = $Fields
+    }
+    ($record | ConvertTo-Json -Depth 5 -Compress) | Add-Content -LiteralPath $InstallerEventLog -Encoding UTF8
+  } catch {}
+}
+
+Write-UninstallEvent -Event "uninstall-start" -Outcome "start"
 Remove-Item $StartMenuLink -Force -ErrorAction SilentlyContinue
 Remove-Item $DesktopLink -Force -ErrorAction SilentlyContinue
 Remove-Item "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat" -Recurse -Force -ErrorAction SilentlyContinue
@@ -113,6 +149,12 @@ if ($currentUserPath) {
   })
   [Environment]::SetEnvironmentVariable("Path", ($filtered -join ";"), "User")
 }
+Write-UninstallEvent -Event "uninstall-registrations-removed" -Outcome "success" -Fields @{
+  protocol_present = (Test-Path "HKCU:\Software\Classes\suprachat")
+  open_with_present = (Test-Path "HKCU:\Software\Classes\Applications\SupraChat.exe")
+  arp_present = (Test-Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\SupraChat")
+}
+Write-UninstallEvent -Event "uninstall-complete" -Outcome "dispatched"
 Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
   "-NoProfile","-Command",
   "Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '$InstallRoot' -Recurse -Force -ErrorAction SilentlyContinue"
