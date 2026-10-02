@@ -15,6 +15,7 @@ source/body content.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import pathlib
@@ -23,7 +24,14 @@ import shutil
 import stat
 from typing import Iterable
 
-import fritz_qemu_user_probe as base
+_BASE_SCRIPT = pathlib.Path(__file__).with_name("fritz_qemu_user_probe.py")
+_BASE_SPEC = importlib.util.spec_from_file_location(
+    "fritz_qemu_user_probe", _BASE_SCRIPT
+)
+if _BASE_SPEC is None or _BASE_SPEC.loader is None:
+    raise RuntimeError("unable to load fritz_qemu_user_probe.py")
+base = importlib.util.module_from_spec(_BASE_SPEC)
+_BASE_SPEC.loader.exec_module(base)
 
 SCHEMA_VERSION = 1
 EXPERIMENT = "fritz-qemu-e2-web-auth-discovery/v1"
