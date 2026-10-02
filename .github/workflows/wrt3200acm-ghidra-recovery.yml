@@ -7,6 +7,7 @@ on:
       - 'scripts/wrt3200acm_fw_to_elf.py'
       - 'tests/test_wrt3200acm_fw_to_elf.py'
       - 'scripts/ghidra/WrtRecoveryReport.java'
+      - 'scripts/ghidra/WrtCandidateReport.java'
   workflow_dispatch:
 
 permissions:
@@ -73,6 +74,7 @@ jobs:
           set -euo pipefail
           cat "$RUNNER_TEMP/wrt-ghidra-evidence/elf-map.json"
           python3 -m json.tool "$RUNNER_TEMP/wrt-ghidra-evidence/ghidra-report.json" >/dev/null
+          python3 -m json.tool "$RUNNER_TEMP/wrt-ghidra-evidence/command-candidates.json" >/dev/null
           if find "$RUNNER_TEMP/wrt-ghidra-evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' \) | grep -q .; then
             echo "firmware-bearing file leaked into evidence mailbox" >&2
             exit 1
