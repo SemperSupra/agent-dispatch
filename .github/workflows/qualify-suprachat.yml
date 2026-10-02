@@ -887,16 +887,25 @@ jobs:
             $env:SUPRACHAT_INSTALL_TRACE_ID = [string]$installReceipt.trace_id
             $env:SUPRACHAT_INSTALL_SESSION_ID = [string]$installReceipt.install_session_id
             $installedProcess = Start-Process -FilePath $installedExe -PassThru
-            Start-Sleep -Seconds 6
-            if ($installedProcess.HasExited) {
-              throw "Installed SupraChat exited during launch rep with code $($installedProcess.ExitCode)"
-            }
-            if (!(Test-Path $installedEvents)) {
-              throw 'Installed SupraChat did not emit structured diagnostics.'
-            }
-            $installedEventLines = @(Get-Content $installedEvents)
+
+            # Poll bounded readiness instead of assuming a fixed GUI startup latency.
+            # Hosted runners can take materially longer to initialize Avalonia/WebView.
+            $readinessDeadline = [DateTime]::UtcNow.AddSeconds(25)
+            $installedEventLines = @()
+            do {
+              Start-Sleep -Milliseconds 500
+              if ($installedProcess.HasExited) {
+                throw "Installed SupraChat exited during launch rep with code $($installedProcess.ExitCode)"
+              }
+              if (Test-Path $installedEvents) {
+                $installedEventLines = @(Get-Content $installedEvents -ErrorAction SilentlyContinue)
+              }
+            } while ($installedEventLines.Count -lt 2 -and [DateTime]::UtcNow -lt $readinessDeadline)
+
             if ($installedEventLines.Count -lt 2) {
-              throw 'Installed SupraChat emitted too few lifecycle events.'
+              Write-Host 'Installed GUI readiness evidence at timeout:'
+              $installedEventLines | ForEach-Object { Write-Host $_ }
+              throw 'Installed SupraChat did not reach the second correlated lifecycle event within the bounded readiness window.'
             }
             foreach ($eventLine in $installedEventLines) {
               $eventDoc = $eventLine | ConvertFrom-Json
