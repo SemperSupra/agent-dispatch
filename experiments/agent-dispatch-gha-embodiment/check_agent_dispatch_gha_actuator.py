@@ -29,19 +29,35 @@ def effect():
     }
 
 
-def observation(status, conclusion, *, started=True):
+def observation(
+    status,
+    conclusion,
+    *,
+    strong_runtime_evidence=False,
+    legacy_result_started_at=False,
+):
     payload = {
         "projection_ref": "opaque-projection",
         "assignment": {"assignment_id": "assignment-001"},
         "binding": {"target_name": "github-actions-proof", "target_kind": "github-actions"},
         "runs": [{"status": status, "conclusion": conclusion}],
     }
-    if status == "completed" and started:
+    if status == "completed" and legacy_result_started_at:
+        # This matches the current Sidecar normalized result shape.  It is
+        # intentionally NOT accepted as strong runtime-start evidence because
+        # Sidecar currently derives it from workflow_run.created_at.
         payload["result"] = {
             "assignment_id": "assignment-001",
             "status": "completed",
             "started_at": "2026-10-02T20:00:00Z",
             "ended_at": "2026-10-02T20:00:30Z",
+        }
+    if strong_runtime_evidence:
+        payload["runtime_evidence"] = {
+            "assignment_id": "assignment-001",
+            "started": True,
+            "started_at": "2026-10-02T20:00:05Z",
+            "source": "github-actions-job",
         }
     return payload
 
@@ -74,7 +90,6 @@ def main():
     assert b.delegation_id not in ref
     assert b.assignment_id not in ref
 
-
     queued = normalize_observation(observation("queued", None), b)
     assert queued["provider_state"] == "QUEUED"
     assert queued["native_execution_observed"] is True
@@ -89,33 +104,38 @@ def main():
     assert running["provider_present_now"] is True
     assert running["provider_exit_observed"] is False
 
-    succeeded = normalize_observation(observation("completed", "success"), b)
-    assert succeeded["provider_state"] == "SUCCEEDED"
-    assert succeeded["effect_ack"] == "succeeded"
-    assert succeeded["reconciliation"] == "converged"
-    assert succeeded["execution_success_is_durable_work_acceptance"] is False
-    assert succeeded["execution_success_is_validator_acceptance"] is False
-    assert succeeded["provider_runtime_observed"] is True
-    assert succeeded["provider_present_now"] is False
-    assert succeeded["provider_exit_observed"] is True
-    assert succeeded["provider_exit_outcome"] == "success"
-
-
-    terminal_without_runtime = normalize_observation(
-        observation("completed", "success", started=False),
+    # Current Sidecar terminal result.started_at is run.created_at and therefore
+    # cannot prove terminal-first embodiment start.
+    current_terminal = normalize_observation(
+        observation("completed", "success", legacy_result_started_at=True),
         b,
     )
-    assert terminal_without_runtime["provider_state"] == "TERMINAL_NO_RUNTIME_EVIDENCE"
-    assert terminal_without_runtime["effect_ack"] == "failed"
-    assert terminal_without_runtime["reconciliation"] == "blocked"
-    assert terminal_without_runtime["provider_runtime_observed"] is False
-    assert terminal_without_runtime["provider_exit_observed"] is False
+    assert current_terminal["provider_state"] == "SUCCEEDED_UNCONFIRMED_BODY"
+    assert current_terminal["effect_ack"] == "succeeded"
+    assert current_terminal["reconciliation"] == "converged"
+    assert current_terminal["provider_runtime_observed"] is False
+    assert current_terminal["provider_present_now"] is False
+    assert current_terminal["provider_exit_observed"] is True
+    assert current_terminal["provider_exit_outcome"] == "success"
+    assert current_terminal["execution_success_is_durable_work_acceptance"] is False
+    assert current_terminal["execution_success_is_validator_acceptance"] is False
 
-    failed = normalize_observation(observation("completed", "failure"), b)
-    assert failed["provider_state"] == "FAILED"
+    strong_terminal = normalize_observation(
+        observation("completed", "success", strong_runtime_evidence=True),
+        b,
+    )
+    assert strong_terminal["provider_state"] == "SUCCEEDED"
+    assert strong_terminal["provider_runtime_observed"] is True
+    assert strong_terminal["provider_exit_observed"] is True
+
+    failed = normalize_observation(
+        observation("completed", "failure", legacy_result_started_at=True),
+        b,
+    )
+    assert failed["provider_state"] == "FAILED_UNCONFIRMED_BODY"
+    assert failed["effect_ack"] == "failed"
     assert failed["reconciliation"] == "blocked"
-    assert failed["provider_runtime_observed"] is True
-    assert failed["provider_present_now"] is False
+    assert failed["provider_runtime_observed"] is False
     assert failed["provider_exit_observed"] is True
     assert failed["provider_exit_outcome"] == "failure"
 
