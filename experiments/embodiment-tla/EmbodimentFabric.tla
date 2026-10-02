@@ -137,7 +137,8 @@ FanoutCount(p) ==
         parent[c] = p /\ desiredPresent[c] /\ state[c] \in LiveStates})
 
 NoLiveBody(a) ==
-    \A b \in Bodies : bodyActor[b] # a \/ state[b] \notin LiveStates
+    \A b \in Bodies :
+        bodyActor[b] # a \/ bodyGen[b] # actorGen[a] \/ state[b] \notin LiveStates
 
 CanSpawnFrom(p) ==
     p = NoBody \/
@@ -445,6 +446,28 @@ LoseInteractionBinding(b) ==
                   finalizers, parent, restartCount, cleanupFailures, grantLevel,
                   staleEvidenceSeen, controllerUp, stopRequested>>
 
+ProviderExit(b) ==
+    /\ state[b] \in {"MATERIALIZED", "REGISTERED", "READY", "DEGRADED"}
+    /\ providerPresent[b]
+    /\ Assigned(b)
+    /\ actorGen' = [a \in Actors |->
+            IF a = bodyActor[b] /\ bodyGen[b] = actorGen[a] /\ actorGen[a] < MaxGeneration
+            THEN actorGen[a] + 1 ELSE actorGen[a]]
+    /\ state' = [state EXCEPT ![b] = "DEMATERIALIZING"]
+    /\ desiredPresent' = [desiredPresent EXCEPT ![b] = FALSE]
+    /\ providerPresent' = [providerPresent EXCEPT ![b] = FALSE]
+    /\ callbackPending' = [callbackPending EXCEPT ![b] = FALSE]
+    /\ ready' = [ready EXCEPT ![b] = FALSE]
+    /\ pathOK' = [pathOK EXCEPT ![b] = FALSE]
+    /\ interactionOpen' = [interactionOpen EXCEPT ![b] = FALSE]
+    /\ actuationGranted' = [actuationGranted EXCEPT ![b] = FALSE]
+    /\ finalizers' = [finalizers EXCEPT ![b] =
+            {"credential"} \cup (IF registered[b] THEN {"registration"} ELSE {})]
+    /\ stopRequested' = [stopRequested EXCEPT ![b] = TRUE]
+    /\ UNCHANGED <<authorityValid, bodyActor, bodyGen, registered, parent,
+                  restartCount, cleanupFailures, grantLevel, staleEvidenceSeen,
+                  controllerUp>>
+
 RequestStop(b) ==
     /\ controllerUp
     /\ state[b] \in ActiveStates
@@ -648,6 +671,7 @@ Next ==
     \/ \E b \in Bodies : AdmitActuation(b)
     \/ \E b \in Bodies : LosePath(b)
     \/ \E b \in Bodies : LoseInteractionBinding(b)
+    \/ \E b \in Bodies : ProviderExit(b)
     \/ \E b \in Bodies : RequestStop(b)
     \/ \E b \in Bodies : Expire(b)
     \/ \E a \in Actors : RevokeAuthority(a)
