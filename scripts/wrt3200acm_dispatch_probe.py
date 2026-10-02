@@ -80,7 +80,11 @@ def parse_instructions(text: str) -> list[dict[str, Any]]:
 def branch_target(ins: dict[str, Any]) -> int|None:
     if not ins["mnemonic"].startswith("b"):
         return None
-    m=re.search(r"\b([0-9a-fA-F]{4,8})\b",ins["operands"])
+    text=ins["operands"]
+    m=re.search(r"0x([0-9a-fA-F]+)",text)
+    if m:
+        return int(m.group(1),16)
+    m=re.search(r"(?:^|[^0-9A-Za-z_])([0-9a-fA-F]{4,8})(?:$|[^0-9A-Za-z_])",text)
     return int(m.group(1),16) if m else None
 
 def immediate(ins: dict[str, Any]) -> int|None:
