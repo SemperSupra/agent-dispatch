@@ -201,6 +201,20 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertNotIn('hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080', text)
         self.assertNotIn("xdotool", text)
 
+    def test_g3_nested_guest_meets_fixed_four_cpu_runner_profile(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn('VCPUS=2', text)
+        self.assertIn(
+            'if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "garm-provider-g3" ]]; then',
+            text,
+        )
+        self.assertIn('VCPUS=4', text)
+        self.assertIn('HOST_CPUS="$(nproc)"', text)
+        self.assertIn('(( HOST_CPUS >= VCPUS ))', text)
+        self.assertIn('R_VCPUS="$VCPUS"', text)
+        self.assertIn('"vcpus": int(os.environ["R_VCPUS"])', text)
+        self.assertIn('"ram_mib": int(os.environ["R_RAM_MIB"])', text)
+
     def test_no_literal_escaped_shell_parameter_expansions(self):
         needle = chr(92) + "$" + "{"
         for path in (PVE, TRUENAS):
