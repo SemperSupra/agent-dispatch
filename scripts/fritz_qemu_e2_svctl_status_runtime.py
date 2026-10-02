@@ -76,8 +76,11 @@ def socket_path_state(root: pathlib.Path) -> dict:
     return {"exists": True, "type": kind}
 
 
-def fixed_trace_evidence(raw: str) -> dict:
+def fixed_trace_evidence(raw: str, extra_paths: dict[str, str] | None = None) -> dict:
     import re
+    trace_paths = dict(TRACE_PATHS)
+    if extra_paths:
+        trace_paths.update(extra_paths)
     evidence = {
         key: {
             "path": path,
@@ -86,14 +89,14 @@ def fixed_trace_evidence(raw: str) -> dict:
             "failureCount": 0,
             "syscalls": {},
         }
-        for key, path in TRACE_PATHS.items()
+        for key, path in trace_paths.items()
     }
     ctlmgr_execve_count = 0
     for line in raw.splitlines():
         m = re.match(r"^\s*\d+\s+([A-Za-z0-9_]+)\(", line)
         syscall = m.group(1) if m and m.group(1) in SAFE_TRACE_SYSCALLS else None
         failed = "errno=" in line or re.search(r"=\s*-\d+", line) is not None
-        for key, path in TRACE_PATHS.items():
+        for key, path in trace_paths.items():
             if f'"{path}"' not in line:
                 continue
             item = evidence[key]
@@ -185,9 +188,10 @@ def namespace_helper(args: argparse.Namespace) -> int:
 
     supervisor_out = raw_dir / "supervisor.stdout"
     supervisor_err = raw_dir / "supervisor.stderr"
+    supervisor_target = args.supervisor_target
     supervisor_cmd = [
         "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
-        "-strace", SUPERVISOR, UNIT_ROOT, TARGET_UNIT,
+        "-strace", SUPERVISOR, UNIT_ROOT, supervisor_target,
     ]
 
     started = time.monotonic()
@@ -314,7 +318,10 @@ def namespace_helper(args: argparse.Namespace) -> int:
                 supervisor_proc.wait(timeout=2)
 
     supervisor_err_text = supervisor_err.read_text(encoding="utf-8", errors="replace") if supervisor_err.exists() else ""
-    trace_evidence = fixed_trace_evidence(supervisor_err_text)
+    trace_evidence = fixed_trace_evidence(
+        supervisor_err_text,
+        {"selected_target": f"{UNIT_ROOT}/{supervisor_target}"},
+    )
     elapsed_total = round(time.monotonic() - started, 3)
 
     # Keep only distinct public-safe HTTP metadata rows.
@@ -336,7 +343,7 @@ def namespace_helper(args: argparse.Namespace) -> int:
         "defaultRoutePresent": False,
         "cpuProfile": CPU_PROFILE,
         "supervisorPath": SUPERVISOR,
-        "supervisorArguments": [UNIT_ROOT, TARGET_UNIT],
+        "supervisorArguments": [UNIT_ROOT, supervisor_target],
         "supervisorLauncherExitCode": supervisor_proc.returncode,
         "supervisorExitedNaturallyBeforeCleanup": natural_exit_before_cleanup,
         "supervisorNaturalExitCode": natural_exit_code,
@@ -391,6 +398,7 @@ def run_namespace(root: pathlib.Path, result: pathlib.Path, args: argparse.Names
             "--startup-observe-seconds", str(args.startup_observe_seconds),
             "--sample-interval-seconds", str(args.sample_interval_seconds),
             "--status-grace-seconds", str(args.status_grace_seconds),
+            "--supervisor-target", str(args.supervisor_target),
         ],
         timeout=max(45, int(args.startup_observe_seconds) + 30),
     )
@@ -428,9 +436,9 @@ def run_probe(args: argparse.Namespace) -> dict:
         if not header or header.get("machineName") != "MIPS":
             raise RuntimeError(f"candidate absent/not MIPS: {guest}")
 
-    unit_path = root / UNIT_ROOT.lstrip("/") / TARGET_UNIT
+    unit_path = root / UNIT_ROOT.lstrip("/") / args.supervisor_target
     if not unit_path.is_file():
-        raise RuntimeError("ctlmgr.service absent from exact root")
+        raise RuntimeError(f"supervisor target absent from exact root: {args.supervisor_target}")
 
     preflight = {
         "ctlmgrUnitPresent": unit_path.is_file(),
@@ -463,7 +471,7 @@ def run_probe(args: argparse.Namespace) -> dict:
         },
         "exactTreatment": {
             "supervisorPath": SUPERVISOR,
-            "supervisorArguments": [UNIT_ROOT, TARGET_UNIT],
+            "supervisorArguments": [UNIT_ROOT, args.supervisor_target],
             "statusController": SVCTL,
             "statusArguments": ["status", "ctlmgr"],
             "preflightPathPresence": preflight,
@@ -510,6 +518,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--startup-observe-seconds", type=float, default=3.0)
     p.add_argument("--sample-interval-seconds", type=float, default=0.05)
     p.add_argument("--status-grace-seconds", type=float, default=0.15)
+    p.add_argument(
+        "--supervisor-target",
+        choices=(TARGET_UNIT, "prodtest-network.target", "network.target"),
+        default=TARGET_UNIT,
+    )
     p.add_argument("--namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
