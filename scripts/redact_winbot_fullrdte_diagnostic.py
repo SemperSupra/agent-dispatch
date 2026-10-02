@@ -21,6 +21,7 @@ SAFE_BUILD = {
     "seed_test_vhd","seed_size_bytes","seed_integrity",
     "iso_reclaimed_before_materialization","seed_unchanged","seed_integrity_after",
     "runner_image_os","runner_image_version","network_placement_retryable","observed_switches",
+    "master_build_started","master_build_completed",
 }
 SAFE_CELL = {
     "materialize_seconds","lineage","ip_observed","api_token_observed",
@@ -44,6 +45,10 @@ SAFE_EXEC = {
 SAFE_CLEANUP = {
     "vm_a_absent","vm_b_absent","work_absent","oracle_satisfied",
     "error_type","error_message",
+}
+SAFE_FAILURE_CONTEXT = {
+    "command_name","script_name","script_line","fully_qualified_error_id",
+    "category","reason","activity","target_type",
 }
 
 def _clean_text(value: object) -> str | None:
@@ -111,6 +116,7 @@ def main() -> int:
             "failure_domain": full.get("failure_domain"),
             "error_type": full.get("error_type"),
             "error_message": _clean_text(full.get("error_message")),
+            "failure_context": _pick(full.get("failure_context"), SAFE_FAILURE_CONTEXT, clean_strings=True),
             "elapsed_seconds": full.get("elapsed_seconds"),
             "build": _pick(full.get("build"), SAFE_BUILD, clean_strings=True),
             "work_cells": {
