@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
 
       - name: Run dependency-free contract tests
-        run: python3 -m unittest -v tests/test_sealed_public_execution.py tests/test_redact_winbot_fullrdte_diagnostic.py
+        run: python3 -m unittest -v tests/test_sealed_public_execution.py tests/test_redact_winbot_fullrdte_diagnostic.py tests/test_verify_winbot_fullrdte_acceptance.py
 
       - name: Guard work-cell guest file reads
         shell: bash
