@@ -27,6 +27,25 @@ class MemAddrRehostTests(unittest.TestCase):
         out=mod.execute(req,selector3_values=(0x11223344,0xaabbccdd))
         self.assertEqual(struct.unpack_from("<I",out,16)[0],0x11223344)
         self.assertEqual(struct.unpack_from("<I",out,24)[0],0xaabbccdd)
+    def test_verify_selector1_dataflow_anchor(self):
+        handler = """
+   37eac: e5d41008 ldrb r1, [r4, #8]
+   37eb0: e5d48009 ldrb r8, [r4, #9]
+   37eb4: e5d4c011 ldrb r12, [r4, #17]
+   37ebc: e5d4200a ldrb r2, [r4, #10]
+   37ec0: e5d46010 ldrb r6, [r4, #16]
+   37ec8: e5d45012 ldrb r5, [r4, #18]
+   37ecc: e5d4300b ldrb r3, [r4, #11]
+   37ed4: e5d47013 ldrb r7, [r4, #19]
+   37ee8: ea00020f b 0x3872c
+"""
+        tail = """
+   3872c: e5801000 str r1, [r0]
+"""
+        v = mod.verify_disassembly(handler, tail)
+        self.assertTrue(v["anchors"]["selector1_address_value"])
+        self.assertTrue(v["anchors"]["selector1_store32"])
+
     def test_selector0_cap(self):
         with self.assertRaises(ValueError):
             mod.execute(mod.make_request(0x1000,65,0),read32=lambda a:0)
