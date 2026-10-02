@@ -73,6 +73,7 @@ def materialization_call_plan(
         "selected_executor_owns_queue": True,
         "arbitrary_workflow_inputs_admitted": False,
         "free_form_prompt_admitted": False,
+        "generic_remote_command_admitted": False,
         "new_scheduler_or_queue_required": False,
         "retry_policy": "observe canonical executor state before any redispatch decision",
         "stop_mode": "fence-now-drain-provider-to-terminal",
@@ -127,7 +128,18 @@ def normalize_observation(
     conclusion = run.get("conclusion")
     conclusion = str(conclusion).lower() if conclusion is not None else None
 
-    if status in {"queued", "in_progress", "pending", "requested", "waiting"}:
+    if status in {"queued", "pending", "requested", "waiting"}:
+        return _observation_receipt(
+            binding,
+            provider_state="QUEUED",
+            effect_ack=None,
+            reconciliation=None,
+            terminal=False,
+            run_count=1,
+            runtime_started=False,
+        )
+
+    if status == "in_progress":
         return _observation_receipt(
             binding,
             provider_state="RUNNING",
@@ -135,12 +147,32 @@ def normalize_observation(
             reconciliation=None,
             terminal=False,
             run_count=1,
+            runtime_started=True,
         )
 
     if status != "completed":
         raise ValueError("unsupported github-actions run status")
 
+    result = observation.get("result")
+    runtime_started = (
+        isinstance(result, dict)
+        and result.get("assignment_id") in {None, binding.assignment_id}
+        and isinstance(result.get("started_at"), str)
+        and bool(result.get("started_at").strip())
+    )
+
     if conclusion == "success":
+        if not runtime_started:
+            return _observation_receipt(
+                binding,
+                provider_state="TERMINAL_NO_RUNTIME_EVIDENCE",
+                effect_ack="failed",
+                reconciliation="blocked",
+                terminal=True,
+                run_count=1,
+                runtime_started=False,
+                exit_outcome="success",
+            )
         return _observation_receipt(
             binding,
             provider_state="SUCCEEDED",
@@ -148,6 +180,7 @@ def normalize_observation(
             reconciliation="converged",
             terminal=True,
             run_count=1,
+            runtime_started=True,
             exit_outcome="success",
         )
 
@@ -162,11 +195,12 @@ def normalize_observation(
     }:
         return _observation_receipt(
             binding,
-            provider_state="FAILED",
+            provider_state="FAILED" if runtime_started else "FAILED_NO_RUNTIME",
             effect_ack="failed",
             reconciliation="blocked",
             terminal=True,
             run_count=1,
+            runtime_started=runtime_started,
             exit_outcome=conclusion,
         )
 
@@ -212,10 +246,11 @@ def _observation_receipt(
     reconciliation: str | None,
     terminal: bool,
     run_count: int,
+    runtime_started: bool = False,
     exit_outcome: str | None = None,
 ) -> dict[str, Any]:
-    provider_runtime_observed = provider_state in {"RUNNING", "SUCCEEDED", "FAILED"}
-    provider_exit_observed = terminal and provider_state in {"SUCCEEDED", "FAILED"}
+    provider_runtime_observed = runtime_started
+    provider_exit_observed = terminal and runtime_started
     return {
         "schema": "agent-dispatch-gha-observation/v1",
         "classification": "GHA_EXECUTOR_OBSERVATION",
@@ -225,8 +260,9 @@ def _observation_receipt(
         "reconciliation": reconciliation,
         "terminal": terminal,
         "matching_run_count": run_count,
+        "native_execution_observed": run_count == 1,
         "provider_runtime_observed": provider_runtime_observed,
-        "provider_present_now": provider_state == "RUNNING",
+        "provider_present_now": provider_state == "RUNNING" and runtime_started,
         "provider_exit_observed": provider_exit_observed,
         "provider_exit_outcome": exit_outcome if provider_exit_observed else None,
         "selected_executor_owns_queue": True,
