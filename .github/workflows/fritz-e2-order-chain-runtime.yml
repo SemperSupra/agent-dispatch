@@ -1,0 +1,79 @@
+name: FRITZ E2 ordered predecessor runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-e2-order-chain-runtime.yml'
+      - 'scripts/fritz_qemu_e2_order_chain_runtime.py'
+      - 'scripts/fritz_qemu_e2_svctl_status_runtime.py'
+      - 'scripts/fritz_qemu_e2_prodtest_network_runtime.py'
+      - 'scripts/fritz_qemu_e2_var_tmp_runtime.py'
+      - 'tests/test_fritz_qemu_e2_order_chain_runtime.py'
+      - 'tests/test_fritz_qemu_e2_svctl_status_runtime.py'
+      - 'docs/fritz-e2-order-chain-runtime.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate R6 treatment
+        run: |
+          python3 -m unittest -v \
+            tests/test_fritz_qemu_e2_svctl_status_runtime.py \
+            tests/test_fritz_qemu_e2_order_chain_runtime.py
+
+  exact-firmware-e2-r6:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install bounded emulation/isolation tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends curl iproute2 qemu-user-static squashfs-tools
+      - name: Observe exact prodtest order chain
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-e2-r6" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_qemu_e2_order_chain_runtime.py \
+            --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+            --expected-size 42393600 \
+            --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+            --work-dir "${RUNNER_TEMP}/fritz-e2-r6" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce unchanged treatment and print reduced observation
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json"
+          r=json.loads(p.read_text())
+          assert r.get("oracleSatisfied") is True,r
+          assert r["runtime"]["supervisorArguments"] == ["/lib/systemd/system","prodtest-network.target"]
+          s=r["safety"]
+          assert s.get("onlyVarTmpCreated") is True
+          assert s.get("newRuntimeFixtureAddedForR6") is False
+          for k in ("targetSpecificShimAdded","psupportDataFabricated","avmipcdStateFabricated",
+                    "varRunCreated","devShmCreated","physicalRouterContact","routerMutationAuthorized",
+                    "externalNetworkAvailableToTarget","rawStracePublished","rawSvctlOutputPublished"):
+              assert s.get(k) is False,(k,s.get(k))
+          print(json.dumps({"classification":r["classification"],"orderChainObservation":r["orderChainObservation"]},sort_keys=True))
+          PY
+      - name: Upload sanitized receipt only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-e2-order-chain-runtime-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
