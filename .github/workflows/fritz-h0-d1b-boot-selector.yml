@@ -1,0 +1,66 @@
+name: FRITZ H0 D1b boot selector source
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d1b-boot-selector.yml'
+      - 'scripts/fritz_h0_d1b_boot_selector.py'
+      - 'tests/test_fritz_h0_d1b_boot_selector.py'
+      - 'docs/fritz-h0-d1b-boot-selector.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate reducer
+        run: python3 -m unittest -v tests/test_fritz_h0_d1b_boot_selector.py
+
+  exact-osp-h0-d1b:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Reduce exact AVM OSP boot-selector source surface
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d1b" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d1b_boot_selector.py \
+            --osp-url 'https://osp.avm.de/fritzbox/fritzbox-7590/source-files-FRITZ.Box_7590-grx5-08.25.tar.gz' \
+            --expected-size 633140613 \
+            --expected-sha256 61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d1b" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce source-metadata-only boundary
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json"
+          r=json.loads(p.read_text())
+          assert r.get("oracleSatisfied") is True, r
+          s=r["safety"]
+          for k in ("rawOspArchivePublished","sourcePayloadPublished","sourceSnippetsPublished",
+                    "physicalRouterContact","flashWriteAuthorized","bootEnvironmentMutationAuthorized"):
+              assert s.get(k) is False,(k,s.get(k))
+          b=r["interpretationBoundary"]
+          assert b["exactPartitionLayoutAccepted"] is False
+          assert b["dualBootSafetyAccepted"] is False
+          print(json.dumps({"classification":r["classification"],"reduction":r["reduction"],"interpretationBoundary":b},sort_keys=True))
+          PY
+      - name: Upload sanitized receipt only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d1b-boot-selector-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
