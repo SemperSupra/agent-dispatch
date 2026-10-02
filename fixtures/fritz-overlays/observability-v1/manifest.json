@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "overlayId": "fritz7590-0825-observability-v1",
+  "target": {
+    "model": "FRITZ!Box 7590",
+    "release": "FRITZ!OS 8.25",
+    "firmwareSha256": "267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d"
+  },
+  "semantics": {
+    "stockSemanticsExpectedToChange": false,
+    "purpose": "Add one inert, explicitly invoked observability helper without replacing any shipped target path."
+  },
+  "operations": [
+    {
+      "op": "copy_public_file",
+      "source": "fixtures/fritz-overlays/observability-v1/observe-supervisor.sh",
+      "destination": "/opt/supra/bin/observe-supervisor",
+      "mode": "0755",
+      "requireDestinationAbsent": true
+    }
+  ]
+}
