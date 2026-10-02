@@ -90,9 +90,9 @@ def fixed_trace_evidence(raw: str) -> dict:
     }
     ctlmgr_execve_count = 0
     for line in raw.splitlines():
-        m = re.match(r"^\\s*\\d+\\s+([A-Za-z0-9_]+)\\(", line)
+        m = re.match(r"^\s*\d+\s+([A-Za-z0-9_]+)\(", line)
         syscall = m.group(1) if m and m.group(1) in SAFE_TRACE_SYSCALLS else None
-        failed = "errno=" in line or re.search(r"=\\s*-\\d+", line) is not None
+        failed = "errno=" in line or re.search(r"=\s*-\d+", line) is not None
         for key, path in TRACE_PATHS.items():
             if f'"{path}"' not in line:
                 continue
