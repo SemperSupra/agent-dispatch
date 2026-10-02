@@ -410,6 +410,109 @@ class EmbodimentControl:
         }[result]
         return self._effect_receipt(effect)
 
+    def reconcile_provider_observation(
+        self,
+        caller: ControlGrant,
+        *,
+        effect_id: str,
+        provider_runtime_observed: bool,
+        provider_present_now: bool,
+        provider_exit_observed: bool,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Apply typed provider lifecycle evidence to the semantic fabric.
+
+        This accepts only provider-neutral lifecycle facts.  Provider-specific
+        payloads remain in adapters such as the Agent Dispatch GHA projection.
+        """
+        _aware(now, "now")
+        effect = self._effect(effect_id)
+        self._authorize_control_scope(caller, EFFECTS_SCOPE, effect.resource, now=now)
+        if effect.kind != "materialize":
+            raise FabricError("provider lifecycle observation requires materialize effect")
+        if provider_present_now and not provider_runtime_observed:
+            raise ValueError("provider present requires runtime observation")
+        if provider_exit_observed and not provider_runtime_observed:
+            raise ValueError("provider exit requires runtime observation")
+        if provider_exit_observed and provider_present_now:
+            raise ValueError("provider cannot be present-now and exited")
+
+        body = self.fabric.body(effect.body_instance_id)
+        if body.generation != effect.body_generation:
+            raise FabricError("provider observation body generation mismatch")
+
+        transitions: list[str] = []
+        if not provider_runtime_observed:
+            return {
+                "schema": "embodiment-provider-reconciliation/v1",
+                "classification": "PROVIDER_LIFECYCLE_RECONCILIATION",
+                "effect_id": effect_id,
+                "body_instance_id": body.body_id,
+                "transitions": transitions,
+                "instance": self._instance_view(body, effect.resource),
+                "provider_observation_is_work_acceptance": False,
+            }
+
+        # A runtime observation can arrive while the start acknowledgement is
+        # still pending.  A terminal-first observation proves both that the
+        # provider existed and that it has already exited, so apply both
+        # transitions in semantic order.
+        if body.callback_pending and body.state in {
+            BodyState.MATERIALIZING,
+            BodyState.FAILED_RETRYABLE,
+            BodyState.DRAINING,
+            BodyState.DEMATERIALIZING,
+            BodyState.EXPIRED,
+            BodyState.REJECTED,
+            BodyState.FAILED_TERMINAL,
+            BodyState.BLOCKED,
+        }:
+            self.fabric.provider_start_ack(body.body_id)
+            transitions.append("provider_start_ack")
+
+        if provider_exit_observed:
+            body = self.fabric.body(effect.body_instance_id)
+            if (
+                body.provider_present
+                and body.state
+                in {
+                    BodyState.MATERIALIZED,
+                    BodyState.REGISTERED,
+                    BodyState.READY,
+                    BodyState.DEGRADED,
+                }
+            ):
+                self.fabric.provider_exit(body.body_id)
+                transitions.append("provider_exit")
+            elif body.state in {
+                BodyState.DEMATERIALIZING,
+                BodyState.DEMATERIALIZED,
+                BodyState.BLOCKED,
+                BodyState.REJECTED,
+                BodyState.FAILED_TERMINAL,
+                BodyState.EXPIRED,
+                BodyState.DRAINING,
+            } and not body.provider_present:
+                # Already reconciled to provider-absent cleanup/terminal state.
+                pass
+            else:
+                raise FabricError("provider exit cannot reconcile from current body state")
+        elif provider_present_now:
+            body = self.fabric.body(effect.body_instance_id)
+            if not body.provider_present:
+                raise FabricError("runtime observation did not establish provider presence")
+
+        body = self.fabric.body(effect.body_instance_id)
+        return {
+            "schema": "embodiment-provider-reconciliation/v1",
+            "classification": "PROVIDER_LIFECYCLE_RECONCILIATION",
+            "effect_id": effect_id,
+            "body_instance_id": body.body_id,
+            "transitions": transitions,
+            "instance": self._instance_view(body, effect.resource),
+            "provider_observation_is_work_acceptance": False,
+        }
+
     def _authorize(
         self,
         caller: ControlGrant,
@@ -520,6 +623,8 @@ class EmbodimentControl:
                 body.actor_id is not None and body.generation == actor_generation
             ),
             "ready": body.ready,
+            "provider_present": body.provider_present,
+            "registered": body.registered,
             "interaction_open": body.interaction_open,
             "interaction_binding": body.interaction_binding,
             "effective_affordances": sorted(
