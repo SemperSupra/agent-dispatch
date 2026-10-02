@@ -73,6 +73,10 @@ if [[ "$RUNG" == "t6" ]]; then
   fi
 fi
 
+if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "garm-provider-g3" ]]; then
+  VCPUS=4
+fi
+
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-truenas.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
 STATE_DIR="$(realpath "$STATE_DIR")"
@@ -118,6 +122,7 @@ write_receipt() {
   export R_MIDDLEWARE_REF="$MIDDLEWARE_REF" R_MIDDLEWARE_COMMIT="$MIDDLEWARE_COMMIT"
   export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_INSTALLER_RPC_PATH="$INSTALLER_RPC_PATH" R_INSTALLER_RPC_GUEST_PORT="$INSTALLER_RPC_GUEST_PORT" R_INSTALLER_SOURCE_REF="$INSTALLER_SOURCE_REF" R_INSTALLER_MAIN_BLOB_SHA="$INSTALLER_MAIN_BLOB_SHA" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
   export R_RUNG="$RUNG" R_T6_PRODUCT="$T6_PRODUCT" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
+  export R_VCPUS="$VCPUS" R_RAM_MIB="$RAM_MIB"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
   export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON"
   python3 - <<'PY'
@@ -130,8 +135,8 @@ payload = {
   "phase": os.environ["R_PHASE"],
   "detail": os.environ["R_DETAIL"],
   "requested_shape": {
-    "vcpus": 2,
-    "ram_mib": 8192,
+    "vcpus": int(os.environ["R_VCPUS"]),
+    "ram_mib": int(os.environ["R_RAM_MIB"]),
     "boot_disk": "24G",
     "data_disks": ["8G", "8G"] if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else [],
     "data_pool": {"name": "rdtepool", "topology": "MIRROR"} if os.environ.get("R_RUNG") in {"t3", "t4", "t5", "t6"} else None,
@@ -270,6 +275,8 @@ sudo -n test -r /dev/kvm && sudo -n test -w /dev/kvm || fail_evidence ENVIRONMEN
 
 MEM_AVAIL_KIB="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)"
 FREE_KIB="$(df -Pk "$STATE_DIR" | awk 'NR==2 {print $4}')"
+HOST_CPUS="$(nproc)"
+(( HOST_CPUS >= VCPUS )) || fail_evidence SKIPPED_GUARDRAIL preflight "host CPU count $HOST_CPUS below requested guest vCPU count $VCPUS"
 (( MEM_AVAIL_KIB >= MIN_HOST_MEM_KIB )) || fail_evidence SKIPPED_GUARDRAIL preflight "host memory headroom below 11 GiB required before allocating 8 GiB guest"
 (( FREE_KIB >= MIN_HOST_FREE_KIB )) || fail_evidence SKIPPED_GUARDRAIL preflight "host disk headroom below 28 GiB"
 
