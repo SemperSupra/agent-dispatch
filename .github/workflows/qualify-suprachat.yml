@@ -154,22 +154,39 @@ jobs:
             # Single-file publish embeds Microsoft.Playwright.dll but does not
             # reliably carry the complete bundled Node/CLI driver tree. The
             # .NET runtime still requires that tree beside the executable.
-            $driverSource = Get-ChildItem (Join-Path $PWD 'prototype/suprachat/SupraChat/bin/Release') -Force -Directory -Filter '.playwright' -Recurse -ErrorAction SilentlyContinue |
-              Where-Object {
-                Test-Path (Join-Path $_.FullName 'package/cli.js')
-              } |
-              Select-Object -First 1
-            if (-not $driverSource) {
-              throw 'Complete Playwright .playwright driver tree was not found in the ordinary macOS build output.'
-            }
-            Copy-Item $driverSource.FullName (Join-Path $out '.playwright') -Recurse -Force
+            $nugetDriverRoot = Join-Path $HOME '.nuget/packages/microsoft.playwright/1.63.0/.playwright'
+            $nugetDriverCli = Join-Path $nugetDriverRoot 'package/cli.js'
+            $nugetDriverNode = Join-Path $nugetDriverRoot 'node/darwin-arm64/node'
 
-            $driverCli = Join-Path $out '.playwright/package/cli.js'
-            $driverNode = Get-ChildItem (Join-Path $out '.playwright/node') -Recurse -File -Filter 'node' -ErrorAction SilentlyContinue |
-              Select-Object -First 1
-            if (!(Test-Path $driverCli) -or -not $driverNode) {
-              throw 'Published macOS Playwright driver tree is incomplete.'
+            if ((Test-Path $nugetDriverCli) -and (Test-Path $nugetDriverNode)) {
+              $driverSourcePath = $nugetDriverRoot
+            } else {
+              # Fallback for a non-default NuGet cache. Require both the JS
+              # package and the exact target-platform node payload.
+              $driverSource = Get-ChildItem (Join-Path $PWD 'prototype/suprachat') -Force -Directory -Filter '.playwright' -Recurse -ErrorAction SilentlyContinue |
+                Where-Object {
+                  (Test-Path (Join-Path $_.FullName 'package/cli.js')) -and
+                  (Test-Path (Join-Path $_.FullName 'node/darwin-arm64/node'))
+                } |
+                Select-Object -First 1
+              if (-not $driverSource) {
+                throw 'Complete Playwright macOS arm64 driver tree was not found in NuGet cache or build outputs.'
+              }
+              $driverSourcePath = $driverSource.FullName
             }
+
+            $publishedDriverRoot = Join-Path $out '.playwright'
+            if (Test-Path $publishedDriverRoot) {
+              Remove-Item $publishedDriverRoot -Recurse -Force
+            }
+            Copy-Item $driverSourcePath $publishedDriverRoot -Recurse -Force
+
+            $driverCli = Join-Path $publishedDriverRoot 'package/cli.js'
+            $driverNode = Join-Path $publishedDriverRoot 'node/darwin-arm64/node'
+            if (!(Test-Path $driverCli) -or !(Test-Path $driverNode)) {
+              throw 'Published macOS Playwright driver tree is incomplete after pinned NuGet materialization.'
+            }
+            chmod +x $driverNode
           } else {
             dotnet publish prototype/suprachat/SupraChat/SupraChat.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
             dotnet publish prototype/suprachat/SupraChat.Automation/SupraChat.Automation.csproj -c Release -r '${{ matrix.rid }}' --self-contained true -o $out
