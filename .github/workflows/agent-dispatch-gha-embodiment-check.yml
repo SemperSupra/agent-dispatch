@@ -29,11 +29,15 @@ jobs:
           sha256sum \
             experiments/agent-dispatch-gha-embodiment/agent_dispatch_gha_actuator.py \
             experiments/agent-dispatch-gha-embodiment/check_agent_dispatch_gha_actuator.py \
+            experiments/agent-dispatch-gha-embodiment/check_gha_embodiment_lifecycle.py \
+            experiments/embodiment-control/embodiment_control.py \
+            experiments/embodiment-control/embodiment_semantics.py \
             > "$out/source-sha256.txt"
 
           (
             cd experiments/agent-dispatch-gha-embodiment
             python3 check_agent_dispatch_gha_actuator.py
+            python3 check_gha_embodiment_lifecycle.py
           ) | tee "$out/adapter-check.log"
 
           python3 - <<'PY'
@@ -50,6 +54,7 @@ jobs:
               },
               "result": {
                   "adapter_contract_passed": True,
+                  "lifecycle_composition_passed": True,
               },
           }
           (out / "receipt.json").write_text(
