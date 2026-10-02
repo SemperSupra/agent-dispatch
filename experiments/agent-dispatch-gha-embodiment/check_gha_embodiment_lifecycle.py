@@ -57,12 +57,20 @@ def binding():
     )
 
 
-def observation(status, conclusion):
-    return {
+def observation(status, conclusion, *, started=True):
+    payload = {
         "assignment": {"assignment_id": "assignment-001"},
         "binding": {"target_kind": "github-actions"},
         "runs": [{"status": status, "conclusion": conclusion}],
     }
+    if status == "completed" and started:
+        payload["result"] = {
+            "assignment_id": "assignment-001",
+            "status": "completed",
+            "started_at": "2026-10-02T20:00:00Z",
+            "ended_at": "2026-10-02T20:00:30Z",
+        }
+    return payload
 
 
 def create_dispatched(control, *, intent_id, body_id, effect_id):
@@ -101,6 +109,21 @@ def apply(control, effect_id, normalized):
 
 
 def main():
+
+    # A queued workflow record is not yet an embodiment.
+    queued_control = EmbodimentControl()
+    create_dispatched(
+        queued_control,
+        intent_id="intent-queued",
+        body_id="body-queued",
+        effect_id="effect-queued",
+    )
+    queued = normalize_observation(observation("queued", None), binding())
+    q = apply(queued_control, "effect-queued", queued)
+    assert q["transitions"] == []
+    assert q["instance"]["state"] == BodyState.MATERIALIZING.value
+    assert q["instance"]["provider_present"] is False
+
     # Normal observed-running -> terminal lifecycle.
     control = EmbodimentControl()
     create_dispatched(
@@ -127,6 +150,17 @@ def main():
     assert r2["instance"]["state"] == BodyState.DEMATERIALIZING.value
     assert r2["instance"]["provider_present"] is False
     assert terminal["execution_success_is_durable_work_acceptance"] is False
+
+
+    # Terminal evidence with no runtime-start proof fails closed and does not
+    # fabricate materialization/exit transitions.
+    no_runtime = normalize_observation(
+        observation("completed", "success", started=False),
+        binding(),
+    )
+    assert no_runtime["effect_ack"] == "failed"
+    assert no_runtime["provider_runtime_observed"] is False
+    assert no_runtime["provider_exit_observed"] is False
 
     # Terminal-first polling must not leave a phantom provider-present body.
     terminal_first = EmbodimentControl()
