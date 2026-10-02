@@ -440,16 +440,6 @@ class EmbodimentControl:
             raise FabricError("provider observation body generation mismatch")
 
         transitions: list[str] = []
-        if not provider_runtime_observed:
-            return {
-                "schema": "embodiment-provider-reconciliation/v1",
-                "classification": "PROVIDER_LIFECYCLE_RECONCILIATION",
-                "effect_id": effect_id,
-                "body_instance_id": body.body_id,
-                "transitions": transitions,
-                "instance": self._instance_view(body, effect.resource),
-                "provider_observation_is_work_acceptance": False,
-            }
 
         # A runtime observation can arrive while the start acknowledgement is
         # still pending. Strong runtime-start evidence permits the start transition.
