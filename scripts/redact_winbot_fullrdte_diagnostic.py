@@ -67,6 +67,9 @@ SAFE_FAILURE_CONTEXT = {
     "command_name","script_name","script_line","fully_qualified_error_id",
     "category","reason","activity","target_type",
 }
+SAFE_MATERIALIZATION_CELL = {"disposed"}
+SAFE_MATERIALIZATION_ATTACHMENT = {"survived"}
+SAFE_MATERIALIZATION_SEED = {"unchanged"}
 
 def _clean_text(value: object) -> str | None:
     if value is None:
@@ -151,6 +154,8 @@ def main() -> int:
     if full:
         cells = full.get("work_cells") or {}
         cleanup = _pick(full.get("cleanup"), SAFE_CLEANUP, clean_strings=True)
+        materialization = full.get("materialization_receipt") or {}
+        materialization_cells = materialization.get("cells") or {}
         diag["full_rdte"] = {
             "schema_version": full.get("schema_version"),
             "profile": full.get("profile"),
@@ -171,6 +176,15 @@ def main() -> int:
             "persistence": _pick(full.get("persistence"), SAFE_PERSIST),
             "conformance": _pick(full.get("conformance"), SAFE_CONFORMANCE),
             "cleanup": cleanup,
+            "materialization_receipt": {
+                "complete": materialization.get("complete"),
+                "cells": {
+                    "a": _pick(materialization_cells.get("a"), SAFE_MATERIALIZATION_CELL),
+                    "b": _pick(materialization_cells.get("b"), SAFE_MATERIALIZATION_CELL),
+                },
+                "attachment": _pick(materialization.get("attachment"), SAFE_MATERIALIZATION_ATTACHMENT),
+                "runtime_seed": _pick(materialization.get("runtime_seed"), SAFE_MATERIALIZATION_SEED),
+            },
         }
 
     output.parent.mkdir(parents=True, exist_ok=True)
