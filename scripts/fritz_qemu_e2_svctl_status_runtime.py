@@ -37,7 +37,9 @@ CONTROL_SOCKET = "/tmp/supervisor.ctrl.socket"
 TRACE_PATHS = {
     "unit_root": UNIT_ROOT,
     "ctlmgr_unit": f"{UNIT_ROOT}/{TARGET_UNIT}",
+    "ctlmgr_unit_relative": TARGET_UNIT,
     "avmipcd_unit": r2.AVMIPCD_UNIT,
+    "avmipcd_unit_relative": "avmipcd.service",
     "psupport_data": r2.PSUPPORT_DATA,
     "ctlmgr_exec": CTLMGR,
     "control_socket": CONTROL_SOCKET,
@@ -76,8 +78,11 @@ def socket_path_state(root: pathlib.Path) -> dict:
     return {"exists": True, "type": kind}
 
 
-def fixed_trace_evidence(raw: str) -> dict:
+def fixed_trace_evidence(raw: str, extra_paths: dict[str, str] | None = None) -> dict:
     import re
+    trace_paths = dict(TRACE_PATHS)
+    if extra_paths:
+        trace_paths.update(extra_paths)
     evidence = {
         key: {
             "path": path,
@@ -86,14 +91,14 @@ def fixed_trace_evidence(raw: str) -> dict:
             "failureCount": 0,
             "syscalls": {},
         }
-        for key, path in TRACE_PATHS.items()
+        for key, path in trace_paths.items()
     }
     ctlmgr_execve_count = 0
     for line in raw.splitlines():
         m = re.match(r"^\s*\d+\s+([A-Za-z0-9_]+)\(", line)
         syscall = m.group(1) if m and m.group(1) in SAFE_TRACE_SYSCALLS else None
         failed = "errno=" in line or re.search(r"=\s*-\d+", line) is not None
-        for key, path in TRACE_PATHS.items():
+        for key, path in trace_paths.items():
             if f'"{path}"' not in line:
                 continue
             item = evidence[key]
@@ -125,9 +130,12 @@ def classify(result: dict) -> str:
     if trace.get("ctlmgrExecveCount", 0) > 0:
         return "E2_CTLMGR_EXEC_ATTEMPTED"
     paths = trace.get("paths", {})
-    unit = paths.get("ctlmgr_unit", {})
+    unit_hits = (
+        paths.get("ctlmgr_unit", {}).get("hitCount", 0)
+        + paths.get("ctlmgr_unit_relative", {}).get("hitCount", 0)
+    )
     psupport = paths.get("psupport_data", {})
-    if unit.get("hitCount", 0) > 0:
+    if unit_hits > 0:
         if psupport.get("failureCount", 0) > 0:
             return "E2_CTLMGR_UNIT_READ_PSUPPORT_MISSING"
         return "E2_CTLMGR_UNIT_READ_NO_EXEC"
@@ -148,6 +156,23 @@ def ensure_mount_target(path: pathlib.Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists() and not path.is_symlink():
         path.touch()
+
+
+def run_svctl_status(root: pathlib.Path, env: dict) -> dict:
+    cp = _run(
+        [
+            "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
+            "-strace", SVCTL, "status", "ctlmgr",
+        ],
+        timeout=10,
+        env=env,
+    )
+    return {
+        "exitCode": cp.returncode,
+        "stdoutBytes": len(cp.stdout.encode("utf-8", errors="replace")),
+        "stderrBytes": len(cp.stderr.encode("utf-8", errors="replace")),
+        "missingGuestPaths": r1.parse_missing_paths(cp.stderr),
+    }
 
 
 def namespace_helper(args: argparse.Namespace) -> int:
@@ -185,9 +210,10 @@ def namespace_helper(args: argparse.Namespace) -> int:
 
     supervisor_out = raw_dir / "supervisor.stdout"
     supervisor_err = raw_dir / "supervisor.stderr"
+    supervisor_target = getattr(args, "supervisor_target", TARGET_UNIT)
     supervisor_cmd = [
         "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
-        "-strace", SUPERVISOR, UNIT_ROOT, TARGET_UNIT,
+        "-strace", SUPERVISOR, UNIT_ROOT, supervisor_target,
     ]
 
     started = time.monotonic()
@@ -250,11 +276,11 @@ def namespace_helper(args: argparse.Namespace) -> int:
 
             if (
                 not status_attempted
-                and supervisor_seen
                 and (
                     control_seen
                     or (
-                        first_supervisor_seen is not None
+                        supervisor_seen
+                        and first_supervisor_seen is not None
                         and elapsed - first_supervisor_seen >= args.status_grace_seconds
                         and supervisor_count > 0
                     )
@@ -262,18 +288,11 @@ def namespace_helper(args: argparse.Namespace) -> int:
             ):
                 status_attempted = True
                 status_reason = "control-socket-observed" if control_seen else "live-supervisor-grace-expired"
-                status_cp = _run(
-                    [
-                        "chroot", str(root), QEMU_GUEST_PATH, "-cpu", CPU_PROFILE,
-                        "-strace", SVCTL, "status", "ctlmgr",
-                    ],
-                    timeout=10,
-                    env=env,
-                )
-                status_exit = status_cp.returncode
-                status_stdout_bytes = len(status_cp.stdout.encode("utf-8", errors="replace"))
-                status_stderr_bytes = len(status_cp.stderr.encode("utf-8", errors="replace"))
-                status_missing = r1.parse_missing_paths(status_cp.stderr)
+                status_result = run_svctl_status(root, env)
+                status_exit = status_result["exitCode"]
+                status_stdout_bytes = status_result["stdoutBytes"]
+                status_stderr_bytes = status_result["stderrBytes"]
+                status_missing = status_result["missingGuestPaths"]
 
             if tcp_now:
                 http_attempts.extend(r1.http_probe(tcp_now, response_dir))
@@ -295,6 +314,15 @@ def namespace_helper(args: argparse.Namespace) -> int:
         if control_after.get("type") == "socket":
             control_seen = True
 
+        if not status_attempted and control_after.get("type") == "socket":
+            status_attempted = True
+            status_reason = "control-socket-final-observed"
+            status_result = run_svctl_status(root, env)
+            status_exit = status_result["exitCode"]
+            status_stdout_bytes = status_result["stdoutBytes"]
+            status_stderr_bytes = status_result["stderrBytes"]
+            status_missing = status_result["missingGuestPaths"]
+
         tcp_after, unix_after = r1.observe_sockets()
         tcp_seen.update(tcp_after)
         unix_seen.update(unix_after)
@@ -314,7 +342,13 @@ def namespace_helper(args: argparse.Namespace) -> int:
                 supervisor_proc.wait(timeout=2)
 
     supervisor_err_text = supervisor_err.read_text(encoding="utf-8", errors="replace") if supervisor_err.exists() else ""
-    trace_evidence = fixed_trace_evidence(supervisor_err_text)
+    trace_evidence = fixed_trace_evidence(
+        supervisor_err_text,
+        {
+            "selected_target": f"{UNIT_ROOT}/{supervisor_target}",
+            "selected_target_relative": supervisor_target,
+        },
+    )
     elapsed_total = round(time.monotonic() - started, 3)
 
     # Keep only distinct public-safe HTTP metadata rows.
@@ -336,7 +370,7 @@ def namespace_helper(args: argparse.Namespace) -> int:
         "defaultRoutePresent": False,
         "cpuProfile": CPU_PROFILE,
         "supervisorPath": SUPERVISOR,
-        "supervisorArguments": [UNIT_ROOT, TARGET_UNIT],
+        "supervisorArguments": [UNIT_ROOT, supervisor_target],
         "supervisorLauncherExitCode": supervisor_proc.returncode,
         "supervisorExitedNaturallyBeforeCleanup": natural_exit_before_cleanup,
         "supervisorNaturalExitCode": natural_exit_code,
@@ -391,6 +425,7 @@ def run_namespace(root: pathlib.Path, result: pathlib.Path, args: argparse.Names
             "--startup-observe-seconds", str(args.startup_observe_seconds),
             "--sample-interval-seconds", str(args.sample_interval_seconds),
             "--status-grace-seconds", str(args.status_grace_seconds),
+            "--supervisor-target", str(getattr(args, "supervisor_target", TARGET_UNIT)),
         ],
         timeout=max(45, int(args.startup_observe_seconds) + 30),
     )
@@ -428,12 +463,13 @@ def run_probe(args: argparse.Namespace) -> dict:
         if not header or header.get("machineName") != "MIPS":
             raise RuntimeError(f"candidate absent/not MIPS: {guest}")
 
-    unit_path = root / UNIT_ROOT.lstrip("/") / TARGET_UNIT
+    unit_path = root / UNIT_ROOT.lstrip("/") / args.supervisor_target
     if not unit_path.is_file():
-        raise RuntimeError("ctlmgr.service absent from exact root")
+        raise RuntimeError(f"supervisor target absent from exact root: {args.supervisor_target}")
 
     preflight = {
-        "ctlmgrUnitPresent": unit_path.is_file(),
+        "selectedTargetPresent": unit_path.is_file(),
+        "ctlmgrUnitPresent": (root / UNIT_ROOT.lstrip("/") / TARGET_UNIT).is_file(),
         "avmipcdUnitPresent": (root / r2.AVMIPCD_UNIT.lstrip("/")).is_file(),
         "psupportDataPresent": (root / r2.PSUPPORT_DATA.lstrip("/")).exists(),
         "controlSocketPresentBeforeLaunch": (root / CONTROL_SOCKET.lstrip("/")).exists(),
@@ -463,7 +499,7 @@ def run_probe(args: argparse.Namespace) -> dict:
         },
         "exactTreatment": {
             "supervisorPath": SUPERVISOR,
-            "supervisorArguments": [UNIT_ROOT, TARGET_UNIT],
+            "supervisorArguments": [UNIT_ROOT, args.supervisor_target],
             "statusController": SVCTL,
             "statusArguments": ["status", "ctlmgr"],
             "preflightPathPresence": preflight,
@@ -510,6 +546,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--startup-observe-seconds", type=float, default=3.0)
     p.add_argument("--sample-interval-seconds", type=float, default=0.05)
     p.add_argument("--status-grace-seconds", type=float, default=0.15)
+    p.add_argument(
+        "--supervisor-target",
+        choices=(TARGET_UNIT, "prodtest-network.target", "network.target"),
+        default=TARGET_UNIT,
+    )
     p.add_argument("--namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
