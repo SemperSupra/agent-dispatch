@@ -1,14 +1,6 @@
 name: WRT3200ACM GET_HW_SPEC Semantics
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/wrt3200acm-gethwspec-semantics.yml'
-      - 'scripts/wrt3200acm_gethwspec_semantics.py'
-      - 'scripts/wrt3200acm_gethwspec_unicorn.py'
-      - 'scripts/wrt3200acm_dispatch_probe.py'
-      - 'scripts/wrt3200acm_fw_to_elf.py'
-      - 'tests/test_wrt3200acm_gethwspec_semantics.py'
   workflow_dispatch:
 
 permissions:

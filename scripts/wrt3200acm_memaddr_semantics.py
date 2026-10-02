@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Evidence-backed semantic probe and minimal rehost for 88W8964 MEM_ADDR_ACCESS.
-
-Only selector 0 is modeled because its handler behavior is directly recoverable
-from the pinned firmware and open host structure. Other selectors stay UNKNOWN.
-"""
+"""Evidence-backed semantics and bounded rehost for 88W8964 MEM_ADDR_ACCESS."""
 from __future__ import annotations
 
 import argparse
@@ -29,123 +25,148 @@ LENGTH_OFF=12
 SELECTOR_OFF=14
 VALUES_OFF=16
 MAX_WORDS=64
+SELECTOR2_BYTES=256
 
-class UnknownSelector(NotImplementedError):
-    pass
+def read_elf_load_u32(elf:Path,address:int)->int:
+    d=elf.read_bytes()
+    if d[:4]!=b"\x7fELF" or d[4]!=1 or d[5]!=1:
+        raise ValueError("expected ELF32 little-endian")
+    phoff=struct.unpack_from("<I",d,28)[0]
+    phentsize=struct.unpack_from("<H",d,42)[0]
+    phnum=struct.unpack_from("<H",d,44)[0]
+    for i in range(phnum):
+        off=phoff+i*phentsize
+        typ,fo,va,_pa,fs,_ms,_fl,_al=struct.unpack_from("<IIIIIIII",d,off)
+        if typ==1 and va<=address and address+4<=va+fs:
+            return struct.unpack_from("<I",d,fo+(address-va))[0]
+    raise ValueError(f"address 0x{address:x} not in PT_LOAD")
 
-def parse_command(buf: bytes|bytearray) -> dict[str,int]:
+def parse_command(buf:bytes|bytearray)->dict[str,int]:
     if len(buf)<VALUES_OFF:
-        raise ValueError("command buffer shorter than 16-byte MEM_ADDR_ACCESS prefix")
-    cmd,length_header=struct.unpack_from("<HH",buf,0)
-    address=struct.unpack_from("<I",buf,ADDRESS_OFF)[0]
-    count=struct.unpack_from("<H",buf,LENGTH_OFF)[0]
-    selector=struct.unpack_from("<H",buf,SELECTOR_OFF)[0]
-    return {"cmd":cmd,"header_len":length_header,"address":address,"count":count,"selector":selector}
+        raise ValueError("command buffer shorter than MEM_ADDR_ACCESS prefix")
+    cmd,header_len=struct.unpack_from("<HH",buf,0)
+    return {
+        "cmd":cmd,
+        "header_len":header_len,
+        "address":struct.unpack_from("<I",buf,ADDRESS_OFF)[0],
+        "count":struct.unpack_from("<H",buf,LENGTH_OFF)[0],
+        "selector":struct.unpack_from("<H",buf,SELECTOR_OFF)[0],
+    }
 
-def execute_selector0(buf: bytes|bytearray, read32: Callable[[int],int]) -> bytes:
-    """Semantic rehost of the proven selector-0 path.
-
-    The firmware caps length at 64 dwords, reads sequential 32-bit words from
-    address + 4*i, and writes each result little-endian at response +16+4*i.
-    """
-    fields=parse_command(buf)
-    if fields["cmd"] & 0x7fff != COMMAND_ID:
-        raise ValueError(f"not MEM_ADDR_ACCESS: 0x{fields['cmd']:04x}")
-    if fields["selector"] != 0:
-        raise UnknownSelector(f"selector {fields['selector']} is intentionally not modeled")
-    if fields["count"]>MAX_WORDS:
-        raise ValueError("firmware rejects MEM_ADDR_ACCESS length > 64")
-    out=bytearray(buf)
-    need=VALUES_OFF+4*fields["count"]
-    if len(out)<need:
-        out.extend(b"\x00"*(need-len(out)))
-    for i in range(fields["count"]):
-        value=read32((fields["address"]+4*i)&0xffffffff)&0xffffffff
-        struct.pack_into("<I",out,VALUES_OFF+4*i,value)
-    return bytes(out)
-
-def make_request(address:int,count:int,selector:int=0,header_len:int=272)->bytes:
-    buf=bytearray(max(header_len,VALUES_OFF+4*count))
+def make_request(address:int,count:int,selector:int=0,header_len:int=272,value0:int=0)->bytes:
+    buf=bytearray(max(header_len,VALUES_OFF+4*max(count,1)))
     struct.pack_into("<HH",buf,0,COMMAND_ID,header_len)
     struct.pack_into("<I",buf,ADDRESS_OFF,address&0xffffffff)
-    struct.pack_into("<H",buf,LENGTH_OFF,count)
-    struct.pack_into("<H",buf,SELECTOR_OFF,selector)
+    struct.pack_into("<H",buf,LENGTH_OFF,count&0xffff)
+    struct.pack_into("<H",buf,SELECTOR_OFF,selector&0xffff)
+    struct.pack_into("<I",buf,VALUES_OFF,value0&0xffffffff)
     return bytes(buf)
 
-def verify_disassembly(text:str)->dict[str,Any]:
+def execute(
+    buf:bytes|bytearray,
+    *,
+    read32:Callable[[int],int]|None=None,
+    write32:Callable[[int,int],None]|None=None,
+    read_block:Callable[[int,int],bytes]|None=None,
+    selector3_values:tuple[int,int]|None=None,
+)->bytes:
+    f=parse_command(buf)
+    if f["cmd"]&0x7fff!=COMMAND_ID:
+        raise ValueError(f"not MEM_ADDR_ACCESS: 0x{f['cmd']:04x}")
+    out=bytearray(buf)
+    if len(out)<VALUES_OFF+SELECTOR2_BYTES:
+        out.extend(b"\x00"*(VALUES_OFF+SELECTOR2_BYTES-len(out)))
+
+    if f["selector"]==0:
+        if read32 is None:
+            raise ValueError("selector 0 requires read32")
+        if f["count"]>MAX_WORDS:
+            raise ValueError("firmware rejects MEM_ADDR_ACCESS length > 64")
+        for i in range(f["count"]):
+            struct.pack_into("<I",out,VALUES_OFF+4*i,read32((f["address"]+4*i)&0xffffffff)&0xffffffff)
+        return bytes(out)
+
+    if f["selector"]==1:
+        if write32 is None:
+            raise ValueError("selector 1 requires write32")
+        write32(f["address"],struct.unpack_from("<I",out,VALUES_OFF)[0])
+        return bytes(out)
+
+    if f["selector"]==2:
+        if read_block is None:
+            raise ValueError("selector 2 requires read_block")
+        block=read_block(f["address"],SELECTOR2_BYTES)
+        if len(block)!=SELECTOR2_BYTES:
+            raise ValueError("selector 2 requires exactly 256 bytes")
+        out[VALUES_OFF:VALUES_OFF+SELECTOR2_BYTES]=block
+        return bytes(out)
+
+    if f["selector"]==3:
+        if selector3_values is None:
+            raise ValueError("selector 3 requires recovered literal values")
+        struct.pack_into("<I",out,VALUES_OFF,selector3_values[0]&0xffffffff)
+        struct.pack_into("<I",out,VALUES_OFF+8,selector3_values[1]&0xffffffff)
+        return bytes(out)
+
+    raise ValueError(f"unsupported selector {f['selector']}")
+
+def verify_disassembly(handler:str,dispatcher_tail:str)->dict[str,Any]:
     anchors={
-        "selector_high_byte_at_15":r"37e00:.*ldrb\s+r0, \[r4, #15\]",
-        "selector_low_byte_at_14":r"37e04:.*ldrb\s+r1, \[r4, #14\]",
-        "selector0_branch":r"37e0c:.*beq\s+0x37e2c",
-        "selector1_compare":r"37e10:.*cmp\s+r0, #1",
-        "selector2_compare":r"37e18:.*cmp\s+r0, #2",
-        "selector3_compare":r"37e20:.*cmp\s+r0, #3",
-        "length_high_at_13":r"37e2c:.*ldrb\s+r1, \[r4, #13\]",
-        "length_low_at_12":r"37e30:.*ldrb\s+r0, \[r4, #12\]",
-        "length_cap_64":r"37e38:.*cmp\s+r2, #64",
-        "address_bytes_8_11":r"37e44:.*\[r4, #9\][\s\S]*37e48:.*\[r4, #8\][\s\S]*37e4c:.*\[r4, #10\][\s\S]*37e50:.*\[r4, #11\]",
-        "read32_postincrement":r"37e68:.*ldr\s+r3, \[r1\], #4",
-        "response_byte0_at_16":r"37e78:.*strb\s+r3, \[r2, #16\]",
-        "response_byte1_at_17":r"37e80:.*strb\s+r5, \[r2, #17\]",
-        "response_byte2_at_18":r"37e88:.*strb\s+r12, \[r2, #18\]",
-        "response_byte3_at_19":r"37e90:.*strb\s+r3, \[r2, #19\]",
-        "loop_back":r"37ea4:.*bhi\s+0x37e68",
-        "selector1_helper":r"37ee8:.*b\s+0x3872c",
-        "selector2_buffer_at_16":r"37f00:.*add\s+r0, r4, #16",
+        "selector_decode":r"37e00:.*\[r4, #15\][\s\S]*37e04:.*\[r4, #14\]",
+        "selector0_length_cap":r"37e38:.*cmp\s+r2, #64",
+        "selector0_read32":r"37e68:.*ldr\s+r3, \[r1\], #4",
+        "selector1_address_value":r"37eac:.*\[r4, #8\][\s\S]*37ed0:.*\[r4, #16\][\s\S]*37ee8:.*b\s+0x3872c",
+        "selector1_store32":r"3872c:.*str\s+r1, \[r0\]",
+        "selector2_dest_value_array":r"37f00:.*add\s+r0, r4, #16",
         "selector2_size_256":r"37f08:.*mov\s+r2, #256",
-        "selector2_helper":r"37f10:.*b\s+0x38a6c",
+        "selector2_branch_copy":r"37f10:.*b\s+0x38a6c",
+        "selector2_copy_call":r"38a6c:.*bl\s+0x25f0",
+        "selector3_literal_a":r"37f14:.*@ 0x383a8",
+        "selector3_literal_b":r"37f18:.*@ 0x38384",
+        "selector3_store_value0":r"37f1c:.*\[r4, #16\]",
+        "selector3_store_value2":r"37f24:.*\[r4, #24\]",
     }
-    observed={k:bool(re.search(v,text,re.M)) for k,v in anchors.items()}
-    missing=[k for k,v in observed.items() if not v]
-    return {"anchors":observed,"missing":missing,"all_required_present":not missing}
+    joined=handler+"\n"+dispatcher_tail
+    observed={k:bool(re.search(v,joined,re.M)) for k,v in anchors.items()}
+    return {"anchors":observed,"missing":[k for k,v in observed.items() if not v],"all_required_present":all(observed.values())}
 
 def main()->int:
     ap=argparse.ArgumentParser()
     ap.add_argument("--elf",required=True)
     ap.add_argument("--out",required=True)
     ns=ap.parse_args()
-    elf=Path(ns.elf)
-    out=Path(ns.out); out.mkdir(parents=True,exist_ok=True)
-    disasm=dispatch.run_objdump(elf,HANDLER_START,HANDLER_END)
-    verification=verify_disassembly(disasm)
+    elf=Path(ns.elf); out=Path(ns.out); out.mkdir(parents=True,exist_ok=True)
+    handler=dispatch.run_objdump(elf,HANDLER_START,HANDLER_END)
+    tail=dispatch.run_objdump(elf,0x3871c,0x38a74)
+    memcpy_disasm=dispatch.run_objdump(elf,0x25f0,0x2664)
+    verification=verify_disassembly(handler,tail)
+    selector3=(read_elf_load_u32(elf,0x383a8),read_elf_load_u32(elf,0x38384))
     report={
-        "schema":"wrt8964-mem-addr-access-semantics/v1",
+        "schema":"wrt8964-mem-addr-access-semantics/v2",
         "firmware_handler":{"command_id":"0x001d","start":"0x00037de8","end":"0x00037f58"},
         "host_layout":{
             "header_size":HEADER_SIZE,
             "address":{"offset":ADDRESS_OFF,"size":4,"encoding":"little-endian"},
-            "length":{"offset":LENGTH_OFF,"size":2,"encoding":"little-endian","unit":"32-bit words","max":64},
-            "reserved_selector":{"offset":SELECTOR_OFF,"size":2,"encoding":"little-endian"},
+            "length":{"offset":LENGTH_OFF,"size":2,"encoding":"little-endian","unit":"32-bit words","selector0_max":64},
+            "selector":{"offset":SELECTOR_OFF,"size":2,"encoding":"little-endian"},
             "value":{"offset":VALUES_OFF,"element_size":4,"count":64,"encoding":"little-endian"},
             "source":"kaloz/mwlwifi@db97edf20fadea2617805006f5230665fadc6a8c hif/hostcmd.h"
         },
         "selector_semantics":{
-            "0":{
-                "status":"observed",
-                "behavior":"Read length sequential 32-bit words beginning at address and write them little-endian to response value[] at offset 16.",
-                "address_step_bytes":4,
-                "length_cap_words":64,
-                "rehost_function":"execute_selector0"
-            },
-            "1":{
-                "status":"partially-observed",
-                "behavior":"Loads address from +8 and value[0] from +16 then branches to helper 0x0003872c; helper semantics unresolved."
-            },
-            "2":{
-                "status":"partially-observed",
-                "behavior":"Loads address from +8, passes response buffer at +16 and size 0x100 to helper 0x00038a6c; helper semantics unresolved."
-            },
-            "3":{
-                "status":"partially-observed",
-                "behavior":"Writes two firmware constants into response at +16 and +24; constant meanings unresolved."
-            }
+            "0":{"status":"observed","behavior":"Read length sequential 32-bit words from address and return them in value[].","max_words":64},
+            "1":{"status":"observed","behavior":"Write value[0] as a 32-bit word directly to address.","terminal_store":"0x0003872c: str r1,[r0]"},
+            "2":{"status":"observed","behavior":"Copy exactly 256 bytes from address into response value[] at +16.","copy_path":"0x00038a6c -> 0x000025f0","bytes":256},
+            "3":{"status":"observed","behavior":"Return two firmware literals in value[0] and value[2].","value0":f"0x{selector3[0]:08x}","value2":f"0x{selector3[1]:08x}","literal_addresses":["0x000383a8","0x00038384"]},
         },
         "disassembly_verification":verification,
-        "guardrail":"The semantic rehost models selector 0 only. Selectors 1-3 and the optional pre-handler call at 0x000363e4 remain explicit UNKNOWNs until independently recovered.",
+        "memcpy_probe":{"instructions":dispatch.parse_instructions(memcpy_disasm)},
+        "guardrail":"These semantics describe the directly recovered selector paths only. The optional pre-handler at 0x000363e4 remains outside the model unless its enabling state is present."
     }
     (out/"mem-addr-access-semantics.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
-    (out/"mem-addr-access-disassembly.txt").write_text(disasm)
-    print(json.dumps({"all_required_present":verification["all_required_present"],"missing":verification["missing"]},indent=2))
+    (out/"mem-addr-access-disassembly.txt").write_text(handler)
+    (out/"mem-addr-access-selector-tail.txt").write_text(tail)
+    (out/"memcpy-0x25f0.txt").write_text(memcpy_disasm)
+    print(json.dumps({"verification":verification,"selector3":[f"0x{x:08x}" for x in selector3]},indent=2))
     return 0 if verification["all_required_present"] else 3
 
 if __name__=="__main__":
