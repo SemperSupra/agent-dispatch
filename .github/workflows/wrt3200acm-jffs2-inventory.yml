@@ -1,0 +1,58 @@
+name: WRT3200ACM Stock JFFS2 Inventory
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wrt3200acm-jffs2-inventory.yml'
+      - 'scripts/wrt3200acm_jffs2_inventory.py'
+      - 'tests/test_wrt3200acm_jffs2_inventory.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory-stock-rootfs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test JFFS2 metadata parser
+        run: python3 -m unittest -v tests/test_wrt3200acm_jffs2_inventory.py
+      - name: Acquire pinned stock firmware
+        shell: bash
+        env:
+          FW_URL: https://downloads.linksys.com/support/assets/firmware/FW_WRT3200ACM_1.0.9.211585_prod.img
+          FW_SHA256: 4c4cdeec1f4c3eb15ae597b225dd75874eff1893dbe0fafc67ddd0b03e17198c
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-jffs/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/wrt-jffs/stock.img"
+          echo "$FW_SHA256  $RUNNER_TEMP/wrt-jffs/stock.img" | sha256sum -c -
+      - name: Inventory stock JFFS2 metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_jffs2_inventory.py \
+            "$RUNNER_TEMP/wrt-jffs/stock.img" \
+            --offset 0x600000 \
+            --out "$RUNNER_TEMP/wrt-jffs/evidence/stock-jffs2-inventory.json"
+      - name: Verify metadata-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m json.tool "$RUNNER_TEMP/wrt-jffs/evidence/stock-jffs2-inventory.json" >/dev/null
+          if find "$RUNNER_TEMP/wrt-jffs/evidence" -type f \( -name '*.bin' -o -name '*.img' -o -name '*.jffs2' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+      - name: Upload derived JFFS2 inventory
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-stock-jffs2-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-jffs/evidence
+          if-no-files-found: warn
+          retention-days: 7
