@@ -154,7 +154,7 @@ jobs:
             # Single-file publish embeds Microsoft.Playwright.dll but does not
             # reliably carry the complete bundled Node/CLI driver tree. The
             # .NET runtime still requires that tree beside the executable.
-            $driverSource = Get-ChildItem (Join-Path $PWD 'prototype/suprachat/SupraChat/bin/Release') -Directory -Filter '.playwright' -Recurse -ErrorAction SilentlyContinue |
+            $driverSource = Get-ChildItem (Join-Path $PWD 'prototype/suprachat/SupraChat/bin/Release') -Force -Directory -Filter '.playwright' -Recurse -ErrorAction SilentlyContinue |
               Where-Object {
                 Test-Path (Join-Path $_.FullName 'package/cli.js')
               } |
