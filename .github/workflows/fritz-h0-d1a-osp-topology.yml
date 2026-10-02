@@ -1,0 +1,77 @@
+name: FRITZ H0 D1a OSP topology
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d1a-osp-topology.yml'
+      - 'scripts/fritz_h0_d1a_osp_topology.py'
+      - 'tests/test_fritz_h0_d1a_osp_topology.py'
+      - 'docs/fritz-h0-d1a-osp-topology.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate OSP census reducer
+        run: python3 -m unittest -v tests/test_fritz_h0_d1a_osp_topology.py
+
+  exact-osp-h0-d1a:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Census exact AVM 8.25 OSP archive
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d1a" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d1a_osp_topology.py \
+            --osp-url 'https://osp.avm.de/fritzbox/fritzbox-7590/source-files-FRITZ.Box_7590-grx5-08.25.tar.gz' \
+            --expected-size 633140613 \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d1a" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce metadata-only boundary
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "fritz-receipt" / "receipt.json"
+          r = json.loads(p.read_text())
+          assert r.get("oracleSatisfied") is True, r
+          a = r.get("sourceArtifact", {})
+          assert a.get("observedBytes") == 633140613
+          assert a.get("rawArchivePublished") is False
+          b = r.get("interpretationBoundary", {})
+          assert b.get("partitionLayoutAccepted") is False
+          assert b.get("dualBootSafetyAccepted") is False
+          s = r.get("safety", {})
+          for key in (
+              "rawOspArchivePublished","sourcePayloadPublished",
+              "physicalRouterContact","flashWriteAuthorized",
+              "bootEnvironmentMutationAuthorized",
+          ):
+              assert s.get(key) is False, (key, s.get(key))
+          print(json.dumps({
+              "classification": r.get("classification"),
+              "sourceArtifact": a,
+              "topology": r.get("topology"),
+              "interpretationBoundary": b,
+          }, sort_keys=True))
+          PY
+      - name: Upload sanitized receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d1a-osp-topology-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
