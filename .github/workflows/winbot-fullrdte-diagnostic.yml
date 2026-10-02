@@ -15,10 +15,10 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 125
     env:
-      MASTER_MANIFEST_SHA: 'fad2b02f5bde4bc34d00bd41bc1383280e9c6a12'
-      EXPECTED_SOURCE_REVISION: 'fdc27c1c4aba48dfc575df855eb1351f85b82bf9'
-      EXPECTED_PROJECTION_IDENTITY: 'b617c8dc47a43fca870a89cffd5d45a5b5a13b0c797600e324774648a5d4ba44'
-      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20260930-03'
+      MASTER_MANIFEST_SHA: '26b43312dd451f85694ff8c297e44ac7f0a7942d'
+      EXPECTED_SOURCE_REVISION: '4220566a40afa90436b9ec82f2de9d608a40369b'
+      EXPECTED_PROJECTION_IDENTITY: 'd264f3357c083d9cf68ef48e4d3751eb91e1c6590488f79892cd24b4a04ec0ad'
+      ASSIGNMENT_ID: 'winbot-fullrdte-diag-20261002-01'
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -200,6 +200,26 @@ jobs:
           $receipt = Get-Content -LiteralPath (Join-Path $root 'reconstruction.json') -Raw | ConvertFrom-Json
           "CAPSULE_SHA256=$($receipt.capsule_sha256)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CAPSULE_B64_FILE=$(Join-Path $root 'capsule.b64')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Parse reconstructed WinBot control surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-fullrdte-staged\capsule'
+          $module = Join-Path $root 'projection\host\WinBot.psm1'
+          $entry = Join-Path $root 'run.ps1'
+          foreach ($path in @($module,$entry)) {
+            if (-not (Test-Path -LiteralPath $path)) { throw "required reconstructed script missing: $path" }
+            $tokens=$null; $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error ("{0}:{1}: {2}" -f $path,$_.Extent.StartLineNumber,$_.Message) }
+              throw "PowerShell parse preflight failed: $path"
+            }
+          }
+          $moduleText = [IO.File]::ReadAllText($module)
+          if (($moduleText -split 'function New-WinBotWorkCell').Count -ne 2) { throw 'expected exactly one New-WinBotWorkCell definition' }
+          if (($moduleText -split 'function Remove-WinBotWorkCell').Count -ne 2) { throw 'expected exactly one Remove-WinBotWorkCell definition' }
 
       - name: Install pinned result sealer
         shell: pwsh
