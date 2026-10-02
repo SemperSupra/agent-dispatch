@@ -1,0 +1,251 @@
+name: WinBot Master Storage Tail Probe
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-master-storage-tail-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      PROVISION_BLOB_SHA: f65f324d4df42de2d5d2c31579421bf845311870
+    steps:
+      - name: Exercise exact master storage-side sequence
+        id: probe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-master-storage-tail-probe'
+          $fixture = Join-Path $root 'fixture'
+          $provisionScript = Join-Path $root 'build-provision-vhd.ps1'
+          $provisionVhd = Join-Path $root 'provision.vhdx'
+          $buildVhd = Join-Path $root 'build.vhdx'
+          $publishedVhd = Join-Path $root 'published.vhdx'
+          $receiptPath = Join-Path $root 'receipt.json'
+          New-Item -ItemType Directory -Force -Path $root,$fixture,(Join-Path $fixture 'api'),(Join-Path $fixture 'tools') | Out-Null
+          foreach ($p in @('api\main.py','setup-service.ps1','setup-remote.ps1','tools\install-all.ps1','tools\stage-provision.ps1')) {
+            Set-Content -LiteralPath (Join-Path $fixture $p) -Value '# public-safe storage-tail fixture' -Encoding utf8
+          }
+
+          $receipt = [ordered]@{
+            schema_version = 1
+            authority = 'mark-e-deyoung/WinBot#70'
+            experiment_authority = 'SemperSupra/agent-dispatch-private#406'
+            source_revision = '4220566a40afa90436b9ec82f2de9d608a40369b'
+            runner = [ordered]@{
+              image_os = $env:ImageOS
+              image_version = $env:ImageVersion
+              runner_os = $env:RUNNER_OS
+              runner_arch = $env:RUNNER_ARCH
+            }
+            observations = [ordered]@{ whoami_priv_before = @(& whoami /priv) }
+            phases = [ordered]@{}
+            cleanup = [ordered]@{}
+            classification = 'SUPPORTED'
+          }
+
+          function Fail-Phase([hashtable]$phase,[System.Management.Automation.ErrorRecord]$err) {
+            $phase.state = 'FAIL'
+            $phase.error_type = $err.Exception.GetType().FullName
+            $phase.error_message = $err.Exception.Message
+            $phase.fully_qualified_error_id = [string]$err.FullyQualifiedErrorId
+            $phase.category = [string]$err.CategoryInfo.Category
+            $phase.activity = [string]$err.CategoryInfo.Activity
+            $phase.reason = [string]$err.CategoryInfo.Reason
+            $phase.target_name = [string]$err.CategoryInfo.TargetName
+            $phase.script_line = [int]$err.InvocationInfo.ScriptLineNumber
+            $phase.command_name = [string]$err.InvocationInfo.MyCommand.Name
+            $receipt.classification = 'BOUNDARY_OBSERVED'
+          }
+
+          try {
+            $headers = @{
+              Authorization = "Bearer $env:GH_TOKEN"
+              Accept = 'application/vnd.github+json'
+              'X-GitHub-Api-Version' = '2022-11-28'
+            }
+            $blob = Invoke-RestMethod -Headers $headers -Uri ("https://api.github.com/repos/SemperSupra/agent-dispatch/git/blobs/" + $env:PROVISION_BLOB_SHA)
+            $raw = [Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+            [IO.File]::WriteAllBytes($provisionScript,$raw)
+            $gitHeader = [Text.Encoding]::ASCII.GetBytes(("blob " + $raw.Length + [char]0))
+            $sha1 = [Security.Cryptography.SHA1]::Create()
+            try {
+              $joined = New-Object byte[] ($gitHeader.Length + $raw.Length)
+              [Array]::Copy($gitHeader,0,$joined,0,$gitHeader.Length)
+              [Array]::Copy($raw,0,$joined,$gitHeader.Length,$raw.Length)
+              $observedBlob = ([BitConverter]::ToString($sha1.ComputeHash($joined)) -replace '-','').ToLowerInvariant()
+            } finally { $sha1.Dispose() }
+            if ($observedBlob -ne $env:PROVISION_BLOB_SHA) { throw 'provision script Git blob identity mismatch' }
+
+            $p0 = [ordered]@{ state='RUNNING'; current_step='build-provision' }
+            $receipt.phases['provision_build'] = $p0
+            try {
+              & $provisionScript -OutputPath $provisionVhd -GuestDir $fixture | Out-Null
+              $p0.current_step='test-vhd'
+              $p0.test_vhd=[bool](Test-VHD -Path $provisionVhd -ErrorAction Stop)
+              $p0.state=if($p0.test_vhd){'PASS'}else{'FAIL'}
+            } catch { Fail-Phase $p0 $_ }
+
+            $p1 = [ordered]@{ state='RUNNING'; current_step='compile-exact-privilege-shim' }
+            $receipt.phases['exact_privilege_shim'] = $p1
+            try {
+              Add-Type @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+namespace WinBotTailProbe { public static class WbPriv {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    private static extern bool OpenProcessToken(IntPtr h, uint a, out IntPtr t);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    private static extern bool LookupPrivilegeValue(string host, string name, out long luid);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    private static extern bool AdjustTokenPrivileges(IntPtr t, bool disable, ref long p, int len, IntPtr prev, IntPtr rel);
+    public static void Enable(string priv) {
+        IntPtr token;
+        if (!OpenProcessToken(System.Diagnostics.Process.GetCurrentProcess().Handle, 0x20|0x8, out token))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        long luid;
+        if (!LookupPrivilegeValue(null, priv, out luid))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        long enabled = ((long)2 << 32) | (long)luid;
+        if (!AdjustTokenPrivileges(token, false, ref enabled, Marshal.SizeOf(typeof(long))*2, IntPtr.Zero, IntPtr.Zero))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+}}
+"@
+              foreach ($priv in @('SeManageVolumePrivilege','SeBackupPrivilege','SeRestorePrivilege')) {
+                $p1.current_step = 'enable-' + $priv
+                [WinBotTailProbe.WbPriv]::Enable($priv)
+              }
+              $p1.whoami_priv_after = @(& whoami /priv)
+              $p1.state='PASS'
+            } catch { Fail-Phase $p1 $_ }
+
+            $p2 = [ordered]@{ state='RUNNING'; current_step='new-vhd-127gb' }
+            $receipt.phases['master_geometry_127gb'] = $p2
+            try {
+              New-VHD -Path $buildVhd -SizeBytes 127GB -Dynamic -ErrorAction Stop | Out-Null
+              $p2.current_step='mount-vhd'
+              $mount=Mount-VHD -Path $buildVhd -Passthru -ErrorAction Stop
+              Start-Sleep -Seconds 1
+              $p2.current_step='get-disk'
+              $diskNum=($mount | Get-Disk -ErrorAction Stop).Number
+              $p2.disk_number=[int]$diskNum
+              $p2.current_step='clear-disk'
+              Clear-Disk -Number $diskNum -RemoveData -RemoveOEM -Confirm:$false -ErrorAction SilentlyContinue
+              $p2.current_step='initialize-gpt'
+              Initialize-Disk -Number $diskNum -PartitionStyle GPT -ErrorAction Stop
+              Start-Sleep -Milliseconds 500
+              $autoMsr=Get-Partition -DiskNumber $diskNum -ErrorAction Stop | Where-Object { $_.GptType -eq '{e3c9e316-0b5c-4db8-817d-f92df00215ae}' }
+              if($autoMsr){
+                $p2.current_step='remove-auto-msr'
+                Remove-Partition -DiskNumber $diskNum -PartitionNumber $autoMsr.PartitionNumber -Confirm:$false -ErrorAction Stop
+              }
+              $p2.current_step='new-efi'
+              $efi=New-Partition -DiskNumber $diskNum -Size 100MB -GptType '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' -ErrorAction Stop
+              $p2.current_step='assign-s'
+              $efi | Set-Partition -NewDriveLetter S -ErrorAction Stop
+              $p2.current_step='format-efi'
+              Format-Volume -DriveLetter S -FileSystem FAT32 -NewFileSystemLabel 'EFI' -Confirm:$false -Force -ErrorAction Stop | Out-Null
+              $p2.current_step='new-msr'
+              New-Partition -DiskNumber $diskNum -Size 16MB -GptType '{e3c9e316-0b5c-4db8-817d-f92df00215ae}' -ErrorAction Stop | Out-Null
+              $p2.current_step='new-windows'
+              $win=New-Partition -DiskNumber $diskNum -UseMaximumSize -GptType '{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}' -ErrorAction Stop
+              $p2.current_step='assign-t'
+              $win | Set-Partition -NewDriveLetter T -ErrorAction Stop
+              $p2.current_step='format-windows'
+              Format-Volume -DriveLetter T -FileSystem NTFS -NewFileSystemLabel 'Windows' -Confirm:$false -Force -ErrorAction Stop | Out-Null
+              New-Item -ItemType Directory -Force -Path 'T:\Windows\Panther','T:\Windows\Setup\Scripts','T:\WinBot\logs' | Out-Null
+              $p2.state='PASS'
+            } catch { Fail-Phase $p2 $_ }
+
+            $p3 = [ordered]@{ state='RUNNING'; current_step='remount-provision' }
+            $receipt.phases['provision_remount_and_stage'] = $p3
+            try {
+              Dismount-VHD -Path $provisionVhd -ErrorAction SilentlyContinue
+              $pm=Mount-VHD -Path $provisionVhd -Passthru -ErrorAction Stop
+              Start-Sleep -Seconds 1
+              $pd=$pm | Get-Disk -ErrorAction Stop
+              $pp=Get-Partition -DiskNumber $pd.Number -ErrorAction Stop | Select-Object -First 1
+              $pv=$pp | Get-Volume -ErrorAction Stop
+              $drive=[string]$pv.DriveLetter
+              if(-not $drive){
+                $p3.current_step='assign-p'
+                $pp | Set-Partition -NewDriveLetter P -ErrorAction Stop
+                $drive='P'
+              }
+              $p3.current_step='copy-fixture'
+              Copy-Item (Join-Path ($drive + ':\') 'api') 'T:\WinBot\api' -Recurse -Force -ErrorAction Stop
+              Copy-Item (Join-Path ($drive + ':\') 'tools') 'T:\WinBot\tools' -Recurse -Force -ErrorAction Stop
+              Copy-Item (Join-Path ($drive + ':\') 'setup-remote.ps1') 'T:\WinBot\' -Force -ErrorAction Stop
+              Copy-Item (Join-Path ($drive + ':\') 'setup-service.ps1') 'T:\WinBot\' -Force -ErrorAction Stop
+              $p3.current_step='dismount-provision'
+              Dismount-VHD -Path $provisionVhd -ErrorAction Stop
+              $p3.state='PASS'
+            } catch { Fail-Phase $p3 $_ }
+
+            $p4 = [ordered]@{ state='RUNNING'; current_step='dismount-master' }
+            $receipt.phases['publish_finalize'] = $p4
+            try {
+              Dismount-VHD -Path $buildVhd -ErrorAction Stop
+              $p4.current_step='test-vhd-before-move'
+              $p4.test_vhd_before=[bool](Test-VHD -Path $buildVhd -ErrorAction Stop)
+              $p4.current_step='move-master'
+              Move-Item -LiteralPath $buildVhd -Destination $publishedVhd -ErrorAction Stop
+              $p4.current_step='test-vhd-after-move'
+              $p4.test_vhd_after=[bool](Test-VHD -Path $publishedVhd -ErrorAction Stop)
+              $p4.current_step='set-readonly'
+              Set-ItemProperty -Path $publishedVhd -Name IsReadOnly -Value $true -ErrorAction Stop
+              $p4.readonly_after=[bool](Get-Item -LiteralPath $publishedVhd).IsReadOnly
+              $p4.current_step='hash-master'
+              $p4.sha256=(Get-FileHash -LiteralPath $publishedVhd -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+              $p4.state=if($p4.test_vhd_before -and $p4.test_vhd_after -and $p4.readonly_after){'PASS'}else{'FAIL'}
+              if($p4.state -ne 'PASS'){ $receipt.classification='BOUNDARY_OBSERVED' }
+            } catch { Fail-Phase $p4 $_ }
+
+          } finally {
+            foreach($v in @($buildVhd,$publishedVhd,$provisionVhd)){
+              Dismount-VHD -Path $v -ErrorAction SilentlyContinue
+              if(Test-Path -LiteralPath $v){
+                try { Set-ItemProperty -Path $v -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue } catch {}
+                Remove-Item -LiteralPath $v -Force -ErrorAction SilentlyContinue
+              }
+            }
+            $receipt.cleanup.vhds_absent = -not (Test-Path -LiteralPath $buildVhd) -and -not (Test-Path -LiteralPath $publishedVhd) -and -not (Test-Path -LiteralPath $provisionVhd)
+            $receipt.cleanup.oracle_satisfied = [bool]$receipt.cleanup.vhds_absent
+            if(-not $receipt.cleanup.oracle_satisfied){ $receipt.classification='ORACLE_FAILURE' }
+            $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+          }
+
+          "classification=$($receipt.classification)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload probe receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-master-storage-tail-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-master-storage-tail-probe/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce bounded probe
+        if: always()
+        shell: pwsh
+        run: |
+          $p=Join-Path $env:RUNNER_TEMP 'winbot-master-storage-tail-probe\receipt.json'
+          if(-not (Test-Path -LiteralPath $p)){ throw 'probe receipt missing' }
+          $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          Write-Host "classification=$($r.classification)"
+          foreach($prop in $r.phases.PSObject.Properties){
+            Write-Host "$($prop.Name)=$($prop.Value.state) step=$($prop.Value.current_step) type=$($prop.Value.error_type)"
+          }
+          if($r.classification -eq 'ORACLE_FAILURE' -or -not $r.cleanup.oracle_satisfied){ throw 'probe cleanup/oracle failure' }
