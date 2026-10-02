@@ -43,6 +43,7 @@ function Write-InstallerEvent {
   try {
     New-Item -ItemType Directory -Force -Path $ObservabilityRoot | Out-Null
     $script:InstallerSequence++
+    $spanId = New-SpanId
     $record = [ordered]@{
       schema = 'suprachat-installer-event/v2'
       timestamp_utc = Get-UtcIsoTimestamp
@@ -53,7 +54,8 @@ function Write-InstallerEvent {
       outcome = $Outcome
       correlation_id = $CorrelationId
       trace_id = $TraceId
-      span_id = New-SpanId
+      span_id = $spanId
+      traceparent = "00-$TraceId-$spanId-01"
       parent_span_id = $null
       duration_ms = $DurationMs
       process_elapsed_ms = [long]$InstallerStarted.Elapsed.TotalMilliseconds
@@ -119,6 +121,7 @@ function Write-UninstallEvent {
   param([string]$Event,[string]$Outcome,[hashtable]$Fields=$null)
   try {
     New-Item -ItemType Directory -Force -Path $ObservabilityRoot | Out-Null
+    $spanId = [Guid]::NewGuid().ToString("N").Substring(0,16)
     $record = [ordered]@{
       schema = "suprachat-installer-event/v2"
       timestamp_utc = [DateTime]::UtcNow.ToString("O", [Globalization.CultureInfo]::InvariantCulture)
@@ -128,7 +131,8 @@ function Write-UninstallEvent {
       outcome = $Outcome
       correlation_id = $InstallSessionId
       trace_id = $TraceId
-      span_id = [Guid]::NewGuid().ToString("N").Substring(0,16)
+      span_id = $spanId
+      traceparent = "00-$TraceId-$spanId-01"
       fields = $Fields
     }
     ($record | ConvertTo-Json -Depth 5 -Compress) | Add-Content -LiteralPath $InstallerEventLog -Encoding UTF8
