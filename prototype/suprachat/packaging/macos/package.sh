@@ -32,6 +32,16 @@ done
 
 chmod +x "$MACOS/SupraChat" "$MACOS/SupraChat.Automation" "$RESOURCES/runtime/codex/codex"
 
+# Package lifecycle helpers before the outer app is sealed. The installer must
+# never add/remove files inside a signed app bundle after this point.
+cat > "$APP/Contents/Resources-uninstall.sh" <<'UNINSTALL'
+#!/usr/bin/env bash
+set -euo pipefail
+rm -f "${HOME}/.local/bin/suprachat-cli" "${HOME}/.local/bin/suprachat" "${HOME}/.local/bin/suprachat-gui"
+rm -rf "${HOME}/Applications/SupraChat.app"
+UNINSTALL
+chmod +x "$APP/Contents/Resources-uninstall.sh"
+
 # Playwright creates a hidden .links housekeeping directory in its browser
 # registry. It is not required at runtime and should not enter the resource seal.
 if [[ -d "$RESOURCES/runtime/browser/.links" ]]; then
