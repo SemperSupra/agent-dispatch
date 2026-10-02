@@ -1,0 +1,108 @@
+name: FRITZ E2 supervisor discovery
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-e2-supervisor-discovery.yml'
+      - 'scripts/fritz_qemu_e2_supervisor_discovery.py'
+      - 'scripts/fritz_qemu_user_probe.py'
+      - 'tests/test_fritz_qemu_e2_supervisor_discovery.py'
+      - 'docs/fritz-e2-supervisor-discovery.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate sanitized supervisor discovery
+        run: python3 -m unittest -v tests/test_fritz_qemu_e2_supervisor_discovery.py
+
+  exact-firmware-e2-supervisor:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install bounded analysis tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            binutils curl squashfs-tools
+      - name: Recover exact 8.25 supervisor/start metadata
+        id: probe
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-e2-supervisor" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_qemu_e2_supervisor_discovery.py \
+            --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+            --expected-size 42393600 \
+            --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+            --work-dir "${RUNNER_TEMP}/fritz-e2-supervisor" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce safety and print sanitized discovery
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "fritz-receipt" / "receipt.json"
+          r = json.loads(p.read_text())
+          s = r.get("safety", {})
+          for key in (
+              "rawFirmwarePublished",
+              "rootfsPublished",
+              "binaryPayloadPublished",
+              "rawSourceContentPublished",
+              "arbitraryExtractedStringsPublished",
+              "physicalRouterContact",
+              "routerMutationAuthorized",
+          ):
+              assert s.get(key) is False, (key, s.get(key))
+
+          assert r.get("oracleSatisfied") is True
+          d = r.get("discovery", {})
+          # Keep log output bounded to the most decision-useful surfaces.
+          marker_files = [
+              x for x in d.get("markerFiles", [])
+              if (
+                  "svctl" in x.get("contentMarkers", [])
+                  or "supervisor" in x.get("contentMarkers", [])
+                  or "svctl" in x.get("pathMarkers", [])
+                  or "supervisor" in x.get("pathMarkers", [])
+                  or x.get("path", "").endswith("/ctlmgr")
+              )
+          ]
+          print(json.dumps({
+              "classification": r.get("classification"),
+              "target": r.get("target"),
+              "extraction": r.get("extraction"),
+              "svctlPaths": d.get("svctlPaths"),
+              "supervisorNamedPaths": d.get("supervisorNamedPaths"),
+              "serviceRelations": d.get("serviceRelations"),
+              "relevantSymlinks": d.get("relevantSymlinks"),
+              "decisionMarkerFiles": marker_files,
+              "elfObjects": d.get("elfObjects"),
+          }, sort_keys=True))
+          sys.exit(0)
+          PY
+      - name: Upload sanitized receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-e2-supervisor-discovery-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
