@@ -11,8 +11,11 @@ import time
 
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
+
+BOOTSTRAP_METHODS = {"core.get_methods"}
+REQUIRED_DISCOVERED_METHODS = ["app.config","app.create","app.delete","app.query","app.start","app.stop","auth.login_ex","core.get_jobs","filesystem.mkdir","filesystem.stat","pool.dataset.create","pool.dataset.delete","pool.dataset.query","system.version"]
+
 SCHEMA = "semper-supra.wow-sidecar-truenas-t6-control/1"
-EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
 EXPECTED_APP_NAME = "rdte-t6-wow-sidecar"
 EXPECTED_IMAGE = "ghcr.io/sempersupra/wow-sidecar@sha256:6b700ce7ba5ae44116b240ccbb54fb3b60dc952a9b4072ca1314b6f311bc5376"
 EXPECTED_HELPER = "ixsystems/container-utils@sha256:46eba20714c1cc6784f60e245c32c33a2d9f616e47d804694a9854248c89a992"
@@ -97,6 +100,7 @@ def main() -> int:
     p.add_argument("--password-file", required=True)
     p.add_argument("--control-dir", type=pathlib.Path, required=True)
     p.add_argument("--foundry-commit", required=True)
+    p.add_argument("--target-version", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8.0)
@@ -109,7 +113,7 @@ def main() -> int:
         "schema": "truenas-wow-sidecar-foundry-t6/v1",
         "classification": "ORACLE_FAILURE",
         "oracleSatisfied": False,
-        "expected_version": EXPECTED_VERSION,
+        "expected_version": f"TrueNAS-{a.target_version}",
         "foundry_commit": a.foundry_commit,
         "app_name": EXPECTED_APP_NAME,
         "wow_image": EXPECTED_IMAGE,
@@ -191,9 +195,17 @@ def main() -> int:
         }])
         if not isinstance(auth, dict) or auth.get("response_type") != "SUCCESS":
             raise RuntimeError("authentication did not return SUCCESS")
+        method_map = call("core.get_methods", [])
+        if not isinstance(method_map, dict):
+            raise RuntimeError("core.get_methods did not return method map")
+        missing_methods = sorted(set(REQUIRED_DISCOVERED_METHODS) - set(method_map))
+        payload["bootstrap_probes"] = {"core.get_methods": True}
+        payload["missing_methods"] = missing_methods
+        if missing_methods:
+            raise RuntimeError(f"required product T6 methods missing: {missing_methods}")
 
         payload["system_version"] = call("system.version", [])
-        if payload["system_version"] != EXPECTED_VERSION:
+        if payload["system_version"] != payload["expected_version"]:
             raise RuntimeError("target version drifted")
 
         if call("app.query", [[["id", "=", EXPECTED_APP_NAME]]]):
