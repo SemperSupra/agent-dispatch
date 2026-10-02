@@ -66,7 +66,7 @@ jobs:
           GHIDRA_HOME="$(find "$RUNNER_TEMP/ghidra" -mindepth 1 -maxdepth 1 -type d -name 'ghidra_*' | head -1)"
           test -x "$GHIDRA_HOME/support/analyzeHeadless"
           mkdir -p "$RUNNER_TEMP/ghidra-project"
-          "$GHIDRA_HOME/support/analyzeHeadless"             "$RUNNER_TEMP/ghidra-project" wrt8964             -import "$RUNNER_TEMP/88W8964.elf"             -processor ARM:LE:32:v7             -analysisTimeoutPerFile 900             -scriptPath "$GITHUB_WORKSPACE/scripts/ghidra"             -postScript WrtRecoveryReport.java "$RUNNER_TEMP/wrt-ghidra-evidence/ghidra-report.json"             -deleteProject             | tee "$RUNNER_TEMP/wrt-ghidra-evidence/ghidra-headless.log"
+          "$GHIDRA_HOME/support/analyzeHeadless"             "$RUNNER_TEMP/ghidra-project" wrt8964             -import "$RUNNER_TEMP/88W8964.elf"             -processor ARM:LE:32:v7             -analysisTimeoutPerFile 900             -scriptPath "$GITHUB_WORKSPACE/scripts/ghidra"             -postScript WrtRecoveryReport.java "$RUNNER_TEMP/wrt-ghidra-evidence/ghidra-report.json"             -postScript WrtCandidateReport.java "$RUNNER_TEMP/wrt-ghidra-evidence/command-candidates.json"             -deleteProject             | tee "$RUNNER_TEMP/wrt-ghidra-evidence/ghidra-headless.log"
 
       - name: Assert public-safe evidence only
         shell: bash
