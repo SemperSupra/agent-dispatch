@@ -432,8 +432,6 @@ class EmbodimentControl:
             raise FabricError("provider lifecycle observation requires materialize effect")
         if provider_present_now and not provider_runtime_observed:
             raise ValueError("provider present requires runtime observation")
-        if provider_exit_observed and not provider_runtime_observed:
-            raise ValueError("provider exit requires runtime observation")
         if provider_exit_observed and provider_present_now:
             raise ValueError("provider cannot be present-now and exited")
 
@@ -454,10 +452,8 @@ class EmbodimentControl:
             }
 
         # A runtime observation can arrive while the start acknowledgement is
-        # still pending.  A terminal-first observation proves both that the
-        # provider existed and that it has already exited, so apply both
-        # transitions in semantic order.
-        if body.callback_pending and body.state in {
+        # still pending. Strong runtime-start evidence permits the start transition.
+        if provider_runtime_observed and body.callback_pending and body.state in {
             BodyState.MATERIALIZING,
             BodyState.FAILED_RETRYABLE,
             BodyState.DRAINING,
@@ -486,6 +482,17 @@ class EmbodimentControl:
             }:
                 self.fabric.provider_exit(body.body_id)
                 transitions.append("provider_exit")
+            elif (
+                body.state in {
+                    BodyState.DRAINING,
+                    BodyState.EXPIRED,
+                    BodyState.DEMATERIALIZING,
+                }
+                and not body.provider_present
+                and body.callback_pending
+            ):
+                self.fabric.settle_provider_absent(body.body_id)
+                transitions.append("settle_provider_absent")
             elif body.state in {
                 BodyState.DEMATERIALIZING,
                 BodyState.DEMATERIALIZED,
@@ -497,6 +504,13 @@ class EmbodimentControl:
             } and not body.provider_present:
                 # Already reconciled to provider-absent cleanup/terminal state.
                 pass
+            elif (
+                body.state in {BodyState.MATERIALIZING, BodyState.FAILED_RETRYABLE}
+                and not body.provider_present
+                and not provider_runtime_observed
+            ):
+                self.fabric.block_unconfirmed_materialization(body.body_id)
+                transitions.append("block_unconfirmed_materialization")
             else:
                 raise FabricError("provider exit cannot reconcile from current body state")
         elif provider_present_now:
