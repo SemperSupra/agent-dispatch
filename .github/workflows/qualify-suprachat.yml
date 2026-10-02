@@ -22,17 +22,35 @@ jobs:
             codex_asset: codex-x86_64-pc-windows-msvc.exe
             codex_sha256: 57e1bdab42c0559a74558ca17e85d5c7893caa5f1e582f67e9ddd6d97fa705a7
             codex_archive: false
+          - os: windows-11-arm
+            rid: win-arm64
+            artifact: suprachat-windows-arm64
+            codex_asset: codex-aarch64-pc-windows-msvc.exe
+            codex_sha256: 8ae6a5ee311c73c3a41843960c801038fdfe0a68fc6667c63e69baa53d69de31
+            codex_archive: false
           - os: ubuntu-24.04
             rid: linux-x64
             artifact: suprachat-linux-x64
             codex_asset: codex-x86_64-unknown-linux-musl.tar.gz
             codex_sha256: b48ca1b2d6b1bf42b944e02c3d937c898e24651916684cdc35fdedf31b291bcb
             codex_archive: true
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+            artifact: suprachat-linux-arm64
+            codex_asset: codex-aarch64-unknown-linux-musl.tar.gz
+            codex_sha256: cd5f307b3fcd6080773e684b86c3114a67d4f1c61dc447be09876b552eb4bea7
+            codex_archive: true
           - os: macos-26
             rid: osx-arm64
             artifact: suprachat-macos-arm64
             codex_asset: codex-aarch64-apple-darwin.tar.gz
             codex_sha256: 51de50a39ea592b5b0a64ae0474548c282181cb6b96d9bd08965a682ae12774c
+            codex_archive: true
+          - os: macos-26-intel
+            rid: osx-x64
+            artifact: suprachat-macos-x64
+            codex_asset: codex-x86_64-apple-darwin.tar.gz
+            codex_sha256: cbaea8206d3189b8a7cd7c1b476e14a541ab22d469c37253f758ff71d4ed24b7
             codex_archive: true
 
     runs-on: ${{ matrix.os }}
@@ -154,9 +172,14 @@ jobs:
             # Single-file publish embeds Microsoft.Playwright.dll but does not
             # reliably carry the complete bundled Node/CLI driver tree. The
             # .NET runtime still requires that tree beside the executable.
+            $playwrightNodePlatform = switch ('${{ matrix.rid }}') {
+              'osx-arm64' { 'darwin-arm64' }
+              'osx-x64' { 'darwin-x64' }
+              default { throw "Unsupported macOS RID for Playwright driver: ${{ matrix.rid }}" }
+            }
             $nugetDriverRoot = Join-Path $HOME '.nuget/packages/microsoft.playwright/1.63.0/.playwright'
             $nugetDriverCli = Join-Path $nugetDriverRoot 'package/cli.js'
-            $nugetDriverNode = Join-Path $nugetDriverRoot 'node/darwin-arm64/node'
+            $nugetDriverNode = Join-Path $nugetDriverRoot "node/$playwrightNodePlatform/node"
 
             if ((Test-Path $nugetDriverCli) -and (Test-Path $nugetDriverNode)) {
               $driverSourcePath = $nugetDriverRoot
@@ -166,11 +189,11 @@ jobs:
               $driverSource = Get-ChildItem (Join-Path $PWD 'prototype/suprachat') -Force -Directory -Filter '.playwright' -Recurse -ErrorAction SilentlyContinue |
                 Where-Object {
                   (Test-Path (Join-Path $_.FullName 'package/cli.js')) -and
-                  (Test-Path (Join-Path $_.FullName 'node/darwin-arm64/node'))
+                  (Test-Path (Join-Path $_.FullName "node/$playwrightNodePlatform/node"))
                 } |
                 Select-Object -First 1
               if (-not $driverSource) {
-                throw 'Complete Playwright macOS arm64 driver tree was not found in NuGet cache or build outputs.'
+                throw "Complete Playwright $playwrightNodePlatform driver tree was not found in NuGet cache or build outputs."
               }
               $driverSourcePath = $driverSource.FullName
             }
@@ -182,9 +205,9 @@ jobs:
             Copy-Item $driverSourcePath $publishedDriverRoot -Recurse -Force
 
             $driverCli = Join-Path $publishedDriverRoot 'package/cli.js'
-            $driverNode = Join-Path $publishedDriverRoot 'node/darwin-arm64/node'
+            $driverNode = Join-Path $publishedDriverRoot "node/$playwrightNodePlatform/node"
             if (!(Test-Path $driverCli) -or !(Test-Path $driverNode)) {
-              throw 'Published macOS Playwright driver tree is incomplete after pinned NuGet materialization.'
+              throw "Published macOS Playwright $playwrightNodePlatform driver tree is incomplete after pinned NuGet materialization."
             }
             chmod +x $driverNode
           } else {
@@ -594,12 +617,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp prototype/suprachat/packaging/linux/install.sh out/linux-x64/install.sh
-          chmod +x out/linux-x64/install.sh
+          publish="$PWD/out/${{ matrix.rid }}"
+          cp prototype/suprachat/packaging/linux/install.sh "$publish/install.sh"
+          chmod +x "$publish/install.sh"
 
           test_home="$RUNNER_TEMP/suprachat-linux-home"
           mkdir -p "$test_home"
-          HOME="$test_home" bash out/linux-x64/install.sh
+          HOME="$test_home" bash "$publish/install.sh"
 
           test -x "$test_home/.local/opt/suprachat/SupraChat"
           test -x "$test_home/.local/opt/suprachat/SupraChat.Automation"
@@ -626,7 +650,7 @@ jobs:
           assert doc["value"]["human"]["screen_reader_semantics"] is True
           PY
 
-          HOME="$test_home" bash out/linux-x64/install.sh
+          HOME="$test_home" bash "$publish/install.sh"
           repair_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" doctor)"
           python3 - "$repair_json" <<'PY'
           import json,sys
@@ -646,8 +670,9 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x prototype/suprachat/packaging/macos/package.sh
+          rid='${{ matrix.rid }}'
           stage="$PWD/out/macos-package"
-          prototype/suprachat/packaging/macos/package.sh "$PWD/out/osx-arm64" "$stage"
+          prototype/suprachat/packaging/macos/package.sh "$PWD/out/$rid" "$stage"
           cp prototype/suprachat/packaging/macos/install.sh "$stage/install.sh"
           chmod +x "$stage/install.sh"
 
@@ -710,19 +735,20 @@ jobs:
           HOME="$test_home" bash "$stage/install.sh"
           codesign --verify --strict "$test_home/Applications/SupraChat.app"
           repair_json="$(HOME="$test_home" "$test_home/.local/bin/suprachat-cli" diagnostics)"
-          python3 - "$repair_json" <<'PY'
+          python3 - "$repair_json" '${{ matrix.rid }}' <<'PY'
           import json,sys
           doc=json.loads(sys.argv[1])
+          expected=sys.argv[2]
           assert doc["ok"] is True
-          assert doc["value"]["runtime_identifier"] == "osx-arm64"
+          assert doc["value"]["runtime_identifier"] == expected
           PY
 
           HOME="$test_home" bash "$test_home/Applications/SupraChat.app/Contents/Resources-uninstall.sh"
           test ! -e "$test_home/Applications/SupraChat.app"
           test ! -e "$test_home/.local/bin/suprachat-cli"
 
-          rm -rf "$PWD/out/osx-arm64"
-          mv "$stage" "$PWD/out/osx-arm64"
+          rm -rf "$PWD/out/${{ matrix.rid }}"
+          mv "$stage" "$PWD/out/${{ matrix.rid }}"
           echo 'macOS installed-state human/automation/agent smoke PASS.'
 
       - name: Stage Windows per-user installer
@@ -730,15 +756,16 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Copy-Item prototype/suprachat/packaging/windows/install.ps1 out/win-x64/install.ps1
-          Copy-Item prototype/suprachat/packaging/windows/Install-SupraChat.cmd out/win-x64/Install-SupraChat.cmd
+          $publish = Join-Path $PWD 'out/${{ matrix.rid }}'
+          Copy-Item prototype/suprachat/packaging/windows/install.ps1 (Join-Path $publish 'install.ps1')
+          Copy-Item prototype/suprachat/packaging/windows/Install-SupraChat.cmd (Join-Path $publish 'Install-SupraChat.cmd')
 
       - name: Windows installer smoke
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $source = Join-Path $PWD 'out/win-x64'
+          $source = Join-Path $PWD 'out/${{ matrix.rid }}'
           & (Join-Path $source 'install.ps1') -NoLaunch
 
           $installed = Join-Path $env:LOCALAPPDATA 'Programs/SupraChat'
@@ -976,7 +1003,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = Join-Path $PWD 'out/win-x64/SupraChat.exe'
+          $exe = Join-Path $PWD 'out/${{ matrix.rid }}/SupraChat.exe'
           $startupLog = Join-Path $env:RUNNER_TEMP 'suprachat-startup.log'
           $stdoutLog = Join-Path $env:RUNNER_TEMP 'suprachat-stdout.log'
           $stderrLog = Join-Path $env:RUNNER_TEMP 'suprachat-stderr.log'
@@ -1032,7 +1059,7 @@ jobs:
           Add-Type -AssemblyName UIAutomationClient
           Add-Type -AssemblyName UIAutomationTypes
 
-          $exe = Join-Path $PWD 'out/win-x64/SupraChat.exe'
+          $exe = Join-Path $PWD 'out/${{ matrix.rid }}/SupraChat.exe'
           $p = Start-Process -FilePath $exe -PassThru
           try {
             $deadline = (Get-Date).AddSeconds(20)
@@ -1047,7 +1074,7 @@ jobs:
                 $processCondition)
             }
 
-            $qualificationDir = Join-Path $PWD 'out/win-x64/qualification'
+            $qualificationDir = Join-Path $PWD 'out/${{ matrix.rid }}/qualification'
             New-Item -ItemType Directory -Force -Path $qualificationDir | Out-Null
             $receiptPath = Join-Path $qualificationDir 'windows-uia.json'
 
