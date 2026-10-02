@@ -52,6 +52,16 @@ jobs:
           assert b["numericValuesPublished"] is False
           assert b["stringValuesPublished"] is False
           assert b["exactValueToSlotMappingAccepted"] is False
+          if r["classification"] == "H0_D1E_SELECTOR_TABLE_SCHEMA_RECOVERED":
+              assert b["tableOwnershipRecovered"] is True
+              assert b["tableRelationshipsRecovered"] is True
+              assert r["schema"]["derived"]["resolvedOwnerCount"] > 0
+              assert r["schema"]["derived"]["resolvedOccurrenceCount"] > 0
+          else:
+              assert r["classification"] in (
+                  "H0_D1E_NO_TABLE_OWNER_RECOVERED",
+                  "H0_D1E_TABLE_OWNER_PARTIAL",
+              ), r["classification"]
           print(json.dumps({"classification":r["classification"],"schema":r["schema"],"interpretationBoundary":b},sort_keys=True))
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
