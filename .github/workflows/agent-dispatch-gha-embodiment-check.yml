@@ -1,0 +1,67 @@
+name: Agent Dispatch GHA Embodiment Adapter Check
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/agent-dispatch-gha-embodiment/**'
+      - '.github/workflows/agent-dispatch-gha-embodiment-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adapter-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Check Agent Dispatch GHA embodiment adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/experiments/agent-dispatch-gha-embodiment/evidence"
+          mkdir -p "$out"
+
+          sha256sum \
+            experiments/agent-dispatch-gha-embodiment/agent_dispatch_gha_actuator.py \
+            experiments/agent-dispatch-gha-embodiment/check_agent_dispatch_gha_actuator.py \
+            > "$out/source-sha256.txt"
+
+          (
+            cd experiments/agent-dispatch-gha-embodiment
+            python3 check_agent_dispatch_gha_actuator.py
+          ) | tee "$out/adapter-check.log"
+
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "experiments" / "agent-dispatch-gha-embodiment" / "evidence"
+          receipt = {
+              "schema": "agent-dispatch-gha-embodiment-check/v1",
+              "public_safe": True,
+              "source_authority": "mark-e-deyoung/personal-ops#97/#98",
+              "source": {
+                  "workflow_sha": os.environ.get("GITHUB_SHA", ""),
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              },
+              "result": {
+                  "adapter_contract_passed": True,
+              },
+          }
+          (out / "receipt.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+
+      - name: Upload GHA embodiment adapter evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agent-dispatch-gha-embodiment-check
+          path: experiments/agent-dispatch-gha-embodiment/evidence/
+          if-no-files-found: error
+          retention-days: 7
