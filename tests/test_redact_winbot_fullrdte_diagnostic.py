@@ -72,7 +72,16 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
                 info=tarfile.TarInfo(name)
                 info.size=len(raw)
                 tf.addfile(info, io.BytesIO(raw))
-            raw=b"DO-NOT-LEAK stdout"
+            raw=(
+                b"DO-NOT-LEAK stdout\n"
+                b"[1/5] Checking prerequisites...\n"
+                b"[2/5] Obtaining Windows ISO...\n"
+                b"[3/5] Building provisioning VHD...\n"
+                b"[4/5] Deploying Windows via DISM...\n"
+                b"  Applying Windows image (engine: Wimlib)...\n"
+                b"  Configuring boot loader...\n"
+                b"  Staging WinBot guest files...\n"
+            )
             info=tarfile.TarInfo("stdout.txt"); info.size=len(raw); tf.addfile(info,io.BytesIO(raw))
             raw=b"DO-NOT-LEAK stderr"
             info=tarfile.TarInfo("stderr.txt"); info.size=len(raw); tf.addfile(info,io.BytesIO(raw))
@@ -104,6 +113,12 @@ class FullRdteDiagnosticRedactorTests(unittest.TestCase):
             self.assertEqual(obj["full_rdte"]["persistence"]["b_drive_letter"],"Q")
             self.assertNotIn("api_token",obj["full_rdte"]["work_cells"]["a"])
             self.assertNotIn("canary",obj["full_rdte"]["persistence"])
+            self.assertEqual(
+                obj["progress"]["observed_build_stages"],
+                ["prerequisites","source-media","provisioning-vhd","windows-deployment","image-apply","bootloader","guest-file-staging"],
+            )
+            self.assertEqual(obj["progress"]["last_build_stage"],"guest-file-staging")
+            self.assertNotIn("DO-NOT-LEAK",json.dumps(obj["progress"]))
 
 
 if __name__ == "__main__":

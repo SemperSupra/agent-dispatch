@@ -14,6 +14,23 @@ import tarfile
 from pathlib import Path
 
 MAX_JSON_BYTES = 2 * 1024 * 1024
+MAX_TEXT_BYTES = 8 * 1024 * 1024
+
+BUILD_STAGE_PATTERNS = (
+    ("prerequisites", "[1/5] Checking prerequisites"),
+    ("source-media", "[2/5] Obtaining Windows ISO"),
+    ("provisioning-vhd", "[3/5] Building provisioning VHD"),
+    ("windows-deployment", "[4/5] Deploying Windows via DISM"),
+    ("master-vhd-geometry", "Creating VHDX (127 GB) and partitioning"),
+    ("image-apply", "Applying Windows image (engine:"),
+    ("bootloader", "Configuring boot loader"),
+    ("answer-file", "Deploying answer file"),
+    ("guest-file-staging", "Staging WinBot guest files"),
+    ("guest-file-staging-complete", "Guest files staged"),
+    ("windows-deployment-complete", "DISM deployment complete"),
+    ("master-finalization", "[5/5] Finalizing golden master"),
+    ("master-built", "Golden Master Built:"),
+)
 
 SAFE_BUILD = {
     "projection_authorized","free_bytes_before","switch_name","download_method",
@@ -75,6 +92,32 @@ def _load_member(tf: tarfile.TarFile, name: str) -> dict | None:
         raise SystemExit(f"could not read result member: {name}")
     return json.loads(fh.read().decode("utf-8-sig"))
 
+def _load_text_member(tf: tarfile.TarFile, name: str) -> str:
+    members = [m for m in tf.getmembers() if m.isfile() and m.name == name]
+    if not members:
+        return ""
+    if len(members) != 1:
+        raise SystemExit(f"unexpected duplicate result member: {name}")
+    m = members[0]
+    if m.size > MAX_TEXT_BYTES:
+        raise SystemExit(f"diagnostic text exceeds bound: {name}")
+    fh = tf.extractfile(m)
+    if fh is None:
+        raise SystemExit(f"could not read result member: {name}")
+    return fh.read().decode("utf-8", errors="replace")
+
+
+def _safe_progress(stdout_text: str) -> dict[str, object]:
+    observed: list[str] = []
+    for stage, token in BUILD_STAGE_PATTERNS:
+        if token in stdout_text:
+            observed.append(stage)
+    return {
+        "observed_build_stages": observed,
+        "last_build_stage": observed[-1] if observed else None,
+    }
+
+
 def _pick(source: dict | None, keys: set[str], *, clean_strings: bool = False) -> dict:
     source = source or {}
     out = {}
@@ -96,11 +139,13 @@ def main() -> int:
     with tarfile.open(result_tar, "r:gz") as tf:
         execution = _load_member(tf, "execution.json")
         full = _load_member(tf, "files/full-rdte.json")
+        stdout_text = _load_text_member(tf, "stdout.txt")
 
     diag: dict[str, object] = {
         "schema_version": 1,
         "scope": "redacted_fullrdte_diagnostic",
         "execution": _pick(execution, SAFE_EXEC),
+        "progress": _safe_progress(stdout_text),
         "full_rdte": None,
     }
     if full:
