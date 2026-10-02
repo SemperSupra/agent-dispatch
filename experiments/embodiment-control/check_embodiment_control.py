@@ -318,6 +318,44 @@ def main():
     assert collapsed["instance"]["state"] == "DEMATERIALIZING"
     assert collapsed["instance"]["provider_present"] is False
 
+
+
+    # Stop-during-start + terminal-first observation must clear late provider residue.
+    stopped = EmbodimentControl()
+    stopped.request_materialize(
+        caller(),
+        authority(),
+        intent_id="intent-stopped",
+        actor_id="actor-a",
+        body_instance_id="body-stopped",
+        resource="workcell:alpha",
+        capability_class="gha-public-workcell",
+        capabilities={"build"},
+        now=NOW,
+    )
+    stopped.request_effect(
+        caller(),
+        effect_id="effect-stopped",
+        intent_id="intent-stopped",
+        kind="materialize",
+        actuator_id="agent-dispatch:public-gha",
+        now=NOW,
+    )
+    stopped.fabric.admit("body-stopped")
+    stopped.fabric.dispatch("body-stopped")
+    stopped.fabric.request_stop("body-stopped")
+    stopped_result = stopped.reconcile_provider_observation(
+        caller(),
+        effect_id="effect-stopped",
+        provider_runtime_observed=True,
+        provider_present_now=False,
+        provider_exit_observed=True,
+        now=NOW + timedelta(seconds=8),
+    )
+    assert stopped_result["transitions"] == ["provider_start_ack", "provider_exit"]
+    assert stopped_result["instance"]["state"] == "DEMATERIALIZING"
+    assert stopped_result["instance"]["provider_present"] is False
+
     expired = ControlGrant(
         principal_id="surface:test",
         scopes=frozenset({"embodiments:read"}),
