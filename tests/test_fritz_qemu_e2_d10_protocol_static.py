@@ -1,5 +1,8 @@
 import importlib.util
+import io
 import pathlib
+import tarfile
+import tempfile
 import unittest
 
 SCRIPT = pathlib.Path(__file__).parents[1] / "scripts" / "fritz_qemu_e2_d10_protocol_static.py"
@@ -9,6 +12,31 @@ SPEC.loader.exec_module(d10)
 
 
 class D10Tests(unittest.TestCase):
+    def test_osp_generic_supervisor_word_is_not_source_surface(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = pathlib.Path(td) / "osp.tar.gz"
+            with tarfile.open(archive, "w:gz") as tf:
+                data = b"CPU enters supervisor mode"
+                info = tarfile.TarInfo("sources/kernel/linux/example.c")
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+            got = d10.osp_fixed_token_coverage(archive)
+        self.assertFalse(got["sourceSurfaceFound"])
+        self.assertEqual(got["genericSupervisorContentMatchCount"], 1)
+        self.assertEqual(got["strongContentTokenMatches"], [])
+
+    def test_osp_svctl_is_strong_source_surface(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = pathlib.Path(td) / "osp.tar.gz"
+            with tarfile.open(archive, "w:gz") as tf:
+                data = b"svctl protocol client"
+                info = tarfile.TarInfo("sources/example.c")
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+            got = d10.osp_fixed_token_coverage(archive)
+        self.assertTrue(got["sourceSurfaceFound"])
+        self.assertEqual(got["strongContentTokenMatches"][0]["tokens"], ["svctl"])
+
     def test_fixed_token_counts_are_bounded(self):
         data = b"start status ctlmgr supervisor supervisor.ctrl.socket restart"
         got = d10.fixed_token_counts(data)
