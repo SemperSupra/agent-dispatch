@@ -18,6 +18,7 @@ import struct
 import subprocess
 import sys
 import time
+import tarfile
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -225,6 +226,166 @@ def inspect_archive(path: Path) -> dict[str, Any]:
     result["7z_list"] = run(["7z", "l", "-ba", str(path)], timeout=120)
     return result
 
+def marvell_record_map(path: Path) -> dict[str, Any]:
+    """Parse the Marvell downloader record framing documented by ps4_wifi_bt.
+
+    This is a format probe, not an assumption that every family member uses
+    the same container. Unknown types or impossible sizes terminate the probe
+    and remain explicit evidence.
+    """
+    data = path.read_bytes()
+    off = 0
+    records: list[dict[str, Any]] = []
+    termination = "eof"
+    valid_prefix = True
+    while off + 16 <= len(data) and len(records) < 10000:
+        rtype, load_addr, load_size, checksum = struct.unpack_from("<IIII", data, off)
+        rec: dict[str, Any] = {
+            "index": len(records),
+            "file_offset": off,
+            "type": rtype,
+            "load_address": load_addr,
+            "load_size": load_size,
+            "header_checksum_field": checksum,
+        }
+        if rtype == 4:
+            rec["meaning"] = "end"
+            records.append(rec)
+            off += 16
+            termination = "type4-end"
+            break
+        if rtype == 6:
+            rec["meaning"] = "split-marker"
+            records.append(rec)
+            off += 16
+            continue
+        if rtype != 1:
+            rec["meaning"] = "unknown-type"
+            records.append(rec)
+            valid_prefix = False
+            termination = "unknown-type"
+            break
+        if load_size < 4 or off + 16 + load_size > len(data):
+            rec["meaning"] = "invalid-size"
+            records.append(rec)
+            valid_prefix = False
+            termination = "invalid-size"
+            break
+        payload_off = off + 16
+        payload_len = load_size - 4
+        payload = data[payload_off:payload_off + payload_len]
+        trailer = data[payload_off + payload_len:off + 16 + load_size]
+        rec.update({
+            "meaning": "load",
+            "payload_file_offset": payload_off,
+            "payload_size": payload_len,
+            "payload_end_address": load_addr + payload_len,
+            "payload_sha256": hashlib.sha256(payload).hexdigest(),
+            "trailer_hex": trailer.hex(),
+        })
+        records.append(rec)
+        off += 16 + load_size
+
+    return {
+        "schema": "marvell-download-record-map/v1",
+        "artifact_sha256": sha256_file(path),
+        "artifact_size": len(data),
+        "head_256_hex": data[:256].hex(),
+        "record_count": len(records),
+        "valid_prefix": valid_prefix,
+        "termination": termination,
+        "consumed_bytes": off,
+        "unconsumed_bytes": max(0, len(data) - off),
+        "records": records,
+        "provenance_note": (
+            "Record semantics probed against x0rloser/ps4_wifi_bt fw_to_elf.py prior art; "
+            "family compatibility must be independently validated."
+        ),
+    }
+
+
+def targeted_tar_listing(path: Path) -> dict[str, Any]:
+    pattern = re.compile(r"(?:88w|8964|8864|8897|8997|marvell|mwl|wlan|wireless|firmware|rango)", re.I)
+    matches: list[str] = []
+    count = 0
+    error = None
+    try:
+        with tarfile.open(path, "r:gz") as tf:
+            for member in tf:
+                count += 1
+                if pattern.search(member.name) and len(matches) < 10000:
+                    matches.append(member.name)
+    except Exception as exc:
+        error = repr(exc)
+    return {
+        "schema": "targeted-archive-listing/v1",
+        "artifact_sha256": sha256_file(path),
+        "member_count_seen": count,
+        "match_count_capped": len(matches),
+        "matches": matches,
+        "error": error,
+    }
+
+
+LEGACY_CMD_RE = re.compile(r"^\s*#define\s+(HostCmd_CMD_[A-Za-z0-9_]+)\s+(0x[0-9A-Fa-f]+)\b", re.M)
+
+
+def compare_legacy_8864(current_catalog: dict[str, Any], work: Path, out: Path) -> dict[str, Any]:
+    repo = work / "mrvl_wlan_v7drv"
+    clone = run([
+        "git", "clone", "--filter=blob:none", "--no-checkout",
+        "https://github.com/DrakiaXYZ/mrvl_wlan_v7drv.git", str(repo)
+    ], timeout=180)
+    if clone.get("rc") != 0:
+        result = {"schema": "legacy-hostcmd-overlap/v1", "status": "clone-failed", "detail": clone}
+        (out / "legacy-8864-hostcmd-overlap.json").write_text(json.dumps(result, indent=2) + "\n")
+        return result
+    legacy_ref = "d87a75953857f809d5cd80ed3acd14bf9ebc39c0"
+    checkout = run(["git", "checkout", "--detach", legacy_ref], cwd=repo, timeout=60)
+    if checkout.get("rc") != 0:
+        result = {"schema": "legacy-hostcmd-overlap/v1", "status": "checkout-failed", "detail": checkout}
+        (out / "legacy-8864-hostcmd-overlap.json").write_text(json.dumps(result, indent=2) + "\n")
+        return result
+
+    hp = repo / "wlan-v7" / "core" / "incl" / "hostcmd.h"
+    text = hp.read_text(errors="replace")
+    legacy = {}
+    for name, value_s in LEGACY_CMD_RE.findall(text):
+        suffix = name[len("HostCmd_CMD_"):]
+        legacy[suffix] = int(value_s, 16)
+    current = {
+        row["name"][len("HOSTCMD_CMD_"):]: int(row["value"])
+        for row in current_catalog["commands"]
+    }
+    common = sorted(set(legacy) & set(current))
+    same = [
+        {"name": n, "value": current[n], "hex": f"0x{current[n]:04x}"}
+        for n in common if current[n] == legacy[n]
+    ]
+    changed = [
+        {"name": n, "legacy": legacy[n], "current": current[n]}
+        for n in common if current[n] != legacy[n]
+    ]
+    result = {
+        "schema": "legacy-hostcmd-overlap/v1",
+        "status": "ok",
+        "legacy_ref": legacy_ref,
+        "legacy_hostcmd_sha256": sha256_file(hp),
+        "legacy_command_count": len(legacy),
+        "current_command_count": len(current),
+        "name_overlap_count": len(common),
+        "same_value_count": len(same),
+        "changed_value_count": len(changed),
+        "same_value": same,
+        "changed_value": changed,
+        "legacy_only": sorted(set(legacy) - set(current)),
+        "current_only": sorted(set(current) - set(legacy)),
+        "caveat": "Shared host command names/values establish protocol lineage, not firmware implementation identity."
+    }
+    (out / "legacy-8864-hostcmd-overlap.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return result
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -250,6 +411,7 @@ def main() -> int:
         return 2
 
     catalog = parse_mwlwifi(repo_dir, out)
+    legacy_overlap = compare_legacy_8864(catalog, work, out)
     inventory = {
         "schema": "wrt3200acm-cloud-inventory/v1",
         "manifest_sha256": sha256_file(manifest_path),
@@ -279,9 +441,16 @@ def main() -> int:
             strings_sample(dest, out)
             if src["kind"] in {"gpl-source-archive", "oem-firmware", "openwrt-image"}:
                 rec["archive_probe"] = inspect_archive(dest)
+            if src["kind"] == "gpl-source-archive":
+                targeted = targeted_tar_listing(dest)
+                (out / (dest.name + ".targeted-listing.json")).write_text(json.dumps(targeted, indent=2, sort_keys=True) + "\n")
+                rec["targeted_listing_report"] = dest.name + ".targeted-listing.json"
             if src["kind"] in {"target-radio-firmware", "related-radio-firmware", "third-radio-firmware"}:
                 rec["hostcmd_scan_report"] = dest.name + ".hostcmd-scan.json"
                 scan_command_words(dest, catalog["commands"], out)
+                rmap = marvell_record_map(dest)
+                (out / (dest.name + ".record-map.json")).write_text(json.dumps(rmap, indent=2, sort_keys=True) + "\n")
+                rec["record_map_report"] = dest.name + ".record-map.json"
             if src["kind"] == "target-radio-firmware":
                 target_blob = dest
         inventory["artifacts"].append(rec)
@@ -293,6 +462,8 @@ def main() -> int:
         "required_retrieved": sum(1 for x in inventory["artifacts"] if x["required"] and x["retrieval"].get("ok")),
         "optional_failed": [x["id"] for x in inventory["artifacts"] if not x["required"] and not x["retrieval"].get("ok")],
         "host_command_count": catalog["command_count"],
+        "legacy_8864_name_overlap_count": legacy_overlap.get("name_overlap_count"),
+        "legacy_8864_same_value_count": legacy_overlap.get("same_value_count"),
         "target_88w8964_sha256": sha256_file(target_blob) if target_blob and target_blob.exists() else None,
         "target_88w8964_size": target_blob.stat().st_size if target_blob and target_blob.exists() else None,
     }
