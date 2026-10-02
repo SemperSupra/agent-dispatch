@@ -33,14 +33,35 @@ def parse_hostcmd(text: str) -> dict[int, str]:
     return {int(v,16): n for n,v in CMD_RE.findall(text)}
 
 def run_objdump(elf: Path, start: int, end: int) -> str:
-    cmd=[
-        "arm-linux-gnueabi-objdump","-d","-M","reg-names-std",
-        f"--start-address=0x{start:x}",f"--stop-address=0x{end:x}",str(elf)
-    ]
-    cp=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False,timeout=120)
-    if cp.returncode:
-        raise RuntimeError("objdump failed: "+cp.stderr[-4000:])
-    return cp.stdout
+    """Disassemble the 0-based PT_LOAD even though the synthetic ELF is sectionless."""
+    data=elf.read_bytes()
+    if data[:4] != b"\x7fELF" or data[4] != 1 or data[5] != 1:
+        raise ValueError("expected ELF32 little-endian analysis container")
+    phoff=__import__("struct").unpack_from("<I",data,28)[0]
+    phentsize=__import__("struct").unpack_from("<H",data,42)[0]
+    phnum=__import__("struct").unpack_from("<H",data,44)[0]
+    segment=None
+    for i in range(phnum):
+        off=phoff+i*phentsize
+        p_type,p_offset,p_vaddr,_p_paddr,p_filesz,_p_memsz,_flags,_align=__import__("struct").unpack_from("<IIIIIIII",data,off)
+        if p_type==1 and p_vaddr==0:
+            segment=data[p_offset:p_offset+p_filesz]
+            break
+    if segment is None:
+        raise ValueError("0-based PT_LOAD not found")
+    raw=elf.with_name(elf.name+".seg0.tmp")
+    raw.write_bytes(segment)
+    try:
+        cmd=[
+            "arm-linux-gnueabi-objdump","-D","-b","binary","-m","arm","-EL","-M","reg-names-std",
+            f"--start-address=0x{start:x}",f"--stop-address=0x{end:x}",str(raw)
+        ]
+        cp=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False,timeout=120)
+        if cp.returncode:
+            raise RuntimeError("objdump failed: "+cp.stderr[-4000:])
+        return cp.stdout
+    finally:
+        raw.unlink(missing_ok=True)
 
 def parse_instructions(text: str) -> list[dict[str, Any]]:
     out=[]
