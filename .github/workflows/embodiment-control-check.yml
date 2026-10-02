@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/embodiment-control"
+          out="$GITHUB_WORKSPACE/experiments/embodiment-control/evidence"
           mkdir -p "$out"
 
           sha256sum \
@@ -32,14 +32,9 @@ jobs:
             experiments/embodiment-control/check_embodiment_control.py \
             > "$out/source-sha256.txt"
 
-          (
-            cd experiments/embodiment-control
-            python3 check_embodiment_control.py
-          ) | tee "$out/control-check.log"
-
           python3 - <<'PY'
           import json, os, pathlib
-          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "embodiment-control"
+          out = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "experiments" / "embodiment-control" / "evidence"
           receipt = {
               "schema": "embodiment-control-check/v1",
               "public_safe": True,
@@ -50,7 +45,7 @@ jobs:
                   "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
               },
               "result": {
-                  "control_contract_passed": True,
+                  "control_contract_passed": False,
               },
           }
           (out / "receipt.json").write_text(
@@ -58,14 +53,25 @@ jobs:
           )
           PY
 
+          (
+            cd experiments/embodiment-control
+            python3 check_embodiment_control.py
+          ) | tee "$out/control-check.log"
+
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "experiments" / "embodiment-control" / "evidence"
+          path = out / "receipt.json"
+          receipt = json.loads(path.read_text())
+          receipt["result"]["control_contract_passed"] = True
+          path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          PY
+
       - name: Upload embodiment control evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: embodiment-control-check-\${{ github.run_attempt }}
-          path: |
-            \${{ runner.temp }}/embodiment-control/receipt.json
-            \${{ runner.temp }}/embodiment-control/source-sha256.txt
-            \${{ runner.temp }}/embodiment-control/control-check.log
+          name: embodiment-control-check
+          path: experiments/embodiment-control/evidence/
           if-no-files-found: error
           retention-days: 7
