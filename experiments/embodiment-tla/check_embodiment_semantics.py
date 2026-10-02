@@ -262,6 +262,55 @@ def check_provider_exit_and_reembodiment() -> None:
     assert exited.state is BodyState.DEMATERIALIZING
     assert exited.finalizers == {"credential"}
 
+    # Autonomous exit honors explicit lifecycle coupling.
+    coupled = EmbodimentFabric(max_generation=20, max_restarts=1, max_fanout=1)
+    coupled.add_actor("parent")
+    coupled.add_actor("child")
+    ready(
+        coupled,
+        actor_id="parent",
+        body_id="parent-body",
+        intent_id="parent-intent",
+    )
+    coupled.admit_actuation("parent-body", "materialize")
+    ready(
+        coupled,
+        actor_id="child",
+        body_id="child-body",
+        intent_id="child-intent",
+        parent_body_id="parent-body",
+        lifecycle_coupling="cascade-stop",
+    )
+    child_generation = coupled.actors["child"].generation
+    coupled.provider_exit("parent-body")
+    assert coupled.body("parent-body").state is BodyState.DEMATERIALIZING
+    assert coupled.body("child-body").state is BodyState.DRAINING
+    assert coupled.actors["child"].generation > child_generation
+    assert not coupled.body("child-body").interaction_open
+
+    independent = EmbodimentFabric(max_generation=20, max_restarts=1, max_fanout=1)
+    independent.add_actor("parent")
+    independent.add_actor("child")
+    ready(
+        independent,
+        actor_id="parent",
+        body_id="parent-body",
+        intent_id="parent-intent",
+    )
+    independent.admit_actuation("parent-body", "materialize")
+    ready(
+        independent,
+        actor_id="child",
+        body_id="child-body",
+        intent_id="child-intent",
+        parent_body_id="parent-body",
+        lifecycle_coupling="independent",
+    )
+    child_generation = independent.actors["child"].generation
+    independent.provider_exit("parent-body")
+    assert independent.body("child-body").state is BodyState.READY
+    assert independent.actors["child"].generation == child_generation
+
 
 def check_teardown_and_immutable_identity() -> None:
     f = EmbodimentFabric(max_generation=20, max_restarts=1)
