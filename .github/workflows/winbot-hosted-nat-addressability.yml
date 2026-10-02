@@ -1,0 +1,118 @@
+name: WinBot Hosted NAT Addressability Probe
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hosted-nat-addressability.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    steps:
+      - name: Observe hosted NAT addressability surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-hosted-nat-addressability'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $out=Join-Path $root 'receipt.json'
+
+          $switches=@(Get-VMSwitch -ErrorAction Stop | ForEach-Object {
+            [ordered]@{
+              name=[string]$_.Name
+              type=[string]$_.SwitchType
+              allow_management_os=[bool]$_.AllowManagementOS
+              net_adapter=[string]$_.NetAdapterInterfaceDescription
+            }
+          })
+          $nats=@(Get-NetNat -ErrorAction SilentlyContinue | ForEach-Object {
+            [ordered]@{
+              name=[string]$_.Name
+              prefix=[string]$_.InternalIPInterfaceAddressPrefix
+              active=[bool]$_.Active
+            }
+          })
+          $vethernet=@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object InterfaceAlias -like 'vEthernet*' |
+            ForEach-Object {
+              [ordered]@{
+                interface=[string]$_.InterfaceAlias
+                address=[string]$_.IPAddress
+                prefix_length=[int]$_.PrefixLength
+                prefix_origin=[string]$_.PrefixOrigin
+                suffix_origin=[string]$_.SuffixOrigin
+              }
+            })
+          $udp67=@(Get-NetUDPEndpoint -ErrorAction SilentlyContinue |
+            Where-Object LocalPort -eq 67 |
+            ForEach-Object { [ordered]@{address=[string]$_.LocalAddress;port=[int]$_.LocalPort;pid=[int]$_.OwningProcess} })
+
+          $services=@('SharedAccess','hns','winnat','vmcompute') | ForEach-Object {
+            $s=Get-Service -Name $_ -ErrorAction SilentlyContinue
+            if($s){[ordered]@{name=[string]$s.Name;status=[string]$s.Status;start_type=[string]$s.StartType}}
+          }
+
+          $hns=@()
+          if(Get-Command Get-HnsNetwork -ErrorAction SilentlyContinue){
+            $hns=@(Get-HnsNetwork -ErrorAction SilentlyContinue | ForEach-Object {
+              $subnets=@()
+              foreach($sub in @($_.Subnets)){
+                $subnets += [ordered]@{
+                  address_prefix=[string]$sub.AddressPrefix
+                  gateway_address=[string]$sub.GatewayAddress
+                }
+              }
+              [ordered]@{
+                name=[string]$_.Name
+                type=[string]$_.Type
+                subnets=$subnets
+              }
+            })
+          }
+
+          $selected=$null
+          foreach($name in @('Default Switch','nat')){
+            $candidate=Get-VMSwitch -Name $name -ErrorAction SilentlyContinue
+            if($candidate){$selected=$candidate;break}
+          }
+
+          $r=[ordered]@{
+            schema_version=1
+            authority='SemperSupra/agent-dispatch-private#406'
+            consumer='mark-e-deyoung/WinBot#70'
+            runner=[ordered]@{image_os=$env:ImageOS;image_version=$env:ImageVersion}
+            switches=$switches
+            net_nats=$nats
+            vethernet_ipv4=$vethernet
+            udp67_listeners=$udp67
+            services=$services
+            hns_networks=$hns
+            selected_switch=if($selected){[string]$selected.Name}else{$null}
+            selected_switch_type=if($selected){[string]$selected.SwitchType}else{$null}
+            default_switch_present=[bool](Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue)
+            nat_switch_present=[bool](Get-VMSwitch -Name 'nat' -ErrorAction SilentlyContinue)
+            local_dhcp_listener_present=($udp67.Count -gt 0)
+          }
+
+          if($selected -and [string]$selected.Name -eq 'nat' -and [string]$selected.SwitchType -eq 'Internal'){
+            $r.nat_requires_explicit_guest_addressing = -not $r.local_dhcp_listener_present
+          } else {
+            $r.nat_requires_explicit_guest_addressing = $null
+          }
+
+          $r | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $out -Encoding utf8
+          Get-Content -LiteralPath $out
+
+      - name: Upload observation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-hosted-nat-addressability-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-hosted-nat-addressability/receipt.json
+          if-no-files-found: error
+          retention-days: 14
