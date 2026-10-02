@@ -12,7 +12,7 @@ from typing import Any
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 EXPECTED_SCHEMA = "semper-supra.official-catalog-truenas-t6-control/1"
-EXPECTED_FOUNDRY_REF = "546f4e07b06f77035dab28104883b52f75143bd6"
+EXPECTED_FOUNDRY_REF = "60d56cc1752bc825cb232d72b397ff17fe6d47c4"
 EXPECTED_CATALOG_COMMIT = "8d93ac087336ab642492209cb707aa1f9556d324"
 EXPECTED_CONTROL_ID = "ntfy"
 EXPECTED_CATALOG_VERSION = "1.1.21"
