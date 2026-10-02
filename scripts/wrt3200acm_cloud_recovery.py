@@ -32,7 +32,9 @@ MAGICS = {
     "squashfs-le": b"hsqs",
     "squashfs-be": b"sqsh",
     "uimage": b"\x27\x05\x19\x56",
-    "ubi-ec": b"UBI#",\n    "ubifs-node": b"\\x31\\x18\\x10\\x06",\n    "jffs2-le": b"\\x85\\x19",
+    "ubi-ec": b"UBI#",
+    "ubifs-node": b"\x31\x18\x10\x06",
+    "jffs2-le": b"\x85\x19",
     "fdt": b"\xd0\x0d\xfe\xed",
 }
 TEXT_MARKERS = [
