@@ -1082,7 +1082,9 @@ public partial class MainWindow : Window
             RawRpcMethodBox.Text = choice.Name;
             CapabilityCatalogStatus.Text =
                 choice.State == "packaged"
-                    ? $"{choice.Name} is present in the bundled Codex runtime and is ready for explicit RPC qualification."
+                    ? CodexLocalReadPolicy.IsAllowed(choice.Name)
+                        ? $"{choice.Name} is present in the bundled Codex runtime and is qualified for credential-free local read access."
+                        : $"{choice.Name} is present in the bundled Codex runtime and is ready for explicit RPC qualification; authorization may still be required."
                     : $"{choice.Name} is upstream-frontier only; it is tracked but is not expected in the bundled Codex 0.159.3 runtime.";
             return;
         }
@@ -1098,10 +1100,9 @@ public partial class MainWindow : Window
 
     private async void ReadRemoteStatus_Click(object? sender, RoutedEventArgs e)
     {
-        var result = await RunCodexProbeForResultAsync(
+        var result = await RunLocalReadOnlyCodexProbeForResultAsync(
             "remoteControl/status/read",
-            parameters: null,
-            consequential: false);
+            parameters: null);
         PopulateRemoteIdentity(result);
     }
 
@@ -1299,7 +1300,49 @@ public partial class MainWindow : Window
     }
 
     private async Task RunReadOnlyCodexProbeAsync(string method, JsonElement? parameters) =>
-        _ = await RunCodexProbeForResultAsync(method, parameters, consequential: false);
+        _ = await RunLocalReadOnlyCodexProbeForResultAsync(method, parameters);
+
+    private async Task<JsonElement?> RunLocalReadOnlyCodexProbeForResultAsync(
+        string method,
+        JsonElement? parameters)
+    {
+        var operation = DogfoodObservability.BeginOperation("codex-local-read");
+        await DogfoodObservability.RecordOperationAsync(
+            "codex",
+            "local-read",
+            "start",
+            operation,
+            new Dictionary<string, object?> { ["method"] = method });
+
+        try
+        {
+            CodexLocalReadPolicy.RequireAllowed(method);
+            RuntimeProbeOutputBox.Text = $"Running credential-free local read {method}…";
+            await using var client = await CodexAppServerClient.StartLocalAsync();
+            var result = await client.RequestAsync(method, parameters);
+            RuntimeProbeOutputBox.Text = PrettyJson(result);
+            AuthStatus.Text = $"Credential-free local Codex read completed: {method}";
+            await DogfoodObservability.RecordOperationAsync(
+                "codex",
+                "local-read",
+                "success",
+                operation,
+                new Dictionary<string, object?> { ["method"] = method });
+            return result;
+        }
+        catch (Exception ex)
+        {
+            RuntimeProbeOutputBox.Text = ex.ToString();
+            AuthStatus.Text = $"Credential-free local Codex read failed: {method}: {ex.Message}";
+            await DogfoodObservability.RecordExceptionAsync(
+                "codex",
+                "local-read",
+                ex,
+                operation,
+                new Dictionary<string, object?> { ["method"] = method });
+            return null;
+        }
+    }
 
     private async Task<JsonElement?> RunCodexProbeForResultAsync(
         string method,
@@ -1335,11 +1378,21 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(method))
                 throw new InvalidOperationException("Enter a Codex app-server method.");
 
-            var client = await EnsureCodexAsync();
             var parameters = ParseOptionalJson(RawRpcParamsBox.Text);
-            var result = await client.RequestAsync(method, parameters);
+            JsonElement result;
+            if (CodexLocalReadPolicy.IsAllowed(method))
+            {
+                await using var localClient = await CodexAppServerClient.StartLocalAsync();
+                result = await localClient.RequestAsync(method, parameters);
+                AuthStatus.Text = $"Credential-free local Codex read completed: {method}";
+            }
+            else
+            {
+                var client = await EnsureCodexAsync();
+                result = await client.RequestAsync(method, parameters);
+                AuthStatus.Text = $"Authorized Codex RPC completed: {method}";
+            }
             RawRpcOutputBox.Text = PrettyJson(result);
-            AuthStatus.Text = $"Codex RPC completed: {method}";
         }
         catch (Exception ex)
         {
