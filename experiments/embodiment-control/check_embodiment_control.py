@@ -241,6 +241,83 @@ def main():
     assert fabric.body("body-a1").state is BodyState.DRAINING
     assert stop1["desired_presence"] == "absent"
 
+
+
+    # Provider lifecycle reconciliation is separate from provider effect ACK.
+    lifecycle = EmbodimentControl()
+    materialize(lifecycle)
+    lifecycle_effect = lifecycle.request_effect(
+        caller(),
+        effect_id="effect-lifecycle",
+        intent_id="intent-a1",
+        kind="materialize",
+        actuator_id="agent-dispatch:public-gha",
+        now=NOW,
+    )
+    assert lifecycle_effect["state"] == "REQUESTED"
+    lifecycle.fabric.admit("body-a1")
+    lifecycle.fabric.dispatch("body-a1")
+
+    running_reconcile = lifecycle.reconcile_provider_observation(
+        caller(),
+        effect_id="effect-lifecycle",
+        provider_runtime_observed=True,
+        provider_present_now=True,
+        provider_exit_observed=False,
+        now=NOW + timedelta(seconds=5),
+    )
+    assert running_reconcile["transitions"] == ["provider_start_ack"]
+    assert running_reconcile["instance"]["state"] == "MATERIALIZED"
+    assert running_reconcile["instance"]["provider_present"] is True
+
+    terminal_reconcile = lifecycle.reconcile_provider_observation(
+        caller(),
+        effect_id="effect-lifecycle",
+        provider_runtime_observed=True,
+        provider_present_now=False,
+        provider_exit_observed=True,
+        now=NOW + timedelta(seconds=6),
+    )
+    assert terminal_reconcile["transitions"] == ["provider_exit"]
+    assert terminal_reconcile["instance"]["state"] == "DEMATERIALIZING"
+    assert terminal_reconcile["instance"]["provider_present"] is False
+    assert terminal_reconcile["provider_observation_is_work_acceptance"] is False
+
+    # Terminal-first observation must collapse existence+exit without phantom presence.
+    terminal_first = EmbodimentControl()
+    terminal_first.request_materialize(
+        caller(),
+        authority(),
+        intent_id="intent-terminal-first",
+        actor_id="actor-a",
+        body_instance_id="body-terminal-first",
+        resource="workcell:alpha",
+        capability_class="gha-public-workcell",
+        capabilities={"build"},
+        now=NOW,
+    )
+    terminal_first.request_effect(
+        caller(),
+        effect_id="effect-terminal-first",
+        intent_id="intent-terminal-first",
+        kind="materialize",
+        actuator_id="agent-dispatch:public-gha",
+        now=NOW,
+    )
+    terminal_first.fabric.admit("body-terminal-first")
+    terminal_first.fabric.dispatch("body-terminal-first")
+    collapsed = terminal_first.reconcile_provider_observation(
+        caller(),
+        effect_id="effect-terminal-first",
+        provider_runtime_observed=True,
+        provider_present_now=False,
+        provider_exit_observed=True,
+        now=NOW + timedelta(seconds=7),
+    )
+    assert collapsed["transitions"] == ["provider_start_ack", "provider_exit"]
+    assert collapsed["instance"]["state"] == "DEMATERIALIZING"
+    assert collapsed["instance"]["provider_present"] is False
+
     expired = ControlGrant(
         principal_id="surface:test",
         scopes=frozenset({"embodiments:read"}),
