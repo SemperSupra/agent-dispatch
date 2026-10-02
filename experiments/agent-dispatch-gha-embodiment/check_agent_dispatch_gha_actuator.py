@@ -68,6 +68,9 @@ def main():
     running = normalize_observation(observation("in_progress", None), b)
     assert running["provider_state"] == "RUNNING"
     assert running["effect_ack"] is None
+    assert running["provider_runtime_observed"] is True
+    assert running["provider_present_now"] is True
+    assert running["provider_exit_observed"] is False
 
     succeeded = normalize_observation(observation("completed", "success"), b)
     assert succeeded["provider_state"] == "SUCCEEDED"
@@ -75,10 +78,18 @@ def main():
     assert succeeded["reconciliation"] == "converged"
     assert succeeded["execution_success_is_durable_work_acceptance"] is False
     assert succeeded["execution_success_is_validator_acceptance"] is False
+    assert succeeded["provider_runtime_observed"] is True
+    assert succeeded["provider_present_now"] is False
+    assert succeeded["provider_exit_observed"] is True
+    assert succeeded["provider_exit_outcome"] == "success"
 
     failed = normalize_observation(observation("completed", "failure"), b)
     assert failed["provider_state"] == "FAILED"
     assert failed["reconciliation"] == "blocked"
+    assert failed["provider_runtime_observed"] is True
+    assert failed["provider_present_now"] is False
+    assert failed["provider_exit_observed"] is True
+    assert failed["provider_exit_outcome"] == "failure"
 
     duplicate = observation("completed", "success")
     duplicate["runs"].append(dict(duplicate["runs"][0]))
