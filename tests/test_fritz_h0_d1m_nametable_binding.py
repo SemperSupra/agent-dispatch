@@ -78,6 +78,25 @@ static struct entry nametable[2] __attribute__((unused)) = {
         self.assertTrue(r["tableFound"])
         self.assertEqual(r["rowCount"], 1)
 
+    def test_downstream_nametable_use_is_not_an_initializer(self):
+        text = r'''
+struct mtd_entry {
+  const char *urlader_name;
+  const char *runtime_name_0;
+  const char *runtime_name_1;
+};
+void f(void) {
+  new_name = linux_fs_start == 0
+    ? nametable[i].runtime_name_0
+    : nametable[i].runtime_name_1;
+  if (x) { y = 1; }
+}
+'''
+        self.assertIsNone(d1m.locate_table_initializer(text))
+        r = d1m.recover_table(text)
+        self.assertFalse(r["tableFound"])
+        self.assertEqual(r["rowCount"], 0)
+
     def test_without_unique_selection_field_no_bindings(self):
         text = r'''
 struct entry { const char *name; const char *alias; const char *runtime_name_0; const char *runtime_name_1; };
