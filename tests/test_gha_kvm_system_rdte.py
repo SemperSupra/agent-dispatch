@@ -201,11 +201,11 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertNotIn('hostfwd=tcp:127.0.0.1:$RPC_PORT-:8080', text)
         self.assertNotIn("xdotool", text)
 
-    def test_g3_and_g4_nested_guest_meet_fixed_four_cpu_runner_profile(self):
+    def test_g3_g4_and_g5_nested_guest_meet_fixed_four_cpu_runner_profile(self):
         text = TRUENAS.read_text(encoding="utf-8")
         self.assertIn('VCPUS=2', text)
         self.assertIn(
-            'if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" ) ]]; then',
+            'if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" ) ]]; then',
             text,
         )
         self.assertIn('VCPUS=4', text)
@@ -215,6 +215,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"vcpus": int(os.environ["R_VCPUS"])', text)
         self.assertIn('"ram_mib": int(os.environ["R_RAM_MIB"])', text)
         self.assertIn('"garm-provider-g4-pair"', text)
+        self.assertIn('"garm-provider-g5-version-row"', text)
         self.assertIn('"count": 2', text)
 
     def test_g4_routing_is_source_exact_and_public_safe(self):
@@ -234,6 +235,40 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_garm_provider_g4_probe.py", text)
         self.assertIn('G4_FIXTURE_PRODUCER', text)
         self.assertNotIn("GITHUB_TOKEN", (ROOT / "scripts" / "truenas_middleware_garm_provider_g4_probe.py").read_text(encoding="utf-8"))
+
+    def test_g5_routing_is_source_exact_cross_version_and_public_safe(self):
+        workflow = (ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml").read_text(
+            encoding="utf-8"
+        )
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn("garm-provider-g5", workflow)
+        self.assertIn(
+            "export-g5-version-matrix.yml@f83a712e095c6962741f93cf86bea69479ce4d4a",
+            workflow,
+        )
+        self.assertIn(
+            "export-g3-nested-fixture.yml@e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab",
+            workflow,
+        )
+        self.assertIn(
+            '--g5-matrix-producer "f83a712e095c6962741f93cf86bea69479ce4d4a"',
+            workflow,
+        )
+        self.assertIn(
+            '--g3-fixture-producer "e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab"',
+            workflow,
+        )
+        self.assertIn("truenas_middleware_garm_provider_g5_probe.py", text)
+        self.assertIn('G5_MATRIX_PRODUCER', text)
+        self.assertIn(
+            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" ]]; then',
+            text,
+        )
+        g5_probe = (ROOT / "scripts" / "truenas_middleware_garm_provider_g5_probe.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("GITHUB_TOKEN", g5_probe)
+        self.assertNotIn("GH_TOKEN", g5_probe)
 
     def test_no_literal_escaped_shell_parameter_expansions(self):
         needle = chr(92) + "$" + "{"
