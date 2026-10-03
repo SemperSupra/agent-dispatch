@@ -125,11 +125,38 @@ def main()->int:
     tuple_start=records.get("tuple_writer",{}).get("candidate_function_start")
     tuple_callers=all_xrefs.get(tuple_start,[]) if tuple_start is not None else []
     report={
-      "schema":"wrt8964-runtime-field-identity/v3",
+      "schema":"wrt8964-runtime-field-identity/v4",
       "focus":records,
       "tuple_writer_function_start":tuple_start,
       "tuple_writer_direct_call_or_tail_xrefs":tuple_callers,
       "callsite_context":callsite_context,
+      "structural_promotions":{
+        "0x4c":{
+          "classification":"observed-plus-bounded-inference",
+          "allocation_bytes":4084,
+          "bucket_width_bytes":4,
+          "bucket_count":1021,
+          "hash_modulus":1021,
+          "lookup_function":0x3fb34,
+          "node_next_offset":0,
+          "node_return_payload_offset":4,
+          "node_six_byte_key_offset":8,
+          "node_discriminator_offset":14,
+          "update_encryption_discriminator":1,
+          "update_encryption_key_provenance":"enable/remove/set-key helpers pass their six-byte MAC-address argument as r1 and constant 1 as r0 before calling 0x3fb34",
+          "inference":"0x706c0+0x4c is a 1021-bucket chained lookup table keyed by a six-byte MAC address plus a one-byte discriminator for UPDATE_ENCRYPTION paths. The domain identity of the returned object remains unassigned."
+        },
+        "0x21c":{
+          "classification":"observed-plus-bounded-inference",
+          "allocation_bytes":1088,
+          "stride_bytes":64,
+          "allocated_stride_slots":17,
+          "tuple_writer_function":0x2a23c,
+          "tuple_writer_valid_indices":"0..15",
+          "tuple_bytes_copied":6,
+          "inference":"The +0x21c region is 64-byte-strided storage; 0x2a23c accepts indices below 16 and copies a six-byte tuple into the selected entry. The 17th allocated stride is not explained by this writer."
+        }
+      },
       "classification":{
         "observed":"Candidate boundaries prefer the nearest preceding direct BL target. Leaf blocks without a direct BL target begin after the nearest preceding return; save-LR prologues are fallback only. Direct BL/B xrefs to the selected start are enumerated.",
         "inference_limit":"Function boundaries remain bounded static-analysis candidates. Six-byte shape alone is not sufficient to name the +0x2/+0x4/+0x6 tuple as a MAC address.",
