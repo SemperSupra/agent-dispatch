@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """Recover bounded caller/consumer evidence for selected 0x706c0 runtime fields."""
 from __future__ import annotations
-import argparse, importlib.util, json
+import argparse, importlib.util, json, urllib.request
 from pathlib import Path
+
+SOURCE_REF="db97edf20fadea2617805006f5230665fadc6a8c"
+HOSTCMD_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{SOURCE_REF}/hif/hostcmd.h"
+FWCMD_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{SOURCE_REF}/hif/fwcmd.c"
+
+def fetch_text(url:str)->str:
+    req=urllib.request.Request(url,headers={"User-Agent":"SemperSupra-WRT-field-identity/1.0"})
+    with urllib.request.urlopen(req,timeout=45) as r:
+        return r.read().decode("utf-8","replace")
 
 P=Path(__file__).with_name("wrt3200acm_dispatch_probe.py")
 spec=importlib.util.spec_from_file_location("dp",P)
@@ -141,15 +150,43 @@ def main()->int:
       "full_context":[x["text"] for x in ap_ins],
     }
 
+    hostcmd_src=fetch_text(HOSTCMD_URL)
+    fwcmd_src=fetch_text(FWCMD_URL)
+    source_checks={
+      "start_cmd_offset0_sta_mac":"struct start_cmd {\n\tu8 sta_mac_addr[ETH_ALEN];" in hostcmd_src,
+      "ap_beacon_embeds_start_cmd":"struct hostcmd_cmd_ap_beacon {\n\tstruct hostcmd_header cmd_hdr;\n\tstruct start_cmd start_cmd;" in hostcmd_src,
+      "8997_only_trailing_bssid":"u8 bssid[ETH_ALEN];          /* only for 88W8997" in hostcmd_src,
+      "driver_populates_sta_mac_from_bssid":"ether_addr_copy(pcmd->start_cmd.sta_mac_addr, mwl_vif->bssid);" in fwcmd_src,
+      "driver_sets_ap_beacon_macid":"pcmd->cmd_hdr.macid = mwl_vif->macid;" in fwcmd_src,
+    }
+    source_contract={
+      "source_ref":SOURCE_REF,
+      "hostcmd_url":HOSTCMD_URL,
+      "fwcmd_url":FWCMD_URL,
+      "checks":source_checks,
+      "binary_correlation":{
+        "ap_beacon_dispatch_target":0x36edc,
+        "macid_load":"36edc: ldrb r0, [r4, #5]",
+        "copy_size_bytes":319,
+        "command_payload_source":"r4+8",
+        "cache_stride_bytes":319,
+        "tuple_writer_call":0x37168,
+        "tuple_writer_index":"command macid",
+        "tuple_writer_source":"cached AP_BEACON start_cmd record",
+      },
+      "promotion":"Because the W8964 handler copies 319 bytes beginning at AP_BEACON cmd+8 into a 319-byte-strided cache indexed by cmd_hdr.macid, and later passes that exact cached record to 0x2a23c, the six bytes copied by 0x2a23c are start_cmd.sta_mac_addr. The exact host source populates sta_mac_addr from mwl_vif->bssid."
+    }
+
     tuple_start=records.get("tuple_writer",{}).get("candidate_function_start")
     tuple_callers=all_xrefs.get(tuple_start,[]) if tuple_start is not None else []
     report={
-      "schema":"wrt8964-runtime-field-identity/v5",
+      "schema":"wrt8964-runtime-field-identity/v6",
       "focus":records,
       "tuple_writer_function_start":tuple_start,
       "tuple_writer_direct_call_or_tail_xrefs":tuple_callers,
       "callsite_context":callsite_context,
       "ap_beacon_tuple_provenance":ap_beacon_tuple_provenance,
+      "source_contract":source_contract,
       "structural_promotions":{
         "0x4c":{
           "classification":"observed-plus-bounded-inference",
@@ -174,7 +211,10 @@ def main()->int:
           "tuple_writer_function":0x2a23c,
           "tuple_writer_valid_indices":"0..15",
           "tuple_bytes_copied":6,
-          "inference":"The +0x21c region is 64-byte-strided storage; 0x2a23c accepts indices below 16 and copies a six-byte tuple into the selected entry. The 17th allocated stride is not explained by this writer."
+          "source_identity":"AP_BEACON start_cmd.sta_mac_addr, populated by mwlwifi from mwl_vif->bssid",
+          "per_index_identity":"BSSID for macid 0..15 at entry offsets +0..+5",
+          "anchor_mirror_identity":"0x706c0+0x2/+0x4/+0x6 mirror the three 16-bit words of the BSSID supplied to 0x2a23c",
+          "inference":"The +0x21c region is 64-byte-strided per-macid storage; 0x2a23c accepts macid values below 16 and copies the AP_BEACON BSSID into the selected entry. The 17th allocated stride is not explained by this writer."
         }
       },
       "classification":{
@@ -191,6 +231,12 @@ def main()->int:
         "instruction_count":ap_beacon_tuple_provenance["instruction_count"],
         "r8_r9_and_terminal_context":ap_beacon_tuple_provenance["r8_r9_and_terminal_context"],
       },
+      "source_contract":{
+        "checks":source_checks,
+        "copy_size_bytes":source_contract["binary_correlation"]["copy_size_bytes"],
+        "cache_stride_bytes":source_contract["binary_correlation"]["cache_stride_bytes"],
+        "promotion":source_contract["promotion"],
+      },
       "tuple_writer_direct_call_or_tail_xrefs":[{"pc":hex(x["pc"]),"kind":x["kind"],"text":x["text"]} for x in tuple_callers],
       "focus":{k:{
         "pc":hex(v["pc"]),"field":v["field"],"role":v["role"],
@@ -200,6 +246,6 @@ def main()->int:
         "local":v.get("local_context",[])
       } for k,v in records.items()}
     },indent=2,sort_keys=True))
-    return 0 if all(v.get("status")=="decoded" for v in records.values()) else 3
+    return 0 if all(v.get("status")=="decoded" for v in records.values()) and all(source_checks.values()) else 3
 
 if __name__=="__main__":raise SystemExit(main())
