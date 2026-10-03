@@ -15,6 +15,7 @@ PVE = ROOT / "scripts" / "gha_kvm_proxmox_rdte.sh"
 TRUENAS = ROOT / "scripts" / "gha_kvm_truenas_rdte.sh"
 TRUENAS_RPC = ROOT / "scripts" / "truenas_installer_rpc_probe.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "gha-kvm-system-rdte.yml"
+PREP_WORKFLOW = ROOT / ".github" / "workflows" / "prep-rdte-static.yml"
 QEMU_TOPOLOGY = ROOT / "scripts" / "gha_qemu_t3_topology_probe.py"
 TRUENAS_INSTALL = ROOT / "scripts" / "truenas_installer_rpc_install.py"
 TRUENAS_MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
@@ -298,22 +299,51 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("DISPATCH_TARGET", text)
         self.assertIn("BEFORE_SHA:", text)
         self.assertIn('git diff --name-only "$BEFORE_SHA" "$AFTER_SHA"', text)
-        self.assertIn("scripts/truenas_installer_rpc_probe.py", text)
         self.assertIn("truenas_version:", text)
         self.assertIn("truenas_rung:", text)
         self.assertIn("needs.changes.outputs.truenas_version", text)
         self.assertIn("needs.changes.outputs.truenas_rung", text)
         self.assertIn("config/truenas-rdte-run-request.json", text)
-        self.assertNotIn("run_request_changed", text)
         self.assertIn(
             'if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then',
             text,
         )
         self.assertIn("gha-kvm-truenas-run-request/v1", text)
+        self.assertIn("current_request_id=", text)
+        self.assertIn("previous_request_id=", text)
+        self.assertIn("refusing stale TrueNAS request replay", text)
+        self.assertIn('git show "$BEFORE_SHA:$RUN_REQUEST_PATH"', text)
         self.assertIn("truenas_version=\"$(jq -er", text)
         self.assertIn(".version | select(type == \"string\" and length > 0)", text)
         self.assertIn("truenas_rung=\"$(jq -er", text)
         self.assertIn('.rung | select(. == "t0" or . == "t1"', text)
+
+        routing = text.split("while IFS= read -r path; do", 1)[1].split(
+            "done < <(git diff --name-only", 1
+        )[0]
+        self.assertIn("config/truenas-rdte-run-request.json)", routing)
+        for stale_replay_source in (
+            "scripts/gha_kvm_truenas_rdte.sh",
+            "scripts/truenas_installer_rpc_probe.py",
+            "scripts/truenas_middleware_foliorelay_t6_probe.py",
+            "config/truenas-rdte-targets.json",
+        ):
+            self.assertNotIn(stale_replay_source, routing)
+
+    def test_prep_gate_avoids_duplicate_branch_and_pr_runs_and_scopes_expensive_smokes(self):
+        text = PREP_WORKFLOW.read_text(encoding="utf-8")
+        trigger = text.split("permissions:", 1)[0]
+        self.assertIn("pull_request:", trigger)
+        self.assertIn("workflow_dispatch:", trigger)
+        self.assertNotIn("\n  push:", trigger)
+        self.assertIn("id: expensive_scope", text)
+        self.assertIn("provider_smoke=false", text)
+        self.assertIn("provider_smoke=true", text)
+        self.assertIn(
+            "steps.expensive_scope.outputs.provider_smoke == 'true'",
+            text,
+        )
+        self.assertIn("fetch-depth: 0", text)
 
     def test_truenas_t1_requires_local_rpc_probe(self):
         text = TRUENAS.read_text(encoding="utf-8")
