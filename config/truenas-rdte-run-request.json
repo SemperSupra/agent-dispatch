@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-provider-g4-001-capacity-two-reconnect-retirement",
-  "version": "26.0.0-BETA.3",
+  "request_id": "tn-25.10.7-t6-garm-provider-g5-001-provider-row",
+  "version": "25.10.7",
   "rung": "t6",
-  "product": "garm-provider-g4",
-  "authority_issue": 396,
-  "consumer_authority_issue": 41,
-  "purpose": "Qualify exact TrueNAS 26.0.0-BETA.3 GARM provider G4 on the accepted four-vCPU nested RDTE embodiment: realize exactly two source-derived provider-owned runner Apps with concurrent packaged-provider CreateInstance calls, exact Compose read-back for both, isolated callback/metadata/token configuration, fresh-process Get/List adoption, active-delete fail-closed behavior, both alpha->beta and beta->alpha retirement orders, measured ix-apps storage deltas, final App absence, empty provider inventory, and zero unintended residue; GitHub JIT/private workload/physical TrueNAS/capacity promotion remain unexercised."
+  "product": "garm-provider-g5",
+  "authority_issue": 410,
+  "consumer_authority_issue": 42,
+  "purpose": "Qualify the exact TrueNAS 25.10.7 G5 provider matrix row using the fixed packaged provider and source-attributed matrix: exact system.version and middleware commit binding, verified WSS/API-key transport, CreateInstance -> exact Compose read-back -> Get/List -> supported inactive transition -> provider DeleteInstance -> App absence -> empty provider inventory -> zero unintended residue; runtime qualification must not be inherited from any neighboring release, and GitHub JIT/private workload/physical TrueNAS/capacity promotion remain unexercised."
 }

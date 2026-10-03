@@ -22,6 +22,7 @@ on:
       - 'tests/test_truenas_garm_provider_g2.py'
       - 'tests/test_truenas_garm_provider_g3.py'
       - 'tests/test_truenas_garm_provider_g4.py'
+      - 'tests/test_truenas_garm_provider_g5.py'
       - 'tests/test_truenas_rdte_target.py'
       - 'tests/test_truenas_rdte_target.py'
   pull_request:
@@ -41,6 +42,7 @@ on:
       - 'tests/test_truenas_garm_provider_g2.py'
       - 'tests/test_truenas_garm_provider_g3.py'
       - 'tests/test_truenas_garm_provider_g4.py'
+      - 'tests/test_truenas_garm_provider_g5.py'
       - 'tests/test_truenas_rdte_target.py'
 
 permissions:
@@ -87,6 +89,9 @@ jobs:
           fi
           if [[ -f tests/test_truenas_garm_provider_g4.py ]]; then
             tests+=(tests/test_truenas_garm_provider_g4.py)
+          fi
+          if [[ -f tests/test_truenas_garm_provider_g5.py ]]; then
+            tests+=(tests/test_truenas_garm_provider_g5.py)
           fi
           if [[ -f tests/test_truenas_rdte_target.py ]]; then
             tests+=(tests/test_truenas_rdte_target.py)
@@ -197,3 +202,25 @@ jobs:
             docker exec "$cid" test -x /home/runner/actions-runner/bin/Runner.Listener
             docker exec "$cid" test -w /run/garm-jit
           done
+
+      - name: G5 exact merged source matrix smoke
+        if: ${{ hashFiles('scripts/truenas_middleware_garm_provider_g5_probe.py') != '' }}
+        run: |
+          set -euo pipefail
+          provider_ref='f83a712e095c6962741f93cf86bea69479ce4d4a'
+          rm -rf /tmp/g5-provider
+          git init -q /tmp/g5-provider
+          git -C /tmp/g5-provider fetch -q --depth=1 \
+            https://github.com/SemperSupra/garm-provider-truenas.git "$provider_ref"
+          git -C /tmp/g5-provider checkout -q --detach FETCH_HEAD
+          [[ "$(git -C /tmp/g5-provider rev-parse HEAD)" == "$provider_ref" ]]
+          (
+            cd /tmp/g5-provider
+            go test ./internal/truenasstore -run '^TestG5VersionMatrixContract$' -count=1
+            jq -e '
+              .schema == "semper-supra.garm-provider-truenas-g5-version-matrix/1" and
+              .provider_product_source == "14535745dc3aa3c0b5466da7c704bca4d23dcec5" and
+              .runtime_inheritance_allowed == false and
+              ([.targets[].version] | sort) == (["25.04.1","25.04.2.6","25.10.7","26.0.0-BETA.3"] | sort)
+            ' internal/truenasstore/testdata/truenas-version-matrix.json >/dev/null
+          )
