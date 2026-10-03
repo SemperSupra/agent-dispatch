@@ -372,6 +372,22 @@ def main():
         after_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
         after_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
         if (after_printer.get("identity") or {}).get("printer_uuid")!=uuid or after_jobs!=before_jobs: raise RuntimeError("identity or Inbox drifted after restart")
+        # Re-plan from exact live read-back. No mutation is needed when desired and observed Compose identities match.
+        live_compose=call("app.config",[EXPECTED_APP_NAME])
+        replan_action="NOOP" if canonical_sha256(live_compose)==canonical_sha256(compose) else "UPDATE"
+        if replan_action!="NOOP": raise RuntimeError("exact desired/live Compose re-plan was not NOOP")
+        # Exercise the public update/redeploy path separately from stop/start while preserving durable identity and Inbox.
+        uj=call("app.update",[EXPECTED_APP_NAME,{"custom_compose_config":compose}])
+        if not isinstance(uj,int): raise RuntimeError("app.update did not return job")
+        wait_job(uj,"app.update"); wait_state(EXPECTED_APP_NAME,"RUNNING")
+        rj=call("app.redeploy",[EXPECTED_APP_NAME])
+        if not isinstance(rj,int): raise RuntimeError("app.redeploy did not return job")
+        wait_job(rj,"app.redeploy"); wait_state(EXPECTED_APP_NAME,"RUNNING")
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout): raise RuntimeError("readyz failed after update/redeploy")
+        redeploy_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
+        redeploy_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if (redeploy_printer.get("identity") or {}).get("printer_uuid")!=uuid or redeploy_jobs!=before_jobs:
+            raise RuntimeError("identity or Inbox drifted after update/redeploy")
         od=call("app.delete",[OBSERVER_APP_NAME,{"remove_images":False,"remove_ix_volumes":False,"force_remove_custom_app":False}]); wait_job(od,"observer delete"); observer_created=False
         md=call("app.delete",[EXPECTED_APP_NAME,{"remove_images":False,"remove_ix_volumes":False,"force_remove_custom_app":False}]); wait_job(md,"app delete"); app_created=False
         if call("app.query",[[["id","in",[EXPECTED_APP_NAME,OBSERVER_APP_NAME]]]]): raise RuntimeError("app residue remains")
@@ -385,7 +401,7 @@ def main():
         payload.update({
             "classification":"SUPPORTED","oracleSatisfied":True,
             "identity":{"printer_uuid":uuid,"public_uri":PUBLIC_URI,"control_cups_uuid_match":True,"dnssd_uuid_match":True},
-            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True},
+            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP"},
             "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True},
             "cleanup":{"apps_absent":True,"fixture_dataset_absent":True,"fixture_mountpoint_absent":True,"zero_residue":True},
             "producer_gate":{"replan_noop_required":True,"runtime_does_not_reconstruct_foundry_control":True},
