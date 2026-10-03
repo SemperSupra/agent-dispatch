@@ -288,11 +288,39 @@ def main()->int:
             i=by_pc[rec["pc"]]
             lookup_a_consumers.append({"pc":rec["pc"],"context":ctxt(whole,i,16,28)})
 
+    dispatcher=dp.parse_instructions(dp.run_objdump(elf,0x36454,0x390ec))
+    get_seqno_cases=dp.recover_cases(dispatcher,{0x1143:"HOSTCMD_CMD_GET_SEQNO"})
+    get_seqno_case=next((x for x in get_seqno_cases if x["value"]==0x1143),None)
+    get_seqno_handler=dp.parse_instructions(dp.run_objdump(elf,0x36ff0,0x3700c))
+    get_seqno_handler_text="\n".join(x["text"] for x in get_seqno_handler)
+    indexed_208_text=encryption_text["indexed_208"]
+    get_seqno_contract={
+      "dispatch_1143_to_36ff0":get_seqno_case is not None and get_seqno_case.get("branch_target")==0x36ff0,
+      "handler_mac_at_cmd_8": "36ff4: r0 , r4, #8" in get_seqno_handler_text,
+      "handler_tid_at_cmd_14": "36ff0: ldrb r1, [r4, #14]" in get_seqno_handler_text,
+      "handler_calls_290c8": "36ff8: bl 0x290c8" in get_seqno_handler_text,
+      "handler_writes_seqno_cmd_15_16": all(s in get_seqno_handler_text for s in (
+        "36ffc: strb r0, [r4, #15]","37000: lsr r1, r0, #8","37004: strb r1, [r4, #16]")),
+      "helper_arg1_becomes_subindex": "290cc: mov r5, r1" in indexed_208_text,
+      "helper_lookup_by_mac_discriminator_1": all(s in indexed_208_text for s in (
+        "290d4: mov r1, r0","290d8: mov r0, #1","290dc: bl 0x3fb34")),
+      "helper_reads_station_stnid_24": "290ec: ldrh r0, [r0, #24]" in indexed_208_text,
+      "helper_indexes_208_by_station_base_plus_tid": all(s in indexed_208_text for s in (
+        "290f0: lsl r0, r0, #3","290f4: r0 , r0, #128","290f8: r0 , r0, r5",
+        "290fc: r2 , r0, r0, lsl #2","29100: r0 , r2, r0, lsl #8",
+        "29104: r0 , r1, r0, lsl #5")),
+      "helper_seqno_from_entry_56_bits_4_plus": all(s in indexed_208_text for s in (
+        "29108: ldrh r0, [r0, #56]","2910c: lsr r0, r0, #4")),
+      "record_96_is_tid0_entry_base":all(producer_208_alignment.values()),
+    }
+
     hostcmd=fetch_text(HOSTCMD_URL); fwcmd=fetch_text(FWCMD_URL)
     source={
       "hostcmd_h":excerpt(hostcmd,"struct hostcmd_cmd_set_new_stn",45),
       "fwcmd_add":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_add(",95),
       "fwcmd_del":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_del(",55),
+      "hostcmd_get_seqno":excerpt(hostcmd,"struct hostcmd_cmd_get_seqno",28),
+      "fwcmd_get_seqno":excerpt(fwcmd,"int mwl_fwcmd_get_seqno(",38),
       "ref":HOST_REF,
       "urls":[HOSTCMD_URL,FWCMD_URL],
     }
@@ -318,6 +346,8 @@ def main()->int:
         "regions":{k:[x["text"] for x in v] for k,v in encryption_regions.items()}},
       "insert_contract":{"address":INSERT,"checks":insert_contract,"instructions":[x["text"] for x in insert_region]},
       "update_encryption_lookup_consumers":lookup_a_consumers,
+      "get_seqno_contract":{"checks":get_seqno_contract,"dispatch_case":get_seqno_case,
+        "handler":[x["text"] for x in get_seqno_handler]},
       "source_contract":source,
       "guardrail":"The node+4 payload may be promoted as the exact object constructed by the SET_NEW_STN producer only when the insertion store, producer argument provenance, exact-source MAC field, and UPDATE_ENCRYPTION lookup consumer all agree. Semantic object naming remains gated on field-level role evidence."
     }
@@ -343,9 +373,12 @@ def main()->int:
       "insert_contract":insert_contract,
       "insert_region":[x["text"] for x in insert_region],
       "update_encryption_lookup_consumers":lookup_a_consumers,
-      "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"]},
+      "get_seqno_contract":get_seqno_contract,
+      "get_seqno_dispatch_case":get_seqno_case,
+      "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"],
+        "hostcmd_get_seqno":source["hostcmd_get_seqno"]["found"],"fwcmd_get_seqno":source["fwcmd_get_seqno"]["found"]},
     },indent=2,sort_keys=True))
-    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and all(encryption_station_links.values()) and all(producer_208_alignment.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
+    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and all(encryption_station_links.values()) and all(producer_208_alignment.values()) and all(get_seqno_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
     return 0 if ok else 3
 
 if __name__=="__main__":
