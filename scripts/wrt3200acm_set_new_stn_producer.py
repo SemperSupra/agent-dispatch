@@ -165,10 +165,32 @@ def main()->int:
           "first_instructions":[x["text"] for x in region[:220]],
         }
 
+    producer_call_pc=0x35528
+    producer_call_context=ctxt(whole,by_pc[producer_call_pc],80,10) if producer_call_pc in by_pc else []
+    insert_region=dp.parse_instructions(dp.run_objdump(elf,INSERT,REMOVE))
+    insert_text="\n".join(x["text"] for x in insert_region)
+    insert_contract={
+      "copies_key_6_bytes_from_r1": all(s in insert_text for s in (
+        "3fcb4: ldrh r4, [r1]","3fcbc: strh r4, [r0, #8]",
+        "3fcc0: ldrh r4, [r1, #2]","3fcc4: strh r4, [r0, #10]",
+        "3fcc8: ldrh r4, [r1, #4]","3fccc: strh r4, [r0, #12]")),
+      "stores_discriminator_at_node_14":"3fcd0: strb r12, [r0, #14]" in insert_text,
+      "stores_payload_r2_at_node_4":"3fcd4: str r2, [r0, #4]" in insert_text,
+      "links_node_into_anchor_4c": all(s in insert_text for s in (
+        "3fd14: ldr r2, [r3, #76]","3fd20: str r2, [r0]","3fd28: str r0, [r2, r1, lsl #2]")),
+    }
+
+    lookup_a_consumers=[]
+    for rec in target_xrefs[LOOKUP_A]:
+        if rec["pc"] in {0x29028,0x290b8,0x293a0}:
+            i=by_pc[rec["pc"]]
+            lookup_a_consumers.append({"pc":rec["pc"],"context":ctxt(whole,i,16,28)})
+
     hostcmd=fetch_text(HOSTCMD_URL); fwcmd=fetch_text(FWCMD_URL)
     source={
-      "hostcmd_h":excerpt(hostcmd,"hostcmd_cmd_set_new_stn",45),
-      "fwcmd_c":excerpt(fwcmd,"HOSTCMD_CMD_SET_NEW_STN",65),
+      "hostcmd_h":excerpt(hostcmd,"struct hostcmd_cmd_set_new_stn",45),
+      "fwcmd_add":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_add(",95),
+      "fwcmd_del":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_del(",55),
       "ref":HOST_REF,
       "urls":[HOSTCMD_URL,FWCMD_URL],
     }
@@ -185,8 +207,11 @@ def main()->int:
       "candidate_function_starts":candidate_starts,
       "direct_call_paths_from_descriptor_target":paths,
       "candidate_regions":candidate_regions,
+      "producer_call":{"pc":producer_call_pc,"context":producer_call_context},
+      "insert_contract":{"address":INSERT,"checks":insert_contract,"instructions":[x["text"] for x in insert_region]},
+      "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_contract":source,
-      "guardrail":"A discriminator-1 lookup-before-insert is promoted only as a producer candidate. Object/station/key identity remains UNKNOWN until creation provenance, exact-source field agreement, and UPDATE_ENCRYPTION consumer agreement converge."
+      "guardrail":"The node+4 payload may be promoted as the exact object constructed by the SET_NEW_STN producer only when the insertion store, producer argument provenance, exact-source MAC field, and UPDATE_ENCRYPTION lookup consumer all agree. Semantic object naming remains gated on field-level role evidence."
     }
     (out/"set-new-stn-producer.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({
@@ -201,9 +226,13 @@ def main()->int:
       } for x in disc1],
       "paths":[[hex(y) for y in x] for x in paths],
       "candidate_regions":candidate_regions,
-      "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_c":source["fwcmd_c"]["found"]},
+      "producer_call_context":producer_call_context,
+      "insert_contract":insert_contract,
+      "insert_region":[x["text"] for x in insert_region],
+      "update_encryption_lookup_consumers":lookup_a_consumers,
+      "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"]},
     },indent=2,sort_keys=True))
-    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1)
+    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
     return 0 if ok else 3
 
 if __name__=="__main__":
