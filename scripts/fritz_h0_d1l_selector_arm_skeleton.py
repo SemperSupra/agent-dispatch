@@ -71,7 +71,10 @@ def expression_skeleton(expr: str) -> dict:
         expr,
     )
     member_bases = sorted({a for a, _ in members})
-    member_names = sorted({b for _, b in members})
+    member_names = sorted(set(
+        [b for _, b in members]
+        + re.findall(r"(?:->|\.)\s*([A-Za-z_][A-Za-z0-9_]*)", expr)
+    ))
     macro_like = sorted({
         x for x in ids
         if re.fullmatch(r"[A-Z][A-Z0-9_]*", x)
