@@ -1,0 +1,125 @@
+name: WRT3200ACM Large Corpus Chunk Harvest
+
+on:
+  push:
+    branches:
+      - archive/wrt3200acm-20261003
+    paths:
+      - '.github/workflows/wrt3200acm-large-corpus-chunks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  chunk-large-item:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-marvell-c8ae5197
+            url: https://codeload.github.com/MarvellEmbeddedProcessors/linux-marvell/tar.gz/c8ae519736bba6de02ace596b438f14d168648ae
+            filename: linux-marvell-c8ae519736bba6de02ace596b438f14d168648ae.tar.gz
+          - id: Linksys-WRT3200ACM-GPL
+            url: https://downloads.linksys.com/support/assets/gpl/WRT3200ACM_v1.0.8.199531.tgz
+            filename: Linksys-WRT3200ACM-GPL-v1.0.8.199531.tgz
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch and split exact bytes
+        shell: bash
+        env:
+          ID: ${{ matrix.id }}
+          URL: ${{ matrix.url }}
+          FILENAME: ${{ matrix.filename }}
+        run: |
+          set -euo pipefail
+          mkdir -p harvest/chunks harvest/manifest
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1800 -A 'SemperSupra-WRT-Archive/3.0' "$URL" -o "harvest/$FILENAME"
+          sha256sum "harvest/$FILENAME" | tee harvest/manifest/ORIGINAL-SHA256SUMS
+          stat -c '%n\t%s bytes' "harvest/$FILENAME" | tee harvest/manifest/ORIGINAL-SIZE.tsv
+          printf 'id\t%s\nurl\t%s\nfilename\t%s\nretrieved_utc\t%s\nchunk_size\t50MiB\n' "$ID" "$URL" "$FILENAME" "$(date -u +%FT%TZ)" > harvest/manifest/PROVENANCE.tsv
+          split -b 50M -d -a 2 "harvest/$FILENAME" "harvest/chunks/$FILENAME.part-"
+          (cd harvest/chunks && sha256sum * | tee ../manifest/PART-SHA256SUMS)
+          (cd harvest/chunks && stat -c '%n\t%s bytes' * | sort > ../manifest/PART-SIZES.tsv)
+          cat > harvest/manifest/RECONSTRUCT.txt <<EOF
+          Unzip each Drive/GitHub artifact part and place all *.part-NN files in one directory.
+          Reconstruct:
+            cat ${FILENAME}.part-* > ${FILENAME}
+            sha256sum -c ORIGINAL-SHA256SUMS
+          EOF
+          rm -f "harvest/$FILENAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-manifest
+          path: harvest/manifest
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-00
+          path: harvest/chunks/*.part-00
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-01
+          path: harvest/chunks/*.part-01
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-02
+          path: harvest/chunks/*.part-02
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-03
+          path: harvest/chunks/*.part-03
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-04
+          path: harvest/chunks/*.part-04
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-05
+          path: harvest/chunks/*.part-05
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-06
+          path: harvest/chunks/*.part-06
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-07
+          path: harvest/chunks/*.part-07
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-08
+          path: harvest/chunks/*.part-08
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chunks-${{ matrix.id }}-part-09
+          path: harvest/chunks/*.part-09
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
