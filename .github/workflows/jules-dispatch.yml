@@ -1,42 +1,499 @@
-name: Jules Dispatch
-run-name: Jules Dispatch by ${{ github.actor }}
+name: Opaque bounded Jules execution
+run-name: Opaque Jules execution by ${{ github.actor }}
 
 on:
-  workflow_dispatch:
-    inputs:
-      target:
-        description: "Approved opaque target ID"
-        required: true
-        default: "phase0"
-        type: string
-      task:
-        description: "Approved task ID"
-        required: true
-        default: "phase0-private-repo-smoke-test"
-        type: string
+  push:
+    branches:
+      - exec/opaque-jules-688fd40d20c30c756674
 
 permissions:
   contents: read
+  statuses: write
+
+concurrency:
+  group: opaque-jules-688fd40d20c30c756674
+  cancel-in-progress: true
 
 jobs:
-  dispatch:
-    # Defense in depth. Configure GitHub Workflow Execution Protection as the
-    # primary actor gate; this check prevents accidental execution by others.
+  execute:
     if: github.actor == 'mark-e-deyoung'
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 90
     environment: jules-dispatch
+    env:
+      JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+      REPO_SELECTOR: "4dadc239059538b51a200aa7f3f6ee1ffbd5e11a26c95af3dc633ec2fc431d86"
+      BRANCH_SELECTOR: "cb3f6982ad38a22ae9868fd6d7f6dd404c92a77e4d2f2b30037ebc67a48c85e5"
+      BASE_SELECTOR: "d86b44f6761f8cc7461ae6cd1dddbc2a49db30ada3756befa0ba24e1c1bb223e"
+      REPORT_SELECTOR: "2b67a90efc01aa8d44ef75fd31157c5e00dbd7fc7f6c41675d11f5e0c152705f"
+      COMMAND_SELECTOR: "78abb03e739ba80bc235de640dc80b009a66eb418878ecea415831f539ea15b1"
+      CORRELATION: "688fd40d20c30c756674"
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - name: Dispatch approved task to Jules
+      - name: Publish controller-start receipt
+        shell: bash
         env:
-          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
-          JULES_TARGETS_JSON: ${{ secrets.JULES_TARGETS_JSON }}
-          TARGET_ID: ${{ inputs.target }}
-          TASK_ID: ${{ inputs.task }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/jules.py dispatch \
-            --target "$TARGET_ID" \
-            --task "$TASK_ID"
+          python3 - <<'PY'
+          import json, os, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; sha=os.environ["GITHUB_SHA"]; token=os.environ["GH_TOKEN"]
+          body=json.dumps({"state":"pending","context":"opaque-jules/control","description":"CONTROLLER_STARTED"}).encode()
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/statuses/{sha}",
+              data=body, method="POST",
+              headers={"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json","Content-Type":"application/json","User-Agent":"semper-supra-agent-dispatch/opaque-receipt"},
+          )
+          with urllib.request.urlopen(req,timeout=20) as response:
+              response.read()
+          PY
+      - name: Execute one bounded private-source mission and validate compact result
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' 2>&1 | tee /tmp/opaque-status.txt
+          import datetime as dt
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          BASE_URL = "https://jules.googleapis.com/v1alpha"
+          KEY = os.environ["JULES_API_KEY"]
+          REPO_SEL = os.environ["REPO_SELECTOR"]
+          BRANCH_SEL = os.environ["BRANCH_SELECTOR"]
+          BASE_SEL = os.environ["BASE_SELECTOR"]
+          REPORT_SEL = os.environ["REPORT_SELECTOR"]
+          COMMAND_SEL = os.environ["COMMAND_SELECTOR"]
+          CORRELATION = os.environ["CORRELATION"]
+          TITLE = "agent-dispatch:" + CORRELATION
+          PROMPT = (
+              "Read .agent-dispatch/mission.md in the checked-out source and execute it exactly. "
+              "Do not create a pull request or publish changes. Do not send follow-up messages or "
+              "retry a failed mission step. Return proposed changes only through the session ChangeSet."
+          )
+
+          def h(value):
+              return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+          def req(method, path, body=None):
+              data = None if body is None else json.dumps(body, separators=(",", ":")).encode()
+              request = urllib.request.Request(
+                  BASE_URL + path,
+                  data=data,
+                  method=method,
+                  headers={
+                      "x-goog-api-key": KEY,
+                      "Accept": "application/json",
+                      "Content-Type": "application/json",
+                      "User-Agent": "semper-supra-agent-dispatch/opaque-once",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      raw = response.read()
+              except urllib.error.HTTPError as exc:
+                  raise RuntimeError(f"provider_http_{exc.code}") from exc
+              except urllib.error.URLError as exc:
+                  raise RuntimeError("provider_transport_error") from exc
+              if not raw:
+                  return {}
+              value = json.loads(raw)
+              if not isinstance(value, dict):
+                  raise RuntimeError("provider_shape_error")
+              return value
+
+          def list_paged(path, key):
+              out = []
+              token = None
+              for _ in range(10):
+                  query = {"pageSize": "100"}
+                  if token:
+                      query["pageToken"] = token
+                  result = req("GET", path + "?" + urllib.parse.urlencode(query))
+                  page = result.get(key, [])
+                  if not isinstance(page, list):
+                      raise RuntimeError("provider_page_shape_error")
+                  out.extend(x for x in page if isinstance(x, dict))
+                  token = result.get("nextPageToken")
+                  if not isinstance(token, str) or not token:
+                      return out
+              raise RuntimeError("provider_pagination_bound")
+
+          # Opaque source + branch resolution.
+          candidates = []
+          for source in list_paged("/sources", "sources"):
+              gh = source.get("githubRepo")
+              if not isinstance(gh, dict):
+                  continue
+              owner, name = gh.get("owner"), gh.get("repo")
+              if not isinstance(owner, str) or not isinstance(name, str):
+                  continue
+              if h((owner + "/" + name).lower()) != REPO_SEL:
+                  continue
+              source_name = source.get("name")
+              if not isinstance(source_name, str) or not source_name.startswith("sources/"):
+                  continue
+              branch_matches = []
+              for item in gh.get("branches", []) or []:
+                  if not isinstance(item, dict):
+                      continue
+                  display = item.get("displayName")
+                  if isinstance(display, str) and h(display) == BRANCH_SEL:
+                      branch_matches.append(display)
+              if len(branch_matches) == 1:
+                  candidates.append((source_name, branch_matches[0]))
+          if len(candidates) != 1:
+              print("OPAQUE_SOURCE_RESOLUTION_FAILED")
+              raise SystemExit(2)
+          source_name, branch_name = candidates[0]
+
+          def context_matches(session):
+              sc = session.get("sourceContext")
+              if not isinstance(sc, dict) or sc.get("source") != source_name:
+                  return False
+              rc = sc.get("githubRepoContext")
+              return isinstance(rc, dict) and rc.get("startingBranch") == branch_name
+
+          # Create-once semantics: reuse exactly one correlated session, otherwise POST once.
+          existing = []
+          for session in list_paged("/sessions", "sessions"):
+              if session.get("title") == TITLE and context_matches(session):
+                  existing.append(session)
+          if len(existing) > 1:
+              print("CORRELATION_AMBIGUOUS")
+              raise SystemExit(3)
+
+          if len(existing) == 1:
+              session = existing[0]
+              sid = str(session.get("id") or session.get("name") or "").removeprefix("sessions/")
+              if not sid:
+                  print("CORRELATION_INVALID")
+                  raise SystemExit(3)
+              print("SESSION_REUSED " + h(sid)[:16])
+          else:
+              create_body = {
+                  "prompt": PROMPT,
+                  "title": TITLE,
+                  "sourceContext": {
+                      "source": source_name,
+                      "githubRepoContext": {"startingBranch": branch_name},
+                  },
+                  "requirePlanApproval": False,
+              }
+              try:
+                  session = req("POST", "/sessions", create_body)
+              except RuntimeError:
+                  # Ambiguous create: reconcile once, never POST again.
+                  matches = [
+                      x for x in list_paged("/sessions", "sessions")
+                      if x.get("title") == TITLE and context_matches(x)
+                  ]
+                  if len(matches) != 1:
+                      print("CREATE_UNKNOWN_UNRECONCILED")
+                      raise SystemExit(4)
+                  session = matches[0]
+              sid = str(session.get("id") or session.get("name") or "").removeprefix("sessions/")
+              if not sid:
+                  print("CREATE_UNKNOWN_NO_SESSION_ID")
+                  raise SystemExit(4)
+              print("SESSION_CREATED " + h(sid)[:16])
+
+          # Observe only. No messages, approvals, or retries.
+          terminal = None
+          for _ in range(240):  # <= 80 minutes at 20s
+              current = req("GET", "/sessions/" + urllib.parse.quote(sid, safe=""))
+              if not context_matches(current):
+                  print("SESSION_CONTEXT_MISMATCH")
+                  raise SystemExit(5)
+              state = current.get("state")
+              if state in {"COMPLETED", "FAILED", "CANCELLED"}:
+                  terminal = current
+                  break
+              time.sleep(20)
+          if terminal is None:
+              print("SESSION_OBSERVE_TIMEOUT")
+              raise SystemExit(6)
+          if terminal.get("state") != "COMPLETED":
+              print("SESSION_TERMINAL_NONCOMPLETE")
+              raise SystemExit(7)
+
+          for output in terminal.get("outputs", []) or []:
+              if isinstance(output, dict) and output.get("pullRequest"):
+                  print("UNEXPECTED_PROVIDER_PUBLICATION")
+                  raise SystemExit(8)
+
+          activities = list_paged(
+              "/sessions/" + urllib.parse.quote(sid, safe="") + "/activities",
+              "activities",
+          )
+          proposals = []
+          for activity in activities:
+              name = activity.get("name")
+              created = activity.get("createTime")
+              if not isinstance(name, str) or not name.startswith("sessions/" + sid + "/activities/"):
+                  continue
+              if not isinstance(created, str):
+                  continue
+              try:
+                  when = dt.datetime.fromisoformat(created.replace("Z", "+00:00"))
+              except ValueError:
+                  continue
+              for artifact in activity.get("artifacts", []) or []:
+                  if not isinstance(artifact, dict):
+                      continue
+                  cs = artifact.get("changeSet")
+                  if not isinstance(cs, dict) or cs.get("source") != source_name:
+                      continue
+                  gp = cs.get("gitPatch")
+                  if not isinstance(gp, dict):
+                      continue
+                  base = gp.get("baseCommitId")
+                  patch = gp.get("unidiffPatch")
+                  if not isinstance(base, str) or not isinstance(patch, str) or not patch:
+                      continue
+                  if h(base) != BASE_SEL:
+                      print("CHANGESET_BASE_MISMATCH")
+                      raise SystemExit(9)
+                  proposals.append((when, hashlib.sha256(patch.encode()).hexdigest(), patch))
+          if not proposals:
+              print("NO_BOUND_CHANGESET")
+              raise SystemExit(10)
+          latest_time = max(x[0] for x in proposals)
+          latest = [x for x in proposals if x[0] == latest_time]
+          digests = {x[1] for x in latest}
+          if len(digests) != 1:
+              print("LATEST_CHANGESET_AMBIGUOUS")
+              raise SystemExit(11)
+          patch_digest = next(iter(digests))
+          patch = latest[0][2]
+
+          # Extract the one private compact report by path hash; never print its path/content.
+          report_text = None
+          chunks = re.split(r"(?m)^diff --git a/", patch)[1:]
+          for chunk in chunks:
+              lines = chunk.splitlines()
+              if not lines:
+                  continue
+              m = re.match(r"(.+?) b/(.+)$", lines[0])
+              if not m:
+                  continue
+              path = m.group(2)
+              if h(path) != REPORT_SEL:
+                  continue
+              if "new file mode" not in chunk and "--- /dev/null" not in chunk:
+                  print("REPORT_NOT_NEW_FILE")
+                  raise SystemExit(12)
+              out = []
+              in_hunk = False
+              for line in lines[1:]:
+                  if line.startswith("@@"):
+                      in_hunk = True
+                      continue
+                  if not in_hunk:
+                      continue
+                  if line.startswith("+++"):
+                      continue
+                  if line.startswith("+"):
+                      out.append(line[1:])
+              report_text = "\n".join(out) + "\n"
+              break
+          if report_text is None:
+              print("REPORT_MISSING")
+              raise SystemExit(13)
+
+          try:
+              report = json.loads(report_text)
+          except json.JSONDecodeError:
+              print("REPORT_INVALID_JSON")
+              raise SystemExit(14)
+
+          required = {
+              "schema", "source_head", "worktree_clean_before", "docker",
+              "recovery_command_sha256", "recovery_exit_code", "disposition",
+              "failure", "artifacts", "identity", "registrations", "codec_coverage",
+              "zero_wire", "outputs", "cross_decompiler_agreement", "opacity",
+              "semantic_diff", "high_signal", "acceptance_gate_complete",
+          }
+          if not isinstance(report, dict) or not required.issubset(report):
+              print("REPORT_SCHEMA_INCOMPLETE")
+              raise SystemExit(15)
+          if report.get("schema") != "minecraft-26.3-hostless-recovery-rep/1":
+              print("REPORT_SCHEMA_WRONG")
+              raise SystemExit(15)
+          source_head = report.get("source_head")
+          if not isinstance(source_head, str) or h(source_head) != BASE_SEL:
+              print("REPORT_SOURCE_MISMATCH")
+              raise SystemExit(16)
+          if report.get("worktree_clean_before") is not True:
+              print("REPORT_DIRTY_SOURCE")
+              raise SystemExit(16)
+          if report.get("recovery_command_sha256") != COMMAND_SEL:
+              print("REPORT_COMMAND_MISMATCH")
+              raise SystemExit(17)
+
+          exit_code = report.get("recovery_exit_code")
+          if isinstance(exit_code, bool) or not isinstance(exit_code, int):
+              print("REPORT_EXIT_INVALID")
+              raise SystemExit(18)
+
+          identity = report.get("identity") if isinstance(report.get("identity"), dict) else {}
+          artifacts = report.get("artifacts") if isinstance(report.get("artifacts"), dict) else {}
+          identity_ok = (
+              identity.get("minecraft_version") == "26.3"
+              and identity.get("protocol") == 777
+          )
+          artifact_ok = (
+              artifacts.get("client_sha1") == "e877b6a07acd633fb3bb475002175cec036e7b87"
+              and artifacts.get("server_sha1") == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
+          )
+          cov = report.get("codec_coverage") if isinstance(report.get("codec_coverage"), dict) else {}
+          sb = cov.get("serverbound") if isinstance(cov.get("serverbound"), dict) else {}
+          cb = cov.get("clientbound") if isinstance(cov.get("clientbound"), dict) else {}
+          missing_count = len(sb.get("missing", [])) + len(cb.get("missing", [])) if isinstance(sb.get("missing", []), list) and isinstance(cb.get("missing", []), list) else -1
+          regs = report.get("registrations") if isinstance(report.get("registrations"), dict) else {}
+          zw = report.get("zero_wire") if isinstance(report.get("zero_wire"), dict) else {}
+          outputs = report.get("outputs") if isinstance(report.get("outputs"), dict) else {}
+          required_outputs = ["recovery_summary", "grammar", "state_machine", "semantics", "go", "c", "scapy"]
+          output_count = sum(
+              1 for key in required_outputs
+              if isinstance(outputs.get(key), dict) and outputs[key].get("exists") is True
+          )
+          semdiff = report.get("semantic_diff") if isinstance(report.get("semantic_diff"), dict) else {}
+
+          failure = report.get("failure") if isinstance(report.get("failure"), dict) else {}
+          failure_stage = failure.get("stage")
+          failure_message = failure.get("message")
+          msg = failure_message.lower() if isinstance(failure_message, str) else ""
+          if "overlay" in msg and "invalid argument" in msg:
+              failure_class = "NESTED_DOCKER_OVERLAY_INVALID_ARGUMENT"
+          elif "mount" in msg and "invalid argument" in msg:
+              failure_class = "NESTED_DOCKER_MOUNT_INVALID_ARGUMENT"
+          elif "docker" in msg and ("daemon" in msg or "cannot connect" in msg):
+              failure_class = "DOCKER_DAEMON_UNAVAILABLE"
+          elif "extract_client_survival_semantics" in msg or "client-survival" in msg:
+              failure_class = "CLIENT_SURVIVAL_SEMANTICS"
+          elif "field-codec recovery incomplete" in msg or "field-codec" in msg:
+              failure_class = "FIELD_CODEC_RECOVERY"
+          elif "pytest" in msg or "test_" in msg:
+              failure_class = "VALIDATION_TEST_FAILURE"
+          elif "timeout" in msg or "timed out" in msg:
+              failure_class = "TIMEOUT"
+          elif msg:
+              failure_class = "OTHER"
+          else:
+              failure_class = "NO_MESSAGE"
+          summary = {
+              "token": (
+                  "MC263_ACCEPTANCE_EVIDENCE_GREEN"
+                  if report.get("acceptance_gate_complete") is True and exit_code == 0 and identity_ok and artifact_ok
+                  else "MC263_RECOVERY_COMMAND_PASS_INCOMPLETE"
+                  if exit_code == 0
+                  else "MC263_RECOVERY_REP_FAILED"
+              ),
+              "provider_completed": True,
+              "base_binding": "PROVEN",
+              "report_sha256": hashlib.sha256(report_text.encode()).hexdigest(),
+              "patch_sha256": patch_digest,
+              "recovery_exit_code": exit_code,
+              "disposition": report.get("disposition"),
+              "failure_stage": failure_stage,
+              "failure_class": failure_class,
+              "failure_message_sha256": hashlib.sha256(failure_message.encode()).hexdigest() if isinstance(failure_message, str) else None,
+              "docker_daemon_available": (report.get("docker") or {}).get("daemon_available") if isinstance(report.get("docker"), dict) else None,
+              "identity_ok": identity_ok,
+              "artifact_sha1_ok": artifact_ok,
+              "registrations_total": regs.get("total"),
+              "codec_complete": cov.get("complete"),
+              "codec_missing_count": missing_count,
+              "bundle_delimiter_proven": zw.get("bundle_delimiter_proven"),
+              "required_outputs_present": output_count,
+              "cross_decompiler_agreement": report.get("cross_decompiler_agreement"),
+              "semantic_diff_status": semdiff.get("status"),
+              "acceptance_gate_complete": report.get("acceptance_gate_complete") is True,
+          }
+          print(json.dumps(summary, sort_keys=True))
+          PY
+      - name: Publish sanitized commit-status receipt
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          try:
+              lines = [x.strip() for x in open("/tmp/opaque-status.txt", "r", encoding="utf-8", errors="replace") if x.strip()]
+          except OSError:
+              lines = []
+          summary = None
+          for line in reversed(lines):
+              if line.startswith("{") and line.endswith("}"):
+                  try:
+                      value = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(value, dict) and "token" in value:
+                      summary = value
+                      break
+          if summary is None:
+              last = lines[-1] if lines else "WORKFLOW_NO_SANITIZED_RESULT"
+              safe = "".join(ch for ch in last if ch.isalnum() or ch in " _:-=./")[:120]
+              records = [("opaque-jules/result", "failure", safe or "WORKFLOW_FAILED")]
+          else:
+              result_token = str(summary.get("token", "UNKNOWN"))[:120]
+              metrics = (
+                  f"exit={summary.get('recovery_exit_code')} "
+                  f"reg={summary.get('registrations_total')} "
+                  f"missing={summary.get('codec_missing_count')} "
+                  f"zero={summary.get('bundle_delimiter_proven')} "
+                  f"outputs={summary.get('required_outputs_present')}"
+              )[:120]
+              gate = (
+                  f"base={summary.get('base_binding')} "
+                  f"identity={summary.get('identity_ok')} "
+                  f"artifact={summary.get('artifact_sha1_ok')} "
+                  f"diff={summary.get('semantic_diff_status')} "
+                  f"accept={summary.get('acceptance_gate_complete')}"
+              )[:120]
+              def slug(value):
+                  return "".join(ch if ch.isalnum() else "-" for ch in str(value)).strip("-")[:180]
+              failure = (
+                  f"stage={summary.get('failure_stage')} "
+                  f"class={summary.get('failure_class')} "
+                  f"msgsha={str(summary.get('failure_message_sha256') or '')[:16]} "
+                  f"docker={summary.get('docker_daemon_available')}"
+              )[:160]
+              records = [
+                  ("opaque-jules/result/" + slug(result_token), "success", "sanitized terminal token"),
+                  ("opaque-jules/metrics/" + slug(metrics), "success", "sanitized recovery metrics"),
+                  ("opaque-jules/gate/" + slug(gate), "success", "sanitized acceptance gate"),
+                  ("opaque-jules/failure/" + slug(failure), "success", "sanitized failure classification"),
+              ]
+          for context, state, description in records:
+              body = json.dumps({"state": state, "context": context, "description": description}).encode()
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/statuses/{sha}",
+                  data=body,
+                  method="POST",
+                  headers={
+                      "Authorization": "Bearer " + token,
+                      "Accept": "application/vnd.github+json",
+                      "Content-Type": "application/json",
+                      "User-Agent": "semper-supra-agent-dispatch/opaque-receipt",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  response.read()
+          PY
