@@ -102,9 +102,21 @@ def main()->int:
       )),
     }
 
+    helper_ins=dp.parse_instructions(helper)
+    flag_writers={"movs","adds","subs","ands","bics","cmp","cmn","tst","teq"}
+    between_keytype_and_branch=[
+      x for x in helper_ins
+      if 0x29124 <= x["address"] <= 0x29154 and x["mnemonic"] in flag_writers
+    ]
+
     binary_checks={
       "helper_decodes_key_index": line_has(helper,0x29118,"mov","r5","r3"),
       "helper_decodes_key_type": line_has(helper,0x29120,"movs","r7","r2"),
+      "key_type_zero_flags_reach_indexed_branch": (
+        line_has(helper,0x29120,"movs","r7","r2")
+        and not between_keytype_and_branch
+        and line_has(helper,0x29158,"beq","29168")
+      ),
       "helper_decodes_macid": line_has(helper,0x29124,"ldr","r6","[sp, #60]"),
       "helper_decodes_group_flag": line_has(helper,0x29128,"ldr","r9","[sp, #64]"),
       "helper_decodes_key_len": line_has(helper,0x29130,"ldr","r11","[sp, #56]"),
@@ -173,13 +185,13 @@ def main()->int:
       "promotion":{
         "status":"accepted" if accepted else "blocked",
         "key_material_store_0xd8":{
-          "macid_keyindex_partition":"offset 0x000..0x87f = 17 MACIDs x 4 lanes/MACID x 32 bytes; binary indexed path addresses 32*(4*macid+key_index), key_index <=3",
+          "wep_default_key_partition":"offset 0x000..0x87f = 17 MACIDs x 4 WEP/default-key lanes per MACID x 32 bytes; key_type 0 sets Z at 0x29120 and the unchanged flags drive BEQ 0x29158 into this path, which addresses 32*(4*macid+key_index), key_index <=3",
           "group_key_base":"offset 128*macid; exact host SET_GROUP_KEY path is used for TKIP/AES, while WEP is forced to SET_KEY",
           "pairwise_station":"offset 0x860 + 32*stn_id; exact host stn_id=0 is allocation failure, so first effective pairwise slot is 0x880",
           "copy_lengths":"TKIP is forced to 32 bytes in binary and exact source; CCMP uses host key length (normally 16, bounded by source ABI); WEP uses host key length",
         },
         "control_state_0x214":{
-          "indexed_path":"same 32*(4*macid+key_index) arithmetic is observed in the key-index branch",
+          "wep_indexed_path":"key_type 0 (WEP in exact host ABI) selects the 32*(4*macid+key_index) branch; the same arithmetic is observed in +0x214 control state",
           "station16_group_slot":"offset 0x800 = 128*16; mode byte is written at +8",
           "accepted_group_modes":accepted_group_modes,
           "wep_mode9_guardrail":"binary key_type 0 would select mode 9 in the station16 group branch, but exact host source forces WEP to SET_KEY, so mode 9 is not promoted as a reachable WEP group semantic",
@@ -187,7 +199,7 @@ def main()->int:
         "structural_partition":"The first 0x880 bytes form a 17-MACID x four-32-byte-lane partition. The effective per-station pairwise region begins immediately at 0x880 because the pairwise formula is 0x860+32*stn_id and exact host station IDs are nonzero.",
       },
       "guarded_unknowns":[
-        "The runtime condition selecting the 4*macid+key_index branch is not yet semantically named; its arithmetic is accepted but its full trigger meaning remains unknown.",
+        "The key_type-zero branch is now identified as WEP/default-key handling from exact flag provenance plus the pinned host ABI; downstream hardware ownership remains unknown.",
         "The complete +0x214 control record field layout beyond observed mode/reset fields remains unknown.",
         "No hardware descriptor/register ownership is inferred.",
         "Capacity beyond the proven 0x880 partition boundary is not assigned a maximum station-count semantic from size alone."
@@ -195,7 +207,7 @@ def main()->int:
       "evidence":{
         "helper_range":"0x29114..0x29410",
         "focused_lines":{f"{pc:x}":line_at(helper,pc) for pc in (
-          0x29118,0x29120,0x29124,0x29128,0x29130,0x29168,0x2916c,0x291c8,0x291cc,0x291e8,0x291f4,
+          0x29118,0x29120,0x29124,0x29128,0x29130,0x29150,0x29154,0x29158,0x29168,0x2916c,0x291c8,0x291cc,0x291e8,0x291f4,
           0x29270,0x29274,0x29278,0x2927c,0x29280,0x29284,0x29288,0x29294,0x292d4,0x292dc,0x2930c,
           0x29314,0x29334,0x29338,0x2937c,0x2938c,0x29398,0x293a0,0x293ac,0x293b0,0x293b4,0x293b8,0x293c8
         )}
