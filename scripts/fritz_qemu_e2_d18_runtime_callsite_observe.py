@@ -526,6 +526,10 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "bindingMode": (call.get("instrumentation") or {}).get("bindingMode"),
             "observationCount": (call.get("instrumentation") or {}).get("observationCount", 0),
             "gdbExitClass": (call.get("instrumentation") or {}).get("gdbExitClass"),
+            "gdbConnectionSeen": (call.get("instrumentation") or {}).get("gdbConnectionSeen"),
+            "breakpointObservationCount": (
+                call.get("instrumentation") or {}
+            ).get("breakpointObservationCount", 0),
         }
         for key, call in calls.items()
     }
