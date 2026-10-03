@@ -179,6 +179,10 @@ def ipptool_attrs(port:int, root:pathlib.Path):
     if out.returncode: raise RuntimeError("IPP Get-Printer-Attributes failed")
     return out.stdout+"\n"+out.stderr
 
+def extract_printer_uuid(attrs: str):
+    match = re.search(r"printer-uuid[^\n]*= (urn:uuid:[^\s]+)", attrs)
+    return match.group(1) if match else None
+
 def ipptool_print(port:int, media:str, source:pathlib.Path, label:str, root:pathlib.Path):
     t=root/f"print-{label}.test"
     t.write_text("""{
@@ -337,8 +341,7 @@ def main():
         with tempfile.TemporaryDirectory() as td:
             root=pathlib.Path(td)
             attrs=ipptool_attrs(a.ipp_port,root)
-            m=re.search(r"printer-uuid[^\n]*= urn:uuid:([^\s]+)",attrs)
-            cups_uuid=m.group(1) if m else None
+            cups_uuid=extract_printer_uuid(attrs)
             if cups_uuid!=uuid: raise RuntimeError("CUPS UUID does not match control")
             if PUBLIC_URI not in attrs: raise RuntimeError("CUPS public URI does not match control")
             if "application/pdf" not in attrs or "image/urf" not in attrs: raise RuntimeError("CUPS document formats drifted")
