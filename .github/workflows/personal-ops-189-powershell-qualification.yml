@@ -93,5 +93,5 @@ jobs:
           if ($result.FailedCount -ne 0 -or $result.PassedCount -eq 0) {
             throw "Windows PowerShell 5.1 Pester failed: passed=$($result.PassedCount) failed=$($result.FailedCount)"
           }
-          "Windows PowerShell 5.1 Pester: PASS — $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" |
+          "Windows PowerShell 5.1 Pester: PASS - $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
