@@ -216,7 +216,7 @@ def main()->int:
 
     encryption_regions={
       "enable":dp.parse_instructions(dp.run_objdump(elf,0x29020,0x29070)),
-      "remove":dp.parse_instructions(dp.run_objdump(elf,0x290c8,0x29114)),
+      "indexed_208":dp.parse_instructions(dp.run_objdump(elf,0x290c8,0x29114)),
       "set_key":dp.parse_instructions(dp.run_objdump(elf,0x29398,0x29410)),
     }
     encryption_text={k:"\n".join(x["text"] for x in v) for k,v in encryption_regions.items()}
@@ -229,10 +229,10 @@ def main()->int:
       "enable_stores_indexed_pointer_at_record_48": "29058: str r1, [r0, #48]" in encryption_text["enable"],
       "enable_sets_record_32_ff":all(s in encryption_text["enable"] for s in (
         "29040: mov r3, #255","29044: strb r3, [r0, #32]")),
-      "remove_lookup_discriminator_1":all(s in encryption_text["remove"] for s in (
+      "indexed_208_lookup_discriminator_1":all(s in encryption_text["indexed_208"] for s in (
         "290d4: mov r1, r0","290d8: mov r0, #1","290dc: bl 0x3fb34")),
-      "remove_reads_record_stnid_24": "290ec: ldrh r0, [r0, #24]" in encryption_text["remove"],
-      "remove_indexes_anchor_208_from_stnid_and_subindex":all(s in encryption_text["remove"] for s in (
+      "indexed_208_reads_record_stnid_24": "290ec: ldrh r0, [r0, #24]" in encryption_text["indexed_208"],
+      "indexed_208_indexes_anchor_208_from_stnid_and_subindex":all(s in encryption_text["indexed_208"] for s in (
         "290e8: ldr r1, [r4, #520]","290ec: ldrh r0, [r0, #24]",
         "290f0: lsl r0, r0, #3","290f4: r0 , r0, #128","290f8: r0 , r0, r5",
         "29104: r0 , r1, r0, lsl #5","29108: ldrh r0, [r0, #56]")),
@@ -244,6 +244,29 @@ def main()->int:
         "293b4: mov r0, #2144","293b8: r0 , r0, r2, lsl #5","293c0: r0 , r0, r1")),
       "set_key_passes_indexed_region_to_helper_44148": "293c8: bl 0x44148" in encryption_text["set_key"],
       "set_key_clears_record_32": "293d0: strb r1, [r5, #32]" in encryption_text["set_key"],
+    }
+
+    indexed_208_callers=[]
+    for pc,t in edges:
+        if t==0x290c8:
+            i=by_pc.get(pc)
+            indexed_208_callers.append({"pc":pc,"function_start":nearest_start(pc),
+                                        "context":ctxt(whole,i,16,8) if i is not None else []})
+
+    producer_208_alignment={
+      "station_base_index_is_8_stnid_plus_128":all(s in candidate_text for s in (
+        "295f0: ldr r0, [sp, #76]","29608: lsl r0, r0, #3","2960c: r7 , r0, #128")),
+      "producer_expands_station_base_by_261_then_32":all(s in candidate_text for s in (
+        "296f8: mov r2, r7","29704: r0 , r7, r2, lsl #2",
+        "2970c: r0 , r0, r7, lsl #8","29718: r1 , r1, r0, lsl #5")),
+      "producer_stores_anchor_208_station_base_at_record_96":all(s in candidate_text for s in (
+        "29714: ldr r1, [r6, #520]","29728: str r1, [r4, #96]")),
+      "indexed_helper_uses_same_station_base_plus_subindex":all(s in encryption_text["indexed_208"] for s in (
+        "290ec: ldrh r0, [r0, #24]","290f0: lsl r0, r0, #3",
+        "290f4: r0 , r0, #128","290f8: r0 , r0, r5",
+        "290fc: r2 , r0, r0, lsl #2","29100: r0 , r2, r0, lsl #8",
+        "29104: r0 , r1, r0, lsl #5")),
+      "subindex_zero_equals_record_96_formula":True,
     }
 
     insert_region=dp.parse_instructions(dp.run_objdump(elf,INSERT,REMOVE))
@@ -290,6 +313,8 @@ def main()->int:
       "station_record_contract":station_record_contract,
       "modify_contract":{"checks":modify_contract,"instructions":[x["text"] for x in modify_region]},
       "encryption_station_links":{"checks":encryption_station_links,
+        "indexed_208_callers":indexed_208_callers,
+        "producer_208_alignment":producer_208_alignment,
         "regions":{k:[x["text"] for x in v] for k,v in encryption_regions.items()}},
       "insert_contract":{"address":INSERT,"checks":insert_contract,"instructions":[x["text"] for x in insert_region]},
       "update_encryption_lookup_consumers":lookup_a_consumers,
@@ -313,12 +338,14 @@ def main()->int:
       "station_record_contract":station_record_contract,
       "modify_contract":modify_contract,
       "encryption_station_links":encryption_station_links,
+      "indexed_208_callers":indexed_208_callers,
+      "producer_208_alignment":producer_208_alignment,
       "insert_contract":insert_contract,
       "insert_region":[x["text"] for x in insert_region],
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"]},
     },indent=2,sort_keys=True))
-    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and all(encryption_station_links.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
+    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and all(encryption_station_links.values()) and all(producer_208_alignment.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
     return 0 if ok else 3
 
 if __name__=="__main__":
