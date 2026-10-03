@@ -365,6 +365,28 @@ jobs:
           )
           semdiff = report.get("semantic_diff") if isinstance(report.get("semantic_diff"), dict) else {}
 
+          failure = report.get("failure") if isinstance(report.get("failure"), dict) else {}
+          failure_stage = failure.get("stage")
+          failure_message = failure.get("message")
+          msg = failure_message.lower() if isinstance(failure_message, str) else ""
+          if "overlay" in msg and "invalid argument" in msg:
+              failure_class = "NESTED_DOCKER_OVERLAY_INVALID_ARGUMENT"
+          elif "mount" in msg and "invalid argument" in msg:
+              failure_class = "NESTED_DOCKER_MOUNT_INVALID_ARGUMENT"
+          elif "docker" in msg and ("daemon" in msg or "cannot connect" in msg):
+              failure_class = "DOCKER_DAEMON_UNAVAILABLE"
+          elif "extract_client_survival_semantics" in msg or "client-survival" in msg:
+              failure_class = "CLIENT_SURVIVAL_SEMANTICS"
+          elif "field-codec recovery incomplete" in msg or "field-codec" in msg:
+              failure_class = "FIELD_CODEC_RECOVERY"
+          elif "pytest" in msg or "test_" in msg:
+              failure_class = "VALIDATION_TEST_FAILURE"
+          elif "timeout" in msg or "timed out" in msg:
+              failure_class = "TIMEOUT"
+          elif msg:
+              failure_class = "OTHER"
+          else:
+              failure_class = "NO_MESSAGE"
           summary = {
               "token": (
                   "MC263_ACCEPTANCE_EVIDENCE_GREEN"
@@ -379,6 +401,10 @@ jobs:
               "patch_sha256": patch_digest,
               "recovery_exit_code": exit_code,
               "disposition": report.get("disposition"),
+              "failure_stage": failure_stage,
+              "failure_class": failure_class,
+              "failure_message_sha256": hashlib.sha256(failure_message.encode()).hexdigest() if isinstance(failure_message, str) else None,
+              "docker_daemon_available": (report.get("docker") or {}).get("daemon_available") if isinstance(report.get("docker"), dict) else None,
               "identity_ok": identity_ok,
               "artifact_sha1_ok": artifact_ok,
               "registrations_total": regs.get("total"),
@@ -443,10 +469,17 @@ jobs:
               )[:120]
               def slug(value):
                   return "".join(ch if ch.isalnum() else "-" for ch in str(value)).strip("-")[:180]
+              failure = (
+                  f"stage={summary.get('failure_stage')} "
+                  f"class={summary.get('failure_class')} "
+                  f"msgsha={str(summary.get('failure_message_sha256') or '')[:16]} "
+                  f"docker={summary.get('docker_daemon_available')}"
+              )[:160]
               records = [
                   ("opaque-jules/result/" + slug(result_token), "success", "sanitized terminal token"),
                   ("opaque-jules/metrics/" + slug(metrics), "success", "sanitized recovery metrics"),
                   ("opaque-jules/gate/" + slug(gate), "success", "sanitized acceptance gate"),
+                  ("opaque-jules/failure/" + slug(failure), "success", "sanitized failure classification"),
               ]
           for context, state, description in records:
               body = json.dumps({"state": state, "context": context, "description": description}).encode()
