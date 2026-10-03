@@ -43,7 +43,7 @@ def legacy_w8964_crypto_block(text:str)->str:
     # hostcmdcommon.h carries two crypto ABI families in one conditional.
     # Anchor on the legacy branch's distinctive WEP=0 definition instead of
     # selecting the first nested #else after the W906X #if.
-    anchor=re.search(r"^\\s*#define\\s+KEY_TYPE_ID_WEP\\s+0x00\\b",text,re.M)
+    anchor=re.search(r"^\s*#define\s+KEY_TYPE_ID_WEP\s+0x00\b",text,re.M)
     if not anchor:
         raise RuntimeError("legacy W8964 KEY_TYPE_ID_WEP=0 anchor not found")
     start=text.rfind("#else",0,anchor.start())
