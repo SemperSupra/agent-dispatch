@@ -291,10 +291,39 @@ def main()->int:
     dispatcher=dp.parse_instructions(dp.run_objdump(elf,0x36454,0x390ec))
     get_seqno_cases=dp.recover_cases(dispatcher,{0x1143:"HOSTCMD_CMD_GET_SEQNO"})
     get_seqno_case=next((x for x in get_seqno_cases if x["value"]==0x1143),None)
+    normalization_present=False
+    for i,x in enumerate(dispatcher):
+        if x["mnemonic"] in {"mov","movw"} and dp.immediate(x)==0x1101 and dp.dest_reg(x) in {"lr","r14"}:
+            for y in dispatcher[i+1:min(len(dispatcher),i+8)]:
+                if y["mnemonic"] in {"sub","subs","subw"} and "r2" in y["operands"].lower() and "r12" in y["operands"].lower() and "lr" in y["operands"].lower():
+                    normalization_present=True
+                    break
+        if normalization_present:
+            break
+    normalized_get_seqno=None
+    delta=0x1143-0x1101
+    for i,x in enumerate(dispatcher):
+        if x["mnemonic"]!="cmp" or "r2" not in x["operands"].lower() or dp.immediate(x)!=delta:
+            continue
+        for y in dispatcher[i+1:min(len(dispatcher),i+4)]:
+            if y["mnemonic"]=="beq":
+                t=dp.branch_target(y)
+                normalized_get_seqno={"delta":delta,"cmp":x["text"],"branch":y["text"],"branch_target":t,
+                                      "context":[z["text"] for z in dispatcher[max(0,i-5):min(len(dispatcher),i+6)]]}
+                break
+        if normalized_get_seqno is not None:
+            break
+    if get_seqno_case is None and normalized_get_seqno is not None:
+        get_seqno_case={"command":"HOSTCMD_CMD_GET_SEQNO","value":0x1143,"hex":"0x1143",
+                        "branch_target":normalized_get_seqno["branch_target"],
+                        "match_kind":"normalized-delta-0x1101",
+                        "evidence":normalized_get_seqno["context"]}
     get_seqno_handler=dp.parse_instructions(dp.run_objdump(elf,0x36ff0,0x3700c))
     get_seqno_handler_text="\n".join(x["text"] for x in get_seqno_handler)
     indexed_208_text=encryption_text["indexed_208"]
     get_seqno_contract={
+      "dispatch_normalization_r12_minus_1101":normalization_present,
+      "dispatch_delta_42_to_36ff0":normalized_get_seqno is not None and normalized_get_seqno.get("branch_target")==0x36ff0,
       "dispatch_1143_to_36ff0":get_seqno_case is not None and get_seqno_case.get("branch_target")==0x36ff0,
       "handler_mac_at_cmd_8": "36ff4: r0 , r4, #8" in get_seqno_handler_text,
       "handler_tid_at_cmd_14": "36ff0: ldrb r1, [r4, #14]" in get_seqno_handler_text,
@@ -375,6 +404,7 @@ def main()->int:
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "get_seqno_contract":get_seqno_contract,
       "get_seqno_dispatch_case":get_seqno_case,
+      "get_seqno_normalized_dispatch":normalized_get_seqno,
       "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"],
         "hostcmd_get_seqno":source["hostcmd_get_seqno"]["found"],"fwcmd_get_seqno":source["fwcmd_get_seqno"]["found"]},
     },indent=2,sort_keys=True))
