@@ -39,11 +39,22 @@ def macro(text:str,name:str):
     m=re.search(r"^\s*#define\s+"+re.escape(name)+r"\s+([^/\n]+)",text,re.M)
     return m.group(1).strip() if m else None
 
+def legacy_w8964_crypto_block(text:str)->str:
+    start=text.find("#if defined(SOC_W906X) || defined(SOC_W9068)")
+    if start<0:
+        raise RuntimeError("SOC_W906X crypto conditional not found")
+    els=text.find("#else",start)
+    end=text.find("#endif /* SOC_W906X */",els)
+    if els<0 or end<0:
+        raise RuntimeError("legacy W8964 crypto block boundaries not found")
+    return text[els:end]
+
 def main()->int:
     ap=argparse.ArgumentParser();ap.add_argument("--out",required=True);ns=ap.parse_args()
     raw={k:get(v) for k,v in SOURCES.items()}
     txt={k:v.decode("utf-8","replace") for k,v in raw.items()}
     h=txt["nxp_hostcmdcommon"]; c=txt["nxp_w8964_fwcmd"]; mh=txt["mwlwifi_hostcmd"]; mf=txt["mwlwifi_fwcmd"]
+    h_w8964=legacy_w8964_crypto_block(h)
 
     # W8964-specific host-driver path is the !SOC_W906X branch in this source family.
     anchors={}
@@ -90,7 +101,7 @@ def main()->int:
       "ENCR_KEY_FLAG_AUTHENTICATOR","ENCR_KEY_FLAG_TSC_VALID",
       "ENCR_KEY_FLAG_WEP_TXKEY","ENCR_KEY_FLAG_MICKEY_VALID"
     ]:
-        defs[name]={"nxp_w8964_family":macro(h,name),"mwlwifi":macro(mh,name)}
+        defs[name]={"nxp_w8964_non_w906x":macro(h_w8964,name),"mwlwifi":macro(mh,name)}
 
     # Structure offsets are already independently exercised by the firmware rehost.
     layout={
@@ -111,7 +122,7 @@ def main()->int:
       "schema":"wrt8964-crypto-host-source-contract/v1",
       "source_digests":{k:hashlib.sha256(v).hexdigest() for k,v in raw.items()},
       "source_classes":{
-        "nxp_hostcmdcommon":"W8964-capable Marvell/NXP host interface source; semantic donor with explicit W8964 branch context",
+        "nxp_hostcmdcommon":"Marvell/NXP host interface source; values reported here are explicitly extracted from the non-SOC_W906X/SOC_W9068 legacy block used by W8964-family builds",
         "nxp_w8964_fwcmd":"Marvell/NXP host-driver implementation containing the non-SOC_W906X path used by W8964-family builds",
         "mwlwifi_hostcmd":"exact current open host ABI for the pinned 88W8964 blob",
         "mwlwifi_fwcmd":"exact current open host implementation for the pinned 88W8964 blob",
@@ -119,6 +130,10 @@ def main()->int:
       "anchors":anchors,
       "key_definitions":defs,
       "command_layout":layout,
+      "conditional_selection":{
+        "nxp_hostcmdcommon":"non-SOC_W906X/SOC_W9068 legacy branch",
+        "reason":"The same header contains newer W906X definitions with different numeric key IDs/flags; selecting the first textual define is incorrect for W8964."
+      },
       "source_semantics":{
         "enable_hardware_encryption":"Action 0; W8964 host source sends EncrTypeTkip for TKIP and keymgmt_aesModeGet(ouiType) for AES-family modes.",
         "set_pairwise_key":"Action 1; TKIP uses type 1 plus pairwise/TSC/MIC-valid flags; AES-family uses the AES-family key type plus pairwise flag.",
