@@ -10,6 +10,7 @@ on:
       - 'scripts/wrt3200acm_runtime_window_init.py'
       - 'scripts/wrt3200acm_selector3_anchor_field_map.py'
       - 'scripts/wrt3200acm_runtime_anchor_initializers.py'
+      - 'scripts/wrt3200acm_runtime_field_identity.py'
       - 'scripts/wrt3200acm_runtime_allocator_semantics.py'
       - 'scripts/wrt3200acm_txqueue_source_correlation.py'
       - 'scripts/wrt3200acm_allocator_core.py'
@@ -161,6 +162,7 @@ jobs:
           echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
           python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
           python3 scripts/wrt3200acm_runtime_anchor_initializers.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_runtime_field_identity.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wrt-runtime-anchor-initializers
