@@ -1,0 +1,62 @@
+name: WRT3200ACM Cloud Recovery
+
+
+concurrency:
+  group: wrt3200acm-cloud-recovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acquire-and-characterize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install bounded static-analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq file binutils binutils-multiarch p7zip-full squashfs-tools u-boot-tools xz-utils >/dev/null
+          file --version | head -1
+          strings --version | head -1
+          7z | head -3 || true
+
+      - name: Unit-test recovery tooling
+        run: python3 -m unittest -v tests/test_wrt3200acm_cloud_recovery.py
+
+      - name: Acquire and characterize public artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_cloud_recovery.py \
+            --manifest tasks/wrt3200acm/sources.json \
+            --work "$RUNNER_TEMP/wrt3200acm-work" \
+            --out "$RUNNER_TEMP/wrt3200acm-evidence"
+
+      - name: Verify no firmware payloads enter evidence mailbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          find "$RUNNER_TEMP/wrt3200acm-evidence" -type f -printf '%f\n' | sort
+          if find "$RUNNER_TEMP/wrt3200acm-evidence" -type f \( -name '*.bin' -o -name '*.img' -o -name '*.tgz' -o -name '*.zip' \) | grep -q .; then
+            echo "firmware payload leaked into evidence mailbox" >&2
+            exit 1
+          fi
+
+      - name: Upload public-safe derived evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-cloud-evidence-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt3200acm-evidence
+          if-no-files-found: warn
+          retention-days: 7
