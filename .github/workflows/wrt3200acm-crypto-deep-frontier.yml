@@ -1,0 +1,75 @@
+name: WRT3200ACM Crypto Deep Frontier
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wrt3200acm-crypto-deep-frontier.yml'
+      - 'scripts/wrt3200acm_w8964_crypto_source_contract.py'
+      - 'scripts/wrt3200acm_crypto_deep_rehost.py'
+      - 'scripts/wrt3200acm_fw_to_elf.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FW_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin
+  FW_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+
+jobs:
+  w8964-source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Recover W8964 crypto host-source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_w8964_crypto_source_contract.py             --out "$RUNNER_TEMP/evidence/w8964-crypto-source-contract.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-w8964-crypto-source-contract
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  deep-instruction-rehost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install Unicorn
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir unicorn==2.1.4 >/dev/null
+          python3 - <<'PY'
+          import unicorn
+          assert unicorn.__version__ == "2.1.4"
+          print("unicorn",unicorn.__version__)
+          PY
+      - name: Execute crypto helpers to first unsupported dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_crypto_deep_rehost.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+      - name: Verify derived-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-update-encryption-deep-rehost
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
