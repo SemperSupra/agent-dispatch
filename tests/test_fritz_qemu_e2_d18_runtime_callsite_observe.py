@@ -73,8 +73,30 @@ class D18Tests(unittest.TestCase):
         self.assertFalse(r["instrumentation"]["ready"])
         self.assertEqual(r["instrumentation"]["reason"], "instrumentation_exception")
         self.assertEqual(r["instrumentation"]["errorType"], "RuntimeError")
+        self.assertEqual(r["instrumentation"]["errorStage"], "instrumented_svctl_call")
         self.assertFalse(r["instrumentation"]["rawDebuggerOutputPublished"])
         self.assertNotIn("errorMessage", r["instrumentation"])
+
+    def test_summary_preserves_sanitized_failure_stage(self):
+        failed = {
+            "instrumentation": {
+                "ready": False,
+                "reason": "instrumentation_exception",
+                "errorType": "RuntimeError",
+                "errorStage": "callsite_resolution",
+                "observations": [],
+            }
+        }
+        runtime = {"preStatus": failed, "start": failed, "postStatus": failed}
+        s = d18.summarize_instrumentation(runtime)
+        self.assertEqual(
+            s["callDiagnostics"]["preStatus"]["errorStage"],
+            "callsite_resolution",
+        )
+        self.assertEqual(
+            s["callDiagnostics"]["preStatus"]["errorType"],
+            "RuntimeError",
+        )
 
 
 if __name__ == "__main__":
