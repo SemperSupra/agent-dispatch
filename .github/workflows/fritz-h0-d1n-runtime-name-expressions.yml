@@ -1,0 +1,77 @@
+name: FRITZ H0 D1n runtime name expressions
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d1n-runtime-name-expressions.yml'
+      - 'scripts/fritz_h0_d1n_runtime_name_expressions.py'
+      - 'scripts/fritz_h0_d1m_nametable_binding.py'
+      - 'tests/test_fritz_h0_d1n_runtime_name_expressions.py'
+      - 'docs/fritz-h0-d1n-runtime-name-expressions.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_h0_d1n_runtime_name_expressions.py
+
+  exact-osp-h0-d1n:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Recover exact runtime-name expressions
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d1n" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d1n_runtime_name_expressions.py \
+            --osp-url 'https://osp.avm.de/fritzbox/fritzbox-7590/source-files-FRITZ.Box_7590-grx5-08.25.tar.gz' \
+            --expected-size 633140613 \
+            --expected-sha256 61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d1n" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce expression evidence boundary
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
+          assert r.get("oracleSatisfied") is True, r
+          b=r["interpretationBoundary"]
+          assert b["selectorDomainAcceptedFromD1h"] == [0,1]
+          assert b["selectorZeroUsesRuntimeName0"] is True
+          assert b["selectorOneUsesRuntimeName1"] is True
+          assert b["onlyRuntimeNameInitializerExpressionsReduced"] is True
+          assert b["onlySafeIdentifiersAndShapeClassesPublished"] is True
+          assert b["onlyRestrictiveFieldBoundDestinationStringsPublished"] is True
+          assert b["exactFlashOffsetsAccepted"] is False
+          assert b["inactiveSlotSafetyAccepted"] is False
+          assert b["rollbackSafetyAccepted"] is False
+          assert b["modifiedHilAuthorized"] is False
+          for k,v in r["safety"].items():
+              assert v is False,(k,v)
+          print(json.dumps({
+              "classification":r["classification"],
+              "runtimeNameExpressions":r["runtimeNameExpressions"],
+              "resolvedDestinations":r["resolvedDestinations"],
+              "destinationCrosscheck":r["destinationCrosscheck"],
+              "derived":r["derived"],
+              "interpretationBoundary":b,
+          },sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d1n-runtime-name-expressions-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
