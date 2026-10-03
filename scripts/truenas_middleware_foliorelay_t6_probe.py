@@ -337,7 +337,7 @@ def main():
         with tempfile.TemporaryDirectory() as td:
             root=pathlib.Path(td)
             attrs=ipptool_attrs(a.ipp_port,root)
-            m=re.search(r"printer-uuid[^\n]*= urn:uuid:([^\s]+)",attrs)
+            m=re.search(r"printer-uuid[^\n]*= (urn:uuid:[^\s]+)",attrs)
             cups_uuid=m.group(1) if m else None
             if cups_uuid!=uuid: raise RuntimeError("CUPS UUID does not match control")
             if PUBLIC_URI not in attrs: raise RuntimeError("CUPS public URI does not match control")
