@@ -9,8 +9,10 @@ on:
       - '.github/workflows/gha-kvm-system-rdte.yml'
       - 'config/truenas-rdte-targets.json'
       - 'config/truenas-rdte-run-request.json'
+      - 'config/truenas-capsule-providers.json'
       - 'scripts/gha_kvm_truenas_rdte.sh'
       - 'scripts/truenas_rdte_target.py'
+      - 'scripts/truenas_session_manifest.py'
       - 'scripts/truenas_rdte_target.py'
       - 'scripts/gha_kvm_proxmox_rdte.sh'
       - 'scripts/truenas_middleware_*.py'
@@ -27,6 +29,7 @@ on:
       - 'tests/test_truenas_garm_provider_g4.py'
       - 'tests/test_truenas_garm_provider_g5.py'
       - 'tests/test_truenas_rdte_target.py'
+      - 'tests/test_truenas_session_manifest.py'
       - 'tests/test_truenas_rdte_target.py'
   pull_request:
     paths:
@@ -105,6 +108,9 @@ jobs:
           fi
           if [[ -f tests/test_truenas_rdte_target.py ]]; then
             tests+=(tests/test_truenas_rdte_target.py)
+          fi
+          if [[ -f tests/test_truenas_session_manifest.py ]]; then
+            tests+=(tests/test_truenas_session_manifest.py)
           fi
           python3 -m unittest -v "${tests[@]}"
 
