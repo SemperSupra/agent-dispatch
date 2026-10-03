@@ -377,9 +377,12 @@ def main()->int:
       "source_wds_modify_sets_action_and_wds_mode": all(s in fwcmd for s in (
         "int mwl_fwcmd_set_new_stn_wds_sc4(","pcmd->action = cpu_to_le16(HOSTCMD_ACT_STA_ACTION_MODIFY);",
         "pcmd->wds = cpu_to_le32(WDS_MODE);")),
-      "binary_modify_reads_cmd_67_70": all(s in handler_text for s in (
-        "355f4: ldrb r1, [r4, #68]","355f8: ldrb r2, [r4, #67]",
-        "355fc: ldrb r3, [r4, #69]","35600: ldrb r12, [r4, #70]")),
+      "binary_modify_reads_cmd_67_70": all(
+        any(x["address"] >= 0x355f4 and x["address"] <= 0x3560c and
+            x["mnemonic"] == "ldrb" and f"[r4, #{off}]" in x["operands"]
+            for x in modify_region)
+        for off in (67, 68, 69, 70)
+      ),
       "binary_modify_compares_wds_to_4": all(s in handler_text for s in (
         "3560c: orr r0, r0, r12, lsl #24","35610: cmp r0, #4","35614: bne 0x352d0")),
       "binary_wds_modify_sets_station_record_state": all(s in handler_text for s in (
