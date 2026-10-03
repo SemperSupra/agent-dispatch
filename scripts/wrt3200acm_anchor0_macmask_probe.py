@@ -19,7 +19,7 @@ def context(ins:list[dict],i:int,n:int=16)->list[str]:
     return [x["text"] for x in ins[max(0,i-n):min(len(ins),i+n+1)]]
 
 def line_at(text:str,address:int)->str:
-    m=re.search(rf"^\\s*0*{address:x}:\\s+.*$",text,re.M|re.I)
+    m=re.search(rf"^\s*0*{address:x}:\s+.*$",text,re.M|re.I)
     return m.group(0).strip() if m else ""
 
 
