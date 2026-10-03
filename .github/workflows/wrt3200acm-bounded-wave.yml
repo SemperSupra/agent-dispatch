@@ -1,0 +1,153 @@
+name: WRT3200ACM Bounded Recovery Wave
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wrt3200acm-bounded-wave.yml'
+      - 'tasks/wrt3200acm/bounded-wave-1.json'
+  workflow_dispatch:
+
+concurrency:
+  group: wrt3200acm-bounded-wave-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FW_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin
+  FW_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+
+jobs:
+  critical-binary:
+    name: critical-binary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install bounded analysis tools once
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+          python3 -m pip install --disable-pip-version-check --no-cache-dir unicorn==2.1.4 >/dev/null
+
+      - name: Acquire and reconstruct pinned W8964 once
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-wave/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/wrt-wave/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/wrt-wave/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/wrt-wave/fw.bin"             "$RUNNER_TEMP/wrt-wave/fw.elf"             "$RUNNER_TEMP/wrt-wave/evidence/elf-map.json"
+
+      - name: Run Wave 1 critical probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_crypto_control_counter_consumers.py             --elf "$RUNNER_TEMP/wrt-wave/fw.elf"             --out "$RUNNER_TEMP/wrt-wave/evidence"
+          python3 scripts/wrt3200acm_protocol_abi_map.py             --elf "$RUNNER_TEMP/wrt-wave/fw.elf"             --out "$RUNNER_TEMP/wrt-wave/evidence/protocol-abi-map.json"
+          PYTHONPATH="$GITHUB_WORKSPACE/scripts"             python3 scripts/wrt3200acm_rehost_smoke.py             --elf "$RUNNER_TEMP/wrt-wave/fw.elf"             --out "$RUNNER_TEMP/wrt-wave/evidence/rehost-smoke.json"
+
+      - name: Emit compact Wave 1 summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"wrt-wave/evidence"
+          counter=json.loads((root/"crypto-control-counter-consumers.json").read_text())
+          abi=json.loads((root/"protocol-abi-map.json").read_text())
+          rehost=json.loads((root/"rehost-smoke.json").read_text())
+          summary={
+            "schema":"wrt3200acm-bounded-wave-summary/v1",
+            "wave_id":"wave-1-2026-10-04",
+            "job":"critical-binary",
+            "counter_status":counter.get("promotion_assessment",{}).get("status"),
+            "counter_semantic_floor":counter.get("promotion_assessment",{}).get("semantic_floor"),
+            "counter_target_binary_gate_closed":counter.get("interpretation_gate",{}).get("target_binary_gate_closed"),
+            "abi_command_count":abi.get("command_count"),
+            "abi_mapped_dispatch_cases":abi.get("mapped_dispatch_cases"),
+            "abi_unmapped_count":len(abi.get("unmapped_commands",[])),
+            "rehost_schema":rehost.get("schema"),
+            "firmware_sha256":"ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751"
+          }
+          (root/"wave-summary-critical.json").write_text(json.dumps(summary,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Verify derived-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-wave/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' -o -name '*.ko' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: wrt-bounded-wave-1-critical
+          path: ${{ runner.temp }}/wrt-wave/evidence
+          retention-days: 7
+          if-no-files-found: error
+
+  source-only:
+    name: source-only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Run source-only Wave 1 probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-wave-source/evidence"
+          python3 scripts/wrt3200acm_w8964_crypto_source_contract.py             --out "$RUNNER_TEMP/wrt-wave-source/evidence/w8964-crypto-source-contract.json"
+          python3 scripts/wrt3200acm_crypto_source_oracle.py             --out "$RUNNER_TEMP/wrt-wave-source/evidence/crypto-source-oracle.json"
+          python3 scripts/wrt3200acm_txqueue_source_correlation.py             --out "$RUNNER_TEMP/wrt-wave-source/evidence/txqueue-source-correlation.json"
+
+      - name: Emit compact source summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"wrt-wave-source/evidence"
+          summary={
+            "schema":"wrt3200acm-bounded-wave-summary/v1",
+            "wave_id":"wave-1-2026-10-04",
+            "job":"source-only",
+            "outputs":sorted(p.name for p in root.glob("*.json")),
+            "firmware_downloaded":False
+          }
+          (root/"wave-summary-source.json").write_text(json.dumps(summary,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Verify source-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-wave-source" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' -o -name '*.ko' \) | grep -q .; then
+            echo "firmware-bearing file appeared in source-only job" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: wrt-bounded-wave-1-source
+          path: ${{ runner.temp }}/wrt-wave-source/evidence
+          retention-days: 7
+          if-no-files-found: error
