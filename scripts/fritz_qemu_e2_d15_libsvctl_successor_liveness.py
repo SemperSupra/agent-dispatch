@@ -64,7 +64,7 @@ def branch_target_addr(asm: str) -> int | None:
     if not operands:
         return None
     token = operands[-1].strip()
-    m = re.fullmatch(r"(?P<addr>(?:0x)?[0-9a-fA-F]+)(?:\\s*<[^>]+>)?", token)
+    m = re.fullmatch(r"(?P<addr>(?:0x)?[0-9a-fA-F]+)(?:\s*<[^>]+>)?", token)
     if not m:
         return None
     return int(m.group("addr"), 16)
