@@ -1,0 +1,45 @@
+{
+  "schema": "wrt3200acm-bounded-wave/v1",
+  "wave_id": "wave-1-2026-10-04",
+  "objective": "Close or falsify the W8964 software-side transmit encryption sequence-counter gate while refreshing ABI/rehost evidence with one heavy firmware acquisition; independently refresh source-oracle evidence without firmware.",
+  "resource_policy": {
+    "max_jobs": 2,
+    "max_firmware_bearing_jobs": 1,
+    "target_runner_minutes": 25,
+    "retry_limit": 1,
+    "no_unchanged_green_reruns": true
+  },
+  "jobs": {
+    "critical_binary": {
+      "priority": "P0",
+      "firmware_sha256": "ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751",
+      "probes": [
+        "scripts/wrt3200acm_crypto_control_counter_consumers.py",
+        "scripts/wrt3200acm_protocol_abi_map.py",
+        "scripts/wrt3200acm_rehost_smoke.py"
+      ],
+      "acceptance": [
+        "single firmware download",
+        "single ELF reconstruction",
+        "counter contract target-binary gate reported",
+        "ABI counts reported",
+        "rehost smoke passes",
+        "derived-only artifact mailbox"
+      ]
+    },
+    "source_only": {
+      "priority": "P1",
+      "probes": [
+        "scripts/wrt3200acm_w8964_crypto_source_contract.py",
+        "scripts/wrt3200acm_crypto_source_oracle.py",
+        "scripts/wrt3200acm_txqueue_source_correlation.py"
+      ],
+      "acceptance": [
+        "no firmware download",
+        "source refs pinned in outputs",
+        "derived-only artifact mailbox"
+      ]
+    }
+  },
+  "integration_gate": "No second compute wave before Wave 1 evidence is reconciled into private authority."
+}
