@@ -52,6 +52,7 @@ on:
           - garm-provider-g4
           - garm-provider-g5
           - official-catalog
+          - foliorelay
 
 permissions:
   contents: read
@@ -110,7 +111,7 @@ jobs:
                 scripts/gha_kvm_proxmox_rdte.sh)
                   proxmox=true
                   ;;
-                config/truenas-rdte-targets.json|scripts/truenas_rdte_target.py|scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_litellm_t6_probe.py|scripts/truenas_middleware_wow_sidecar_t6_probe.py|scripts/truenas_middleware_garm_t6_probe.py|scripts/truenas_middleware_garm_provider_g2_probe.py|scripts/truenas_middleware_garm_provider_g3_probe.py|scripts/truenas_middleware_garm_provider_g4_probe.py|scripts/truenas_middleware_garm_provider_g5_probe.py|scripts/truenas_middleware_official_catalog_t6_probe.py)
+                config/truenas-rdte-targets.json|scripts/truenas_rdte_target.py|scripts/gha_kvm_truenas_rdte.sh|scripts/truenas_installer_rpc_probe.py|scripts/truenas_installer_rpc_install.py|scripts/truenas_middleware_ddp_probe.py|scripts/truenas_middleware_pool_probe.py|scripts/truenas_middleware_app_probe.py|scripts/truenas_middleware_app_lifecycle_probe.py|scripts/truenas_middleware_litellm_t6_probe.py|scripts/truenas_middleware_wow_sidecar_t6_probe.py|scripts/truenas_middleware_garm_t6_probe.py|scripts/truenas_middleware_garm_provider_g2_probe.py|scripts/truenas_middleware_garm_provider_g3_probe.py|scripts/truenas_middleware_garm_provider_g4_probe.py|scripts/truenas_middleware_garm_provider_g5_probe.py|scripts/truenas_middleware_official_catalog_t6_probe.py|scripts/truenas_middleware_foliorelay_t6_probe.py)
                   truenas=true
                   ;;
                 scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
@@ -127,7 +128,7 @@ jobs:
             jq -e '.schema == "gha-kvm-truenas-run-request/v1"' "$RUN_REQUEST_PATH" >/dev/null
             truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
             truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
-            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "official-catalog")' "$RUN_REQUEST_PATH")"
+            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "official-catalog" or . == "foliorelay")' "$RUN_REQUEST_PATH")"
             python3 scripts/truenas_rdte_target.py \
               --registry config/truenas-rdte-targets.json \
               --version "$truenas_version" >/dev/null
@@ -148,7 +149,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate public-safe contract
-        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_garm_provider_g2.py tests/test_truenas_garm_provider_g3.py tests/test_truenas_garm_provider_g4.py tests/test_truenas_garm_provider_g5.py tests/test_truenas_t6_official_catalog_control.py tests/test_truenas_rdte_target.py
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_garm_provider_g2.py tests/test_truenas_garm_provider_g3.py tests/test_truenas_garm_provider_g4.py tests/test_truenas_garm_provider_g5.py tests/test_truenas_t6_official_catalog_control.py tests/test_truenas_t6_foliorelay_control.py tests/test_truenas_rdte_target.py
 
   foundry-t6-control:
     needs: [changes, contract]
@@ -184,6 +185,15 @@ jobs:
     with:
       foundry_ref: 60d56cc1752bc825cb232d72b397ff17fe6d47c4
       control_id: ntfy
+    permissions:
+      contents: read
+
+  foundry-foliorelay-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'foliorelay'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@fb41afd3d112f361b8c490aeb5915a978b956b20
+    with:
+      foundry_ref: fb41afd3d112f361b8c490aeb5915a978b956b20
     permissions:
       contents: read
 
@@ -313,7 +323,7 @@ jobs:
           retention-days: 7
 
   truenas-26-beta3:
-    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-official-catalog-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix]
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix]
     if: >-
       always() &&
       needs.contract.result == 'success' &&
@@ -325,6 +335,7 @@ jobs:
         (needs.changes.outputs.truenas_t6_product == 'wow-sidecar' && needs['foundry-wow-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm' && needs['foundry-garm-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'official-catalog' && needs['foundry-official-catalog-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'foliorelay' && needs['foundry-foliorelay-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g2' && needs['provider-g2-fixtures'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g3' && needs['provider-g3-fixture'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g4' && needs['provider-g4-fixture'].result == 'success') ||
@@ -359,6 +370,12 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: official-catalog-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact FolioRelay Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'foliorelay'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: foliorelay-t6-beta3-control
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
@@ -395,7 +412,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            qemu-system-x86 qemu-utils xorriso
+            qemu-system-x86 qemu-utils xorriso cups-ipp-utils libcups2-dev build-essential
       - name: Exercise pinned TrueNAS installer target
         run: |
           set -euo pipefail
@@ -440,6 +457,8 @@ jobs:
                 foundry_commit="9ac2eef97581caff5b0de740560c55a778fa3f1c"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "official-catalog" ]]; then
                 foundry_commit="60d56cc1752bc825cb232d72b397ff17fe6d47c4"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "foliorelay" ]]; then
+                foundry_commit="fb41afd3d112f361b8c490aeb5915a978b956b20"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi

@@ -20,6 +20,8 @@ on:
       - 'tests/test_truenas_t6_wow_sidecar_control.py'
       - 'tests/test_truenas_t6_garm_control.py'
       - 'tests/test_truenas_t6_official_catalog_control.py'
+      - 'tests/test_truenas_t6_foliorelay_control.py'
+      - 'tests/test_truenas_t6_foliorelay_control.py'
       - 'tests/test_truenas_garm_provider_g2.py'
       - 'tests/test_truenas_garm_provider_g3.py'
       - 'tests/test_truenas_garm_provider_g4.py'
@@ -85,6 +87,9 @@ jobs:
           fi
           if [[ -f tests/test_truenas_t6_official_catalog_control.py ]]; then
             tests+=(tests/test_truenas_t6_official_catalog_control.py)
+          fi
+          if [[ -f tests/test_truenas_t6_foliorelay_control.py ]]; then
+            tests+=(tests/test_truenas_t6_foliorelay_control.py)
           fi
           if [[ -f tests/test_truenas_garm_provider_g2.py ]]; then
             tests+=(tests/test_truenas_garm_provider_g2.py)
