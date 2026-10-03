@@ -119,7 +119,7 @@ def verify_action_handler(text:str)->dict[str,Any]:
         "set_key_path":all(bool(re.search(p,text)) for p in (
             r"34e18:.*ldrb\s+r2, \[r12, #13\]",
             r"34e1c:.*ldrb\s+r1, \[r12, #12\]",
-            r"34e38:.*ldrb\s+r4, \[r12, #8\]",
+            r"34e3c:.*ldrb\s+r4, \[r12, #8\]",
             r"34e50:.*ldrb\s+r3, \[r12, #11\]",
             r"34e70:.*add\s+r1, r12, #14",
             r"34e74:.*add\s+r0, r12, #58",
