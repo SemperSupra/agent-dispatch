@@ -6,7 +6,10 @@ import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "truenas_middleware_foliorelay_t6_probe.py"
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+SCRIPT = SCRIPTS / "truenas_middleware_foliorelay_t6_probe.py"
 SPEC = importlib.util.spec_from_file_location("foliorelay_t6_probe", SCRIPT)
 MOD = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader
