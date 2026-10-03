@@ -1,0 +1,80 @@
+name: FRITZ H0 D1j selector assignment context
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d1j-selector-assignment-context.yml'
+      - 'scripts/fritz_h0_d1j_selector_assignment_context.py'
+      - 'scripts/fritz_h0_d1i_selector_destination.py'
+      - 'scripts/fritz_h0_d1h_selector_switch.py'
+      - 'tests/test_fritz_h0_d1j_selector_assignment_context.py'
+      - 'docs/fritz-h0-d1j-selector-assignment-context.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_h0_d1j_selector_assignment_context.py
+
+  exact-osp-h0-d1j:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Recover exact new_name assignment context
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d1j" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d1j_selector_assignment_context.py \
+            --osp-url 'https://osp.avm.de/fritzbox/fritzbox-7590/source-files-FRITZ.Box_7590-grx5-08.25.tar.gz' \
+            --expected-size 633140613 \
+            --expected-sha256 61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d1j" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce context-only evidence
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
+          assert r.get("oracleSatisfied") is True, r
+          b=r["interpretationBoundary"]
+          assert b["wholeFileAssignmentInventory"] is True
+          assert b["sameBlockPostSwitchAssumptionRemoved"] is True
+          assert b["selectorValueToDestinationMappingAccepted"] is False
+          assert b["safeStringsOnlyWhenBoundToNewName"] is True
+          assert b["exactFlashOffsetsAccepted"] is False
+          assert b["inactiveSlotSafetyAccepted"] is False
+          assert b["rollbackSafetyAccepted"] is False
+          assert b["modifiedHilAuthorized"] is False
+          d=r["derived"]
+          if r["classification"]=="H0_D1J_SELECTOR_BOUND_ASSIGNMENT_CONTEXT_RECOVERED":
+              assert d["selectorBearingAssignmentCount"] > 0, d
+          for ctx in r["assignmentInventory"]["contexts"]:
+              assert ctx["lhs"] == "new_name", ctx
+          for k,v in r["safety"].items():
+              assert v is False,(k,v)
+          print(json.dumps({
+              "classification":r["classification"],
+              "assignmentInventory":r["assignmentInventory"],
+              "destinationCrosscheck":r["destinationCrosscheck"],
+              "derived":d,
+              "interpretationBoundary":b,
+          },sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d1j-selector-assignment-context-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
