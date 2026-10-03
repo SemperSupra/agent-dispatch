@@ -111,7 +111,17 @@ def locate_table_initializer(text: str) -> dict | None:
     """Locate an actual mtd_entry nametable declaration, never a later use."""
     masked = d1h.mask_comments_strings(text)
     declaration = re.compile(
-        rf"\b(?:static\s+)?(?:const\s+)?struct\s+mtd_entry\s+{TABLE}\b"
+        rf"""(?x)
+        \b
+        (?:(?:static|const|volatile)\s+)*
+        (?:
+            struct\s+{_IDENT}
+            |
+            {_IDENT}
+        )
+        \s+(?:\*+\s*)?
+        {TABLE}\b
+        """
     )
     for m in declaration.finditer(masked):
         limit = min(len(masked), m.end() + 1024)
@@ -134,7 +144,7 @@ def locate_table_initializer(text: str) -> dict | None:
             "declarationStart": m.start(),
             "open": open_idx,
             "close": close_idx,
-            "locatorClass": "struct_mtd_entry_declaration",
+            "locatorClass": "declaration_shaped",
         }
     return None
 
