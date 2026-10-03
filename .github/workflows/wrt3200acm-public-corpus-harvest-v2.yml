@@ -1,0 +1,139 @@
+name: WRT3200ACM Public Corpus Harvest V2
+
+on:
+  push:
+    branches:
+      - archive/wrt3200acm-20261003
+    paths:
+      - '.github/workflows/wrt3200acm-public-corpus-harvest-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-item:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-marvell-c8ae5197
+            url: https://codeload.github.com/MarvellEmbeddedProcessors/linux-marvell/tar.gz/c8ae519736bba6de02ace596b438f14d168648ae
+            filename: linux-marvell-c8ae519736bba6de02ace596b438f14d168648ae.tar.gz
+          - id: u-boot-marvell-7250729a
+            url: https://codeload.github.com/MarvellEmbeddedProcessors/u-boot-marvell/tar.gz/7250729a77289e375195264ae9fac3d8ebe3a3e3
+            filename: u-boot-marvell-7250729a77289e375195264ae9fac3d8ebe3a3e3.tar.gz
+          - id: mv-ddr-marvell-7bcb9dc7
+            url: https://codeload.github.com/MarvellEmbeddedProcessors/mv-ddr-marvell/tar.gz/7bcb9dc7ea7fa233bf96bd0350a4ec7c205e342e
+            filename: mv-ddr-marvell-7bcb9dc7ea7fa233bf96bd0350a4ec7c205e342e.tar.gz
+          - id: w9064-w8964-donor-dfb9d765
+            url: https://codeload.github.com/wongsyrone/nxp-W9064-PR25-25.2.2.0-P1077-D2082-WFO/tar.gz/dfb9d765615a748f064dfcfa7e289c43d846a15e
+            filename: nxp-W9064-W8964-donor-dfb9d765615a748f064dfcfa7e289c43d846a15e.tar.gz
+          - id: mwlwifi-db97edf2
+            url: https://codeload.github.com/kaloz/mwlwifi/tar.gz/db97edf20fadea2617805006f5230665fadc6a8c
+            filename: mwlwifi-db97edf20fadea2617805006f5230665fadc6a8c.tar.gz
+          - id: nxp-imx-mwifiex-2e481212
+            url: https://codeload.github.com/nxp-imx/mwifiex/tar.gz/2e481212d262758cbd4d0fc7ea95a2ad5f704bc3
+            filename: nxp-imx-mwifiex-2e481212d262758cbd4d0fc7ea95a2ad5f704bc3.tar.gz
+          - id: NXP-mwifiex-firmware-312ca028
+            url: https://codeload.github.com/NXP/mwifiex-firmware/tar.gz/312ca028298317d2babb54080c056408cdb9448b
+            filename: NXP-mwifiex-firmware-312ca028298317d2babb54080c056408cdb9448b.tar.gz
+          - id: openwrt-4dbdfecf
+            url: https://codeload.github.com/openwrt/openwrt/tar.gz/4dbdfecf0c15f769c10a2ebf2d3e5919401ce177
+            filename: openwrt-4dbdfecf0c15f769c10a2ebf2d3e5919401ce177.tar.gz
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch source snapshot
+        shell: bash
+        env:
+          URL: ${{ matrix.url }}
+          FILENAME: ${{ matrix.filename }}
+          ID: ${{ matrix.id }}
+        run: |
+          set -u
+          mkdir -p harvest
+          printf 'id\t%s\nurl\t%s\nretrieved_utc\t%s\n' "$ID" "$URL" "$(date -u +%FT%TZ)" > harvest/PROVENANCE.tsv
+          if curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1500 -A 'SemperSupra-WRT-Archive/2.0' "$URL" -o "harvest/$FILENAME"; then
+            sha256sum "harvest/$FILENAME" | tee harvest/SHA256SUMS
+            stat -c '%n\t%s bytes' "harvest/$FILENAME" | tee harvest/SIZES.tsv
+            echo "HARVEST_STATUS=OK"
+          else
+            echo "FAILED" > harvest/FAILED
+            echo "HARVEST_STATUS=FAILED"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-${{ matrix.id }}
+          path: harvest
+          if-no-files-found: error
+          retention-days: 7
+
+  document-item:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: NXP-88W8964-fact-sheet
+            url: https://www.nxp.com/docs/en/fact-sheet/88W8964-FACT-SHEET.pdf
+            filename: NXP-88W8964-FACT-SHEET.pdf
+          - id: ublox-EVK-EMMY-W1-primary
+            url: https://content.u-blox.com/sites/default/files/EVK-EMMY-W1_UserGuide_%28UBX-15012713%29.pdf
+            filename: ublox-EVK-EMMY-W1-UBX-15012713.pdf
+          - id: ublox-EVK-EMMY-W1-mirror
+            url: https://static.chipdip.ru/lib/256/DOC027256736.pdf
+            filename: ublox-EVK-EMMY-W1-UBX-15012713-mirror.pdf
+          - id: Linksys-WRT3200ACM-datasheet
+            url: https://downloads.linksys.com/downloads/datasheet/WRT3200ACM_WiFiRouter_EN.pdf
+            filename: Linksys-WRT3200ACM-datasheet.pdf
+          - id: Linksys-WRT3200ACM-GPL
+            url: https://downloads.linksys.com/support/assets/gpl/WRT3200ACM_v1.0.8.199531.tgz
+            filename: Linksys-WRT3200ACM-GPL-v1.0.8.199531.tgz
+          - id: Linksys-WRT3200ACM-license
+            url: https://downloads.linksys.com/support/assets/license/FW_LICENSE_WRT3200ACM_v1.0.8.199531.pdf
+            filename: Linksys-WRT3200ACM-FW-LICENSE-v1.0.8.199531.pdf
+          - id: Marvell-A38x-hardware-design-guide
+            url: https://device.report/m/ef54586d04f8f4630ad6b0262a8105f8ea0ee23f61914a5cc4bd22afeee7668e.pdf
+            filename: Marvell-A38x-Hardware-Design-Guide-MV-S302310-U0.pdf
+          - id: Marvell-A38x-functional-spec
+            url: https://ulli-kroll.de/Downloads/NAS326/A38x-Functional-Spec-PU0A.pdf
+            filename: Marvell-A38x-Functional-Spec-MV-S109094-U0.pdf
+          - id: NXP-AN12849
+            url: https://www.nxp.com/docs/en/application-note/AN12849.pdf
+            filename: NXP-AN12849-host-wake.pdf
+          - id: NXP-AN14163
+            url: https://www.nxp.com/docs/en/application-note/AN14163.pdf
+            filename: NXP-AN14163-Bluetooth-DTM.pdf
+          - id: NXP-AN13049
+            url: https://www.nxp.com/docs/en/application-note/AN13049.pdf
+            filename: NXP-AN13049-M2-Key-E.pdf
+          - id: NXP-UM11675
+            url: https://www.nxp.com/docs/en/user-manual/UM11675.pdf
+            filename: NXP-UM11675-WiFi-driver-build.pdf
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Fetch document
+        shell: bash
+        env:
+          URL: ${{ matrix.url }}
+          FILENAME: ${{ matrix.filename }}
+          ID: ${{ matrix.id }}
+        run: |
+          set -u
+          mkdir -p harvest
+          printf 'id\t%s\nurl\t%s\nretrieved_utc\t%s\n' "$ID" "$URL" "$(date -u +%FT%TZ)" > harvest/PROVENANCE.tsv
+          if curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1500 -A 'Mozilla/5.0 SemperSupra-WRT-Archive/2.0' "$URL" -o "harvest/$FILENAME"; then
+            sha256sum "harvest/$FILENAME" | tee harvest/SHA256SUMS
+            stat -c '%n\t%s bytes' "harvest/$FILENAME" | tee harvest/SIZES.tsv
+            file "harvest/$FILENAME" | tee harvest/FILETYPE.txt
+            echo "HARVEST_STATUS=OK"
+          else
+            echo "FAILED" > harvest/FAILED
+            echo "HARVEST_STATUS=FAILED"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: doc-${{ matrix.id }}
+          path: harvest
+          if-no-files-found: error
+          retention-days: 7
