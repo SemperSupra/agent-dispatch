@@ -412,7 +412,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            qemu-system-x86 qemu-utils xorriso
+            qemu-system-x86 qemu-utils xorriso cups-ipp-utils libcups2-dev build-essential
       - name: Exercise pinned TrueNAS installer target
         run: |
           set -euo pipefail
