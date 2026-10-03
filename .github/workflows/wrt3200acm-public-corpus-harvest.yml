@@ -1,0 +1,154 @@
+name: WRT3200ACM Public Corpus Harvest
+
+on:
+  push:
+    branches:
+      - archive/wrt3200acm-20261003
+    paths:
+      - '.github/workflows/wrt3200acm-public-corpus-harvest.yml'
+      - 'archive/wrt3200acm-public-corpus/**'
+
+permissions:
+  contents: read
+
+jobs:
+  vendor-source-snapshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harvest pinned public source repositories
+        shell: bash
+        run: |
+          set -u
+          mkdir -p harvest/source-snapshots
+          manifest=harvest/source-snapshots/RETRIEVAL.tsv
+          printf 'status\tname\turl\n' > "$manifest"
+          fetch() {
+            local name="$1" url="$2"
+            local out="harvest/source-snapshots/$name"
+            if curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 -A 'SemperSupra-WRT-Archive/1.0' "$url" -o "$out"; then
+              printf 'OK\t%s\t%s\n' "$name" "$url" >> "$manifest"
+            else
+              rm -f "$out"
+              printf 'FAILED\t%s\t%s\n' "$name" "$url" >> "$manifest"
+            fi
+          }
+          fetch linux-marvell-c8ae519736bba6de02ace596b438f14d168648ae.tar.gz \
+            https://codeload.github.com/MarvellEmbeddedProcessors/linux-marvell/tar.gz/c8ae519736bba6de02ace596b438f14d168648ae
+          fetch u-boot-marvell-7250729a77289e375195264ae9fac3d8ebe3a3e3.tar.gz \
+            https://codeload.github.com/MarvellEmbeddedProcessors/u-boot-marvell/tar.gz/7250729a77289e375195264ae9fac3d8ebe3a3e3
+          fetch mv-ddr-marvell-7bcb9dc7ea7fa233bf96bd0350a4ec7c205e342e.tar.gz \
+            https://codeload.github.com/MarvellEmbeddedProcessors/mv-ddr-marvell/tar.gz/7bcb9dc7ea7fa233bf96bd0350a4ec7c205e342e
+          fetch nxp-W9064-PR25-dfb9d765615a748f064dfcfa7e289c43d846a15e.tar.gz \
+            https://codeload.github.com/wongsyrone/nxp-W9064-PR25-25.2.2.0-P1077-D2082-WFO/tar.gz/dfb9d765615a748f064dfcfa7e289c43d846a15e
+          fetch mwlwifi-db97edf20fadea2617805006f5230665fadc6a8c.tar.gz \
+            https://codeload.github.com/kaloz/mwlwifi/tar.gz/db97edf20fadea2617805006f5230665fadc6a8c
+          fetch nxp-imx-mwifiex-2e481212d262758cbd4d0fc7ea95a2ad5f704bc3.tar.gz \
+            https://codeload.github.com/nxp-imx/mwifiex/tar.gz/2e481212d262758cbd4d0fc7ea95a2ad5f704bc3
+          fetch NXP-mwifiex-firmware-312ca028298317d2babb54080c056408cdb9448b.tar.gz \
+            https://codeload.github.com/NXP/mwifiex-firmware/tar.gz/312ca028298317d2babb54080c056408cdb9448b
+          (
+            cd harvest/source-snapshots
+            find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name RETRIEVAL.tsv -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            find . -maxdepth 1 -type f -printf '%f\t%s bytes\n' | sort > SIZES.tsv
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wrt3200acm-source-snapshots-20261003
+          path: harvest/source-snapshots
+          if-no-files-found: error
+          retention-days: 7
+
+  radio-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harvest exact radio binaries and source-adjacent material
+        shell: bash
+        run: |
+          set -u
+          mkdir -p harvest/radio-corpus
+          manifest=harvest/radio-corpus/RETRIEVAL.tsv
+          printf 'status\tname\turl\n' > "$manifest"
+          fetch() {
+            local name="$1" url="$2"
+            local out="harvest/radio-corpus/$name"
+            if curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 900 -A 'SemperSupra-WRT-Archive/1.0' "$url" -o "$out"; then
+              printf 'OK\t%s\t%s\n' "$name" "$url" >> "$manifest"
+            else
+              rm -f "$out"
+              printf 'FAILED\t%s\t%s\n' "$name" "$url" >> "$manifest"
+            fi
+          }
+          fetch 88W8964-9.3.2.12.bin \
+            https://raw.githubusercontent.com/kaloz/mwlwifi/db97edf20fadea2617805006f5230665fadc6a8c/bin/firmware/88W8964.bin
+          fetch 88W8964-Marvell_license.txt \
+            https://raw.githubusercontent.com/kaloz/mwlwifi/db97edf20fadea2617805006f5230665fadc6a8c/bin/firmware/Marvell_license.txt
+          fetch sd8887_uapsta-NXP-312ca028.bin \
+            https://raw.githubusercontent.com/NXP/mwifiex-firmware/312ca028298317d2babb54080c056408cdb9448b/mrvl/sd8887_uapsta.bin
+          (
+            cd harvest/radio-corpus
+            find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name RETRIEVAL.tsv -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            find . -maxdepth 1 -type f -printf '%f\t%s bytes\n' | sort > SIZES.tsv
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wrt3200acm-radio-corpus-20261003
+          path: harvest/radio-corpus
+          if-no-files-found: error
+          retention-days: 7
+
+  vendor-oem-documents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harvest public vendor and OEM documentation
+        shell: bash
+        run: |
+          set -u
+          mkdir -p harvest/vendor-docs
+          manifest=harvest/vendor-docs/RETRIEVAL.tsv
+          printf 'status\tname\turl\n' > "$manifest"
+          fetch() {
+            local name="$1" url="$2"
+            local out="harvest/vendor-docs/$name"
+            if curl -fL --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 -A 'Mozilla/5.0 SemperSupra-WRT-Archive/1.0' "$url" -o "$out"; then
+              printf 'OK\t%s\t%s\n' "$name" "$url" >> "$manifest"
+            else
+              rm -f "$out"
+              printf 'FAILED\t%s\t%s\n' "$name" "$url" >> "$manifest"
+            fi
+          }
+          fetch NXP-88W8964-FACT-SHEET.pdf \
+            https://www.nxp.com/docs/en/fact-sheet/88W8964-FACT-SHEET.pdf
+          fetch ublox-EVK-EMMY-W1-UBX-15012713.pdf \
+            'https://content.u-blox.com/sites/default/files/EVK-EMMY-W1_UserGuide_%28UBX-15012713%29.pdf'
+          fetch Linksys-WRT3200ACM-datasheet.pdf \
+            https://downloads.linksys.com/downloads/datasheet/WRT3200ACM_WiFiRouter_EN.pdf
+          fetch Linksys-WRT3200ACM-GPL-v1.0.8.199531.tgz \
+            https://downloads.linksys.com/support/assets/gpl/WRT3200ACM_v1.0.8.199531.tgz
+          fetch Linksys-WRT3200ACM-FW-LICENSE-v1.0.8.199531.pdf \
+            https://downloads.linksys.com/support/assets/license/FW_LICENSE_WRT3200ACM_v1.0.8.199531.pdf
+          fetch Marvell-ARMADA38x-Hardware-Design-Guide-MV-S302310-U0.pdf \
+            https://manuals.plus/m/b066bc155829b65fff8d5146f5d3db7178b736ef767609d693ace13840b80ef9.pdf
+          fetch Marvell-ARMADA38x-Functional-Spec-MV-S109094-U0.pdf \
+            https://ulli-kroll.de/Downloads/NAS326/A38x-Functional-Spec-PU0A.pdf
+          fetch NXP-AN12849-88W8887-host-wake.pdf \
+            https://www.nxp.com/docs/en/application-note/AN12849.pdf
+          fetch NXP-AN14163-Bluetooth-Direct-Test-Mode.pdf \
+            https://www.nxp.com/docs/en/application-note/AN14163.pdf
+          fetch NXP-AN13049-M2-Key-E-pinout.pdf \
+            https://www.nxp.com/docs/en/application-note/AN13049.pdf
+          fetch NXP-UM11675-WLAN-driver-build.pdf \
+            https://www.nxp.com/docs/en/user-guide/UM11675.pdf
+          (
+            cd harvest/vendor-docs
+            find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name RETRIEVAL.tsv -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+            find . -maxdepth 1 -type f -printf '%f\t%s bytes\n' | sort > SIZES.tsv
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wrt3200acm-vendor-docs-20261003
+          path: harvest/vendor-docs
+          if-no-files-found: error
+          retention-days: 7
