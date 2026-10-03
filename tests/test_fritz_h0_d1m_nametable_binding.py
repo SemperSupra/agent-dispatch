@@ -63,6 +63,21 @@ int f(const char *name) {
         self.assertEqual(r["rows"][0]["runtimeNames"]["runtime_name_0"], "filesystem")
         self.assertEqual(r["rows"][0]["runtimeNames"]["runtime_name_1"], "filesystem2")
 
+    def test_initializer_allows_declaration_attribute(self):
+        text = r'''
+struct entry {
+  const char *name;
+  const char *runtime_name_0;
+  const char *runtime_name_1;
+};
+static struct entry nametable[2] __attribute__((unused)) = {
+  { "rootfs", "filesystem", "filesystem2" },
+};
+'''
+        r = d1m.recover_table(text)
+        self.assertTrue(r["tableFound"])
+        self.assertEqual(r["rowCount"], 1)
+
     def test_without_unique_selection_field_no_bindings(self):
         text = r'''
 struct entry { const char *name; const char *alias; const char *runtime_name_0; const char *runtime_name_1; };
