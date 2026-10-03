@@ -194,6 +194,8 @@ def main()->int:
       "record_links_anchor_208_at_96": all(s in candidate_text for s in (
         "29714: ldr r1, [r6, #520]","29728: str r1, [r4, #96]")),
     }
+    modify_region=dp.parse_instructions(dp.run_objdump(elf,0x355f4,0x35664))
+    modify_branch_targets=[dp.branch_target(x) for x in modify_region if x["mnemonic"] in {"bl","b"}]
     modify_contract={
       "source_action_1_is_modify": "#define HOSTCMD_ACT_STA_ACTION_MODIFY           1" in fetch_text(HOSTCMD_URL),
       "action_1_dispatches_to_modify_path": all(s in handler_text for s in (
@@ -205,11 +207,43 @@ def main()->int:
         "35618: mov r2, #6","3561c: r1 , r4, #10","35620: r0 , sp, #36","35624: bl 0x25f0")),
       "modify_lookup_discriminator_1": all(s in handler_text for s in (
         "35628: r1 , sp, #36","3562c: mov r0, #1","35630: bl 0x3fbe4")),
-      "modify_does_not_call_insert_before_return": "35630: bl 0x3fbe4" in handler_text and "3565c: sp , sp, #44" in handler_text,
+      "modify_does_not_call_insert_before_return": INSERT not in modify_branch_targets and "35630: bl 0x3fbe4" in handler_text and "3565c: sp , sp, #44" in handler_text,
       "modify_sets_record_30_to_3": all(s in handler_text for s in (
         "3563c: ldrb r1, [r0, #30]","35640: cmp r1, #3","35648: mov r1, #3","35650: strb r1, [r0, #30]")),
       "modify_ors_record_28_with_0x300": all(s in handler_text for s in (
         "3564c: ldrh r2, [r0, #28]","35654: orr r2, r2, #768","35658: strh r2, [r0, #28]")),
+    }
+
+    encryption_regions={
+      "enable":dp.parse_instructions(dp.run_objdump(elf,0x29020,0x29070)),
+      "remove":dp.parse_instructions(dp.run_objdump(elf,0x290c8,0x29114)),
+      "set_key":dp.parse_instructions(dp.run_objdump(elf,0x29398,0x29410)),
+    }
+    encryption_text={k:"\n".join(x["text"] for x in v) for k,v in encryption_regions.items()}
+    encryption_station_links={
+      "enable_lookup_discriminator_1":all(s in encryption_text["enable"] for s in (
+        "29020: mov r1, r0","29024: mov r0, #1","29028: bl 0x3fb34")),
+      "enable_reads_record_stnid_24": "29034: ldrh r1, [r0, #24]" in encryption_text["enable"],
+      "enable_indexes_anchor_214_with_0x860_plus_32_stnid":all(s in encryption_text["enable"] for s in (
+        "29048: mov r2, #2144","2904c: r1 , r2, r1, lsl #5","29050: ldr r2, [r4, #532]","29054: r1 , r1, r2")),
+      "enable_stores_indexed_pointer_at_record_48": "29058: str r1, [r0, #48]" in encryption_text["enable"],
+      "enable_sets_record_32_ff":all(s in encryption_text["enable"] for s in (
+        "29040: mov r3, #255","29044: strb r3, [r0, #32]")),
+      "remove_lookup_discriminator_1":all(s in encryption_text["remove"] for s in (
+        "290d4: mov r1, r0","290d8: mov r0, #1","290dc: bl 0x3fb34")),
+      "remove_reads_record_stnid_24": "290ec: ldrh r0, [r0, #24]" in encryption_text["remove"],
+      "remove_indexes_anchor_208_from_stnid_and_subindex":all(s in encryption_text["remove"] for s in (
+        "290e8: ldr r1, [r4, #520]","290ec: ldrh r0, [r0, #24]",
+        "290f0: lsl r0, r0, #3","290f4: r0 , r0, #128","290f8: r0 , r0, r5",
+        "29104: r0 , r1, r0, lsl #5","29108: ldrh r0, [r0, #56]")),
+      "set_key_lookup_discriminator_1":all(s in encryption_text["set_key"] for s in (
+        "29398: mov r1, r0","2939c: mov r0, #1","293a0: bl 0x3fb34")),
+      "set_key_reads_record_stnid_24": "293b0: ldrh r2, [r5, #24]" in encryption_text["set_key"],
+      "set_key_indexes_anchor_d8_with_0x860_plus_32_stnid":all(s in encryption_text["set_key"] for s in (
+        "293ac: ldr r1, [r4, #216]","293b0: ldrh r2, [r5, #24]",
+        "293b4: mov r0, #2144","293b8: r0 , r0, r2, lsl #5","293c0: r0 , r0, r1")),
+      "set_key_passes_indexed_region_to_helper_44148": "293c8: bl 0x44148" in encryption_text["set_key"],
+      "set_key_clears_record_32": "293d0: strb r1, [r5, #32]" in encryption_text["set_key"],
     }
 
     insert_region=dp.parse_instructions(dp.run_objdump(elf,INSERT,REMOVE))
@@ -254,7 +288,9 @@ def main()->int:
       "candidate_regions":candidate_regions,
       "producer_call":{"pc":producer_call_pc,"context":producer_call_context},
       "station_record_contract":station_record_contract,
-      "modify_contract":modify_contract,
+      "modify_contract":{"checks":modify_contract,"instructions":[x["text"] for x in modify_region]},
+      "encryption_station_links":{"checks":encryption_station_links,
+        "regions":{k:[x["text"] for x in v] for k,v in encryption_regions.items()}},
       "insert_contract":{"address":INSERT,"checks":insert_contract,"instructions":[x["text"] for x in insert_region]},
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_contract":source,
@@ -276,12 +312,13 @@ def main()->int:
       "producer_call_context":producer_call_context,
       "station_record_contract":station_record_contract,
       "modify_contract":modify_contract,
+      "encryption_station_links":encryption_station_links,
       "insert_contract":insert_contract,
       "insert_region":[x["text"] for x in insert_region],
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"]},
     },indent=2,sort_keys=True))
-    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
+    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and all(encryption_station_links.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
     return 0 if ok else 3
 
 if __name__=="__main__":
