@@ -13,6 +13,7 @@ on:
       - 'scripts/wrt3200acm_runtime_field_identity.py'
       - 'scripts/wrt3200acm_key_slot_arithmetic.py'
       - 'scripts/wrt3200acm_crypto_counter_contract.py'
+      - 'scripts/wrt3200acm_crypto_control_counter_consumers.py'
       - 'scripts/wrt3200acm_anchor0_macmask_probe.py'
       - 'scripts/wrt3200acm_wep_control_mode.py'
       - 'scripts/wrt3200acm_runtime_hash_object_recovery.py'
@@ -173,6 +174,7 @@ jobs:
           python3 scripts/wrt3200acm_runtime_field_identity.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
           python3 scripts/wrt3200acm_key_slot_arithmetic.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
           python3 scripts/wrt3200acm_crypto_counter_contract.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_crypto_control_counter_consumers.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
           python3 scripts/wrt3200acm_anchor0_macmask_probe.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
           python3 scripts/wrt3200acm_wep_control_mode.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
           python3 scripts/wrt3200acm_runtime_hash_object_recovery.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
