@@ -194,6 +194,24 @@ def main()->int:
       "record_links_anchor_208_at_96": all(s in candidate_text for s in (
         "29714: ldr r1, [r6, #520]","29728: str r1, [r4, #96]")),
     }
+    modify_contract={
+      "source_action_1_is_modify": "#define HOSTCMD_ACT_STA_ACTION_MODIFY           1" in fetch_text(HOSTCMD_URL),
+      "action_1_dispatches_to_modify_path": all(s in handler_text for s in (
+        "35260: cmp r0, #1","35264: beq 0x355f4")),
+      "modify_gate_equals_4": all(s in handler_text for s in (
+        "355f4: ldrb r1, [r4, #68]","3560c: orr r0, r0, r12, lsl #24",
+        "35610: cmp r0, #4","35614: bne 0x352d0")),
+      "modify_copies_cmd_mac_plus_10_len_6": all(s in handler_text for s in (
+        "35618: mov r2, #6","3561c: r1 , r4, #10","35620: r0 , sp, #36","35624: bl 0x25f0")),
+      "modify_lookup_discriminator_1": all(s in handler_text for s in (
+        "35628: r1 , sp, #36","3562c: mov r0, #1","35630: bl 0x3fbe4")),
+      "modify_does_not_call_insert_before_return": "35630: bl 0x3fbe4" in handler_text and "3565c: sp , sp, #44" in handler_text,
+      "modify_sets_record_30_to_3": all(s in handler_text for s in (
+        "3563c: ldrb r1, [r0, #30]","35640: cmp r1, #3","35648: mov r1, #3","35650: strb r1, [r0, #30]")),
+      "modify_ors_record_28_with_0x300": all(s in handler_text for s in (
+        "3564c: ldrh r2, [r0, #28]","35654: orr r2, r2, #768","35658: strh r2, [r0, #28]")),
+    }
+
     insert_region=dp.parse_instructions(dp.run_objdump(elf,INSERT,REMOVE))
     insert_text="\n".join(x["text"] for x in insert_region)
     insert_contract={
@@ -236,6 +254,7 @@ def main()->int:
       "candidate_regions":candidate_regions,
       "producer_call":{"pc":producer_call_pc,"context":producer_call_context},
       "station_record_contract":station_record_contract,
+      "modify_contract":modify_contract,
       "insert_contract":{"address":INSERT,"checks":insert_contract,"instructions":[x["text"] for x in insert_region]},
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_contract":source,
@@ -256,12 +275,13 @@ def main()->int:
       "candidate_regions":candidate_regions,
       "producer_call_context":producer_call_context,
       "station_record_contract":station_record_contract,
+      "modify_contract":modify_contract,
       "insert_contract":insert_contract,
       "insert_region":[x["text"] for x in insert_region],
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"]},
     },indent=2,sort_keys=True))
-    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
+    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
     return 0 if ok else 3
 
 if __name__=="__main__":
