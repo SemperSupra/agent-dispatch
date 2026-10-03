@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import urllib.request
 from pathlib import Path
 
@@ -48,6 +49,17 @@ def text_range(elf: Path, lo: int, hi: int) -> str:
 
 def has_all(text: str, needles: tuple[str, ...]) -> bool:
     return all(n in text for n in needles)
+
+
+def line_at(text: str, address: int) -> str:
+    pat = re.compile(rf"^\\s*0*{address:x}:\\s+.*$", re.M | re.I)
+    m = pat.search(text)
+    return m.group(0).strip() if m else ""
+
+
+def line_has(text: str, address: int, *needles: str) -> bool:
+    line = line_at(text, address).lower()
+    return bool(line) and all(n.lower() in line for n in needles)
 
 
 def main() -> int:
@@ -96,26 +108,24 @@ def main() -> int:
     }
 
     binary_checks = {
-        "allocates_1088_bytes": "227ec: mov r0, #1088" in init,
-        "stores_allocation_at_anchor_21c": "227f8: str r0, [r4, #540]" in init,
-        "ap_writer_rejects_macid_16_plus": has_all(ap_writer, (
-            "2a240: cmp r0, #16",
-            "2a24c: bcs 0x2a298",
-        )),
-        "ap_writer_indexes_21c_by_64_macid": has_all(ap_writer, (
-            "2a244: ldr r3, [r2, #540]",
-            "2a248:",
-            "lsl #6",
-        )),
-        "set_new_stn_reads_cmd_header_macid": "354d4: ldrb r2, [r4, #5]" in set_new_stn,
-        "set_new_stn_marshals_macid_to_producer_stack": "354e4: str r2, [sp, #12]" in set_new_stn,
-        "producer_recovers_marshaled_macid": "295dc: ldr r10, [sp, #132]" in producer,
-        "producer_indexes_21c_by_64_macid": has_all(producer, (
-            "296b8: ldr r1, [r6, #540]",
-            "296bc:",
-            "r10, lsl #6",
-        )),
-        "producer_stores_21c_entry_at_record_80": "296c0: str r1, [r4, #80]" in producer,
+        "allocates_1088_bytes": line_has(init, 0x227ec, "mov", "r0", "#1088"),
+        "stores_allocation_at_anchor_21c": line_has(init, 0x227f8, "str", "r0", "[r4, #540]"),
+        "ap_writer_rejects_macid_16_plus": (
+            line_has(ap_writer, 0x2a240, "cmp", "r0", "#16")
+            and line_has(ap_writer, 0x2a24c, "bcs", "2a298")
+        ),
+        "ap_writer_indexes_21c_by_64_macid": (
+            line_has(ap_writer, 0x2a244, "ldr", "r3", "[r2, #540]")
+            and line_has(ap_writer, 0x2a248, "add", "r0", "r3", "lsl #6")
+        ),
+        "set_new_stn_reads_cmd_header_macid": line_has(set_new_stn, 0x354d4, "ldrb", "r2", "[r4, #5]"),
+        "set_new_stn_marshals_macid_to_producer_stack": line_has(set_new_stn, 0x354e4, "str", "r2", "[sp, #12]"),
+        "producer_recovers_marshaled_macid": line_has(producer, 0x295dc, "ldr", "r10", "[sp, #132]"),
+        "producer_indexes_21c_by_64_macid": (
+            line_has(producer, 0x296b8, "ldr", "r1", "[r6, #540]")
+            and line_has(producer, 0x296bc, "add", "r1", "r10", "lsl #6")
+        ),
+        "producer_stores_21c_entry_at_record_80": line_has(producer, 0x296c0, "str", "r1", "[r4, #80]"),
     }
 
     ap_slots = 16
@@ -169,6 +179,20 @@ def main() -> int:
             "ap_writer": ap_writer.splitlines(),
             "set_new_stn_macid_marshalling": set_new_stn.splitlines(),
             "producer_21c_link": producer.splitlines(),
+            "focused_lines": {
+                "227ec": line_at(init, 0x227ec),
+                "227f8": line_at(init, 0x227f8),
+                "2a240": line_at(ap_writer, 0x2a240),
+                "2a244": line_at(ap_writer, 0x2a244),
+                "2a248": line_at(ap_writer, 0x2a248),
+                "2a24c": line_at(ap_writer, 0x2a24c),
+                "354d4": line_at(set_new_stn, 0x354d4),
+                "354e4": line_at(set_new_stn, 0x354e4),
+                "295dc": line_at(producer, 0x295dc),
+                "296b8": line_at(producer, 0x296b8),
+                "296bc": line_at(producer, 0x296bc),
+                "296c0": line_at(producer, 0x296c0),
+            },
         },
     }
 
