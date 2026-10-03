@@ -111,6 +111,7 @@ def execute(
     raise ValueError(f"unsupported selector {f['selector']}")
 
 def verify_disassembly(handler:str,dispatcher_tail:str)->dict[str,Any]:
+    joined=handler+"\n"+dispatcher_tail
     anchors={
         "selector_decode":r"37e00:.*\[r4, #15\][\s\S]*37e04:.*\[r4, #14\]",
         "selector0_length_cap":r"37e38:.*cmp\s+r2, #64",
@@ -144,7 +145,6 @@ def verify_disassembly(handler:str,dispatcher_tail:str)->dict[str,Any]:
         "selector3_store_value0":r"37f1c:.*\[r4, #16\]",
         "selector3_store_value2":r"37f24:.*\[r4, #24\]",
     }
-    joined=handler+"\n"+dispatcher_tail
     observed={k:(v if isinstance(v,bool) else bool(re.search(v,joined,re.M))) for k,v in anchors.items()}
     return {"anchors":observed,"missing":[k for k,v in observed.items() if not v],"all_required_present":all(observed.values())}
 
