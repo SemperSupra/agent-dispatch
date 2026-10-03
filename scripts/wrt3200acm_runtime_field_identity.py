@@ -180,7 +180,7 @@ def main()->int:
     tuple_start=records.get("tuple_writer",{}).get("candidate_function_start")
     tuple_callers=all_xrefs.get(tuple_start,[]) if tuple_start is not None else []
     report={
-      "schema":"wrt8964-runtime-field-identity/v6",
+      "schema":"wrt8964-runtime-field-identity/v7",
       "focus":records,
       "tuple_writer_function_start":tuple_start,
       "tuple_writer_direct_call_or_tail_xrefs":tuple_callers,
@@ -202,6 +202,18 @@ def main()->int:
           "update_encryption_discriminator":1,
           "update_encryption_key_provenance":"enable/remove/set-key helpers pass their six-byte MAC-address argument as r1 and constant 1 as r0 before calling 0x3fb34",
           "inference":"0x706c0+0x4c is a 1021-bucket chained lookup table keyed by a six-byte MAC address plus a one-byte discriminator for UPDATE_ENCRYPTION paths. The domain identity of the returned object remains unassigned."
+        },
+        "0x214":{
+          "classification":"observed-plus-bounded-inference",
+          "allocation_bytes":14240,
+          "stride_bytes":32,
+          "record_count":445,
+          "initializer_range":"0..444",
+          "record_index_field_offset":0,
+          "record_index_field_width_bits":16,
+          "initializer_evidence":"0x22738 seeds record 444; 0x2274c..0x2277c initializes the remaining records in descending pairs so record[i].u16_0 == i",
+          "crypto_consumer_evidence":"UPDATE_ENCRYPTION set-key paths load +0x214 and address records with <<5 stride",
+          "inference":"0x706c0+0x214 is a 445-entry indexed pool of 32-byte records. The domain identity of those records remains unassigned."
         },
         "0x21c":{
           "classification":"observed-plus-bounded-inference",
