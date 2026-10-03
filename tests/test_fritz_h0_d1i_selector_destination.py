@@ -64,10 +64,28 @@ void g(void) {
         }
         self.assertEqual(
             d1i.classify(reduction, [{"destination": "a", "independentlyObserved": True}], []),
+            "H0_D1I_SELECTOR_DESTINATION_MAPPING_CROSSCHECK_PARTIAL",
+        )
+        self.assertEqual(
+            d1i.classify(
+                reduction,
+                [
+                    {"destination": "a", "independentlyObserved": True},
+                    {"destination": "b", "independentlyObserved": True},
+                ],
+                [],
+            ),
             "H0_D1I_SELECTOR_DESTINATION_MAPPING_CROSSCHECKED",
         )
         self.assertEqual(
-            d1i.classify(reduction, [{"destination": "a", "independentlyObserved": False}], []),
+            d1i.classify(
+                reduction,
+                [
+                    {"destination": "a", "independentlyObserved": True},
+                    {"destination": "b", "independentlyObserved": False},
+                ],
+                [],
+            ),
             "H0_D1I_SELECTOR_DESTINATION_MAPPING_CROSSCHECK_PARTIAL",
         )
 
