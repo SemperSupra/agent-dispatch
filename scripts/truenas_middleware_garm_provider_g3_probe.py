@@ -367,6 +367,7 @@ def main() -> int:
     p.add_argument("--password-file", required=True)
     p.add_argument("--fixture-dir", type=pathlib.Path, required=True)
     p.add_argument("--fixture-producer-commit", required=True)
+    p.add_argument("--expected-version", default=EXPECTED_VERSION)
     p.add_argument("--callback-url", default=DEFAULT_CALLBACK_URL)
     p.add_argument("--metadata-url", default=DEFAULT_METADATA_URL)
     p.add_argument("--out", required=True)
@@ -379,7 +380,7 @@ def main() -> int:
         "schema": "truenas-garm-provider-g3/v1",
         "classification": "ORACLE_FAILURE",
         "oracleSatisfied": False,
-        "expected_version": EXPECTED_VERSION,
+        "expected_version": a.expected_version,
         "provider_product_source": EXPECTED_PROVIDER_PRODUCT_SOURCE,
         "provider_binary_sha256": EXPECTED_PROVIDER_BINARY_SHA256,
         "appliance": EXPECTED_APPLIANCE,
@@ -455,7 +456,7 @@ def main() -> int:
             session.connect()
             version = session.call("system.version", [])
             payload["system_version"] = version
-            if version != EXPECTED_VERSION:
+            if version != a.expected_version:
                 raise RuntimeError(f"target version drifted: {version}")
 
             general = session.call("system.general.config", [])
