@@ -122,14 +122,34 @@ def main()->int:
           "context":[x["text"] for x in ins[max(0,idx-24):min(len(ins),idx+7)]] if idx is not None else [],
         }
 
+    # Bounded AP_BEACON caller provenance window. 0x36edc is the independently
+    # recovered HOSTCMD_CMD_AP_BEACON dispatch target; 0x37168 is the sole
+    # direct call into the six-byte tuple writer.
+    ap_lo=by_pc.get(0x36edc)
+    ap_hi=by_pc.get(0x3716c)
+    ap_ins=ins[ap_lo:ap_hi+1] if ap_lo is not None and ap_hi is not None else []
+    ap_mentions=[
+      x["text"] for x in ap_ins
+      if any(reg in x["operands"].lower().split() for reg in ("r8","r9"))
+      or x["address"]>=0x37140
+    ]
+    ap_beacon_tuple_provenance={
+      "dispatch_target":0x36edc,
+      "tuple_call_pc":0x37168,
+      "instruction_count":len(ap_ins),
+      "r8_r9_and_terminal_context":ap_mentions,
+      "full_context":[x["text"] for x in ap_ins],
+    }
+
     tuple_start=records.get("tuple_writer",{}).get("candidate_function_start")
     tuple_callers=all_xrefs.get(tuple_start,[]) if tuple_start is not None else []
     report={
-      "schema":"wrt8964-runtime-field-identity/v4",
+      "schema":"wrt8964-runtime-field-identity/v5",
       "focus":records,
       "tuple_writer_function_start":tuple_start,
       "tuple_writer_direct_call_or_tail_xrefs":tuple_callers,
       "callsite_context":callsite_context,
+      "ap_beacon_tuple_provenance":ap_beacon_tuple_provenance,
       "structural_promotions":{
         "0x4c":{
           "classification":"observed-plus-bounded-inference",
@@ -167,6 +187,10 @@ def main()->int:
     print(json.dumps({
       "tuple_writer_function_start":hex(tuple_start) if tuple_start is not None else None,
       "callsite_context":{k:{"pc":hex(v["pc"]),"instruction":v["instruction"],"context":v["context"]} for k,v in callsite_context.items()},
+      "ap_beacon_tuple_provenance":{
+        "instruction_count":ap_beacon_tuple_provenance["instruction_count"],
+        "r8_r9_and_terminal_context":ap_beacon_tuple_provenance["r8_r9_and_terminal_context"],
+      },
       "tuple_writer_direct_call_or_tail_xrefs":[{"pc":hex(x["pc"]),"kind":x["kind"],"text":x["text"]} for x in tuple_callers],
       "focus":{k:{
         "pc":hex(v["pc"]),"field":v["field"],"role":v["role"],
