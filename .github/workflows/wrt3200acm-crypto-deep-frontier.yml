@@ -91,6 +91,12 @@ jobs:
           echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
           python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
           python3 scripts/wrt3200acm_runtime_window_init.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+          echo '--- top candidate 00 ---'
+          cat "$RUNNER_TEMP/evidence/candidate-pair-00.txt"
+          echo '--- top candidate 02 ---'
+          cat "$RUNNER_TEMP/evidence/candidate-pair-02.txt"
+          echo '--- top candidate 03 ---'
+          cat "$RUNNER_TEMP/evidence/candidate-pair-03.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wrt-runtime-window-init-search
