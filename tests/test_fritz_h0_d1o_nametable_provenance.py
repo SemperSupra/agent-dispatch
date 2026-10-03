@@ -19,6 +19,9 @@ static struct mtd_entry nametable[] = {
         self.assertEqual(r["declarationCandidateCount"], 1)
         self.assertEqual(r["initializerCandidateCount"], 1)
         self.assertEqual(r["bracedInitializerCandidateCount"], 1)
+        self.assertEqual(r["mtdEntryDeclarationCandidateCount"], 1)
+        self.assertEqual(r["mtdEntryInitializerCandidateCount"], 1)
+        self.assertEqual(r["declarationCandidates"][0]["typeIdentifier"], "mtd_entry")
 
     def test_extern_declaration_candidate(self):
         r = d1o.analyze_text("extern struct mtd_entry *nametable;")
@@ -46,8 +49,11 @@ static struct mtd_entry nametable[] = {
                 "declarationCandidateCount": 1,
                 "initializerCandidateCount": 1,
                 "bracedInitializerCandidateCount": 1,
+                "mtdEntryDeclarationCandidateCount": 1,
+                "mtdEntryInitializerCandidateCount": 1,
+                "mtdEntryBracedInitializerCandidateCount": 1,
             }]}),
-            "H0_D1O_BRACED_DEFINITION_CANDIDATE_LOCATED",
+            "H0_D1O_MTD_ENTRY_BRACED_DEFINITION_CANDIDATE_LOCATED",
         )
 
 
