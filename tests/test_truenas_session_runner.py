@@ -106,7 +106,7 @@ class SessionRunnerTests(unittest.TestCase):
         self.addCleanup(lambda: path.unlink(missing_ok=True))
         return path
 
-    def run(self, doc, context):
+    def execute_session(self, doc, context):
         root = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
         return runner.run_session(
@@ -123,7 +123,7 @@ class SessionRunnerTests(unittest.TestCase):
             capsule("catalog-control", "official-catalog-t6", 18080),
             capsule("foliorelay", "foliorelay-t6", 18081),
         ])
-        result = self.run(doc, {
+        result = self.execute_session(doc, {
             "catalog-control": {"verdict": "SUPPORTED"},
             "foliorelay": {"verdict": "ORACLE_FAILURE"},
         })
@@ -137,7 +137,7 @@ class SessionRunnerTests(unittest.TestCase):
             capsule("first", "official-catalog-t6", 18080),
             capsule("second", "foliorelay-t6", 18081),
         ])
-        result = self.run(doc, {
+        result = self.execute_session(doc, {
             "first": {"verdict": "ORACLE_FAILURE", "cleanup_satisfied": False},
             "second": {"verdict": "SUPPORTED"},
         })
@@ -151,7 +151,7 @@ class SessionRunnerTests(unittest.TestCase):
             capsule("dependent", "foliorelay-t6", 18081, ["first"]),
             capsule("independent", "garm-t6", 18082),
         ])
-        result = self.run(doc, {
+        result = self.execute_session(doc, {
             "first": {"verdict": "ORACLE_FAILURE"},
             "dependent": {"verdict": "SUPPORTED"},
             "independent": {"verdict": "SUPPORTED"},
@@ -167,7 +167,7 @@ class SessionRunnerTests(unittest.TestCase):
             capsule("first", "official-catalog-t6", 18080),
             capsule("second", "foliorelay-t6", 18081),
         ])
-        result = self.run(doc, {
+        result = self.execute_session(doc, {
             "first": {"emit": False, "returncode": 7},
             "second": {"verdict": "SUPPORTED"},
         })
@@ -179,7 +179,7 @@ class SessionRunnerTests(unittest.TestCase):
     def test_receipt_manifest_drift_fails_closed(self):
         doc = manifest([capsule("first", "official-catalog-t6", 18080)])
         with self.assertRaisesRegex(SessionError, "receipt manifest identity mismatch"):
-            self.run(doc, {
+            self.execute_session(doc, {
                 "first": {
                     "verdict": "SUPPORTED",
                     "manifest_sha256": "0" * 64,
