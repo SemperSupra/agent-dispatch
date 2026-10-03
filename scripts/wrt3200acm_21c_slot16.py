@@ -52,7 +52,7 @@ def has_all(text: str, needles: tuple[str, ...]) -> bool:
 
 
 def line_at(text: str, address: int) -> str:
-    pat = re.compile(rf"^\\s*0*{address:x}:\\s+.*$", re.M | re.I)
+    pat = re.compile(rf"^\s*0*{address:x}:\s+.*$", re.M | re.I)
     m = pat.search(text)
     return m.group(0).strip() if m else ""
 
