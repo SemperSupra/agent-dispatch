@@ -242,137 +242,156 @@ def instrumented_svctl_call(
     verb: str,
     service: str,
 ) -> dict:
-    gdb = shutil.which("gdb-multiarch")
-    objdump = shutil.which("mips-linux-gnu-objdump")
-    if not gdb or not objdump:
-        raise RuntimeError("gdb-multiarch or mips objdump unavailable")
+    stage = "tool_discovery"
+    try:
+        gdb = shutil.which("gdb-multiarch")
+        objdump = shutil.which("mips-linux-gnu-objdump")
+        if not gdb or not objdump:
+            raise RuntimeError("gdb-multiarch or mips objdump unavailable")
 
-    exe = (root / r6.SVCTL.lstrip("/")).resolve()
-    etype = elf_type(exe)
+        stage = "elf_type"
+        exe = (root / r6.SVCTL.lstrip("/")).resolve()
+        etype = elf_type(exe)
+
+        stage = "callsite_resolution"
 
     # D17's exact-one-callsite invariant is required in both modes. For fixed
     # ET_EXEC binaries we can break at the callsite itself. For PIE/ET_DYN,
     # preserve that provenance constraint but bind GDB to the exported function
     # entry symbol so relocation is handled by the dynamic loader/GDB.
-    callsites = locate_callsite_addresses(exe, objdump)
-    if etype == "EXEC":
-        binding_mode = "static_callsite"
-        breakpoint_specs = {
-            target: f"*0x{address:x}"
-            for target, address in callsites.items()
-        }
-    elif etype == "DYN":
-        binding_mode = "symbol_entry"
-        breakpoint_specs = {target: target for target in TARGETS}
-    else:
+        callsites = locate_callsite_addresses(exe, objdump)
+        if etype == "EXEC":
+            binding_mode = "static_callsite"
+            breakpoint_specs = {
+                target: f"*0x{address:x}"
+                for target, address in callsites.items()
+            }
+        elif etype == "DYN":
+            binding_mode = "symbol_entry"
+            breakpoint_specs = {target: target for target in TARGETS}
+        else:
+            return {
+                "verb": verb,
+                "service": service,
+                "exitCode": None,
+                "stdoutBytes": 0,
+                "stdoutSha256": None,
+                "stderrBytes": 0,
+                "missingGuestPaths": [],
+                "stateMarkers": [],
+                "controllerVocabulary": r6.binary_state_vocabulary(root),
+                "wireCapture": {},
+                "instrumentation": {
+                    "ready": False,
+                    "reason": "unsupported_elf_type",
+                    "elfType": etype,
+                    "bindingMode": "unsupported",
+                    "observations": [],
+                    "rawDebuggerOutputPublished": False,
+                },
+                "rawOutputPublished": False,
+            }
+
+        port = _next_port()
+
+        with tempfile.TemporaryDirectory(prefix="fritz-d18-") as td:
+            command_path = pathlib.Path(td) / "observe.gdb"
+            command_path.write_text(
+                gdb_command_text(root, port, breakpoint_specs),
+                encoding="utf-8",
+            )
+
+            strace_argv = [
+                "strace", "-f", "-qq", "-xx", "-s", "8192",
+                "-e",
+                "trace=socket,connect,read,write,sendto,recvfrom,sendmsg,recvmsg,writev,readv,close",
+                "chroot", str(root), r6.QEMU_GUEST_PATH, "-cpu", r6.CPU_PROFILE,
+                "-g", str(port), r6.SVCTL, verb, service,
+            ]
+            stage = "process_launch"
+            proc = subprocess.Popen(
+                strace_argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                start_new_session=True,
+            )
+
+            time.sleep(0.2)
+            stage = "gdb_run"
+            gdb_cp = subprocess.run(
+                [gdb, "--batch", "--nx", "-x", str(command_path)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+
+            stage = "guest_communicate"
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = proc.communicate(timeout=2)
+
+        stage = "postprocess"
+        observations = parse_gdb_observations(gdb_cp.stdout)
+        wire = r9.parse_wire_trace(stderr)
+        vocab = r6.binary_state_vocabulary(root)
+        allowed = set(vocab.get(r6.SVCTL, {})) | set(vocab.get(r6.SUPERVISOR, {}))
+
+        ready = bool(
+            gdb_cp.returncode == 0
+            and proc.returncode is not None
+            and observations
+            and wire.get("captureComplete") is True
+        )
         return {
             "verb": verb,
             "service": service,
-            "exitCode": None,
-            "stdoutBytes": 0,
-            "stdoutSha256": None,
-            "stderrBytes": 0,
-            "missingGuestPaths": [],
-            "stateMarkers": [],
-            "controllerVocabulary": r6.binary_state_vocabulary(root),
-            "wireCapture": {},
+            "exitCode": proc.returncode,
+            "stdoutBytes": len(stdout.encode("utf-8", errors="replace")),
+            "stdoutSha256": r6.sha256_text(stdout),
+            "stderrBytes": len(stderr.encode("utf-8", errors="replace")),
+            "missingGuestPaths": r6.r1.parse_missing_paths(stderr),
+            "stateMarkers": r6.state_markers(stdout, allowed),
+            "controllerVocabulary": vocab,
+            "wireCapture": wire,
             "instrumentation": {
-                "ready": False,
-                "reason": "unsupported_elf_type",
+                "ready": ready,
+                "reason": "ok" if ready else "debugger_or_wire_incomplete",
                 "elfType": etype,
-                "bindingMode": "unsupported",
-                "observations": [],
+                "bindingMode": binding_mode,
+                "observationCount": len(observations),
+                "observations": observations,
+                "gdbExitClass": "zero" if gdb_cp.returncode == 0 else "nonzero",
                 "rawDebuggerOutputPublished": False,
+                "rawRegisterValuesPublished": False,
+                "rawPointedMemoryPublished": False,
+                "callsiteAddressesPublished": False,
             },
             "rawOutputPublished": False,
         }
 
-    port = _next_port()
 
-    with tempfile.TemporaryDirectory(prefix="fritz-d18-") as td:
-        command_path = pathlib.Path(td) / "observe.gdb"
-        command_path.write_text(
-            gdb_command_text(root, port, breakpoint_specs),
-            encoding="utf-8",
+    except Exception as exc:
+        return instrumentation_failure_result(
+            root,
+            verb,
+            service,
+            type(exc).__name__,
+            stage,
         )
-
-        strace_argv = [
-            "strace", "-f", "-qq", "-xx", "-s", "8192",
-            "-e",
-            "trace=socket,connect,read,write,sendto,recvfrom,sendmsg,recvmsg,writev,readv,close",
-            "chroot", str(root), r6.QEMU_GUEST_PATH, "-cpu", r6.CPU_PROFILE,
-            "-g", str(port), r6.SVCTL, verb, service,
-        ]
-        proc = subprocess.Popen(
-            strace_argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-            start_new_session=True,
-        )
-
-        time.sleep(0.2)
-        gdb_cp = subprocess.run(
-            [gdb, "--batch", "--nx", "-x", str(command_path)],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            stdout, stderr = proc.communicate(timeout=2)
-
-    observations = parse_gdb_observations(gdb_cp.stdout)
-    wire = r9.parse_wire_trace(stderr)
-    vocab = r6.binary_state_vocabulary(root)
-    allowed = set(vocab.get(r6.SVCTL, {})) | set(vocab.get(r6.SUPERVISOR, {}))
-
-    ready = bool(
-        gdb_cp.returncode == 0
-        and proc.returncode is not None
-        and observations
-        and wire.get("captureComplete") is True
-    )
-    return {
-        "verb": verb,
-        "service": service,
-        "exitCode": proc.returncode,
-        "stdoutBytes": len(stdout.encode("utf-8", errors="replace")),
-        "stdoutSha256": r6.sha256_text(stdout),
-        "stderrBytes": len(stderr.encode("utf-8", errors="replace")),
-        "missingGuestPaths": r6.r1.parse_missing_paths(stderr),
-        "stateMarkers": r6.state_markers(stdout, allowed),
-        "controllerVocabulary": vocab,
-        "wireCapture": wire,
-        "instrumentation": {
-            "ready": ready,
-            "reason": "ok" if ready else "debugger_or_wire_incomplete",
-            "elfType": etype,
-            "bindingMode": binding_mode,
-            "observationCount": len(observations),
-            "observations": observations,
-            "gdbExitClass": "zero" if gdb_cp.returncode == 0 else "nonzero",
-            "rawDebuggerOutputPublished": False,
-            "rawRegisterValuesPublished": False,
-            "rawPointedMemoryPublished": False,
-            "callsiteAddressesPublished": False,
-        },
-        "rawOutputPublished": False,
-    }
-
 
 def instrumentation_failure_result(
     root: pathlib.Path,
     verb: str,
     service: str,
     error_type: str,
+    error_stage: str = "instrumented_svctl_call",
 ) -> dict:
     """Return a sanitized typed instrumentation failure without raw debugger data."""
     vocab = r6.binary_state_vocabulary(root)
@@ -391,6 +410,7 @@ def instrumentation_failure_result(
             "ready": False,
             "reason": "instrumentation_exception",
             "errorType": error_type,
+            "errorStage": error_stage,
             "elfType": None,
             "bindingMode": None,
             "observationCount": 0,
@@ -414,7 +434,9 @@ def safe_instrumented_svctl_call(
     try:
         return instrumented_svctl_call(root, env, verb, service)
     except Exception as exc:
-        return instrumentation_failure_result(root, verb, service, type(exc).__name__)
+        return instrumentation_failure_result(
+            root, verb, service, type(exc).__name__, "outer_wrapper"
+        )
 
 
 def namespace_helper(args: argparse.Namespace) -> int:
@@ -463,6 +485,8 @@ def summarize_instrumentation(runtime: dict) -> dict:
         key: {
             "ready": (call.get("instrumentation") or {}).get("ready"),
             "reason": (call.get("instrumentation") or {}).get("reason"),
+            "errorType": (call.get("instrumentation") or {}).get("errorType"),
+            "errorStage": (call.get("instrumentation") or {}).get("errorStage"),
             "elfType": (call.get("instrumentation") or {}).get("elfType"),
             "bindingMode": (call.get("instrumentation") or {}).get("bindingMode"),
             "observationCount": (call.get("instrumentation") or {}).get("observationCount", 0),
@@ -704,6 +728,7 @@ def main(argv=None):
             "prePostStatusEqual": data["instrumentation"].get("prePostStatusEqual"),
             "startDiffersFromStatus": data["instrumentation"].get("startDiffersFromStatus"),
             "perTarget": data["instrumentation"].get("perTarget", []),
+            "callDiagnostics": data["instrumentation"].get("callDiagnostics", {}),
         }
     if isinstance(data.get("runtimeSummary"), dict):
         diagnostic["runtimeSummary"] = data["runtimeSummary"]
