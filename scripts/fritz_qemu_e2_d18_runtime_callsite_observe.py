@@ -145,6 +145,7 @@ def gdb_command_text(
 set confirm off
 set breakpoint pending on
 set auto-solib-add on
+set remotetimeout 2
 set sysroot {root}
 set solib-search-path {solib}
 file {exe}
@@ -240,6 +241,22 @@ def parse_gdb_stages(stdout: str) -> list[str]:
         if value in GDB_STAGE_ORDER and value not in seen:
             seen.append(value)
     return seen
+
+
+def classify_gdb_attach_error(stdout: str, stderr: str) -> str | None:
+    combined = (stdout + "\n" + stderr).lower()
+    classes = (
+        ("connection_refused", ("connection refused",)),
+        ("connection_timed_out", ("connection timed out", "timed out")),
+        ("connection_reset", ("connection reset by peer",)),
+        ("remote_disconnected", ("target disconnected", "remote connection closed")),
+        ("remote_communication_error", ("remote communication error",)),
+        ("protocol_error", ("remote 'g' packet", "protocol error", "malformed response")),
+    )
+    for label, needles in classes:
+        if any(needle in combined for needle in needles):
+            return label
+    return None
 
 
 def parse_gdb_observations(stdout: str) -> list[dict]:
@@ -463,6 +480,9 @@ def instrumented_svctl_call(
                 "gdbAttempted": gdb_attempted,
                 "gdbConnectionSeen": gdb_connection_seen,
                 "gdbStages": parse_gdb_stages(gdb_stdout),
+                "gdbAttachErrorClass": classify_gdb_attach_error(
+                    gdb_stdout, gdb_stderr
+                ),
                 "breakpointObservationCount": len(observations),
                 "rawDebuggerOutputPublished": False,
                 "rawRegisterValuesPublished": False,
@@ -591,6 +611,9 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "gdbAttempted": (call.get("instrumentation") or {}).get("gdbAttempted"),
             "gdbConnectionSeen": (call.get("instrumentation") or {}).get("gdbConnectionSeen"),
             "gdbStages": (call.get("instrumentation") or {}).get("gdbStages", []),
+            "gdbAttachErrorClass": (
+                call.get("instrumentation") or {}
+            ).get("gdbAttachErrorClass"),
             "breakpointObservationCount": (
                 call.get("instrumentation") or {}
             ).get("breakpointObservationCount", 0),
