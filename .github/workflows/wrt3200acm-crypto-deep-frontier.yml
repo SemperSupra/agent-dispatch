@@ -11,6 +11,7 @@ on:
       - 'scripts/wrt3200acm_selector3_anchor_field_map.py'
       - 'scripts/wrt3200acm_runtime_anchor_initializers.py'
       - 'scripts/wrt3200acm_runtime_field_identity.py'
+      - 'scripts/wrt3200acm_key_slot_arithmetic.py'
       - 'scripts/wrt3200acm_runtime_hash_object_recovery.py'
       - 'scripts/wrt3200acm_set_new_stn_producer.py'
       - 'scripts/wrt3200acm_21c_slot16.py'
@@ -167,6 +168,7 @@ jobs:
           python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
           python3 scripts/wrt3200acm_runtime_anchor_initializers.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
           python3 scripts/wrt3200acm_runtime_field_identity.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_key_slot_arithmetic.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
           python3 scripts/wrt3200acm_runtime_hash_object_recovery.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
