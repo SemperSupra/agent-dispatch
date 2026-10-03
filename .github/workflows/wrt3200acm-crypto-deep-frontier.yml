@@ -13,6 +13,7 @@ on:
       - 'scripts/wrt3200acm_runtime_field_identity.py'
       - 'scripts/wrt3200acm_runtime_hash_object_recovery.py'
       - 'scripts/wrt3200acm_set_new_stn_producer.py'
+      - 'scripts/wrt3200acm_21c_slot16.py'
       - 'scripts/wrt3200acm_rom_import_semantics.py'
       - 'scripts/wrt3200acm_runtime_allocator_semantics.py'
       - 'scripts/wrt3200acm_txqueue_source_correlation.py'
@@ -338,6 +339,7 @@ jobs:
           echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
           python3 scripts/wrt3200acm_fw_to_elf.py "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
           python3 scripts/wrt3200acm_set_new_stn_producer.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_21c_slot16.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
       - name: Verify derived-only evidence
         shell: bash
         run: |
