@@ -240,6 +240,24 @@ def _next_port() -> int:
     return value
 
 
+def gdb_listener_seen(port: int) -> bool:
+    """Return only whether the current network namespace has a TCP listener."""
+    cp = subprocess.run(
+        ["ss", "-ltnH"],
+        capture_output=True,
+        text=True,
+        timeout=2,
+    )
+    if cp.returncode != 0:
+        return False
+    suffix = f":{port}"
+    for line in cp.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and fields[3].endswith(suffix):
+            return True
+    return False
+
+
 def instrumented_svctl_call(
     root: pathlib.Path,
     env: dict,
@@ -322,30 +340,42 @@ def instrumented_svctl_call(
                 start_new_session=True,
             )
 
-            time.sleep(0.2)
+            stage = "gdb_listener_wait"
+            gdb_listener_ready = False
+            listener_deadline = time.monotonic() + 2.0
+            while time.monotonic() < listener_deadline:
+                if gdb_listener_seen(port):
+                    gdb_listener_ready = True
+                    break
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.05)
+
             stage = "gdb_run"
+            gdb_attempted = gdb_listener_ready
             gdb_timed_out = False
             gdb_returncode = None
             gdb_stdout = ""
             gdb_stderr = ""
-            try:
-                gdb_cp = subprocess.run(
-                    [gdb, "--batch", "--nx", "-x", str(command_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
-                gdb_returncode = gdb_cp.returncode
-                gdb_stdout = gdb_cp.stdout or ""
-                gdb_stderr = gdb_cp.stderr or ""
-            except subprocess.TimeoutExpired as exc:
-                gdb_timed_out = True
-                gdb_stdout = exc.stdout or ""
-                gdb_stderr = exc.stderr or ""
-                if isinstance(gdb_stdout, bytes):
-                    gdb_stdout = gdb_stdout.decode("utf-8", errors="replace")
-                if isinstance(gdb_stderr, bytes):
-                    gdb_stderr = gdb_stderr.decode("utf-8", errors="replace")
+            if gdb_listener_ready:
+                try:
+                    gdb_cp = subprocess.run(
+                        [gdb, "--batch", "--nx", "-x", str(command_path)],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    gdb_returncode = gdb_cp.returncode
+                    gdb_stdout = gdb_cp.stdout or ""
+                    gdb_stderr = gdb_cp.stderr or ""
+                except subprocess.TimeoutExpired as exc:
+                    gdb_timed_out = True
+                    gdb_stdout = exc.stdout or ""
+                    gdb_stderr = exc.stderr or ""
+                    if isinstance(gdb_stdout, bytes):
+                        gdb_stdout = gdb_stdout.decode("utf-8", errors="replace")
+                    if isinstance(gdb_stderr, bytes):
+                        gdb_stderr = gdb_stderr.decode("utf-8", errors="replace")
 
             stage = "guest_communicate"
             try:
@@ -389,6 +419,7 @@ def instrumented_svctl_call(
                 "ready": ready,
                 "reason": (
                     "ok" if ready
+                    else "gdb_listener_not_ready" if not gdb_listener_ready
                     else "gdb_timeout" if gdb_timed_out
                     else "debugger_or_wire_incomplete"
                 ),
@@ -401,6 +432,8 @@ def instrumented_svctl_call(
                     else "zero" if gdb_returncode == 0
                     else "nonzero"
                 ),
+                "gdbListenerSeen": gdb_listener_ready,
+                "gdbAttempted": gdb_attempted,
                 "gdbConnectionSeen": gdb_connection_seen,
                 "breakpointObservationCount": len(observations),
                 "rawDebuggerOutputPublished": False,
@@ -526,6 +559,8 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "bindingMode": (call.get("instrumentation") or {}).get("bindingMode"),
             "observationCount": (call.get("instrumentation") or {}).get("observationCount", 0),
             "gdbExitClass": (call.get("instrumentation") or {}).get("gdbExitClass"),
+            "gdbListenerSeen": (call.get("instrumentation") or {}).get("gdbListenerSeen"),
+            "gdbAttempted": (call.get("instrumentation") or {}).get("gdbAttempted"),
             "gdbConnectionSeen": (call.get("instrumentation") or {}).get("gdbConnectionSeen"),
             "breakpointObservationCount": (
                 call.get("instrumentation") or {}
