@@ -1,0 +1,123 @@
+{
+  "schema_version": "portable-headscale-workcell-profile.v1",
+  "status": "proposal-only",
+  "authority": {
+    "issue": 188,
+    "parent_edge_issue": 171,
+    "source_repo": "mark-e-deyoung/personal-ops",
+    "source_issue": 97,
+    "source_pr": 98,
+    "apply_authorized": false
+  },
+  "architecture": {
+    "network_control_plane": "existing-headscale-on-oci",
+    "parallel_mesh_allowed": false,
+    "durable_work_authority": "github",
+    "data_plane": "tailscale-wireguard",
+    "direct_path_required_before_application_data": true,
+    "relay_probe_during_negotiation_allowed": true,
+    "derp_application_data_admitted": false,
+    "peer_relay_application_data_admitted": false,
+    "oci_application_data_allowed": false,
+    "oci_role": "coordination-enrollment-lease-discovery-dns-only"
+  },
+  "enrollment_profiles": {
+    "colab": {
+      "tag": "tag:workcell-colab",
+      "one_use": true,
+      "ephemeral": true,
+      "userspace_networking": true,
+      "socks5_port": 1055,
+      "public_safe": false
+    },
+    "public_github_actions": {
+      "tag": "tag:workcell-gha-public",
+      "one_use": true,
+      "ephemeral": true,
+      "userspace_networking": true,
+      "socks5_port": 1055,
+      "public_safe": true,
+      "live_enrollment_gate": "github-oidc-and-negative-access-not-yet-qualified"
+    },
+    "synthetic_direct_peer": {
+      "tag": "tag:workcell-synthetic",
+      "one_use": true,
+      "ephemeral": true,
+      "userspace_networking": false,
+      "public_safe": true
+    }
+  },
+  "policy_intent": {
+    "default_action": "deny",
+    "broad_lan_reachability": false,
+    "subnet_route_advertisement": false,
+    "exit_node": false,
+    "any_any_grant": false,
+    "membership_is_work_authority": false,
+    "required_denies": [
+      {
+        "source": "tag:workcell-gha-public",
+        "target": "private-lan",
+        "service": "any"
+      },
+      {
+        "source": "tag:workcell-gha-public",
+        "target": "private-dle",
+        "service": "any"
+      },
+      {
+        "source": "tag:workcell-colab",
+        "target": "home-lan-subnet",
+        "service": "any"
+      },
+      {
+        "source": "unauthorized",
+        "target": "portable-workcell",
+        "service": "any"
+      }
+    ],
+    "candidate_edges": [
+      {
+        "source": "tag:workcell-colab",
+        "target": "synthetic-peer-id-selected-at-live-rep",
+        "service": "bounded-synthetic-tcp",
+        "port": null,
+        "exact_port_required_before_live_apply": true,
+        "live_apply_authorized": false
+      }
+    ]
+  },
+  "infrastructure_preflight": {
+    "required_before_live_rep": true,
+    "owning_issues": [
+      124,
+      163,
+      49,
+      171,
+      188
+    ],
+    "current_headscale_version": "re-read-required",
+    "current_tls_state": "re-read-required",
+    "current_control_endpoint": "re-read-required",
+    "current_grants_state": "re-read-required",
+    "upgrade_as_side_effect_allowed": false,
+    "lifecycle_issue": 178
+  },
+  "qualification": {
+    "path_oracle": "mark-e-deyoung/personal-ops#98:scripts/worksite/verify_tailscale_path.py",
+    "final_path_required": "direct",
+    "final_derp_classification": "NOT_READY",
+    "final_peer_relay_classification": "NOT_READY",
+    "bounded_tcp_stream_required": true,
+    "oci_transfer_observation_required": true,
+    "dns_projection_optional_and_owner_gated": true,
+    "teardown_required": true,
+    "cross_surface_order": [
+      "two-synthetic-direct-peers",
+      "colab-first-class",
+      "vscode-dev-first-class",
+      "cross-surface-durable-handoff",
+      "public-safe-gha-after-oidc-policy"
+    ]
+  }
+}
