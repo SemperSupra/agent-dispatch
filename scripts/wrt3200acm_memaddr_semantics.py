@@ -115,12 +115,24 @@ def verify_disassembly(handler:str,dispatcher_tail:str)->dict[str,Any]:
         "selector_decode":r"37e00:.*\[r4, #15\][\s\S]*37e04:.*\[r4, #14\]",
         "selector0_length_cap":r"37e38:.*cmp\s+r2, #64",
         "selector0_read32":r"37e68:.*ldr\s+r3, \[r1\], #4",
-        "selector1_address_value":(
-            r"37eac:.*\[r4, #8\][\s\S]*37eb0:.*\[r4, #9\][\s\S]*"
-            r"37ebc:.*\[r4, #10\][\s\S]*37ecc:.*\[r4, #11\][\s\S]*"
-            r"37ec0:.*\[r4, #16\][\s\S]*37eb4:.*\[r4, #17\][\s\S]*"
-            r"37ec8:.*\[r4, #18\][\s\S]*37ed4:.*\[r4, #19\][\s\S]*"
-            r"37ee8:.*b\s+0x3872c"
+        "selector1_address_value":all(
+            re.search(p, joined, re.M) for p in (
+                r"37eac:.*ldrb\s+r1, \[r4, #8\]",
+                r"37eb0:.*ldrb\s+r8, \[r4, #9\]",
+                r"37ebc:.*ldrb\s+r2, \[r4, #10\]",
+                r"37ecc:.*ldrb\s+r3, \[r4, #11\]",
+                r"37ec0:.*ldrb\s+r6, \[r4, #16\]",
+                r"37eb4:.*ldrb\s+r12, \[r4, #17\]",
+                r"37ec8:.*ldrb\s+r5, \[r4, #18\]",
+                r"37ed4:.*ldrb\s+r7, \[r4, #19\]",
+                r"37ec4:.*orr\s+r0, r0, r8, lsl #8",
+                r"37ed8:.*orr\s+r0, r0, r2, lsl #16",
+                r"37ee0:.*orr\s+r0, r0, r3, lsl #24",
+                r"37ed0:.*orr\s+r1, r6, r12, lsl #8",
+                r"37edc:.*orr\s+r1, r1, r5, lsl #16",
+                r"37ee4:.*orr\s+r1, r1, r7, lsl #24",
+                r"37ee8:.*b\s+0x3872c",
+            )
         ),
         "selector1_store32":r"3872c:.*str\s+r1, \[r0\]",
         "selector2_dest_value_array":r"37f00:.*add\s+r0, r4, #16",
@@ -133,7 +145,7 @@ def verify_disassembly(handler:str,dispatcher_tail:str)->dict[str,Any]:
         "selector3_store_value2":r"37f24:.*\[r4, #24\]",
     }
     joined=handler+"\n"+dispatcher_tail
-    observed={k:bool(re.search(v,joined,re.M)) for k,v in anchors.items()}
+    observed={k:(v if isinstance(v,bool) else bool(re.search(v,joined,re.M))) for k,v in anchors.items()}
     return {"anchors":observed,"missing":[k for k,v in observed.items() if not v],"all_required_present":all(observed.values())}
 
 def main()->int:
