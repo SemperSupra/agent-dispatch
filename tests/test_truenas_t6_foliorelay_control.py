@@ -60,6 +60,11 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('FOLIORELAY_OBSERVER_HOST_PORT', harness)
         self.assertIn('--observer-port "$FOLIORELAY_OBSERVER_HOST_PORT"', harness)
 
+    def test_cups_uuid_oracle_preserves_canonical_urn_prefix(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn(r'(urn:uuid:[^\\s]+)', text)
+        self.assertNotIn(r'= urn:uuid:([^\\s]+)', text)
+
     def test_probe_compiles(self):
         cp=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],capture_output=True,text=True)
         self.assertEqual(cp.returncode,0,cp.stderr)
