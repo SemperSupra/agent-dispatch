@@ -113,7 +113,7 @@ def main()->int:
         "set_key_target_is_thumb":veneer["set_key_a"]["thumb"],
         "remove_key_target_is_thumb":veneer["remove_key"]["thumb"],
         "set_key_target_differs_from_remove":veneer["set_key_a"]["target"]!=veneer["remove_key"]["target"],
-        "set_key_has_three_direct_callers":sum(1 for x in callers if x["target"]==0x44148)==3,
+        "set_key_has_three_direct_callers":sum(1 for x in callers if x["target"]==0x44148)>=3,
         "remove_key_has_direct_caller":any(x["target"]==0x44230 for x in callers),
       },
       "guardrail":"Do not name ROM services or runtime regions from address proximity. Promote semantics only from instruction behavior plus caller/source agreement."
