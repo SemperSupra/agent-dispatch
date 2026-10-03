@@ -203,11 +203,15 @@ class Obs(gdb.Breakpoint):
                     "memoryDigests": {{}},
                 }}
         print("FRITZOBS:" + json.dumps(record, sort_keys=True))
-        return False
+        self.enabled = False
+        return True
 
 {bp_lines}
 end
 continue
+continue
+detach
+quit
 """
 
 
