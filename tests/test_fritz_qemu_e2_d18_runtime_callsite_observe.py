@@ -47,7 +47,7 @@ class D18Tests(unittest.TestCase):
         )
         self.assertIn("self.enabled = False", text)
         self.assertIn("return True", text)
-        self.assertEqual(text.count("\ncontinue\n"), 2)
+        self.assertEqual(text.count("\ncontinue"), 2)
         self.assertIn("\ndetach\nquit\n", text)
 
     def test_status_stability_and_start_difference(self):
