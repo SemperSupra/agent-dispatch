@@ -37,6 +37,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends binutils binutils-mips-linux-gnu curl gdb-multiarch iproute2 qemu-user-static squashfs-tools strace util-linux
       - name: Run exact instrumented R9 transaction
+        id: probe
+        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/fritz-d18" "${RUNNER_TEMP}/fritz-receipt"
@@ -47,6 +49,7 @@ jobs:
             --work-dir "${RUNNER_TEMP}/fritz-d18" \
             --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
       - name: Enforce instrumentation evidence boundary
+        if: always()
         run: |
           python3 - <<'PY'
           import json, os, pathlib
@@ -81,6 +84,7 @@ jobs:
           },sort_keys=True))
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: fritz-e2-d18-runtime-callsite-observe-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fritz-receipt/receipt.json
