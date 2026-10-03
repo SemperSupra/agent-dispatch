@@ -14,7 +14,7 @@
       "priority": "P0",
       "firmware_sha256": "ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751",
       "probes": [
-        "scripts/wrt3200acm_crypto_control_counter_consumers.py",
+        "scripts/wrt3200acm_crypto_counter_gate_v2.py",
         "scripts/wrt3200acm_protocol_abi_map.py",
         "scripts/wrt3200acm_rehost_smoke.py"
       ],
@@ -41,5 +41,11 @@
       ]
     }
   },
-  "integration_gate": "No second compute wave before Wave 1 evidence is reconciled into private authority."
+  "integration_gate": "No second compute wave before Wave 1 evidence is reconciled into private authority.",
+  "revision": 2,
+  "admitted_at": "2026-10-04",
+  "notes": [
+    "Revision 2 uses the corrected raw-objdump matcher gate introduced at d76c5cc4.",
+    "Legacy broad workflows are checkpoint-only as of b2cbb866; this spec push should launch only the bounded wave."
+  ]
 }
