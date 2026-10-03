@@ -1,0 +1,231 @@
+name: WinBot Seed Privilege Probe
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-seed-privilege-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      PROVISION_BLOB_SHA: f65f324d4df42de2d5d2c31579421bf845311870
+    steps:
+      - name: Probe provisioning VHD and storage privilege boundaries
+        id: probe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-seed-privilege-probe'
+          $fixture = Join-Path $root 'fixture'
+          $exactScript = Join-Path $root 'build-provision-vhd.ps1'
+          $receiptPath = Join-Path $root 'receipt.json'
+          New-Item -ItemType Directory -Force -Path $root,$fixture,(Join-Path $fixture 'api'),(Join-Path $fixture 'tools') | Out-Null
+          foreach ($p in @(
+            'api\main.py',
+            'setup-service.ps1',
+            'setup-remote.ps1',
+            'tools\install-all.ps1'
+          )) {
+            Set-Content -LiteralPath (Join-Path $fixture $p) -Value '# probe fixture' -Encoding utf8
+          }
+
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $blob = Invoke-RestMethod -Headers $headers -Uri ("https://api.github.com/repos/SemperSupra/agent-dispatch/git/blobs/" + $env:PROVISION_BLOB_SHA)
+          $raw = [Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+          [IO.File]::WriteAllBytes($exactScript,$raw)
+          $gitHeader = [Text.Encoding]::ASCII.GetBytes(("blob " + $raw.Length + [char]0))
+          $sha1 = [Security.Cryptography.SHA1]::Create()
+          try {
+            $joined = New-Object byte[] ($gitHeader.Length + $raw.Length)
+            [Array]::Copy($gitHeader,0,$joined,0,$gitHeader.Length)
+            [Array]::Copy($raw,0,$joined,$gitHeader.Length,$raw.Length)
+            $observedBlob = ([BitConverter]::ToString($sha1.ComputeHash($joined)) -replace '-','').ToLowerInvariant()
+          } finally { $sha1.Dispose() }
+          if ($observedBlob -ne $env:PROVISION_BLOB_SHA) { throw 'exact provision script Git blob identity mismatch' }
+
+          $receipt = [ordered]@{
+            schema_version = 1
+            authority = 'mark-e-deyoung/WinBot#70'
+            experiment_authority = 'SemperSupra/agent-dispatch-private#406'
+            source_revision = '4220566a40afa90436b9ec82f2de9d608a40369b'
+            provision_blob_sha = $env:PROVISION_BLOB_SHA
+            runner = [ordered]@{
+              image_os = $env:ImageOS
+              image_version = $env:ImageVersion
+              runner_os = $env:RUNNER_OS
+              runner_arch = $env:RUNNER_ARCH
+            }
+            observations = [ordered]@{
+              whoami_priv = @(& whoami /priv)
+              occupied_drive_letters = @(
+                Get-Volume -ErrorAction SilentlyContinue |
+                  Where-Object DriveLetter |
+                  ForEach-Object { [string]$_.DriveLetter }
+              )
+            }
+            phases = [ordered]@{}
+            cleanup = [ordered]@{}
+            classification = 'SUPPORTED'
+          }
+
+          function Set-ProbeFailure([hashtable]$phase,[System.Management.Automation.ErrorRecord]$err) {
+            $phase.state = 'FAIL'
+            $phase.error_type = $err.Exception.GetType().FullName
+            $phase.error_message = $err.Exception.Message
+            $phase.fully_qualified_error_id = [string]$err.FullyQualifiedErrorId
+            $phase.category = [string]$err.CategoryInfo.Category
+            $phase.activity = [string]$err.CategoryInfo.Activity
+            $phase.reason = [string]$err.CategoryInfo.Reason
+            $phase.target_name = [string]$err.CategoryInfo.TargetName
+            $phase.script_name = [string]$err.InvocationInfo.ScriptName
+            $phase.script_line = [int]$err.InvocationInfo.ScriptLineNumber
+            $phase.command_name = [string]$err.InvocationInfo.MyCommand.Name
+            $receipt.classification = 'BOUNDARY_OBSERVED'
+          }
+
+          # Phase 1: execute the exact projected provisioning-VHD primitive with
+          # synthetic public-safe guest files.
+          $p1 = [ordered]@{ state='RUNNING'; current_step='invoke-exact-provision-script' }
+          $receipt.phases['exact_provision_vhd'] = $p1
+          $p1vhd = Join-Path $root 'exact-provision.vhdx'
+          try {
+            & $exactScript -OutputPath $p1vhd -GuestDir $fixture | Out-Null
+            $p1.current_step = 'test-vhd'
+            $p1.test_vhd = [bool](Test-VHD -Path $p1vhd -ErrorAction Stop)
+            $p1.state = if ($p1.test_vhd) { 'PASS' } else { 'FAIL' }
+            if (-not $p1.test_vhd) { $receipt.classification = 'BOUNDARY_OBSERVED' }
+          } catch {
+            Set-ProbeFailure $p1 $_
+          } finally {
+            Dismount-VHD -Path $p1vhd -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $p1vhd -Force -ErrorAction SilentlyContinue
+          }
+
+          # Record what the production token-adjustment sequence can actually
+          # enable; AdjustTokenPrivileges can return success with
+          # ERROR_NOT_ALL_ASSIGNED, so retain GetLastWin32Error explicitly.
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          namespace WinBotProbe {
+            public static class Priv {
+              [StructLayout(LayoutKind.Sequential)]
+              struct LUID_AND_ATTRIBUTES { public long Luid; public uint Attributes; }
+              [StructLayout(LayoutKind.Sequential)]
+              struct TOKEN_PRIVILEGES { public uint PrivilegeCount; public LUID_AND_ATTRIBUTES Privileges; }
+              [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr h, uint a, out IntPtr t);
+              [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool LookupPrivilegeValue(string host, string name, out long luid);
+              [DllImport("advapi32.dll", SetLastError=true)] static extern bool AdjustTokenPrivileges(IntPtr t, bool disable, ref TOKEN_PRIVILEGES p, int len, IntPtr prev, IntPtr rel);
+              [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr h);
+              public static int Enable(string name) {
+                IntPtr token;
+                if (!OpenProcessToken(System.Diagnostics.Process.GetCurrentProcess().Handle, 0x20|0x8, out token)) return Marshal.GetLastWin32Error();
+                try {
+                  long luid;
+                  if (!LookupPrivilegeValue(null,name,out luid)) return Marshal.GetLastWin32Error();
+                  TOKEN_PRIVILEGES tp = new TOKEN_PRIVILEGES();
+                  tp.PrivilegeCount=1; tp.Privileges.Luid=luid; tp.Privileges.Attributes=2;
+                  Marshal.GetLastWin32Error();
+                  if (!AdjustTokenPrivileges(token,false,ref tp,0,IntPtr.Zero,IntPtr.Zero)) return Marshal.GetLastWin32Error();
+                  return Marshal.GetLastWin32Error();
+                } finally { CloseHandle(token); }
+              }
+            }
+          }
+          "@
+          $receipt.observations.privilege_enable = [ordered]@{}
+          foreach ($priv in @('SeManageVolumePrivilege','SeBackupPrivilege','SeRestorePrivilege')) {
+            $receipt.observations.privilege_enable[$priv] = [WinBotProbe.Priv]::Enable($priv)
+          }
+          $receipt.observations.whoami_priv_after_enable = @(& whoami /priv)
+
+          function Invoke-GeometryProbe([string]$name,[bool]$afterPrivilegeAttempt) {
+            $phase = [ordered]@{ state='RUNNING'; after_privilege_attempt=$afterPrivilegeAttempt; current_step='new-vhd' }
+            $receipt.phases[$name] = $phase
+            $vhd = Join-Path $root ($name + '.vhdx')
+            try {
+              $phase.current_step='new-vhd'
+              New-VHD -Path $vhd -SizeBytes 2GB -Dynamic -ErrorAction Stop | Out-Null
+              $phase.current_step='mount-vhd'
+              $mount = Mount-VHD -Path $vhd -Passthru -ErrorAction Stop
+              Start-Sleep -Seconds 1
+              $phase.current_step='get-disk'
+              $diskNum = ($mount | Get-Disk -ErrorAction Stop).Number
+              $phase.disk_number = [int]$diskNum
+              $phase.current_step='clear-disk'
+              Clear-Disk -Number $diskNum -RemoveData -RemoveOEM -Confirm:$false -ErrorAction SilentlyContinue
+              $phase.current_step='initialize-gpt'
+              Initialize-Disk -Number $diskNum -PartitionStyle GPT -ErrorAction Stop
+              Start-Sleep -Milliseconds 500
+              $autoMsr = Get-Partition -DiskNumber $diskNum -ErrorAction Stop | Where-Object { $_.GptType -eq '{e3c9e316-0b5c-4db8-817d-f92df00215ae}' }
+              if ($autoMsr) {
+                $phase.current_step='remove-auto-msr'
+                Remove-Partition -DiskNumber $diskNum -PartitionNumber $autoMsr.PartitionNumber -Confirm:$false -ErrorAction Stop
+              }
+              $phase.current_step='new-efi'
+              $efi = New-Partition -DiskNumber $diskNum -Size 100MB -GptType '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' -ErrorAction Stop
+              $phase.current_step='assign-s'
+              $efi | Set-Partition -NewDriveLetter S -ErrorAction Stop
+              $phase.current_step='format-efi'
+              Format-Volume -DriveLetter S -FileSystem FAT32 -NewFileSystemLabel 'EFI' -Confirm:$false -Force -ErrorAction Stop | Out-Null
+              $phase.current_step='new-msr'
+              New-Partition -DiskNumber $diskNum -Size 16MB -GptType '{e3c9e316-0b5c-4db8-817d-f92df00215ae}' -ErrorAction Stop | Out-Null
+              $phase.current_step='new-windows'
+              $win = New-Partition -DiskNumber $diskNum -UseMaximumSize -GptType '{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}' -ErrorAction Stop
+              $phase.current_step='assign-t'
+              $win | Set-Partition -NewDriveLetter T -ErrorAction Stop
+              $phase.current_step='format-windows'
+              Format-Volume -DriveLetter T -FileSystem NTFS -NewFileSystemLabel 'Windows' -Confirm:$false -Force -ErrorAction Stop | Out-Null
+              $phase.current_step='test-vhd'
+              Dismount-VHD -Path $vhd -ErrorAction Stop
+              $phase.test_vhd = [bool](Test-VHD -Path $vhd -ErrorAction Stop)
+              $phase.state = if ($phase.test_vhd) { 'PASS' } else { 'FAIL' }
+              if (-not $phase.test_vhd) { $receipt.classification = 'BOUNDARY_OBSERVED' }
+            } catch {
+              Set-ProbeFailure $phase $_
+            } finally {
+              Dismount-VHD -Path $vhd -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $vhd -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          # Geometry after the privilege attempt mirrors the production builder.
+          Invoke-GeometryProbe -name 'gpt_geometry_after_privilege_attempt' -afterPrivilegeAttempt $true
+
+          $receipt.cleanup.root_present_before_final = Test-Path -LiteralPath $root
+          $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+          "classification=$($receipt.classification)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload public-safe probe evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-seed-privilege-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-seed-privilege-probe/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Surface probe classification
+        if: always()
+        shell: pwsh
+        run: |
+          $p = Join-Path $env:RUNNER_TEMP 'winbot-seed-privilege-probe\receipt.json'
+          if (-not (Test-Path -LiteralPath $p)) { throw 'probe receipt missing' }
+          $r = Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          Write-Host "classification=$($r.classification)"
+          foreach ($prop in $r.phases.PSObject.Properties) {
+            Write-Host "$($prop.Name)=$($prop.Value.state) step=$($prop.Value.current_step) type=$($prop.Value.error_type)"
+          }

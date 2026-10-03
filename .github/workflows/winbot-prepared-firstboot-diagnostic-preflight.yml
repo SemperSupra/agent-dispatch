@@ -1,0 +1,235 @@
+name: WinBot Prepared First-Boot Diagnostic Preflight
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-prepared-firstboot-diagnostic-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      MASTER_MANIFEST_SHA: '4175ee7835e4119aa1c20c9f609e1f7e14eca7fa'
+      EXPECTED_SOURCE_REVISION: '6f436816518eb907d6cfe5309b922ecfce455fe6'
+      EXPECTED_PROJECTION_IDENTITY: 'e37d6d851fbb8057985ca718a0e70d21f622b39c47dbb40beff26de6c8474b42'
+      EXPECTED_CONTROL_BLOB: '38d6a788418e75509e803e951e2e52261b1c9e81'
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Reconstruct exact authorized source and control graph
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-authorized-projection-preflight'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $py=@'
+          import base64, hashlib, json, os, pathlib, tarfile, urllib.request
+          from datetime import datetime, timezone
+
+          repo=os.environ["GITHUB_REPOSITORY"]
+          token=os.environ["GH_TOKEN"]
+          master_sha=os.environ["MASTER_MANIFEST_SHA"]
+          expected_rev=os.environ["EXPECTED_SOURCE_REVISION"]
+          expected_identity=os.environ["EXPECTED_PROJECTION_IDENTITY"]
+          expected_control=os.environ["EXPECTED_CONTROL_BLOB"]
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"winbot-authorized-projection-preflight"
+          staging=root/"capsule"
+          projection=staging/"projection"
+          projection.mkdir(parents=True,exist_ok=True)
+
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization":f"Bearer {token}",
+                      "Accept":"application/vnd.github+json",
+                      "X-GitHub-Api-Version":"2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req,timeout=60) as r:
+                  obj=json.load(r)
+              if obj.get("sha")!=sha or obj.get("encoding")!="base64":
+                  raise SystemExit(f"blob identity/encoding mismatch: {sha}")
+              raw=base64.b64decode(obj["content"])
+              if len(raw)!=int(obj["size"]):
+                  raise SystemExit(f"blob size mismatch: {sha}")
+              actual=hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()
+              if actual!=sha:
+                  raise SystemExit(f"git object digest mismatch: {sha}")
+              return raw
+
+          master=json.loads(blob(master_sha))
+          if master["source_revision"]!=expected_rev:
+              raise SystemExit("master source revision mismatch")
+          if master["projection_identity_sha256"]!=expected_identity:
+              raise SystemExit("master projection identity mismatch")
+          if master["control_manifest_sha"]!="3ff6d41cc22f3f2a1e23c34cfaa1a48163f6ff37":
+              raise SystemExit("unexpected control manifest")
+
+          entries=[]
+          for bsha in master["source_batch_manifests"]:
+              batch=json.loads(blob(bsha))
+              if batch["source_revision"]!=expected_rev:
+                  raise SystemExit(f"batch source revision mismatch: {bsha}")
+              entries.extend(batch["entries"])
+          if len(entries)!=int(master["projected_file_count"]) or len({e["path"] for e in entries})!=len(entries):
+              raise SystemExit("source entry cardinality mismatch")
+
+          projected=[]
+          total=0
+          for e in sorted(entries,key=lambda x:x["path"]):
+              raw=blob(e["git_blob_sha"])
+              if len(raw)!=int(e["size"]):
+                  raise SystemExit(f"source size mismatch: {e['path']}")
+              dest=projection/pathlib.PurePosixPath(e["path"])
+              dest.parent.mkdir(parents=True,exist_ok=True)
+              dest.write_bytes(raw)
+              total+=len(raw)
+              projected.append({"path":e["path"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()})
+          if total!=int(master["projected_bytes"]):
+              raise SystemExit(f"projected byte count mismatch: {total}")
+          identity_obj={"source_revision":expected_rev,"projected_files":projected}
+          identity=hashlib.sha256(json.dumps(identity_obj,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+          if identity!=expected_identity:
+              raise SystemExit(f"projection identity mismatch: {identity}")
+
+          controls=json.loads(blob(master["control_manifest_sha"]))
+          control={e["path"]:blob(e["git_blob_sha"]) for e in controls["entries"]}
+          required={
+              "rdte/gha/media/windows-enterprise-eval-x64.json",
+              "rdte/gha/qualification.json",
+              "rdte/gha/projection-policy.json",
+              "rdte/gha/full-rdte.ps1",
+          }
+          if set(control)!=required:
+              raise SystemExit("control object set mismatch")
+          full_raw=control["rdte/gha/full-rdte.ps1"]
+          full_sha=hashlib.sha1(f"blob {len(full_raw)}\0".encode()+full_raw).hexdigest()
+          if full_sha!=expected_control:
+              raise SystemExit(f"FullRDTE control identity mismatch: {full_sha}")
+
+          policy=json.loads(control["rdte/gha/projection-policy.json"])
+          auth=policy.get("authorization",{})
+          authorized=(
+              policy.get("state")=="authorized"
+              and policy.get("source_revision")==expected_rev
+              and auth.get("approved_revision")==expected_rev
+              and auth.get("approved_manifest_sha256")==expected_identity
+          )
+          if not authorized:
+              raise SystemExit("projection policy does not authorize exact source identity")
+
+          (staging/"media.json").write_bytes(control["rdte/gha/media/windows-enterprise-eval-x64.json"])
+          (staging/"qualification.json").write_bytes(control["rdte/gha/qualification.json"])
+          (staging/"projection-policy.json").write_bytes(control["rdte/gha/projection-policy.json"])
+          (staging/"run.ps1").write_bytes(full_raw)
+          projection_manifest={
+              "schema_version":1,
+              "authority":"mark-e-deyoung/WinBot#70",
+              "profile":"FullRDTE",
+              "source_revision":expected_rev,
+              "generated_at":datetime.now(timezone.utc).isoformat().replace("+00:00","Z"),
+              "projection_identity_sha256":identity,
+              "projected_files":projected,
+              "projected_file_count":len(projected),
+              "projected_bytes":total,
+              "constraints":{
+                  "private_repo_checkout_on_public_runner":False,
+                  "local_vhdx":False,
+                  "local_iso":False,
+                  "local_credentials":False,
+                  "local_api_token":False,
+                  "capsule_public_safe_required":True,
+              },
+          }
+          (staging/"projection-manifest.json").write_text(json.dumps(projection_manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+
+          capsule=root/"capsule.tar.gz"
+          with tarfile.open(capsule,"w:gz") as tf:
+              for item in sorted(staging.rglob("*")):
+                  if item.is_file():
+                      tf.add(item,arcname=item.relative_to(staging))
+          capsule_bytes=capsule.stat().st_size
+          if capsule_bytes>8*1024*1024:
+              raise SystemExit(f"capsule exceeds 8 MiB: {capsule_bytes}")
+
+          receipt={
+              "schema_version":1,
+              "authority":master["authority"],
+              "experiment_authority":master["experiment_authority"],
+              "master_manifest_sha":master_sha,
+              "source_revision":expected_rev,
+              "projection_identity_sha256":identity,
+              "projected_file_count":len(projected),
+              "projected_bytes":total,
+              "control_manifest_sha":master["control_manifest_sha"],
+              "fullrdte_control_blob_sha":full_sha,
+              "projection_authorized":authorized,
+              "capsule_bytes":capsule_bytes,
+              "capsule_sha256":hashlib.sha256(capsule.read_bytes()).hexdigest(),
+              "private_repo_checkout":False,
+              "staged_public_git_objects_only":True,
+          }
+          (root/"receipt.json").write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+          print(json.dumps(receipt,sort_keys=True))
+          '@
+          $py | python -
+          if($LASTEXITCODE -ne 0){throw 'authorized graph reconstruction failed'}
+
+      - name: Parse exact reconstructed PowerShell surfaces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-authorized-projection-preflight'
+          $files=@(
+            (Join-Path $root 'capsule\projection\host\WinBot.psm1'),
+            (Join-Path $root 'capsule\run.ps1')
+          )
+          $parse=[ordered]@{}
+          foreach($f in $files){
+            $tokens=$null;$errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile($f,[ref]$tokens,[ref]$errors)|Out-Null
+            $parse[(Split-Path -Leaf $f)]=[ordered]@{error_count=@($errors).Count;errors=@($errors|ForEach-Object{$_.Message})}
+            if(@($errors).Count -ne 0){throw "PowerShell parse failed: $f"}
+          }
+          $p=Join-Path $root 'receipt.json'
+          $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          $r | Add-Member -NotePropertyName powershell_parse -NotePropertyValue ([PSCustomObject]$parse)
+          $r | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $p -Encoding utf8
+
+      - name: Upload preflight receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-authorized-projection-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-authorized-projection-preflight/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce preflight
+        shell: pwsh
+        run: |
+          $p=Join-Path $env:RUNNER_TEMP 'winbot-authorized-projection-preflight\receipt.json'
+          $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          Write-Host "source_revision=$($r.source_revision)"
+          Write-Host "projection_identity=$($r.projection_identity_sha256)"
+          Write-Host "projection_authorized=$($r.projection_authorized)"
+          Write-Host "projected_files=$($r.projected_file_count)"
+          Write-Host "projected_bytes=$($r.projected_bytes)"
+          Write-Host "control_blob=$($r.fullrdte_control_blob_sha)"
+          Write-Host "capsule_bytes=$($r.capsule_bytes)"
+          if(-not $r.projection_authorized){throw 'exact projection is not authorized'}
+          if($r.source_revision -ne $env:EXPECTED_SOURCE_REVISION){throw 'source revision drift'}
+          if($r.projection_identity_sha256 -ne $env:EXPECTED_PROJECTION_IDENTITY){throw 'projection identity drift'}
+          if($r.fullrdte_control_blob_sha -ne $env:EXPECTED_CONTROL_BLOB){throw 'control identity drift'}
+          if($r.powershell_parse.'WinBot.psm1'.error_count -ne 0 -or $r.powershell_parse.'run.ps1'.error_count -ne 0){throw 'parse oracle failed'}
