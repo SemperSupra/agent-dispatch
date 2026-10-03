@@ -18,6 +18,17 @@ FOCUS={
   "shared_4c":{"pc":0x3fb78,"field":"+0x4c","role":"crypto-consumer"},
 }
 
+CALL_FOCUS={
+  "tuple_writer_caller":0x37168,
+  "lookup_from_enable":0x29028,
+  "lookup_from_remove_a":0x290b8,
+  "lookup_from_remove_b":0x290dc,
+  "lookup_from_setkey_a":0x29208,
+  "lookup_from_setkey_b":0x292c8,
+  "lookup_from_setkey_c":0x293a0,
+  "lookup_from_wrapper":0x37bd0,
+}
+
 def elf_low_end(path:Path)->int:
     import struct
     d=path.read_bytes(); ph=struct.unpack_from("<I",d,28)[0]; pe=struct.unpack_from("<H",d,42)[0]; pn=struct.unpack_from("<H",d,44)[0]
@@ -102,13 +113,23 @@ def main()->int:
         s=rec.get("candidate_function_start")
         if s is not None:rec["direct_call_or_tail_xrefs"]=all_xrefs.get(s,[])
 
+    callsite_context={}
+    for name,pc in CALL_FOCUS.items():
+        idx=by_pc.get(pc)
+        callsite_context[name]={
+          "pc":pc,
+          "instruction":ins[idx]["text"] if idx is not None else None,
+          "context":[x["text"] for x in ins[max(0,idx-24):min(len(ins),idx+7)]] if idx is not None else [],
+        }
+
     tuple_start=records.get("tuple_writer",{}).get("candidate_function_start")
     tuple_callers=all_xrefs.get(tuple_start,[]) if tuple_start is not None else []
     report={
-      "schema":"wrt8964-runtime-field-identity/v2",
+      "schema":"wrt8964-runtime-field-identity/v3",
       "focus":records,
       "tuple_writer_function_start":tuple_start,
       "tuple_writer_direct_call_or_tail_xrefs":tuple_callers,
+      "callsite_context":callsite_context,
       "classification":{
         "observed":"Candidate boundaries prefer the nearest preceding direct BL target. Leaf blocks without a direct BL target begin after the nearest preceding return; save-LR prologues are fallback only. Direct BL/B xrefs to the selected start are enumerated.",
         "inference_limit":"Function boundaries remain bounded static-analysis candidates. Six-byte shape alone is not sufficient to name the +0x2/+0x4/+0x6 tuple as a MAC address.",
@@ -118,6 +139,7 @@ def main()->int:
     (out/"runtime-field-identity.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({
       "tuple_writer_function_start":hex(tuple_start) if tuple_start is not None else None,
+      "callsite_context":{k:{"pc":hex(v["pc"]),"instruction":v["instruction"],"context":v["context"]} for k,v in callsite_context.items()},
       "tuple_writer_direct_call_or_tail_xrefs":[{"pc":hex(x["pc"]),"kind":x["kind"],"text":x["text"]} for x in tuple_callers],
       "focus":{k:{
         "pc":hex(v["pc"]),"field":v["field"],"role":v["role"],
