@@ -60,11 +60,14 @@ def instruction_records(disassembly: str) -> list[dict]:
 
 
 def branch_target_addr(asm: str) -> int | None:
-    m = _BRANCH_TARGET_RE.search(asm.split("#", 1)[0].strip())
+    _, operands = d14._parts(asm.split("#", 1)[0].strip())
+    if not operands:
+        return None
+    token = operands[-1].strip()
+    m = re.fullmatch(r"(?P<addr>(?:0x)?[0-9a-fA-F]+)(?:\\s*<[^>]+>)?", token)
     if not m:
         return None
-    token = m.group("addr")
-    return int(token, 16)
+    return int(m.group("addr"), 16)
 
 
 def branch_class(asm: str) -> str | None:
