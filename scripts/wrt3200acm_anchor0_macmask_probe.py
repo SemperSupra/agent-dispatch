@@ -57,9 +57,16 @@ def main()->int:
     setkey_checks={
       "loads_bssid_tail_anchor_6": line_has(setkey,0x29134,"ldrh","r2","[r1, #6]"),
       "loads_mask_anchor_0": line_has(setkey,0x2913c,"ldrh","r3","[r1]"),
-      "masks_bssid_tail": line_has(setkey,0x29150,"and","r2","r2","r3"),
-      "clears_local_admin_bit_from_bssid_head": line_has(setkey,0x29154,"bic","r12","r12","#2"),
-      "zero_masked_tail_enters_indexed_branch": line_has(setkey,0x29158,"beq","29168"),
+      "masks_bssid_tail_without_flags": line_has(setkey,0x29150,"and","r2","r2","r3") and "ands" not in line_at(setkey,0x29150).lower(),
+      "clears_local_admin_bit_from_bssid_head_without_flags": line_has(setkey,0x29154,"bic","r12","r12","#2") and "bics" not in line_at(setkey,0x29154).lower(),
+      "key_type_zero_selects_indexed_branch": (
+        line_has(setkey,0x29120,"movs","r7","r2")
+        and line_has(setkey,0x29158,"beq","29168")
+        and all(
+          not any(m in line_at(setkey,pc).lower().split(":",1)[-1].strip().split(" ",1)[0] for m in ("movs","adds","subs","ands","bics","cmp","cmn","tst","teq"))
+          for pc in (0x29124,0x29128,0x2912c,0x29130,0x29134,0x29138,0x2913c,0x29140,0x29144,0x29148,0x2914c,0x29150,0x29154)
+        )
+      ),
       "masks_command_tail_with_same_mask": line_has(setkey,0x29174,"ldrh","r7","[r0, #4]") and line_has(setkey,0x29178,"and","r3","r3","r7"),
       "compares_masked_tail": line_has(setkey,0x2917c,"cmp","r2","r3"),
       "compares_middle_halfword": line_has(setkey,0x29184,"ldrh","r2","[r0, #2]") and line_has(setkey,0x29188,"cmp","r1","r2"),
@@ -96,12 +103,12 @@ def main()->int:
         "anchor_2_4_6":"three BSSID halfwords",
         "normalization":"Ignore the locally-administered bit (0x02) in MAC byte0 and ignore the low nibble of MAC byte5; compare all remaining bits.",
         "source_alignment":"Exact W8964 driver generates virtual AP addresses by setting byte0 bit0x02 and varying only the low nibble of byte5, exactly the differences removed by the firmware comparison.",
-        "indexed_branch_gate":"In SET_KEY helper 0x29114, the key-index branch at 0x29168 is entered when (BSSID final halfword & 0xf0ff)==0; it then requires the command MAC to match the BSSID under the same virtual-MAC normalization before using key_index.",
-        "semantic_limit":"The normalized comparison is proven. The higher-level lifecycle reason that a zero normalized BSSID tail selects the indexed key path is not yet named, and the branch is not labeled WEP solely from key_index use."
+        "indexed_branch_gate":"In SET_KEY helper 0x29114, MOVS at 0x29120 sets Z from key_type; no intervening instruction updates flags before BEQ 0x29158, so key_type 0 selects the indexed branch. Exact host ABI defines key_type 0 as WEP. Inside that WEP branch, the command MAC is compared to BSSID state under the virtual-MAC normalization before key_index is used.",
+        "semantic_limit":"The WEP branch selection and normalized MAC comparison are proven. The downstream hardware ownership of the selected +0xd8/+0x214 records remains unnamed."
       },
       "guarded_unknowns":[
-        "Why the masked BSSID tail can be zero at this point in the firmware lifecycle.",
-        "Whether the indexed branch is exclusively exercised by WEP in the exact host/firmware interaction or is a broader pre-BSSID/key-index path."
+        "Why WEP processing normalizes virtual-interface MAC differences before choosing the indexed record within the selected WEP path.",
+        "The hardware-facing meaning of the resulting +0xd8/+0x214 WEP records beyond their source/binary-correlated key/control roles."
       ],
       "evidence":{
         "initializer":[line_at(init,x) for x in (0x2a2a4,0x2a2ac,0x2a2bc,0x2a2e4,0x2a2f0,0x2a2fc,0x2a300,0x2a308)],
