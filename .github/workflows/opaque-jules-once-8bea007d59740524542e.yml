@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: opaque-jules-8bea007d59740524542e
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   execute:
@@ -29,6 +29,23 @@ jobs:
       COMMAND_SELECTOR: "78abb03e739ba80bc235de640dc80b009a66eb418878ecea415831f539ea15b1"
       CORRELATION: "8bea007d59740524542e"
     steps:
+      - name: Publish controller-start receipt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; sha=os.environ["GITHUB_SHA"]; token=os.environ["GH_TOKEN"]
+          body=json.dumps({"state":"pending","context":"opaque-jules/control","description":"CONTROLLER_STARTED"}).encode()
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/statuses/{sha}",
+              data=body, method="POST",
+              headers={"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json","Content-Type":"application/json","User-Agent":"semper-supra-agent-dispatch/opaque-receipt"},
+          )
+          with urllib.request.urlopen(req,timeout=20) as response:
+              response.read()
+          PY
       - name: Execute one bounded private-source mission and validate compact result
         shell: bash
         run: |
