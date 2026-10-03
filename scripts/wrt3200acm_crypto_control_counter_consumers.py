@@ -51,10 +51,73 @@ def is_barrier(ins):
 def context(ins,idx,radius=14):
     return [x["text"] for x in ins[max(0,idx-radius):min(len(ins),idx+radius+1)]]
 
+RAW_INS_RE=re.compile(r"^\\s*([0-9a-fA-F]+):\\s+([0-9a-fA-F]{8})\\s+([a-zA-Z][a-zA-Z0-9.]*)\\s*(.*?)\\s*$",re.M)
+
+def raw_ins_at(text,address):
+    m=re.search(rf"^\\s*0*{address:x}:\\s+[0-9a-fA-F]{{8}}\\s+([a-zA-Z][a-zA-Z0-9.]*)\\s*(.*?)\\s*$",text,re.M|re.I)
+    return (m.group(1).lower(),m.group(2).strip().lower()) if m else ("","")
+
+def raw_has(text,address,mnemonic,*operand_tokens):
+    mn,ops=raw_ins_at(text,address)
+    return mn==mnemonic and all(tok.lower() in ops for tok in operand_tokens)
+
 def main()->int:
     ap=argparse.ArgumentParser(); ap.add_argument("--elf",required=True); ap.add_argument("--out",required=True)
     ns=ap.parse_args(); elf=Path(ns.elf); out=Path(ns.out); out.mkdir(parents=True,exist_ok=True)
-    ins=dp.parse_instructions(dp.run_objdump(elf,0,low_end(elf)))
+    raw=dp.run_objdump(elf,0,low_end(elf))
+    ins=dp.parse_instructions(raw)
+
+    # Exact target-firmware closure for the +2/+4 promotion gate.
+    #
+    # UPDATE_ENCRYPTION SET_KEY writes an evidence-backed +0x214 slot pointer
+    # into a key-indexed subrecord at +48/+64.  The TX-side path reaches the
+    # same subrecord shape, loads +48, gates on the already accepted mode byte
+    # at slot +8, then advances u16 +2 and carries into u32 +4 on wrap.  It
+    # exports the advanced low/high pieces to packet-side state at +46/+48.
+    counter_contract={
+      "set_key_producer_208_subrecord": (
+        raw_has(raw,0x291a0,"ldr","r0","r4","520")
+        and raw_has(raw,0x291ac,"ldr","r0","r0","#44")
+        and raw_has(raw,0x291bc,"add","r1","r0","r5","lsl #2")
+      ),
+      "set_key_writes_214_pointer_at_key_subrecord_48_64": (
+        raw_has(raw,0x291c8,"ldr","r2","r4","532")
+        and raw_has(raw,0x291cc,"add","r0","r2","r6","lsl #5")
+        and raw_has(raw,0x291d4,"str","r0","r1","#48")
+        and raw_has(raw,0x291d8,"str","r0","r1","#64")
+      ),
+      "tx_side_loads_matching_key_subrecord_48_pointer": (
+        raw_has(raw,0x24008,"ldr","r3","r0","#8")
+        and raw_has(raw,0x24010,"ldr","r2","r3","#44")
+        and raw_has(raw,0x24018,"addge","r1","r2","r1","lsl #2")
+        and raw_has(raw,0x24020,"ldrge","r12","r1","#48")
+      ),
+      "tx_side_mode_gate_selects_non_wep_modes": (
+        raw_has(raw,0x24084,"ldrb","r1","r12","#8")
+        and raw_has(raw,0x24088,"cmp","r1","#2")
+        and raw_has(raw,0x2408c,"bhi","0x240c0")
+      ),
+      "low16_increment_and_wrap_test": (
+        raw_has(raw,0x240c0,"ldrh","r4","r12","#2")
+        and raw_has(raw,0x240c4,"add","r1","r12","#2")
+        and raw_has(raw,0x240c8,"add","r4","r4","#1")
+        and raw_has(raw,0x240cc,"lsl","r4","r4","#16")
+        and raw_has(raw,0x240d0,"lsrs","r4","r4","#16")
+        and raw_has(raw,0x240d4,"strh","r4","r12","#2")
+        and raw_has(raw,0x240d8,"bne","0x240e8")
+      ),
+      "wrap_carries_into_high32": (
+        raw_has(raw,0x240dc,"ldr","r4","r1","#2")
+        and raw_has(raw,0x240e0,"add","r4","r4","#1")
+        and raw_has(raw,0x240e4,"str","r4","r1","#2")
+      ),
+      "advanced_counter_exported_to_packet_state": (
+        raw_has(raw,0x240e8,"ldrh","r1","r12","#2")
+        and raw_has(raw,0x240ec,"strh","r1","r0","#46")
+        and raw_has(raw,0x240f0,"ldr","r1","r12","#4")
+        and raw_has(raw,0x240f4,"str","r1","r0","#48")
+      ),
+    }
 
     # Candidate A: same base register sees both +2 and +4 within a tight region.
     pair_candidates=[]
@@ -148,20 +211,37 @@ def main()->int:
         "station_record_plus48_consumers":len(backptr_candidates),
         "update_like_candidates":len(update_like),
       },
+      "counter_contract":counter_contract,
+      "counter_contract_evidence":{f"0x{pc:x}":raw_ins_at(raw,pc) for pc in (
+        0x291a0,0x291ac,0x291bc,0x291c8,0x291cc,0x291d4,0x291d8,
+        0x24008,0x24010,0x24018,0x24020,0x24084,0x24088,0x2408c,
+        0x240c0,0x240c4,0x240c8,0x240cc,0x240d0,0x240d4,0x240d8,
+        0x240dc,0x240e0,0x240e4,0x240e8,0x240ec,0x240f0,0x240f4
+      )},
       "interpretation_gate":{
         "accepted_prior":"station record +48 is an encryption-control-slot backpointer; +0x214 slot +8 is encryption mode; +2/+4 are repeatedly reset together as u16+u32",
         "candidate_prior":"+2/+4 match the public W8964 vendor-source legacy TKIP TSC shape (u16 low + u32 high)",
         "promotion_required":"A candidate must show independent read/update/use behavior consistent with sequence-counter semantics and must not be better explained by a generic six-byte field.",
+        "target_binary_gate_closed":all(counter_contract.values()),
+        "qualified_target_behavior":"For accepted non-WEP encryption modes, the +48-linked +0x214 key-control slot advances u16 +2 on transmit preparation, carries into u32 +4 exactly on 16-bit wrap, and exports the advanced 48-bit value to packet-side state.",
       },
-      "guardrail":"This miner reports structural candidates only. It does not promote TSC/PN semantics or hardware ownership."
+      "promotion_assessment":{
+        "status":"target-binary-gate-closed" if all(counter_contract.values()) else "blocked",
+        "semantic_floor":"48-bit per-key transmit encryption sequence counter" if all(counter_contract.values()) else "strong candidate",
+        "source_correlation":"Pinned public W8964 source independently names the matching u16-low/u32-high transmit sequence-counter representation as TSC/TxIV16+TxIV32; use that to name TSC/PN only after this target-binary gate is green.",
+        "hardware_ownership":"UNKNOWN",
+      },
+      "guardrail":"The target-binary contract may promote software-side sequence-counter semantics only. It does not establish a hardware register/descriptor owner."
     }
     (out/"crypto-control-counter-consumers.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({
       "counts":report["counts"],
       "top_update_like":[{k:v for k,v in r.items() if k in {"base_reg","score","first_pc","last_pc","has_read_write_both","carryish","incrementish","accesses","arithmetic"}} for r in update_like[:12]],
       "station_record_plus48_consumers":backptr_candidates[:12],
+      "counter_contract":counter_contract,
+      "promotion_assessment":report["promotion_assessment"],
     },indent=2,sort_keys=True))
-    return 0
+    return 0 if all(counter_contract.values()) else 3
 
 if __name__=="__main__":
     raise SystemExit(main())
