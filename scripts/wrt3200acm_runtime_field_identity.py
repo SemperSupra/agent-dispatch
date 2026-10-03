@@ -30,9 +30,7 @@ def elf_low_end(path:Path)->int:
 
 def is_prologue(x)->bool:
     mn=x["mnemonic"]; ops=x["operands"]
-    if mn=="push" and "lr" in ops:return True
-    if mn in {"stmdb","stmfd"} and "sp!" in ops and "lr" in ops:return True
-    return False
+    return (mn=="push" and "lr" in ops) or (mn in {"stmdb","stmfd"} and "sp!" in ops and "lr" in ops)
 
 def is_return(x)->bool:
     mn=x["mnemonic"]; ops=x["operands"]
@@ -43,58 +41,77 @@ def main()->int:
     elf=Path(ns.elf);out=Path(ns.out);out.mkdir(parents=True,exist_ok=True)
     ins=dp.parse_instructions(dp.run_objdump(elf,0,elf_low_end(elf)))
     by_pc={x["address"]:i for i,x in enumerate(ins)}
+
+    # Direct BL targets are the strongest cheap function-start evidence available
+    # in this linear disassembly.  Keep tail-B xrefs for caller evidence but do
+    # not use arbitrary B targets to establish a function boundary.
+    bl_xrefs={}
+    all_xrefs={}
+    for x in ins:
+        if x["mnemonic"] not in {"bl","b"}:continue
+        t=dp.branch_target(x)
+        if t is None:continue
+        rec={"pc":x["address"],"kind":x["mnemonic"],"text":x["text"]}
+        all_xrefs.setdefault(t,[]).append(rec)
+        if x["mnemonic"]=="bl":bl_xrefs.setdefault(t,[]).append(rec)
+    bl_targets=set(bl_xrefs)
+
     records={}
     candidate_starts=set()
-
     for name,f in FOCUS.items():
         pc=f["pc"]; idx=by_pc.get(pc)
         if idx is None:
-            records[name]={**f,"status":"focus-pc-not-decoded"}
-            continue
-        start_idx=None
-        for j in range(idx,max(-1,idx-256),-1):
-            if is_prologue(ins[j]):
-                start_idx=j;break
+            records[name]={**f,"status":"focus-pc-not-decoded"};continue
+
+        start_idx=None; basis=None
+        direct=[a for a in bl_targets if a<=pc and pc-a<=0x800 and a in by_pc]
+        if direct:
+            start=max(direct); start_idx=by_pc[start]; basis="nearest-preceding-direct-bl-target"
+        else:
+            # Leaf functions may have no stack/LR prologue.  A return directly
+            # before the focused block is stronger than borrowing an older
+            # prologue across that control-flow barrier.
+            for j in range(idx-1,max(-1,idx-256),-1):
+                if is_return(ins[j]) and j+1<len(ins):
+                    start_idx=j+1;basis="instruction-after-preceding-return";break
+            if start_idx is None:
+                for j in range(idx,max(-1,idx-256),-1):
+                    if is_prologue(ins[j]):
+                        start_idx=j;basis="nearest-save-lr-prologue";break
+
         start=ins[start_idx]["address"] if start_idx is not None else None
         if start is not None:candidate_starts.add(start)
-
         end_idx=None
         if start_idx is not None:
             for j in range(idx,min(len(ins),start_idx+512)):
                 if is_return(ins[j]):
                     end_idx=j;break
+
         local=ins[max(0,idx-24):min(len(ins),idx+25)]
         body=ins[start_idx:min(len(ins),(end_idx+1 if end_idx is not None else start_idx+160))] if start_idx is not None else []
         records[name]={
           **f,"status":"decoded","instruction":ins[idx]["text"],
-          "candidate_function_start":start,
-          "candidate_function_prologue":ins[start_idx]["text"] if start_idx is not None else None,
+          "candidate_function_start":start,"boundary_basis":basis,
+          "candidate_function_entry":ins[start_idx]["text"] if start_idx is not None else None,
           "candidate_return":ins[end_idx]["text"] if end_idx is not None else None,
           "local_context":[x["text"] for x in local],
           "candidate_function_body":[x["text"] for x in body],
         }
 
-    xrefs={s:[] for s in candidate_starts}
-    for x in ins:
-        if x["mnemonic"] not in {"bl","b"}:continue
-        t=dp.branch_target(x)
-        if t in xrefs:
-            xrefs[t].append({"pc":x["address"],"kind":x["mnemonic"],"text":x["text"]})
-
     for rec in records.values():
         s=rec.get("candidate_function_start")
-        if s is not None:rec["direct_call_or_tail_xrefs"]=xrefs.get(s,[])
+        if s is not None:rec["direct_call_or_tail_xrefs"]=all_xrefs.get(s,[])
 
     tuple_start=records.get("tuple_writer",{}).get("candidate_function_start")
-    tuple_callers=xrefs.get(tuple_start,[]) if tuple_start is not None else []
+    tuple_callers=all_xrefs.get(tuple_start,[]) if tuple_start is not None else []
     report={
-      "schema":"wrt8964-runtime-field-identity/v1",
+      "schema":"wrt8964-runtime-field-identity/v2",
       "focus":records,
       "tuple_writer_function_start":tuple_start,
       "tuple_writer_direct_call_or_tail_xrefs":tuple_callers,
       "classification":{
-        "observed":"This report identifies candidate containing functions by nearest preceding ARM save-LR prologue and enumerates direct BL/B xrefs to those starts.",
-        "inference_limit":"Function boundaries are heuristic until corroborated by control-flow analysis. Six-byte shape alone is not sufficient to name the +0x2/+0x4/+0x6 tuple as a MAC address.",
+        "observed":"Candidate boundaries prefer the nearest preceding direct BL target. Leaf blocks without a direct BL target begin after the nearest preceding return; save-LR prologues are fallback only. Direct BL/B xrefs to the selected start are enumerated.",
+        "inference_limit":"Function boundaries remain bounded static-analysis candidates. Six-byte shape alone is not sufficient to name the +0x2/+0x4/+0x6 tuple as a MAC address.",
         "promotion_gate":"Assign a domain field identity only when caller argument provenance or source correlation agrees with the binary consumer/writer behavior."
       }
     }
@@ -105,6 +122,7 @@ def main()->int:
       "focus":{k:{
         "pc":hex(v["pc"]),"field":v["field"],"role":v["role"],
         "function_start":hex(v["candidate_function_start"]) if v.get("candidate_function_start") is not None else None,
+        "boundary_basis":v.get("boundary_basis"),
         "xrefs":[{"pc":hex(x["pc"]),"kind":x["kind"],"text":x["text"]} for x in v.get("direct_call_or_tail_xrefs",[])],
         "local":v.get("local_context",[])
       } for k,v in records.items()}
