@@ -10,6 +10,8 @@ on:
       - 'scripts/wrt3200acm_runtime_window_init.py'
       - 'scripts/wrt3200acm_selector3_anchor_field_map.py'
       - 'scripts/wrt3200acm_runtime_anchor_initializers.py'
+      - 'scripts/wrt3200acm_runtime_allocator_semantics.py'
+      - 'scripts/wrt3200acm_runtime_anchor_direct_writers.py'
       - 'scripts/wrt3200acm_dispatch_probe.py'
       - 'scripts/wrt3200acm_fw_to_elf.py'
   workflow_dispatch:
@@ -160,6 +162,63 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wrt-runtime-anchor-initializers
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  runtime-anchor-direct-writers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover provenance-safe runtime-context writers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_runtime_anchor_direct_writers.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-runtime-anchor-direct-writers
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  runtime-allocator-semantics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Characterize runtime allocation helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_runtime_allocator_semantics.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-runtime-allocator-semantics
           path: ${{ runner.temp }}/evidence
           retention-days: 7
 
