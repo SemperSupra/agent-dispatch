@@ -350,10 +350,15 @@ class SystemRdteContractTests(unittest.TestCase):
         header = text.split("jobs:", 1)[0]
         self.assertNotIn("concurrency:", header)
         for job in ("proxmox-9-2", "truenas-26-beta3"):
-            section = text.split(f"  {job}:", 1)[1]
-            section = section.split("\n  ", 1)[0]
-            self.assertIn("group: gha-kvm-system-rdte-heavy", section)
-            self.assertIn("cancel-in-progress: false", section)
+            expected = (
+                f"  {job}:\n"
+                "    concurrency:\n"
+                "      group: gha-kvm-system-rdte-heavy\n"
+                "      cancel-in-progress: false\n"
+            )
+            self.assertIn(expected, text)
+        self.assertEqual(text.count("group: gha-kvm-system-rdte-heavy"), 2)
+        self.assertEqual(text.count("cancel-in-progress: false"), 2)
         self.assertNotIn("cancel-in-progress: true", text)
 
     def test_truenas_t1_requires_local_rpc_probe(self):
