@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.04.1-t6-garm-provider-g5-004-final-matrix-row",
-  "version": "25.04.1",
+  "request_id": "tn-26-beta3-t6-foliorelay-001-mvp",
+  "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "garm-provider-g5",
-  "authority_issue": 411,
-  "consumer_authority_issue": 42,
-  "purpose": "Qualify the final exact TrueNAS 25.04.1 G5 provider matrix row independently of the already-accepted 25.04.2.6 row: bind the exact source-matrix/system-version/middleware row, exercise verified WSS/API-key transport and the fixed packaged provider CreateInstance -> exact Compose read-back -> Get/List -> supported inactive transition -> provider DeleteInstance -> App absence -> empty provider inventory -> zero unintended residue lifecycle; prohibit runtime support inheritance and leave GitHub JIT/private workload/physical TrueNAS/capacity promotion unexercised."
+  "product": "foliorelay",
+  "authority_issue": 396,
+  "consumer_authority_issue": 273,
+  "purpose": "Qualify the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 using the pinned Foundry-exported three-service control: exact control/CUPS image read-back, canonical control/CUPS/DNS-SD identity, portal and native IPP, exact PDF and Apple Raster Inbox artifacts, independent in-guest _universal DNS-SD observation, stop/start plus update/redeploy persistence, desired/live re-plan NOOP, and zero-residue app/observer/dataset cleanup. This is pre-hardware software/control-plane qualification only."
 }
