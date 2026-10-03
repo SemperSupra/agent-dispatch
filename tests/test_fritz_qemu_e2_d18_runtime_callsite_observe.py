@@ -63,6 +63,19 @@ class D18Tests(unittest.TestCase):
         s = d18.summarize_instrumentation(runtime)
         self.assertFalse(s["prePostStatusEqual"])
 
+    def test_instrumentation_failure_result_is_sanitized(self):
+        original = d18.r6.binary_state_vocabulary
+        d18.r6.binary_state_vocabulary = lambda root: {"/bin/svctl": {}, "/bin/supervisor": {}}
+        try:
+            r = d18.instrumentation_failure_result(pathlib.Path("."), "status", "ctlmgr", "RuntimeError")
+        finally:
+            d18.r6.binary_state_vocabulary = original
+        self.assertFalse(r["instrumentation"]["ready"])
+        self.assertEqual(r["instrumentation"]["reason"], "instrumentation_exception")
+        self.assertEqual(r["instrumentation"]["errorType"], "RuntimeError")
+        self.assertFalse(r["instrumentation"]["rawDebuggerOutputPublished"])
+        self.assertNotIn("errorMessage", r["instrumentation"])
+
 
 if __name__ == "__main__":
     unittest.main()
