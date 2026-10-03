@@ -61,6 +61,24 @@ static struct mtd_entry nametable[] = {
             row["runtime_name_0"]["skeleton"]["identifiers"][0]["roles"],
         )
 
+    def test_single_wrapper_item_exposes_only_sanitized_topology(self):
+        text = r'''
+struct mtd_entry {
+  const char *urlader_name;
+  const char *runtime_name_0;
+  const char *runtime_name_1;
+};
+static struct mtd_entry nametable[] = {
+  { AVM_MTD_ENTRY("rootfs", ROOT_A, ROOT_B) },
+};
+'''
+        located = d1n.runtime_field_expressions(text)
+        self.assertEqual(located["rows"][0]["topLevelItemCount"], 1)
+        sk = located["rows"][0]["topLevelItemSkeletons"][0]
+        self.assertEqual(sk["identifiers"][0]["name"], "AVM_MTD_ENTRY")
+        self.assertIn("function_like", sk["identifiers"][0]["roles"])
+        self.assertEqual(sk["safeLiteralCandidateCount"], 1)
+
     def test_ambiguous_identifier_definition_stays_partial(self):
         text = r'''
 #define ROOT_A "filesystem"
