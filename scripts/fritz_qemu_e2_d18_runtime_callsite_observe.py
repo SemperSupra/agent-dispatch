@@ -599,7 +599,29 @@ def main(argv=None):
         }
         rc = 3
     receipt.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({"classification": data["classification"], "oracleSatisfied": data["oracleSatisfied"]}, sort_keys=True))
+    diagnostic = {
+        "classification": data["classification"],
+        "oracleSatisfied": data["oracleSatisfied"],
+    }
+    if isinstance(data.get("wire"), dict):
+        diagnostic["wire"] = {
+            "captureComplete": data["wire"].get("captureComplete"),
+            "perCallCaptureComplete": {
+                key: (data["wire"].get(key) or {}).get("captureComplete")
+                for key in ("preStatus", "start", "postStatus")
+            },
+            "comparisons": data["wire"].get("comparisons", {}),
+        }
+    if isinstance(data.get("instrumentation"), dict):
+        diagnostic["instrumentation"] = {
+            "allCallsInstrumentationReady": data["instrumentation"].get("allCallsInstrumentationReady"),
+            "prePostStatusEqual": data["instrumentation"].get("prePostStatusEqual"),
+            "startDiffersFromStatus": data["instrumentation"].get("startDiffersFromStatus"),
+            "perTarget": data["instrumentation"].get("perTarget", []),
+        }
+    if isinstance(data.get("runtimeSummary"), dict):
+        diagnostic["runtimeSummary"] = data["runtimeSummary"]
+    print(json.dumps(diagnostic, sort_keys=True))
     return rc
 
 
