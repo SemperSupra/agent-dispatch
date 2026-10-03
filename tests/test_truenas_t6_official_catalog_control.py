@@ -181,7 +181,10 @@ class OfficialCatalogT6ContractTests(unittest.TestCase):
         self.assertIn('foundry_commit="' + MOD.EXPECTED_FOUNDRY_REF + '"', workflow)
         self.assertIn('"official-catalog"', harness)
         self.assertIn("truenas_middleware_official_catalog_t6_probe.py", harness)
-        self.assertIn('if [[ "$T6_PRODUCT" != "official-catalog" ]]', harness)
+        self.assertIn(
+            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" ]]; then',
+            harness,
+        )
 
     def test_probe_requires_observed_methods_and_noop_convergence(self):
         text = SCRIPT.read_text(encoding="utf-8")
