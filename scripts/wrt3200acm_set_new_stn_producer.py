@@ -167,6 +167,33 @@ def main()->int:
 
     producer_call_pc=0x35528
     producer_call_context=ctxt(whole,by_pc[producer_call_pc],80,10) if producer_call_pc in by_pc else []
+    handler_text="\n".join(x["text"] for x in handler_probe)
+    candidate_text="\n".join(x["text"] for x in dp.parse_instructions(dp.run_objdump(elf,0x295c0,0x29be9)))
+    station_record_contract={
+      "add_copies_cmd_mac_plus_10_len_6_to_temp": all(s in handler_text for s in (
+        "352dc: mov r2, #6","352e0: r1 , r4, #10","352e4: r0 , sp, #36","352e8: bl 0x25f0")),
+      "producer_receives_temp_mac": all(s in handler_text for s in (
+        "35524: r0 , sp, #36","35528: bl 0x295c0")),
+      "producer_receives_stn_id_from_cmd_16_17": all(s in handler_text for s in (
+        "354fc: ldrb r0, [r4, #17]","35500: ldrb r1, [r4, #16]","35504: orr r2, r1, r0, lsl #8")),
+      "producer_receives_aid_from_cmd_8_9": all(s in handler_text for s in (
+        "354ec: ldrb r0, [r4, #9]","354f0: ldrb r1, [r4, #8]","354f8: orr r3, r1, r0, lsl #8")),
+      "record_base_anchor_218_plus_1e00_plus_480_stnid": all(s in candidate_text for s in (
+        "295f0: ldr r0, [sp, #76]","295f4: mov r3, #7680","295f8: ldr r2, [r6, #536]",
+        "29604: rsb r12, r0, r0, lsl #4","29610: r1 , r3, r12, lsl #5","29614: r4 , r2, r1")),
+      "record_mac_at_0_5": all(s in candidate_text for s in (
+        "29650: ldrh r0, [r5]","29658: strh r0, [r4]",
+        "2965c: ldrh r0, [r5, #2]","29660: strh r0, [r4, #2]",
+        "29664: ldrh r0, [r5, #4]","29668: strh r0, [r4, #4]")),
+      "record_stn_id_at_24": all(s in candidate_text for s in (
+        "296c8: ldr r0, [sp, #76]","296cc: strh r0, [r4, #24]")),
+      "record_aid_at_22": all(s in candidate_text for s in (
+        "296d0: ldr r0, [sp, #80]","296d4: strh r0, [r4, #22]")),
+      "record_links_anchor_21c_at_80": all(s in candidate_text for s in (
+        "296b8: ldr r1, [r6, #540]","296c0: str r1, [r4, #80]")),
+      "record_links_anchor_208_at_96": all(s in candidate_text for s in (
+        "29714: ldr r1, [r6, #520]","29728: str r1, [r4, #96]")),
+    }
     insert_region=dp.parse_instructions(dp.run_objdump(elf,INSERT,REMOVE))
     insert_text="\n".join(x["text"] for x in insert_region)
     insert_contract={
@@ -208,6 +235,7 @@ def main()->int:
       "direct_call_paths_from_descriptor_target":paths,
       "candidate_regions":candidate_regions,
       "producer_call":{"pc":producer_call_pc,"context":producer_call_context},
+      "station_record_contract":station_record_contract,
       "insert_contract":{"address":INSERT,"checks":insert_contract,"instructions":[x["text"] for x in insert_region]},
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_contract":source,
@@ -227,12 +255,13 @@ def main()->int:
       "paths":[[hex(y) for y in x] for x in paths],
       "candidate_regions":candidate_regions,
       "producer_call_context":producer_call_context,
+      "station_record_contract":station_record_contract,
       "insert_contract":insert_contract,
       "insert_region":[x["text"] for x in insert_region],
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"]},
     },indent=2,sort_keys=True))
-    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
+    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
     return 0 if ok else 3
 
 if __name__=="__main__":
