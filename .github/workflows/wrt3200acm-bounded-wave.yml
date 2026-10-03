@@ -1,15 +1,12 @@
 name: WRT3200ACM Bounded Recovery Wave
 
 on:
-  pull_request:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
     paths:
-      - '.github/workflows/wrt3200acm-bounded-wave.yml'
       - 'tasks/wrt3200acm/bounded-wave-1.json'
   workflow_dispatch:
-
-concurrency:
-  group: wrt3200acm-bounded-wave-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read

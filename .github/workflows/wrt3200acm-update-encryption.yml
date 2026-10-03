@@ -1,13 +1,11 @@
 name: WRT3200ACM UPDATE_ENCRYPTION Semantics
 
 on:
-  pull_request:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
     paths:
-      - '.github/workflows/wrt3200acm-update-encryption.yml'
-      - 'scripts/wrt3200acm_update_encryption_semantics.py'
-      - 'tests/test_wrt3200acm_update_encryption_semantics.py'
-      - 'scripts/wrt3200acm_dispatch_probe.py'
-      - 'scripts/wrt3200acm_fw_to_elf.py'
+      - 'tasks/wrt3200acm/full-regression-request.json'
   workflow_dispatch:
 
 permissions:

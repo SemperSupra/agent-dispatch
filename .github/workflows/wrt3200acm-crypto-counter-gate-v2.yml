@@ -1,10 +1,11 @@
 name: WRT3200ACM Crypto Counter Gate v2
 
 on:
-  pull_request:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
     paths:
-      - '.github/workflows/wrt3200acm-crypto-counter-gate-v2.yml'
-      - 'scripts/wrt3200acm_crypto_counter_gate_v2.py'
+      - 'tasks/wrt3200acm/counter-gate-v2-request.json'
   workflow_dispatch:
 
 permissions:

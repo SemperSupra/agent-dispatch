@@ -1,19 +1,11 @@
 name: WRT3200ACM Parallel Recovery Lanes
 
 on:
-  pull_request:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
     paths:
-      - '.github/workflows/wrt3200acm-parallel-lanes.yml'
-      - 'scripts/wrt3200acm_crypto_source_oracle.py'
-      - 'scripts/wrt3200acm_crypto_helper_recovery.py'
-      - 'scripts/wrt3200acm_crypto_callee_recovery.py'
-      - 'scripts/wrt3200acm_crypto_signature_scan.py'
-      - 'scripts/wrt3200acm_protocol_abi_map.py'
-      - 'scripts/wrt3200acm_toolchain_runtime.py'
-      - 'scripts/wrt3200acm_rehost_core.py'
-      - 'scripts/wrt3200acm_rehost_smoke.py'
-      - 'scripts/wrt3200acm_fw_to_elf.py'
-      - 'scripts/wrt3200acm_dispatch_probe.py'
+      - 'tasks/wrt3200acm/full-regression-request.json'
   workflow_dispatch:
 
 permissions:

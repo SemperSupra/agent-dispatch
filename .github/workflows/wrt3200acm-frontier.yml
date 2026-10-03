@@ -1,7 +1,11 @@
 name: WRT3200ACM Recovery Frontier
 
 on:
-  pull_request:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
+    paths:
+      - 'tasks/wrt3200acm/full-regression-request.json'
   workflow_dispatch:
 
 permissions:

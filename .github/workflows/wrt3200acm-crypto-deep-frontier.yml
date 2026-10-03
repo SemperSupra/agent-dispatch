@@ -1,31 +1,11 @@
 name: WRT3200ACM Crypto Deep Frontier
 
 on:
-  pull_request:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
     paths:
-      - '.github/workflows/wrt3200acm-crypto-deep-frontier.yml'
-      - 'scripts/wrt3200acm_w8964_crypto_source_contract.py'
-      - 'scripts/wrt3200acm_crypto_deep_rehost.py'
-      - 'scripts/wrt3200acm_crypto_state_region.py'
-      - 'scripts/wrt3200acm_runtime_window_init.py'
-      - 'scripts/wrt3200acm_selector3_anchor_field_map.py'
-      - 'scripts/wrt3200acm_runtime_anchor_initializers.py'
-      - 'scripts/wrt3200acm_runtime_field_identity.py'
-      - 'scripts/wrt3200acm_key_slot_arithmetic.py'
-      - 'scripts/wrt3200acm_crypto_counter_contract.py'
-      - 'scripts/wrt3200acm_crypto_control_counter_consumers.py'
-      - 'scripts/wrt3200acm_anchor0_macmask_probe.py'
-      - 'scripts/wrt3200acm_wep_control_mode.py'
-      - 'scripts/wrt3200acm_runtime_hash_object_recovery.py'
-      - 'scripts/wrt3200acm_set_new_stn_producer.py'
-      - 'scripts/wrt3200acm_21c_slot16.py'
-      - 'scripts/wrt3200acm_rom_import_semantics.py'
-      - 'scripts/wrt3200acm_runtime_allocator_semantics.py'
-      - 'scripts/wrt3200acm_txqueue_source_correlation.py'
-      - 'scripts/wrt3200acm_allocator_core.py'
-      - 'scripts/wrt3200acm_runtime_anchor_direct_writers.py'
-      - 'scripts/wrt3200acm_dispatch_probe.py'
-      - 'scripts/wrt3200acm_fw_to_elf.py'
+      - 'tasks/wrt3200acm/full-regression-request.json'
   workflow_dispatch:
 
 permissions:
