@@ -17,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA]"
 }
 
 OUT=""
@@ -65,7 +65,7 @@ if [[ "$RUNG" == "t6" ]]; then
   if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" ]]; then
     [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
   fi
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "official-catalog" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
     [[ -n "$G2_FIXTURE_DIR" && -d "$G2_FIXTURE_DIR" ]] || { echo "garm-provider-g2 requires --g2-fixture-dir" >&2; exit 2; }
     [[ "$G2_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g2 requires exact --g2-fixture-producer SHA" >&2; exit 2; }
@@ -175,6 +175,8 @@ payload = {
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "wow-sidecar"
       else {"name": "rdte-t6-catalog-ntfy", "catalog_app": "ntfy", "catalog_version": "1.1.21"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "official-catalog"
+      else {"name": "rdte-t6-foliorelay", "images": ["ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce", "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f"]}
+      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "foliorelay"
       else {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
       if os.environ.get("R_RUNG") == "t6"
       else {"name": "rdte-t4-probe", "image": "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"}
@@ -293,6 +295,11 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
     elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_wow_sidecar_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 WOW Sidecar control client"
+    elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
+      [[ -f "$SCRIPT_DIR/truenas_middleware_foliorelay_t6_probe.py" ]] ||
+        fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 FolioRelay control client"
+      command -v ipptool >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: ipptool"
+      command -v cc >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: C compiler"
     else
       [[ -f "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 LiteLLM control client"
@@ -532,6 +539,10 @@ LITELLM_HOST_PORT=""
 LITELLM_HOSTFWD=""
 GARM_HOST_PORT=""
 GARM_HOSTFWD=""
+FOLIORELAY_CONTROL_HOST_PORT=""
+FOLIORELAY_IPP_HOST_PORT=""
+FOLIORELAY_OBSERVER_HOST_PORT=""
+FOLIORELAY_HOSTFWD=""
 if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "litellm" ]]; then
   LITELLM_HOST_PORT="$(python3 - <<'PY'
 import socket
@@ -548,6 +559,17 @@ PY
 )"
   GARM_HOSTFWD=",hostfwd=tcp:127.0.0.1:${GARM_HOST_PORT}-:30880"
 fi
+if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "foliorelay" ]]; then
+  read -r FOLIORELAY_CONTROL_HOST_PORT FOLIORELAY_IPP_HOST_PORT FOLIORELAY_OBSERVER_HOST_PORT < <(python3 - <<'PY'
+import socket
+ports=[]
+for _ in range(3):
+    s=socket.socket(); s.bind(("127.0.0.1",0)); ports.append(str(s.getsockname()[1])); s.close()
+print(" ".join(ports))
+PY
+)
+  FOLIORELAY_HOSTFWD=",hostfwd=tcp:127.0.0.1:${FOLIORELAY_CONTROL_HOST_PORT}-:18080,hostfwd=tcp:127.0.0.1:${FOLIORELAY_IPP_HOST_PORT}-:8634,hostfwd=tcp:127.0.0.1:${FOLIORELAY_OBSERVER_HOST_PORT}-:18081"
+fi
 : >"$STATE_DIR/serial.log"
 sudo -n qemu-system-x86_64 \
   -enable-kvm -cpu host -smp "$VCPUS" -m "$RAM_MIB" \
@@ -555,7 +577,7 @@ sudo -n qemu-system-x86_64 \
   -device "virtio-blk-pci,drive=rdteboot,id=rdte-boot,addr=0x4,bootindex=1" \
   "${DATA_DRIVE_ARGS[@]}" \
   -boot strict=on \
-  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443${LITELLM_HOSTFWD}${GARM_HOSTFWD}" \
+  -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$HTTP_PORT-:80,hostfwd=tcp:127.0.0.1:$HTTPS_PORT-:443${LITELLM_HOSTFWD}${GARM_HOSTFWD}${FOLIORELAY_HOSTFWD}" \
   -device "virtio-net-pci,netdev=net0,mac=$NIC_MAC,addr=0x3" \
   -display none -monitor none \
   -serial "file:$STATE_DIR/serial.log" \
@@ -753,6 +775,17 @@ elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
+elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
+  python3 "$SCRIPT_DIR/truenas_middleware_foliorelay_t6_probe.py" \
+    --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+    --control-port "$FOLIORELAY_CONTROL_HOST_PORT" \
+    --ipp-port "$FOLIORELAY_IPP_HOST_PORT" \
+    --observer-port "$FOLIORELAY_OBSERVER_HOST_PORT" \
+    "${MIDDLEWARE_TLS_ARG[@]}" \
+    --password-file "$PASSWORD_FILE" \
+    --control-dir "$FOUNDRY_CONTROL_DIR" \
+    --foundry-commit "$FOUNDRY_COMMIT" \
+    --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 300 >/dev/null 2>&1 || true
 else
   python3 "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" --service-port "$LITELLM_HOST_PORT" \
@@ -787,6 +820,8 @@ elif [[ "$T6_PRODUCT" == "garm" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported GARM controller control passed exact appliance and secret-normalized config read-back, persistent state, external HTTPS, restart persistence, and zero-residue cleanup; GitHub/JIT registration intentionally not exercised"
 elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported WOW Sidecar control passed immutable image/config read-back, permissions/seed metadata, public-fixture worker runtime, restart persistence, and zero-residue cleanup"
+elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
+  write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported FolioRelay three-service control passed exact image/config read-back, portal and IPP reachability, canonical identity, PDF/URF exact-source Inbox preservation, independent in-guest DNS-SD observation, restart persistence, and zero-residue cleanup"
 else
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported LiteLLM control passed S1 projection, exact image/config read-back, health, restart persistence, and delete/absence"
 fi
