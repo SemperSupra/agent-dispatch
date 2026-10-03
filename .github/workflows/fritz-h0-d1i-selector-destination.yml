@@ -1,0 +1,82 @@
+name: FRITZ H0 D1i selector destination
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d1i-selector-destination.yml'
+      - 'scripts/fritz_h0_d1i_selector_destination.py'
+      - 'scripts/fritz_h0_d1h_selector_switch.py'
+      - 'tests/test_fritz_h0_d1i_selector_destination.py'
+      - 'docs/fritz-h0-d1i-selector-destination.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_h0_d1i_selector_destination.py
+
+  exact-osp-h0-d1i:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Recover exact selector destination mapping
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d1i" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d1i_selector_destination.py \
+            --osp-url 'https://osp.avm.de/fritzbox/fritzbox-7590/source-files-FRITZ.Box_7590-grx5-08.25.tar.gz' \
+            --expected-size 633140613 \
+            --expected-sha256 61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d1i" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce typed mapping evidence
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
+          assert r.get("oracleSatisfied") is True, r
+          b=r["interpretationBoundary"]
+          assert b["selectorDomainAcceptedFromD1h"] == [0,1]
+          assert b["postSwitchSameEnclosingBlockOnly"] is True
+          assert b["destinationLhsRestrictedToNewName"] is True
+          assert b["exactFlashOffsetsAccepted"] is False
+          assert b["inactiveSlotSafetyAccepted"] is False
+          assert b["rollbackSafetyAccepted"] is False
+          assert b["modifiedHilAuthorized"] is False
+          d=r["derived"]
+          if r["classification"]=="H0_D1I_SELECTOR_DESTINATION_MAPPING_CROSSCHECKED":
+              assert d["normalizedMappingCount"] > 0, d
+              assert d["destinationCount"] > 0, d
+              assert d["mappingFullyCrosschecked"] is True, d
+              assert d["independentlyObservedDestinationCount"] == d["destinationCount"], d
+          if r["classification"]=="H0_D1I_SELECTOR_DESTINATION_MAPPING_CROSSCHECK_PARTIAL":
+              assert d["normalizedMappingCount"] > 0, d
+              assert d["mappingFullyCrosschecked"] is False, d
+          for k,v in r["safety"].items():
+              assert v is False,(k,v)
+          print(json.dumps({
+              "classification":r["classification"],
+              "postSwitchReduction":r["postSwitchReduction"],
+              "destinationCrosscheck":r["destinationCrosscheck"],
+              "derived":d,
+              "interpretationBoundary":b,
+          },sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d1i-selector-destination-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
