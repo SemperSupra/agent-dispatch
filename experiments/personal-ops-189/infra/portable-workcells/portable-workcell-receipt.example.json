@@ -1,0 +1,30 @@
+{
+  "schema_version": "portable-headscale-workcell-receipt.v1",
+  "status": "unobserved-template",
+  "authority": {
+    "issue": 188,
+    "live_apply_authorized": false
+  },
+  "observation": {
+    "observed_at_utc": null,
+    "headscale_version": null,
+    "control_endpoint_tls": null,
+    "source_peer": null,
+    "target_peer": null,
+    "tailscale_status_sanitized": null,
+    "tailscale_ping_sanitized": null,
+    "final_path_class": null,
+    "bounded_tcp_stream": null,
+    "oci_control_plane_transfer_observed": null,
+    "dns_projection": null,
+    "teardown_verified": null
+  },
+  "classification": "UNOBSERVED",
+  "oracle_satisfied": false,
+  "secrets_recorded": false,
+  "application_data_relayed_through_oci": null,
+  "blockers": [
+    "fresh-infrastructure-preflight-required",
+    "owner-gated-live-rep-not-executed"
+  ]
+}
