@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Recover the local function family around the 0x706c0+0x4c MAC-keyed hash table."""
 from __future__ import annotations
-import argparse, importlib.util, json, re
+import argparse, importlib.util, json, re, urllib.request
 from pathlib import Path
 
 P=Path(__file__).with_name("wrt3200acm_dispatch_probe.py")
@@ -10,6 +10,8 @@ dp=importlib.util.module_from_spec(spec); assert spec.loader; spec.loader.exec_m
 
 START=0x3fb20
 END=0x3fe80
+HOSTCMD_REF="db97edf20fadea2617805006f5230665fadc6a8c"
+HOSTCMD_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{HOSTCMD_REF}/hif/hostcmd.h"
 KNOWN_LOOKUP=0x3fb34
 TARGETS={
   "lookup_a":0x3fb34,
@@ -17,6 +19,11 @@ TARGETS={
   "insert":0x3fc94,
   "remove":0x3fd34,
 }
+
+def fetch_text(url:str)->str:
+    req=urllib.request.Request(url,headers={"User-Agent":"SemperSupra-WRT-hash-object/1.0"})
+    with urllib.request.urlopen(req,timeout=45) as r:
+        return r.read().decode("utf-8","replace")
 
 def elf_low_end(path:Path)->int:
     import struct
@@ -47,6 +54,21 @@ def main()->int:
     out=Path(ns.out); out.mkdir(parents=True,exist_ok=True)
     text=dp.run_objdump(Path(ns.elf),START,END)
     ins=dp.parse_instructions(text)
+    hostcmd_src=fetch_text(HOSTCMD_URL)
+    source_set_new_stn=bool(re.search(r"^\\s*#define\\s+HOSTCMD_CMD_SET_NEW_STN\\s+0x1111\\b",hostcmd_src,re.M))
+    dispatcher=dp.parse_instructions(dp.run_objdump(Path(ns.elf),0x36454,0x390ec))
+    recovered=dp.recover_cases(dispatcher,{0x1111:"HOSTCMD_CMD_SET_NEW_STN"})
+    set_new_stn_case=recovered[0] if recovered else None
+    set_new_stn_handler=set_new_stn_case.get("branch_target") if set_new_stn_case else None
+    handler_ins=[]
+    handler_calls=[]
+    if set_new_stn_handler is not None:
+        handler_ins=dp.parse_instructions(dp.run_objdump(Path(ns.elf),set_new_stn_handler,set_new_stn_handler+0x900))
+        for x in handler_ins:
+            if x["mnemonic"]=="bl":
+                t=dp.branch_target(x)
+                if t is not None:
+                    handler_calls.append({"pc":x["address"],"target":t,"text":x["text"]})
     whole=dp.parse_instructions(dp.run_objdump(Path(ns.elf),0,elf_low_end(Path(ns.elf))))
     whole_by_pc={x["address"]:i for i,x in enumerate(whole)}
     target_xrefs={name:[] for name in TARGETS}
@@ -99,9 +121,13 @@ def main()->int:
         spans.append({"start":ins[start_i]["address"],"end":ins[-1]["address"],"instructions":[y["text"] for y in ins[start_i:]]})
 
     report={
-      "schema":"wrt8964-runtime-hash-object-recovery/v2",
+      "schema":"wrt8964-runtime-hash-object-recovery/v3",
       "region":{"start":START,"end":END},
       "known_lookup":KNOWN_LOOKUP,
+      "set_new_stn_source_contract":{"ref":HOSTCMD_REF,"url":HOSTCMD_URL,"macro_0x1111":source_set_new_stn},
+      "set_new_stn_dispatch_case":set_new_stn_case,
+      "set_new_stn_handler_calls":handler_calls,
+      "set_new_stn_handler_context":[x["text"] for x in handler_ins],
       "target_xrefs":target_xrefs,
       "literal_values":{"0x3ff30":read_u32(Path(ns.elf),0x3ff30),"0x3ff34":read_u32(Path(ns.elf),0x3ff34)},
       "bucket_table_accesses":bucket_access,
@@ -115,6 +141,12 @@ def main()->int:
     }
     (out/"runtime-hash-object-recovery.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({
+      "set_new_stn_dispatch":{
+        "source_macro_0x1111":source_set_new_stn,
+        "case":set_new_stn_case,
+        "handler":hex(set_new_stn_handler) if set_new_stn_handler is not None else None,
+        "handler_calls":[{"pc":hex(x["pc"]),"target":hex(x["target"]),"text":x["text"]} for x in handler_calls],
+      },
       "target_xrefs":{k:[{"pc":hex(x["pc"]),"kind":x["kind"],"text":x["text"],"context":x["context"]} for x in v] for k,v in target_xrefs.items()},
       "literal_values":{"0x3ff30":hex(read_u32(Path(ns.elf),0x3ff30)),"0x3ff34":hex(read_u32(Path(ns.elf),0x3ff34))},
       "bucket_table_accesses":[{"pc":hex(x["pc"]),"text":x["text"]} for x in bucket_access],
@@ -122,6 +154,6 @@ def main()->int:
       "local_bl_targets":report["local_bl_targets"],
       "spans":[{"start":hex(s["start"]) if s["start"] is not None else None,"end":hex(s["end"]),"instructions":s["instructions"]} for s in spans],
     },indent=2,sort_keys=True))
-    return 0 if bucket_access else 3
+    return 0 if bucket_access and source_set_new_stn and set_new_stn_case else 3
 
 if __name__=="__main__": raise SystemExit(main())
