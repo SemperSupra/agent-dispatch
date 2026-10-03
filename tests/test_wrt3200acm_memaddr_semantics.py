@@ -34,7 +34,7 @@ class MemAddrRehostTests(unittest.TestCase):
    37eb4: e5d4c011 ldrb r12, [r4, #17]
    37ebc: e5d4200a ldrb r2, [r4, #10]
    37ec0: e5d46010 ldrb r6, [r4, #16]
-   37ec4: e1810408 orr r0, r1, r8, lsl #8
+   37ec4: e1800408 orr r0, r0, r8, lsl #8
    37ec8: e5d45012 ldrb r5, [r4, #18]
    37ecc: e5d4300b ldrb r3, [r4, #11]
    37ed0: e186140c orr r1, r6, r12, lsl #8
