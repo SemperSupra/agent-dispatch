@@ -108,11 +108,22 @@ def struct_definitions(text: str) -> list[dict]:
 
 
 def locate_table_initializer(text: str) -> dict | None:
+    """Locate an actual mtd_entry nametable declaration, never a later use."""
     masked = d1h.mask_comments_strings(text)
-    for m in re.finditer(rf"\b{TABLE}\b", masked):
-        # Declaration attributes/macros may appear between nametable[...] and '='.
-        # Accept only a bounded declaration-shaped prefix: no semicolon before
-        # the first assignment and an initializer brace immediately after it.
+    declaration = re.compile(
+        rf"""(?x)
+        \b
+        (?:(?:static|const|volatile)\s+)*
+        (?:
+            struct\s+{_IDENT}
+            |
+            {_IDENT}
+        )
+        \s+(?:\*+\s*)?
+        {TABLE}\b
+        """
+    )
+    for m in declaration.finditer(masked):
         limit = min(len(masked), m.end() + 1024)
         semi = masked.find(";", m.end(), limit)
         eq = masked.find("=", m.end(), limit)
@@ -123,13 +134,17 @@ def locate_table_initializer(text: str) -> dict | None:
         open_idx = masked.find("{", eq + 1, limit)
         if open_idx < 0 or (semi >= 0 and semi < open_idx):
             continue
+        # The declaration tail may contain an array bound/attribute but must
+        # not cross a statement boundary before the initializer.
         close_idx = d1h.match_brace(text, open_idx)
         if close_idx is None:
             continue
         return {
-            "nameStart": m.start(),
+            "nameStart": masked.find(TABLE, m.start(), m.end()),
+            "declarationStart": m.start(),
             "open": open_idx,
             "close": close_idx,
+            "locatorClass": "declaration_shaped",
         }
     return None
 
