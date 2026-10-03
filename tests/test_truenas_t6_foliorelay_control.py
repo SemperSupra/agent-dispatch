@@ -71,6 +71,25 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         )
         self.assertIsNone(MOD.extract_printer_uuid("printer-name = FolioRelay"))
 
+    def test_forwarded_ipp_uri_preserves_product_resource_path_without_claiming_public_host(self):
+        attrs = """
+        printer-uri-supported (uri) = ipp://127.0.0.1:48634/printers/FolioRelay
+        """
+        uri = MOD.extract_printer_uri(attrs)
+        self.assertEqual(uri, "ipp://127.0.0.1:48634/printers/FolioRelay")
+        self.assertTrue(MOD.forwarded_ipp_uri_has_product_path(uri))
+        self.assertFalse(MOD.forwarded_ipp_uri_has_product_path("ipp://127.0.0.1:48634/printers/Other"))
+
+    def test_dnssd_observer_proves_public_host_port_and_resource_path(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"--expected-host",PUBLIC_HOST', text)
+        self.assertIn('"--expected-ipp-port",str(PUBLIC_IPP_PORT)', text)
+        self.assertIn('srv_target', text)
+        self.assertIn('srv_port', text)
+        self.assertIn('"rp=printers/FolioRelay"', text)
+        self.assertIn('"dnssd_public_uri_match":True', text)
+        self.assertNotIn('if PUBLIC_URI not in attrs', text)
+
     def test_probe_compiles(self):
         cp=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],capture_output=True,text=True)
         self.assertEqual(cp.returncode,0,cp.stderr)

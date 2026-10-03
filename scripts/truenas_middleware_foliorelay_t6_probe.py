@@ -33,7 +33,10 @@ ROOT = "/mnt/rdtepool/foliorelay-t6"
 TOKEN_PATH = ROOT + "/secrets/control.token"
 OBSERVER_DIR = ROOT + "/observer"
 TOKEN = b"foliorelay-t6-public-fixture-token-0001\n"
-PUBLIC_URI = "ipp://foliorelay-t6.local:8634/printers/FolioRelay"
+PUBLIC_HOST = "foliorelay-t6.local"
+PUBLIC_IPP_PORT = 8634
+PUBLIC_RESOURCE_PATH = "/printers/FolioRelay"
+PUBLIC_URI = f"ipp://{PUBLIC_HOST}:{PUBLIC_IPP_PORT}{PUBLIC_RESOURCE_PATH}"
 
 def canonical_sha256(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -183,6 +186,17 @@ def extract_printer_uuid(attrs: str):
     match = re.search(r"printer-uuid[^\n]*= (urn:uuid:[^\s]+)", attrs)
     return match.group(1) if match else None
 
+def extract_printer_uri(attrs: str):
+    match = re.search(r"printer-uri-supported[^\n]*= (ipp://[^\s]+)", attrs)
+    return match.group(1) if match else None
+
+def forwarded_ipp_uri_has_product_path(uri: str | None) -> bool:
+    if not uri or not uri.startswith("ipp://"):
+        return False
+    tail = uri.split("://", 1)[1]
+    slash = tail.find("/")
+    return slash >= 0 and tail[slash:] == PUBLIC_RESOURCE_PATH
+
 def ipptool_print(port:int, media:str, source:pathlib.Path, label:str, root:pathlib.Path):
     t=root/f"print-{label}.test"
     t.write_text("""{
@@ -226,7 +240,7 @@ def name_at(pkt,off,seen=None):
             if end is None: end=off+2
             return ".".join(labels),end
         off+=1; labels.append(pkt[off:off+n].decode(errors="replace")); off+=n
-def observe(expected,seconds=25):
+def observe(expected,expected_host,expected_ipp_port,seconds=25):
     qid=0; query=struct.pack("!HHHHHH",qid,0,1,0,0,0)+enc(Q)+struct.pack("!HH",12,1)
     s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM,socket.IPPROTO_UDP)
     s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
@@ -246,18 +260,25 @@ def observe(expected,seconds=25):
             _,_,qd,an,ns,ar=struct.unpack("!HHHHHH",pkt[:12]); off=12
             for _ in range(qd):
                 _,off=name_at(pkt,off); off+=4
-            universal_ptr=False; txt=[]
+            universal_ptr=False; txt=[]; srv_target=None; srv_port=None
             for _ in range(an+ns+ar):
                 nm,off=name_at(pkt,off); typ,cls,ttl,rdlen=struct.unpack("!HHIH",pkt[off:off+10]); off+=10
-                r=pkt[off:off+rdlen]; off+=rdlen
+                rstart=off; r=pkt[off:off+rdlen]; off+=rdlen
                 if nm.rstrip(".").lower()==Q.lower() and typ==12: universal_ptr=True
                 if typ==16:
                     j=0
                     while j<len(r):
                         n=r[j]; j+=1; txt.append(r[j:j+n].decode(errors="replace")); j+=n
+                if typ==33 and rdlen>=7:
+                    _,_,srv_port=struct.unpack("!HHH",r[:6])
+                    srv_target,_=name_at(pkt,rstart+6)
             joined="\n".join(txt)
-            if universal_ptr and expected.lower() in joined.lower() and "rp=printers/FolioRelay" in joined and "pdl=application/pdf,image/urf" in joined:
-                return {"universal_ptr":True,"uuid":expected,"txt":txt}
+            if (universal_ptr and expected.lower() in joined.lower()
+                and "rp=printers/FolioRelay" in joined
+                and "pdl=application/pdf,image/urf" in joined
+                and (srv_target or "").rstrip(".").lower()==expected_host.rstrip(".").lower()
+                and srv_port==expected_ipp_port):
+                return {"universal_ptr":True,"uuid":expected,"txt":txt,"srv_target":srv_target,"srv_port":srv_port}
         except Exception: pass
     raise RuntimeError("no qualifying _universal FolioRelay mDNS response")
 class H(BaseHTTPRequestHandler):
@@ -265,8 +286,8 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         body=json.dumps(H.result).encode(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def log_message(self,*args): pass
-p=argparse.ArgumentParser(); p.add_argument("--uuid",required=True); p.add_argument("--port",type=int,default=18081); a=p.parse_args()
-H.result=observe(a.uuid)
+p=argparse.ArgumentParser(); p.add_argument("--uuid",required=True); p.add_argument("--expected-host",required=True); p.add_argument("--expected-ipp-port",type=int,required=True); p.add_argument("--port",type=int,default=18081); a=p.parse_args()
+H.result=observe(a.uuid,a.expected_host,a.expected_ipp_port)
 HTTPServer(("0.0.0.0",a.port),H).serve_forever()
 '''
 
@@ -343,7 +364,9 @@ def main():
             attrs=ipptool_attrs(a.ipp_port,root)
             cups_uuid=extract_printer_uuid(attrs)
             if cups_uuid!=uuid: raise RuntimeError("CUPS UUID does not match control")
-            if PUBLIC_URI not in attrs: raise RuntimeError("CUPS public URI does not match control")
+            cups_transport_uri=extract_printer_uri(attrs)
+            if not forwarded_ipp_uri_has_product_path(cups_transport_uri):
+                raise RuntimeError("CUPS forwarded IPP URI does not preserve product resource path")
             if "application/pdf" not in attrs or "image/urf" not in attrs: raise RuntimeError("CUPS document formats drifted")
             pdf=root/"probe.pdf"; write_pdf(pdf); urf=generate_urf(root)
             ipptool_print(a.ipp_port,"application/pdf",pdf,"pdf",root); ipptool_print(a.ipp_port,"image/urf",urf,"urf",root)
@@ -361,13 +384,16 @@ def main():
                 blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
         sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/mdns_observer.py",OBSERVER.encode(),0o555,a.timeout); wait_job(sj,"observer upload")
-        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--port","18081"]}}}
+        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
         wait_job(oj,"observer app.create"); observer_created=True; wait_state(OBSERVER_APP_NAME,"RUNNING")
         if not wait_http(a.host,a.observer_port,"/",60): raise RuntimeError("DNS-SD observer did not publish a result")
         observed=json.loads(http_bytes(a.host,a.observer_port,"/",timeout=a.timeout))
-        if observed.get("universal_ptr") is not True or observed.get("uuid")!=uuid: raise RuntimeError("DNS-SD observer identity mismatch")
+        if (observed.get("universal_ptr") is not True or observed.get("uuid")!=uuid
+            or (observed.get("srv_target") or "").rstrip(".").lower()!=PUBLIC_HOST.lower()
+            or observed.get("srv_port")!=PUBLIC_IPP_PORT):
+            raise RuntimeError("DNS-SD observer public URI identity mismatch")
         before_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
         stop=call("app.stop",[EXPECTED_APP_NAME]); wait_job(stop,"app.stop"); wait_state(EXPECTED_APP_NAME,"STOPPED")
         start=call("app.start",[EXPECTED_APP_NAME]); wait_job(start,"app.start"); wait_state(EXPECTED_APP_NAME,"RUNNING")
@@ -403,9 +429,9 @@ def main():
         if not absent: raise RuntimeError("fixture mountpoint remains")
         payload.update({
             "classification":"SUPPORTED","oracleSatisfied":True,
-            "identity":{"printer_uuid":uuid,"public_uri":PUBLIC_URI,"control_cups_uuid_match":True,"dnssd_uuid_match":True},
-            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP"},
-            "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True},
+            "identity":{"printer_uuid":uuid,"public_uri":PUBLIC_URI,"control_cups_uuid_match":True,"dnssd_uuid_match":True,"dnssd_public_uri_match":True},
+            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP"},
+            "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True,"srv_target":PUBLIC_HOST,"srv_port":PUBLIC_IPP_PORT,"resource_path":PUBLIC_RESOURCE_PATH},
             "cleanup":{"apps_absent":True,"fixture_dataset_absent":True,"fixture_mountpoint_absent":True,"zero_residue":True},
             "producer_gate":{"replan_noop_required":True,"runtime_does_not_reconstruct_foundry_control":True},
             "detail":"exact Foundry-exported FolioRelay control realized on TrueNAS; exact three-service identity, portal/IPP, PDF+URF source preservation, independent in-guest DNS-SD observation, restart persistence, and zero-residue cleanup passed"
