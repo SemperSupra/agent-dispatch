@@ -368,9 +368,60 @@ def instrumented_svctl_call(
     }
 
 
+def instrumentation_failure_result(
+    root: pathlib.Path,
+    verb: str,
+    service: str,
+    error_type: str,
+) -> dict:
+    """Return a sanitized typed instrumentation failure without raw debugger data."""
+    vocab = r6.binary_state_vocabulary(root)
+    return {
+        "verb": verb,
+        "service": service,
+        "exitCode": None,
+        "stdoutBytes": 0,
+        "stdoutSha256": None,
+        "stderrBytes": 0,
+        "missingGuestPaths": [],
+        "stateMarkers": [],
+        "controllerVocabulary": vocab,
+        "wireCapture": {},
+        "instrumentation": {
+            "ready": False,
+            "reason": "instrumentation_exception",
+            "errorType": error_type,
+            "elfType": None,
+            "bindingMode": None,
+            "observationCount": 0,
+            "observations": [],
+            "gdbExitClass": None,
+            "rawDebuggerOutputPublished": False,
+            "rawRegisterValuesPublished": False,
+            "rawPointedMemoryPublished": False,
+            "callsiteAddressesPublished": False,
+        },
+        "rawOutputPublished": False,
+    }
+
+
+def safe_instrumented_svctl_call(
+    root: pathlib.Path,
+    env: dict,
+    verb: str,
+    service: str,
+) -> dict:
+    try:
+        return instrumented_svctl_call(root, env, verb, service)
+    except Exception as exc:
+        return instrumentation_failure_result(root, verb, service, type(exc).__name__)
+
+
 def namespace_helper(args: argparse.Namespace) -> int:
     original = r6.svctl_call
-    r6.svctl_call = instrumented_svctl_call
+    # Keep the R6 transaction alive even when debugger binding fails so the
+    # durable receipt records a typed, sanitized instrumentation negative.
+    r6.svctl_call = safe_instrumented_svctl_call
     try:
         return r6.namespace_helper(args)
     finally:
