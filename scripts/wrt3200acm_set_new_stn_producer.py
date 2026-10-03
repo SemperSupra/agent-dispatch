@@ -13,6 +13,10 @@ FW_SHA256="ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751"
 HOST_REF="db97edf20fadea2617805006f5230665fadc6a8c"
 HOSTCMD_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{HOST_REF}/hif/hostcmd.h"
 FWCMD_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{HOST_REF}/hif/fwcmd.c"
+FWCMD_H_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{HOST_REF}/hif/fwcmd.h"
+CORE_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{HOST_REF}/core.c"
+MAC80211_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{HOST_REF}/mac80211.c"
+SYSADPT_URL=f"https://raw.githubusercontent.com/kaloz/mwlwifi/{HOST_REF}/sysadpt.h"
 WRAPPER=0x37b94
 DESCRIPTOR_LITERAL=0x38398
 LOOKUP_A=0x3fb34
@@ -344,14 +348,59 @@ def main()->int:
     }
 
     hostcmd=fetch_text(HOSTCMD_URL); fwcmd=fetch_text(FWCMD_URL)
+    fwcmd_h=fetch_text(FWCMD_H_URL); core_c=fetch_text(CORE_URL)
+    mac80211_c=fetch_text(MAC80211_URL); sysadpt_h=fetch_text(SYSADPT_URL)
+
+    macid_21c_contract={
+      "source_header_mcid_after_seqnum": all(s in hostcmd for s in (
+        "struct hostcmd_header {","u8 seq_num;","u8 macid;")),
+      "source_sc4_builder_sets_header_mcid_from_vif": "pcmd->cmd_hdr.macid = mwl_vif->macid;" in fwcmd,
+      "caller_reads_cmd_mcid_plus_5": "354d4: ldrb r2, [r4, #5]" in handler_text,
+      "caller_places_mcid_at_stack_plus_12": "354e4: str r2, [sp, #12]" in handler_text,
+      "producer_frame_maps_sp132_to_caller_sp12": all(s in candidate_text for s in (
+        "295c0: push {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, lr}",
+        "295c8: sub sp, sp, #68","295dc: ldr r10, [sp, #132]")) and (132-(13*4+68)==12),
+      "producer_indexes_21c_by_64_mcid": all(s in candidate_text for s in (
+        "296b8: ldr r1, [r6, #540]","296bc: r1 , r1, r10, lsl #6","296c0: str r1, [r4, #80]")),
+      "source_num_ap_is_16": "#define SYSADPT_NUM_OF_AP              16" in sysadpt_h,
+      "source_ap_mcid_mask_0_to_15": "priv->ap_macids_supported = 0x0000ffff;" in core_c,
+      "source_sta_mcid_mask_is_bit16": "priv->sta_macids_supported = 0x00010000;" in core_c,
+      "source_station_interface_uses_sta_mask": all(s in mac80211_c for s in (
+        "case NL80211_IFTYPE_STATION:","macids_supported = priv->sta_macids_supported;",
+        "macid = ffs(macids_supported & ~priv->macids_used);","macid--;","mwl_vif->macid = macid;")),
+    }
+
+    sc4_wds_contract={
+      "source_sc4_layout_has_wds_after_fw_sta_ptr": all(s in hostcmd for s in (
+        "struct hostcmd_cmd_set_new_stn_sc4","__le32 fw_sta_ptr;","__le32 wds;")),
+      "source_wds_mode_is_4": "#define WDS_MODE                        4" in fwcmd_h,
+      "source_wds_modify_sets_action_and_wds_mode": all(s in fwcmd for s in (
+        "int mwl_fwcmd_set_new_stn_wds_sc4(","pcmd->action = cpu_to_le16(HOSTCMD_ACT_STA_ACTION_MODIFY);",
+        "pcmd->wds = cpu_to_le32(WDS_MODE);")),
+      "binary_modify_reads_cmd_67_70": all(s in handler_text for s in (
+        "355f4: ldrb r1, [r4, #68]","355f8: ldrb r2, [r4, #67]",
+        "355fc: ldrb r3, [r4, #69]","35600: ldrb r12, [r4, #70]")),
+      "binary_modify_compares_wds_to_4": all(s in handler_text for s in (
+        "3560c: orr r0, r0, r12, lsl #24","35610: cmp r0, #4","35614: bne 0x352d0")),
+      "binary_wds_modify_sets_station_record_state": all(s in handler_text for s in (
+        "35648: mov r1, #3","35650: strb r1, [r0, #30]",
+        "35654: orr r2, r2, #768","35658: strh r2, [r0, #28]")),
+    }
     source={
       "hostcmd_h":excerpt(hostcmd,"struct hostcmd_cmd_set_new_stn",45),
       "fwcmd_add":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_add(",95),
       "fwcmd_del":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_del(",55),
       "hostcmd_get_seqno":excerpt(hostcmd,"struct hostcmd_cmd_get_seqno",28),
       "fwcmd_get_seqno":excerpt(fwcmd,"int mwl_fwcmd_get_seqno(",38),
+      "hostcmd_sc4":excerpt(hostcmd,"struct hostcmd_cmd_set_new_stn_sc4",25),
+      "fwcmd_sc4_add":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_add_sc4(",90),
+      "fwcmd_sc4_wds":excerpt(fwcmd,"int mwl_fwcmd_set_new_stn_wds_sc4(",35),
+      "core_macid_masks":excerpt(core_c,"ap_macids_supported = 0x0000ffff",20),
+      "mac80211_station_macid":excerpt(mac80211_c,"case NL80211_IFTYPE_STATION:",25),
+      "sysadpt_num_ap":excerpt(sysadpt_h,"SYSADPT_NUM_OF_AP",12),
+      "fwcmd_h_wds_mode":excerpt(fwcmd_h,"WDS_MODE",8),
       "ref":HOST_REF,
-      "urls":[HOSTCMD_URL,FWCMD_URL],
+      "urls":[HOSTCMD_URL,FWCMD_URL,FWCMD_H_URL,CORE_URL,MAC80211_URL,SYSADPT_URL],
     }
 
     report={
@@ -377,6 +426,8 @@ def main()->int:
       "update_encryption_lookup_consumers":lookup_a_consumers,
       "get_seqno_contract":{"checks":get_seqno_contract,"dispatch_case":get_seqno_case,
         "handler":[x["text"] for x in get_seqno_handler]},
+      "macid_21c_contract":macid_21c_contract,
+      "sc4_wds_contract":sc4_wds_contract,
       "source_contract":source,
       "guardrail":"The node+4 payload may be promoted as the exact object constructed by the SET_NEW_STN producer only when the insertion store, producer argument provenance, exact-source MAC field, and UPDATE_ENCRYPTION lookup consumer all agree. Semantic object naming remains gated on field-level role evidence."
     }
@@ -405,10 +456,16 @@ def main()->int:
       "get_seqno_contract":get_seqno_contract,
       "get_seqno_dispatch_case":get_seqno_case,
       "get_seqno_normalized_dispatch":normalized_get_seqno,
+      "macid_21c_contract":macid_21c_contract,
+      "sc4_wds_contract":sc4_wds_contract,
       "source_found":{"hostcmd_h":source["hostcmd_h"]["found"],"fwcmd_add":source["fwcmd_add"]["found"],"fwcmd_del":source["fwcmd_del"]["found"],
-        "hostcmd_get_seqno":source["hostcmd_get_seqno"]["found"],"fwcmd_get_seqno":source["fwcmd_get_seqno"]["found"]},
+        "hostcmd_get_seqno":source["hostcmd_get_seqno"]["found"],"fwcmd_get_seqno":source["fwcmd_get_seqno"]["found"],
+        "hostcmd_sc4":source["hostcmd_sc4"]["found"],"fwcmd_sc4_add":source["fwcmd_sc4_add"]["found"],
+        "fwcmd_sc4_wds":source["fwcmd_sc4_wds"]["found"],"core_macid_masks":source["core_macid_masks"]["found"],
+        "mac80211_station_macid":source["mac80211_station_macid"]["found"],"sysadpt_num_ap":source["sysadpt_num_ap"]["found"],
+        "fwcmd_h_wds_mode":source["fwcmd_h_wds_mode"]["found"]},
     },indent=2,sort_keys=True))
-    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and all(encryption_station_links.values()) and all(producer_208_alignment.values()) and all(get_seqno_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
+    ok=all(wrapper_checks.values()) and descriptor_exec and bool(disc1) and all(insert_contract.values()) and all(station_record_contract.values()) and all(modify_contract.values()) and all(encryption_station_links.values()) and all(producer_208_alignment.values()) and all(get_seqno_contract.values()) and all(macid_21c_contract.values()) and all(sc4_wds_contract.values()) and source["hostcmd_h"]["found"] and source["fwcmd_add"]["found"] and source["fwcmd_del"]["found"]
     return 0 if ok else 3
 
 if __name__=="__main__":
