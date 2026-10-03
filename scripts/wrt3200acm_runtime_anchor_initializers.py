@@ -15,9 +15,20 @@ TARGETS={
   "pool_208": {"writer_pc":0x22828,"offset":0x208,"window":(0x22810,0x22890)},
   "state_d8": {"writer_pc":0x22ce0,"offset":0xd8,"window":(0x22c60,0x22d50)},
   "table_4c": {"writer_pc":0x2331c,"offset":0x4c,"window":(0x23280,0x23390)},
-  "halfwords_0_6": {"writer_pc":0x2a284,"offset":0x2,"window":(0x2a210,0x2a2d0)},
-  "field0_writer_a": {"writer_pc":0x2d3c8,"offset":0x0,"window":(0x2d340,0x2d430)},
-  "field0_writer_b": {"writer_pc":0x30808,"offset":0x0,"window":(0x30780,0x30880)},
+  "halfwords_2_6": {"writer_pc":0x2a284,"offset":0x2,"window":(0x2a210,0x2a2d0)},
+}
+
+EXCLUDED_NON_ANCHOR_CANDIDATES={
+  "0x2d3c8":{
+    "load_pc":0x2d3a8,"writeback_pc":0x2d3ac,"delta":0x908,
+    "effective_base":ANCHOR+0x908,
+    "reason":"r1 is changed by address-writeback load at 0x2d3ac before the later store",
+  },
+  "0x30808":{
+    "load_pc":0x307e8,"writeback_pc":0x30800,"delta":0x624,
+    "effective_base":ANCHOR+0x624,
+    "reason":"r1 is changed by address-writeback load at 0x30800 before the later store",
+  },
 }
 
 def read_elf_u32(path:Path,address:int)->int:
@@ -52,7 +63,6 @@ def summarize(text:str, writer_pc:int)->dict:
             except ValueError:pass
         if f"0x{ANCHOR:x}" in x["text"].lower():
             anchor_literals.append(x["text"])
-    # Keep a local instruction slice around writer for manual/data-flow review.
     idx=next((i for i,x in enumerate(ins) if x["address"]==writer_pc),None)
     local=ins[max(0,(idx or 0)-16):min(len(ins),(idx or 0)+17)] if idx is not None else []
     return {
@@ -63,12 +73,18 @@ def summarize(text:str, writer_pc:int)->dict:
       "branches":branches,
       "immediates":immediates,
       "anchor_literal_lines":anchor_literals,
+      "instructions":ins,
     }
+
+def line_at(targets:dict,name:str,pc:int)->str|None:
+    for x in targets[name]["instructions"]:
+        if x["address"]==pc:return x["text"]
+    return None
 
 def main()->int:
     ap=argparse.ArgumentParser();ap.add_argument("--elf",required=True);ap.add_argument("--out",required=True);ns=ap.parse_args()
     elf=Path(ns.elf);out=Path(ns.out);out.mkdir(parents=True,exist_ok=True)
-    report={"schema":"wrt8964-runtime-anchor-initializers/v2","anchor":ANCHOR,"targets":{},
+    report={"schema":"wrt8964-runtime-anchor-initializers/v3","anchor":ANCHOR,"targets":{},
       "literal_values":{f"0x{x:x}":f"0x{read_elf_u32(elf,x):08x}" for x in (0x22a1c,0x22a30,0x22a34,0x29bec,0x2a634)}}
     for name,t in TARGETS.items():
         a,b=t["window"]
@@ -76,7 +92,7 @@ def main()->int:
         rec={**t,**summarize(text,t["writer_pc"])}
         report["targets"][name]=rec
         (out/f"{name}.txt").write_text(text)
-    # Cross-target direct callees are useful for allocator/memset/common-runtime identification.
+
     all_calls={}
     for name,rec in report["targets"].items():
         for c in rec["calls"]:
@@ -84,15 +100,77 @@ def main()->int:
     report["cross_target_callees"]=[
       {"target":k,"sites":v,"fan_in":len(v)} for k,v in sorted(all_calls.items(),key=lambda kv:(-len(kv[1]),kv[0]))
     ]
-    report["guardrail"]="Writer PCs are evidence-backed from the selector3 field map. Function identities, allocator names, and semantic field names remain unassigned until call/data-flow evidence supports them."
+
+    report["excluded_non_anchor_candidates"]=EXCLUDED_NON_ANCHOR_CANDIDATES
+    report["field_semantics"]={
+      "0x2_0x4_0x6":{
+        "classification":"observed",
+        "width_bits":16,
+        "relationship":"three adjacent halfword fields written together from a three-halfword source tuple",
+        "writers":[
+          {"pc":0x2a284,"offset":0x2,"text":line_at(report["targets"],"halfwords_2_6",0x2a284)},
+          {"pc":0x2a28c,"offset":0x4,"text":line_at(report["targets"],"halfwords_2_6",0x2a28c)},
+          {"pc":0x2a294,"offset":0x6,"text":line_at(report["targets"],"halfwords_2_6",0x2a294)},
+        ],
+        "note":"This does not assign domain names to the fields. Offset 0 is deliberately excluded because no exact-anchor writer is accepted by the corrected provenance scan."
+      },
+      "0x4c":{
+        "classification":"observed-plus-bounded-inference",
+        "writer_pc":0x2331c,
+        "call_pc":0x23314,
+        "size_argument_pc":0x23310,
+        "size_bytes":0xff4,
+        "evidence":[
+          line_at(report["targets"],"table_4c",0x23310),
+          line_at(report["targets"],"table_4c",0x23314),
+          line_at(report["targets"],"table_4c",0x2331c),
+        ],
+        "inference":"The field receives the return value of helper 0x24e0 immediately after a 4084-byte size is placed in r0. Separate allocator recovery shows helper 0x24e0 calls core 0x2254; the specific subsystem/table identity remains unassigned."
+      },
+      "0x214":{
+        "classification":"observed-plus-shape-candidate",
+        "writer_pc":0x22730,
+        "call_pc":0x22728,
+        "size_argument_pc":0x22724,
+        "size_bytes":0x37a0,
+        "candidate_record_stride_bytes":32,
+        "candidate_record_count":0x37a0//32,
+        "evidence":[
+          line_at(report["targets"],"pool_214",0x22724),
+          line_at(report["targets"],"pool_214",0x22728),
+          line_at(report["targets"],"pool_214",0x22730),
+          line_at(report["targets"],"pool_214",0x22760),
+        ],
+        "inference":"The field receives an allocation-like helper return for 14240 bytes. Nearby initialization uses a <<5 address stride, making 445 x 32-byte records a shape candidate, not yet a named structure."
+      },
+      "0x21c":{
+        "classification":"observed-plus-shape-candidate",
+        "writer_pc":0x227f8,
+        "call_pc":0x227f0,
+        "size_argument_pc":0x227ec,
+        "size_bytes":0x440,
+        "candidate_record_stride_bytes":64,
+        "candidate_record_count":0x440//64,
+        "evidence":[
+          line_at(report["targets"],"pool_21c",0x227ec),
+          line_at(report["targets"],"pool_21c",0x227f0),
+          line_at(report["targets"],"pool_21c",0x227f8),
+          line_at(report["targets"],"halfwords_2_6",0x2a244),
+          line_at(report["targets"],"halfwords_2_6",0x2a248),
+        ],
+        "inference":"The field receives an allocation-like helper return for 1088 bytes. A later consumer loads +0x21c and indexes from it with a <<6 stride, supporting a 17 x 64-byte record-table shape candidate."
+      },
+    }
+    report["guardrail"]="Writer PCs retained here are exact-anchor writes after the writeback provenance correction. Allocation-like interpretation is bounded by the proven call graph (0x24e0 -> 0x2254); domain-specific field names remain unassigned until additional binary/source correlation supports them."
     (out/"runtime-anchor-initializers.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({
+      "excluded_non_anchor_candidates":{k:{"effective_base":hex(v["effective_base"]),"writeback_pc":hex(v["writeback_pc"])} for k,v in EXCLUDED_NON_ANCHOR_CANDIDATES.items()},
+      "field_semantics":report["field_semantics"],
       **{"literal_values":report["literal_values"]},
       **{name:{
         "writer":rec["writer"]["text"] if rec["writer"] else None,
         "calls":[{"pc":hex(c["pc"]),"target":hex(c["target"])} for c in rec["calls"]],
         "interesting_immediates":[hex(x["value"]) for x in rec["immediates"][:40]],
-        "local":[x["text"] for x in rec["local_context"]]
       } for name,rec in report["targets"].items()}
     },indent=2,sort_keys=True))
     return 0 if all(x["writer"] is not None for x in report["targets"].values()) else 3
