@@ -40,14 +40,34 @@ def macro(text:str,name:str):
     return m.group(1).strip() if m else None
 
 def legacy_w8964_crypto_block(text:str)->str:
-    start=text.find("#if defined(SOC_W906X) || defined(SOC_W9068)")
-    if start<0:
-        raise RuntimeError("SOC_W906X crypto conditional not found")
-    els=text.find("#else",start)
-    end=text.find("#endif /* SOC_W906X */",els)
-    if els<0 or end<0:
+    # hostcmdcommon.h carries two crypto ABI families in one conditional.
+    # Anchor on the legacy branch's distinctive WEP=0 definition instead of
+    # selecting the first nested #else after the W906X #if.
+    anchor=re.search(r"^\\s*#define\\s+KEY_TYPE_ID_WEP\\s+0x00\\b",text,re.M)
+    if not anchor:
+        raise RuntimeError("legacy W8964 KEY_TYPE_ID_WEP=0 anchor not found")
+    start=text.rfind("#else",0,anchor.start())
+    end=text.find("#endif /* SOC_W906X */",anchor.end())
+    if start<0 or end<0:
         raise RuntimeError("legacy W8964 crypto block boundaries not found")
-    return text[els:end]
+    block=text[start:end]
+    required={
+        "WEP":"0x00","TKIP":"0x01","AES":"0x02",
+        "PAIRWISE":"0x00000008","TSC":"0x00000040",
+        "WEP_TX":"0x01000000","MIC":"0x02000000",
+    }
+    probes={
+        "WEP":macro(block,"KEY_TYPE_ID_WEP"),
+        "TKIP":macro(block,"KEY_TYPE_ID_TKIP"),
+        "AES":macro(block,"KEY_TYPE_ID_AES"),
+        "PAIRWISE":macro(block,"ENCR_KEY_FLAG_PAIRWISE"),
+        "TSC":macro(block,"ENCR_KEY_FLAG_TSC_VALID"),
+        "WEP_TX":macro(block,"ENCR_KEY_FLAG_WEP_TXKEY"),
+        "MIC":macro(block,"ENCR_KEY_FLAG_MICKEY_VALID"),
+    }
+    if probes!=required:
+        raise RuntimeError(f"legacy W8964 crypto block validation failed: {probes}")
+    return block
 
 def main()->int:
     ap=argparse.ArgumentParser();ap.add_argument("--out",required=True);ns=ap.parse_args()
