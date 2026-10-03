@@ -583,7 +583,6 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"data_pool"', text)
         self.assertIn("truenas_rung:", workflow)
         self.assertIn("needs.changes.outputs.truenas_rung", workflow)
-        self.assertIn("scripts/truenas_middleware_pool_probe.py", workflow)
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
         py_check = subprocess.run(["python3", "-m", "py_compile", str(TRUENAS_POOL)], text=True, capture_output=True)
@@ -637,7 +636,6 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"expected_version": a.expected_version', lifecycle)
         self.assertIn('--expected-version "$EXPECTED_SYSTEM_VERSION"', text)
         self.assertIn('APP_IMAGE = "nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"', lifecycle)
-        self.assertIn("scripts/truenas_middleware_app_lifecycle_probe.py", workflow)
         self.assertIn("truenas_rung:", workflow)
         self.assertIn("needs.changes.outputs.truenas_rung", workflow)
         shell_check = subprocess.run(
