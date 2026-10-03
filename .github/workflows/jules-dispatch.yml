@@ -441,10 +441,12 @@ jobs:
                   f"diff={summary.get('semantic_diff_status')} "
                   f"accept={summary.get('acceptance_gate_complete')}"
               )[:120]
+              def slug(value):
+                  return "".join(ch if ch.isalnum() else "-" for ch in str(value)).strip("-")[:180]
               records = [
-                  ("opaque-jules/result", "success", result_token),
-                  ("opaque-jules/metrics", "success", metrics),
-                  ("opaque-jules/gate", "success", gate),
+                  ("opaque-jules/result/" + slug(result_token), "success", "sanitized terminal token"),
+                  ("opaque-jules/metrics/" + slug(metrics), "success", "sanitized recovery metrics"),
+                  ("opaque-jules/gate/" + slug(gate), "success", "sanitized acceptance gate"),
               ]
           for context, state, description in records:
               body = json.dumps({"state": state, "context": context, "description": description}).encode()
