@@ -345,6 +345,17 @@ class SystemRdteContractTests(unittest.TestCase):
         )
         self.assertIn("fetch-depth: 0", text)
 
+    def test_only_heavy_jobs_share_non_cancelling_concurrency_group(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        header = text.split("jobs:", 1)[0]
+        self.assertNotIn("concurrency:", header)
+        for job in ("proxmox-9-2", "truenas-26-beta3"):
+            section = text.split(f"  {job}:", 1)[1]
+            section = section.split("\n  ", 1)[0]
+            self.assertIn("group: gha-kvm-system-rdte-heavy", section)
+            self.assertIn("cancel-in-progress: false", section)
+        self.assertNotIn("cancel-in-progress: true", text)
+
     def test_truenas_t1_requires_local_rpc_probe(self):
         text = TRUENAS.read_text(encoding="utf-8")
         self.assertIn("missing TrueNAS installer RPC probe", text)
