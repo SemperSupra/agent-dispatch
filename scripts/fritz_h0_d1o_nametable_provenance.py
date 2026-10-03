@@ -53,12 +53,16 @@ def analyze_text(text: str) -> dict:
         segment = masked[m.end():semi]
         eq = segment.find("=")
         initializer_brace = bool(eq >= 0 and "{" in segment[eq + 1:])
+        raw_type = m.group("type")
+        type_identifier = raw_type.split()[-1]
         declarations.append({
             "storageClass": m.group("storage") or "none",
             "typeClass": (
-                "struct_tag" if m.group("type").startswith("struct ")
+                "struct_tag" if raw_type.startswith("struct ")
                 else "identifier_type"
             ),
+            "typeIdentifier": type_identifier,
+            "isMtdEntryType": type_identifier == "mtd_entry",
             "hasInitializer": eq >= 0,
             "hasInitializerBrace": initializer_brace,
         })
@@ -74,6 +78,17 @@ def analyze_text(text: str) -> dict:
         ),
         "bracedInitializerCandidateCount": sum(
             1 for x in declarations if x["hasInitializerBrace"]
+        ),
+        "mtdEntryDeclarationCandidateCount": sum(
+            1 for x in declarations if x["isMtdEntryType"]
+        ),
+        "mtdEntryInitializerCandidateCount": sum(
+            1 for x in declarations
+            if x["isMtdEntryType"] and x["hasInitializer"]
+        ),
+        "mtdEntryBracedInitializerCandidateCount": sum(
+            1 for x in declarations
+            if x["isMtdEntryType"] and x["hasInitializerBrace"]
         ),
         "declarationCandidates": declarations,
     }
@@ -116,14 +131,14 @@ def scan_archive(archive: pathlib.Path) -> dict:
 
 def classify(scan: dict) -> str:
     hits = scan.get("hits", [])
-    if any(x["bracedInitializerCandidateCount"] for x in hits):
-        return "H0_D1O_BRACED_DEFINITION_CANDIDATE_LOCATED"
-    if any(x["initializerCandidateCount"] for x in hits):
-        return "H0_D1O_DEFINITION_CANDIDATE_LOCATED"
-    if any(x["declarationCandidateCount"] for x in hits):
-        return "H0_D1O_DECLARATION_CANDIDATE_LOCATED"
+    if any(x["mtdEntryBracedInitializerCandidateCount"] for x in hits):
+        return "H0_D1O_MTD_ENTRY_BRACED_DEFINITION_CANDIDATE_LOCATED"
+    if any(x["mtdEntryInitializerCandidateCount"] for x in hits):
+        return "H0_D1O_MTD_ENTRY_DEFINITION_CANDIDATE_LOCATED"
+    if any(x["mtdEntryDeclarationCandidateCount"] for x in hits):
+        return "H0_D1O_MTD_ENTRY_DECLARATION_CANDIDATE_LOCATED"
     if any(x["nametableIdentifierCount"] for x in hits):
-        return "H0_D1O_NAMETABLE_USES_ONLY"
+        return "H0_D1O_NAMETABLE_USES_OR_UNRELATED_DECLARATIONS_ONLY"
     return "H0_D1O_NAMETABLE_NOT_FOUND"
 
 
@@ -157,6 +172,18 @@ def run_probe(args):
             ),
             "bracedInitializerCandidateFileCount": sum(
                 1 for x in scan["hits"] if x["bracedInitializerCandidateCount"]
+            ),
+            "mtdEntryDeclarationCandidateFileCount": sum(
+                1 for x in scan["hits"]
+                if x["mtdEntryDeclarationCandidateCount"]
+            ),
+            "mtdEntryInitializerCandidateFileCount": sum(
+                1 for x in scan["hits"]
+                if x["mtdEntryInitializerCandidateCount"]
+            ),
+            "mtdEntryBracedInitializerCandidateFileCount": sum(
+                1 for x in scan["hits"]
+                if x["mtdEntryBracedInitializerCandidateCount"]
             ),
         },
         "interpretationBoundary": {
