@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: opaque-jules-8bea007d59740524542e
+  cancel-in-progress: false
+
 jobs:
   execute:
     if: github.actor == 'mark-e-deyoung'
