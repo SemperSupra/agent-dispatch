@@ -133,17 +133,18 @@ def scalar_class(value: int) -> str:
 def gdb_command_text(
     root: pathlib.Path,
     port: int,
-    callsites: dict[str, int],
+    breakpoint_specs: dict[str, str],
 ) -> str:
     exe = root / r6.SVCTL.lstrip("/")
     solib = ":".join(str(root / p) for p in ("lib", "usr/lib"))
     bp_lines = "\n".join(
-        f'Obs("*0x{address:x}", {json.dumps(target)})'
-        for target, address in sorted(callsites.items())
+        f"Obs({json.dumps(spec)}, {json.dumps(target)})"
+        for target, spec in sorted(breakpoint_specs.items())
     )
     return f"""set pagination off
 set confirm off
 set breakpoint pending on
+set auto-solib-add on
 set sysroot {root}
 set solib-search-path {solib}
 file {exe}
@@ -248,7 +249,22 @@ def instrumented_svctl_call(
 
     exe = (root / r6.SVCTL.lstrip("/")).resolve()
     etype = elf_type(exe)
-    if etype != "EXEC":
+
+    # D17's exact-one-callsite invariant is required in both modes. For fixed
+    # ET_EXEC binaries we can break at the callsite itself. For PIE/ET_DYN,
+    # preserve that provenance constraint but bind GDB to the exported function
+    # entry symbol so relocation is handled by the dynamic loader/GDB.
+    callsites = locate_callsite_addresses(exe, objdump)
+    if etype == "EXEC":
+        binding_mode = "static_callsite"
+        breakpoint_specs = {
+            target: f"*0x{address:x}"
+            for target, address in callsites.items()
+        }
+    elif etype == "DYN":
+        binding_mode = "symbol_entry"
+        breakpoint_specs = {target: target for target in TARGETS}
+    else:
         return {
             "verb": verb,
             "service": service,
@@ -262,21 +278,21 @@ def instrumented_svctl_call(
             "wireCapture": {},
             "instrumentation": {
                 "ready": False,
-                "reason": "non_exec_callsite_address_mode",
+                "reason": "unsupported_elf_type",
                 "elfType": etype,
+                "bindingMode": "unsupported",
                 "observations": [],
                 "rawDebuggerOutputPublished": False,
             },
             "rawOutputPublished": False,
         }
 
-    callsites = locate_callsite_addresses(exe, objdump)
     port = _next_port()
 
     with tempfile.TemporaryDirectory(prefix="fritz-d18-") as td:
         command_path = pathlib.Path(td) / "observe.gdb"
         command_path.write_text(
-            gdb_command_text(root, port, callsites),
+            gdb_command_text(root, port, breakpoint_specs),
             encoding="utf-8",
         )
 
@@ -339,6 +355,7 @@ def instrumented_svctl_call(
             "ready": ready,
             "reason": "ok" if ready else "debugger_or_wire_incomplete",
             "elfType": etype,
+            "bindingMode": binding_mode,
             "observationCount": len(observations),
             "observations": observations,
             "gdbExitClass": "zero" if gdb_cp.returncode == 0 else "nonzero",
@@ -391,6 +408,17 @@ def summarize_instrumentation(runtime: dict) -> dict:
         "start": runtime.get("start") or {},
         "postStatus": runtime.get("postStatus") or {},
     }
+    call_diagnostics = {
+        key: {
+            "ready": (call.get("instrumentation") or {}).get("ready"),
+            "reason": (call.get("instrumentation") or {}).get("reason"),
+            "elfType": (call.get("instrumentation") or {}).get("elfType"),
+            "bindingMode": (call.get("instrumentation") or {}).get("bindingMode"),
+            "observationCount": (call.get("instrumentation") or {}).get("observationCount", 0),
+            "gdbExitClass": (call.get("instrumentation") or {}).get("gdbExitClass"),
+        }
+        for key, call in calls.items()
+    }
     all_ready = all(
         isinstance(call.get("instrumentation"), dict)
         and call["instrumentation"].get("ready") is True
@@ -429,6 +457,12 @@ def summarize_instrumentation(runtime: dict) -> dict:
         "prePostStatusEqual": status_stable,
         "startDiffersFromStatus": start_differs,
         "perTarget": per_target,
+        "callDiagnostics": call_diagnostics,
+        "bindingModes": sorted(set(
+            x.get("bindingMode")
+            for x in call_diagnostics.values()
+            if x.get("bindingMode")
+        )),
         "rawRegisterValuesPublished": False,
         "rawPointedMemoryPublished": False,
         "rawDebuggerOutputPublished": False,
@@ -499,8 +533,9 @@ def run_probe(args: argparse.Namespace) -> dict:
             "maxCtlmgrProcessCount": runtime.get("maxCtlmgrProcessCount"),
         },
         "interpretationBoundary": {
-            "exactStaticCallsitesFromD17UsedEphemerally": True,
-            "callsiteBreakpointsDoNotModifyShippedFiles": True,
+            "d17UniqueCallsiteConstraintApplied": True,
+            "relocationAwareBreakpointBinding": True,
+            "breakpointsDoNotModifyShippedFiles": True,
             "argumentScalarClassesAndMemoryDigestsOnly": True,
             "prePostStatusStabilityRequired": True,
             "wireDigestDoesNotRevealPayload": True,
