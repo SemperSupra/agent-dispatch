@@ -47,6 +47,19 @@ def brace_depth(masked: str, pos: int) -> int:
     return depth
 
 
+def enclosing_block_span(text: str, masked: str, pos: int) -> tuple[int | None, int | None]:
+    stack: list[int] = []
+    for i, ch in enumerate(masked[:pos]):
+        if ch == "{":
+            stack.append(i)
+        elif ch == "}" and stack:
+            stack.pop()
+    if not stack:
+        return None, None
+    open_idx = stack[-1]
+    return open_idx, d1h.match_brace(text, open_idx)
+
+
 def statement_end(text: str, start: int) -> int | None:
     quote = None
     escape = False
@@ -121,9 +134,12 @@ def switch_context(text: str, masked: str) -> dict:
             "open": None,
             "close": None,
             "enclosingDepth": None,
+            "enclosingOpen": None,
+            "enclosingClose": None,
         }
     open_idx = masked.find("{", sm.start(), sm.end())
     close_idx = d1h.match_brace(text, open_idx)
+    enclosing_open, enclosing_close = enclosing_block_span(text, masked, sm.start())
     return {
         "switchFound": True,
         "switchClosed": close_idx is not None,
@@ -131,6 +147,8 @@ def switch_context(text: str, masked: str) -> dict:
         "open": open_idx,
         "close": close_idx,
         "enclosingDepth": brace_depth(masked, open_idx),
+        "enclosingOpen": enclosing_open,
+        "enclosingClose": enclosing_close,
     }
 
 
@@ -173,7 +191,9 @@ def assignment_contexts(text: str) -> dict:
         same_enclosing = (
             sw["switchFound"]
             and sw["switchClosed"]
-            and depth == sw["enclosingDepth"]
+            and sw.get("enclosingOpen") is not None
+            and sw.get("enclosingClose") is not None
+            and sw["enclosingOpen"] < m.start() < sw["enclosingClose"]
         )
         destinations = safe_strings(rhs)
 
