@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: opaque-jules-8bea007d59740524542e
@@ -32,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          python3 - <<'PY' 2>&1 | tee /tmp/opaque-status.txt
           import datetime as dt
           import hashlib
           import json
@@ -373,4 +374,74 @@ jobs:
               "acceptance_gate_complete": report.get("acceptance_gate_complete") is True,
           }
           print(json.dumps(summary, sort_keys=True))
+          PY
+      - name: Publish sanitized commit-status receipt
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["GITHUB_SHA"]
+          token = os.environ["GH_TOKEN"]
+          try:
+              lines = [x.strip() for x in open("/tmp/opaque-status.txt", "r", encoding="utf-8", errors="replace") if x.strip()]
+          except OSError:
+              lines = []
+          summary = None
+          for line in reversed(lines):
+              if line.startswith("{") and line.endswith("}"):
+                  try:
+                      value = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(value, dict) and "token" in value:
+                      summary = value
+                      break
+          if summary is None:
+              last = lines[-1] if lines else "WORKFLOW_NO_SANITIZED_RESULT"
+              safe = "".join(ch for ch in last if ch.isalnum() or ch in " _:-=./")[:120]
+              records = [("opaque-jules/result", "failure", safe or "WORKFLOW_FAILED")]
+          else:
+              result_token = str(summary.get("token", "UNKNOWN"))[:120]
+              metrics = (
+                  f"exit={summary.get('recovery_exit_code')} "
+                  f"reg={summary.get('registrations_total')} "
+                  f"missing={summary.get('codec_missing_count')} "
+                  f"zero={summary.get('bundle_delimiter_proven')} "
+                  f"outputs={summary.get('required_outputs_present')}"
+              )[:120]
+              gate = (
+                  f"base={summary.get('base_binding')} "
+                  f"identity={summary.get('identity_ok')} "
+                  f"artifact={summary.get('artifact_sha1_ok')} "
+                  f"diff={summary.get('semantic_diff_status')} "
+                  f"accept={summary.get('acceptance_gate_complete')}"
+              )[:120]
+              records = [
+                  ("opaque-jules/result", "success", result_token),
+                  ("opaque-jules/metrics", "success", metrics),
+                  ("opaque-jules/gate", "success", gate),
+              ]
+          for context, state, description in records:
+              body = json.dumps({"state": state, "context": context, "description": description}).encode()
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/statuses/{sha}",
+                  data=body,
+                  method="POST",
+                  headers={
+                      "Authorization": "Bearer " + token,
+                      "Accept": "application/vnd.github+json",
+                      "Content-Type": "application/json",
+                      "User-Agent": "semper-supra-agent-dispatch/opaque-receipt",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  response.read()
           PY
