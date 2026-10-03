@@ -1,0 +1,97 @@
+name: personal-ops 189 PowerShell qualification
+
+on:
+  push:
+    branches:
+      - experiment/personal-ops-189-powershell-qualification
+    paths:
+      - 'experiments/personal-ops-189/**'
+      - '.github/workflows/personal-ops-189-powershell-qualification.yml'
+  pull_request:
+    paths:
+      - 'experiments/personal-ops-189/**'
+      - '.github/workflows/personal-ops-189-powershell-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Verify exact projected Git blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = @{
+            'experiments/personal-ops-189/infra/portable-workcells/portable-workcell-profile.example.json' = '6edc4bd0bad0335259ea812b17d9b23c2f2c82ba'
+            'experiments/personal-ops-189/infra/portable-workcells/portable-workcell-receipt.example.json' = 'cf4d545452149a7a84d5543f6858e43fa1787c31'
+            'experiments/personal-ops-189/scripts/local/Tests/PortableHeadscaleWorkcell.Tests.ps1' = '8625caecf2faa9ce0123824176bc9d9174ac7aae'
+            'experiments/personal-ops-189/.github/PSScriptAnalyzerSettings.psd1' = '79f597d10545ccfa13aac0f66452e40d1acad097'
+          }
+          foreach ($path in $expected.Keys) {
+            $actual = (git hash-object -- $path).Trim()
+            if ($actual -ne $expected[$path]) {
+              throw "Projected blob mismatch for $path expected=$($expected[$path]) actual=$actual"
+            }
+          }
+
+      - name: Install pinned PowerShell 7 validation modules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -RequiredVersion 5.9.0 -Scope CurrentUser -Force -AllowClobber
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -AllowClobber
+
+      - name: PSScriptAnalyzer exact settings
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force
+          $test = Join-Path $env:GITHUB_WORKSPACE 'experiments/personal-ops-189/scripts/local/Tests/PortableHeadscaleWorkcell.Tests.ps1'
+          $settings = Join-Path $env:GITHUB_WORKSPACE 'experiments/personal-ops-189/.github/PSScriptAnalyzerSettings.psd1'
+          $findings = @(Invoke-ScriptAnalyzer -Path $test -Settings $settings)
+          if ($findings.Count -gt 0) {
+            $findings | Format-Table -AutoSize | Out-String | Write-Output
+            throw "PSScriptAnalyzer produced $($findings.Count) diagnostic(s)"
+          }
+          'PSScriptAnalyzer: PASS (0 diagnostics)' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Run Pester on PowerShell 7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -RequiredVersion 5.9.0 -Force
+          $path = Join-Path $env:GITHUB_WORKSPACE 'experiments/personal-ops-189/scripts/local/Tests/PortableHeadscaleWorkcell.Tests.ps1'
+          $result = Invoke-Pester -Path $path -PassThru
+          if ($result.FailedCount -ne 0 -or $result.PassedCount -eq 0) {
+            throw "PowerShell 7 Pester failed: passed=$($result.PassedCount) failed=$($result.FailedCount)"
+          }
+          "PowerShell 7 Pester: PASS — $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Install pinned Windows PowerShell 5.1 Pester
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -RequiredVersion 5.9.0 -Scope CurrentUser -Force -AllowClobber
+
+      - name: Run Pester on Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Import-Module Pester -RequiredVersion 5.9.0 -Force
+          $path = Join-Path $env:GITHUB_WORKSPACE 'experiments/personal-ops-189/scripts/local/Tests/PortableHeadscaleWorkcell.Tests.ps1'
+          $result = Invoke-Pester -Path $path -PassThru
+          if ($result.FailedCount -ne 0 -or $result.PassedCount -eq 0) {
+            throw "Windows PowerShell 5.1 Pester failed: passed=$($result.PassedCount) failed=$($result.FailedCount)"
+          }
+          "Windows PowerShell 5.1 Pester: PASS — $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
