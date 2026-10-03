@@ -324,12 +324,28 @@ def instrumented_svctl_call(
 
             time.sleep(0.2)
             stage = "gdb_run"
-            gdb_cp = subprocess.run(
-                [gdb, "--batch", "--nx", "-x", str(command_path)],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
+            gdb_timed_out = False
+            gdb_returncode = None
+            gdb_stdout = ""
+            gdb_stderr = ""
+            try:
+                gdb_cp = subprocess.run(
+                    [gdb, "--batch", "--nx", "-x", str(command_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                gdb_returncode = gdb_cp.returncode
+                gdb_stdout = gdb_cp.stdout or ""
+                gdb_stderr = gdb_cp.stderr or ""
+            except subprocess.TimeoutExpired as exc:
+                gdb_timed_out = True
+                gdb_stdout = exc.stdout or ""
+                gdb_stderr = exc.stderr or ""
+                if isinstance(gdb_stdout, bytes):
+                    gdb_stdout = gdb_stdout.decode("utf-8", errors="replace")
+                if isinstance(gdb_stderr, bytes):
+                    gdb_stderr = gdb_stderr.decode("utf-8", errors="replace")
 
             stage = "guest_communicate"
             try:
@@ -342,13 +358,18 @@ def instrumented_svctl_call(
                 stdout, stderr = proc.communicate(timeout=2)
 
         stage = "postprocess"
-        observations = parse_gdb_observations(gdb_cp.stdout)
+        observations = parse_gdb_observations(gdb_stdout)
         wire = r9.parse_wire_trace(stderr)
         vocab = r6.binary_state_vocabulary(root)
         allowed = set(vocab.get(r6.SVCTL, {})) | set(vocab.get(r6.SUPERVISOR, {}))
+        gdb_connection_seen = any(
+            marker in (gdb_stdout + "\n" + gdb_stderr)
+            for marker in ("Remote debugging using ", "Remote debugging from host ")
+        )
 
         ready = bool(
-            gdb_cp.returncode == 0
+            not gdb_timed_out
+            and gdb_returncode == 0
             and proc.returncode is not None
             and observations
             and wire.get("captureComplete") is True
@@ -366,12 +387,22 @@ def instrumented_svctl_call(
             "wireCapture": wire,
             "instrumentation": {
                 "ready": ready,
-                "reason": "ok" if ready else "debugger_or_wire_incomplete",
+                "reason": (
+                    "ok" if ready
+                    else "gdb_timeout" if gdb_timed_out
+                    else "debugger_or_wire_incomplete"
+                ),
                 "elfType": etype,
                 "bindingMode": binding_mode,
                 "observationCount": len(observations),
                 "observations": observations,
-                "gdbExitClass": "zero" if gdb_cp.returncode == 0 else "nonzero",
+                "gdbExitClass": (
+                    "timeout" if gdb_timed_out
+                    else "zero" if gdb_returncode == 0
+                    else "nonzero"
+                ),
+                "gdbConnectionSeen": gdb_connection_seen,
+                "breakpointObservationCount": len(observations),
                 "rawDebuggerOutputPublished": False,
                 "rawRegisterValuesPublished": False,
                 "rawPointedMemoryPublished": False,
