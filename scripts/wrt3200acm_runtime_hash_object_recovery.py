@@ -57,6 +57,8 @@ def main()->int:
     hostcmd_src=fetch_text(HOSTCMD_URL)
     source_set_new_stn=bool(re.search(r"^\s*#define\s+HOSTCMD_CMD_SET_NEW_STN\s+0x1111\b",hostcmd_src,re.M))
     dispatcher=dp.parse_instructions(dp.run_objdump(Path(ns.elf),0x36454,0x390ec))
+    set_new_stn_normalized_region_text=dp.run_objdump(Path(ns.elf),0x365e0,0x366ec)
+    set_new_stn_normalized_region=dp.parse_instructions(set_new_stn_normalized_region_text)
     recovered=dp.recover_cases(dispatcher,{0x1111:"HOSTCMD_CMD_SET_NEW_STN"})
     dispatch_immediate_context=[]
     dispatch_r12_context=[]
@@ -141,11 +143,12 @@ def main()->int:
         spans.append({"start":ins[start_i]["address"],"end":ins[-1]["address"],"instructions":[y["text"] for y in ins[start_i:]]})
 
     report={
-      "schema":"wrt8964-runtime-hash-object-recovery/v4",
+      "schema":"wrt8964-runtime-hash-object-recovery/v5",
       "region":{"start":START,"end":END},
       "known_lookup":KNOWN_LOOKUP,
       "set_new_stn_source_contract":{"ref":HOSTCMD_REF,"url":HOSTCMD_URL,"macro_0x1111":source_set_new_stn},
       "set_new_stn_dispatch_case":set_new_stn_case,
+      "set_new_stn_normalized_region":[x["text"] for x in set_new_stn_normalized_region],
       "dispatch_immediate_context":dispatch_immediate_context,
       "dispatch_r12_context":dispatch_r12_context,
       "dispatch_table_context":dispatch_table_context,
@@ -169,6 +172,7 @@ def main()->int:
         "case":set_new_stn_case,
         "handler":hex(set_new_stn_handler) if set_new_stn_handler is not None else None,
         "handler_calls":[{"pc":hex(x["pc"]),"target":hex(x["target"]),"text":x["text"]} for x in handler_calls],
+        "normalized_region":[x["text"] for x in set_new_stn_normalized_region],
         "immediate_context":[{"pc":hex(x["pc"]),"immediate":hex(x["immediate"]),"text":x["text"],"context":x["context"]} for x in dispatch_immediate_context],
         "r12_context":dispatch_r12_context,
         "table_context":dispatch_table_context,
