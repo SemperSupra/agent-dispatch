@@ -39,6 +39,17 @@ class D18Tests(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["target"], "_svctl_init")
 
+    def test_gdb_observation_stops_twice_then_detaches(self):
+        text = d18.gdb_command_text(
+            pathlib.Path("/tmp/root"),
+            25480,
+            {"_svctl_init": "*0x1000", "_svctl_send_pkt": "*0x2000"},
+        )
+        self.assertIn("self.enabled = False", text)
+        self.assertIn("return True", text)
+        self.assertEqual(text.count("\ncontinue\n"), 2)
+        self.assertIn("\ndetach\nquit\n", text)
+
     def test_status_stability_and_start_difference(self):
         status = [obs("_svctl_init", d0="aa"), obs("_svctl_send_pkt", d0="cc")]
         start = [obs("_svctl_init", d0="dd"), obs("_svctl_send_pkt", d0="cc")]
