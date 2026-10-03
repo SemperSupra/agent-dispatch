@@ -214,7 +214,18 @@ def classify(reduction: dict, checks: list[dict], missing: list[str]) -> str:
         return "H0_D1I_SOURCE_MISSING"
     mappings = reduction.get("normalizedMappings", [])
     if mappings:
-        if checks and all(x["independentlyObserved"] for x in checks):
+        mapped_destinations = {
+            dest
+            for mapping in mappings
+            for dest in mapping["caseMapping"].values()
+        }
+        checked_destinations = {x["destination"] for x in checks}
+        fully_crosschecked = (
+            bool(mapped_destinations)
+            and checked_destinations == mapped_destinations
+            and all(x["independentlyObserved"] for x in checks)
+        )
+        if fully_crosschecked:
             return "H0_D1I_SELECTOR_DESTINATION_MAPPING_CROSSCHECKED"
         return "H0_D1I_SELECTOR_DESTINATION_MAPPING_CROSSCHECK_PARTIAL"
     if reduction.get("candidateAssignmentCount", 0):
