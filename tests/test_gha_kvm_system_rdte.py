@@ -304,7 +304,14 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("needs.changes.outputs.truenas_version", text)
         self.assertIn("needs.changes.outputs.truenas_rung", text)
         self.assertIn("config/truenas-rdte-run-request.json", text)
-        self.assertNotIn("run_request_changed", text)
+        self.assertIn("truenas_request_changed=false", text)
+        self.assertIn("truenas_impl_changed=false", text)
+        request_case = text.split("config/truenas-rdte-run-request.json)", 1)[1].split(";;", 1)[0]
+        self.assertIn("truenas=true", request_case)
+        self.assertIn("truenas_request_changed=true", request_case)
+        impl_case = text.split("config/truenas-rdte-targets.json|", 1)[1].split(";;", 1)[0]
+        self.assertIn("truenas_impl_changed=true", impl_case)
+        self.assertNotIn("truenas=true", impl_case)
         self.assertIn(
             'if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then',
             text,
