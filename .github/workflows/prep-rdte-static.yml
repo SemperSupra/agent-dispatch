@@ -1,0 +1,247 @@
+name: Prep RDTE static gate
+
+on:
+  push:
+    branches:
+      - 'prep/**'
+    paths:
+      - '.github/workflows/prep-rdte-static.yml'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
+      - 'config/truenas-rdte-targets.json'
+      - 'config/truenas-rdte-run-request.json'
+      - 'config/truenas-capsule-providers.json'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - 'scripts/truenas_rdte_target.py'
+      - 'scripts/truenas_session_manifest.py'
+      - 'scripts/truenas_single_capsule_adapter.py'
+      - 'scripts/truenas_rdte_target.py'
+      - 'scripts/gha_kvm_proxmox_rdte.sh'
+      - 'scripts/truenas_middleware_*.py'
+      - 'tests/test_gha_kvm_system_rdte.py'
+      - 'tests/test_truenas_future_protocols.py'
+      - 'tests/test_truenas_t6_litellm_control.py'
+      - 'tests/test_truenas_t6_wow_sidecar_control.py'
+      - 'tests/test_truenas_t6_garm_control.py'
+      - 'tests/test_truenas_t6_official_catalog_control.py'
+      - 'tests/test_truenas_t6_foliorelay_control.py'
+      - 'tests/test_truenas_t6_foliorelay_control.py'
+      - 'tests/test_truenas_garm_provider_g2.py'
+      - 'tests/test_truenas_garm_provider_g3.py'
+      - 'tests/test_truenas_garm_provider_g4.py'
+      - 'tests/test_truenas_garm_provider_g5.py'
+      - 'tests/test_truenas_rdte_target.py'
+      - 'tests/test_truenas_session_manifest.py'
+      - 'tests/test_truenas_single_capsule_adapter.py'
+      - 'tests/test_truenas_rdte_target.py'
+  pull_request:
+    paths:
+      - '.github/workflows/prep-rdte-static.yml'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
+      - 'config/truenas-rdte-targets.json'
+      - 'config/truenas-rdte-run-request.json'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - 'scripts/gha_kvm_proxmox_rdte.sh'
+      - 'scripts/truenas_middleware_*.py'
+      - 'tests/test_gha_kvm_system_rdte.py'
+      - 'tests/test_truenas_future_protocols.py'
+      - 'tests/test_truenas_t6_litellm_control.py'
+      - 'tests/test_truenas_t6_wow_sidecar_control.py'
+      - 'tests/test_truenas_t6_garm_control.py'
+      - 'tests/test_truenas_t6_official_catalog_control.py'
+      - 'tests/test_truenas_garm_provider_g2.py'
+      - 'tests/test_truenas_garm_provider_g3.py'
+      - 'tests/test_truenas_garm_provider_g4.py'
+      - 'tests/test_truenas_garm_provider_g5.py'
+      - 'tests/test_truenas_rdte_target.py'
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          bash -n scripts/gha_kvm_truenas_rdte.sh
+          bash -n scripts/gha_kvm_proxmox_rdte.sh
+      - name: Python compile
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q scripts tests
+      - name: RDTE contract and protocol tests
+        run: |
+          set -euo pipefail
+          tests=(
+            tests/test_gha_kvm_system_rdte.py
+            tests/test_truenas_future_protocols.py
+          )
+          if [[ -f tests/test_truenas_t6_litellm_control.py ]]; then
+            tests+=(tests/test_truenas_t6_litellm_control.py)
+          fi
+          if [[ -f tests/test_truenas_t6_wow_sidecar_control.py ]]; then
+            tests+=(tests/test_truenas_t6_wow_sidecar_control.py)
+          fi
+          if [[ -f tests/test_truenas_t6_garm_control.py ]]; then
+            tests+=(tests/test_truenas_t6_garm_control.py)
+          fi
+          if [[ -f tests/test_truenas_t6_official_catalog_control.py ]]; then
+            tests+=(tests/test_truenas_t6_official_catalog_control.py)
+          fi
+          if [[ -f tests/test_truenas_t6_foliorelay_control.py ]]; then
+            tests+=(tests/test_truenas_t6_foliorelay_control.py)
+          fi
+          if [[ -f tests/test_truenas_garm_provider_g2.py ]]; then
+            tests+=(tests/test_truenas_garm_provider_g2.py)
+          fi
+          if [[ -f tests/test_truenas_garm_provider_g3.py ]]; then
+            tests+=(tests/test_truenas_garm_provider_g3.py)
+          fi
+          if [[ -f tests/test_truenas_garm_provider_g4.py ]]; then
+            tests+=(tests/test_truenas_garm_provider_g4.py)
+          fi
+          if [[ -f tests/test_truenas_garm_provider_g5.py ]]; then
+            tests+=(tests/test_truenas_garm_provider_g5.py)
+          fi
+          if [[ -f tests/test_truenas_rdte_target.py ]]; then
+            tests+=(tests/test_truenas_rdte_target.py)
+          fi
+          if [[ -f tests/test_truenas_session_manifest.py ]]; then
+            tests+=(tests/test_truenas_session_manifest.py)
+          fi
+          if [[ -f tests/test_truenas_single_capsule_adapter.py ]]; then
+            tests+=(tests/test_truenas_single_capsule_adapter.py)
+          fi
+          python3 -m unittest -v "${tests[@]}"
+
+      - name: G3 runner container profile smoke
+        if: ${{ hashFiles('scripts/truenas_middleware_garm_provider_g3_probe.py') != '' }}
+        run: |
+          set -euo pipefail
+          image='ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda'
+          docker pull "$image"
+          docker run --rm \
+            --user 1001:1001 \
+            --cpus 4 \
+            --memory 8g \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --tmpfs /run/garm-jit:rw,nosuid,nodev,noexec,uid=1001,gid=1001,mode=0700 \
+            --entrypoint /bin/sh \
+            "$image" -c '
+              set -eu
+              test "$(id -u)" = "1001"
+              test "$(id -g)" = "1001"
+              test -w /home/runner
+              test -w /run/garm-jit
+              command -v curl >/dev/null
+              command -v tar >/dev/null
+              command -v sha256sum >/dev/null
+              printf profile-smoke > /home/runner/g3-profile-smoke
+              rm -f /home/runner/g3-profile-smoke
+              printf jit-smoke > /run/garm-jit/g3-profile-smoke
+              rm -f /run/garm-jit/g3-profile-smoke
+              curl --fail --silent --show-error --location \
+                --connect-timeout 5 --max-time 20 --range 0-0 \
+                https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz \
+                -o /dev/null
+            '
+
+      - name: G4 exact exported pair pre-JIT concurrency smoke
+        if: ${{ hashFiles('scripts/truenas_middleware_garm_provider_g4_probe.py') != '' }}
+        run: |
+          set -euo pipefail
+          provider_ref='e5fc7c50780de54f7579f64990c87b2e16482613'
+          rm -rf /tmp/g4-provider /tmp/g4-fixture.json /tmp/g4-alpha.json /tmp/g4-beta.json
+          git init -q /tmp/g4-provider
+          git -C /tmp/g4-provider fetch -q --depth=1 \
+            https://github.com/SemperSupra/garm-provider-truenas.git "$provider_ref"
+          git -C /tmp/g4-provider checkout -q --detach FETCH_HEAD
+          [[ "$(git -C /tmp/g4-provider rev-parse HEAD)" == "$provider_ref" ]]
+
+          (
+            cd /tmp/g4-provider
+            G4_FIXTURE_OUT=/tmp/g4-fixture.json \
+            G4_PRODUCER_SOURCE="$provider_ref" \
+              go test ./internal/truenasstore \
+                -run '^TestExportNestedG4CapacityTwoFixtureBundle$' -count=1
+          )
+          test -s /tmp/g4-fixture.json
+
+          for slot in alpha beta; do
+            callback="https://httpbin.org/anything/sempersupra-g4/$slot/status"
+            metadata="https://httpbin.org/drip?duration=1&numbytes=1&code=200&delay=60&path=$slot"
+            token="g4-public-static-$slot-token"
+            jq --arg slot "$slot" --arg callback "$callback" --arg metadata "$metadata" --arg token "$token" '
+              first(.runners[] | select(.slot == $slot) | .expected_compose_template)
+              | .services.runner.environment.GARM_CALLBACK_URL = $callback
+              | .services.runner.environment.GARM_METADATA_URL = $metadata
+              | .services.runner.environment.GARM_INSTANCE_TOKEN = $token
+            ' /tmp/g4-fixture.json > "/tmp/g4-$slot.json"
+          done
+
+          cleanup() {
+            docker compose -p g4-smoke-alpha -f /tmp/g4-alpha.json down -v --remove-orphans >/dev/null 2>&1 || true
+            docker compose -p g4-smoke-beta -f /tmp/g4-beta.json down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker compose -p g4-smoke-alpha -f /tmp/g4-alpha.json up -d &
+          alpha_up=$!
+          docker compose -p g4-smoke-beta -f /tmp/g4-beta.json up -d &
+          beta_up=$!
+          wait "$alpha_up"
+          wait "$beta_up"
+
+          deadline=$((SECONDS + 140))
+          while (( SECONDS < deadline )); do
+            ready=0
+            for slot in alpha beta; do
+              cid="$(docker compose -p "g4-smoke-$slot" -f "/tmp/g4-$slot.json" ps -aq runner || true)"
+              [[ -n "$cid" ]] || continue
+              if [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]]; then
+                docker inspect "$cid" || true
+                docker logs "$cid" || true
+                exit 1
+              fi
+              if docker exec "$cid" test -x /home/runner/actions-runner/run.sh; then
+                ready=$((ready + 1))
+              fi
+            done
+            [[ "$ready" == "2" ]] && break
+            sleep 2
+          done
+
+          for slot in alpha beta; do
+            cid="$(docker compose -p "g4-smoke-$slot" -f "/tmp/g4-$slot.json" ps -aq runner)"
+            [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" == "true" ]]
+            docker exec "$cid" test -x /home/runner/actions-runner/bin/Runner.Listener
+            docker exec "$cid" test -w /run/garm-jit
+          done
+
+      - name: G5 exact merged source matrix smoke
+        if: ${{ hashFiles('scripts/truenas_middleware_garm_provider_g5_probe.py') != '' }}
+        run: |
+          set -euo pipefail
+          provider_ref='f83a712e095c6962741f93cf86bea69479ce4d4a'
+          rm -rf /tmp/g5-provider
+          git init -q /tmp/g5-provider
+          git -C /tmp/g5-provider fetch -q --depth=1 \
+            https://github.com/SemperSupra/garm-provider-truenas.git "$provider_ref"
+          git -C /tmp/g5-provider checkout -q --detach FETCH_HEAD
+          [[ "$(git -C /tmp/g5-provider rev-parse HEAD)" == "$provider_ref" ]]
+          (
+            cd /tmp/g5-provider
+            go test ./internal/truenasstore -run '^TestG5VersionMatrixContract$' -count=1
+            jq -e '
+              .schema == "semper-supra.garm-provider-truenas-g5-version-matrix/1" and
+              .provider_product_source == "14535745dc3aa3c0b5466da7c704bca4d23dcec5" and
+              .runtime_inheritance_allowed == false and
+              ([.targets[].version] | sort) == (["25.04.1","25.04.2.6","25.10.7","26.0.0-BETA.3"] | sort)
+            ' internal/truenasstore/testdata/truenas-version-matrix.json >/dev/null
+          )

@@ -1,0 +1,10 @@
+{
+  "schema": "gha-kvm-truenas-run-request/v1",
+  "request_id": "tn-26-beta3-t6-foliorelay-002-uuid-oracle-fix",
+  "version": "26.0.0-BETA.3",
+  "rung": "t6",
+  "product": "foliorelay",
+  "authority_issue": 396,
+  "consumer_authority_issue": 273,
+  "purpose": "Re-run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after correcting only the external Agent Dispatch UUID parser/oracle demonstrated by rep 001. Preserve the pinned Foundry three-service control and require the same product oracles: full canonical urn:uuid identity coherence, portal and native IPP, exact PDF and Apple Raster Inbox artifacts, independent in-guest _universal DNS-SD observation, stop/start plus update/redeploy persistence, desired/live re-plan NOOP, and zero-residue app/observer/dataset cleanup."
+}
