@@ -82,6 +82,8 @@ def runtime_field_expressions(text: str) -> dict:
         chosen = designated if designated else positional
         rows.append({
             "mode": "designated" if designated else "positional" if positional else "unresolved",
+            "topLevelItemCount": len(items),
+            "topLevelItemSkeletons": [row_item_skeleton(item) for item in items],
             "expressions": {
                 field: chosen.get(field)
                 for field in FIELDS
@@ -124,6 +126,34 @@ def _operator_classes(masked: str) -> list[str]:
         if re.search(pattern, masked):
             classes.append(name)
     return classes
+
+
+def row_item_skeleton(expr: str) -> dict:
+    """Sanitize one top-level row item without exposing literals/snippets."""
+    masked = d1h.mask_comments_strings(expr)
+    identifiers = []
+    seen = set()
+    for m in re.finditer(rf"\b(?P<name>{_IDENT})\b", masked):
+        name = m.group("name")
+        if name in _C_KEYWORDS or name in seen:
+            continue
+        seen.add(name)
+        after = masked[m.end():m.end() + 8]
+        roles = []
+        if re.match(r"\s*\(", after):
+            roles.append("function_like")
+        if re.match(r"\s*\[", after):
+            roles.append("array_base")
+        if name.upper() == name and "_" in name:
+            roles.append("macro_like")
+        if not roles:
+            roles.append("plain_identifier")
+        identifiers.append({"name": name, "roles": roles})
+    return {
+        "identifiers": identifiers,
+        "operatorClasses": _operator_classes(masked),
+        "safeLiteralCandidateCount": len(_safe_literals(expr)),
+    }
 
 
 def expression_skeleton(expr: str | None) -> dict:
@@ -270,7 +300,12 @@ def reduce_rows(text: str) -> dict:
                 "skeleton": expression_skeleton(expr),
                 "resolution": _resolve_expr(expr, text),
             }
-        out_rows.append({"mode": row["mode"], "fields": fields})
+        out_rows.append({
+            "mode": row["mode"],
+            "topLevelItemCount": row.get("topLevelItemCount", 0),
+            "topLevelItemSkeletons": row.get("topLevelItemSkeletons", []),
+            "fields": fields,
+        })
     return {
         "tableFound": located["tableFound"],
         "fieldNames": located["fieldNames"],
