@@ -109,19 +109,29 @@ def struct_definitions(text: str) -> list[dict]:
 
 def locate_table_initializer(text: str) -> dict | None:
     masked = d1h.mask_comments_strings(text)
-    rx = re.compile(rf"\b{TABLE}\s*(?:\[[^\]]*\])?\s*=\s*\{{")
-    m = rx.search(masked)
-    if not m:
-        return None
-    open_idx = masked.find("{", m.start(), m.end())
-    close_idx = d1h.match_brace(text, open_idx)
-    if close_idx is None:
-        return None
-    return {
-        "nameStart": m.start(),
-        "open": open_idx,
-        "close": close_idx,
-    }
+    for m in re.finditer(rf"\b{TABLE}\b", masked):
+        # Declaration attributes/macros may appear between nametable[...] and '='.
+        # Accept only a bounded declaration-shaped prefix: no semicolon before
+        # the first assignment and an initializer brace immediately after it.
+        limit = min(len(masked), m.end() + 1024)
+        semi = masked.find(";", m.end(), limit)
+        eq = masked.find("=", m.end(), limit)
+        if eq < 0 or (semi >= 0 and semi < eq):
+            continue
+        if eq + 1 < len(masked) and masked[eq + 1] == "=":
+            continue
+        open_idx = masked.find("{", eq + 1, limit)
+        if open_idx < 0 or (semi >= 0 and semi < open_idx):
+            continue
+        close_idx = d1h.match_brace(text, open_idx)
+        if close_idx is None:
+            continue
+        return {
+            "nameStart": m.start(),
+            "open": open_idx,
+            "close": close_idx,
+        }
+    return None
 
 
 def infer_table_fields(text: str, table: dict) -> dict:
@@ -255,21 +265,40 @@ def parse_row(row_text: str, fields: list[str]) -> dict:
     }
 
 
+def _match_paren(masked: str, open_idx: int) -> int | None:
+    depth = 0
+    for i in range(open_idx, len(masked)):
+        ch = masked[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
 def index_field_references(text: str) -> dict:
     masked = d1h.mask_comments_strings(text)
     rx = re.compile(
         rf"\b{TABLE}\s*\[\s*{INDEX}\s*\]\s*\.\s*(?P<field>{_IDENT})"
     )
     counts = {}
-    comparison_counts = {}
     for m in rx.finditer(masked):
         field = m.group("field")
         counts[field] = counts.get(field, 0) + 1
-        lo = max(0, m.start() - 180)
-        hi = min(len(masked), m.end() + 180)
-        window = masked[lo:hi]
-        if re.search(r"\b(?:strcmp|strncmp|strcasecmp)\s*\(", window):
+
+    comparison_counts = {}
+    for cm in re.finditer(r"\b(?:strcmp|strncmp|strcasecmp)\s*\(", masked):
+        open_idx = masked.find("(", cm.start(), cm.end())
+        close_idx = _match_paren(masked, open_idx)
+        if close_idx is None:
+            continue
+        args = masked[open_idx + 1:close_idx]
+        for fm in rx.finditer(args):
+            field = fm.group("field")
             comparison_counts[field] = comparison_counts.get(field, 0) + 1
+
     candidates = sorted(
         field for field, count in comparison_counts.items()
         if count > 0 and field not in RUNTIME_FIELDS
