@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-002-uuid-oracle-fix",
+  "request_id": "tn-26-beta3-t6-wow-sidecar-python-baseline-001",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "foliorelay",
+  "product": "wow-sidecar",
   "authority_issue": 396,
-  "consumer_authority_issue": 273,
-  "purpose": "Re-run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after correcting only the external Agent Dispatch UUID parser/oracle demonstrated by rep 001. Preserve the pinned Foundry three-service control and require the same product oracles: full canonical urn:uuid identity coherence, portal and native IPP, exact PDF and Apple Raster Inbox artifacts, independent in-guest _universal DNS-SD observation, stop/start plus update/redeploy persistence, desired/live re-plan NOOP, and zero-residue app/observer/dataset cleanup."
+  "consumer_authority_issue": 259,
+  "purpose": "Execute exactly one disposable TrueNAS 26.0.0-BETA.3 T6 baseline rep for the already-qualified Python WOW Sidecar App before Go runtime migration. Consume the harness-pinned Foundry WOW control at 9ac2eef97581caff5b0de740560c55a778fa3f1c and exact published WOW image digest. Prove only App materialization, runtime/lifecycle/persistence/read-back/product-oracle behavior and zero unintended residue using public-safe synthetic fixture credentials. Do not claim Go embodiment semantics, physical HIL/cutover, GARM integration/capacity, production credentials, or authority expansion. One dispatch only; no automatic retry."
 }
