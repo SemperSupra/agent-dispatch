@@ -1,0 +1,49 @@
+{
+  "schema": "truenas-capsule-providers/v1",
+  "authority": {
+    "repository": "SemperSupra/agent-dispatch-private",
+    "issue": 480
+  },
+  "providers": [
+    {
+      "id": "litellm-t6",
+      "kind": "foundry-product",
+      "product": "litellm",
+      "probe": "scripts/truenas_middleware_litellm_t6_probe.py",
+      "control_artifact": "litellm-truenas-t6-control",
+      "existing_selector": "litellm"
+    },
+    {
+      "id": "wow-sidecar-t6",
+      "kind": "foundry-product",
+      "product": "wow-sidecar",
+      "probe": "scripts/truenas_middleware_wow_sidecar_t6_probe.py",
+      "control_artifact": "wow-sidecar-truenas-t6-control",
+      "existing_selector": "wow-sidecar"
+    },
+    {
+      "id": "garm-t6",
+      "kind": "foundry-product",
+      "product": "garm",
+      "probe": "scripts/truenas_middleware_garm_t6_probe.py",
+      "control_artifact": "garm-truenas-t6-control",
+      "existing_selector": "garm"
+    },
+    {
+      "id": "official-catalog-t6",
+      "kind": "official-catalog-control",
+      "product": "official-catalog",
+      "probe": "scripts/truenas_middleware_official_catalog_t6_probe.py",
+      "control_artifact": "official-catalog-truenas-t6-control",
+      "existing_selector": "official-catalog"
+    },
+    {
+      "id": "foliorelay-t6",
+      "kind": "foundry-product",
+      "product": "foliorelay",
+      "probe": "scripts/truenas_middleware_foliorelay_t6_probe.py",
+      "control_artifact": "foliorelay-t6-beta3-control",
+      "existing_selector": "foliorelay"
+    }
+  ]
+}
