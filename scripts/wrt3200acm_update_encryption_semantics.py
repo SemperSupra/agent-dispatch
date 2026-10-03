@@ -130,6 +130,7 @@ def main()->int:
     wrapper=dispatch.run_objdump(elf,0x37b84,0x37b94)
     helper=dispatch.run_objdump(elf,GENERIC_HELPER,0x21f80)
     descriptor=read_elf_u32(elf,DESCRIPTOR_LITERAL)
+    descriptor_probe=dispatch.run_objdump(elf,descriptor,min(descriptor+0x500,0x59218)) if descriptor < 0x59218 else ""
 
     dver=verify_dispatch(dispatcher)
     wver=verify_wrapper(wrapper)
@@ -151,12 +152,18 @@ def main()->int:
             "verification":wver,
         },
         "generic_helper_probe":summarize_helper(helper),
-        "guardrail":"This pass proves routing into the generic helper and records field-access/control-flow evidence. It does not yet assign crypto semantics to helper state or hardware-facing calls.",
+        "descriptor_target_probe":summarize_helper(descriptor_probe) if descriptor_probe else {
+            "status":"not-in-executable-load-range",
+            "descriptor_value":f"0x{descriptor:08x}",
+        },
+        "guardrail":"This pass proves routing into the generic helper and records field-access/control-flow evidence. Descriptor-target code is probed only when the descriptor points inside the executable load range; crypto semantics remain unassigned until field/action correlations are observed.",
     }
     (out/"update-encryption-semantics.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     (out/"update-encryption-dispatch.txt").write_text(dispatcher)
     (out/"update-encryption-wrapper.txt").write_text(wrapper)
     (out/"update-encryption-helper-0x21c68.txt").write_text(helper)
+    if descriptor_probe:
+        (out/"update-encryption-descriptor-target.txt").write_text(descriptor_probe)
     print(json.dumps({
         "dispatch":dver,
         "wrapper":wver,
@@ -164,6 +171,10 @@ def main()->int:
         "helper_calls":report["generic_helper_probe"]["calls"],
         "helper_r1_offsets":report["generic_helper_probe"]["r1_command_buffer_offsets"],
         "helper_compares":report["generic_helper_probe"]["compares"][:40],
+        "descriptor_probe_instruction_count":report["descriptor_target_probe"].get("instruction_count"),
+        "descriptor_probe_calls":report["descriptor_target_probe"].get("calls",[])[:40],
+        "descriptor_probe_compares":report["descriptor_target_probe"].get("compares",[])[:80],
+        "descriptor_probe_r1_offsets":report["descriptor_target_probe"].get("r1_command_buffer_offsets",[]),
     },indent=2,sort_keys=True))
     return 0 if dver["all_required_present"] and wver["all_required_present"] else 3
 
