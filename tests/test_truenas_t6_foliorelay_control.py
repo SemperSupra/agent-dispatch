@@ -31,6 +31,8 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             '"app.create"', '"app.stop"', '"app.start"', '"app.delete"',
             '"zero_residue":True', '_universal._sub._ipp._tcp.local',
             'dnssd_uuid_match', 'restart_preserved_identity_and_inbox',
+            'app.update', 'app.redeploy', 'replan_action', '"NOOP"',
+            'update_redeploy_preserved_identity_and_inbox',
         ):
             self.assertIn(needle, text)
         self.assertIn(MOD.OBSERVER_IMAGE, text)
