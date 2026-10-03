@@ -148,7 +148,9 @@ set auto-solib-add on
 set sysroot {root}
 set solib-search-path {solib}
 file {exe}
+echo FRITZGDBSTAGE:pre_target\\n
 target remote 127.0.0.1:{port}
+echo FRITZGDBSTAGE:post_target\\n
 python
 import gdb, hashlib, json
 
@@ -208,11 +210,36 @@ class Obs(gdb.Breakpoint):
 
 {bp_lines}
 end
+echo FRITZGDBSTAGE:post_breakpoints\\n
 continue
+echo FRITZGDBSTAGE:post_continue_1\\n
 continue
+echo FRITZGDBSTAGE:post_continue_2\\n
 detach
+echo FRITZGDBSTAGE:post_detach\\n
 quit
 """
+
+
+GDB_STAGE_ORDER = (
+    "pre_target",
+    "post_target",
+    "post_breakpoints",
+    "post_continue_1",
+    "post_continue_2",
+    "post_detach",
+)
+
+
+def parse_gdb_stages(stdout: str) -> list[str]:
+    seen = []
+    for line in stdout.splitlines():
+        if not line.startswith("FRITZGDBSTAGE:"):
+            continue
+        value = line.split(":", 1)[1].strip()
+        if value in GDB_STAGE_ORDER and value not in seen:
+            seen.append(value)
+    return seen
 
 
 def parse_gdb_observations(stdout: str) -> list[dict]:
@@ -435,6 +462,7 @@ def instrumented_svctl_call(
                 "gdbListenerSeen": gdb_listener_ready,
                 "gdbAttempted": gdb_attempted,
                 "gdbConnectionSeen": gdb_connection_seen,
+                "gdbStages": parse_gdb_stages(gdb_stdout),
                 "breakpointObservationCount": len(observations),
                 "rawDebuggerOutputPublished": False,
                 "rawRegisterValuesPublished": False,
@@ -562,6 +590,7 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "gdbListenerSeen": (call.get("instrumentation") or {}).get("gdbListenerSeen"),
             "gdbAttempted": (call.get("instrumentation") or {}).get("gdbAttempted"),
             "gdbConnectionSeen": (call.get("instrumentation") or {}).get("gdbConnectionSeen"),
+            "gdbStages": (call.get("instrumentation") or {}).get("gdbStages", []),
             "breakpointObservationCount": (
                 call.get("instrumentation") or {}
             ).get("breakpointObservationCount", 0),
