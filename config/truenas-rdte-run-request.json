@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25.10.7-t6-garm-provider-g5-001-provider-row",
+  "request_id": "tn-25.10.7-t6-garm-provider-g5-002-contract-covered-relaunch",
   "version": "25.10.7",
   "rung": "t6",
   "product": "garm-provider-g5",
   "authority_issue": 410,
   "consumer_authority_issue": 42,
-  "purpose": "Qualify the exact TrueNAS 25.10.7 G5 provider matrix row using the fixed packaged provider and source-attributed matrix: exact system.version and middleware commit binding, verified WSS/API-key transport, CreateInstance -> exact Compose read-back -> Get/List -> supported inactive transition -> provider DeleteInstance -> App absence -> empty provider inventory -> zero unintended residue; runtime qualification must not be inherited from any neighboring release, and GitHub JIT/private workload/physical TrueNAS/capacity promotion remain unexercised."
+  "purpose": "Re-launch the unchanged exact TrueNAS 25.10.7 G5 provider matrix row after the launch-edge contract coverage repair: exact source-matrix/system-version/middleware binding, verified WSS/API-key transport, CreateInstance -> exact Compose read-back -> Get/List -> supported inactive transition -> provider DeleteInstance -> App absence -> empty provider inventory -> zero unintended residue; no runtime support inheritance, GitHub JIT/private workload/physical TrueNAS/capacity promotion."
 }
