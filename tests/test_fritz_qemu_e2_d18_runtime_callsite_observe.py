@@ -46,6 +46,17 @@ class D18Tests(unittest.TestCase):
             ["pre_target", "post_target"],
         )
 
+    def test_classify_gdb_attach_error_is_sanitized(self):
+        self.assertEqual(
+            d18.classify_gdb_attach_error("", "Remote communication error. Target disconnected."),
+            "remote_disconnected",
+        )
+        self.assertEqual(
+            d18.classify_gdb_attach_error("", "Connection timed out."),
+            "connection_timed_out",
+        )
+        self.assertIsNone(d18.classify_gdb_attach_error("", "unrelated debugger message"))
+
     def test_parse_gdb_observations_filters_prefix(self):
         text = 'noise\nFRITZOBS:{"target":"_svctl_init","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n'
         out = d18.parse_gdb_observations(text)
