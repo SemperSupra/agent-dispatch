@@ -16,7 +16,22 @@ TARGETS={
   "state_d8": {"writer_pc":0x22ce0,"offset":0xd8,"window":(0x22c60,0x22d50)},
   "table_4c": {"writer_pc":0x2331c,"offset":0x4c,"window":(0x23280,0x23390)},
   "halfwords_0_6": {"writer_pc":0x2a284,"offset":0x2,"window":(0x2a210,0x2a2d0)},
+  "field0_writer_a": {"writer_pc":0x2d3c8,"offset":0x0,"window":(0x2d340,0x2d430)},
+  "field0_writer_b": {"writer_pc":0x30808,"offset":0x0,"window":(0x30780,0x30880)},
 }
+
+def read_elf_u32(path:Path,address:int)->int:
+    d=path.read_bytes()
+    if d[:4]!=b"\x7fELF" or d[4]!=1 or d[5]!=1:
+        raise ValueError("expected ELF32 little-endian")
+    import struct
+    phoff=struct.unpack_from("<I",d,28)[0]; ent=struct.unpack_from("<H",d,42)[0]; num=struct.unpack_from("<H",d,44)[0]
+    for i in range(num):
+        o=phoff+i*ent
+        typ,fo,va,_pa,fs,_ms,_fl,_al=struct.unpack_from("<IIIIIIII",d,o)
+        if typ==1 and va<=address and address+4<=va+fs:
+            return struct.unpack_from("<I",d,fo+(address-va))[0]
+    raise ValueError(f"0x{address:x} not in file-backed load range")
 
 def summarize(text:str, writer_pc:int)->dict:
     ins=dp.parse_instructions(text)
@@ -53,7 +68,8 @@ def summarize(text:str, writer_pc:int)->dict:
 def main()->int:
     ap=argparse.ArgumentParser();ap.add_argument("--elf",required=True);ap.add_argument("--out",required=True);ns=ap.parse_args()
     elf=Path(ns.elf);out=Path(ns.out);out.mkdir(parents=True,exist_ok=True)
-    report={"schema":"wrt8964-runtime-anchor-initializers/v1","anchor":ANCHOR,"targets":{}}
+    report={"schema":"wrt8964-runtime-anchor-initializers/v2","anchor":ANCHOR,"targets":{},
+      "literal_values":{f"0x{x:x}":f"0x{read_elf_u32(elf,x):08x}" for x in (0x22a1c,0x22a30,0x22a34,0x29bec,0x2a634)}}
     for name,t in TARGETS.items():
         a,b=t["window"]
         text=dp.run_objdump(elf,a,b)
@@ -71,12 +87,13 @@ def main()->int:
     report["guardrail"]="Writer PCs are evidence-backed from the selector3 field map. Function identities, allocator names, and semantic field names remain unassigned until call/data-flow evidence supports them."
     (out/"runtime-anchor-initializers.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({
-      name:{
+      **{"literal_values":report["literal_values"]},
+      **{name:{
         "writer":rec["writer"]["text"] if rec["writer"] else None,
         "calls":[{"pc":hex(c["pc"]),"target":hex(c["target"])} for c in rec["calls"]],
         "interesting_immediates":[hex(x["value"]) for x in rec["immediates"][:40]],
         "local":[x["text"] for x in rec["local_context"]]
-      } for name,rec in report["targets"].items()
+      } for name,rec in report["targets"].items()}
     },indent=2,sort_keys=True))
     return 0 if all(x["writer"] is not None for x in report["targets"].values()) else 3
 
