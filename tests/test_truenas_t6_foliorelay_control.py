@@ -61,9 +61,15 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('--observer-port "$FOLIORELAY_OBSERVER_HOST_PORT"', harness)
 
     def test_cups_uuid_oracle_preserves_canonical_urn_prefix(self):
-        text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn(r'(urn:uuid:[^\\s]+)', text)
-        self.assertNotIn(r'= urn:uuid:([^\\s]+)', text)
+        attrs = """
+        printer-uuid (uri) = urn:uuid:01234567-89ab-4def-8123-456789abcdef
+        printer-uri-supported (uri) = ipp://foliorelay-t6.local:8634/printers/FolioRelay
+        """
+        self.assertEqual(
+            MOD.extract_printer_uuid(attrs),
+            "urn:uuid:01234567-89ab-4def-8123-456789abcdef",
+        )
+        self.assertIsNone(MOD.extract_printer_uuid("printer-name = FolioRelay"))
 
     def test_probe_compiles(self):
         cp=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],capture_output=True,text=True)
