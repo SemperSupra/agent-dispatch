@@ -33,6 +33,19 @@ class D18Tests(unittest.TestCase):
         self.assertEqual(d18.scalar_class(7), "small_positive")
         self.assertEqual(d18.scalar_class(0x10000), "address_like")
 
+    def test_parse_gdb_stages_accepts_only_known_ordered_markers(self):
+        text = (
+            "noise\n"
+            "FRITZGDBSTAGE:pre_target\n"
+            "FRITZGDBSTAGE:post_target\n"
+            "FRITZGDBSTAGE:unknown\n"
+            "FRITZGDBSTAGE:post_target\n"
+        )
+        self.assertEqual(
+            d18.parse_gdb_stages(text),
+            ["pre_target", "post_target"],
+        )
+
     def test_parse_gdb_observations_filters_prefix(self):
         text = 'noise\nFRITZOBS:{"target":"_svctl_init","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n'
         out = d18.parse_gdb_observations(text)
