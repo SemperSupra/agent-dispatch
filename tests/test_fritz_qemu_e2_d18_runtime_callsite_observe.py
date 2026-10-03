@@ -95,6 +95,8 @@ class D18Tests(unittest.TestCase):
                 "reason": "instrumentation_exception",
                 "errorType": "RuntimeError",
                 "errorStage": "callsite_resolution",
+                "gdbConnectionSeen": True,
+                "breakpointObservationCount": 0,
                 "observations": [],
             }
         }
@@ -107,6 +109,13 @@ class D18Tests(unittest.TestCase):
         self.assertEqual(
             s["callDiagnostics"]["preStatus"]["errorType"],
             "RuntimeError",
+        )
+        self.assertTrue(
+            s["callDiagnostics"]["preStatus"]["gdbConnectionSeen"]
+        )
+        self.assertEqual(
+            s["callDiagnostics"]["preStatus"]["breakpointObservationCount"],
+            0,
         )
 
 
