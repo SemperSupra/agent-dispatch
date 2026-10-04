@@ -75,6 +75,41 @@ class D18Tests(unittest.TestCase):
         self.assertIn("\ndetach\n", text)
         self.assertIn("\nquit\n", text)
 
+    def test_attach_only_command_has_no_continue_or_breakpoint(self):
+        text = d18.gdb_attach_only_command_text(pathlib.Path("/tmp/root"), 25480)
+        self.assertIn("target remote 127.0.0.1:25480", text)
+        self.assertIn("FRITZGDBSTAGE:pre_target", text)
+        self.assertIn("FRITZGDBSTAGE:post_target", text)
+        self.assertNotIn("\ncontinue\n", text)
+        self.assertNotIn("break", text.lower())
+
+    def test_attach_control_classifies_success_and_rsp_stall(self):
+        self.assertEqual(
+            d18.classify_attach_control({
+                "gdbListenerSeen": True,
+                "gdbStages": ["pre_target", "post_target"],
+                "gdbExitClass": "zero",
+            }),
+            "E2_D18_ATTACH_CONTROL_SUCCEEDED_NO_STRACE",
+        )
+        self.assertEqual(
+            d18.classify_attach_control({
+                "gdbListenerSeen": True,
+                "gdbStages": ["pre_target"],
+                "gdbExitClass": "timeout",
+            }),
+            "E2_D18_ATTACH_CONTROL_RSP_STALL_NO_STRACE",
+        )
+        self.assertEqual(
+            d18.classify_attach_control({
+                "gdbListenerSeen": False,
+                "gdbStages": [],
+                "gdbExitClass": "not_attempted",
+            }),
+            "E2_D18_ATTACH_CONTROL_LISTENER_NOT_READY",
+        )
+
+
     def test_status_stability_and_start_difference(self):
         status = [obs("_svctl_init", d0="aa"), obs("_svctl_send_pkt", d0="cc")]
         start = [obs("_svctl_init", d0="dd"), obs("_svctl_send_pkt", d0="cc")]
