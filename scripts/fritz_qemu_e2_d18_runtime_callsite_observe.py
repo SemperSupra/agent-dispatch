@@ -222,6 +222,23 @@ quit
 """
 
 
+def gdb_attach_only_command_text(root: pathlib.Path, port: int) -> str:
+    """Attach to the exact QEMU-user target without breakpoints or continue."""
+    exe = root / r6.SVCTL.lstrip("/")
+    solib = ":".join(str(root / p) for p in ("lib", "usr/lib"))
+    return f"""set pagination off
+set confirm off
+set remotetimeout 2
+set sysroot {root}
+set solib-search-path {solib}
+file {exe}
+echo FRITZGDBSTAGE:pre_target\\n
+target remote 127.0.0.1:{port}
+echo FRITZGDBSTAGE:post_target\\n
+quit
+"""
+
+
 GDB_STAGE_ORDER = (
     "pre_target",
     "post_target",
@@ -300,6 +317,222 @@ def gdb_listener_seen(port: int) -> bool:
         if len(fields) >= 4 and fields[3].endswith(suffix):
             return True
     return False
+
+
+def classify_attach_control(result: dict) -> str:
+    if not result.get("gdbListenerSeen"):
+        return "E2_D18_ATTACH_CONTROL_LISTENER_NOT_READY"
+    stages = result.get("gdbStages") or []
+    if "post_target" in stages:
+        return "E2_D18_ATTACH_CONTROL_SUCCEEDED_NO_STRACE"
+    if result.get("gdbExitClass") == "timeout":
+        return "E2_D18_ATTACH_CONTROL_RSP_STALL_NO_STRACE"
+    return "E2_D18_ATTACH_CONTROL_FAILED_NO_STRACE"
+
+
+def attach_control_namespace_helper(args: argparse.Namespace) -> int:
+    """Run one no-strace, no-continue RSP attach control in an isolated netns."""
+    root = pathlib.Path(args.root).resolve()
+    result_path = pathlib.Path(args.namespace_result).resolve()
+
+    if r6._run(["ip", "link", "set", "lo", "up"]).returncode != 0:
+        raise RuntimeError("failed to bring loopback up")
+    links = r6._run(["ip", "-o", "link", "show"])
+    interfaces = sorted(set(
+        m.group(1)
+        for line in links.stdout.splitlines()
+        if (m := re.match(r"\\d+:\\s+([^:@]+)", line))
+    ))
+    if interfaces != ["lo"]:
+        raise RuntimeError(f"unexpected interfaces: {interfaces!r}")
+    default = r6._run(["ip", "route", "show", "default"])
+    if default.returncode != 0 or default.stdout.strip():
+        raise RuntimeError("network namespace unexpectedly has a default route")
+
+    gdb = shutil.which("gdb-multiarch")
+    if not gdb:
+        raise RuntimeError("gdb-multiarch unavailable")
+
+    env = {
+        "PATH": "/bin:/sbin:/usr/bin:/usr/sbin",
+        "HOME": "/",
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+    port = _next_port()
+    gdb_stdout = ""
+    gdb_stderr = ""
+    gdb_returncode = None
+    gdb_timed_out = False
+    listener_ready = False
+    proc = None
+
+    with tempfile.TemporaryDirectory(prefix="fritz-d18-attach-") as td:
+        command_path = pathlib.Path(td) / "attach.gdb"
+        command_path.write_text(
+            gdb_attach_only_command_text(root, port),
+            encoding="utf-8",
+        )
+        proc = subprocess.Popen(
+            [
+                "chroot", str(root), r6.QEMU_GUEST_PATH,
+                "-cpu", r6.CPU_PROFILE,
+                "-g", str(port),
+                r6.SVCTL, "status", "ctlmgr",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            start_new_session=True,
+        )
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if gdb_listener_seen(port):
+                listener_ready = True
+                break
+            if proc.poll() is not None:
+                break
+            time.sleep(0.05)
+
+        if listener_ready:
+            try:
+                cp = subprocess.run(
+                    [gdb, "--batch", "--nx", "-x", str(command_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                gdb_returncode = cp.returncode
+                gdb_stdout = cp.stdout or ""
+                gdb_stderr = cp.stderr or ""
+            except subprocess.TimeoutExpired as exc:
+                gdb_timed_out = True
+                gdb_stdout = exc.stdout or ""
+                gdb_stderr = exc.stderr or ""
+                if isinstance(gdb_stdout, bytes):
+                    gdb_stdout = gdb_stdout.decode("utf-8", errors="replace")
+                if isinstance(gdb_stderr, bytes):
+                    gdb_stderr = gdb_stderr.decode("utf-8", errors="replace")
+
+        # Do not continue the guest transaction. Terminate immediately after
+        # attach/session classification (or timeout).
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
+            stdout, stderr = proc.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
+
+    stages = parse_gdb_stages(gdb_stdout)
+    result = {
+        "probeCompleted": True,
+        "gdbListenerSeen": listener_ready,
+        "gdbAttempted": listener_ready,
+        "gdbStages": stages,
+        "gdbConnectionSeen": "post_target" in stages,
+        "gdbAttachErrorClass": classify_gdb_attach_error(gdb_stdout, gdb_stderr),
+        "gdbExitClass": (
+            "timeout" if gdb_timed_out
+            else "zero" if gdb_returncode == 0
+            else "nonzero" if gdb_returncode is not None
+            else "not_attempted"
+        ),
+        "targetExitClass": (
+            "killed_after_classification"
+            if proc.returncode is not None and proc.returncode < 0
+            else "exited"
+            if proc.returncode is not None
+            else "unknown"
+        ),
+        "targetStdoutBytes": len(stdout.encode("utf-8", errors="replace")),
+        "targetStderrBytes": len(stderr.encode("utf-8", errors="replace")),
+        "hostStraceUsed": False,
+        "breakpointsConfigured": False,
+        "explicitContinueIssued": False,
+        "wireCaptureAttempted": False,
+        "rawDebuggerOutputPublished": False,
+        "rawTargetOutputPublished": False,
+        "rawRegisterValuesPublished": False,
+        "rawPointedMemoryPublished": False,
+    }
+    result["classification"] = classify_attach_control(result)
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\\n",
+        encoding="utf-8",
+    )
+    return 0
+
+
+def run_attach_control(args: argparse.Namespace) -> dict:
+    root, meta = r6.prepare_root(args)
+    ns_result = pathlib.Path(args.work_dir).resolve() / "namespace-result-d18-attach.json"
+    cp = r6._run(
+        [
+            "sudo", "-n", "unshare", "--net", "--pid", "--fork", "--kill-child",
+            "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
+            "--attach-control-helper", "--root", str(root),
+            "--namespace-result", str(ns_result),
+        ],
+        timeout=35,
+    )
+    if cp.returncode != 0:
+        raise RuntimeError(
+            f"isolated D18 attach control failed (exit={cp.returncode}, "
+            f"stderrBytes={len(cp.stderr.encode())})"
+        )
+    if not ns_result.exists():
+        raise RuntimeError("D18 attach control emitted no result")
+
+    control = json.loads(ns_result.read_text(encoding="utf-8"))
+    oracle = bool(
+        control.get("probeCompleted")
+        and control.get("gdbListenerSeen")
+        and control.get("gdbAttempted")
+        and "pre_target" in (control.get("gdbStages") or [])
+    )
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "experiment": EXPERIMENT,
+        "classification": control["classification"],
+        "oracleSatisfied": oracle,
+        **meta,
+        "attachControl": control,
+        "interpretationBoundary": {
+            "exactShippedSvctlUsed": True,
+            "sameQemuCpuProfileUsed": True,
+            "isolatedLoopbackOnlyNamespaceUsed": True,
+            "hostStraceExcluded": True,
+            "breakpointSetupExcluded": True,
+            "guestContinueExcluded": True,
+            "wireCaptureExcluded": True,
+            "attachSuccessDoesNotProveTargetBehavior": True,
+            "attachStallIsHarnessPathEvidenceOnly": True,
+        },
+        "safety": {
+            "rawFirmwarePublished": False,
+            "rootfsPublished": False,
+            "rawTargetOutputPublished": False,
+            "rawHostStracePublished": False,
+            "rawDebuggerOutputPublished": False,
+            "rawRegisterValuesPublished": False,
+            "rawPointedMemoryPublished": False,
+            "wirePayloadPublished": False,
+            "physicalRouterContact": False,
+            "routerMutationAuthorized": False,
+            "externalNetworkAvailableToTarget": False,
+            "targetSpecificShimAdded": False,
+            "shippedFilesModified": False,
+            "serviceStartRequested": False,
+            "explicitGuestContinueIssued": False,
+            "disposableEmulatorMutationOnly": True,
+        },
+    }
 
 
 def instrumented_svctl_call(
@@ -780,6 +1013,8 @@ def parse_args(argv=None):
     p.add_argument("--verify-seconds", type=float, default=2.0)
     p.add_argument("--sample-interval-seconds", type=float, default=0.05)
     p.add_argument("--namespace-helper", action="store_true")
+    p.add_argument("--attach-only-control", action="store_true")
+    p.add_argument("--attach-control-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
     return p.parse_args(argv)
@@ -791,6 +1026,10 @@ def main(argv=None):
         if not args.root or not args.namespace_result:
             raise SystemExit("namespace helper requires root/result")
         return namespace_helper(args)
+    if args.attach_control_helper:
+        if not args.root or not args.namespace_result:
+            raise SystemExit("attach control helper requires root/result")
+        return attach_control_namespace_helper(args)
 
     required = (
         args.firmware_url, args.expected_size, args.expected_sha256,
@@ -802,7 +1041,7 @@ def main(argv=None):
     receipt = pathlib.Path(args.receipt)
     receipt.parent.mkdir(parents=True, exist_ok=True)
     try:
-        data = run_probe(args)
+        data = run_attach_control(args) if args.attach_only_control else run_probe(args)
         rc = 0 if data.get("oracleSatisfied") else 2
     except Exception as exc:
         data = {
@@ -839,6 +1078,18 @@ def main(argv=None):
         "classification": data["classification"],
         "oracleSatisfied": data["oracleSatisfied"],
     }
+    if isinstance(data.get("attachControl"), dict):
+        a = data["attachControl"]
+        diagnostic["attachControl"] = {
+            "gdbListenerSeen": a.get("gdbListenerSeen"),
+            "gdbAttempted": a.get("gdbAttempted"),
+            "gdbStages": a.get("gdbStages", []),
+            "gdbConnectionSeen": a.get("gdbConnectionSeen"),
+            "gdbAttachErrorClass": a.get("gdbAttachErrorClass"),
+            "gdbExitClass": a.get("gdbExitClass"),
+            "hostStraceUsed": a.get("hostStraceUsed"),
+            "explicitContinueIssued": a.get("explicitContinueIssued"),
+        }
     if isinstance(data.get("wire"), dict):
         diagnostic["wire"] = {
             "captureComplete": data["wire"].get("captureComplete"),
