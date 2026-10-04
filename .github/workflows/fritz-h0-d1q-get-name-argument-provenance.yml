@@ -1,0 +1,85 @@
+name: FRITZ H0 D1q get_name argument provenance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/fritz-h0-d1q-get-name-argument-provenance.yml'
+      - 'scripts/fritz_h0_d1q_get_name_argument_provenance.py'
+      - 'scripts/fritz_h0_d1p_nametable_population.py'
+      - 'tests/test_fritz_h0_d1q_get_name_argument_provenance.py'
+      - 'docs/fritz-h0-d1q-get-name-argument-provenance.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_h0_d1q_get_name_argument_provenance.py
+
+  exact-osp-h0-d1q:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Recover exact get_name argument provenance
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-h0-d1q" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_h0_d1q_get_name_argument_provenance.py \
+            --osp-url 'https://osp.avm.de/fritzbox/fritzbox-7590/source-files-FRITZ.Box_7590-grx5-08.25.tar.gz' \
+            --expected-size 633140613 \
+            --expected-sha256 61e0969cf2c5e4fc3942eeb8da765115f1612fdf11c563428f54f2cfe45bf9dc \
+            --work-dir "${RUNNER_TEMP}/fritz-h0-d1q" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce D1q evidence boundary
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
+          assert r.get("oracleSatisfied") is True, r
+          a=r["argumentProvenance"]
+          allowed={
+              "H0_D1Q_GET_NAME_EDGE_NOT_REPRODUCED",
+              "H0_D1Q_GET_NAME_ARGUMENT_AMBIGUOUS",
+              "H0_D1Q_GET_NAME_LOCAL_PROVENANCE_RECOVERED",
+              "H0_D1Q_GET_NAME_LOCAL_PROVENANCE_PARTIAL",
+              "H0_D1Q_GET_NAME_ARGUMENT_SKELETON_RECOVERED",
+          }
+          assert r["classification"] in allowed,r["classification"]
+          b=r["interpretationBoundary"]
+          assert b["d1pGetNameHypothesisTested"] is True
+          assert b["safeIdentifierAndOperatorClassesOnly"] is True
+          assert b["functionParameterBindingsAccepted"] is True
+          assert b["nearestLexicalAssignmentIsCandidateOnly"] is True
+          for key in (
+              "controlFlowExecutionAccepted","sourceSnippetsAccepted",
+              "arbitraryStringLiteralsAccepted","destinationNamesAccepted",
+              "numericFlashOffsetsAccepted","inactiveSlotSafetyAccepted",
+              "rollbackSafetyAccepted","bootabilityAccepted","modifiedHilAuthorized"
+          ):
+              assert b[key] is False,(key,b[key])
+          for k,v in r["safety"].items():
+              assert v is False,(k,v)
+          print(json.dumps({
+              "classification":r["classification"],
+              "targetPath":r["targetPath"],
+              "argumentProvenance":a,
+              "interpretationBoundary":b,
+          },sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-h0-d1q-get-name-argument-provenance-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
