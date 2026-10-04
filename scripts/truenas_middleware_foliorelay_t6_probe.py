@@ -306,12 +306,18 @@ def observe(expected,expected_host,expected_ipp_port,seconds=25):
         except Exception: pass
     raise RuntimeError("no qualifying _universal FolioRelay mDNS response")
 class H(BaseHTTPRequestHandler):
-    result=None
+    result={"status":"pending"}
     def do_GET(self):
         body=json.dumps(H.result).encode(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def log_message(self,*args): pass
-p=argparse.ArgumentParser(); p.add_argument("--uuid",required=True); p.add_argument("--expected-host",required=True); p.add_argument("--expected-ipp-port",type=int,required=True); p.add_argument("--port",type=int,default=18081); a=p.parse_args()
-H.result=observe(a.uuid,a.expected_host,a.expected_ipp_port)
+def run_observer(args):
+    try:
+        result=observe(args.uuid,args.expected_host,args.expected_ipp_port,args.seconds)
+        H.result={"status":"success",**result}
+    except Exception as exc:
+        H.result={"status":"error","error":f"{type(exc).__name__}: {exc}"}
+p=argparse.ArgumentParser(); p.add_argument("--uuid",required=True); p.add_argument("--expected-host",required=True); p.add_argument("--expected-ipp-port",type=int,required=True); p.add_argument("--port",type=int,default=18081); p.add_argument("--seconds",type=float,default=25); a=p.parse_args()
+threading.Thread(target=run_observer,args=(a,),daemon=True).start()
 HTTPServer(("0.0.0.0",a.port),H).serve_forever()
 '''
 
@@ -339,7 +345,9 @@ def main():
             while time.monotonic()<deadline:
                 x=call("core.get_jobs",[[["id","=",j]],{"get":True}])
                 if x and x.get("state")=="SUCCESS": return x
-                if x and x.get("state") in {"FAILED","ABORTED"}: raise RuntimeError(f"{label} job {x.get('state')}: {x.get('error')}")
+                if x and x.get("state") in {"FAILED","ABORTED"}:
+                    detail=x.get("error") or x.get("exception") or x.get("exc_info") or "no job diagnostic"
+                    raise RuntimeError(f"{label} job {x.get('state')}: {detail}")
                 time.sleep(1)
             raise RuntimeError(f"{label} job timeout")
         def wait_state(name,state):
@@ -412,8 +420,17 @@ def main():
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
         wait_job(oj,"observer app.create"); observer_created=True; wait_state(OBSERVER_APP_NAME,"RUNNING")
-        if not wait_http(a.host,a.observer_port,"/",60): raise RuntimeError("DNS-SD observer did not publish a result")
-        observed=json.loads(http_bytes(a.host,a.observer_port,"/",timeout=a.timeout))
+        if not wait_http(a.host,a.observer_port,"/",60): raise RuntimeError("DNS-SD observer HTTP witness did not become reachable")
+        deadline=time.monotonic()+45; observed=None
+        while time.monotonic()<deadline:
+            observed=json.loads(http_bytes(a.host,a.observer_port,"/",timeout=a.timeout))
+            status=observed.get("status")
+            if status=="success": break
+            if status=="error":
+                raise RuntimeError(f"DNS-SD observer oracle failed: {observed.get('error')}")
+            time.sleep(1)
+        if not observed or observed.get("status")!="success":
+            raise RuntimeError("DNS-SD observer oracle remained pending")
         if (observed.get("universal_ptr") is not True or observed.get("uuid")!=uuid
             or (observed.get("srv_target") or "").rstrip(".").lower()!=PUBLIC_HOST.lower()
             or observed.get("srv_port")!=PUBLIC_IPP_PORT):
