@@ -1,0 +1,85 @@
+name: WRT EasyMesh E3 Hybrid Preflight
+
+on:
+  push:
+    branches:
+      - wrt-easymesh-e3-hybrid-20261005
+    paths:
+      - '.github/waves/wrt-easymesh-e3-trigger.json'
+
+permissions:
+  contents: read
+
+jobs:
+  e3-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe hybrid OpenWrt+hwsim host primitives
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/wrt-e3/out"
+          mkdir -p "$OUT"
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils iw kmod tcpdump iproute2 jq >/dev/null
+
+          cleanup() {
+            sudo ip netns del e3-a >/dev/null 2>&1 || true
+            sudo ip netns del e3-b >/dev/null 2>&1 || true
+            sudo ip link del e3-br >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker_ok=0
+          qemu_ok=0
+          hwsim_ok=0
+          netns_ok=0
+          bridge_ok=0
+          capture_ok=0
+          phy_count=0
+
+          uname -a > "$OUT/uname.txt"
+          docker version > "$OUT/docker.txt" 2>&1 || true
+          qemu-system-x86_64 --version > "$OUT/qemu.txt" 2>&1 || true
+          modinfo mac80211_hwsim > "$OUT/hwsim-modinfo.txt" 2>&1 || true
+
+          command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && docker_ok=1 || true
+          command -v qemu-system-x86_64 >/dev/null 2>&1 && qemu_ok=1 || true
+          command -v tcpdump >/dev/null 2>&1 && capture_ok=1 || true
+
+          if ! lsmod | grep -q '^mac80211_hwsim '; then
+            sudo modprobe mac80211_hwsim radios=3 > "$OUT/hwsim-load.txt" 2>&1 || true
+          fi
+          phy_count=$(find /sys/class/ieee80211 -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l)
+          [ "$phy_count" -ge 3 ] && hwsim_ok=1 || true
+
+          if sudo ip netns add e3-a >/dev/null 2>&1 && sudo ip netns add e3-b >/dev/null 2>&1; then
+            netns_ok=1
+          fi
+          if sudo ip link add e3-br type bridge >/dev/null 2>&1; then
+            sudo ip link set e3-br up >/dev/null 2>&1 || true
+            bridge_ok=1
+          fi
+
+          sudo ip netns list > "$OUT/namespaces.txt" 2>&1 || true
+          sudo ip -details link show e3-br > "$OUT/bridge.txt" 2>&1 || true
+          iw phy > "$OUT/iw-phy.txt" 2>&1 || true
+
+          export docker_ok qemu_ok hwsim_ok netns_ok bridge_ok capture_ok phy_count
+          python3 -c 'import json,os; ks=["docker_ok","qemu_ok","hwsim_ok","netns_ok","bridge_ok","capture_ok","phy_count"]; d={k:int(os.environ[k]) for k in ks}; ready=all(d[k] for k in ["docker_ok","qemu_ok","hwsim_ok","netns_ok","bridge_ok"]); print(json.dumps({"schema":"wrt3200acm-easymesh-e3-hybrid-preflight/v1",**d,"ready_for_e3":bool(ready),"classification":"PASS" if ready else "HOST_PRIVILEGE_LIMITATION","note":"Host primitives only; no Marvell-specific emulation."},indent=2,sort_keys=True))' > "$OUT/verdict.json"
+
+          echo '--- E3_PREFLIGHT_VERDICT_BEGIN ---'
+          cat "$OUT/verdict.json"
+          echo '--- E3_PREFLIGHT_VERDICT_END ---'
+          cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload E3 preflight evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-easymesh-e3-hybrid-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-e3/out
+          if-no-files-found: error
+          retention-days: 7
