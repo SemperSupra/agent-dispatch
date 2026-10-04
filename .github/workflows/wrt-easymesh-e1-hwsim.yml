@@ -1,0 +1,63 @@
+name: WRT EasyMesh E1 hwsim Preflight
+
+on:
+  push:
+    branches:
+      - wrt-easymesh-e1-hwsim-20261005
+    paths:
+      - '.github/waves/wrt-easymesh-e1-trigger.json'
+
+permissions:
+  contents: read
+
+jobs:
+  e1-hwsim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe mac80211_hwsim capability
+        shell: bash
+        run: |
+          set -u
+          OUT="$RUNNER_TEMP/wrt-e1/out"
+          mkdir -p "$OUT"
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq iw hostapd wpasupplicant kmod >/dev/null 2>&1 || true
+
+          uname -a > "$OUT/uname.txt"
+          (modinfo mac80211_hwsim || true) > "$OUT/modinfo-hwsim.txt" 2>&1
+          (lsmod | grep -E 'mac80211_hwsim|mac80211|cfg80211' || true) > "$OUT/modules-before.txt"
+
+          load_rc=0
+          if ! lsmod | grep -q '^mac80211_hwsim '; then
+            set +e
+            sudo modprobe mac80211_hwsim radios=3 > "$OUT/modprobe.txt" 2>&1
+            load_rc=$?
+            set -e
+          fi
+
+          (lsmod | grep -E 'mac80211_hwsim|mac80211|cfg80211' || true) > "$OUT/modules-after.txt"
+          (iw phy || true) > "$OUT/iw-phy.txt" 2>&1
+          (iw dev || true) > "$OUT/iw-dev.txt" 2>&1
+          (iw reg get || true) > "$OUT/iw-reg.txt" 2>&1
+          (hostapd -v || true) > "$OUT/hostapd-version.txt" 2>&1
+          (wpa_supplicant -v || true) > "$OUT/wpa-version.txt" 2>&1
+
+          phy_count=$(find /sys/class/ieee80211 -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l)
+          hwsim_loaded=0
+          lsmod | grep -q '^mac80211_hwsim ' && hwsim_loaded=1 || true
+
+          export load_rc phy_count hwsim_loaded
+          python3 -c 'import json,os; lr=int(os.environ["load_rc"]); pc=int(os.environ["phy_count"]); hl=int(os.environ["hwsim_loaded"]); print(json.dumps({"schema":"wrt3200acm-easymesh-e1-hwsim-preflight/v1","modprobe_rc":lr,"hwsim_loaded":bool(hl),"phy_count":pc,"ready_for_e1":bool(hl and pc>=3)},indent=2,sort_keys=True))' > "$OUT/verdict.json"
+
+          cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload E1 preflight evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-easymesh-e1-hwsim-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-e1/out
+          if-no-files-found: error
+          retention-days: 7
