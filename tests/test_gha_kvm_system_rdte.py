@@ -372,8 +372,11 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('truenas_session_runner.py', text)
         self.assertIn('truenas_existing_probe_capsule_executor.py', text)
         self.assertIn('"session_execution":', text)
-        self.assertIn('session.get("classification")!="SESSION_CLEAN"', text)
-        self.assertIn('caps[0].get("verdict")!="SUPPORTED"', text)
+        self.assertIn('SESSION_CAPSULE_VERDICT=', text)
+        self.assertIn('fail_evidence "$SESSION_CAPSULE_VERDICT"', text)
+        self.assertIn('SESSION_OK=', text)
+        self.assertIn('session.get("classification")=="SESSION_CLEAN"', text)
+        self.assertIn('caps[0].get("verdict")=="SUPPORTED"', text)
         self.assertIn('provider.get("classification")!="SUPPORTED"', text)
         self.assertIn('provider.get("oracleSatisfied") is not True', text)
 
