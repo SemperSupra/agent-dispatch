@@ -1,0 +1,20 @@
+name: FRITZ E2 D18g cross-oracle gate
+
+on:
+  pull_request:
+    paths:
+      - "evidence/fritz-e2-d18g-cross-oracle.json"
+      - "tests/test_fritz_e2_d18g_cross_oracle.py"
+      - ".github/workflows/fritz-e2-d18g-cross-oracle.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_e2_d18g_cross_oracle.py
