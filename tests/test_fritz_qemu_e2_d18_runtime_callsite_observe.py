@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import unittest
 
@@ -74,6 +75,13 @@ class D18Tests(unittest.TestCase):
         self.assertEqual(text.count("\ncontinue"), 2)
         self.assertIn("\ndetach\n", text)
         self.assertIn("\nquit\n", text)
+
+    def test_attach_control_serialization_is_single_parseable_json_value(self):
+        rendered = d18.serialize_attach_control_result({"classification": "typed"})
+        self.assertEqual(json.loads(rendered), {"classification": "typed"})
+        self.assertTrue(rendered.endswith("\n"))
+        self.assertFalse(rendered.endswith("\\n"))
+
 
     def test_isolated_interface_names_parses_ip_o_shape(self):
         text = "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 state UNKNOWN mode DEFAULT\n"
