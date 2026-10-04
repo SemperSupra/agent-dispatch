@@ -87,13 +87,16 @@ jobs:
           compile_rc=99
 
           if [ "$feeds_update_rc" -eq 0 ] && [ "$feeds_install_rc" -eq 0 ] && [ "$target_present" -eq 1 ]; then
-            printf '%s\n' 'CONFIG_PACKAGE_prplmesh=m' >> .config
+            # SDK seeds CONFIG_ALL/CONFIG_ALL_NONSHARED, which otherwise
+            # selects every installed feed package as a module. Clear those
+            # global selectors before selecting only prplmesh.
+            ./scripts/config --disable ALL --disable ALL_NONSHARED --disable ALL_KMODS --disable TARGET_ALL_PROFILES --disable DEVEL --module PACKAGE_prplmesh --disable PACKAGE_prplmesh-unit-tests --disable PACKAGE_prplmesh-dm-mapper --disable PACKAGE_prplmesh-process-manager --disable PRPLMESH_ENABLE_UNIT_TESTS --disable PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND --disable USE_PRPLMESH_WHM
 
             set +e
             make defconfig > "$OUT/defconfig-initial.log" 2>&1
             initial_defconfig_rc=$?
             if [ "$initial_defconfig_rc" -eq 0 ]; then
-              ./scripts/config                 --module PACKAGE_prplmesh                 --disable PACKAGE_prplmesh-unit-tests                 --disable PACKAGE_prplmesh-dm-mapper                 --disable PACKAGE_prplmesh-process-manager                 --disable PRPLMESH_ENABLE_UNIT_TESTS                 --disable PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND                 --disable USE_PRPLMESH_WHM
+              ./scripts/config --disable ALL --disable ALL_NONSHARED --disable ALL_KMODS --disable TARGET_ALL_PROFILES --module PACKAGE_prplmesh --disable PACKAGE_prplmesh-unit-tests --disable PACKAGE_prplmesh-dm-mapper --disable PACKAGE_prplmesh-process-manager --disable PRPLMESH_ENABLE_UNIT_TESTS --disable PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND --disable USE_PRPLMESH_WHM
               make defconfig > "$OUT/defconfig.log" 2>&1
               defconfig_rc=$?
             fi
