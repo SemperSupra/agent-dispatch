@@ -1,0 +1,126 @@
+name: WRT EasyMesh CP0 SDK Preflight
+
+on:
+  push:
+    branches:
+      - wrt-easymesh-cp0-sdk-preflight-20261004
+    paths:
+      - '.github/workflows/wrt-easymesh-cp0-sdk-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cp0-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Probe OpenWrt SDK and prplMesh package integration
+        shell: bash
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/cp0/out"
+          cd "$RUNNER_TEMP/cp0"
+
+          SDK_NAME='openwrt-sdk-25.12.5-mvebu-cortexa9_gcc-14.3.0_musl_eabi.Linux-x86_64'
+          SDK_ARCHIVE="$SDK_NAME.tar.zst"
+          SDK_URL="https://downloads.openwrt.org/releases/25.12.5/targets/mvebu/cortexa9/$SDK_ARCHIVE"
+          SDK_SHA='6b24abad1feee5f071a53872ed355ae4c2a90017b00ff99907183b56b31d995a'
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential git curl zstd rsync gawk gettext libncurses-dev unzip file jq >/dev/null
+
+          {
+            echo "sdk_url=$SDK_URL"
+            echo "sdk_expected_sha256=$SDK_SHA"
+            echo "runner=$(uname -a)"
+          } > out/identity.txt
+
+          curl -fL --retry 2 --connect-timeout 20 "$SDK_URL" -o "$SDK_ARCHIVE"
+          got=$(sha256sum "$SDK_ARCHIVE" | awk '{print $1}')
+          echo "sdk_observed_sha256=$got" >> out/identity.txt
+          test "$got" = "$SDK_SHA" || { echo "SDK hash mismatch" | tee out/fatal.txt; exit 2; }
+
+          tar --use-compress-program=unzstd -xf "$SDK_ARCHIVE"
+          SDK="$RUNNER_TEMP/cp0/$SDK_NAME"
+
+          git clone -q --depth 1 --branch 6.0.1 https://gitlab.com/prpl-foundation/prplmesh/prplMesh.git prplMesh
+          git -C prplMesh rev-parse HEAD > out/prplmesh_sha.txt
+          git -C prplMesh describe --tags --always > out/prplmesh_describe.txt
+
+          git clone -q --depth 1 https://gitlab.com/prpl-foundation/prplos/feeds/feed-prplmesh.git feed-prplmesh
+          git -C feed-prplmesh rev-parse HEAD > out/feed_prplmesh_sha.txt
+
+          find feed-prplmesh -maxdepth 5 -type f -name Makefile -print | sort > out/feed_makefiles.txt
+          grep -RniE 'PKG_NAME.*prpl|prpl[Mm]esh|USE_SOURCE_DIR|PKG_SOURCE' feed-prplmesh             > out/feed_prplmesh_recipe_hits.txt 2>&1 || true
+
+          cd "$SDK"
+          cp feeds.conf.default feeds.conf
+          printf '\nsrc-link prplmesh %s\n' "$RUNNER_TEMP/cp0/feed-prplmesh" >> feeds.conf
+          ./scripts/feeds update prplmesh > "$RUNNER_TEMP/cp0/out/feeds_update.log" 2>&1
+          feed_update_rc=$?
+          ./scripts/feeds install -a -p prplmesh > "$RUNNER_TEMP/cp0/out/feeds_install.log" 2>&1
+          feed_install_rc=$?
+
+          find package/feeds/prplmesh -maxdepth 5 -type f -name Makefile -print 2>/dev/null | sort             > "$RUNNER_TEMP/cp0/out/installed_feed_makefiles.txt" || true
+          grep -RniE 'PKG_NAME.*prpl|prpl[Mm]esh|USE_SOURCE_DIR' package/feeds/prplmesh             > "$RUNNER_TEMP/cp0/out/installed_recipe_hits.txt" 2>&1 || true
+
+          target=""
+          while IFS= read -r mf; do
+            if grep -qiE 'PKG_NAME.*prplmesh|PKG_TITLE.*prplmesh' "$mf"; then
+              rel="${mf#package/feeds/prplmesh/}"
+              target="package/feeds/prplmesh/${rel%/Makefile}"
+              break
+            fi
+          done < "$RUNNER_TEMP/cp0/out/installed_feed_makefiles.txt"
+
+          prepare_rc=99
+          compile_rc=99
+          if [ -n "$target" ]; then
+            echo "$target" > "$RUNNER_TEMP/cp0/out/selected_package_target.txt"
+            set +e
+            make -j2 "$target/prepare" USE_SOURCE_DIR="$RUNNER_TEMP/cp0/prplMesh"               > "$RUNNER_TEMP/cp0/out/prepare.log" 2>&1
+            prepare_rc=$?
+            if [ "$prepare_rc" -eq 0 ]; then
+              make -j2 "$target/compile" USE_SOURCE_DIR="$RUNNER_TEMP/cp0/prplMesh" V=s                 > "$RUNNER_TEMP/cp0/out/compile.log" 2>&1
+              compile_rc=$?
+            fi
+            set -e
+          else
+            echo "No primary prplMesh package target auto-detected" > "$RUNNER_TEMP/cp0/out/no_target.txt"
+          fi
+
+          find "$SDK/bin/packages" -type f -name '*.ipk' -printf '%P\t%s\n' 2>/dev/null | sort             > "$RUNNER_TEMP/cp0/out/ipks.txt" || true
+
+          FEED_UPDATE_RC="$feed_update_rc" FEED_INSTALL_RC="$feed_install_rc"           PREPARE_RC="$prepare_rc" COMPILE_RC="$compile_rc" TARGET="$target"           python3 - <<'PY' > "$RUNNER_TEMP/cp0/out/verdict.json"
+          import json, os
+          print(json.dumps({
+              "schema": "wrt-easymesh-cp0-sdk-preflight/v1",
+              "feed_update_rc": int(os.environ["FEED_UPDATE_RC"]),
+              "feed_install_rc": int(os.environ["FEED_INSTALL_RC"]),
+              "selected_target": os.environ["TARGET"] or None,
+              "prepare_rc": int(os.environ["PREPARE_RC"]),
+              "compile_rc": int(os.environ["COMPILE_RC"]),
+              "compile_attempted": int(os.environ["PREPARE_RC"]) == 0,
+              "passed": int(os.environ["COMPILE_RC"]) == 0,
+          }, indent=2, sort_keys=True))
+          PY
+
+          {
+            echo "### CP0 SDK preflight"
+            cat "$RUNNER_TEMP/cp0/out/verdict.json"
+            echo
+            echo "prplMesh SHA: $(cat "$RUNNER_TEMP/cp0/out/prplmesh_sha.txt")"
+            echo "feed-prplmesh SHA: $(cat "$RUNNER_TEMP/cp0/out/feed_prplmesh_sha.txt")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit 0
+
+      - name: Upload CP0 preflight evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-easymesh-cp0-sdk-preflight-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cp0/out
+          if-no-files-found: error
+          retention-days: 7
