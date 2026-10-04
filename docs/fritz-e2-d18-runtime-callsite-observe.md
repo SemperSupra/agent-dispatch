@@ -108,3 +108,27 @@ a discriminator.
 
 No runtime calls, breakpoints, target files, network exposure, wire capture, or
 HIL authority are added by D18c.
+
+
+## D18e shared downstream `_svctl_send` observation
+
+D18d corrected the earlier observation-role model and mechanically earned the
+shared `_svctl_send -> send` path as the next runtime role. D18e therefore
+moves exactly one step downstream. Before any runtime claim, the exact pinned
+D13/D14 topology must reproduce all three edges:
+
+- `_svctl_init -> _svctl_send`;
+- `_svctl_send_pkt -> _svctl_send`;
+- `_svctl_send -> send`.
+
+Only after that precondition passes does the debugger bind the shared-library
+symbol `_svctl_send` across the existing pre-status / start / post-status
+transaction. Host strace and same-run wire capture remain excluded.
+
+The reducer is unchanged in spirit: only scalar classes, bounded memory-digest
+presence/equality relations, hit completeness, and pre/post status stability
+are durable. A start discriminator is accepted only on a dimension stable
+across both status controls. A typed negative is an acceptable result.
+
+D18e does not infer protocol enums, packet layout, downstream offsets, physical
+router semantics, or modified-HIL authority.

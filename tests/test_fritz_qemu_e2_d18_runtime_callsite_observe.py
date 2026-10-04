@@ -76,6 +76,17 @@ class D18Tests(unittest.TestCase):
         self.assertIn("\ndetach\n", text)
         self.assertIn("\nquit\n", text)
 
+    def test_gdb_single_downstream_observation_continues_once_then_detaches(self):
+        text = d18.gdb_command_text(
+            pathlib.Path("/tmp/root"),
+            25480,
+            {"_svctl_send": "_svctl_send"},
+        )
+        self.assertEqual(text.count("\ncontinue"), 1)
+        self.assertIn("FRITZGDBSTAGE:post_continue_1", text)
+        self.assertNotIn("FRITZGDBSTAGE:post_continue_2", text)
+        self.assertIn("\ndetach\n", text)
+
     def test_attach_control_serialization_is_single_parseable_json_value(self):
         rendered = d18.serialize_attach_control_result({"classification": "typed"})
         self.assertEqual(json.loads(rendered), {"classification": "typed"})
@@ -253,6 +264,48 @@ class D18Tests(unittest.TestCase):
             "E2_D18C_NO_RUNTIME_DISCRIMINATOR",
         )
 
+
+    def test_d18e_static_and_runtime_workdirs_are_disjoint(self):
+        args = type("Args", (), {})()
+        args.work_dir = "/tmp/fritz-d18e"
+        args.objdump = "objdump"
+        static = d18.d18e_scoped_args(args, "static")
+        runtime = d18.d18e_scoped_args(args, "runtime")
+        self.assertNotEqual(static.work_dir, runtime.work_dir)
+        self.assertTrue(static.work_dir.endswith("/static"))
+        self.assertTrue(runtime.work_dir.endswith("/runtime"))
+        self.assertEqual(static.objdump, "objdump")
+        self.assertEqual(runtime.objdump, "objdump")
+
+    def test_downstream_parser_accepts_only_earned_target(self):
+        raw = 'FRITZOBS:{"target":"_svctl_send","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n' \
+              'FRITZOBS:{"target":"_svctl_init","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n'
+        obs = d18.parse_gdb_observations(raw, d18.DOWNSTREAM_TARGETS)
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["target"], "_svctl_send")
+
+    def test_downstream_classifier_requires_complete_rep(self):
+        ready = {
+            "allCallsInstrumentationReady": True,
+            "allExpectedTargetHits": True,
+            "stableDimensionDiscriminatorCount": 0,
+            "unstableStatusDimensionCount": 0,
+        }
+        self.assertEqual(
+            d18.classify_downstream_send(ready),
+            "E2_D18E_DOWNSTREAM_SEND_NO_RUNTIME_DISCRIMINATOR",
+        )
+        ready["stableDimensionDiscriminatorCount"] = 1
+        self.assertEqual(
+            d18.classify_downstream_send(ready),
+            "E2_D18E_DOWNSTREAM_SEND_STABLE_DISCRIMINATOR_FOUND",
+        )
+        ready["stableDimensionDiscriminatorCount"] = 0
+        ready["allExpectedTargetHits"] = False
+        self.assertEqual(
+            d18.classify_downstream_send(ready),
+            "E2_D18E_DOWNSTREAM_SEND_INSTRUMENTATION_INCOMPLETE",
+        )
 
     def test_status_stability_and_start_difference(self):
         status = [obs("_svctl_init", d0="aa"), obs("_svctl_send_pkt", d0="cc")]

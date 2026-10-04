@@ -47,6 +47,7 @@ d14 = d17.d14
 SCHEMA_VERSION = 1
 EXPERIMENT = "fritz-qemu-e2-d18-runtime-callsite-observe/v1"
 TARGETS = ("_svctl_init", "_svctl_send_pkt")
+DOWNSTREAM_TARGETS = ("_svctl_send",)
 MEMORY_SIZES = (8, 260)
 _RECORD_RE = re.compile(
     r"^\s*(?P<addr>[0-9a-fA-F]+):\s+(?:[0-9a-fA-F]{2,8}\s+)+(?P<asm>.+)$"
@@ -141,6 +142,14 @@ def gdb_command_text(
         f"Obs({json.dumps(spec)}, {json.dumps(target)})"
         for target, spec in sorted(breakpoint_specs.items())
     )
+    continue_lines = "\n".join(
+        line
+        for index in range(1, len(breakpoint_specs) + 1)
+        for line in (
+            "continue",
+            f"echo FRITZGDBSTAGE:post_continue_{index}\\n",
+        )
+    )
     return f"""set pagination off
 set confirm off
 set breakpoint pending on
@@ -212,10 +221,7 @@ class Obs(gdb.Breakpoint):
 {bp_lines}
 end
 echo FRITZGDBSTAGE:post_breakpoints\\n
-continue
-echo FRITZGDBSTAGE:post_continue_1\\n
-continue
-echo FRITZGDBSTAGE:post_continue_2\\n
+{continue_lines}
 detach
 echo FRITZGDBSTAGE:post_detach\\n
 quit
@@ -276,7 +282,7 @@ def classify_gdb_attach_error(stdout: str, stderr: str) -> str | None:
     return None
 
 
-def parse_gdb_observations(stdout: str) -> list[dict]:
+def parse_gdb_observations(stdout: str, targets: tuple[str, ...] = TARGETS) -> list[dict]:
     out = []
     for line in stdout.splitlines():
         if not line.startswith("FRITZOBS:"):
@@ -285,7 +291,7 @@ def parse_gdb_observations(stdout: str) -> list[dict]:
             record = json.loads(line.split(":", 1)[1])
         except json.JSONDecodeError:
             continue
-        if record.get("target") not in TARGETS:
+        if record.get("target") not in targets:
             continue
         args = record.get("args")
         if not isinstance(args, dict) or set(args) != {"a0", "a1", "a2", "a3"}:
@@ -594,6 +600,8 @@ def instrumented_svctl_call(
     service: str,
     *,
     host_strace: bool = True,
+    targets: tuple[str, ...] = TARGETS,
+    require_d17_callsites: bool = True,
 ) -> dict:
     stage = "tool_discovery"
     try:
@@ -612,38 +620,26 @@ def instrumented_svctl_call(
     # ET_EXEC binaries we can break at the callsite itself. For PIE/ET_DYN,
     # preserve that provenance constraint but bind GDB to the exported function
     # entry symbol so relocation is handled by the dynamic loader/GDB.
-        callsites = locate_callsite_addresses(exe, objdump)
-        if etype == "EXEC":
-            binding_mode = "static_callsite"
-            breakpoint_specs = {
-                target: f"*0x{address:x}"
-                for target, address in callsites.items()
-            }
-        elif etype == "DYN":
-            binding_mode = "symbol_entry"
-            breakpoint_specs = {target: target for target in TARGETS}
+        if require_d17_callsites:
+            callsites = locate_callsite_addresses(exe, objdump)
+            if etype == "EXEC":
+                binding_mode = "static_callsite"
+                breakpoint_specs = {
+                    target: f"*0x{address:x}"
+                    for target, address in callsites.items()
+                }
+            elif etype == "DYN":
+                binding_mode = "symbol_entry"
+                breakpoint_specs = {target: target for target in targets}
+            else:
+                raise RuntimeError(f"unsupported svctl ELF type: {etype}")
         else:
-            return {
-                "verb": verb,
-                "service": service,
-                "exitCode": None,
-                "stdoutBytes": 0,
-                "stdoutSha256": None,
-                "stderrBytes": 0,
-                "missingGuestPaths": [],
-                "stateMarkers": [],
-                "controllerVocabulary": r6.binary_state_vocabulary(root),
-                "wireCapture": {},
-                "instrumentation": {
-                    "ready": False,
-                    "reason": "unsupported_elf_type",
-                    "elfType": etype,
-                    "bindingMode": "unsupported",
-                    "observations": [],
-                    "rawDebuggerOutputPublished": False,
-                },
-                "rawOutputPublished": False,
-            }
+            if etype != "DYN":
+                raise RuntimeError(
+                    f"downstream shared-symbol binding requires ET_DYN svctl, got {etype}"
+                )
+            binding_mode = "shared_symbol_entry"
+            breakpoint_specs = {target: target for target in targets}
 
         port = _next_port()
 
@@ -715,7 +711,7 @@ def instrumented_svctl_call(
                 stdout, stderr = proc.communicate(timeout=2)
 
         stage = "postprocess"
-        observations = parse_gdb_observations(gdb_stdout)
+        observations = parse_gdb_observations(gdb_stdout, targets)
         wire = (
             r9.parse_wire_trace(stderr)
             if host_strace
@@ -878,6 +874,42 @@ def debugger_only_namespace_helper(args: argparse.Namespace) -> int:
         r6.svctl_call = original
 
 
+def safe_downstream_send_svctl_call(
+    root: pathlib.Path,
+    env: dict,
+    verb: str,
+    service: str,
+) -> dict:
+    try:
+        return instrumented_svctl_call(
+            root,
+            env,
+            verb,
+            service,
+            host_strace=False,
+            targets=DOWNSTREAM_TARGETS,
+            require_d17_callsites=False,
+        )
+    except Exception as exc:
+        return instrumentation_failure_result(
+            root,
+            verb,
+            service,
+            type(exc).__name__,
+            "downstream_send_outer_wrapper",
+            host_strace=False,
+        )
+
+
+def downstream_send_namespace_helper(args: argparse.Namespace) -> int:
+    original = r6.svctl_call
+    r6.svctl_call = safe_downstream_send_svctl_call
+    try:
+        return r6.namespace_helper(args)
+    finally:
+        r6.svctl_call = original
+
+
 def namespace_helper(args: argparse.Namespace) -> int:
     original = r6.svctl_call
     # Keep the R6 transaction alive even when debugger binding fails so the
@@ -901,11 +933,11 @@ def canonical_observations(call: dict | None) -> list[dict]:
     return sorted(obs, key=lambda x: json.dumps(x, sort_keys=True))
 
 
-def _target_arg_index(obs: list[dict]) -> dict[str, dict]:
+def _target_arg_index(obs: list[dict], targets: tuple[str, ...] = TARGETS) -> dict[str, dict]:
     out = {}
     for item in obs:
         target = item.get("target")
-        if target in TARGETS and target not in out:
+        if target in targets and target not in out:
             out[target] = item.get("args", {})
     return out
 
@@ -975,7 +1007,7 @@ def compare_argument_dimensions(
     }
 
 
-def summarize_instrumentation(runtime: dict) -> dict:
+def summarize_instrumentation(runtime: dict, targets: tuple[str, ...] = TARGETS) -> dict:
     pre = canonical_observations(runtime.get("preStatus"))
     start = canonical_observations(runtime.get("start"))
     post = canonical_observations(runtime.get("postStatus"))
@@ -1017,13 +1049,13 @@ def summarize_instrumentation(runtime: dict) -> dict:
     status_stable = bool(all_ready and pre == post)
     start_differs = bool(all_ready and start != pre)
 
-    pre_idx = _target_arg_index(pre)
-    start_idx = _target_arg_index(start)
-    post_idx = _target_arg_index(post)
+    pre_idx = _target_arg_index(pre, targets)
+    start_idx = _target_arg_index(start, targets)
+    post_idx = _target_arg_index(post, targets)
     per_target = []
     stable_dimension_discriminators = 0
     unstable_status_dimensions = 0
-    for target in TARGETS:
+    for target in targets:
         p = pre_idx.get(target)
         s = start_idx.get(target)
         q = post_idx.get(target)
@@ -1117,9 +1149,9 @@ def run_debugger_only_probe(args: argparse.Namespace) -> dict:
             "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
             "--debugger-only-namespace-helper", "--root", str(root),
             "--namespace-result", str(ns_result),
-            "--control-wait-seconds", str(args.control_wait_seconds),
-            "--verify-seconds", str(args.verify_seconds),
-            "--sample-interval-seconds", str(args.sample_interval_seconds),
+            "--control-wait-seconds", str(runtime_args.control_wait_seconds),
+            "--verify-seconds", str(runtime_args.verify_seconds),
+            "--sample-interval-seconds", str(runtime_args.sample_interval_seconds),
         ],
         timeout=max(60, int(args.control_wait_seconds + args.verify_seconds) + 45),
     )
@@ -1229,6 +1261,147 @@ def run_dimension_stable_probe(args: argparse.Namespace) -> dict:
     return data
 
 
+def classify_downstream_send(instrument: dict) -> str:
+    if (
+        not instrument.get("allCallsInstrumentationReady")
+        or not instrument.get("allExpectedTargetHits")
+    ):
+        return "E2_D18E_DOWNSTREAM_SEND_INSTRUMENTATION_INCOMPLETE"
+    if instrument.get("stableDimensionDiscriminatorCount", 0) > 0:
+        return "E2_D18E_DOWNSTREAM_SEND_STABLE_DISCRIMINATOR_FOUND"
+    if instrument.get("unstableStatusDimensionCount", 0) > 0:
+        return "E2_D18E_DOWNSTREAM_SEND_UNSTABLE_STATUS_NO_DISCRIMINATOR"
+    return "E2_D18E_DOWNSTREAM_SEND_NO_RUNTIME_DISCRIMINATOR"
+
+
+def d18e_scoped_args(args: argparse.Namespace, scope: str) -> argparse.Namespace:
+    scoped = argparse.Namespace(**vars(args))
+    scoped.work_dir = str(pathlib.Path(args.work_dir).resolve() / scope)
+    return scoped
+
+
+def run_downstream_send_probe(args: argparse.Namespace) -> dict:
+    static_args = d18e_scoped_args(args, "static")
+    runtime_args = d18e_scoped_args(args, "runtime")
+    static = d14.run_probe(static_args)
+    edges = {
+        (edge["source"], edge["target"])
+        for edge in static["library"]["combinedAcceptedCallEdges"]
+    }
+    role_earned = bool(
+        static.get("oracleSatisfied")
+        and ("_svctl_init", "_svctl_send") in edges
+        and ("_svctl_send_pkt", "_svctl_send") in edges
+        and ("_svctl_send", "send") in edges
+    )
+    if not role_earned:
+        raise RuntimeError("D18d downstream send role did not reproduce")
+
+    root, meta = r6.prepare_root(runtime_args)
+    ns_result = pathlib.Path(runtime_args.work_dir).resolve() / "namespace-result-d18e.json"
+    cp = r6._run(
+        [
+            "sudo", "-n", "unshare", "--net", "--pid", "--fork", "--kill-child",
+            "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
+            "--downstream-send-namespace-helper", "--root", str(root),
+            "--namespace-result", str(ns_result),
+            "--control-wait-seconds", str(args.control_wait_seconds),
+            "--verify-seconds", str(args.verify_seconds),
+            "--sample-interval-seconds", str(args.sample_interval_seconds),
+        ],
+        timeout=max(
+            60,
+            int(runtime_args.control_wait_seconds + runtime_args.verify_seconds) + 45,
+        ),
+    )
+    if cp.returncode != 0:
+        raise RuntimeError(
+            f"isolated D18e probe failed (exit={cp.returncode}, "
+            f"stderrBytes={len(cp.stderr.encode())})"
+        )
+    if not ns_result.exists():
+        raise RuntimeError("D18e namespace probe emitted no result")
+
+    runtime = json.loads(ns_result.read_text(encoding="utf-8"))
+    instrument = summarize_instrumentation(runtime, DOWNSTREAM_TARGETS)
+    classification = classify_downstream_send(instrument)
+    oracle = bool(
+        runtime.get("probeCompleted")
+        and role_earned
+        and instrument.get("allCallsInstrumentationReady")
+        and instrument.get("allExpectedTargetHits")
+    )
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "experiment": "fritz-qemu-e2-d18e-downstream-send/v1",
+        "classification": classification,
+        "oracleSatisfied": oracle,
+        **meta,
+        "transaction": {
+            "inspect": ["svctl", "status", "ctlmgr"],
+            "apply": ["svctl", "start", "ctlmgr"],
+            "applyCount": 1 if runtime.get("start", {}).get("exitCode") is not None else 0,
+            "verify": ["svctl", "status", "ctlmgr"],
+            "disposalIsRollback": True,
+        },
+        "staticPrecondition": {
+            "d18dDownstreamRoleReproduced": role_earned,
+            "initToSend": ("_svctl_init", "_svctl_send") in edges,
+            "sendPktToSend": ("_svctl_send_pkt", "_svctl_send") in edges,
+            "sendToLibcSend": ("_svctl_send", "send") in edges,
+        },
+        "wireOracle": {
+            "sameRunCaptureAttempted": False,
+            "sameRunCaptureRequired": False,
+            "independentAcceptedR9EvidencePreserved": True,
+        },
+        "instrumentation": instrument,
+        "runtimeSummary": {
+            "statusChanged": runtime.get("statusChanged"),
+            "ctlmgrProcessObserved": runtime.get("ctlmgrProcessObserved"),
+            "maxCtlmgrProcessCount": runtime.get("maxCtlmgrProcessCount"),
+        },
+        "interpretationBoundary": {
+            "d18dDownstreamRoleRequired": True,
+            "observedRole": "_svctl_send_entry",
+            "sharedSymbolBindingOnly": True,
+            "d17CallerCallsitesNotReusedAsFunctionEntries": True,
+            "argumentScalarClassesAndMemoryDigestsOnly": True,
+            "dimensionLevelStatusControlRequired": True,
+            "prePostStatusStabilityRequiredForDifferenceClaim": True,
+            "hostStraceExcludedFromSvctlCalls": True,
+            "sameRunWireCaptureExcluded": True,
+            "independentR9WireOracleNotReinterpreted": True,
+            "digestValuesPublished": False,
+            "protocolEnumValuesAccepted": False,
+            "packetFieldLayoutAccepted": False,
+            "noAdditionalDownstreamPointEarned": True,
+        },
+        "safety": {
+            "rawFirmwarePublished": False,
+            "rootfsPublished": False,
+            "rawControlPayloadPublished": False,
+            "controlPayloadPersisted": False,
+            "rawHostStracePublished": False,
+            "rawDebuggerOutputPublished": False,
+            "rawRegisterValuesPublished": False,
+            "rawPointedMemoryPublished": False,
+            "callsiteAddressesPublished": False,
+            "physicalRouterContact": False,
+            "routerMutationAuthorized": False,
+            "externalNetworkAvailableToTarget": False,
+            "targetSpecificShimAdded": False,
+            "shippedFilesModified": False,
+            "genericRuntimeFixtureAdded": True,
+            "onlyVarTmpCreated": True,
+            "serviceStartRequested": True,
+            "serviceStartCountMaximum": 1,
+            "sameRunWireCaptureAttempted": False,
+            "disposableEmulatorMutationOnly": True,
+        },
+    }
+
+
 def run_probe(args: argparse.Namespace) -> dict:
     root, meta = r6.prepare_root(args)
     ns_result = pathlib.Path(args.work_dir).resolve() / "namespace-result-d18.json"
@@ -1319,6 +1492,7 @@ def parse_args(argv=None):
     p.add_argument("--firmware-url")
     p.add_argument("--expected-size", type=int)
     p.add_argument("--expected-sha256")
+    p.add_argument("--objdump", default="mips-linux-gnu-objdump")
     p.add_argument("--work-dir")
     p.add_argument("--receipt")
     p.add_argument("--control-wait-seconds", type=float, default=2.0)
@@ -1331,6 +1505,8 @@ def parse_args(argv=None):
     p.add_argument("--debugger-only-transaction", action="store_true")
     p.add_argument("--dimension-stable-transaction", action="store_true")
     p.add_argument("--debugger-only-namespace-helper", action="store_true")
+    p.add_argument("--downstream-send-transaction", action="store_true")
+    p.add_argument("--downstream-send-namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
     return p.parse_args(argv)
@@ -1350,6 +1526,10 @@ def main(argv=None):
         if not args.root or not args.namespace_result:
             raise SystemExit("debugger-only helper requires root/result")
         return debugger_only_namespace_helper(args)
+    if args.downstream_send_namespace_helper:
+        if not args.root or not args.namespace_result:
+            raise SystemExit("downstream-send helper requires root/result")
+        return downstream_send_namespace_helper(args)
 
     required = (
         args.firmware_url, args.expected_size, args.expected_sha256,
@@ -1363,6 +1543,8 @@ def main(argv=None):
     try:
         if args.attach_only_control:
             data = run_attach_control(args)
+        elif args.downstream_send_transaction:
+            data = run_downstream_send_probe(args)
         elif args.dimension_stable_transaction:
             data = run_dimension_stable_probe(args)
         elif args.debugger_only_transaction:
