@@ -1476,6 +1476,7 @@ def parse_args(argv=None):
     p.add_argument("--firmware-url")
     p.add_argument("--expected-size", type=int)
     p.add_argument("--expected-sha256")
+    p.add_argument("--objdump", default="mips-linux-gnu-objdump")
     p.add_argument("--work-dir")
     p.add_argument("--receipt")
     p.add_argument("--control-wait-seconds", type=float, default=2.0)
