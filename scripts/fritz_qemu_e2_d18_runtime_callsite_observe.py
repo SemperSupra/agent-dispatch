@@ -565,11 +565,35 @@ def run_attach_control(args: argparse.Namespace) -> dict:
     }
 
 
+def instrumented_svctl_launch_argv(
+    root: pathlib.Path,
+    port: int,
+    verb: str,
+    service: str,
+    *,
+    host_strace: bool,
+) -> list[str]:
+    target = [
+        "chroot", str(root), r6.QEMU_GUEST_PATH, "-cpu", r6.CPU_PROFILE,
+        "-g", str(port), r6.SVCTL, verb, service,
+    ]
+    if not host_strace:
+        return target
+    return [
+        "strace", "-f", "-qq", "-xx", "-s", "8192",
+        "-e",
+        "trace=socket,connect,read,write,sendto,recvfrom,sendmsg,recvmsg,writev,readv,close",
+        *target,
+    ]
+
+
 def instrumented_svctl_call(
     root: pathlib.Path,
     env: dict,
     verb: str,
     service: str,
+    *,
+    host_strace: bool = True,
 ) -> dict:
     stage = "tool_discovery"
     try:
@@ -630,16 +654,12 @@ def instrumented_svctl_call(
                 encoding="utf-8",
             )
 
-            strace_argv = [
-                "strace", "-f", "-qq", "-xx", "-s", "8192",
-                "-e",
-                "trace=socket,connect,read,write,sendto,recvfrom,sendmsg,recvmsg,writev,readv,close",
-                "chroot", str(root), r6.QEMU_GUEST_PATH, "-cpu", r6.CPU_PROFILE,
-                "-g", str(port), r6.SVCTL, verb, service,
-            ]
+            launch_argv = instrumented_svctl_launch_argv(
+                root, port, verb, service, host_strace=host_strace
+            )
             stage = "process_launch"
             proc = subprocess.Popen(
-                strace_argv,
+                launch_argv,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -696,7 +716,11 @@ def instrumented_svctl_call(
 
         stage = "postprocess"
         observations = parse_gdb_observations(gdb_stdout)
-        wire = r9.parse_wire_trace(stderr)
+        wire = (
+            r9.parse_wire_trace(stderr)
+            if host_strace
+            else {"captureComplete": False, "captureAttempted": False}
+        )
         vocab = r6.binary_state_vocabulary(root)
         allowed = set(vocab.get(r6.SVCTL, {})) | set(vocab.get(r6.SUPERVISOR, {}))
         gdb_connection_seen = any(
@@ -709,7 +733,7 @@ def instrumented_svctl_call(
             and gdb_returncode == 0
             and proc.returncode is not None
             and observations
-            and wire.get("captureComplete") is True
+            and (wire.get("captureComplete") is True if host_strace else True)
         )
         return {
             "verb": verb,
@@ -728,10 +752,12 @@ def instrumented_svctl_call(
                     "ok" if ready
                     else "gdb_listener_not_ready" if not gdb_listener_ready
                     else "gdb_timeout" if gdb_timed_out
-                    else "debugger_or_wire_incomplete"
+                    else "debugger_or_wire_incomplete" if host_strace
+                    else "debugger_incomplete"
                 ),
                 "elfType": etype,
                 "bindingMode": binding_mode,
+                "hostStraceUsed": host_strace,
                 "observationCount": len(observations),
                 "observations": observations,
                 "gdbExitClass": (
@@ -763,6 +789,7 @@ def instrumented_svctl_call(
             service,
             type(exc).__name__,
             stage,
+            host_strace=host_strace,
         )
 
 def instrumentation_failure_result(
@@ -771,6 +798,8 @@ def instrumentation_failure_result(
     service: str,
     error_type: str,
     error_stage: str = "instrumented_svctl_call",
+    *,
+    host_strace: bool | None = None,
 ) -> dict:
     """Return a sanitized typed instrumentation failure without raw debugger data."""
     vocab = r6.binary_state_vocabulary(root)
@@ -792,6 +821,7 @@ def instrumentation_failure_result(
             "errorStage": error_stage,
             "elfType": None,
             "bindingMode": None,
+            "hostStraceUsed": host_strace,
             "observationCount": 0,
             "observations": [],
             "gdbExitClass": None,
@@ -816,6 +846,36 @@ def safe_instrumented_svctl_call(
         return instrumentation_failure_result(
             root, verb, service, type(exc).__name__, "outer_wrapper"
         )
+
+
+def safe_debugger_only_svctl_call(
+    root: pathlib.Path,
+    env: dict,
+    verb: str,
+    service: str,
+) -> dict:
+    try:
+        return instrumented_svctl_call(
+            root, env, verb, service, host_strace=False
+        )
+    except Exception as exc:
+        return instrumentation_failure_result(
+            root,
+            verb,
+            service,
+            type(exc).__name__,
+            "debugger_only_outer_wrapper",
+            host_strace=False,
+        )
+
+
+def debugger_only_namespace_helper(args: argparse.Namespace) -> int:
+    original = r6.svctl_call
+    r6.svctl_call = safe_debugger_only_svctl_call
+    try:
+        return r6.namespace_helper(args)
+    finally:
+        r6.svctl_call = original
 
 
 def namespace_helper(args: argparse.Namespace) -> int:
@@ -868,6 +928,7 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "errorStage": (call.get("instrumentation") or {}).get("errorStage"),
             "elfType": (call.get("instrumentation") or {}).get("elfType"),
             "bindingMode": (call.get("instrumentation") or {}).get("bindingMode"),
+            "hostStraceUsed": (call.get("instrumentation") or {}).get("hostStraceUsed"),
             "observationCount": (call.get("instrumentation") or {}).get("observationCount", 0),
             "gdbExitClass": (call.get("instrumentation") or {}).get("gdbExitClass"),
             "gdbListenerSeen": (call.get("instrumentation") or {}).get("gdbListenerSeen"),
@@ -916,8 +977,13 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "startDifferingArgs": differing_args,
         })
 
+    all_expected_hits = all(
+        item["preHit"] and item["startHit"] and item["postHit"]
+        for item in per_target
+    )
     return {
         "allCallsInstrumentationReady": all_ready,
+        "allExpectedTargetHits": all_expected_hits,
         "prePostStatusEqual": status_stable,
         "startDiffersFromStatus": start_differs,
         "perTarget": per_target,
@@ -945,6 +1011,113 @@ def classify(runtime: dict, wire: dict, instrument: dict) -> str:
     if instrument.get("startDiffersFromStatus"):
         return "E2_D18_RUNTIME_ARGUMENT_CLASSES_DISTINGUISHED"
     return "E2_D18_RUNTIME_ARGUMENT_CLASSES_NOT_DISTINGUISHED"
+
+
+def classify_debugger_only(runtime: dict, instrument: dict) -> str:
+    if (
+        not instrument.get("allCallsInstrumentationReady")
+        or not instrument.get("allExpectedTargetHits")
+    ):
+        return "E2_D18B_INSTRUMENTATION_INCOMPLETE"
+    if not instrument.get("prePostStatusEqual"):
+        return "E2_D18B_STATUS_INSTRUMENTATION_UNSTABLE"
+    if instrument.get("startDiffersFromStatus"):
+        return "E2_D18B_RUNTIME_ARGUMENT_CLASSES_DISTINGUISHED"
+    return "E2_D18B_RUNTIME_ARGUMENT_CLASSES_NOT_DISTINGUISHED"
+
+
+def run_debugger_only_probe(args: argparse.Namespace) -> dict:
+    root, meta = r6.prepare_root(args)
+    ns_result = pathlib.Path(args.work_dir).resolve() / "namespace-result-d18b.json"
+    cp = r6._run(
+        [
+            "sudo", "-n", "unshare", "--net", "--pid", "--fork", "--kill-child",
+            "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
+            "--debugger-only-namespace-helper", "--root", str(root),
+            "--namespace-result", str(ns_result),
+            "--control-wait-seconds", str(args.control_wait_seconds),
+            "--verify-seconds", str(args.verify_seconds),
+            "--sample-interval-seconds", str(args.sample_interval_seconds),
+        ],
+        timeout=max(60, int(args.control_wait_seconds + args.verify_seconds) + 45),
+    )
+    if cp.returncode != 0:
+        raise RuntimeError(
+            f"isolated D18b probe failed (exit={cp.returncode}, "
+            f"stderrBytes={len(cp.stderr.encode())})"
+        )
+    if not ns_result.exists():
+        raise RuntimeError("D18b namespace probe emitted no result")
+    runtime = json.loads(ns_result.read_text(encoding="utf-8"))
+    instrument = summarize_instrumentation(runtime)
+    classification = classify_debugger_only(runtime, instrument)
+    oracle = bool(
+        runtime.get("probeCompleted")
+        and instrument.get("allCallsInstrumentationReady")
+        and instrument.get("allExpectedTargetHits")
+    )
+
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "experiment": EXPERIMENT,
+        "classification": classification,
+        "oracleSatisfied": oracle,
+        **meta,
+        "transaction": {
+            "inspect": ["svctl", "status", "ctlmgr"],
+            "apply": ["svctl", "start", "ctlmgr"],
+            "applyCount": 1 if runtime.get("start", {}).get("exitCode") is not None else 0,
+            "verify": ["svctl", "status", "ctlmgr"],
+            "disposalIsRollback": True,
+        },
+        "wireOracle": {
+            "sameRunCaptureAttempted": False,
+            "sameRunCaptureRequired": False,
+            "independentAcceptedR9EvidencePreserved": True,
+        },
+        "instrumentation": instrument,
+        "runtimeSummary": {
+            "statusChanged": runtime.get("statusChanged"),
+            "ctlmgrProcessObserved": runtime.get("ctlmgrProcessObserved"),
+            "maxCtlmgrProcessCount": runtime.get("maxCtlmgrProcessCount"),
+        },
+        "interpretationBoundary": {
+            "d17UniqueCallsiteConstraintApplied": True,
+            "relocationAwareBreakpointBinding": True,
+            "breakpointsDoNotModifyShippedFiles": True,
+            "argumentScalarClassesAndMemoryDigestsOnly": True,
+            "prePostStatusStabilityRequiredForDifferenceClaim": True,
+            "hostStraceExcludedFromSvctlCalls": True,
+            "sameRunWireCaptureExcluded": True,
+            "independentR9WireOracleNotReinterpreted": True,
+            "memoryDigestDoesNotRevealPointedBytes": True,
+            "argumentDifferenceIsNotProtocolFieldLayoutProof": True,
+            "protocolEnumValuesAccepted": False,
+            "packetFieldLayoutAccepted": False,
+        },
+        "safety": {
+            "rawFirmwarePublished": False,
+            "rootfsPublished": False,
+            "rawControlPayloadPublished": False,
+            "controlPayloadPersisted": False,
+            "rawHostStracePublished": False,
+            "rawDebuggerOutputPublished": False,
+            "rawRegisterValuesPublished": False,
+            "rawPointedMemoryPublished": False,
+            "callsiteAddressesPublished": False,
+            "physicalRouterContact": False,
+            "routerMutationAuthorized": False,
+            "externalNetworkAvailableToTarget": False,
+            "targetSpecificShimAdded": False,
+            "shippedFilesModified": False,
+            "genericRuntimeFixtureAdded": True,
+            "onlyVarTmpCreated": True,
+            "serviceStartRequested": True,
+            "serviceStartCountMaximum": 1,
+            "sameRunWireCaptureAttempted": False,
+            "disposableEmulatorMutationOnly": True,
+        },
+    }
 
 
 def run_probe(args: argparse.Namespace) -> dict:
@@ -1046,6 +1219,8 @@ def parse_args(argv=None):
     p.add_argument("--attach-only-control", action="store_true")
     p.add_argument("--attach-control-helper", action="store_true")
     p.add_argument("--attach-control-host-strace", action="store_true")
+    p.add_argument("--debugger-only-transaction", action="store_true")
+    p.add_argument("--debugger-only-namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
     return p.parse_args(argv)
@@ -1061,6 +1236,10 @@ def main(argv=None):
         if not args.root or not args.namespace_result:
             raise SystemExit("attach control helper requires root/result")
         return attach_control_namespace_helper(args)
+    if args.debugger_only_namespace_helper:
+        if not args.root or not args.namespace_result:
+            raise SystemExit("debugger-only helper requires root/result")
+        return debugger_only_namespace_helper(args)
 
     required = (
         args.firmware_url, args.expected_size, args.expected_sha256,
@@ -1072,7 +1251,12 @@ def main(argv=None):
     receipt = pathlib.Path(args.receipt)
     receipt.parent.mkdir(parents=True, exist_ok=True)
     try:
-        data = run_attach_control(args) if args.attach_only_control else run_probe(args)
+        if args.attach_only_control:
+            data = run_attach_control(args)
+        elif args.debugger_only_transaction:
+            data = run_debugger_only_probe(args)
+        else:
+            data = run_probe(args)
         rc = 0 if data.get("oracleSatisfied") else 2
     except Exception as exc:
         data = {
@@ -1133,6 +1317,7 @@ def main(argv=None):
     if isinstance(data.get("instrumentation"), dict):
         diagnostic["instrumentation"] = {
             "allCallsInstrumentationReady": data["instrumentation"].get("allCallsInstrumentationReady"),
+            "allExpectedTargetHits": data["instrumentation"].get("allExpectedTargetHits"),
             "prePostStatusEqual": data["instrumentation"].get("prePostStatusEqual"),
             "startDiffersFromStatus": data["instrumentation"].get("startDiffersFromStatus"),
             "perTarget": data["instrumentation"].get("perTarget", []),

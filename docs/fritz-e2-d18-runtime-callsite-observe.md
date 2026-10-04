@@ -60,3 +60,26 @@ If D18a stalls before `post_target`, host ptrace/strace interaction is the
 causal candidate for the earlier attach failure. If D18a succeeds, strace alone
 is exonerated and the next treatment must add only one remaining instrumentation
 factor. Raw strace/debugger/target output is never published.
+
+
+## D18b debugger-only runtime observation
+
+D18a reproduced the attach stall by restoring host `strace` alone. D18b
+therefore removes host strace from each `svctl` process and returns to the
+accepted R6 `status -> start -> status` transaction with the D17-constrained
+GDB breakpoints.
+
+The runtime receipt accepts only:
+- sanitized a0..a3 scalar classes and pointed-memory SHA-256 digests;
+- breakpoint-hit completeness for both selected D17 targets;
+- pre/start/post equality/difference relationships;
+- sanitized GDB listener/stage/exit classes.
+
+Same-run wire capture is deliberately excluded. The already-accepted R9
+wire-digest experiment remains an independent oracle and is not reinterpreted
+inside D18b. This avoids the strace/RSP observer interaction while preserving a
+clean path to runtime verb/argument discrimination.
+
+A status instability or no-difference outcome is an admissible typed result.
+No protocol enum, packet-field layout, physical-router behavior, or HIL
+authority is inferred.

@@ -144,6 +144,37 @@ class D18Tests(unittest.TestCase):
         )
 
 
+    def test_instrumented_launch_argv_excludes_host_strace_in_debugger_only_mode(self):
+        root = pathlib.Path("/tmp/root")
+        plain = d18.instrumented_svctl_launch_argv(
+            root, 25480, "status", "ctlmgr", host_strace=False
+        )
+        traced = d18.instrumented_svctl_launch_argv(
+            root, 25480, "status", "ctlmgr", host_strace=True
+        )
+        self.assertEqual(plain[0], "chroot")
+        self.assertNotIn("strace", plain)
+        self.assertEqual(traced[0], "strace")
+        self.assertIn("chroot", traced)
+
+    def test_debugger_only_classification_requires_complete_target_hits(self):
+        ready = {
+            "allCallsInstrumentationReady": True,
+            "allExpectedTargetHits": True,
+            "prePostStatusEqual": True,
+            "startDiffersFromStatus": True,
+        }
+        self.assertEqual(
+            d18.classify_debugger_only({}, ready),
+            "E2_D18B_RUNTIME_ARGUMENT_CLASSES_DISTINGUISHED",
+        )
+        incomplete = dict(ready, allExpectedTargetHits=False)
+        self.assertEqual(
+            d18.classify_debugger_only({}, incomplete),
+            "E2_D18B_INSTRUMENTATION_INCOMPLETE",
+        )
+
+
     def test_status_stability_and_start_difference(self):
         status = [obs("_svctl_init", d0="aa"), obs("_svctl_send_pkt", d0="cc")]
         start = [obs("_svctl_init", d0="dd"), obs("_svctl_send_pkt", d0="cc")]
