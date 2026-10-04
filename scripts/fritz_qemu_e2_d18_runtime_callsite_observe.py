@@ -467,7 +467,7 @@ def attach_control_namespace_helper(args: argparse.Namespace) -> int:
     result["classification"] = classify_attach_control(result)
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\\n",
+        json.dumps(result, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return 0
