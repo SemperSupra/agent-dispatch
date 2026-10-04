@@ -79,5 +79,22 @@ void f(void) {
         )
 
 
+    def test_interpretation_boundary_contract(self):
+        self.assertEqual(
+            d1p.INTERPRETATION_BOUNDARY,
+            {
+                "declarationShapeAccepted": True,
+                "assignmentAndCallShapesAreCandidateEvidenceOnly": True,
+                "safeIdentifiersAndOperatorClassesOnly": True,
+                "sourceSnippetsAccepted": False,
+                "arbitraryStringLiteralsAccepted": False,
+                "numericFlashOffsetsAccepted": False,
+                "inactiveSlotSafetyAccepted": False,
+                "rollbackSafetyAccepted": False,
+                "modifiedHilAuthorized": False,
+            },
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
