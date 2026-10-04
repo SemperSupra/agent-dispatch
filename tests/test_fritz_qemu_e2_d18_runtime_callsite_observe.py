@@ -175,6 +175,85 @@ class D18Tests(unittest.TestCase):
         )
 
 
+    def test_dimension_compare_accepts_stable_sibling_discriminator(self):
+        pre = {
+            "scalarClass": "address_like",
+            "memoryDigests": {"8": "aa", "260": "volatile-pre"},
+        }
+        start = {
+            "scalarClass": "small_positive",
+            "memoryDigests": {"8": "aa", "260": "volatile-start"},
+        }
+        post = {
+            "scalarClass": "address_like",
+            "memoryDigests": {"8": "aa", "260": "volatile-post"},
+        }
+        comp = d18.compare_argument_dimensions(pre, start, post)
+        self.assertTrue(comp["scalarClass"]["statusStable"])
+        self.assertTrue(
+            comp["scalarClass"]["startDiffersFromStableStatus"]
+        )
+        self.assertTrue(
+            comp["memoryDigestRelations"]["8"]["statusDigestStable"]
+        )
+        self.assertFalse(
+            comp["memoryDigestRelations"]["260"]["statusDigestStable"]
+        )
+        self.assertEqual(comp["stableDiscriminatorCount"], 1)
+        self.assertGreaterEqual(comp["unstableStatusDimensionCount"], 1)
+        self.assertFalse(comp["digestValuesPublished"])
+        rendered = repr(comp)
+        self.assertNotIn("volatile-pre", rendered)
+        self.assertNotIn("volatile-start", rendered)
+        self.assertNotIn("volatile-post", rendered)
+
+    def test_dimension_compare_digest_can_discriminate_when_status_stable(self):
+        pre = {
+            "scalarClass": "address_like",
+            "memoryDigests": {"8": "aa"},
+        }
+        start = {
+            "scalarClass": "address_like",
+            "memoryDigests": {"8": "bb"},
+        }
+        post = {
+            "scalarClass": "address_like",
+            "memoryDigests": {"8": "aa"},
+        }
+        comp = d18.compare_argument_dimensions(pre, start, post)
+        self.assertTrue(comp["memoryDigestRelations"]["8"]["statusDigestStable"])
+        self.assertTrue(
+            comp["memoryDigestRelations"]["8"][
+                "startDiffersFromStableStatus"
+            ]
+        )
+        self.assertEqual(comp["stableDiscriminatorCount"], 1)
+        self.assertNotIn("aa", repr(comp))
+        self.assertNotIn("bb", repr(comp))
+
+    def test_dimension_classifier_prioritizes_stable_discriminator(self):
+        instrument = {
+            "allCallsInstrumentationReady": True,
+            "allExpectedTargetHits": True,
+            "stableDimensionDiscriminatorCount": 1,
+            "unstableStatusDimensionCount": 3,
+        }
+        self.assertEqual(
+            d18.classify_dimension_stable(instrument),
+            "E2_D18C_STABLE_RUNTIME_DISCRIMINATOR_FOUND",
+        )
+        instrument["stableDimensionDiscriminatorCount"] = 0
+        self.assertEqual(
+            d18.classify_dimension_stable(instrument),
+            "E2_D18C_UNSTABLE_STATUS_DIMENSIONS_NO_DISCRIMINATOR",
+        )
+        instrument["unstableStatusDimensionCount"] = 0
+        self.assertEqual(
+            d18.classify_dimension_stable(instrument),
+            "E2_D18C_NO_RUNTIME_DISCRIMINATOR",
+        )
+
+
     def test_status_stability_and_start_difference(self):
         status = [obs("_svctl_init", d0="aa"), obs("_svctl_send_pkt", d0="cc")]
         start = [obs("_svctl_init", d0="dd"), obs("_svctl_send_pkt", d0="cc")]

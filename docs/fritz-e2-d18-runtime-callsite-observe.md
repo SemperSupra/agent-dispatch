@@ -83,3 +83,28 @@ clean path to runtime verb/argument discrimination.
 A status instability or no-difference outcome is an admissible typed result.
 No protocol enum, packet-field layout, physical-router behavior, or HIL
 authority is inferred.
+
+
+## D18c dimension-stable comparison
+
+D18b made all six selected breakpoint observations available across the
+pre-status / start / post-status transaction, but whole-argument equality was
+too coarse: one sub-dimension of `_svctl_send_pkt.a1` varied between the two
+status controls.
+
+D18c changes only the reducer. For each already-sanitized a0..a3 observation it
+compares:
+
+- scalar class stability across pre/post status;
+- presence and equality of the 8-byte memory digest;
+- presence and equality of the 260-byte memory digest;
+- whether start differs on a dimension that is stable across both status
+  controls.
+
+The durable summary contains only class labels and equality/presence booleans.
+Digest values are not copied into the comparison receipt. An unstable dimension
+does not veto a separate stable sibling dimension, but it also cannot contribute
+a discriminator.
+
+No runtime calls, breakpoints, target files, network exposure, wire capture, or
+HIL authority are added by D18c.

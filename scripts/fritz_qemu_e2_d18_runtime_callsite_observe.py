@@ -910,6 +910,71 @@ def _target_arg_index(obs: list[dict]) -> dict[str, dict]:
     return out
 
 
+def compare_argument_dimensions(
+    pre: dict,
+    start: dict,
+    post: dict,
+) -> dict:
+    """Compare only sanitized scalar classes and digest equality relations."""
+    pre_class = pre.get("scalarClass")
+    start_class = start.get("scalarClass")
+    post_class = post.get("scalarClass")
+    scalar_status_stable = pre_class == post_class
+    scalar_start_differs = bool(
+        scalar_status_stable and start_class != pre_class
+    )
+
+    pre_digests = pre.get("memoryDigests") or {}
+    start_digests = start.get("memoryDigests") or {}
+    post_digests = post.get("memoryDigests") or {}
+    memory = {}
+    stable_discriminators = int(scalar_start_differs)
+    unstable_status_dimensions = int(not scalar_status_stable)
+
+    for size in map(str, MEMORY_SIZES):
+        pv = pre_digests.get(size)
+        sv = start_digests.get(size)
+        qv = post_digests.get(size)
+        pre_present = pv is not None
+        start_present = sv is not None
+        post_present = qv is not None
+        presence_stable = pre_present == post_present
+        digest_status_stable = bool(
+            pre_present and post_present and pv == qv
+        )
+        digest_start_differs = bool(
+            digest_status_stable and start_present and sv != pv
+        )
+        if digest_start_differs:
+            stable_discriminators += 1
+        if not presence_stable or (
+            pre_present and post_present and pv != qv
+        ):
+            unstable_status_dimensions += 1
+        memory[size] = {
+            "prePresent": pre_present,
+            "startPresent": start_present,
+            "postPresent": post_present,
+            "statusPresenceStable": presence_stable,
+            "statusDigestStable": digest_status_stable,
+            "startDiffersFromStableStatus": digest_start_differs,
+        }
+
+    return {
+        "scalarClass": {
+            "pre": pre_class,
+            "start": start_class,
+            "post": post_class,
+            "statusStable": scalar_status_stable,
+            "startDiffersFromStableStatus": scalar_start_differs,
+        },
+        "memoryDigestRelations": memory,
+        "stableDiscriminatorCount": stable_discriminators,
+        "unstableStatusDimensionCount": unstable_status_dimensions,
+        "digestValuesPublished": False,
+    }
+
+
 def summarize_instrumentation(runtime: dict) -> dict:
     pre = canonical_observations(runtime.get("preStatus"))
     start = canonical_observations(runtime.get("start"))
@@ -956,18 +1021,32 @@ def summarize_instrumentation(runtime: dict) -> dict:
     start_idx = _target_arg_index(start)
     post_idx = _target_arg_index(post)
     per_target = []
+    stable_dimension_discriminators = 0
+    unstable_status_dimensions = 0
     for target in TARGETS:
         p = pre_idx.get(target)
         s = start_idx.get(target)
         q = post_idx.get(target)
         stable_args = []
         differing_args = []
+        dimension_comparisons = {}
         if isinstance(p, dict) and isinstance(s, dict) and isinstance(q, dict):
             for reg in ("a0", "a1", "a2", "a3"):
                 if p.get(reg) == q.get(reg):
                     stable_args.append(reg)
                     if s.get(reg) != p.get(reg):
                         differing_args.append(reg)
+                if all(isinstance(x.get(reg), dict) for x in (p, s, q)):
+                    comp = compare_argument_dimensions(
+                        p[reg], s[reg], q[reg]
+                    )
+                    dimension_comparisons[reg] = comp
+                    stable_dimension_discriminators += comp[
+                        "stableDiscriminatorCount"
+                    ]
+                    unstable_status_dimensions += comp[
+                        "unstableStatusDimensionCount"
+                    ]
         per_target.append({
             "target": target,
             "preHit": target in pre_idx,
@@ -975,6 +1054,7 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "postHit": target in post_idx,
             "statusStableArgs": stable_args,
             "startDifferingArgs": differing_args,
+            "argumentDimensionComparisons": dimension_comparisons,
         })
 
     all_expected_hits = all(
@@ -984,6 +1064,8 @@ def summarize_instrumentation(runtime: dict) -> dict:
     return {
         "allCallsInstrumentationReady": all_ready,
         "allExpectedTargetHits": all_expected_hits,
+        "stableDimensionDiscriminatorCount": stable_dimension_discriminators,
+        "unstableStatusDimensionCount": unstable_status_dimensions,
         "prePostStatusEqual": status_stable,
         "startDiffersFromStatus": start_differs,
         "perTarget": per_target,
@@ -1120,6 +1202,33 @@ def run_debugger_only_probe(args: argparse.Namespace) -> dict:
     }
 
 
+def classify_dimension_stable(instrument: dict) -> str:
+    if (
+        not instrument.get("allCallsInstrumentationReady")
+        or not instrument.get("allExpectedTargetHits")
+    ):
+        return "E2_D18C_INSTRUMENTATION_INCOMPLETE"
+    if instrument.get("stableDimensionDiscriminatorCount", 0) > 0:
+        return "E2_D18C_STABLE_RUNTIME_DISCRIMINATOR_FOUND"
+    if instrument.get("unstableStatusDimensionCount", 0) > 0:
+        return "E2_D18C_UNSTABLE_STATUS_DIMENSIONS_NO_DISCRIMINATOR"
+    return "E2_D18C_NO_RUNTIME_DISCRIMINATOR"
+
+
+def run_dimension_stable_probe(args: argparse.Namespace) -> dict:
+    data = run_debugger_only_probe(args)
+    data["classification"] = classify_dimension_stable(
+        data["instrumentation"]
+    )
+    data["interpretationBoundary"].update({
+        "dimensionLevelStatusControlRequired": True,
+        "wholeArgumentInstabilityDoesNotVetoStableSiblingDimensions": True,
+        "digestValuesPublished": False,
+        "onlyEqualityRelationsAdded": True,
+    })
+    return data
+
+
 def run_probe(args: argparse.Namespace) -> dict:
     root, meta = r6.prepare_root(args)
     ns_result = pathlib.Path(args.work_dir).resolve() / "namespace-result-d18.json"
@@ -1220,6 +1329,7 @@ def parse_args(argv=None):
     p.add_argument("--attach-control-helper", action="store_true")
     p.add_argument("--attach-control-host-strace", action="store_true")
     p.add_argument("--debugger-only-transaction", action="store_true")
+    p.add_argument("--dimension-stable-transaction", action="store_true")
     p.add_argument("--debugger-only-namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
@@ -1253,6 +1363,8 @@ def main(argv=None):
     try:
         if args.attach_only_control:
             data = run_attach_control(args)
+        elif args.dimension_stable_transaction:
+            data = run_dimension_stable_probe(args)
         elif args.debugger_only_transaction:
             data = run_debugger_only_probe(args)
         else:
@@ -1318,6 +1430,8 @@ def main(argv=None):
         diagnostic["instrumentation"] = {
             "allCallsInstrumentationReady": data["instrumentation"].get("allCallsInstrumentationReady"),
             "allExpectedTargetHits": data["instrumentation"].get("allExpectedTargetHits"),
+            "stableDimensionDiscriminatorCount": data["instrumentation"].get("stableDimensionDiscriminatorCount"),
+            "unstableStatusDimensionCount": data["instrumentation"].get("unstableStatusDimensionCount"),
             "prePostStatusEqual": data["instrumentation"].get("prePostStatusEqual"),
             "startDiffersFromStatus": data["instrumentation"].get("startDiffersFromStatus"),
             "perTarget": data["instrumentation"].get("perTarget", []),
