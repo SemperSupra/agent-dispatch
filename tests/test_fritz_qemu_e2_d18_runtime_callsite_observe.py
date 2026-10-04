@@ -254,6 +254,16 @@ class D18Tests(unittest.TestCase):
         )
 
 
+    def test_d18e_static_and_runtime_workdirs_are_disjoint(self):
+        args = type("Args", (), {"work_dir": "/tmp/fritz-d18e", "objdump": "objdump"})()
+        static = d18.d18e_scoped_args(args, "static")
+        runtime = d18.d18e_scoped_args(args, "runtime")
+        self.assertNotEqual(static.work_dir, runtime.work_dir)
+        self.assertTrue(static.work_dir.endswith("/static"))
+        self.assertTrue(runtime.work_dir.endswith("/runtime"))
+        self.assertEqual(static.objdump, "objdump")
+        self.assertEqual(runtime.objdump, "objdump")
+
     def test_downstream_parser_accepts_only_earned_target(self):
         raw = 'FRITZOBS:{"target":"_svctl_send","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n' \
               'FRITZOBS:{"target":"_svctl_init","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n'
