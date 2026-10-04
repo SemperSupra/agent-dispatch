@@ -1,0 +1,105 @@
+name: Firmware Archive Payload Acquisition
+
+on:
+  push:
+    branches:
+      - archive/firmware-payload-wave-20261004
+    paths:
+      - 'tasks/firmware-archive/payload-request.json'
+
+permissions:
+  contents: read
+
+jobs:
+  acquire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Acquire, verify, and manifest public artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/firmware-archive/payloads"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, urllib.request
+
+          req_path = pathlib.Path("tasks/firmware-archive/payload-request.json")
+          req = json.loads(req_path.read_text())
+          if req.get("schema") != "firmware-archive-payload-request/v1":
+              raise SystemExit("unsupported request schema")
+          items = req.get("items", [])
+          if not items or len(items) > 12:
+              raise SystemExit("request must contain 1..12 items")
+
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "firmware-archive"
+          payloads = out / "payloads"
+          receipt = {
+              "schema": "firmware-archive-payload-receipt/v1",
+              "request_id": req["request_id"],
+              "target": req["target"],
+              "source_class": "public",
+              "items": [],
+          }
+
+          total = 0
+          max_total = int(req.get("max_total_bytes", 25 * 1024 * 1024))
+          for item in items:
+              url = item["url"]
+              if not url.startswith("https://"):
+                  raise SystemExit(f"non-HTTPS URL rejected: {url}")
+              name = pathlib.Path(item["filename"]).name
+              if name != item["filename"]:
+                  raise SystemExit(f"unsafe filename: {item['filename']}")
+              dest = payloads / name
+              h = hashlib.sha256()
+              size = 0
+              request = urllib.request.Request(url, headers={"User-Agent":"SemperSupra-firmware-archive/1"})
+              with urllib.request.urlopen(request, timeout=60) as src, dest.open("wb") as dst:
+                  while True:
+                      chunk = src.read(1024 * 1024)
+                      if not chunk:
+                          break
+                      size += len(chunk)
+                      total += len(chunk)
+                      if total > max_total:
+                          raise SystemExit("request exceeded max_total_bytes")
+                      h.update(chunk)
+                      dst.write(chunk)
+              digest = h.hexdigest()
+              if item.get("expected_sha256") and digest.lower() != item["expected_sha256"].lower():
+                  raise SystemExit(f"sha256 mismatch for {name}")
+              if item.get("expected_size") is not None and size != int(item["expected_size"]):
+                  raise SystemExit(f"size mismatch for {name}: {size}")
+              receipt["items"].append({
+                  "filename": name,
+                  "url": url,
+                  "sha256": digest,
+                  "size": size,
+                  "provenance": item.get("provenance", ""),
+                  "source_revision": item.get("source_revision", ""),
+              })
+
+          receipt["total_bytes"] = total
+          (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(receipt, indent=2, sort_keys=True))
+          PY
+
+      - name: Verify bounded output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/firmware-archive/receipt.json"
+          count="$(find "$RUNNER_TEMP/firmware-archive/payloads" -maxdepth 1 -type f | wc -l)"
+          test "$count" -ge 1
+          test "$count" -le 12
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firmware-archive-payload
+          path: ${{ runner.temp }}/firmware-archive
+          retention-days: 1
+          if-no-files-found: error
