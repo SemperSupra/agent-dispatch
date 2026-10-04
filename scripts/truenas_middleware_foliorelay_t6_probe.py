@@ -342,8 +342,8 @@ def bounded_job_snapshot(job):
     if not isinstance(job, dict):
         return None
     return {
-        key: (bounded_text(job.get(key)) if key in {"error", "exception", "exc_info"} else job.get(key))
-        for key in ("id", "state", "progress", "error", "exception", "exc_info")
+        key: (bounded_text(job.get(key)) if key in {"error", "exception", "exc_info", "logs_excerpt"} else job.get(key))
+        for key in ("id", "state", "progress", "error", "exception", "exc_info", "logs_excerpt")
         if key in job
     }
 
@@ -433,6 +433,13 @@ def main():
         def call(method,params):
             nonlocal rid
             v=ddp_call(ws,str(rid),method,params); rid+=1; return v
+        def query_optional(method,filters):
+            rows=call(method,[filters])
+            if not isinstance(rows,list):
+                raise RuntimeError(f"{method} optional query did not return list")
+            if len(rows)>1:
+                raise RuntimeError(f"{method} optional query returned multiple rows")
+            return rows[0] if rows else None
         def wait_job(j,label):
             deadline=time.monotonic()+a.job_timeout
             while time.monotonic()<deadline:
@@ -520,7 +527,7 @@ def main():
             diagnostic={"detail":f"{type(observer_exc).__name__}: {observer_exc}"}
             if isinstance(observer_exc,JobFailure): diagnostic["job"]=bounded_job_snapshot(observer_exc.job)
             try:
-                observer_app=call("app.query",[[["id","=",OBSERVER_APP_NAME]],{"get":True}])
+                observer_app=query_optional("app.query",[["id","=",OBSERVER_APP_NAME]])
                 diagnostic["app"]=bounded_app_snapshot(observer_app)
                 state=observer_app.get("state") if isinstance(observer_app,dict) else None
                 if state in {"RUNNING","CRASHED","DEPLOYING"}:
@@ -603,24 +610,24 @@ def main():
             for name,owned,key in ((OBSERVER_APP_NAME,observer_created,"observer_app"),(EXPECTED_APP_NAME,app_created,"product_app")):
                 if not owned: continue
                 try:
-                    before=call("app.query",[[["id","=",name]],{"get":True}])
+                    before=query_optional("app.query",[["id","=",name]])
                     entry={"present_before":bool(before),"before":bounded_app_snapshot(before)}
                     if before:
                         delete_job=call("app.delete",[name,{"remove_images":False,"remove_ix_volumes":False,"force_remove_custom_app":False}])
                         if not isinstance(delete_job,int): raise RuntimeError(f"{name} cleanup delete did not return job")
                         entry["delete_job"]=bounded_job_snapshot(wait_job(delete_job,f"{name} cleanup delete"))
-                    entry["absent_after"]=not bool(call("app.query",[[["id","=",name]],{"get":True}]))
+                    entry["absent_after"]=query_optional("app.query",[["id","=",name]]) is None
                     cleanup[key]=entry
                 except Exception as cleanup_exc:
                     cleanup["errors"].append(f"{name}: {type(cleanup_exc).__name__}: {cleanup_exc}")
             if dataset_owned:
                 try:
-                    before=call("pool.dataset.query",[[["id","=",DATASET]],{"get":True}])
+                    before=query_optional("pool.dataset.query",[["id","=",DATASET]])
                     entry={"present_before":bool(before)}
                     if before:
                         deleted=call("pool.dataset.delete",[DATASET,{"recursive":True,"force":False}])
                         if deleted is not True: raise RuntimeError("fixture cleanup dataset delete did not return true")
-                    entry["absent_after"]=not bool(call("pool.dataset.query",[[["id","=",DATASET]],{"get":True}]))
+                    entry["absent_after"]=query_optional("pool.dataset.query",[["id","=",DATASET]]) is None
                     cleanup["fixture_dataset"]=entry
                 except Exception as cleanup_exc:
                     cleanup["errors"].append(f"{DATASET}: {type(cleanup_exc).__name__}: {cleanup_exc}")
