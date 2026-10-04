@@ -21,3 +21,22 @@ argument difference is accepted.
 
 A differing argument class or digest is correlation evidence for the R9 request
 class distinction. It is not protocol enum or packet-field-layout proof.
+
+
+## Attach-only/no-strace falsification
+
+After exact runs localized the first instrumentation failure to the GDB
+`target remote` boundary while the QEMU gdbserver listener was already
+present, the next treatment removes host `strace`, breakpoint setup, wire
+capture, and guest `continue`.
+
+The control launches the exact shipped `/bin/svctl status ctlmgr` under the
+same QEMU CPU profile in an isolated loopback-only namespace, attempts only the
+RSP attach, records sanitized listener/stage/exit/error classes, and terminates
+the disposable target immediately after classification. Raw debugger or target
+output is not persisted.
+
+An attach success exonerates the bare QEMU-user RSP path and points to combined
+instrumentation interference. A repeated attach stall keeps the fault localized
+to the QEMU-user/GDB RSP session boundary. Neither outcome is product behavior
+evidence or HIL authority.
