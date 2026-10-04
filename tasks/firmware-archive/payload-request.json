@@ -1,36 +1,32 @@
 {
   "schema": "firmware-archive-payload-request/v1",
-  "request_id": "dell-h200-a10-2026-10-04-01",
-  "target": "Dell PERC H200 Integrated / SAS2008",
-  "max_total_bytes": 15728640,
+  "request_id": "wrt3200acm-88w8887-docs-2026-10-04-01",
+  "target": "Linksys WRT3200ACM / Marvell 88W8887 reference documentation",
+  "max_total_bytes": 20971520,
   "items": [
     {
-      "filename": "SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN",
-      "url": "https://dl.dell.com/FOLDER01314455M/2/SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN",
-      "expected_sha256": "09f67fcca57f54ea696bef3953cf791aaa4d4bdff0651314922a95e1a921a559",
-      "provenance": "Dell official support download D0KPX",
-      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10 (2013-03-22)"
+      "filename": "AN12849.pdf",
+      "url": "https://www.nxp.com/docs/en/application-note/AN12849.pdf",
+      "provenance": "NXP public application note",
+      "source_revision": "88W8887 Bluetooth/LE host wake application note"
     },
     {
-      "filename": "SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN.sign",
-      "url": "https://dl.dell.com/FOLDER01314456M/2/SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN.sign",
-      "expected_sha256": "336ae50c7122a42ec188869b2145ecd10e9a8b33cd5b8d8671c963241e5118c8",
-      "provenance": "Dell official GnuPG signature for Linux DUP",
-      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10"
+      "filename": "AN14163.pdf",
+      "url": "https://www.nxp.com/docs/en/application-note/AN14163.pdf",
+      "provenance": "NXP public application note",
+      "source_revision": "88W8887 Bluetooth Direct Test Mode application note"
     },
     {
-      "filename": "H200I_A10_ZPE.exe",
-      "url": "https://dl.dell.com/FOLDER01182088M/9/H200I_A10_ZPE.exe",
-      "expected_sha256": "3258ff3bb1a390b801c00a0cced22aeff80eaca70237ddb51b2afb8d476e53ba",
-      "provenance": "Dell official ZipPack External",
-      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10"
+      "filename": "AN13049.pdf",
+      "url": "https://www.nxp.com/docs/en/application-note/AN13049.pdf",
+      "provenance": "NXP public application note",
+      "source_revision": "88W8887 M.2 Key E pinout/application note"
     },
     {
-      "filename": "FW_H200I_07.03.06.00_A10.txt",
-      "url": "https://dl.dell.com/FOLDER01182090M/1/FW_H200I_07.03.06.00_A10.txt",
-      "expected_sha256": "c732f8c8a2f6fec595b1c29ce59ffd94bef131c51d6f90b113a413f11f1ba7bb",
-      "provenance": "Dell official release notes",
-      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10"
+      "filename": "EVK-EMMY-W1_UBX-15012713.pdf",
+      "url": "https://content.u-blox.com/sites/default/files/EVK-EMMY-W1_UserGuide_%28UBX-15012713%29.pdf",
+      "provenance": "u-blox public EVK-EMMY-W1 user guide",
+      "source_revision": "UBX-15012713"
     }
   ]
 }
