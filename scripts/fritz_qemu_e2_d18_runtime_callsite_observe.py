@@ -143,8 +143,12 @@ def gdb_command_text(
         for target, spec in sorted(breakpoint_specs.items())
     )
     continue_lines = "\n".join(
-        f"continue\\necho FRITZGDBSTAGE:post_continue_{index}\\\\n"
+        line
         for index in range(1, len(breakpoint_specs) + 1)
+        for line in (
+            "continue",
+            f"echo FRITZGDBSTAGE:post_continue_{index}\\n",
+        )
     )
     return f"""set pagination off
 set confirm off
