@@ -57,6 +57,10 @@ static const char *get_name(struct mtd_entry *nametable) {
         a = d1q.analyze_target(text)
         self.assertEqual(a["getNameNametableCallsiteCount"], 0)
         self.assertEqual(a["localGetNameDefinitionCount"], 1)
+        self.assertEqual(
+            d1q.classify(a),
+            "H0_D1Q_GET_NAME_EDGE_NOT_REPRODUCED",
+        )
 
     def test_multiple_calls_type_ambiguity(self):
         text = r"""
@@ -78,7 +82,7 @@ static int caller(struct mtd_entry *a, struct mtd_entry *b) {
         self.assertEqual(
             d1q.INTERPRETATION_BOUNDARY,
             {
-                "d1pGetNameEdgeRequired": True,
+                "d1pGetNameHypothesisTested": True,
                 "safeIdentifierAndOperatorClassesOnly": True,
                 "functionParameterBindingsAccepted": True,
                 "nearestLexicalAssignmentIsCandidateOnly": True,
