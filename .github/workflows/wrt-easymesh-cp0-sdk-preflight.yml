@@ -77,12 +77,11 @@ jobs:
           compile_rc=99
 
           if [ "$feeds_update_rc" -eq 0 ] && [ "$feeds_install_rc" -eq 0 ] && [ "$target_present" -eq 1 ]; then
-            cat >> .config <<'EOF'
-CONFIG_PACKAGE_prplmesh=m
-# CONFIG_PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND is not set
-# CONFIG_USE_PRPLMESH_WHM is not set
-# CONFIG_PRPLMESH_ENABLE_UNIT_TESTS is not set
-EOF
+            printf '%s\n' \
+              'CONFIG_PACKAGE_prplmesh=m' \
+              '# CONFIG_PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND is not set' \
+              '# CONFIG_USE_PRPLMESH_WHM is not set' \
+              '# CONFIG_PRPLMESH_ENABLE_UNIT_TESTS is not set' >> .config
             set +e
             make defconfig > "$RUNNER_TEMP/cp0/out/defconfig.log" 2>&1
             defconfig_rc=$?
