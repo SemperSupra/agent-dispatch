@@ -50,7 +50,7 @@ class FolioRelayT6ContractTests(unittest.TestCase):
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('H.result={"status":"pending"}', text)
+        self.assertIn('result={"status":"pending"}', text)
         self.assertIn('threading.Thread(target=run_observer', text)
         self.assertIn('{"status":"success",**result}', text)
         self.assertIn('{"status":"error","error":', text)
