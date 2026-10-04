@@ -1,0 +1,115 @@
+name: WRT EasyMesh E0 Container Emulation
+
+on:
+  push:
+    branches:
+      - wrt-easymesh-e0-container-20261005
+    paths:
+      - '.github/waves/wrt-easymesh-e0-trigger.json'
+
+permissions:
+  contents: read
+
+jobs:
+  e0-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Run prplMesh controller-agent container topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/wrt-e0"
+          OUT="$ROOT/out"
+          PRPL_SHA='8ceef1b0f70a90c4b30b9ce57a99d064283f9638'
+          mkdir -p "$OUT"
+          cd "$ROOT"
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git tcpdump tshark jq >/dev/null
+
+          git clone -q https://gitlab.com/prpl-foundation/prplmesh/prplMesh.git prplMesh
+          git -C prplMesh checkout -q "$PRPL_SHA"
+          git -C prplMesh rev-parse HEAD > "$OUT/prplmesh_sha.txt"
+
+          cd "$ROOT/prplMesh/tools/docker"
+          ./build.sh map BUILD_TESTS=OFF CMAKE_BUILD_TYPE=Release > "$OUT/prplmesh-build.log" 2>&1
+
+          cleanup() {
+            docker rm -f controller agent >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          ./run.sh -n controller -d start-controller-agent > "$OUT/controller-start.log" 2>&1
+          ./run.sh -n agent -d start-agent > "$OUT/agent-start.log" 2>&1
+          sleep 15
+
+          docker ps --no-trunc > "$OUT/docker-ps.txt"
+          docker inspect controller > "$OUT/controller-inspect.json"
+          docker inspect agent > "$OUT/agent-inspect.json"
+          docker network ls > "$OUT/docker-networks.txt"
+          docker logs controller > "$OUT/controller-docker.log" 2>&1 || true
+          docker logs agent > "$OUT/agent-docker.log" 2>&1 || true
+
+          STATUS_SCRIPT="$ROOT/prplMesh/build/install/scripts/prplmesh_utils.sh"
+          docker exec controller sh -lc "'$STATUS_SCRIPT' status || true" > "$OUT/controller-status.txt" 2>&1 || true
+          docker exec agent sh -lc "'$STATUS_SCRIPT' status || true" > "$OUT/agent-status.txt" 2>&1 || true
+
+          mkdir -p "$OUT/beerocks"
+          cp -a "$ROOT/prplMesh/logs/controller" "$OUT/beerocks/controller-initial" 2>/dev/null || true
+          cp -a "$ROOT/prplMesh/logs/agent" "$OUT/beerocks/agent-initial" 2>/dev/null || true
+
+          controller_net=$(docker inspect controller --format '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' | head -n1)
+          agent_net=$(docker inspect agent --format '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' | head -n1)
+          printf 'controller_network=%s\nagent_network=%s\n' "$controller_net" "$agent_net" > "$OUT/network-selection.txt"
+
+          pcap_pid=""
+          if [ -n "$controller_net" ]; then
+            net_id=$(docker network inspect "$controller_net" --format '{{.Id}}' 2>/dev/null || true)
+            bridge_if="br-${net_id:0:12}"
+            printf 'network_id=%s\nbridge_if=%s\n' "$net_id" "$bridge_if" >> "$OUT/network-selection.txt"
+            if ip link show "$bridge_if" >/dev/null 2>&1; then
+              sudo timeout 40 tcpdump -U -i "$bridge_if" -s 0 -w "$OUT/e0-reconvergence.pcap" 'ether proto 0x893a or ether proto 0x88cc or arp or icmp' > "$OUT/tcpdump.log" 2>&1 &
+              pcap_pid=$!
+              sleep 2
+            fi
+          fi
+
+          restart_before=$(date -u +%s)
+          docker restart agent > "$OUT/agent-restart.txt"
+          sleep 15
+          restart_after=$(date -u +%s)
+
+          docker logs agent > "$OUT/agent-docker-after-restart.log" 2>&1 || true
+          docker exec agent sh -lc "'$STATUS_SCRIPT' status || true" > "$OUT/agent-status-after-restart.txt" 2>&1 || true
+          cp -a "$ROOT/prplMesh/logs/controller" "$OUT/beerocks/controller-after-restart" 2>/dev/null || true
+          cp -a "$ROOT/prplMesh/logs/agent" "$OUT/beerocks/agent-after-restart" 2>/dev/null || true
+
+          if [ -n "$pcap_pid" ]; then
+            wait "$pcap_pid" 2>/dev/null || true
+          fi
+
+          controller_operational=0
+          agent_operational=0
+          agent_recovered=0
+          shared_l2=0
+          pcap_present=0
+          grep -qiE 'OPERATIONAL|connected' "$OUT/controller-status.txt" && controller_operational=1 || true
+          grep -qiE 'OPERATIONAL|connected' "$OUT/agent-status.txt" && agent_operational=1 || true
+          grep -qiE 'OPERATIONAL|connected' "$OUT/agent-status-after-restart.txt" && agent_recovered=1 || true
+          [ -n "$controller_net" ] && [ "$controller_net" = "$agent_net" ] && shared_l2=1 || true
+          [ -s "$OUT/e0-reconvergence.pcap" ] && pcap_present=1 || true
+
+          export controller_operational agent_operational agent_recovered shared_l2 pcap_present restart_before restart_after
+          python3 -c 'import json,os; ks=["controller_operational","agent_operational","agent_recovered","shared_l2","pcap_present","restart_before","restart_after"]; d={k:int(os.environ[k]) for k in ks}; d["schema"]="wrt3200acm-easymesh-e0-container/v2"; d["passed_control_plane"]=bool(d["controller_operational"] and d["agent_operational"] and d["agent_recovered"] and d["shared_l2"]); d["pcap_is_supporting_evidence_only"]=True; print(json.dumps(d,indent=2,sort_keys=True))' > "$OUT/verdict.json"
+
+          cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload E0 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-easymesh-e0-container-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-e0/out
+          if-no-files-found: error
+          retention-days: 7
