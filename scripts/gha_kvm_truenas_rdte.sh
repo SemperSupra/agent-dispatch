@@ -17,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
 }
 
 OUT=""
@@ -34,6 +34,7 @@ G4_FIXTURE_DIR=""
 G4_FIXTURE_PRODUCER=""
 G5_MATRIX_DIR=""
 G5_MATRIX_PRODUCER=""
+SESSION_MANIFEST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -51,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --g4-fixture-producer) G4_FIXTURE_PRODUCER="$2"; shift 2 ;;
     --g5-matrix-dir) G5_MATRIX_DIR="$2"; shift 2 ;;
     --g5-matrix-producer) G5_MATRIX_PRODUCER="$2"; shift 2 ;;
+    --session-manifest) SESSION_MANIFEST="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -96,6 +98,18 @@ if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" 
   VCPUS=4
 fi
 
+if [[ -n "$SESSION_MANIFEST" ]]; then
+  [[ "$RUNG" == "t6" ]] || { echo "--session-manifest requires rung t6" >&2; exit 2; }
+  [[ "$T6_PRODUCT" != garm-provider-* ]] || { echo "session equivalence currently wraps Foundry/control providers only" >&2; exit 2; }
+  [[ -f "$SESSION_MANIFEST" ]] || { echo "session manifest does not exist: $SESSION_MANIFEST" >&2; exit 2; }
+  SESSION_MANIFEST="$(realpath "$SESSION_MANIFEST")"
+  SESSION_LOWERED="$(python3 "$SCRIPT_DIR/truenas_single_capsule_adapter.py"     --manifest "$SESSION_MANIFEST"     --targets "$TARGET_REGISTRY"     --providers "$SCRIPT_DIR/../config/truenas-capsule-providers.json")" || exit 2
+  SESSION_SELECTOR="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["existing_selector"])' <<<"$SESSION_LOWERED")"
+  SESSION_VERSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' <<<"$SESSION_LOWERED")"
+  [[ "$SESSION_SELECTOR" == "$T6_PRODUCT" ]] || { echo "session capsule selector $SESSION_SELECTOR does not match --t6-product $T6_PRODUCT" >&2; exit 2; }
+  [[ "$SESSION_VERSION" == "$VERSION" ]] || { echo "session exact version $SESSION_VERSION does not match target $VERSION" >&2; exit 2; }
+fi
+
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-truenas.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
 STATE_DIR="$(realpath "$STATE_DIR")"
@@ -117,6 +131,7 @@ POOL_RESULT_JSON=""
 APP_RESULT_JSON=""
 LIFECYCLE_RESULT_JSON=""
 FOUNDRY_RESULT_JSON=""
+SESSION_RESULT_JSON=""
 cleanup() {
   set +e
   if [[ -n "$QEMU_PID" ]]; then
@@ -143,7 +158,7 @@ write_receipt() {
   export R_RUNG="$RUNG" R_T6_PRODUCT="$T6_PRODUCT" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_VCPUS="$VCPUS" R_RAM_MIB="$RAM_MIB"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
-  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON"
+  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON" R_SESSION_RESULT="$SESSION_RESULT_JSON"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
@@ -221,6 +236,7 @@ payload = {
   "apps_runtime": json.loads(os.environ["R_APP_RESULT"]) if os.environ.get("R_APP_RESULT") else None,
   "app_lifecycle": json.loads(os.environ["R_LIFECYCLE_RESULT"]) if os.environ.get("R_LIFECYCLE_RESULT") else None,
   "foundry_materialization": json.loads(os.environ["R_FOUNDRY_RESULT"]) if os.environ.get("R_FOUNDRY_RESULT") else None,
+  "session_execution": json.loads(os.environ["R_SESSION_RESULT"]) if os.environ.get("R_SESSION_RESULT") else None,
   "qemu_alive_at_gate": os.environ.get("R_QEMU_ALIVE"),
   "serial_tail": os.environ.get("R_SERIAL", ""),
   "limitations": [
@@ -719,6 +735,96 @@ if [[ "$RUNG" == "t5" ]]; then
 fi
 
 FOUNDRY_OUT="$STATE_DIR/foundry-control.json"
+if [[ -n "$SESSION_MANIFEST" ]]; then
+  SESSION_CONTEXT="$STATE_DIR/session-context.json"
+  SESSION_OUT="$STATE_DIR/session-execution.json"
+  SESSION_RECEIPTS="$STATE_DIR/session-capsules"
+  export SCTX_PRODUCT="$T6_PRODUCT" SCTX_MIDDLEWARE_PORT="$MIDDLEWARE_PORT"
+  export SCTX_PASSWORD_FILE="$PASSWORD_FILE" SCTX_CONTROL_DIR="$FOUNDRY_CONTROL_DIR" SCTX_FOUNDRY_COMMIT="$FOUNDRY_COMMIT"
+  export SCTX_LITELLM_PORT="$LITELLM_HOST_PORT" SCTX_GARM_PORT="$GARM_HOST_PORT"
+  export SCTX_FOLIO_CONTROL="$FOLIORELAY_CONTROL_HOST_PORT" SCTX_FOLIO_IPP="$FOLIORELAY_IPP_HOST_PORT" SCTX_FOLIO_OBSERVER="$FOLIORELAY_OBSERVER_HOST_PORT"
+  if (( ${#MIDDLEWARE_TLS_ARG[@]} )); then SCTX_TLS=true; else SCTX_TLS=false; fi
+  export SCTX_TLS
+  python3 - "$SESSION_CONTEXT" <<'PY'
+import json, os, pathlib, sys
+selector=os.environ["SCTX_PRODUCT"]
+provider_id={
+  "litellm":"litellm-t6",
+  "wow-sidecar":"wow-sidecar-t6",
+  "garm":"garm-t6",
+  "official-catalog":"official-catalog-t6",
+  "foliorelay":"foliorelay-t6",
+}[selector]
+ports={}
+if selector=="litellm": ports["service"]=int(os.environ["SCTX_LITELLM_PORT"])
+elif selector=="garm": ports["service"]=int(os.environ["SCTX_GARM_PORT"])
+elif selector=="foliorelay":
+    ports={
+      "control":int(os.environ["SCTX_FOLIO_CONTROL"]),
+      "ipp":int(os.environ["SCTX_FOLIO_IPP"]),
+      "observer":int(os.environ["SCTX_FOLIO_OBSERVER"]),
+    }
+payload={
+  "schema":"truenas-capsule-context/v1",
+  "host":"127.0.0.1",
+  "middleware_port":int(os.environ["SCTX_MIDDLEWARE_PORT"]),
+  "password_file":os.environ["SCTX_PASSWORD_FILE"],
+  "tls":os.environ["SCTX_TLS"].lower()=="true",
+  "providers":{
+    provider_id:{
+      "control_dir":os.environ["SCTX_CONTROL_DIR"],
+      "foundry_commit":os.environ["SCTX_FOUNDRY_COMMIT"],
+      "ports":ports,
+    }
+  },
+}
+pathlib.Path(sys.argv[1]).write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+PY
+  python3 "$SCRIPT_DIR/truenas_session_runner.py" \
+    --manifest "$SESSION_MANIFEST" \
+    --targets "$TARGET_REGISTRY" \
+    --providers "$SCRIPT_DIR/../config/truenas-capsule-providers.json" \
+    --executor "$SCRIPT_DIR/truenas_existing_probe_capsule_executor.py" \
+    --context "$SESSION_CONTEXT" \
+    --out-dir "$SESSION_RECEIPTS" \
+    --out "$SESSION_OUT" >/dev/null 2>&1 || true
+  [[ -f "$SESSION_OUT" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "single-capsule session runner did not emit a receipt"
+  SESSION_RESULT_JSON="$(cat "$SESSION_OUT")"
+  SESSION_CAPSULE_VERDICT="$(python3 - "$SESSION_OUT" <<'PY'
+import json, pathlib, sys
+session=json.loads(pathlib.Path(sys.argv[1]).read_text())
+caps=session.get("capsules") or []
+print(caps[0].get("verdict","HARNESS_FAILURE") if len(caps)==1 else "HARNESS_FAILURE")
+PY
+)"
+  if [[ "$SESSION_CAPSULE_VERDICT" != "SUPPORTED" ]]; then
+    case "$SESSION_CAPSULE_VERDICT" in
+      ORACLE_FAILURE|HARNESS_FAILURE|ENVIRONMENT_FAILURE|UNSUPPORTED)
+        fail_evidence "$SESSION_CAPSULE_VERDICT" foundry-materialization "single-capsule session provider returned $SESSION_CAPSULE_VERDICT"
+        ;;
+      *)
+        fail_evidence HARNESS_FAILURE foundry-materialization "single-capsule session returned unexpected verdict $SESSION_CAPSULE_VERDICT"
+        ;;
+    esac
+  fi
+  SESSION_OK="$(python3 - "$SESSION_OUT" <<'PY'
+import json, pathlib, sys
+session=json.loads(pathlib.Path(sys.argv[1]).read_text())
+caps=session.get("capsules") or []
+ok=(session.get("classification")=="SESSION_CLEAN" and len(caps)==1 and caps[0].get("verdict")=="SUPPORTED")
+print("true" if ok else "false")
+PY
+)"
+  [[ "$SESSION_OK" == "true" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "single-capsule session envelope was not clean"
+  python3 - "$SESSION_OUT" "$FOUNDRY_OUT" <<'PY'
+import json, pathlib, sys
+session=json.loads(pathlib.Path(sys.argv[1]).read_text())
+provider=session["capsules"][0].get("provider_receipt")
+if not isinstance(provider,dict) or provider.get("classification")!="SUPPORTED" or provider.get("oracleSatisfied") is not True:
+    raise SystemExit("accepted capsule did not retain accepted provider receipt")
+pathlib.Path(sys.argv[2]).write_text(json.dumps(provider,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+PY
+else
 if [[ "$T6_PRODUCT" == "official-catalog" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_official_catalog_t6_probe.py" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
@@ -794,6 +900,7 @@ else
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
+fi
 fi
 [[ -f "$FOUNDRY_OUT" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "T6 Foundry control client did not emit a receipt"
 FOUNDRY_RESULT_JSON="$(cat "$FOUNDRY_OUT")"

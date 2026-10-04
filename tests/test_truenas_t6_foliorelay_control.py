@@ -58,6 +58,24 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('DNS-SD observer oracle failed:', text)
         self.assertIn('DNS-SD observer oracle remained pending', text)
 
+
+    def test_failed_observer_create_preserves_diagnostics_and_cleans_owned_state(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("class JobFailure", text)
+        self.assertIn('observer_created=True', text)
+        self.assertLess(
+            text.index('observer_created=True'),
+            text.index('wait_job(oj,"observer app.create")'),
+        )
+        self.assertIn('payload["observer_create_failure"]', text)
+        self.assertIn('"app.container_log_follow:"', text)
+        self.assertIn('"tail_lines": tail_lines', text)
+        self.assertIn('"container_log_tails"', text)
+        self.assertIn('bounded_job_snapshot(observer_exc.job)', text)
+        self.assertIn('f"{name} cleanup delete"', text)
+        self.assertIn('"zero_residue"', text)
+        self.assertIn('payload["cleanup_needed"]', text)
+
     def test_workflow_and_harness_route_exact_foliorelay_export(self):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
