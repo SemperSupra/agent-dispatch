@@ -60,7 +60,9 @@ jobs:
           mkdir -p "$work"
           python3 - "$work/mdns_observer.py" <<'PY'
           import importlib.util, pathlib, sys
-          script=pathlib.Path("scripts/truenas_middleware_foliorelay_t6_probe.py")
+          scripts=pathlib.Path("scripts").resolve()
+          sys.path.insert(0,str(scripts))
+          script=scripts/"truenas_middleware_foliorelay_t6_probe.py"
           spec=importlib.util.spec_from_file_location("foliorelay_probe",script)
           mod=importlib.util.module_from_spec(spec)
           spec.loader.exec_module(mod)
