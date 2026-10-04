@@ -9,6 +9,7 @@ on:
       - ".github/workflows/gha-kvm-system-rdte.yml"
       - "scripts/gha_kvm_truenas_rdte.sh"
       - "scripts/truenas_middleware_foliorelay_t6_probe.py"
+      - "scripts/foliorelay_mdns_observer.go"
       - "tests/test_truenas_t6_foliorelay_control.py"
   push:
     branches:
@@ -50,24 +51,17 @@ jobs:
         with:
           name: foliorelay-t6-beta3-control
           path: ${{ runner.temp }}/foliorelay-control
-      - name: Smoke exact independent DNS-SD observer container
+      - name: Smoke static independent DNS-SD observer container
         shell: bash
         run: |
           set -euo pipefail
-          image='ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c'
+          image='ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce'
           work="$RUNNER_TEMP/foliorelay-observer-smoke"
           rm -rf "$work"
           mkdir -p "$work"
-          python3 - "$work/mdns_observer.py" <<'PY'
-          import importlib.util, pathlib, sys
-          scripts=pathlib.Path("scripts").resolve()
-          sys.path.insert(0,str(scripts))
-          script=scripts/"truenas_middleware_foliorelay_t6_probe.py"
-          spec=importlib.util.spec_from_file_location("foliorelay_probe",script)
-          mod=importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(mod)
-          pathlib.Path(sys.argv[1]).write_text(mod.OBSERVER,encoding="utf-8")
-          PY
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' \
+            -o "$work/foliorelay-mdns-observer" scripts/foliorelay_mdns_observer.go
+          chmod 0555 "$work/foliorelay-mdns-observer"
           port="$(python3 - <<'PY'
           import socket
           s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
@@ -78,17 +72,19 @@ jobs:
           trap 'docker rm -f foliorelay-observer-smoke >/dev/null 2>&1 || true' EXIT
           docker run -d --name foliorelay-observer-smoke \
             --network host \
+            --user 10001:10001 \
             --read-only \
             --cap-drop ALL \
             --security-opt no-new-privileges:true \
+            --no-healthcheck \
             --mount "type=bind,src=$work,dst=/observer,readonly" \
-            --entrypoint python3 \
-            "$image" /observer/mdns_observer.py \
+            --entrypoint /observer/foliorelay-mdns-observer \
+            "$image" \
             --uuid urn:uuid:01234567-89ab-4def-8123-456789abcdef \
             --expected-host intentionally-absent.local \
             --expected-ipp-port 8634 \
             --port "$port" \
-            --seconds 1 >/dev/null
+            --seconds 1s >/dev/null
           python3 - "$port" <<'PY'
           import json, sys, time, urllib.request
           url=f"http://127.0.0.1:{sys.argv[1]}/"
