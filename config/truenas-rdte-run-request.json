@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-004-urf-fixture-compile-fix",
+  "request_id": "tn-26-beta3-t6-foliorelay-005-observer-oracle-separation",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 396,
   "consumer_authority_issue": 273,
-  "purpose": "Re-run exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-003 isolated and cheap-qualified the external synthetic Apple Raster fixture compile defect. Preserve product/Foundry/image identities and the rep-003 public-URI/DNS-SD oracle correction. Require exact three-service readback, portal/IPP reachability, canonical control/DNS-SD identity, PDF and generated Apple Raster exact-source preservation, restart persistence, update/redeploy persistence, desired/live re-plan NOOP, and zero-residue cleanup."
+  "purpose": "Re-run exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-004 isolated the independent DNS-SD observer lifecycle/oracle conflation. Preserve all product/Foundry/image/Compose identities, the public-URI oracle correction, and the cheap-qualified URF fixture. Require the observer Custom App to realize independently, then require its explicit mDNS oracle result; accept only with exact three-service readback, portal/IPP reachability, canonical control/CUPS/DNS-SD identity, PDF and Apple Raster exact-source preservation, restart persistence, desired/live re-plan NOOP, update/redeploy persistence, and zero-residue cleanup."
 }
