@@ -149,23 +149,47 @@ URF_C = r"""
 #include <string.h>
 #include <unistd.h>
 int main(int argc,char **argv){
-  cups_page_header2_t h; cups_raster_t *r; pwg_media_t *m; unsigned char *line; unsigned y;
-  if(argc!=2) return 64; m=pwgMediaForPWG("iso_a4_210x297mm"); if(!m) return 1;
+  cups_page_header2_t h;
+  cups_raster_t *r;
+  pwg_media_t *m;
+  unsigned char *line;
+  unsigned y;
+  int fd;
+
+  if(argc!=2) return 64;
+  m=pwgMediaForPWG("iso_a4_210x297mm");
+  if(!m) return 1;
   if(!cupsRasterInitPWGHeader(&h,m,"sgray_8",300,300,"one-sided",NULL)) return 1;
   h.cupsInteger[CUPS_RASTER_PWG_TotalPageCount]=1;
-  int fd=open(argv[1],O_CREAT|O_TRUNC|O_WRONLY,0600); if(fd<0) return 1;
-  r=cupsRasterOpen(fd,CUPS_RASTER_WRITE_APPLE); if(!r) return 1;
+
+  fd=open(argv[1],O_CREAT|O_TRUNC|O_WRONLY,0600);
+  if(fd<0) return 1;
+  r=cupsRasterOpen(fd,CUPS_RASTER_WRITE_APPLE);
+  if(!r) return 1;
   if(!cupsRasterWriteHeader2(r,&h)) return 1;
-  line=malloc(h.cupsBytesPerLine); if(!line) return 1; memset(line,0xff,h.cupsBytesPerLine);
-  for(y=0;y<h.cupsHeight;y++) if(cupsRasterWritePixels(r,line,h.cupsBytesPerLine)!=h.cupsBytesPerLine) return 1;
-  free(line); cupsRasterClose(r); return close(fd)==0?0:1;
+
+  line=malloc(h.cupsBytesPerLine);
+  if(!line) return 1;
+  memset(line,0xff,h.cupsBytesPerLine);
+  for(y=0;y<h.cupsHeight;y++){
+    if(cupsRasterWritePixels(r,line,h.cupsBytesPerLine)!=h.cupsBytesPerLine) return 1;
+  }
+  free(line);
+  cupsRasterClose(r);
+  return close(fd)==0?0:1;
 }
 """
 
 def generate_urf(root: pathlib.Path):
     src=root/"generate-urf.c"; exe=root/"generate-urf"; out=root/"probe.urf"
     src.write_text(URF_C,encoding="utf-8")
-    subprocess.run(["cc","-O2","-Wall","-Wextra","-Werror","-o",str(exe),str(src),"-lcups"],check=True)
+    compile_result=subprocess.run(
+        ["cc","-O2","-Wall","-Wextra","-Werror","-o",str(exe),str(src),"-lcups"],
+        text=True,capture_output=True,check=False,
+    )
+    if compile_result.returncode:
+        diagnostic=(compile_result.stderr or compile_result.stdout or "unknown compiler failure").strip()
+        raise RuntimeError(f"URF fixture compile failed: {diagnostic[:2000]}")
     subprocess.run([str(exe),str(out)],check=True)
     if out.read_bytes()[:7] != b"UNIRAST":
         raise RuntimeError("generated URF missing UNIRAST signature")
