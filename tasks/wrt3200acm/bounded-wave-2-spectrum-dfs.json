@@ -1,0 +1,49 @@
+{
+  "schema": "wrt3200acm-bounded-wave/v1",
+  "wave_id": "wave-2-spectrum-dfs",
+  "objective": "Localize and classify exact W8964 firmware dispatcher/control-flow paths for SET_SPECTRUM_MGMT 0x1128 and 802.11H_DETECT_RADAR 0x0120 without broad regression or RF/HIL.",
+  "admission": {
+    "prior_wave_integrated": true,
+    "governor_qualified": true,
+    "source_contract": "SemperSupra/wrt3200acm-recovery-private@main:evidence/findings/fw.88w8964.spectrum-dfs-source-contract.json",
+    "source_contract_commit": "9fd67cc890e5afb836d0a63ee3b7c776d347b35a"
+  },
+  "resource_policy": {
+    "max_jobs": 1,
+    "max_firmware_bearing_jobs": 1,
+    "target_runner_minutes": 10,
+    "retry_limit": 1,
+    "no_unchanged_green_reruns": true,
+    "broad_regression": false
+  },
+  "targets": [
+    {
+      "id": "0x1128",
+      "name": "HOSTCMD_CMD_SET_SPECTRUM_MGMT"
+    },
+    {
+      "id": "0x0120",
+      "name": "HOSTCMD_CMD_802_11H_DETECT_RADAR"
+    }
+  ],
+  "required_outputs": [
+    "direct, affine, literal-candidate, or unresolved classification for each target",
+    "bounded r12 dispatcher control slice",
+    "candidate branch targets when present",
+    "derived-only evidence"
+  ],
+  "interpretation_policy": [
+    "unresolved is a valid scientific result",
+    "candidate mappings do not promote semantics without control-flow/data-flow closure",
+    "infrastructure/parser/source invariant failures are the only CI-failing class"
+  ],
+  "exclusions": [
+    "no broad 61-command rescan",
+    "no Ghidra",
+    "no Unicorn",
+    "no RF transmit",
+    "no calibration mutation",
+    "no physical HIL",
+    "no unrelated WRT regression workflows"
+  ]
+}
