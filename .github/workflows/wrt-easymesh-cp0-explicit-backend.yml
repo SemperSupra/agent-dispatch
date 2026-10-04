@@ -144,6 +144,14 @@ jobs:
           export feeds_update_rc feeds_install_rc target_present defconfig1_rc defconfig2_rc config_assert_rc prepare_rc compile_rc
           python3 -c 'import json,os; ks=["feeds_update_rc","feeds_install_rc","target_present","defconfig1_rc","defconfig2_rc","config_assert_rc","prepare_rc","compile_rc"]; d={k:int(os.environ[k]) for k in ks}; d["schema"]="wrt-easymesh-cp0-direct-config/v1"; d["prepare_attempted"]=d["config_assert_rc"]==0; d["compile_attempted"]=d["prepare_rc"]==0; d["passed"]=d["compile_rc"]==0; print(json.dumps(d,indent=2,sort_keys=True))' > "$OUT/verdict.json"
 
+          echo '--- CP0_SEMANTIC_VERDICT_BEGIN ---'
+          cat "$OUT/verdict.json"
+          echo '--- CP0_SEMANTIC_VERDICT_END ---'
+          if [ "$compile_rc" -ne 0 ] && [ -f "$OUT/compile.log" ]; then
+            echo '--- CP0_COMPILE_FAILURE_TAIL_BEGIN ---'
+            tail -n 160 "$OUT/compile.log"
+            echo '--- CP0_COMPILE_FAILURE_TAIL_END ---'
+          fi
           cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
           exit 0
 
@@ -152,6 +160,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wrt-easymesh-cp0-explicit-backend-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/wrt-cp0-direct/out
+          path: ${{ runner.temp }}/wrt-cp0-explicit/out
           if-no-files-found: error
           retention-days: 7
