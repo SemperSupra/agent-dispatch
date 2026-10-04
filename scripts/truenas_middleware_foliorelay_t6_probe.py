@@ -342,8 +342,8 @@ def bounded_job_snapshot(job):
     if not isinstance(job, dict):
         return None
     return {
-        key: (bounded_text(job.get(key)) if key in {"error", "exception", "exc_info"} else job.get(key))
-        for key in ("id", "state", "progress", "error", "exception", "exc_info")
+        key: (bounded_text(job.get(key)) if key in {"error", "exception", "exc_info", "logs_excerpt"} else job.get(key))
+        for key in ("id", "state", "progress", "error", "exception", "exc_info", "logs_excerpt")
         if key in job
     }
 
