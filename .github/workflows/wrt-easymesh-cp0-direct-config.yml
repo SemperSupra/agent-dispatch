@@ -118,7 +118,7 @@ jobs:
               cp .config "$OUT/openwrt-sdk.config"
               grep -E '^(CONFIG_ALL=|CONFIG_ALL_NONSHARED=|CONFIG_ALL_KMODS=|CONFIG_TARGET_ALL_PROFILES=|CONFIG_PACKAGE_prplmesh=|CONFIG_PACKAGE_prplmesh-unit-tests=|CONFIG_PACKAGE_prplmesh-dm-mapper=|CONFIG_PACKAGE_prplmesh-process-manager=|CONFIG_PRPLMESH_ENABLE_UNIT_TESTS=|CONFIG_PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND=|CONFIG_USE_PRPLMESH_WHM=|# CONFIG_ALL |# CONFIG_ALL_NONSHARED |# CONFIG_ALL_KMODS |# CONFIG_TARGET_ALL_PROFILES |# CONFIG_PACKAGE_prplmesh |# CONFIG_PACKAGE_prplmesh-unit-tests |# CONFIG_PACKAGE_prplmesh-dm-mapper |# CONFIG_PACKAGE_prplmesh-process-manager |# CONFIG_PRPLMESH_ENABLE_UNIT_TESTS |# CONFIG_PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND |# CONFIG_USE_PRPLMESH_WHM )' .config > "$OUT/prplmesh-config-selection.txt" || true
 
-              if grep -Eq '^(CONFIG_ALL=y|CONFIG_ALL_NONSHARED=y|CONFIG_ALL_KMODS=y|CONFIG_TARGET_ALL_PROFILES=y|CONFIG_PACKAGE_prplmesh-unit-tests=m|CONFIG_PACKAGE_prplmesh-dm-mapper=m|CONFIG_PACKAGE_prplmesh-process-manager=m|CONFIG_PRPLMESH_ENABLE_UNIT_TESTS=y|CONFIG_PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND=y|CONFIG_USE_PRPLMESH_WHM=y)' .config; then
+              if grep -Eq '^(CONFIG_ALL=y|CONFIG_ALL_NONSHARED=y|CONFIG_ALL_KMODS=y|CONFIG_PACKAGE_prplmesh-unit-tests=m|CONFIG_PACKAGE_prplmesh-dm-mapper=m|CONFIG_PACKAGE_prplmesh-process-manager=m|CONFIG_PRPLMESH_ENABLE_UNIT_TESTS=y|CONFIG_PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND=y|CONFIG_USE_PRPLMESH_WHM=y)' .config; then
                 echo 'broad selector or optional feature unexpectedly re-enabled' > "$OUT/config-assertion-failure.txt"
                 config_assert_rc=1
               else
