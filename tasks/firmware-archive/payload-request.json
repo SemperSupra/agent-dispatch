@@ -1,14 +1,14 @@
 {
   "schema": "firmware-archive-payload-request/v1",
-  "request_id": "wrt3200acm-88w8887-ublox-evk-2026-10-04-03",
-  "target": "88W8887 u-blox EVK-EMMY-W1 public reference documentation",
-  "max_total_bytes": 8388608,
+  "request_id": "broadcom-sas9211-p20-2026-10-04-01",
+  "target": "Broadcom/LSI SAS9211-8i / SAS2008 P20",
+  "max_total_bytes": 26214400,
   "items": [
     {
-      "filename": "EVK-EMMY-W1_UserGuide_UBX-15012713.pdf",
-      "url": "https://content.u-blox.com/sites/default/files/EVK-EMMY-W1_UserGuide_%28UBX-15012713%29.pdf",
-      "provenance": "u-blox public evaluation-kit user guide",
-      "source_revision": "UBX-15012713"
+      "filename": "9211-8i_Package_P20_IR_IT_Firmware_BIOS_for_MSDOS_Windows.zip",
+      "url": "https://docs.broadcom.com/docs/12350530",
+      "provenance": "Broadcom legacy document service, document ID 12350530",
+      "source_revision": "SAS9211-8i P20 / 20.00.07.00 vendor package"
     }
   ]
 }
