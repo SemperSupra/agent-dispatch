@@ -48,6 +48,16 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"entrypoint":["python3","/observer/mdns_observer.py"]', text)
         self.assertIn('"distinct_observer_context":True', text)
 
+    def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('H.result={"status":"pending"}', text)
+        self.assertIn('threading.Thread(target=run_observer', text)
+        self.assertIn('{"status":"success",**result}', text)
+        self.assertIn('{"status":"error","error":', text)
+        self.assertIn('p.add_argument("--seconds",type=float,default=25)', text)
+        self.assertIn('DNS-SD observer oracle failed:', text)
+        self.assertIn('DNS-SD observer oracle remained pending', text)
+
     def test_workflow_and_harness_route_exact_foliorelay_export(self):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
