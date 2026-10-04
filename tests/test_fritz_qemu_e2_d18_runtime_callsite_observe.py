@@ -75,6 +75,11 @@ class D18Tests(unittest.TestCase):
         self.assertIn("\ndetach\n", text)
         self.assertIn("\nquit\n", text)
 
+    def test_isolated_interface_names_parses_ip_o_shape(self):
+        text = "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 state UNKNOWN mode DEFAULT\n"
+        self.assertEqual(d18.isolated_interface_names(text), ["lo"])
+
+
     def test_attach_only_command_has_no_continue_or_breakpoint(self):
         text = d18.gdb_attach_only_command_text(pathlib.Path("/tmp/root"), 25480)
         self.assertIn("target remote 127.0.0.1:25480", text)
