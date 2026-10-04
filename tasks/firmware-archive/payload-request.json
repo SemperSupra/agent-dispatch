@@ -1,27 +1,9 @@
 {
   "schema": "firmware-archive-payload-request/v1",
-  "request_id": "wrt3200acm-88w8887-public-docs-2026-10-04-02",
-  "target": "88W8887 public reference documentation",
-  "max_total_bytes": 15728640,
+  "request_id": "wrt3200acm-88w8887-ublox-evk-2026-10-04-03",
+  "target": "88W8887 u-blox EVK-EMMY-W1 public reference documentation",
+  "max_total_bytes": 8388608,
   "items": [
-    {
-      "filename": "AN12849.pdf",
-      "url": "https://www.nxp.com/docs/en/application-note/AN12849.pdf",
-      "provenance": "NXP public application note",
-      "source_revision": "AN12849"
-    },
-    {
-      "filename": "AN14163.pdf",
-      "url": "https://www.nxp.com/docs/en/application-note/AN14163.pdf",
-      "provenance": "NXP public application note",
-      "source_revision": "AN14163"
-    },
-    {
-      "filename": "AN13049.pdf",
-      "url": "https://www.nxp.com/docs/en/application-note/AN13049.pdf",
-      "provenance": "NXP public application note",
-      "source_revision": "AN13049"
-    },
     {
       "filename": "EVK-EMMY-W1_UserGuide_UBX-15012713.pdf",
       "url": "https://content.u-blox.com/sites/default/files/EVK-EMMY-W1_UserGuide_%28UBX-15012713%29.pdf",
