@@ -7,6 +7,7 @@ import base64
 import hashlib
 import http.client
 import json
+import os
 import pathlib
 import re
 import socket
@@ -27,7 +28,8 @@ EXPECTED_APP_NAME = "rdte-t6-foliorelay"
 OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"
 EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce"
 EXPECTED_CUPS = "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f"
-OBSERVER_IMAGE = "ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c"
+OBSERVER_IMAGE = EXPECTED_CONTROL
+OBSERVER_SOURCE = pathlib.Path(__file__).with_name("foliorelay_mdns_observer.go")
 DATASET = "rdtepool/foliorelay-t6"
 ROOT = "/mnt/rdtepool/foliorelay-t6"
 TOKEN_PATH = ROOT + "/secrets/control.token"
@@ -220,6 +222,21 @@ def forwarded_ipp_uri_has_product_path(uri: str | None) -> bool:
     tail = uri.split("://", 1)[1]
     slash = tail.find("/")
     return slash >= 0 and tail[slash:] == PUBLIC_RESOURCE_PATH
+
+def build_observer_binary(root: pathlib.Path):
+    out=root/"foliorelay-mdns-observer"
+    env=os.environ.copy()
+    env.update({"CGO_ENABLED":"0","GOOS":"linux","GOARCH":"amd64"})
+    result=subprocess.run(
+        ["go","build","-trimpath","-ldflags=-s -w","-o",str(out),str(OBSERVER_SOURCE)],
+        text=True,capture_output=True,check=False,env=env,
+    )
+    if result.returncode:
+        diagnostic=(result.stderr or result.stdout or "unknown Go compiler failure").strip()
+        raise RuntimeError(f"observer fixture compile failed: {diagnostic[:2000]}")
+    if not out.is_file() or out.stat().st_size < 100000:
+        raise RuntimeError("observer fixture binary missing or unexpectedly small")
+    return out
 
 def ipptool_print(port:int, media:str, source:pathlib.Path, label:str, root:pathlib.Path):
     t=root/f"print-{label}.test"
@@ -415,8 +432,23 @@ def main():
                 if len(matches)!=1 or matches[0].get("artifact_sha256")!=sha or matches[0].get("substrate")!="cups": raise RuntimeError(f"{media} Inbox metadata drifted")
                 blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
-        sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/mdns_observer.py",OBSERVER.encode(),0o555,a.timeout); wait_job(sj,"observer upload")
-        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
+        with tempfile.TemporaryDirectory() as observer_build_dir:
+            observer_binary=build_observer_binary(pathlib.Path(observer_build_dir))
+            sj=multipart_upload(
+                a.host,a.port,a.tls,"truenas_admin",password,
+                OBSERVER_DIR+"/foliorelay-mdns-observer",observer_binary.read_bytes(),0o555,a.timeout,
+            )
+            wait_job(sj,"observer upload")
+        j=call("filesystem.setperm",[{"path":OBSERVER_DIR+"/foliorelay-mdns-observer","uid":10001,"gid":10001,"mode":"555","options":{"stripacl":True,"recursive":False,"traverse":False}}])
+        if isinstance(j,int): wait_job(j,"observer setperm")
+        obs_compose={"services":{"observer":{
+            "image":OBSERVER_IMAGE,"network_mode":"host","user":"10001:10001","read_only":True,
+            "cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],
+            "healthcheck":{"disable":True},
+            "volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],
+            "entrypoint":["/observer/foliorelay-mdns-observer"],
+            "command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"],
+        }}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
         wait_job(oj,"observer app.create"); observer_created=True; wait_state(OBSERVER_APP_NAME,"RUNNING")
