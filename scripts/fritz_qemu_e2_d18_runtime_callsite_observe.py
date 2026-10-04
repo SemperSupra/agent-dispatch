@@ -565,11 +565,35 @@ def run_attach_control(args: argparse.Namespace) -> dict:
     }
 
 
+def instrumented_svctl_launch_argv(
+    root: pathlib.Path,
+    port: int,
+    verb: str,
+    service: str,
+    *,
+    host_strace: bool,
+) -> list[str]:
+    target = [
+        "chroot", str(root), r6.QEMU_GUEST_PATH, "-cpu", r6.CPU_PROFILE,
+        "-g", str(port), r6.SVCTL, verb, service,
+    ]
+    if not host_strace:
+        return target
+    return [
+        "strace", "-f", "-qq", "-xx", "-s", "8192",
+        "-e",
+        "trace=socket,connect,read,write,sendto,recvfrom,sendmsg,recvmsg,writev,readv,close",
+        *target,
+    ]
+
+
 def instrumented_svctl_call(
     root: pathlib.Path,
     env: dict,
     verb: str,
     service: str,
+    *,
+    host_strace: bool = True,
 ) -> dict:
     stage = "tool_discovery"
     try:
@@ -630,16 +654,12 @@ def instrumented_svctl_call(
                 encoding="utf-8",
             )
 
-            strace_argv = [
-                "strace", "-f", "-qq", "-xx", "-s", "8192",
-                "-e",
-                "trace=socket,connect,read,write,sendto,recvfrom,sendmsg,recvmsg,writev,readv,close",
-                "chroot", str(root), r6.QEMU_GUEST_PATH, "-cpu", r6.CPU_PROFILE,
-                "-g", str(port), r6.SVCTL, verb, service,
-            ]
+            launch_argv = instrumented_svctl_launch_argv(
+                root, port, verb, service, host_strace=host_strace
+            )
             stage = "process_launch"
             proc = subprocess.Popen(
-                strace_argv,
+                launch_argv,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -696,7 +716,11 @@ def instrumented_svctl_call(
 
         stage = "postprocess"
         observations = parse_gdb_observations(gdb_stdout)
-        wire = r9.parse_wire_trace(stderr)
+        wire = (
+            r9.parse_wire_trace(stderr)
+            if host_strace
+            else {"captureComplete": False, "captureAttempted": False}
+        )
         vocab = r6.binary_state_vocabulary(root)
         allowed = set(vocab.get(r6.SVCTL, {})) | set(vocab.get(r6.SUPERVISOR, {}))
         gdb_connection_seen = any(
@@ -709,7 +733,7 @@ def instrumented_svctl_call(
             and gdb_returncode == 0
             and proc.returncode is not None
             and observations
-            and wire.get("captureComplete") is True
+            and (wire.get("captureComplete") is True if host_strace else True)
         )
         return {
             "verb": verb,
@@ -728,10 +752,12 @@ def instrumented_svctl_call(
                     "ok" if ready
                     else "gdb_listener_not_ready" if not gdb_listener_ready
                     else "gdb_timeout" if gdb_timed_out
-                    else "debugger_or_wire_incomplete"
+                    else "debugger_or_wire_incomplete" if host_strace
+                    else "debugger_incomplete"
                 ),
                 "elfType": etype,
                 "bindingMode": binding_mode,
+                "hostStraceUsed": host_strace,
                 "observationCount": len(observations),
                 "observations": observations,
                 "gdbExitClass": (
@@ -763,6 +789,7 @@ def instrumented_svctl_call(
             service,
             type(exc).__name__,
             stage,
+            host_strace=host_strace,
         )
 
 def instrumentation_failure_result(
@@ -771,6 +798,8 @@ def instrumentation_failure_result(
     service: str,
     error_type: str,
     error_stage: str = "instrumented_svctl_call",
+    *,
+    host_strace: bool | None = None,
 ) -> dict:
     """Return a sanitized typed instrumentation failure without raw debugger data."""
     vocab = r6.binary_state_vocabulary(root)
@@ -792,6 +821,7 @@ def instrumentation_failure_result(
             "errorStage": error_stage,
             "elfType": None,
             "bindingMode": None,
+            "hostStraceUsed": host_strace,
             "observationCount": 0,
             "observations": [],
             "gdbExitClass": None,
@@ -816,6 +846,36 @@ def safe_instrumented_svctl_call(
         return instrumentation_failure_result(
             root, verb, service, type(exc).__name__, "outer_wrapper"
         )
+
+
+def safe_debugger_only_svctl_call(
+    root: pathlib.Path,
+    env: dict,
+    verb: str,
+    service: str,
+) -> dict:
+    try:
+        return instrumented_svctl_call(
+            root, env, verb, service, host_strace=False
+        )
+    except Exception as exc:
+        return instrumentation_failure_result(
+            root,
+            verb,
+            service,
+            type(exc).__name__,
+            "debugger_only_outer_wrapper",
+            host_strace=False,
+        )
+
+
+def debugger_only_namespace_helper(args: argparse.Namespace) -> int:
+    original = r6.svctl_call
+    r6.svctl_call = safe_debugger_only_svctl_call
+    try:
+        return r6.namespace_helper(args)
+    finally:
+        r6.svctl_call = original
 
 
 def namespace_helper(args: argparse.Namespace) -> int:
@@ -868,6 +928,7 @@ def summarize_instrumentation(runtime: dict) -> dict:
             "errorStage": (call.get("instrumentation") or {}).get("errorStage"),
             "elfType": (call.get("instrumentation") or {}).get("elfType"),
             "bindingMode": (call.get("instrumentation") or {}).get("bindingMode"),
+            "hostStraceUsed": (call.get("instrumentation") or {}).get("hostStraceUsed"),
             "observationCount": (call.get("instrumentation") or {}).get("observationCount", 0),
             "gdbExitClass": (call.get("instrumentation") or {}).get("gdbExitClass"),
             "gdbListenerSeen": (call.get("instrumentation") or {}).get("gdbListenerSeen"),
