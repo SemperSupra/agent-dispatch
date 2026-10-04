@@ -48,6 +48,7 @@ SCHEMA_VERSION = 1
 EXPERIMENT = "fritz-qemu-e2-d18-runtime-callsite-observe/v1"
 TARGETS = ("_svctl_init", "_svctl_send_pkt")
 DOWNSTREAM_TARGETS = ("_svctl_send",)
+LIBC_SEND_TARGETS = ("send",)
 MEMORY_SIZES = (8, 260)
 _RECORD_RE = re.compile(
     r"^\s*(?P<addr>[0-9a-fA-F]+):\s+(?:[0-9a-fA-F]{2,8}\s+)+(?P<asm>.+)$"
@@ -910,6 +911,42 @@ def downstream_send_namespace_helper(args: argparse.Namespace) -> int:
         r6.svctl_call = original
 
 
+def safe_libc_send_svctl_call(
+    root: pathlib.Path,
+    env: dict,
+    verb: str,
+    service: str,
+) -> dict:
+    try:
+        return instrumented_svctl_call(
+            root,
+            env,
+            verb,
+            service,
+            host_strace=False,
+            targets=LIBC_SEND_TARGETS,
+            require_d17_callsites=False,
+        )
+    except Exception as exc:
+        return instrumentation_failure_result(
+            root,
+            verb,
+            service,
+            type(exc).__name__,
+            "libc_send_outer_wrapper",
+            host_strace=False,
+        )
+
+
+def libc_send_namespace_helper(args: argparse.Namespace) -> int:
+    original = r6.svctl_call
+    r6.svctl_call = safe_libc_send_svctl_call
+    try:
+        return r6.namespace_helper(args)
+    finally:
+        r6.svctl_call = original
+
+
 def namespace_helper(args: argparse.Namespace) -> int:
     original = r6.svctl_call
     # Keep the R6 transaction alive even when debugger binding fails so the
@@ -1402,6 +1439,144 @@ def run_downstream_send_probe(args: argparse.Namespace) -> dict:
     }
 
 
+def classify_libc_send(instrument: dict) -> str:
+    if (
+        not instrument.get("allCallsInstrumentationReady")
+        or not instrument.get("allExpectedTargetHits")
+    ):
+        return "E2_D18F_LIBC_SEND_INSTRUMENTATION_INCOMPLETE"
+    if instrument.get("stableDimensionDiscriminatorCount", 0) > 0:
+        return "E2_D18F_LIBC_SEND_STABLE_DISCRIMINATOR_FOUND"
+    if instrument.get("unstableStatusDimensionCount", 0) > 0:
+        return "E2_D18F_LIBC_SEND_UNSTABLE_STATUS_NO_DISCRIMINATOR"
+    return "E2_D18F_LIBC_SEND_NO_RUNTIME_DISCRIMINATOR"
+
+
+def run_libc_send_probe(args: argparse.Namespace) -> dict:
+    static_args = d18e_scoped_args(args, "static")
+    runtime_args = d18e_scoped_args(args, "runtime")
+    static = d14.run_probe(static_args)
+    edges = {
+        (edge["source"], edge["target"])
+        for edge in static["library"]["combinedAcceptedCallEdges"]
+    }
+    role_earned = bool(
+        static.get("oracleSatisfied")
+        and ("_svctl_init", "_svctl_send") in edges
+        and ("_svctl_send_pkt", "_svctl_send") in edges
+        and ("_svctl_send", "send") in edges
+    )
+    if not role_earned:
+        raise RuntimeError("D18d libc send role did not reproduce")
+
+    root, meta = r6.prepare_root(runtime_args)
+    ns_result = pathlib.Path(runtime_args.work_dir).resolve() / "namespace-result-d18f.json"
+    cp = r6._run(
+        [
+            "sudo", "-n", "unshare", "--net", "--pid", "--fork", "--kill-child",
+            "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
+            "--libc-send-namespace-helper", "--root", str(root),
+            "--namespace-result", str(ns_result),
+            "--control-wait-seconds", str(runtime_args.control_wait_seconds),
+            "--verify-seconds", str(runtime_args.verify_seconds),
+            "--sample-interval-seconds", str(runtime_args.sample_interval_seconds),
+        ],
+        timeout=max(
+            60,
+            int(runtime_args.control_wait_seconds + runtime_args.verify_seconds) + 45,
+        ),
+    )
+    if cp.returncode != 0:
+        raise RuntimeError(
+            f"isolated D18f probe failed (exit={cp.returncode}, "
+            f"stderrBytes={len(cp.stderr.encode())})"
+        )
+    if not ns_result.exists():
+        raise RuntimeError("D18f namespace probe emitted no result")
+
+    runtime = json.loads(ns_result.read_text(encoding="utf-8"))
+    instrument = summarize_instrumentation(runtime, LIBC_SEND_TARGETS)
+    classification = classify_libc_send(instrument)
+    oracle = bool(
+        runtime.get("probeCompleted")
+        and role_earned
+        and instrument.get("allCallsInstrumentationReady")
+        and instrument.get("allExpectedTargetHits")
+    )
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "experiment": "fritz-qemu-e2-d18f-libc-send/v1",
+        "classification": classification,
+        "oracleSatisfied": oracle,
+        **meta,
+        "transaction": {
+            "inspect": ["svctl", "status", "ctlmgr"],
+            "apply": ["svctl", "start", "ctlmgr"],
+            "applyCount": 1 if runtime.get("start", {}).get("exitCode") is not None else 0,
+            "verify": ["svctl", "status", "ctlmgr"],
+            "disposalIsRollback": True,
+        },
+        "staticPrecondition": {
+            "d18dLibcSendRoleReproduced": role_earned,
+            "initToSend": ("_svctl_init", "_svctl_send") in edges,
+            "sendPktToSend": ("_svctl_send_pkt", "_svctl_send") in edges,
+            "sendToLibcSend": ("_svctl_send", "send") in edges,
+        },
+        "wireOracle": {
+            "sameRunCaptureAttempted": False,
+            "sameRunCaptureRequired": False,
+            "independentAcceptedR9EvidencePreserved": True,
+        },
+        "instrumentation": instrument,
+        "runtimeSummary": {
+            "statusChanged": runtime.get("statusChanged"),
+            "ctlmgrProcessObserved": runtime.get("ctlmgrProcessObserved"),
+            "maxCtlmgrProcessCount": runtime.get("maxCtlmgrProcessCount"),
+        },
+        "interpretationBoundary": {
+            "d18dLibcSendRoleRequired": True,
+            "observedRole": "libc_send_entry",
+            "sharedSymbolBindingOnly": True,
+            "argumentScalarClassesAndMemoryDigestsOnly": True,
+            "dimensionLevelStatusControlRequired": True,
+            "prePostStatusStabilityRequiredForDifferenceClaim": True,
+            "hostStraceExcludedFromSvctlCalls": True,
+            "sameRunWireCaptureExcluded": True,
+            "independentR9WireOracleNotReinterpreted": True,
+            "d18eDiscriminatorPreservedAsIndependentEvidence": True,
+            "digestValuesPublished": False,
+            "protocolEnumValuesAccepted": False,
+            "packetFieldLayoutAccepted": False,
+            "socketDescriptorValueAccepted": False,
+            "sendLengthValueAccepted": False,
+            "sendFlagsValueAccepted": False,
+            "noAdditionalDownstreamPointEarned": True,
+        },
+        "safety": {
+            "rawFirmwarePublished": False,
+            "rootfsPublished": False,
+            "rawControlPayloadPublished": False,
+            "controlPayloadPersisted": False,
+            "rawHostStracePublished": False,
+            "rawDebuggerOutputPublished": False,
+            "rawRegisterValuesPublished": False,
+            "rawPointedMemoryPublished": False,
+            "callsiteAddressesPublished": False,
+            "physicalRouterContact": False,
+            "routerMutationAuthorized": False,
+            "externalNetworkAvailableToTarget": False,
+            "targetSpecificShimAdded": False,
+            "shippedFilesModified": False,
+            "genericRuntimeFixtureAdded": True,
+            "onlyVarTmpCreated": True,
+            "serviceStartRequested": True,
+            "serviceStartCountMaximum": 1,
+            "sameRunWireCaptureAttempted": False,
+            "disposableEmulatorMutationOnly": True,
+        },
+    }
+
+
 def run_probe(args: argparse.Namespace) -> dict:
     root, meta = r6.prepare_root(args)
     ns_result = pathlib.Path(args.work_dir).resolve() / "namespace-result-d18.json"
@@ -1507,6 +1682,8 @@ def parse_args(argv=None):
     p.add_argument("--debugger-only-namespace-helper", action="store_true")
     p.add_argument("--downstream-send-transaction", action="store_true")
     p.add_argument("--downstream-send-namespace-helper", action="store_true")
+    p.add_argument("--libc-send-transaction", action="store_true")
+    p.add_argument("--libc-send-namespace-helper", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
     return p.parse_args(argv)
@@ -1530,6 +1707,10 @@ def main(argv=None):
         if not args.root or not args.namespace_result:
             raise SystemExit("downstream-send helper requires root/result")
         return downstream_send_namespace_helper(args)
+    if args.libc_send_namespace_helper:
+        if not args.root or not args.namespace_result:
+            raise SystemExit("libc-send helper requires root/result")
+        return libc_send_namespace_helper(args)
 
     required = (
         args.firmware_url, args.expected_size, args.expected_sha256,
@@ -1543,6 +1724,8 @@ def main(argv=None):
     try:
         if args.attach_only_control:
             data = run_attach_control(args)
+        elif args.libc_send_transaction:
+            data = run_libc_send_probe(args)
         elif args.downstream_send_transaction:
             data = run_downstream_send_probe(args)
         elif args.dimension_stable_transaction:
