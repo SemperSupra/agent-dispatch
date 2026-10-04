@@ -212,6 +212,12 @@ def call_edges(text: str) -> list[dict]:
                     break
         if close_idx is None:
             continue
+        # A function definition is declaration/signature evidence, not a call edge.
+        after = close_idx + 1
+        while after < len(masked) and masked[after].isspace():
+            after += 1
+        if after < len(masked) and masked[after] == "{":
+            continue
         arg_text = masked[open_idx + 1:close_idx]
         if not re.search(r"\bnametable\b", arg_text):
             continue
@@ -244,6 +250,16 @@ def analyze_target(text: str) -> dict:
     assigns = direct_assignments(text)
     writes = member_writes(text)
     calls = call_edges(text)
+    # Calls that only read a member of nametable are consumer/use evidence.
+    # A call receiving the table/entry expression without a member dereference
+    # remains only a producer/alias *candidate* until direction is proven.
+    producer_calls = [
+        rec for rec in calls
+        if any(
+            not any("member" in ident["roles"] for ident in skel["identifiers"])
+            for skel in rec["argumentSkeletons"]
+        )
+    ]
     producer_ids = sorted({
         ident["name"]
         for rec in assigns
@@ -254,11 +270,13 @@ def analyze_target(text: str) -> dict:
         "directAssignments": assigns,
         "memberWrites": writes,
         "callEdges": calls,
+        "producerCallEdges": producer_calls,
         "producerIdentifiers": producer_ids,
         "derived": {
             "directAssignmentCount": len(assigns),
             "memberWriteCount": len(writes),
             "callEdgeCount": len(calls),
+            "producerCallEdgeCount": len(producer_calls),
             "uniqueProducerIdentifierCount": len(producer_ids),
         },
     }
@@ -270,7 +288,7 @@ def classify(a: dict) -> str:
         return "H0_D1P_DIRECT_ASSIGNMENT_PRODUCER_LOCATED"
     if d["memberWriteCount"]:
         return "H0_D1P_MEMBER_POPULATION_LOCATED"
-    if d["callEdgeCount"]:
+    if d["producerCallEdgeCount"]:
         return "H0_D1P_CALL_EDGE_PRODUCER_CANDIDATE_LOCATED"
     return "H0_D1P_NO_LOCAL_POPULATION_EDGE"
 
