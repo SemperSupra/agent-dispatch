@@ -28,6 +28,18 @@ _C_KEYWORDS = {
     "switch","typedef","union","unsigned","void","volatile","while",
 }
 
+INTERPRETATION_BOUNDARY = {
+    "declarationShapeAccepted": True,
+    "assignmentAndCallShapesAreCandidateEvidenceOnly": True,
+    "safeIdentifiersAndOperatorClassesOnly": True,
+    "sourceSnippetsAccepted": False,
+    "arbitraryStringLiteralsAccepted": False,
+    "numericFlashOffsetsAccepted": False,
+    "inactiveSlotSafetyAccepted": False,
+    "rollbackSafetyAccepted": False,
+    "modifiedHilAuthorized": False,
+}
+
 
 def extract_target(archive: pathlib.Path) -> str:
     with tarfile.open(archive, "r:*") as tf:
@@ -285,17 +297,7 @@ def run_probe(args):
         },
         "targetPath": TARGET_PATH,
         "population": analysis,
-        "interpretationBoundary": {
-            "declarationShapeAccepted": True,
-            "assignmentAndCallShapesAreCandidateEvidenceOnly": True,
-            "safeIdentifiersAndOperatorClassesOnly": True,
-            "sourceSnippetsAccepted": False,
-            "arbitraryStringLiteralsAccepted": False,
-            "numericFlashOffsetsAccepted": False,
-            "inactiveSlotSafetyAccepted": False,
-            "rollbackSafetyAccepted": False,
-            "modifiedHilAuthorized": False,
-        },
+        "interpretationBoundary": dict(INTERPRETATION_BOUNDARY),
         "safety": {
             "rawOspArchivePublished": False,
             "sourcePayloadPublished": False,
