@@ -1,31 +1,37 @@
 {
   "schema": "firmware-archive-payload-request/v1",
-  "request_id": "wrt3200acm-88w8887-docs-2026-10-04-01",
-  "target": "Linksys WRT3200ACM / Marvell 88W8887 reference documentation",
+  "request_id": "wrt3200acm-public-docs-2026-10-04-01",
+  "target": "Linksys WRT3200ACM / 88W8887 public reference documentation",
   "max_total_bytes": 20971520,
   "items": [
+    {
+      "filename": "WRT3200ACM_WiFiRouter_EN.pdf",
+      "url": "https://downloads.linksys.com/downloads/datasheet/WRT3200ACM_WiFiRouter_EN.pdf",
+      "provenance": "Linksys public product datasheet",
+      "source_revision": "public download endpoint"
+    },
     {
       "filename": "AN12849.pdf",
       "url": "https://www.nxp.com/docs/en/application-note/AN12849.pdf",
       "provenance": "NXP public application note",
-      "source_revision": "88W8887 Bluetooth/LE host wake application note"
+      "source_revision": "AN12849"
     },
     {
       "filename": "AN14163.pdf",
       "url": "https://www.nxp.com/docs/en/application-note/AN14163.pdf",
       "provenance": "NXP public application note",
-      "source_revision": "88W8887 Bluetooth Direct Test Mode application note"
+      "source_revision": "AN14163"
     },
     {
       "filename": "AN13049.pdf",
       "url": "https://www.nxp.com/docs/en/application-note/AN13049.pdf",
       "provenance": "NXP public application note",
-      "source_revision": "88W8887 M.2 Key E pinout/application note"
+      "source_revision": "AN13049"
     },
     {
-      "filename": "EVK-EMMY-W1_UBX-15012713.pdf",
+      "filename": "EVK-EMMY-W1_UserGuide_UBX-15012713.pdf",
       "url": "https://content.u-blox.com/sites/default/files/EVK-EMMY-W1_UserGuide_%28UBX-15012713%29.pdf",
-      "provenance": "u-blox public EVK-EMMY-W1 user guide",
+      "provenance": "u-blox public evaluation-kit user guide",
       "source_revision": "UBX-15012713"
     }
   ]
