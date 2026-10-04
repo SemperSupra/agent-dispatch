@@ -214,6 +214,15 @@ def extract_printer_uri(attrs: str):
     match = re.search(r"printer-uri-supported[^\n]*= (ipp://[^\s]+)", attrs)
     return match.group(1) if match else None
 
+def dnssd_txt_uuid(printer_uuid: str) -> str:
+    prefix="urn:uuid:"
+    if not isinstance(printer_uuid,str) or not printer_uuid.lower().startswith(prefix):
+        raise RuntimeError("canonical printer UUID is not urn:uuid form")
+    value=printer_uuid[len(prefix):]
+    if not value:
+        raise RuntimeError("canonical printer UUID is empty")
+    return value
+
 def forwarded_ipp_uri_has_product_path(uri: str | None) -> bool:
     if not uri or not uri.startswith("ipp://"):
         return False
@@ -264,7 +273,7 @@ def name_at(pkt,off,seen=None):
             if end is None: end=off+2
             return ".".join(labels),end
         off+=1; labels.append(pkt[off:off+n].decode(errors="replace")); off+=n
-def observe(expected,expected_host,expected_ipp_port,seconds=25):
+def observe(expected,expected_txt_uuid,expected_host,expected_ipp_port,seconds=25):
     qid=0; query=struct.pack("!HHHHHH",qid,0,1,0,0,0)+enc(Q)+struct.pack("!HH",12,1)
     s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM,socket.IPPROTO_UDP)
     s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
@@ -297,7 +306,7 @@ def observe(expected,expected_host,expected_ipp_port,seconds=25):
                     _,_,srv_port=struct.unpack("!HHH",r[:6])
                     srv_target,_=name_at(pkt,rstart+6)
             joined="\n".join(txt)
-            if (universal_ptr and expected.lower() in joined.lower()
+            if (universal_ptr and ("uuid="+expected_txt_uuid).lower() in joined.lower()
                 and "rp=printers/FolioRelay" in joined
                 and "pdl=application/pdf,image/urf" in joined
                 and (srv_target or "").rstrip(".").lower()==expected_host.rstrip(".").lower()
@@ -312,11 +321,11 @@ class H(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
 def run_observer(args):
     try:
-        result=observe(args.uuid,args.expected_host,args.expected_ipp_port,args.seconds)
+        result=observe(args.uuid,args.txt_uuid,args.expected_host,args.expected_ipp_port,args.seconds)
         H.result={"status":"success",**result}
     except Exception as exc:
         H.result={"status":"error","error":f"{type(exc).__name__}: {exc}"}
-p=argparse.ArgumentParser(); p.add_argument("--uuid",required=True); p.add_argument("--expected-host",required=True); p.add_argument("--expected-ipp-port",type=int,required=True); p.add_argument("--port",type=int,default=18081); p.add_argument("--seconds",type=float,default=25); a=p.parse_args()
+p=argparse.ArgumentParser(); p.add_argument("--uuid",required=True); p.add_argument("--txt-uuid",required=True); p.add_argument("--expected-host",required=True); p.add_argument("--expected-ipp-port",type=int,required=True); p.add_argument("--port",type=int,default=18081); p.add_argument("--seconds",type=float,default=25); a=p.parse_args()
 threading.Thread(target=run_observer,args=(a,),daemon=True).start()
 HTTPServer(("0.0.0.0",a.port),H).serve_forever()
 '''
@@ -416,7 +425,7 @@ def main():
                 blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
         sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/mdns_observer.py",OBSERVER.encode(),0o555,a.timeout); wait_job(sj,"observer upload")
-        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
+        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--txt-uuid",dnssd_txt_uuid(uuid),"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
         wait_job(oj,"observer app.create"); observer_created=True; wait_state(OBSERVER_APP_NAME,"RUNNING")
