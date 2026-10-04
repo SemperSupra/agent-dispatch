@@ -94,9 +94,9 @@ jobs:
           agent_recovered=0
           shared_l2=0
           pcap_present=0
-          grep -qiE 'OPERATIONAL|connected' "$OUT/controller-status.txt" && controller_operational=1 || true
-          grep -qiE 'OPERATIONAL|connected' "$OUT/agent-status.txt" && agent_operational=1 || true
-          grep -qiE 'OPERATIONAL|connected' "$OUT/agent-status-after-restart.txt" && agent_recovered=1 || true
+          { grep -qiE 'OPERATIONAL|connected' "$OUT/controller-status.txt" || grep -RqiE 'OPERATIONAL|CONNECTED --> OPERATIONAL' "$OUT/beerocks/controller-initial" 2>/dev/null; } && controller_operational=1 || true
+          { grep -qiE 'OPERATIONAL|connected' "$OUT/agent-status.txt" || grep -RqiE 'OPERATIONAL|CONNECTED --> OPERATIONAL' "$OUT/beerocks/agent-initial" 2>/dev/null; } && agent_operational=1 || true
+          { grep -qiE 'OPERATIONAL|connected' "$OUT/agent-status-after-restart.txt" || grep -RqiE 'OPERATIONAL|CONNECTED --> OPERATIONAL' "$OUT/beerocks/agent-after-restart" 2>/dev/null; } && agent_recovered=1 || true
           [ -n "$controller_net" ] && [ "$controller_net" = "$agent_net" ] && shared_l2=1 || true
           [ -s "$OUT/e0-reconvergence.pcap" ] && pcap_present=1 || true
 
