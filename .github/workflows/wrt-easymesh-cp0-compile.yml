@@ -1,0 +1,141 @@
+name: WRT EasyMesh CP0 Compile
+
+on:
+  push:
+    branches:
+      - wrt-easymesh-cp0-compile-20261004
+    paths:
+      - '.github/workflows/wrt-easymesh-cp0-compile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cp0-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Build prplMesh 6.0.1 against OpenWrt 25.12.5 SDK
+        shell: bash
+        run: |
+          set -u
+          ROOT="$RUNNER_TEMP/wrt-cp0"
+          OUT="$ROOT/out"
+          mkdir -p "$OUT"
+          cd "$ROOT"
+
+          SDK_NAME='openwrt-sdk-25.12.5-mvebu-cortexa9_gcc-14.3.0_musl_eabi.Linux-x86_64'
+          SDK_ARCHIVE="$SDK_NAME.tar.zst"
+          SDK_URL="https://downloads.openwrt.org/releases/25.12.5/targets/mvebu/cortexa9/$SDK_ARCHIVE"
+          SDK_SHA='6b24abad1feee5f071a53872ed355ae4c2a90017b00ff99907183b56b31d995a'
+          PRPL_SHA='8ceef1b0f70a90c4b30b9ce57a99d064283f9638'
+          FEED_SHA='8003bb660da7c4e1980bed34c1e2a2dda43ab8ce'
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential git curl zstd rsync gawk gettext libncurses-dev unzip file jq python3-setuptools >/dev/null
+
+          curl -fL --retry 2 --connect-timeout 20 "$SDK_URL" -o "$SDK_ARCHIVE"
+          got=$(sha256sum "$SDK_ARCHIVE" | awk '{print $1}')
+          {
+            echo "sdk_url=$SDK_URL"
+            echo "sdk_expected_sha256=$SDK_SHA"
+            echo "sdk_observed_sha256=$got"
+            echo "prplmesh_expected_sha=$PRPL_SHA"
+            echo "feed_prplmesh_expected_sha=$FEED_SHA"
+          } > "$OUT/identity.txt"
+          test "$got" = "$SDK_SHA" || { echo "SDK hash mismatch" > "$OUT/fatal.txt"; exit 2; }
+
+          tar --use-compress-program=unzstd -xf "$SDK_ARCHIVE"
+          SDK="$ROOT/$SDK_NAME"
+
+          git clone -q https://gitlab.com/prpl-foundation/prplmesh/prplMesh.git prplMesh
+          git -C prplMesh checkout -q "$PRPL_SHA"
+          git -C prplMesh rev-parse HEAD > "$OUT/prplmesh_sha.txt"
+
+          git clone -q https://gitlab.com/prpl-foundation/prplos/feeds/feed-prplmesh.git feed-prplmesh
+          git -C feed-prplmesh checkout -q "$FEED_SHA"
+          git -C feed-prplmesh rev-parse HEAD > "$OUT/feed_prplmesh_sha.txt"
+
+          cd "$SDK"
+          cp feeds.conf.default feeds.conf
+          printf '\nsrc-link prplmesh %s\n' "$ROOT/feed-prplmesh" >> feeds.conf
+          cp feeds.conf "$OUT/feeds.conf"
+
+          set +e
+          ./scripts/feeds update -a > "$OUT/feeds-update.log" 2>&1
+          feeds_update_rc=$?
+          if [ "$feeds_update_rc" -eq 0 ]; then
+            ./scripts/feeds install -a > "$OUT/feeds-install.log" 2>&1
+            feeds_install_rc=$?
+          else
+            feeds_install_rc=99
+          fi
+          set -e
+
+          PKG='package/feeds/prplmesh/prplmesh'
+          target_present=0
+          if [ -e "$PKG/Makefile" ]; then
+            target_present=1
+            cp -L "$PKG/Makefile" "$OUT/prplmesh-package-Makefile.txt"
+            [ ! -e "$PKG/Config.in" ] || cp -L "$PKG/Config.in" "$OUT/prplmesh-package-Config.in.txt"
+          fi
+
+          defconfig_rc=99
+          prepare_rc=99
+          compile_rc=99
+
+          if [ "$feeds_update_rc" -eq 0 ] && [ "$feeds_install_rc" -eq 0 ] && [ "$target_present" -eq 1 ]; then
+            cat >> .config <<'EOF'
+CONFIG_PACKAGE_prplmesh=m
+# CONFIG_PRPLMESH_ENABLE_AMBIORIX_UBUS_BACKEND is not set
+# CONFIG_USE_PRPLMESH_WHM is not set
+# CONFIG_PRPLMESH_ENABLE_UNIT_TESTS is not set
+EOF
+            set +e
+            make defconfig > "$OUT/defconfig.log" 2>&1
+            defconfig_rc=$?
+            if [ "$defconfig_rc" -eq 0 ]; then
+              cp .config "$OUT/openwrt-sdk.config"
+              make -j2 "$PKG/prepare" USE_SOURCE_DIR="$ROOT/prplMesh" V=s > "$OUT/prepare.log" 2>&1
+              prepare_rc=$?
+              if [ "$prepare_rc" -eq 0 ]; then
+                make -j2 "$PKG/compile" USE_SOURCE_DIR="$ROOT/prplMesh" V=s > "$OUT/compile.log" 2>&1
+                compile_rc=$?
+              fi
+            fi
+            set -e
+          fi
+
+          find "$SDK/bin/packages" -type f -name '*.ipk' -printf '%P\t%s\n' 2>/dev/null | sort > "$OUT/ipks.txt" || true
+
+          export feeds_update_rc feeds_install_rc target_present defconfig_rc prepare_rc compile_rc
+          python3 - <<'PY' > "$OUT/verdict.json"
+          import json, os
+          vals = {k:int(os.environ[k]) for k in (
+              "feeds_update_rc","feeds_install_rc","target_present",
+              "defconfig_rc","prepare_rc","compile_rc")}
+          print(json.dumps({
+              "schema":"wrt-easymesh-cp0-compile/v1",
+              **vals,
+              "prepare_attempted": vals["defconfig_rc"] == 0,
+              "compile_attempted": vals["prepare_rc"] == 0,
+              "passed": vals["compile_rc"] == 0,
+          }, indent=2, sort_keys=True))
+          PY
+
+          {
+            echo "### WRT EasyMesh CP0 compile"
+            cat "$OUT/verdict.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Semantic result lives in artifact; preserve runner success for evidence retrieval.
+          exit 0
+
+      - name: Upload CP0 compile evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-easymesh-cp0-compile-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-cp0/out
+          if-no-files-found: error
+          retention-days: 7
