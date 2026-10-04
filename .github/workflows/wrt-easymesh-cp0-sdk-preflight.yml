@@ -62,17 +62,15 @@ jobs:
           ./scripts/feeds install -a -p prplmesh > "$RUNNER_TEMP/cp0/out/feeds_install.log" 2>&1
           feed_install_rc=$?
 
-          find package/feeds/prplmesh -maxdepth 5 -type f -name Makefile -print 2>/dev/null | sort             > "$RUNNER_TEMP/cp0/out/installed_feed_makefiles.txt" || true
+          find -L package/feeds/prplmesh -maxdepth 5 -type f -name Makefile -print 2>/dev/null | sort             > "$RUNNER_TEMP/cp0/out/installed_feed_makefiles.txt" || true
           grep -RniE 'PKG_NAME.*prpl|prpl[Mm]esh|USE_SOURCE_DIR' package/feeds/prplmesh             > "$RUNNER_TEMP/cp0/out/installed_recipe_hits.txt" 2>&1 || true
 
           target=""
-          while IFS= read -r mf; do
-            if grep -qiE 'PKG_NAME.*prplmesh|PKG_TITLE.*prplmesh' "$mf"; then
-              rel="${mf#package/feeds/prplmesh/}"
-              target="package/feeds/prplmesh/${rel%/Makefile}"
-              break
-            fi
-          done < "$RUNNER_TEMP/cp0/out/installed_feed_makefiles.txt"
+          if [ -e package/feeds/prplmesh/prplmesh/Makefile ]; then
+            target="package/feeds/prplmesh/prplmesh"
+            cp -L package/feeds/prplmesh/prplmesh/Makefile "$RUNNER_TEMP/cp0/out/prplmesh-package-Makefile.txt"
+            [ -e package/feeds/prplmesh/prplmesh/Config.in ] && cp -L package/feeds/prplmesh/prplmesh/Config.in "$RUNNER_TEMP/cp0/out/prplmesh-package-Config.in.txt"
+          fi
 
           prepare_rc=99
           compile_rc=99
