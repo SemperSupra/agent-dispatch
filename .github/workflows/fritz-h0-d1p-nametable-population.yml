@@ -54,7 +54,7 @@ jobs:
           assert b["safeIdentifiersAndOperatorClassesOnly"] is True
           assert b["sourceSnippetsAccepted"] is False
           assert b["arbitraryStringLiteralsAccepted"] is False
-          assert b["exactFlashOffsetsAccepted"] is False
+          assert b["numericFlashOffsetsAccepted"] is False
           assert b["inactiveSlotSafetyAccepted"] is False
           assert b["rollbackSafetyAccepted"] is False
           assert b["modifiedHilAuthorized"] is False
