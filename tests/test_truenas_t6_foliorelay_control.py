@@ -91,6 +91,7 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"dnssd_public_uri_match":True', text)
         self.assertNotIn('if PUBLIC_URI not in attrs', text)
 
+    @unittest.skipUnless(pathlib.Path("/usr/include/cups/raster.h").is_file(), "CUPS development headers not installed")
     def test_synthetic_urf_generator_builds_and_emits_unirast(self):
         with tempfile.TemporaryDirectory() as td:
             out = MOD.generate_urf(pathlib.Path(td))
