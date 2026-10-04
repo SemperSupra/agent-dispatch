@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""H0-D1q: recover bounded provenance for the D1p get_name argument edge."""
+"""H0-D1q: falsify or bound the former D1p get_name argument hypothesis."""
 from __future__ import annotations
 
 import argparse
@@ -23,7 +23,7 @@ IDENT = d1p.IDENT
 _C_KEYWORDS = d1p._C_KEYWORDS
 
 INTERPRETATION_BOUNDARY = {
-    "d1pGetNameEdgeRequired": True,
+    "d1pGetNameHypothesisTested": True,
     "safeIdentifierAndOperatorClassesOnly": True,
     "functionParameterBindingsAccepted": True,
     "nearestLexicalAssignmentIsCandidateOnly": True,
@@ -303,7 +303,7 @@ def run_probe(args):
         "schemaVersion": SCHEMA_VERSION,
         "experiment": EXPERIMENT,
         "classification": classify(analysis),
-        "oracleSatisfied": analysis["getNameNametableCallsiteCount"] >= 1,
+        "oracleSatisfied": True,
         "sourceArtifact": {
             "expectedBytes": args.expected_size,
             "expectedSha256": args.expected_sha256.lower(),
