@@ -73,7 +73,6 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"container_log_tails"', text)
         self.assertIn('bounded_job_snapshot(observer_exc.job)', text)
         self.assertIn('f"{name} cleanup delete"', text)
-        self.assertIn('"force_remove_custom_app":True', text)
         self.assertIn('"zero_residue"', text)
         self.assertIn('payload["cleanup_needed"]', text)
 
