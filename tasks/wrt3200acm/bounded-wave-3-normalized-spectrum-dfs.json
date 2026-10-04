@@ -42,5 +42,10 @@
     "unresolved is valid evidence",
     "no semantic promotion without exact normalization proof",
     "only infrastructure/parser failures are CI failures"
-  ]
+  ],
+  "retry": {
+    "attempt": 2,
+    "reason": "Attempt 1 was epistemically inconclusive because the strict matcher had not qualified itself against already-accepted normalized dispatcher mappings. Public commit 95f334bb045ad03794d0902f6f5fda2a46086643 adds self-qualification against UPDATE_ENCRYPTION 0x1122 -> 0x37b84, GET_SEQNO 0x1143 -> 0x36ff0, and SET_RF_CHANNEL 0x010a -> 0x37984.",
+    "policy": "single allowed retry for diagnosed evidence-harness defect; no further retry without redesign"
+  }
 }
