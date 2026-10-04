@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "fritz-e2-d18g-cross-oracle/v1",
+  "classification": "E2_D18G_REQUEST_DISCRIMINATOR_CROSS_ORACLE_CONVERGED",
+  "oracleSatisfied": true,
+  "authorities": {
+    "r9": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5962469722,
+      "pr": "SemperSupra/agent-dispatch#169",
+      "run": 37072490518
+    },
+    "d12": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5962695749,
+      "pr": "SemperSupra/agent-dispatch#176",
+      "run": 37074354449
+    },
+    "d14": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5963737847,
+      "pr": "SemperSupra/agent-dispatch#180",
+      "run": 37081762476
+    },
+    "d18e": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5977030290,
+      "pr": "SemperSupra/agent-dispatch#229",
+      "run": 37180684618
+    },
+    "d18f": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5977051539,
+      "pr": "SemperSupra/agent-dispatch#230",
+      "run": 37180839925
+    }
+  },
+  "acceptedRelations": {
+    "r9": {
+      "statusRequestsEquivalent": true,
+      "statusResponsesEquivalent": true,
+      "startRequestDiffers": true,
+      "firstObservedSendChunkBytes": 8,
+      "firstObservedSendChunkDiffersForStart": true,
+      "secondObservedSendChunkBytes": 260,
+      "secondObservedSendChunkInvariant": true,
+      "startResponseDiffers": true
+    },
+    "staticTopology": {
+      "initContainsFixed8": true,
+      "initToSend": true,
+      "sendPktToSend": true,
+      "sendToLibcSend": true
+    },
+    "d18e": {
+      "observedRole": "_svctl_send_entry",
+      "stable8ByteA1StatusRelation": true,
+      "startDiffersOnStable8ByteA1Relation": true,
+      "memory260StatusStable": false
+    },
+    "d18f": {
+      "observedRole": "libc_send_entry",
+      "stable8ByteA1StatusRelation": true,
+      "startDiffersOnStable8ByteA1Relation": true,
+      "memory260StatusStable": false
+    }
+  },
+  "interpretationBoundary": {
+    "digestValuesPublished": false,
+    "rawPayloadPublished": false,
+    "protocolEnumValuesAccepted": false,
+    "packetFieldLayoutAccepted": false,
+    "socketDescriptorValueAccepted": false,
+    "sendLengthValueAccepted": false,
+    "sendFlagsValueAccepted": false,
+    "physicalRouterContact": false,
+    "modifiedHilAuthorized": false,
+    "requestLocalizationBranchClosedOnPass": true,
+    "responseReadEdgeInferred": false
+  }
+}
