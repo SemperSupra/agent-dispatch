@@ -40,3 +40,23 @@ An attach success exonerates the bare QEMU-user RSP path and points to combined
 instrumentation interference. A repeated attach stall keeps the fault localized
 to the QEMU-user/GDB RSP session boundary. Neither outcome is product behavior
 evidence or HIL authority.
+
+
+## D18a host-strace-only attach control
+
+The accepted no-strace control proves bare QEMU-user/GDB RSP attachment reaches
+`post_target`. D18a restores exactly one factor: the host `strace -f` wrapper
+used by the earlier combined D18 treatment.
+
+Everything else stays at the accepted control:
+- exact shipped `/bin/svctl status ctlmgr`;
+- same QEMU CPU profile and isolated loopback-only namespace;
+- no breakpoint configuration;
+- no wire interpretation;
+- no explicit guest `continue`;
+- immediate disposable-target termination after attach classification.
+
+If D18a stalls before `post_target`, host ptrace/strace interaction is the
+causal candidate for the earlier attach failure. If D18a succeeds, strace alone
+is exonerated and the next treatment must add only one remaining instrumentation
+factor. Raw strace/debugger/target output is never published.

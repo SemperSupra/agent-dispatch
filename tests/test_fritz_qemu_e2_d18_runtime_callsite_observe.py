@@ -123,6 +123,27 @@ class D18Tests(unittest.TestCase):
         )
 
 
+    def test_strace_only_attach_control_classification(self):
+        self.assertEqual(
+            d18.classify_attach_control({
+                "hostStraceUsed": True,
+                "gdbListenerSeen": True,
+                "gdbStages": ["pre_target", "post_target"],
+                "gdbExitClass": "zero",
+            }),
+            "E2_D18_STRACE_ATTACH_SUCCEEDED",
+        )
+        self.assertEqual(
+            d18.classify_attach_control({
+                "hostStraceUsed": True,
+                "gdbListenerSeen": True,
+                "gdbStages": ["pre_target"],
+                "gdbExitClass": "timeout",
+            }),
+            "E2_D18_STRACE_ATTACH_RSP_STALL",
+        )
+
+
     def test_status_stability_and_start_difference(self):
         status = [obs("_svctl_init", d0="aa"), obs("_svctl_send_pkt", d0="cc")]
         start = [obs("_svctl_init", d0="dd"), obs("_svctl_send_pkt", d0="cc")]
