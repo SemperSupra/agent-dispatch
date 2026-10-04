@@ -319,6 +319,10 @@ def gdb_listener_seen(port: int) -> bool:
     return False
 
 
+def serialize_attach_control_result(result: dict) -> str:
+    return json.dumps(result, indent=2, sort_keys=True) + "\n"
+
+
 def classify_attach_control(result: dict) -> str:
     if not result.get("gdbListenerSeen"):
         return "E2_D18_ATTACH_CONTROL_LISTENER_NOT_READY"
@@ -467,7 +471,7 @@ def attach_control_namespace_helper(args: argparse.Namespace) -> int:
     result["classification"] = classify_attach_control(result)
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n",
+        serialize_attach_control_result(result),
         encoding="utf-8",
     )
     return 0
