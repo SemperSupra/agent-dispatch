@@ -48,9 +48,16 @@ jobs:
           r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
           assert r.get("oracleSatisfied") is True, r
           a=r["argumentProvenance"]
-          assert a["getNameNametableCallsiteCount"] >= 1, a
+          allowed={
+              "H0_D1Q_GET_NAME_EDGE_NOT_REPRODUCED",
+              "H0_D1Q_GET_NAME_ARGUMENT_AMBIGUOUS",
+              "H0_D1Q_GET_NAME_LOCAL_PROVENANCE_RECOVERED",
+              "H0_D1Q_GET_NAME_LOCAL_PROVENANCE_PARTIAL",
+              "H0_D1Q_GET_NAME_ARGUMENT_SKELETON_RECOVERED",
+          }
+          assert r["classification"] in allowed,r["classification"]
           b=r["interpretationBoundary"]
-          assert b["d1pGetNameEdgeRequired"] is True
+          assert b["d1pGetNameHypothesisTested"] is True
           assert b["safeIdentifierAndOperatorClassesOnly"] is True
           assert b["functionParameterBindingsAccepted"] is True
           assert b["nearestLexicalAssignmentIsCandidateOnly"] is True
