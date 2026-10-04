@@ -76,6 +76,17 @@ class D18Tests(unittest.TestCase):
         self.assertIn("\ndetach\n", text)
         self.assertIn("\nquit\n", text)
 
+    def test_gdb_single_downstream_observation_continues_once_then_detaches(self):
+        text = d18.gdb_command_text(
+            pathlib.Path("/tmp/root"),
+            25480,
+            {"_svctl_send": "_svctl_send"},
+        )
+        self.assertEqual(text.count("\ncontinue"), 1)
+        self.assertIn("FRITZGDBSTAGE:post_continue_1", text)
+        self.assertNotIn("FRITZGDBSTAGE:post_continue_2", text)
+        self.assertIn("\ndetach\n", text)
+
     def test_attach_control_serialization_is_single_parseable_json_value(self):
         rendered = d18.serialize_attach_control_result({"classification": "typed"})
         self.assertEqual(json.loads(rendered), {"classification": "typed"})
