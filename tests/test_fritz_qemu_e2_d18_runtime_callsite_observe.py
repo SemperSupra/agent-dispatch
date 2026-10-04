@@ -254,6 +254,36 @@ class D18Tests(unittest.TestCase):
         )
 
 
+    def test_downstream_parser_accepts_only_earned_target(self):
+        raw = 'FRITZOBS:{"target":"_svctl_send","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n' \
+              'FRITZOBS:{"target":"_svctl_init","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n'
+        obs = d18.parse_gdb_observations(raw, d18.DOWNSTREAM_TARGETS)
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["target"], "_svctl_send")
+
+    def test_downstream_classifier_requires_complete_rep(self):
+        ready = {
+            "allCallsInstrumentationReady": True,
+            "allExpectedTargetHits": True,
+            "stableDimensionDiscriminatorCount": 0,
+            "unstableStatusDimensionCount": 0,
+        }
+        self.assertEqual(
+            d18.classify_downstream_send(ready),
+            "E2_D18E_DOWNSTREAM_SEND_NO_RUNTIME_DISCRIMINATOR",
+        )
+        ready["stableDimensionDiscriminatorCount"] = 1
+        self.assertEqual(
+            d18.classify_downstream_send(ready),
+            "E2_D18E_DOWNSTREAM_SEND_STABLE_DISCRIMINATOR_FOUND",
+        )
+        ready["stableDimensionDiscriminatorCount"] = 0
+        ready["allExpectedTargetHits"] = False
+        self.assertEqual(
+            d18.classify_downstream_send(ready),
+            "E2_D18E_DOWNSTREAM_SEND_INSTRUMENTATION_INCOMPLETE",
+        )
+
     def test_status_stability_and_start_difference(self):
         status = [obs("_svctl_init", d0="aa"), obs("_svctl_send_pkt", d0="cc")]
         start = [obs("_svctl_init", d0="dd"), obs("_svctl_send_pkt", d0="cc")]
