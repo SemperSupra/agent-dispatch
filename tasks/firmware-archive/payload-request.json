@@ -1,15 +1,9 @@
 {
   "schema": "firmware-archive-payload-request/v1",
-  "request_id": "wrt3200acm-public-docs-2026-10-04-01",
-  "target": "Linksys WRT3200ACM / 88W8887 public reference documentation",
-  "max_total_bytes": 20971520,
+  "request_id": "wrt3200acm-88w8887-public-docs-2026-10-04-02",
+  "target": "88W8887 public reference documentation",
+  "max_total_bytes": 15728640,
   "items": [
-    {
-      "filename": "WRT3200ACM_WiFiRouter_EN.pdf",
-      "url": "https://downloads.linksys.com/downloads/datasheet/WRT3200ACM_WiFiRouter_EN.pdf",
-      "provenance": "Linksys public product datasheet",
-      "source_revision": "public download endpoint"
-    },
     {
       "filename": "AN12849.pdf",
       "url": "https://www.nxp.com/docs/en/application-note/AN12849.pdf",
