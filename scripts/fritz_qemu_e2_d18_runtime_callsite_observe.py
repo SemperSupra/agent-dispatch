@@ -142,6 +142,10 @@ def gdb_command_text(
         f"Obs({json.dumps(spec)}, {json.dumps(target)})"
         for target, spec in sorted(breakpoint_specs.items())
     )
+    continue_lines = "\n".join(
+        f"continue\\necho FRITZGDBSTAGE:post_continue_{index}\\\\n"
+        for index in range(1, len(breakpoint_specs) + 1)
+    )
     return f"""set pagination off
 set confirm off
 set breakpoint pending on
@@ -213,10 +217,7 @@ class Obs(gdb.Breakpoint):
 {bp_lines}
 end
 echo FRITZGDBSTAGE:post_breakpoints\\n
-continue
-echo FRITZGDBSTAGE:post_continue_1\\n
-continue
-echo FRITZGDBSTAGE:post_continue_2\\n
+{continue_lines}
 detach
 echo FRITZGDBSTAGE:post_detach\\n
 quit
