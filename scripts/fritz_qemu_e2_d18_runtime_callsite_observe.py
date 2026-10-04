@@ -330,6 +330,14 @@ def classify_attach_control(result: dict) -> str:
     return "E2_D18_ATTACH_CONTROL_FAILED_NO_STRACE"
 
 
+def isolated_interface_names(ip_link_output: str) -> list[str]:
+    return sorted(set(
+        m.group(1)
+        for line in ip_link_output.splitlines()
+        if (m := re.match(r"\d+:\s+([^:@]+)", line))
+    ))
+
+
 def attach_control_namespace_helper(args: argparse.Namespace) -> int:
     """Run one no-strace, no-continue RSP attach control in an isolated netns."""
     root = pathlib.Path(args.root).resolve()
@@ -338,11 +346,7 @@ def attach_control_namespace_helper(args: argparse.Namespace) -> int:
     if r6._run(["ip", "link", "set", "lo", "up"]).returncode != 0:
         raise RuntimeError("failed to bring loopback up")
     links = r6._run(["ip", "-o", "link", "show"])
-    interfaces = sorted(set(
-        m.group(1)
-        for line in links.stdout.splitlines()
-        if (m := re.match(r"\\d+:\\s+([^:@]+)", line))
-    ))
+    interfaces = isolated_interface_names(links.stdout)
     if interfaces != ["lo"]:
         raise RuntimeError(f"unexpected interfaces: {interfaces!r}")
     default = r6._run(["ip", "route", "show", "default"])
