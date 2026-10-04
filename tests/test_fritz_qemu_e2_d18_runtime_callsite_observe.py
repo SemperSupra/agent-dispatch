@@ -255,7 +255,9 @@ class D18Tests(unittest.TestCase):
 
 
     def test_d18e_static_and_runtime_workdirs_are_disjoint(self):
-        args = type("Args", (), {"work_dir": "/tmp/fritz-d18e", "objdump": "objdump"})()
+        args = type("Args", (), {})()
+        args.work_dir = "/tmp/fritz-d18e"
+        args.objdump = "objdump"
         static = d18.d18e_scoped_args(args, "static")
         runtime = d18.d18e_scoped_args(args, "runtime")
         self.assertNotEqual(static.work_dir, runtime.work_dir)
