@@ -109,6 +109,81 @@ jobs:
               raise SystemExit(f"unexpected observer error: {last!r}")
           PY
           test "$(docker inspect -f '{{.State.Running}}' foliorelay-observer-smoke)" = true
+      - name: Smoke exact observer Compose lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c'
+          work="$RUNNER_TEMP/foliorelay-observer-compose-smoke"
+          rm -rf "$work"
+          mkdir -p "$work/observer"
+          python3 - "$work/observer/mdns_observer.py" <<'PY'
+          import importlib.util, pathlib, sys
+          scripts=pathlib.Path("scripts").resolve()
+          sys.path.insert(0,str(scripts))
+          script=scripts/"truenas_middleware_foliorelay_t6_probe.py"
+          spec=importlib.util.spec_from_file_location("foliorelay_probe",script)
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          pathlib.Path(sys.argv[1]).write_text(mod.OBSERVER,encoding="utf-8")
+          PY
+          chmod 0555 "$work/observer/mdns_observer.py"
+          cat >"$work/compose.yaml" <<YAML
+          services:
+            observer:
+              image: "$image"
+              network_mode: host
+              read_only: true
+              cap_drop:
+                - ALL
+              security_opt:
+                - no-new-privileges:true
+              volumes:
+                - type: bind
+                  source: "$work/observer"
+                  target: /observer
+                  read_only: true
+              entrypoint:
+                - python3
+                - /observer/mdns_observer.py
+              command:
+                - --uuid
+                - urn:uuid:01234567-89ab-4def-8123-456789abcdef
+                - --expected-host
+                - intentionally-absent.local
+                - --expected-ipp-port
+                - "8634"
+                - --port
+                - "18081"
+                - --seconds
+                - "1"
+          YAML
+          cleanup() {
+            docker compose -p ix-rdte-t6-foliorelay-observer -f "$work/compose.yaml" down --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker compose -p ix-rdte-t6-foliorelay-observer -f "$work/compose.yaml" config >/dev/null
+          docker compose -p ix-rdte-t6-foliorelay-observer -f "$work/compose.yaml" up -d --force-recreate --remove-orphans
+          python3 - <<'PY'
+          import json, time, urllib.request
+          url="http://127.0.0.1:18081/"
+          deadline=time.monotonic()+15
+          last=None
+          while time.monotonic()<deadline:
+              try:
+                  with urllib.request.urlopen(url,timeout=2) as r:
+                      last=json.load(r)
+                  if last.get("status")=="error":
+                      break
+              except Exception:
+                  pass
+              time.sleep(.5)
+          if not isinstance(last,dict) or last.get("status")!="error":
+              raise SystemExit(f"Compose observer did not expose bounded error result: {last!r}")
+          PY
+          cid="$(docker compose -p ix-rdte-t6-foliorelay-observer -f "$work/compose.yaml" ps -q observer)"
+          test -n "$cid"
+          test "$(docker inspect -f '{{.State.Running}}' "$cid")" = true
       - name: Verify producer-consumer binding
         shell: bash
         run: |
