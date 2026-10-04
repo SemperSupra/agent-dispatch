@@ -18,3 +18,11 @@ contents, numeric flash offsets, or writable HIL instructions.
 
 A producer edge is provenance evidence only. It does not establish bootability,
 inactive-slot safety, rollback safety, or modified-HIL admission.
+
+    
+Correction rule:
+- function definitions/signatures are not call edges;
+- calls whose nametable-derived argument is only a member read are consumer/use
+  evidence, not population/producer candidates;
+- a raw table/entry argument may remain an alias/producer candidate, but direction
+  is not accepted until separately proven.
