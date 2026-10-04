@@ -780,18 +780,48 @@ payload={
 }
 pathlib.Path(sys.argv[1]).write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
 PY
-  python3 "$SCRIPT_DIR/truenas_session_runner.py"     --manifest "$SESSION_MANIFEST"     --targets "$TARGET_REGISTRY"     --providers "$SCRIPT_DIR/../config/truenas-capsule-providers.json"     --executor "$SCRIPT_DIR/truenas_existing_probe_capsule_executor.py"     --context "$SESSION_CONTEXT"     --out-dir "$SESSION_RECEIPTS"     --out "$SESSION_OUT" >/dev/null 2>&1 || true
+  python3 "$SCRIPT_DIR/truenas_session_runner.py" \
+    --manifest "$SESSION_MANIFEST" \
+    --targets "$TARGET_REGISTRY" \
+    --providers "$SCRIPT_DIR/../config/truenas-capsule-providers.json" \
+    --executor "$SCRIPT_DIR/truenas_existing_probe_capsule_executor.py" \
+    --context "$SESSION_CONTEXT" \
+    --out-dir "$SESSION_RECEIPTS" \
+    --out "$SESSION_OUT" >/dev/null 2>&1 || true
   [[ -f "$SESSION_OUT" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "single-capsule session runner did not emit a receipt"
   SESSION_RESULT_JSON="$(cat "$SESSION_OUT")"
-  python3 - "$SESSION_OUT" "$FOUNDRY_OUT" <<'PY'
+  SESSION_CAPSULE_VERDICT="$(python3 - "$SESSION_OUT" <<'PY'
 import json, pathlib, sys
 session=json.loads(pathlib.Path(sys.argv[1]).read_text())
 caps=session.get("capsules") or []
-if session.get("classification")!="SESSION_CLEAN" or len(caps)!=1 or caps[0].get("verdict")!="SUPPORTED":
-    raise SystemExit(2)
-provider=caps[0].get("provider_receipt")
+print(caps[0].get("verdict","HARNESS_FAILURE") if len(caps)==1 else "HARNESS_FAILURE")
+PY
+)"
+  if [[ "$SESSION_CAPSULE_VERDICT" != "SUPPORTED" ]]; then
+    case "$SESSION_CAPSULE_VERDICT" in
+      ORACLE_FAILURE|HARNESS_FAILURE|ENVIRONMENT_FAILURE|UNSUPPORTED)
+        fail_evidence "$SESSION_CAPSULE_VERDICT" foundry-materialization "single-capsule session provider returned $SESSION_CAPSULE_VERDICT"
+        ;;
+      *)
+        fail_evidence HARNESS_FAILURE foundry-materialization "single-capsule session returned unexpected verdict $SESSION_CAPSULE_VERDICT"
+        ;;
+    esac
+  fi
+  SESSION_OK="$(python3 - "$SESSION_OUT" <<'PY'
+import json, pathlib, sys
+session=json.loads(pathlib.Path(sys.argv[1]).read_text())
+caps=session.get("capsules") or []
+ok=(session.get("classification")=="SESSION_CLEAN" and len(caps)==1 and caps[0].get("verdict")=="SUPPORTED")
+print("true" if ok else "false")
+PY
+)"
+  [[ "$SESSION_OK" == "true" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "single-capsule session envelope was not clean"
+  python3 - "$SESSION_OUT" "$FOUNDRY_OUT" <<'PY'
+import json, pathlib, sys
+session=json.loads(pathlib.Path(sys.argv[1]).read_text())
+provider=session["capsules"][0].get("provider_receipt")
 if not isinstance(provider,dict) or provider.get("classification")!="SUPPORTED" or provider.get("oracleSatisfied") is not True:
-    raise SystemExit(2)
+    raise SystemExit("accepted capsule did not retain accepted provider receipt")
 pathlib.Path(sys.argv[2]).write_text(json.dumps(provider,indent=2,sort_keys=True)+"\n",encoding="utf-8")
 PY
 else
