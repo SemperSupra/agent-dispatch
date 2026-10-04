@@ -8,6 +8,7 @@ on:
       - 'config/truenas-rdte-targets.json'
       - 'config/truenas-rdte-run-request.json'
       - 'config/truenas-capsule-providers.json'
+      - 'config/truenas-session-*.json'
       - 'scripts/gha_kvm_truenas_rdte.sh'
       - 'scripts/gha_kvm_proxmox_rdte.sh'
       - 'scripts/truenas_rdte_target.py'

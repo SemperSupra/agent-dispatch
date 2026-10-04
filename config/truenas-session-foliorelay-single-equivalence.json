@@ -1,0 +1,67 @@
+{
+  "authority": {
+    "issue": 480,
+    "repository": "SemperSupra/agent-dispatch-private"
+  },
+  "budget": {
+    "download_mib": 512,
+    "guest_memory_mib": 8192,
+    "timeout_minutes": 20
+  },
+  "capsules": [
+    {
+      "authority": {
+        "issue": 29,
+        "repository": "SemperSupra/folio-relay"
+      },
+      "cleanup_required": true,
+      "dependencies": [],
+      "exact": {
+        "compose_sha256": "d4fc297eccdd884bf1882f3cceb5f3c97c1302e5537528cb06633fa2b65e9c78",
+        "control_image": "ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce",
+        "cups_image": "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f",
+        "foundry_ref": "fb41afd3d112f361b8c490aeb5915a978b956b20",
+        "product_head": "88fd70c8891eaf7b4c886aa928b96e232ca041c6"
+      },
+      "id": "foliorelay-beta3-single-equivalence",
+      "kind": "foundry-product",
+      "mutating": true,
+      "namespace": "rdte-foliorelay-equivalence",
+      "oracle": "existing FolioRelay T6 product oracle through session wrapper",
+      "phases": {
+        "apply": true,
+        "cleanup": true,
+        "setup": true,
+        "verify": true
+      },
+      "ports": [
+        8634,
+        18080,
+        18081
+      ],
+      "provider": "foliorelay-t6",
+      "receipt_contract": "truenas-capsule-execution/v1",
+      "requirements": [
+        "apps",
+        "zfs-pool",
+        "host-network-dnssd",
+        "ipp"
+      ],
+      "resources": {
+        "download_mib": 256,
+        "estimated_minutes": 10,
+        "memory_mib": 2048
+      },
+      "retry_policy": "read-only-reconcile",
+      "schema": "truenas-capsule/v1"
+    }
+  ],
+  "manifest_sha256": "a59e7781ef64c5679426f1f0d1231d6b4a2e903db35129c4d3064da81543be8b",
+  "pool": {
+    "data_disks": 2,
+    "name": "rdtepool"
+  },
+  "schema": "truenas-session/v1",
+  "session_id": "tn-26-beta3-foliorelay-single-equivalence-001",
+  "version": "26.0.0-BETA.3"
+}
