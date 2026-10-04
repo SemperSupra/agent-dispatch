@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
       - run: python3 -m unittest -v tests/test_fritz_qemu_e2_d18_runtime_callsite_observe.py
 
-  exact-d18a-strace-attach-control:
+  exact-d18b-debugger-only:
     needs: contract
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -35,71 +35,80 @@ jobs:
           persist-credentials: false
       - run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends binutils binutils-mips-linux-gnu curl gdb-multiarch iproute2 qemu-user-static squashfs-tools strace util-linux
-      - name: Run exact host-strace-only attach control
+          sudo apt-get install -y --no-install-recommends binutils binutils-mips-linux-gnu curl gdb-multiarch iproute2 qemu-user-static squashfs-tools util-linux
+      - name: Run exact debugger-only R6 transaction
         id: probe
         continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/fritz-d18" "${RUNNER_TEMP}/fritz-receipt"
           python3 scripts/fritz_qemu_e2_d18_runtime_callsite_observe.py \
-            --attach-only-control \
-            --attach-control-host-strace \
+            --debugger-only-transaction \
             --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
             --expected-size 42393600 \
             --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
             --work-dir "${RUNNER_TEMP}/fritz-d18" \
             --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
-      - name: Enforce attach-control evidence boundary
+      - name: Enforce debugger-only evidence boundary
         if: always()
         run: |
           python3 - <<'PY'
           import json, os, pathlib
           r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
-          assert r.get("oracleSatisfied") is True, r
+          assert r.get("oracleSatisfied") is True,r
           allowed={
-              "E2_D18_STRACE_ATTACH_SUCCEEDED",
-              "E2_D18_STRACE_ATTACH_RSP_STALL",
-              "E2_D18_STRACE_ATTACH_FAILED",
+              "E2_D18B_STATUS_INSTRUMENTATION_UNSTABLE",
+              "E2_D18B_RUNTIME_ARGUMENT_CLASSES_DISTINGUISHED",
+              "E2_D18B_RUNTIME_ARGUMENT_CLASSES_NOT_DISTINGUISHED",
           }
           assert r["classification"] in allowed,r["classification"]
-          a=r["attachControl"]
-          assert a["gdbListenerSeen"] is True,a
-          assert a["gdbAttempted"] is True,a
-          assert "pre_target" in a["gdbStages"],a
-          assert a["hostStraceUsed"] is True
-          assert a["breakpointsConfigured"] is False
-          assert a["explicitContinueIssued"] is False
-          assert a["wireCaptureAttempted"] is False
+          assert r["transaction"]["apply"] == ["svctl","start","ctlmgr"]
+          assert r["transaction"]["applyCount"] <= 1
+          w=r["wireOracle"]
+          assert w["sameRunCaptureAttempted"] is False
+          assert w["sameRunCaptureRequired"] is False
+          assert w["independentAcceptedR9EvidencePreserved"] is True
+          i=r["instrumentation"]
+          assert i["allCallsInstrumentationReady"] is True,i
+          assert i["allExpectedTargetHits"] is True,i
+          for call in i["callDiagnostics"].values():
+              assert call["hostStraceUsed"] is False,call
+              assert call["gdbListenerSeen"] is True,call
+              assert call["gdbAttempted"] is True,call
+              assert "post_target" in call["gdbStages"],call
           b=r["interpretationBoundary"]
-          assert b["exactShippedSvctlUsed"] is True
-          assert b["sameQemuCpuProfileUsed"] is True
-          assert b["isolatedLoopbackOnlyNamespaceUsed"] is True
-          assert b["hostStraceExcluded"] is False
-          assert b["hostStraceRestoredAsSingleFactor"] is True
-          assert b["breakpointSetupExcluded"] is True
-          assert b["guestContinueExcluded"] is True
-          assert b["wireCaptureExcluded"] is True
+          assert b["d17UniqueCallsiteConstraintApplied"] is True
+          assert b["relocationAwareBreakpointBinding"] is True
+          assert b["breakpointsDoNotModifyShippedFiles"] is True
+          assert b["argumentScalarClassesAndMemoryDigestsOnly"] is True
+          assert b["hostStraceExcludedFromSvctlCalls"] is True
+          assert b["sameRunWireCaptureExcluded"] is True
+          assert b["independentR9WireOracleNotReinterpreted"] is True
+          assert b["protocolEnumValuesAccepted"] is False
+          assert b["packetFieldLayoutAccepted"] is False
           s=r["safety"]
           for key in (
-              "rawFirmwarePublished","rootfsPublished","rawTargetOutputPublished",
-              "rawHostStracePublished","rawDebuggerOutputPublished",
-              "rawRegisterValuesPublished","rawPointedMemoryPublished",
-              "wirePayloadPublished","physicalRouterContact","routerMutationAuthorized",
+              "rawFirmwarePublished","rootfsPublished","rawControlPayloadPublished",
+              "controlPayloadPersisted","rawHostStracePublished",
+              "rawDebuggerOutputPublished","rawRegisterValuesPublished",
+              "rawPointedMemoryPublished","callsiteAddressesPublished",
+              "physicalRouterContact","routerMutationAuthorized",
               "externalNetworkAvailableToTarget","targetSpecificShimAdded",
-              "shippedFilesModified","serviceStartRequested","explicitGuestContinueIssued"
+              "shippedFilesModified","sameRunWireCaptureAttempted"
           ):
               assert s[key] is False,(key,s[key])
           print(json.dumps({
               "classification":r["classification"],
-              "attachControl":a,
+              "instrumentation":i,
+              "runtimeSummary":r["runtimeSummary"],
+              "wireOracle":w,
               "interpretationBoundary":b,
           },sort_keys=True))
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: fritz-e2-d18a-strace-attach-control-${{ github.run_attempt }}
+          name: fritz-e2-d18b-debugger-only-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fritz-receipt/receipt.json
           if-no-files-found: error
           retention-days: 7
