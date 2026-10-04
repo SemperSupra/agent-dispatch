@@ -1,0 +1,94 @@
+name: WRT3200ACM Spectrum DFS Wave
+
+on:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
+    paths:
+      - 'tasks/wrt3200acm/bounded-wave-2-spectrum-dfs.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wrt3200acm-spectrum-dfs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FW_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin
+  FW_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+
+jobs:
+  spectrum-dfs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install narrow static-analysis dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+
+      - name: Acquire pinned W8964 and reconstruct analysis ELF
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-spectrum-dfs/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/wrt-spectrum-dfs/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/wrt-spectrum-dfs/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py \
+            "$RUNNER_TEMP/wrt-spectrum-dfs/fw.bin" \
+            "$RUNNER_TEMP/wrt-spectrum-dfs/fw.elf" \
+            "$RUNNER_TEMP/wrt-spectrum-dfs/evidence/elf-map.json"
+
+      - name: Run bounded spectrum DFS dispatcher probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_spectrum_dfs_probe.py \
+            --elf "$RUNNER_TEMP/wrt-spectrum-dfs/fw.elf" \
+            --out "$RUNNER_TEMP/wrt-spectrum-dfs/evidence"
+
+      - name: Emit compact wave summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "wrt-spectrum-dfs/evidence"
+          r = json.loads((root / "spectrum-dfs-dispatch.json").read_text())
+          summary = {
+              "schema": "wrt3200acm-spectrum-dfs-wave-summary/v1",
+              "wave_id": "wave-2-spectrum-dfs",
+              "firmware_sha256": os.environ["FW_SHA256"],
+              "targets": {k: v["status"] for k, v in r["targets"].items()},
+              "r12_control_instructions": len(r["r12_control_slice"]),
+              "epistemic_nonmatch_is_failure": False,
+          }
+          (root / "wave-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+
+      - name: Verify derived-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-spectrum-dfs/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' -o -name '*.ko' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: wrt-spectrum-dfs-wave-2
+          path: ${{ runner.temp }}/wrt-spectrum-dfs/evidence
+          retention-days: 7
+          if-no-files-found: error
