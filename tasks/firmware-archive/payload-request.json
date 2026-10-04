@@ -1,29 +1,36 @@
 {
   "schema": "firmware-archive-payload-request/v1",
-  "request_id": "cyw43455-infineon-2026-10-04-01",
-  "target": "Raspberry Pi / CYW43455",
-  "max_total_bytes": 2097152,
+  "request_id": "dell-h200-a10-2026-10-04-01",
+  "target": "Dell PERC H200 Integrated / SAS2008",
+  "max_total_bytes": 15728640,
   "items": [
     {
-      "filename": "cyfmac43455-sdio.bin",
-      "url": "https://raw.githubusercontent.com/Infineon/ifx-linux-firmware/d24c95cce5e77b04736972ba05ccd06da6cc377f/firmware/cyfmac43455-sdio.bin",
-      "expected_size": 616233,
-      "provenance": "Infineon public firmware repository",
-      "source_revision": "Infineon/ifx-linux-firmware@d24c95cce5e77b04736972ba05ccd06da6cc377f"
+      "filename": "SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN",
+      "url": "https://dl.dell.com/FOLDER01314455M/2/SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN",
+      "expected_sha256": "09f67fcca57f54ea696bef3953cf791aaa4d4bdff0651314922a95e1a921a559",
+      "provenance": "Dell official support download D0KPX",
+      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10 (2013-03-22)"
     },
     {
-      "filename": "cyfmac43455-sdio.clm_blob",
-      "url": "https://raw.githubusercontent.com/Infineon/ifx-linux-firmware/d24c95cce5e77b04736972ba05ccd06da6cc377f/firmware/cyfmac43455-sdio.clm_blob",
-      "expected_size": 4733,
-      "provenance": "Infineon public firmware repository",
-      "source_revision": "Infineon/ifx-linux-firmware@d24c95cce5e77b04736972ba05ccd06da6cc377f"
+      "filename": "SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN.sign",
+      "url": "https://dl.dell.com/FOLDER01314456M/2/SAS-RAID_Firmware_D0KPX_LN_07.03.06.00_A10.BIN.sign",
+      "expected_sha256": "336ae50c7122a42ec188869b2145ecd10e9a8b33cd5b8d8671c963241e5118c8",
+      "provenance": "Dell official GnuPG signature for Linux DUP",
+      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10"
     },
     {
-      "filename": "LICENCE",
-      "url": "https://raw.githubusercontent.com/Infineon/ifx-linux-firmware/d24c95cce5e77b04736972ba05ccd06da6cc377f/LICENCE",
-      "expected_size": 8997,
-      "provenance": "Infineon public firmware repository license",
-      "source_revision": "Infineon/ifx-linux-firmware@d24c95cce5e77b04736972ba05ccd06da6cc377f"
+      "filename": "H200I_A10_ZPE.exe",
+      "url": "https://dl.dell.com/FOLDER01182088M/9/H200I_A10_ZPE.exe",
+      "expected_sha256": "3258ff3bb1a390b801c00a0cced22aeff80eaca70237ddb51b2afb8d476e53ba",
+      "provenance": "Dell official ZipPack External",
+      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10"
+    },
+    {
+      "filename": "FW_H200I_07.03.06.00_A10.txt",
+      "url": "https://dl.dell.com/FOLDER01182090M/1/FW_H200I_07.03.06.00_A10.txt",
+      "expected_sha256": "c732f8c8a2f6fec595b1c29ce59ffd94bef131c51d6f90b113a413f11f1ba7bb",
+      "provenance": "Dell official release notes",
+      "source_revision": "Dell PERC H200 Integrated 07.03.06.00 A10"
     }
   ]
 }
