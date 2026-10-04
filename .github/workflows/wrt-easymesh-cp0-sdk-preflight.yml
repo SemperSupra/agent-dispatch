@@ -90,7 +90,7 @@ jobs:
               make -j2 "$target/prepare" USE_SOURCE_DIR="$RUNNER_TEMP/cp0/prplMesh" V=s > "$RUNNER_TEMP/cp0/out/prepare.log" 2>&1
               prepare_rc=$?
               if [ "$prepare_rc" -eq 0 ]; then
-                make -j2 "$target/compile" USE_SOURCE_DIR="$RUNNER_TEMP/cp0/prplMesh" V=s > "$RUNNER_TEMP/cp0/out/compile.log" 2>&1
+                make -j2 "$target/compile" V=s > "$RUNNER_TEMP/cp0/out/compile.log" 2>&1
                 compile_rc=$?
               fi
             fi
