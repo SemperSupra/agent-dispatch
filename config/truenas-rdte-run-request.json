@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-006-observer-failed-create-diagnostics",
+  "request_id": "tn-26-beta3-t6-foliorelay-007-failed-create-job-log-excerpt",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 396,
   "consumer_authority_issue": 273,
-  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-005 repeated the independent observer Custom App up failure. Preserve all FolioRelay product, Foundry, image, Compose, public-URI, URF, and DNS-SD oracle semantics. The only causal harness delta is bounded failed-create evidence and cleanup accounting from PR #227: if observer app.create fails, retain job/app/container diagnostics and prove cleanup/zero residue; if the observer realizes, continue the existing DNS-SD oracle unchanged. PR #220 remains HOLD unless this rep actually reaches the TXT UUID comparison. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
+  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-006 proved that the observer Custom App still fails during app.create and that TrueNAS removes the failed App before post-failure inspection. Preserve all FolioRelay product, Foundry, image, Compose, public-URI, URF, and DNS-SD oracle semantics. The only causal harness delta is PR #233 evidence/accounting: retain the exact failed app.create job logs_excerpt and treat zero-row post-failure App/dataset queries as clean absence while failing closed on malformed or multiple results. Use the job-scoped excerpt to identify the Compose up failure. PR #220 remains HOLD unless this rep reaches the TXT UUID comparison. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
 }
