@@ -1,0 +1,71 @@
+name: WRT EasyMesh CP0 Source Probe
+
+on:
+  push:
+    branches:
+      - wrt-easymesh-cp0-source-probe-20261005
+    paths:
+      - '.github/workflows/wrt-easymesh-cp0-source-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect exact prplMesh 6.0.1 CMake backend guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/wrt-cp0-source"
+          OUT="$ROOT/out"
+          mkdir -p "$OUT"
+          cd "$ROOT"
+
+          PRPL_SHA='8ceef1b0f70a90c4b30b9ce57a99d064283f9638'
+          git clone -q https://gitlab.com/prpl-foundation/prplmesh/prplMesh.git prplMesh
+          git -C prplMesh checkout -q "$PRPL_SHA"
+          git -C prplMesh rev-parse HEAD > "$OUT/prplmesh_sha.txt"
+          git -C prplMesh show -s --format='%H%n%cs%n%s' HEAD > "$OUT/commit.txt"
+
+          cd prplMesh
+          nl -ba framework/platform/bpl/CMakeLists.txt | sed -n '130,190p' > "$OUT/bpl-130-190.txt"
+          nl -ba CMakeLists.txt | sed -n '1,180p' > "$OUT/top-level-1-180.txt"
+          grep -RIn --exclude-dir=.git -E 'USE_PRPLMESH_WHM|ENABLE_NBAPI|find_package\(amxb|BWL_TYPE' .             > "$OUT/backend-occurrences.txt" || true
+          grep -RIn --exclude-dir=.git -E 'set\([^)]*USE_PRPLMESH_WHM|option\([^)]*USE_PRPLMESH_WHM|CACHE.*USE_PRPLMESH_WHM' .             > "$OUT/whm-definitions.txt" || true
+
+          python3 - <<'PY' > "$OUT/verdict.json"
+          import json, pathlib, re
+          root=pathlib.Path(".")
+          bpl=(root/"framework/platform/bpl/CMakeLists.txt").read_text(errors="replace")
+          lines=bpl.splitlines()
+          amxb=[i+1 for i,l in enumerate(lines) if "find_package(amxb" in l]
+          guards=[{"line":i+1,"text":l.strip()} for i,l in enumerate(lines) if "USE_PRPLMESH_WHM" in l]
+          top=(root/"CMakeLists.txt").read_text(errors="replace")
+          defs=[l.strip() for l in top.splitlines() if "USE_PRPLMESH_WHM" in l]
+          print(json.dumps({
+            "schema":"wrt3200acm-easymesh-cp0-source-probe/v1",
+            "prplmesh_sha":"8ceef1b0f70a90c4b30b9ce57a99d064283f9638",
+            "bpl_amxb_lines":amxb,
+            "bpl_whm_guard_lines":guards,
+            "top_level_whm_lines":defs
+          },indent=2,sort_keys=True))
+          PY
+
+          echo '--- CP0_SOURCE_PROBE_VERDICT_BEGIN ---'
+          cat "$OUT/verdict.json"
+          echo '--- BPL_130_190_BEGIN ---'
+          cat "$OUT/bpl-130-190.txt"
+          echo '--- BPL_130_190_END ---'
+          echo '--- CP0_SOURCE_PROBE_VERDICT_END ---'
+
+      - name: Upload source probe evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-easymesh-cp0-source-probe-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-cp0-source/out
+          if-no-files-found: error
+          retention-days: 7
