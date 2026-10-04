@@ -284,6 +284,36 @@ class D18Tests(unittest.TestCase):
         self.assertEqual(len(obs), 1)
         self.assertEqual(obs[0]["target"], "_svctl_send")
 
+    def test_libc_send_parser_accepts_only_earned_target(self):
+        raw = 'FRITZOBS:{"target":"send","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n' \
+              'FRITZOBS:{"target":"_svctl_send","args":{"a0":{},"a1":{},"a2":{},"a3":{}}}\n'
+        obs = d18.parse_gdb_observations(raw, d18.LIBC_SEND_TARGETS)
+        self.assertEqual(len(obs), 1)
+        self.assertEqual(obs[0]["target"], "send")
+
+    def test_libc_send_classifier_requires_complete_rep(self):
+        ready = {
+            "allCallsInstrumentationReady": True,
+            "allExpectedTargetHits": True,
+            "stableDimensionDiscriminatorCount": 0,
+            "unstableStatusDimensionCount": 0,
+        }
+        self.assertEqual(
+            d18.classify_libc_send(ready),
+            "E2_D18F_LIBC_SEND_NO_RUNTIME_DISCRIMINATOR",
+        )
+        ready["stableDimensionDiscriminatorCount"] = 1
+        self.assertEqual(
+            d18.classify_libc_send(ready),
+            "E2_D18F_LIBC_SEND_STABLE_DISCRIMINATOR_FOUND",
+        )
+        ready["stableDimensionDiscriminatorCount"] = 0
+        ready["allExpectedTargetHits"] = False
+        self.assertEqual(
+            d18.classify_libc_send(ready),
+            "E2_D18F_LIBC_SEND_INSTRUMENTATION_INCOMPLETE",
+        )
+
     def test_downstream_classifier_requires_complete_rep(self):
         ready = {
             "allCallsInstrumentationReady": True,
