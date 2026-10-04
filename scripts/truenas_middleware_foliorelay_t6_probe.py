@@ -365,7 +365,7 @@ def bounded_observer_lifecycle_excerpt(value, app_name=OBSERVER_APP_NAME, before
     for i in hits:
         selected.update(range(max(0,i-before), min(len(lines),i+after+1)))
     excerpt="\n".join(lines[i] for i in sorted(selected))
-    excerpt=re.sub(r"(auth_token=)[^&\\s]+", r"\1<redacted>", excerpt)
+    excerpt=re.sub(r"(auth_token=)[^&\s]+", r"\1<redacted>", excerpt)
     return bounded_text(excerpt,limit)
 
 def bounded_job_snapshot(job):
