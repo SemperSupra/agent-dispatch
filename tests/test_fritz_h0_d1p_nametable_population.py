@@ -79,6 +79,46 @@ void f(void) {
         )
 
 
+    def test_function_definition_is_not_call_edge(self):
+        text = r"""
+struct mtd_entry *nametable;
+static const char *get_name(struct mtd_entry *nametable, const char *name) {
+  return name;
+}
+"""
+        a = d1p.analyze_target(text)
+        self.assertEqual(a["derived"]["callEdgeCount"], 0)
+        self.assertEqual(a["derived"]["producerCallEdgeCount"], 0)
+        self.assertEqual(d1p.classify(a), "H0_D1P_NO_LOCAL_POPULATION_EDGE")
+
+    def test_member_read_consumer_is_not_producer_candidate(self):
+        text = r"""
+struct mtd_entry *nametable;
+void f(int i, const char *name) {
+  strcmp(name, nametable[i].urlader_name);
+}
+"""
+        a = d1p.analyze_target(text)
+        self.assertEqual(a["derived"]["callEdgeCount"], 1)
+        self.assertEqual(a["derived"]["producerCallEdgeCount"], 0)
+        self.assertEqual(a["callEdges"][0]["callIdentifier"], "strcmp")
+        self.assertEqual(d1p.classify(a), "H0_D1P_NO_LOCAL_POPULATION_EDGE")
+
+    def test_raw_table_argument_remains_candidate_only(self):
+        text = r"""
+struct mtd_entry *nametable;
+void f(void) {
+  populate(&nametable);
+}
+"""
+        a = d1p.analyze_target(text)
+        self.assertEqual(a["derived"]["producerCallEdgeCount"], 1)
+        self.assertEqual(
+            d1p.classify(a),
+            "H0_D1P_CALL_EDGE_PRODUCER_CANDIDATE_LOCATED",
+        )
+
+
     def test_interpretation_boundary_contract(self):
         self.assertEqual(
             d1p.INTERPRETATION_BOUNDARY,
