@@ -324,14 +324,27 @@ def serialize_attach_control_result(result: dict) -> str:
 
 
 def classify_attach_control(result: dict) -> str:
+    strace = bool(result.get("hostStraceUsed"))
     if not result.get("gdbListenerSeen"):
-        return "E2_D18_ATTACH_CONTROL_LISTENER_NOT_READY"
+        return (
+            "E2_D18_STRACE_ATTACH_LISTENER_NOT_READY"
+            if strace else "E2_D18_ATTACH_CONTROL_LISTENER_NOT_READY"
+        )
     stages = result.get("gdbStages") or []
     if "post_target" in stages:
-        return "E2_D18_ATTACH_CONTROL_SUCCEEDED_NO_STRACE"
+        return (
+            "E2_D18_STRACE_ATTACH_SUCCEEDED"
+            if strace else "E2_D18_ATTACH_CONTROL_SUCCEEDED_NO_STRACE"
+        )
     if result.get("gdbExitClass") == "timeout":
-        return "E2_D18_ATTACH_CONTROL_RSP_STALL_NO_STRACE"
-    return "E2_D18_ATTACH_CONTROL_FAILED_NO_STRACE"
+        return (
+            "E2_D18_STRACE_ATTACH_RSP_STALL"
+            if strace else "E2_D18_ATTACH_CONTROL_RSP_STALL_NO_STRACE"
+        )
+    return (
+        "E2_D18_STRACE_ATTACH_FAILED"
+        if strace else "E2_D18_ATTACH_CONTROL_FAILED_NO_STRACE"
+    )
 
 
 def isolated_interface_names(ip_link_output: str) -> list[str]:
@@ -381,13 +394,21 @@ def attach_control_namespace_helper(args: argparse.Namespace) -> int:
             gdb_attach_only_command_text(root, port),
             encoding="utf-8",
         )
+        target_argv = [
+            "chroot", str(root), r6.QEMU_GUEST_PATH,
+            "-cpu", r6.CPU_PROFILE,
+            "-g", str(port),
+            r6.SVCTL, "status", "ctlmgr",
+        ]
+        if args.attach_control_host_strace:
+            target_argv = [
+                "strace", "-f", "-qq", "-xx", "-s", "8192",
+                "-e",
+                "trace=socket,connect,read,write,sendto,recvfrom,sendmsg,recvmsg,writev,readv,close",
+                *target_argv,
+            ]
         proc = subprocess.Popen(
-            [
-                "chroot", str(root), r6.QEMU_GUEST_PATH,
-                "-cpu", r6.CPU_PROFILE,
-                "-g", str(port),
-                r6.SVCTL, "status", "ctlmgr",
-            ],
+            target_argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -459,7 +480,7 @@ def attach_control_namespace_helper(args: argparse.Namespace) -> int:
         ),
         "targetStdoutBytes": len(stdout.encode("utf-8", errors="replace")),
         "targetStderrBytes": len(stderr.encode("utf-8", errors="replace")),
-        "hostStraceUsed": False,
+        "hostStraceUsed": bool(args.attach_control_host_strace),
         "breakpointsConfigured": False,
         "explicitContinueIssued": False,
         "wireCaptureAttempted": False,
@@ -480,15 +501,15 @@ def attach_control_namespace_helper(args: argparse.Namespace) -> int:
 def run_attach_control(args: argparse.Namespace) -> dict:
     root, meta = r6.prepare_root(args)
     ns_result = pathlib.Path(args.work_dir).resolve() / "namespace-result-d18-attach.json"
-    cp = r6._run(
-        [
-            "sudo", "-n", "unshare", "--net", "--pid", "--fork", "--kill-child",
-            "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
-            "--attach-control-helper", "--root", str(root),
-            "--namespace-result", str(ns_result),
-        ],
-        timeout=35,
-    )
+    helper_argv = [
+        "sudo", "-n", "unshare", "--net", "--pid", "--fork", "--kill-child",
+        "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
+        "--attach-control-helper", "--root", str(root),
+        "--namespace-result", str(ns_result),
+    ]
+    if args.attach_control_host_strace:
+        helper_argv.append("--attach-control-host-strace")
+    cp = r6._run(helper_argv, timeout=35)
     if cp.returncode != 0:
         raise RuntimeError(
             f"isolated D18 attach control failed (exit={cp.returncode}, "
@@ -515,7 +536,8 @@ def run_attach_control(args: argparse.Namespace) -> dict:
             "exactShippedSvctlUsed": True,
             "sameQemuCpuProfileUsed": True,
             "isolatedLoopbackOnlyNamespaceUsed": True,
-            "hostStraceExcluded": True,
+            "hostStraceExcluded": not args.attach_control_host_strace,
+            "hostStraceRestoredAsSingleFactor": bool(args.attach_control_host_strace),
             "breakpointSetupExcluded": True,
             "guestContinueExcluded": True,
             "wireCaptureExcluded": True,
@@ -1023,6 +1045,7 @@ def parse_args(argv=None):
     p.add_argument("--namespace-helper", action="store_true")
     p.add_argument("--attach-only-control", action="store_true")
     p.add_argument("--attach-control-helper", action="store_true")
+    p.add_argument("--attach-control-host-strace", action="store_true")
     p.add_argument("--root")
     p.add_argument("--namespace-result")
     return p.parse_args(argv)
