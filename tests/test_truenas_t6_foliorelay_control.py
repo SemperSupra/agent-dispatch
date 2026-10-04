@@ -2,6 +2,7 @@
 import importlib.util
 import pathlib
 import subprocess
+import shutil
 import tempfile
 import sys
 import unittest
@@ -45,18 +46,35 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"', text)
         self.assertIn('"network_mode":"host"', text)
-        self.assertIn('"entrypoint":["python3","/observer/mdns_observer.py"]', text)
+        self.assertIn('"entrypoint":["/observer/foliorelay-mdns-observer"]', text)
+        self.assertIn('"healthcheck":{"disable":True}', text)
+        self.assertIn('"user":"10001:10001"', text)
         self.assertIn('"distinct_observer_context":True', text)
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('result={"status":"pending"}', text)
-        self.assertIn('threading.Thread(target=run_observer', text)
-        self.assertIn('{"status":"success",**result}', text)
-        self.assertIn('{"status":"error","error":', text)
-        self.assertIn('p.add_argument("--seconds",type=float,default=25)', text)
+        source = MOD.OBSERVER_SOURCE.read_text(encoding="utf-8")
+        self.assertEqual(MOD.OBSERVER_IMAGE, MOD.EXPECTED_CONTROL)
+        self.assertIn('Status: "pending"', source)
+        self.assertIn('Status: "success"', source)
+        self.assertIn('Status: "error"', source)
+        self.assertIn('go func()', source)
+        self.assertIn('http.ListenAndServe', source)
+        self.assertIn('no qualifying _universal FolioRelay mDNS response', source)
         self.assertIn('DNS-SD observer oracle failed:', text)
         self.assertIn('DNS-SD observer oracle remained pending', text)
+        self.assertIn('CGO_ENABLED', text)
+        self.assertIn('GOOS', text)
+        self.assertIn('GOARCH', text)
+
+    @unittest.skipUnless(shutil.which("go"), "Go compiler not installed")
+    def test_static_observer_fixture_builds(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = MOD.build_observer_binary(pathlib.Path(td))
+            self.assertTrue(out.is_file())
+            self.assertGreater(out.stat().st_size, 100000)
+            cp=subprocess.run([str(out),"--help"],capture_output=True,text=True)
+            self.assertEqual(cp.returncode,0,cp.stderr)
 
     def test_workflow_and_harness_route_exact_foliorelay_export(self):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
