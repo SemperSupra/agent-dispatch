@@ -83,6 +83,26 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"zero_residue"', text)
         self.assertIn('payload["cleanup_needed"]', text)
 
+        self.assertIn('call("core.download",["filesystem.get",["/var/log/app_lifecycle.log"]', text)
+        self.assertIn('"app_lifecycle_excerpt"', text)
+        self.assertIn('"app_lifecycle_capture_error"', text)
+
+    def test_observer_lifecycle_excerpt_is_bounded_scoped_and_redacted(self):
+        sample = "\n".join([
+            "unrelated-before",
+            "2026 app_lifecycle Failed 'up' action for 'rdte-t6-foliorelay-observer' app auth_token=secret-value",
+            "compose detail: failed to start container",
+            "compose detail: permission denied",
+            "unrelated-after",
+        ])
+        excerpt = MOD.bounded_observer_lifecycle_excerpt(sample, before=0, after=2, limit=1000)
+        self.assertIn("rdte-t6-foliorelay-observer", excerpt)
+        self.assertIn("failed to start container", excerpt)
+        self.assertIn("permission denied", excerpt)
+        self.assertNotIn("unrelated-before", excerpt)
+        self.assertNotIn("secret-value", excerpt)
+        self.assertIn("auth_token=<redacted>", excerpt)
+
     def test_workflow_and_harness_route_exact_foliorelay_export(self):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
