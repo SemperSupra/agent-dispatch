@@ -1144,9 +1144,9 @@ def run_debugger_only_probe(args: argparse.Namespace) -> dict:
             "--mount-proc", sys.executable, str(pathlib.Path(__file__).resolve()),
             "--debugger-only-namespace-helper", "--root", str(root),
             "--namespace-result", str(ns_result),
-            "--control-wait-seconds", str(args.control_wait_seconds),
-            "--verify-seconds", str(args.verify_seconds),
-            "--sample-interval-seconds", str(args.sample_interval_seconds),
+            "--control-wait-seconds", str(runtime_args.control_wait_seconds),
+            "--verify-seconds", str(runtime_args.verify_seconds),
+            "--sample-interval-seconds", str(runtime_args.sample_interval_seconds),
         ],
         timeout=max(60, int(args.control_wait_seconds + args.verify_seconds) + 45),
     )
@@ -1269,8 +1269,16 @@ def classify_downstream_send(instrument: dict) -> str:
     return "E2_D18E_DOWNSTREAM_SEND_NO_RUNTIME_DISCRIMINATOR"
 
 
+def d18e_scoped_args(args: argparse.Namespace, scope: str) -> argparse.Namespace:
+    scoped = argparse.Namespace(**vars(args))
+    scoped.work_dir = str(pathlib.Path(args.work_dir).resolve() / scope)
+    return scoped
+
+
 def run_downstream_send_probe(args: argparse.Namespace) -> dict:
-    static = d14.run_probe(args)
+    static_args = d18e_scoped_args(args, "static")
+    runtime_args = d18e_scoped_args(args, "runtime")
+    static = d14.run_probe(static_args)
     edges = {
         (edge["source"], edge["target"])
         for edge in static["library"]["combinedAcceptedCallEdges"]
@@ -1284,8 +1292,8 @@ def run_downstream_send_probe(args: argparse.Namespace) -> dict:
     if not role_earned:
         raise RuntimeError("D18d downstream send role did not reproduce")
 
-    root, meta = r6.prepare_root(args)
-    ns_result = pathlib.Path(args.work_dir).resolve() / "namespace-result-d18e.json"
+    root, meta = r6.prepare_root(runtime_args)
+    ns_result = pathlib.Path(runtime_args.work_dir).resolve() / "namespace-result-d18e.json"
     cp = r6._run(
         [
             "sudo", "-n", "unshare", "--net", "--pid", "--fork", "--kill-child",
@@ -1296,7 +1304,10 @@ def run_downstream_send_probe(args: argparse.Namespace) -> dict:
             "--verify-seconds", str(args.verify_seconds),
             "--sample-interval-seconds", str(args.sample_interval_seconds),
         ],
-        timeout=max(60, int(args.control_wait_seconds + args.verify_seconds) + 45),
+        timeout=max(
+            60,
+            int(runtime_args.control_wait_seconds + runtime_args.verify_seconds) + 45,
+        ),
     )
     if cp.returncode != 0:
         raise RuntimeError(
