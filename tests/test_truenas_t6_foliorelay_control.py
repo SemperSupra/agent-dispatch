@@ -91,6 +91,19 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertTrue(MOD.forwarded_ipp_uri_has_product_path(uri))
         self.assertFalse(MOD.forwarded_ipp_uri_has_product_path("ipp://127.0.0.1:48634/printers/Other"))
 
+    def test_dnssd_txt_uuid_projection_strips_only_canonical_urn_prefix(self):
+        canonical="urn:uuid:01234567-89ab-4def-8123-456789abcdef"
+        self.assertEqual(
+            MOD.dnssd_txt_uuid(canonical),
+            "01234567-89ab-4def-8123-456789abcdef",
+        )
+        with self.assertRaisesRegex(RuntimeError, "urn:uuid form"):
+            MOD.dnssd_txt_uuid("01234567-89ab-4def-8123-456789abcdef")
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"--txt-uuid",dnssd_txt_uuid(uuid)', text)
+        self.assertIn('("uuid="+expected_txt_uuid).lower()', text)
+        self.assertNotIn('universal_ptr and expected.lower() in joined.lower()', text)
+
     def test_dnssd_observer_proves_public_host_port_and_resource_path(self):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('"--expected-host",PUBLIC_HOST', text)
