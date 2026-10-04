@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-003-public-uri-dnssd-oracle",
+  "request_id": "tn-26-beta3-t6-foliorelay-004-urf-fixture-compile-fix",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 396,
   "consumer_authority_issue": 273,
-  "purpose": "Re-run exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after the bounded rep-002 public-URI oracle correction. Preserve product/Foundry/image identities. Host-forwarded IPP must retain the exact FolioRelay resource path and functional PDF/Apple Raster behavior; canonical public URI remains exact in the control API and is independently proven in the guest/LAN context by DNS-SD SRV target foliorelay-t6.local, port 8634, rp=printers/FolioRelay, UUID and PDL. Retain stop/start, update/redeploy persistence, desired/live re-plan NOOP, and zero-residue cleanup."
+  "purpose": "Re-run exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-003 isolated and cheap-qualified the external synthetic Apple Raster fixture compile defect. Preserve product/Foundry/image identities and the rep-003 public-URI/DNS-SD oracle correction. Require exact three-service readback, portal/IPP reachability, canonical control/DNS-SD identity, PDF and generated Apple Raster exact-source preservation, restart persistence, update/redeploy persistence, desired/live re-plan NOOP, and zero-residue cleanup."
 }
