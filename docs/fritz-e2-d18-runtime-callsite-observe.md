@@ -132,3 +132,30 @@ across both status controls. A typed negative is an acceptable result.
 
 D18e does not infer protocol enums, packet layout, downstream offsets, physical
 router semantics, or modified-HIL authority.
+
+
+## D18f libc `send` entry observation
+
+D18d already mechanically proved the static edge `_svctl_send -> send`.
+After D18e established a stable sanitized discriminator at the shared
+`_svctl_send` role, D18f moves exactly one already-earned edge downstream to
+the libc `send` entry.
+
+Before runtime interpretation, the exact pinned D13/D14 topology must reproduce
+all three accepted edges:
+
+- `_svctl_init -> _svctl_send`;
+- `_svctl_send_pkt -> _svctl_send`;
+- `_svctl_send -> send`.
+
+The runtime treatment remains the accepted pre-status / start / post-status
+transaction under debugger-only QEMU-user instrumentation. Host strace and
+same-run wire capture remain excluded. The reducer retains only scalar classes
+and bounded 8/260-byte pointed-memory digest presence/equality relations; raw
+registers, pointers, pointed bytes, payload, socket descriptor values, send
+length values, and flags values are not published or accepted.
+
+A start discriminator is admissible only on a dimension stable across both
+status controls. A typed negative remains acceptable. D18f does not infer
+protocol enums, packet layout, physical-router semantics, or modified-HIL
+authority.
