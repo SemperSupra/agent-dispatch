@@ -37,6 +37,9 @@ PUBLIC_HOST = "foliorelay-t6.local"
 PUBLIC_IPP_PORT = 8634
 PUBLIC_RESOURCE_PATH = "/printers/FolioRelay"
 PUBLIC_URI = f"ipp://{PUBLIC_HOST}:{PUBLIC_IPP_PORT}{PUBLIC_RESOURCE_PATH}"
+OBSERVER_LOG_TAIL_LINES = 200
+OBSERVER_LOG_MAX_EVENTS = 200
+OBSERVER_LOG_CAPTURE_SECONDS = 2.0
 
 def canonical_sha256(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -321,6 +324,96 @@ threading.Thread(target=run_observer,args=(a,),daemon=True).start()
 HTTPServer(("0.0.0.0",a.port),H).serve_forever()
 '''
 
+
+class JobFailure(RuntimeError):
+    def __init__(self, label: str, job: dict):
+        self.label = label
+        self.job = job
+        detail = job.get("error") or job.get("exception") or job.get("exc_info") or "no job diagnostic"
+        super().__init__(f"{label} job {job.get('state')}: {detail}")
+
+def bounded_text(value, limit=8000):
+    if value is None:
+        return None
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "...<truncated>"
+
+def bounded_job_snapshot(job):
+    if not isinstance(job, dict):
+        return None
+    return {
+        key: (bounded_text(job.get(key)) if key in {"error", "exception", "exc_info"} else job.get(key))
+        for key in ("id", "state", "progress", "error", "exception", "exc_info")
+        if key in job
+    }
+
+def bounded_app_snapshot(app):
+    if not isinstance(app, dict):
+        return None
+    workloads = app.get("active_workloads") or {}
+    details = workloads.get("container_details") or []
+    containers = []
+    for item in details[:8]:
+        if not isinstance(item, dict):
+            continue
+        containers.append({
+            key: item.get(key)
+            for key in ("id", "container_id", "service_name", "image", "state", "health")
+            if item.get(key) is not None
+        })
+    return {
+        "id": app.get("id"),
+        "name": app.get("name"),
+        "state": app.get("state"),
+        "error_reason": bounded_text(app.get("error_reason")),
+        "containers": containers,
+    }
+
+def capture_container_log_tail(ws, app_name, container_id, tail_lines=OBSERVER_LOG_TAIL_LINES):
+    params = {"app_name": app_name, "container_id": container_id, "tail_lines": tail_lines}
+    subscription = "app.container_log_follow:" + json.dumps(params, sort_keys=True, separators=(",", ":"))
+    sub_id = "observer-log-" + hashlib.sha256(container_id.encode()).hexdigest()[:12]
+    old_timeout = ws.sock.gettimeout()
+    events = []
+    try:
+        ws.sock.settimeout(min(float(old_timeout or 2.0), OBSERVER_LOG_CAPTURE_SECONDS))
+        ws.send_json({"msg": "sub", "id": sub_id, "name": subscription, "params": []})
+        deadline = time.monotonic() + OBSERVER_LOG_CAPTURE_SECONDS
+        while len(events) < OBSERVER_LOG_MAX_EVENTS and time.monotonic() < deadline:
+            try:
+                message = ws.recv_json()
+            except (socket.timeout, TimeoutError):
+                break
+            if message.get("msg") == "ping":
+                pong = {"msg": "pong"}
+                if "id" in message:
+                    pong["id"] = message["id"]
+                ws.send_json(pong)
+                continue
+            if message.get("msg") == "added":
+                fields = message.get("fields") or {}
+                data = fields.get("data")
+                if data is not None:
+                    events.append({
+                        "timestamp": fields.get("timestamp"),
+                        "data": bounded_text(data, 4000),
+                    })
+            if message.get("msg") == "nosub" and message.get("id") == sub_id:
+                break
+    finally:
+        try:
+            ws.send_json({"msg": "unsub", "id": sub_id})
+        except Exception:
+            pass
+        ws.sock.settimeout(old_timeout)
+    return {
+        "app_name": app_name,
+        "container_id": container_id,
+        "tail_lines": tail_lines,
+        "events": events,
+    }
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--host",default="127.0.0.1"); p.add_argument("--port",type=int,required=True)
@@ -328,7 +421,7 @@ def main():
     p.add_argument("--password-file",required=True); p.add_argument("--control-dir",type=pathlib.Path,required=True); p.add_argument("--foundry-commit",required=True)
     p.add_argument("--out",required=True); p.add_argument("--tls",action="store_true"); p.add_argument("--timeout",type=float,default=8); p.add_argument("--job-timeout",type=float,default=300); p.add_argument("--state-timeout",type=float,default=300)
     a=p.parse_args()
-    started=time.time(); ws=None; app_created=False; observer_created=False
+    started=time.time(); ws=None; dataset_owned=False; app_created=False; observer_created=False
     payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":EXPECTED_VERSION,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
     try:
         control,compose=load_control(a.control_dir,a.foundry_commit)
@@ -346,8 +439,7 @@ def main():
                 x=call("core.get_jobs",[[["id","=",j]],{"get":True}])
                 if x and x.get("state")=="SUCCESS": return x
                 if x and x.get("state") in {"FAILED","ABORTED"}:
-                    detail=x.get("error") or x.get("exception") or x.get("exc_info") or "no job diagnostic"
-                    raise RuntimeError(f"{label} job {x.get('state')}: {detail}")
+                    raise JobFailure(label, x)
                 time.sleep(1)
             raise RuntimeError(f"{label} job timeout")
         def wait_state(name,state):
@@ -365,6 +457,7 @@ def main():
         if call("pool.dataset.query",[[["id","=",DATASET]]]): raise RuntimeError("refusing adopted FolioRelay dataset")
         ds=call("pool.dataset.create",[{"name":DATASET,"type":"FILESYSTEM","share_type":"GENERIC","comments":"SemperSupra disposable FolioRelay T6 fixture"}])
         if not isinstance(ds,dict) or ds.get("id")!=DATASET: raise RuntimeError("dataset identity mismatch")
+        dataset_owned=True
         dirs=[
             (ROOT+"/control","700",10001),(ROOT+"/artifacts","700",10001),(ROOT+"/cups-state","755",10001),(ROOT+"/cups-spool","755",10001),
             (ROOT+"/secrets","700",10001),(OBSERVER_DIR,"755",0),
@@ -379,7 +472,8 @@ def main():
         if isinstance(j,int): wait_job(j,"token setperm")
         create=call("app.create",[{"app_name":EXPECTED_APP_NAME,"custom_app":True,"custom_compose_config":compose}])
         if not isinstance(create,int): raise RuntimeError("app.create did not return job")
-        wait_job(create,"app.create"); app_created=True; app=wait_state(EXPECTED_APP_NAME,"RUNNING")
+        app_created=True
+        wait_job(create,"app.create"); app=wait_state(EXPECTED_APP_NAME,"RUNNING")
         details=(app.get("active_workloads") or {}).get("container_details") or []
         exact={(x.get("service_name"),x.get("image"),x.get("state")) for x in details}
         for needed in [("control",EXPECTED_CONTROL,"running"),("cups",EXPECTED_CUPS,"running"),("discovery",EXPECTED_CONTROL,"running")]:
@@ -419,7 +513,30 @@ def main():
         obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
-        wait_job(oj,"observer app.create"); observer_created=True; wait_state(OBSERVER_APP_NAME,"RUNNING")
+        observer_created=True
+        try:
+            wait_job(oj,"observer app.create"); wait_state(OBSERVER_APP_NAME,"RUNNING")
+        except Exception as observer_exc:
+            diagnostic={"detail":f"{type(observer_exc).__name__}: {observer_exc}"}
+            if isinstance(observer_exc,JobFailure): diagnostic["job"]=bounded_job_snapshot(observer_exc.job)
+            try:
+                observer_app=call("app.query",[[["id","=",OBSERVER_APP_NAME]],{"get":True}])
+                diagnostic["app"]=bounded_app_snapshot(observer_app)
+                state=observer_app.get("state") if isinstance(observer_app,dict) else None
+                if state in {"RUNNING","CRASHED","DEPLOYING"}:
+                    log_tails=[]
+                    for detail in ((observer_app.get("active_workloads") or {}).get("container_details") or [])[:4]:
+                        container_id=detail.get("id") or detail.get("container_id")
+                        if not container_id: continue
+                        try:
+                            log_tails.append(capture_container_log_tail(ws,OBSERVER_APP_NAME,str(container_id)))
+                        except Exception as log_exc:
+                            log_tails.append({"container_id":str(container_id),"capture_error":f"{type(log_exc).__name__}: {log_exc}"})
+                    diagnostic["container_log_tails"]=log_tails
+            except Exception as diagnostic_exc:
+                diagnostic["diagnostic_error"]=f"{type(diagnostic_exc).__name__}: {diagnostic_exc}"
+            payload["observer_create_failure"]=diagnostic
+            raise
         if not wait_http(a.host,a.observer_port,"/",60): raise RuntimeError("DNS-SD observer HTTP witness did not become reachable")
         deadline=time.monotonic()+45; observed=None
         while time.monotonic()<deadline:
@@ -463,6 +580,7 @@ def main():
         if call("app.query",[[["id","in",[EXPECTED_APP_NAME,OBSERVER_APP_NAME]]]]): raise RuntimeError("app residue remains")
         deleted=call("pool.dataset.delete",[DATASET,{"recursive":True,"force":False}])
         if deleted is not True: raise RuntimeError("dataset delete did not return true")
+        dataset_owned=False
         if call("pool.dataset.query",[[["id","=",DATASET]]]): raise RuntimeError("dataset residue remains")
         absent=False
         try: call("filesystem.stat",[ROOT])
@@ -478,7 +596,38 @@ def main():
             "detail":"exact Foundry-exported FolioRelay control realized on TrueNAS; exact three-service identity, portal/IPP, PDF+URF source preservation, independent in-guest DNS-SD observation, restart persistence, and zero-residue cleanup passed"
         })
     except Exception as exc:
-        payload["detail"]=f"{type(exc).__name__}: {exc}"; payload["cleanup_needed"]=app_created or observer_created
+        payload["detail"]=f"{type(exc).__name__}: {exc}"
+        if isinstance(exc,JobFailure): payload["failure_job"]=bounded_job_snapshot(exc.job)
+        cleanup={"attempted":bool(dataset_owned or app_created or observer_created),"observer_app":None,"product_app":None,"fixture_dataset":None,"errors":[]}
+        if ws is not None:
+            for name,owned,key in ((OBSERVER_APP_NAME,observer_created,"observer_app"),(EXPECTED_APP_NAME,app_created,"product_app")):
+                if not owned: continue
+                try:
+                    before=call("app.query",[[["id","=",name]],{"get":True}])
+                    entry={"present_before":bool(before),"before":bounded_app_snapshot(before)}
+                    if before:
+                        delete_job=call("app.delete",[name,{"remove_images":False,"remove_ix_volumes":False,"force_remove_custom_app":False}])
+                        if not isinstance(delete_job,int): raise RuntimeError(f"{name} cleanup delete did not return job")
+                        entry["delete_job"]=bounded_job_snapshot(wait_job(delete_job,f"{name} cleanup delete"))
+                    entry["absent_after"]=not bool(call("app.query",[[["id","=",name]],{"get":True}]))
+                    cleanup[key]=entry
+                except Exception as cleanup_exc:
+                    cleanup["errors"].append(f"{name}: {type(cleanup_exc).__name__}: {cleanup_exc}")
+            if dataset_owned:
+                try:
+                    before=call("pool.dataset.query",[[["id","=",DATASET]],{"get":True}])
+                    entry={"present_before":bool(before)}
+                    if before:
+                        deleted=call("pool.dataset.delete",[DATASET,{"recursive":True,"force":False}])
+                        if deleted is not True: raise RuntimeError("fixture cleanup dataset delete did not return true")
+                    entry["absent_after"]=not bool(call("pool.dataset.query",[[["id","=",DATASET]],{"get":True}]))
+                    cleanup["fixture_dataset"]=entry
+                except Exception as cleanup_exc:
+                    cleanup["errors"].append(f"{DATASET}: {type(cleanup_exc).__name__}: {cleanup_exc}")
+        checked=[x for x in (cleanup["observer_app"],cleanup["product_app"],cleanup["fixture_dataset"]) if isinstance(x,dict)]
+        cleanup["zero_residue"]=bool(cleanup["attempted"]) and not cleanup["errors"] and all(x.get("absent_after") is True for x in checked) and len(checked)==sum(1 for x in (observer_created,app_created,dataset_owned) if x)
+        payload["cleanup"]=cleanup
+        payload["cleanup_needed"]=not cleanup["zero_residue"] if cleanup["attempted"] else False
     finally:
         if ws is not None: ws.close()
     payload["elapsed_seconds"]=round(time.time()-started,3)
