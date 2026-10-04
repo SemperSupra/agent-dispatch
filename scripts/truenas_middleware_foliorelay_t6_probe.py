@@ -127,6 +127,21 @@ def http_bytes(host, port, path, token=None, method="GET", timeout=8.0):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
+def middleware_http_bytes(host, port, tls, path, timeout=8.0):
+    if tls:
+        ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+        conn=http.client.HTTPSConnection(host,port,timeout=timeout,context=ctx)
+    else:
+        conn=http.client.HTTPConnection(host,port,timeout=timeout)
+    try:
+        conn.request("GET",path)
+        resp=conn.getresponse(); payload=resp.read()
+    finally:
+        conn.close()
+    if not (200 <= resp.status < 300):
+        raise RuntimeError(f"middleware download HTTP {resp.status}")
+    return payload
+
 def wait_http(host, port, path, timeout_s):
     deadline=time.monotonic()+timeout_s
     while time.monotonic()<deadline:
@@ -338,6 +353,21 @@ def bounded_text(value, limit=8000):
     text = str(value)
     return text if len(text) <= limit else text[:limit] + "...<truncated>"
 
+def bounded_observer_lifecycle_excerpt(value, app_name=OBSERVER_APP_NAME, before=2, after=24, limit=8000):
+    if value is None:
+        return None
+    lines=str(value).splitlines()
+    needles=(app_name, f"ix-{app_name}")
+    hits=[i for i,line in enumerate(lines) if any(needle in line for needle in needles)]
+    if not hits:
+        return None
+    selected=set()
+    for i in hits:
+        selected.update(range(max(0,i-before), min(len(lines),i+after+1)))
+    excerpt="\n".join(lines[i] for i in sorted(selected))
+    excerpt=re.sub(r"(auth_token=)[^&\s]+", r"\1<redacted>", excerpt)
+    return bounded_text(excerpt,limit)
+
 def bounded_job_snapshot(job):
     if not isinstance(job, dict):
         return None
@@ -526,6 +556,15 @@ def main():
         except Exception as observer_exc:
             diagnostic={"detail":f"{type(observer_exc).__name__}: {observer_exc}"}
             if isinstance(observer_exc,JobFailure): diagnostic["job"]=bounded_job_snapshot(observer_exc.job)
+            try:
+                download=call("core.download",["filesystem.get",["/var/log/app_lifecycle.log"],"app_lifecycle.log",True])
+                if not (isinstance(download,list) and len(download)==2 and isinstance(download[0],int) and isinstance(download[1],str)):
+                    raise RuntimeError("core.download app_lifecycle contract drifted")
+                wait_job(download[0],"app lifecycle log download")
+                lifecycle=middleware_http_bytes(a.host,a.port,a.tls,download[1],timeout=a.timeout).decode("utf-8","replace")
+                diagnostic["app_lifecycle_excerpt"]=bounded_observer_lifecycle_excerpt(lifecycle)
+            except Exception as lifecycle_exc:
+                diagnostic["app_lifecycle_capture_error"]=f"{type(lifecycle_exc).__name__}: {lifecycle_exc}"
             try:
                 observer_app=query_optional("app.query",[["id","=",OBSERVER_APP_NAME]])
                 diagnostic["app"]=bounded_app_snapshot(observer_app)
