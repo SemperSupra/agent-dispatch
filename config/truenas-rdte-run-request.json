@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-005-observer-oracle-separation",
+  "request_id": "tn-26-beta3-t6-foliorelay-006-observer-failed-create-diagnostics",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 396,
   "consumer_authority_issue": 273,
-  "purpose": "Re-run exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-004 isolated the independent DNS-SD observer lifecycle/oracle conflation. Preserve all product/Foundry/image/Compose identities, the public-URI oracle correction, and the cheap-qualified URF fixture. Require the observer Custom App to realize independently, then require its explicit mDNS oracle result; accept only with exact three-service readback, portal/IPP reachability, canonical control/CUPS/DNS-SD identity, PDF and Apple Raster exact-source preservation, restart persistence, desired/live re-plan NOOP, update/redeploy persistence, and zero-residue cleanup."
+  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-005 repeated the independent observer Custom App up failure. Preserve all FolioRelay product, Foundry, image, Compose, public-URI, URF, and DNS-SD oracle semantics. The only causal harness delta is bounded failed-create evidence and cleanup accounting from PR #227: if observer app.create fails, retain job/app/container diagnostics and prove cleanup/zero residue; if the observer realizes, continue the existing DNS-SD oracle unchanged. PR #220 remains HOLD unless this rep actually reaches the TXT UUID comparison. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
 }
