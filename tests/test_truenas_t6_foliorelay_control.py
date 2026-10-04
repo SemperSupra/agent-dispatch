@@ -2,6 +2,7 @@
 import importlib.util
 import pathlib
 import subprocess
+import tempfile
 import sys
 import unittest
 
@@ -89,6 +90,13 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"rp=printers/FolioRelay"', text)
         self.assertIn('"dnssd_public_uri_match":True', text)
         self.assertNotIn('if PUBLIC_URI not in attrs', text)
+
+    @unittest.skipUnless(pathlib.Path("/usr/include/cups/raster.h").is_file(), "CUPS development headers not installed")
+    def test_synthetic_urf_generator_builds_and_emits_unirast(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = MOD.generate_urf(pathlib.Path(td))
+            self.assertTrue(out.is_file())
+            self.assertEqual(out.read_bytes()[:7], b"UNIRAST")
 
     def test_probe_compiles(self):
         cp=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],capture_output=True,text=True)
