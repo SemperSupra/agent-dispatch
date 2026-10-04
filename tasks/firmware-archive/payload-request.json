@@ -1,0 +1,29 @@
+{
+  "schema": "firmware-archive-payload-request/v1",
+  "request_id": "cyw43455-infineon-2026-10-04-01",
+  "target": "Raspberry Pi / CYW43455",
+  "max_total_bytes": 2097152,
+  "items": [
+    {
+      "filename": "cyfmac43455-sdio.bin",
+      "url": "https://raw.githubusercontent.com/Infineon/ifx-linux-firmware/d24c95cce5e77b04736972ba05ccd06da6cc377f/firmware/cyfmac43455-sdio.bin",
+      "expected_size": 616233,
+      "provenance": "Infineon public firmware repository",
+      "source_revision": "Infineon/ifx-linux-firmware@d24c95cce5e77b04736972ba05ccd06da6cc377f"
+    },
+    {
+      "filename": "cyfmac43455-sdio.clm_blob",
+      "url": "https://raw.githubusercontent.com/Infineon/ifx-linux-firmware/d24c95cce5e77b04736972ba05ccd06da6cc377f/firmware/cyfmac43455-sdio.clm_blob",
+      "expected_size": 4733,
+      "provenance": "Infineon public firmware repository",
+      "source_revision": "Infineon/ifx-linux-firmware@d24c95cce5e77b04736972ba05ccd06da6cc377f"
+    },
+    {
+      "filename": "LICENCE",
+      "url": "https://raw.githubusercontent.com/Infineon/ifx-linux-firmware/d24c95cce5e77b04736972ba05ccd06da6cc377f/LICENCE",
+      "expected_size": 8997,
+      "provenance": "Infineon public firmware repository license",
+      "source_revision": "Infineon/ifx-linux-firmware@d24c95cce5e77b04736972ba05ccd06da6cc377f"
+    }
+  ]
+}
