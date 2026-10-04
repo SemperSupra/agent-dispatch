@@ -22,6 +22,7 @@ TRUENAS_MIDDLEWARE = ROOT / "scripts" / "truenas_middleware_ddp_probe.py"
 TRUENAS_POOL = ROOT / "scripts" / "truenas_middleware_pool_probe.py"
 TRUENAS_APP = ROOT / "scripts" / "truenas_middleware_app_probe.py"
 TRUENAS_LIFECYCLE = ROOT / "scripts" / "truenas_middleware_app_lifecycle_probe.py"
+FOLIORELAY_SESSION_EQUIV = ROOT / "config" / "truenas-session-foliorelay-single-equivalence.json"
 
 
 class SystemRdteContractTests(unittest.TestCase):
@@ -360,6 +361,45 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertEqual(text.count("group: gha-kvm-system-rdte-heavy"), 2)
         self.assertEqual(text.count("cancel-in-progress: false"), 2)
         self.assertNotIn("cancel-in-progress: true", text)
+
+    def test_single_capsule_session_mode_is_opt_in_and_selector_bound(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn('--session-manifest', text)
+        self.assertIn('SESSION_MANIFEST=""', text)
+        self.assertIn("truenas_single_capsule_adapter.py", text)
+        self.assertIn('SESSION_SELECTOR', text)
+        self.assertIn('does not match --t6-product', text)
+        self.assertIn('truenas_session_runner.py', text)
+        self.assertIn('truenas_existing_probe_capsule_executor.py', text)
+        self.assertIn('"session_execution":', text)
+        self.assertIn('session.get("classification")!="SESSION_CLEAN"', text)
+        self.assertIn('caps[0].get("verdict")!="SUPPORTED"', text)
+        self.assertIn('provider.get("classification")!="SUPPORTED"', text)
+        self.assertIn('provider.get("oracleSatisfied") is not True', text)
+
+    def test_foliorelay_single_capsule_equivalence_manifest_is_exact_and_valid(self):
+        doc = json.loads(FOLIORELAY_SESSION_EQUIV.read_text(encoding="utf-8"))
+        self.assertEqual(doc["version"], "26.0.0-BETA.3")
+        self.assertEqual(len(doc["capsules"]), 1)
+        cap = doc["capsules"][0]
+        self.assertEqual(cap["provider"], "foliorelay-t6")
+        self.assertEqual(cap["authority"], {"repository":"SemperSupra/folio-relay","issue":29})
+        self.assertEqual(cap["exact"]["foundry_ref"], "fb41afd3d112f361b8c490aeb5915a978b956b20")
+        self.assertEqual(cap["exact"]["product_head"], "88fd70c8891eaf7b4c886aa928b96e232ca041c6")
+        self.assertIn("@sha256:", cap["exact"]["control_image"])
+        self.assertIn("@sha256:", cap["exact"]["cups_image"])
+        cp = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "truenas_session_manifest.py"),
+                "--manifest", str(FOLIORELAY_SESSION_EQUIV),
+                "--targets", str(ROOT / "config" / "truenas-rdte-targets.json"),
+                "--providers", str(ROOT / "config" / "truenas-capsule-providers.json"),
+            ],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(cp.returncode, 0, cp.stderr)
 
     def test_truenas_t1_requires_local_rpc_probe(self):
         text = TRUENAS.read_text(encoding="utf-8")
