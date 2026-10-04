@@ -50,6 +50,63 @@ jobs:
         with:
           name: foliorelay-t6-beta3-control
           path: ${{ runner.temp }}/foliorelay-control
+      - name: Smoke exact independent DNS-SD observer container
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c'
+          work="$RUNNER_TEMP/foliorelay-observer-smoke"
+          rm -rf "$work"
+          mkdir -p "$work"
+          python3 - "$work/mdns_observer.py" <<'PY'
+          import importlib.util, pathlib, sys
+          script=pathlib.Path("scripts/truenas_middleware_foliorelay_t6_probe.py")
+          spec=importlib.util.spec_from_file_location("foliorelay_probe",script)
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          pathlib.Path(sys.argv[1]).write_text(mod.OBSERVER,encoding="utf-8")
+          PY
+          port="$(python3 - <<'PY'
+          import socket
+          s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+          PY
+          )"
+          docker pull "$image" >/dev/null
+          docker rm -f foliorelay-observer-smoke >/dev/null 2>&1 || true
+          trap 'docker rm -f foliorelay-observer-smoke >/dev/null 2>&1 || true' EXIT
+          docker run -d --name foliorelay-observer-smoke \
+            --network host \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --mount "type=bind,src=$work,dst=/observer,readonly" \
+            --entrypoint python3 \
+            "$image" /observer/mdns_observer.py \
+            --uuid urn:uuid:01234567-89ab-4def-8123-456789abcdef \
+            --expected-host intentionally-absent.local \
+            --expected-ipp-port 8634 \
+            --port "$port" \
+            --seconds 1 >/dev/null
+          python3 - "$port" <<'PY'
+          import json, sys, time, urllib.request
+          url=f"http://127.0.0.1:{sys.argv[1]}/"
+          deadline=time.monotonic()+15
+          last=None
+          while time.monotonic()<deadline:
+              try:
+                  with urllib.request.urlopen(url,timeout=2) as r:
+                      last=json.load(r)
+                  if last.get("status")=="error":
+                      break
+              except Exception:
+                  pass
+              time.sleep(.5)
+          if not isinstance(last,dict) or last.get("status")!="error":
+              raise SystemExit(f"observer did not expose bounded error result: {last!r}")
+          if "no qualifying _universal FolioRelay mDNS response" not in last.get("error",""):
+              raise SystemExit(f"unexpected observer error: {last!r}")
+          PY
+          test "$(docker inspect -f '{{.State.Running}}' foliorelay-observer-smoke)" = true
       - name: Verify producer-consumer binding
         shell: bash
         run: |
