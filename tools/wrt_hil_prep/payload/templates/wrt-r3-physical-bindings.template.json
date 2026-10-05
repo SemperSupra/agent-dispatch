@@ -1,0 +1,10 @@
+{
+  "asset_id": "REPLACE_FROM_LAB_ASSET_ID",
+  "management_ip": "REPLACE_FROM_R1_R2",
+  "lan_interface": "REPLACE_FROM_R1_R2",
+  "radio_interface": "REPLACE_FROM_R1_R2",
+  "gold_image_sha256": "REPLACE_64_HEX",
+  "rescue_image_sha256": "REPLACE_64_HEX",
+  "gold_slot": "REPLACE_FROM_R1_R2",
+  "rescue_slot": "REPLACE_FROM_R1_R2"
+}
