@@ -17,12 +17,13 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
 }
 
 OUT=""
 STATE_DIR=""
 RUNG="t0"
+COMPUTE_FIXTURE="none"
 T6_PRODUCT="litellm"
 FOUNDRY_CONTROL_DIR=""
 FOUNDRY_COMMIT=""
@@ -41,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --state-dir) STATE_DIR="$2"; shift 2 ;;
     --target-version) TARGET_VERSION="$2"; shift 2 ;;
     --rung) RUNG="$2"; shift 2 ;;
+    --compute-fixture) COMPUTE_FIXTURE="$2"; shift 2 ;;
     --t6-product) T6_PRODUCT="$2"; shift 2 ;;
     --foundry-control-dir) FOUNDRY_CONTROL_DIR="$2"; shift 2 ;;
     --foundry-commit) FOUNDRY_COMMIT="$2"; shift 2 ;;
@@ -63,6 +65,11 @@ TARGET_ENV="$(python3 "$SCRIPT_DIR/truenas_rdte_target.py" --registry "$TARGET_R
 # truenas_rdte_target.py emits only shell-quoted values after strict registry validation.
 eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
+[[ "$COMPUTE_FIXTURE" == "none" || "$COMPUTE_FIXTURE" == "container-c0" ]] || { echo "unsupported compute fixture: $COMPUTE_FIXTURE" >&2; exit 2; }
+if [[ "$COMPUTE_FIXTURE" != "none" && "$RUNG" != "t3" ]]; then
+  echo "compute fixture $COMPUTE_FIXTURE requires rung t3" >&2
+  exit 2
+fi
 if [[ "$RUNG" == "t6" ]]; then
   if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" ]]; then
     [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
@@ -128,6 +135,7 @@ QEMU_ALIVE_AT_GATE="unknown"
 INSTALL_RESULT_JSON=""
 MIDDLEWARE_RESULT_JSON=""
 POOL_RESULT_JSON=""
+COMPUTE_RESULT_JSON=""
 APP_RESULT_JSON=""
 LIFECYCLE_RESULT_JSON=""
 FOUNDRY_RESULT_JSON=""
@@ -155,15 +163,20 @@ write_receipt() {
   export R_ISO_NAME="$ISO_NAME" R_ISO_URL="$ISO_URL" R_SHA_URL="$SHA_URL"
   export R_MIDDLEWARE_REF="$MIDDLEWARE_REF" R_MIDDLEWARE_COMMIT="$MIDDLEWARE_COMMIT"
   export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_INSTALLER_RPC_PATH="$INSTALLER_RPC_PATH" R_INSTALLER_RPC_GUEST_PORT="$INSTALLER_RPC_GUEST_PORT" R_INSTALLER_SOURCE_REF="$INSTALLER_SOURCE_REF" R_INSTALLER_MAIN_BLOB_SHA="$INSTALLER_MAIN_BLOB_SHA" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
-  export R_RUNG="$RUNG" R_T6_PRODUCT="$T6_PRODUCT" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
+  export R_RUNG="$RUNG" R_T6_PRODUCT="$T6_PRODUCT" R_COMPUTE_FIXTURE="$COMPUTE_FIXTURE" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_VCPUS="$VCPUS" R_RAM_MIB="$RAM_MIB"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
-  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON" R_SESSION_RESULT="$SESSION_RESULT_JSON"
+  export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_COMPUTE_RESULT="$COMPUTE_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON" R_SESSION_RESULT="$SESSION_RESULT_JSON"
   python3 - <<'PY'
 import json, os, pathlib
 payload = {
   "contract": "gha-kvm-system-lab/v1",
-  "target": {"product": "truenas", "version": os.environ["R_TARGET_VERSION"], "rung": os.environ.get("R_RUNG", "t0").upper()},
+  "target": {
+    "product": "truenas",
+    "version": os.environ["R_TARGET_VERSION"],
+    "rung": os.environ.get("R_RUNG", "t0").upper(),
+    "compute_fixture": None if os.environ.get("R_COMPUTE_FIXTURE", "none") == "none" else os.environ["R_COMPUTE_FIXTURE"],
+  },
   "classification": os.environ["R_CLASS"],
   "oracleSatisfied": os.environ["R_ORACLE"].lower() == "true",
   "phase": os.environ["R_PHASE"],
@@ -225,6 +238,7 @@ payload = {
     "installer_install_completed": bool(os.environ.get("R_INSTALL_RESULT")) and json.loads(os.environ["R_INSTALL_RESULT"]).get("oracleSatisfied") is True,
     "installed_middleware_authenticated": bool(os.environ.get("R_MIDDLEWARE_RESULT")) and json.loads(os.environ["R_MIDDLEWARE_RESULT"]).get("oracleSatisfied") is True,
     "data_pool_created": bool(os.environ.get("R_POOL_RESULT")) and json.loads(os.environ["R_POOL_RESULT"]).get("oracleSatisfied") is True,
+    "compute_materialization_exercised": bool(os.environ.get("R_COMPUTE_RESULT")) and json.loads(os.environ["R_COMPUTE_RESULT"]).get("oracleSatisfied") is True,
     "apps_runtime_exercised": bool(os.environ.get("R_APP_RESULT")) and json.loads(os.environ["R_APP_RESULT"]).get("oracleSatisfied") is True,
     "app_lifecycle_exercised": bool(os.environ.get("R_LIFECYCLE_RESULT")) and json.loads(os.environ["R_LIFECYCLE_RESULT"]).get("oracleSatisfied") is True,
     "foundry_materialization_exercised": bool(os.environ.get("R_FOUNDRY_RESULT")) and json.loads(os.environ["R_FOUNDRY_RESULT"]).get("oracleSatisfied") is True,
@@ -233,6 +247,7 @@ payload = {
   "install_result": json.loads(os.environ["R_INSTALL_RESULT"]) if os.environ.get("R_INSTALL_RESULT") else None,
   "installed_middleware": json.loads(os.environ["R_MIDDLEWARE_RESULT"]) if os.environ.get("R_MIDDLEWARE_RESULT") else None,
   "data_pool": json.loads(os.environ["R_POOL_RESULT"]) if os.environ.get("R_POOL_RESULT") else None,
+  "compute_materialization": json.loads(os.environ["R_COMPUTE_RESULT"]) if os.environ.get("R_COMPUTE_RESULT") else None,
   "apps_runtime": json.loads(os.environ["R_APP_RESULT"]) if os.environ.get("R_APP_RESULT") else None,
   "app_lifecycle": json.loads(os.environ["R_LIFECYCLE_RESULT"]) if os.environ.get("R_LIFECYCLE_RESULT") else None,
   "foundry_materialization": json.loads(os.environ["R_FOUNDRY_RESULT"]) if os.environ.get("R_FOUNDRY_RESULT") else None,
@@ -244,6 +259,7 @@ payload = {
     "T1 is version-profiled read-only installer RPC discovery.",
     "T2 adds vendor installation plus installed middleware authentication/health.",
     "T3 adds two experiment-owned sparse data disks and a real middleware-created ZFS mirror pool.",
+    "Optional container-c0 on T3 proves only native product-API container lifecycle/read-back/update/restart semantics and zero-residue cleanup; C1 guest execution remains separate.",
     "T4 initializes Apps on that pool and runs one synthetic public-safe custom Compose app.",
     "T5 exercises stop/start, config mutation/read-back, redeploy, stop, and delete for that digest-pinned custom app.",
     "T6 consumes one exact public TrueNAS App Foundry materialization control and verifies native Custom App realization/read-back.",
@@ -272,6 +288,12 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
   if [[ "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]]; then
     [[ -f "$SCRIPT_DIR/truenas_middleware_pool_probe.py" ]] ||
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T3/T4 pool client"
+  fi
+  if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
+    [[ -f "$SCRIPT_DIR/truenas_compute_container_probe.py" ]] ||
+      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS compute container C0 client"
+    [[ -f "$SCRIPT_DIR/../config/compute-materialization-targets.json" ]] ||
+      fail_evidence HARNESS_FAILURE preflight "missing compute materialization target registry"
   fi
   if [[ "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]]; then
     [[ -f "$SCRIPT_DIR/truenas_middleware_app_probe.py" ]] ||
@@ -705,7 +727,40 @@ PY
   fail_evidence ORACLE_FAILURE data-pool "installed TrueNAS did not create and independently verify the disposable ZFS mirror pool"
 
 if [[ "$RUNG" == "t3" ]]; then
-  write_receipt SUPPORTED true data-pool "installed TrueNAS created an ONLINE healthy two-disk mirror containing exactly the selected disposable data disks"
+  if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
+    COMPUTE_OUT="$STATE_DIR/compute-container-c0.json"
+    python3 "$SCRIPT_DIR/truenas_compute_container_probe.py" \
+      --registry "$SCRIPT_DIR/../config/compute-materialization-targets.json" \
+      --target-version "$VERSION" \
+      --pool "$DATA_POOL_NAME" \
+      --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+      "${MIDDLEWARE_TLS_ARG[@]}" \
+      --password-file "$PASSWORD_FILE" \
+      --out "$COMPUTE_OUT" --timeout 8 --job-timeout 600 --state-timeout 240 --apply \
+      >/dev/null 2>&1 || true
+    [[ -f "$COMPUTE_OUT" ]] ||
+      fail_evidence HARNESS_FAILURE compute-container-c0 "compute C0 client did not emit a receipt"
+    COMPUTE_RESULT_JSON="$(cat "$COMPUTE_OUT")"
+    COMPUTE_OK="$(python3 - "$COMPUTE_OUT" <<'PY'
+import json, pathlib, sys
+data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+ok=(
+    data.get("classification")=="SUPPORTED"
+    and data.get("oracleSatisfied") is True
+    and data.get("c0_oracle_satisfied") is True
+    and data.get("c1_guest_oracle_satisfied") is False
+    and (data.get("cleanup") or {}).get("absent") is True
+    and isinstance(data.get("image_resolution"), dict)
+)
+print("true" if ok else "false")
+PY
+)"
+    [[ "$COMPUTE_OK" == "true" ]] ||
+      fail_evidence ORACLE_FAILURE compute-container-c0 "native TrueNAS container C0 lifecycle did not satisfy exact API/image/cleanup oracles"
+    write_receipt SUPPORTED true compute-container-c0 "native TrueNAS container API completed exact image discovery, create/read-back/start/stop/update/restart-or-stop+start/delete/absence with zero residue; guest-level C1 remains unclaimed"
+  else
+    write_receipt SUPPORTED true data-pool "installed TrueNAS created an ONLINE healthy two-disk mirror containing exactly the selected disposable data disks"
+  fi
   exit 0
 fi
 
