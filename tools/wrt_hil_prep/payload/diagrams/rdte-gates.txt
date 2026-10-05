@@ -1,0 +1,16 @@
+CP0 GREEN -> E0 GREEN -> E1 GREEN -> E2 GREEN -> E3 GREEN
+                                      |
+                                      v
+                         LOCAL SCOUT HIL BOUNDARY
+                                      |
+                                      v
+                             R1 READ-ONLY  <-- NOW
+                                      |
+                                      v
+                         R2 GOLD/RESCUE RECOVERY
+                                      |
+                                      v
+                         R3 EXTERNAL GENERATIONS
+                                      |
+                                      v
+                           EasyMesh physical HIL
