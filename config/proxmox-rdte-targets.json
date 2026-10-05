@@ -50,7 +50,15 @@
         "/nodes/{node}/lxc/{vmid}/status/stop",
         "/nodes/{node}/tasks/{upid}/status"
       ],
-      "vm_source_status": "OPEN_PENDING_EXACT_QEMU_SERVER_PACKAGE_CENSUS"
+      "qemu_server_source": {
+        "repository": "proxmox/qemu-server",
+        "commit": "6785065b3f766f15f6f151af8ec27ec8bb5b07ab",
+        "package_version": "9.1.15",
+        "api2_qemu_blob": "e029a204d121f3c8b104457ef14eb6d5ce029464",
+        "qemu_server_blob": "118f26bc94d9ee8e8c4c39a3d710e67c14f61bc0",
+        "changelog_blob": "63ded16d9d06ae0dd114a67d19bb36e14c71c980"
+      },
+      "vm_source_status": "SOURCE_BOUND_RUNTIME_NOT_YET_QUALIFIED"
     }
   ]
 }
