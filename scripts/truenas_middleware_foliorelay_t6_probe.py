@@ -232,6 +232,15 @@ def extract_printer_uri(attrs: str):
     match = re.search(r"printer-uri-supported[^\n]*= (ipp://[^\s]+)", attrs)
     return match.group(1) if match else None
 
+def dnssd_txt_uuid(printer_uuid: str) -> str:
+    prefix="urn:uuid:"
+    if not isinstance(printer_uuid,str) or not printer_uuid.lower().startswith(prefix):
+        raise RuntimeError("canonical printer UUID is not urn:uuid form")
+    value=printer_uuid[len(prefix):]
+    if not value:
+        raise RuntimeError("canonical printer UUID is empty")
+    return value
+
 def forwarded_ipp_uri_has_product_path(uri: str | None) -> bool:
     if not uri or not uri.startswith("ipp://"):
         return False
@@ -496,7 +505,7 @@ def main():
                 blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
         sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/foliorelay-observer",observer_bytes,0o555,a.timeout); wait_job(sj,"observer upload")
-        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"user":"65534:65534","cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR+"/foliorelay-observer","target":"/observer/foliorelay-observer","read_only":True}],"entrypoint":["/observer/foliorelay-observer"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
+        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"user":"65534:65534","cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR+"/foliorelay-observer","target":"/observer/foliorelay-observer","read_only":True}],"entrypoint":["/observer/foliorelay-observer"],"command":["--uuid",uuid,"--txt-uuid",dnssd_txt_uuid(uuid),"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
         observer_created=True

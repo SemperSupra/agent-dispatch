@@ -91,6 +91,7 @@ jobs:
             --entrypoint /observer/foliorelay-observer \
             "$carrier" \
             --uuid urn:uuid:01234567-89ab-4def-8123-456789abcdef \
+            --txt-uuid 01234567-89ab-4def-8123-456789abcdef \
             --expected-host intentionally-absent.local \
             --expected-ipp-port 8634 \
             --port "$port" \

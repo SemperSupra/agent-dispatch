@@ -155,6 +155,19 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         )
         self.assertIsNone(MOD.extract_printer_uuid("printer-name = FolioRelay"))
 
+    def test_dnssd_txt_uuid_projection_strips_only_canonical_urn_prefix(self):
+        canonical="urn:uuid:01234567-89ab-4def-8123-456789abcdef"
+        self.assertEqual(MOD.dnssd_txt_uuid(canonical), "01234567-89ab-4def-8123-456789abcdef")
+        with self.assertRaisesRegex(RuntimeError, "urn:uuid form"):
+            MOD.dnssd_txt_uuid("01234567-89ab-4def-8123-456789abcdef")
+        probe = SCRIPT.read_text(encoding="utf-8")
+        observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
+        prep = (ROOT/".github"/"workflows"/"prep-foliorelay-t6-consumer.yml").read_text(encoding="utf-8")
+        self.assertIn('"--txt-uuid",dnssd_txt_uuid(uuid)', probe)
+        self.assertIn('flag.String("txt-uuid"', observer)
+        self.assertIn('"UUID="+expectedTxtUUID', observer)
+        self.assertIn('--txt-uuid 01234567-89ab-4def-8123-456789abcdef', prep)
+
     def test_forwarded_ipp_uri_preserves_product_resource_path_without_claiming_public_host(self):
         attrs = """
         printer-uri-supported (uri) = ipp://127.0.0.1:48634/printers/FolioRelay
