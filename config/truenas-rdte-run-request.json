@@ -4,7 +4,7 @@
   "version": "26.0.0-BETA.3",
   "rung": "t3",
   "compute_fixture": "container-c0",
-  "authority_issue": 426,
+  "authority_issue": 396,
   "consumer_authority_issue": 426,
   "purpose": "Re-run the exact native TrueNAS 26.0.0-BETA.3 container C0 materialization fixture after rep 001 reached the product API but failed because the harness supplied unsupported container.stop options.timeout. Preserve target, image discovery, create/readback/start/update/restart-or-stop+start/delete/absence, pool, cleanup and C1 claim-boundary semantics. The only causal delta is stacked PR #282: remove options.timeout while retaining force_after_timeout. No C0 acceptance is inferred without SUPPORTED plus oracleSatisfied=true and c0_oracle_satisfied=true with zero-residue cleanup."
 }
