@@ -1,14 +1,14 @@
 {
   "schema": "wrt-easymesh-e1-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 6,
-  "reason": "Exact diagnosed E1 repair: replace unbounded synchronous iw scan with scan trigger/dump and add stage telemetry. No product/config change.",
+  "attempt": 7,
+  "reason": "New bounded wave: exact E1 orchestration repair. Run wpa_supplicant as a normal shell-background process instead of relying on -B return; emit scan/hostapd evidence before association polling.",
   "prior_gate": {
     "e0_run": 37287285078,
     "e0_artifact": 11335470679,
     "e0_passed_control_plane": true
   },
-  "resource_policy": "Second and final public job in this bounded wave; exact timeout repair only.",
-  "prior_run": 37293825899,
+  "resource_policy": "First public job in a new bounded wave; exact orchestration repair only.",
+  "prior_run": 37294455721,
   "e2_green_run": 37288725640
 }
