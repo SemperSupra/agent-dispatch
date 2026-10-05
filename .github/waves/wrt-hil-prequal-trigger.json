@@ -1,0 +1,13 @@
+{
+  "schema": "wrt-hil-prequal-trigger/v1",
+  "date": "2026-10-05",
+  "wave": 1,
+  "authority": "SemperSupra/wrt3200acm-recovery-private#1 comment 6002551008",
+  "purpose": "Qualify HIL host installer, bootable USB image, and DUT-A/B Gold/RDTE digital twins before physical parts arrive.",
+  "physical_write_authority": "DENIED_PREHIL",
+  "resource_limits": {
+    "jobs": 2,
+    "heavy_jobs": 1,
+    "heavy_runner_minutes_target": 25
+  }
+}
