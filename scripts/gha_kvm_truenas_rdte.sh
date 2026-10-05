@@ -64,7 +64,7 @@ TARGET_ENV="$(python3 "$SCRIPT_DIR/truenas_rdte_target.py" --registry "$TARGET_R
 eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
 if [[ "$RUNG" == "t6" ]]; then
-  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" ]]; then
+  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" ]]; then
     [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
   fi
   [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
@@ -916,6 +916,8 @@ elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" \
+    --target-version "$VERSION" \
+    --expected-system-version "$EXPECTED_SYSTEM_VERSION" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 300 >/dev/null 2>&1 || true
 else
   python3 "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" \
