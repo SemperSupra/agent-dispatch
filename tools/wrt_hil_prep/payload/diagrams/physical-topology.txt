@@ -1,0 +1,16 @@
+WRT3200ACM HIL PHYSICAL TOPOLOGY
+
+                 +----------------------+
+                 |       HIL HOST       |
+                 | Linux / SSH / Python |
+                 +------+----------+----+
+                        |          |
+                  Ethernet      USB UART(s)
+                   /    \          /    \
+              +---v--+ +--v---+ +--v---+ +--v---+
+              |DUT-A | |DUT-B | |SER-A | |SER-B |
+              +------+ +------+ +------+ +------+
+
+R1: read-only SSH inventory.
+R2: serial plus independent power qualify Gold/Rescue recovery.
+R3: qualified prplMesh/config generations.
