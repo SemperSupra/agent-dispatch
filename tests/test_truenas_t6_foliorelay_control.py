@@ -47,6 +47,13 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"network_mode":"host"', text)
         self.assertIn('"entrypoint":["python3","/observer/mdns_observer.py"]', text)
         self.assertIn('"distinct_observer_context":True', text)
+        self.assertEqual(
+            MOD.OBSERVER_IMAGE,
+            "docker.io/library/python@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+        )
+        workflow = (ROOT/".github"/"workflows"/"prep-foliorelay-t6-consumer.yml").read_text(encoding="utf-8")
+        self.assertIn(MOD.OBSERVER_IMAGE, workflow)
+        self.assertNotIn("ghcr.io/truenas/apps_validation", workflow)
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
         text = SCRIPT.read_text(encoding="utf-8")
