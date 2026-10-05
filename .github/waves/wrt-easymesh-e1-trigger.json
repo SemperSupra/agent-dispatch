@@ -1,14 +1,14 @@
 {
   "schema": "wrt-easymesh-e1-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 7,
-  "reason": "New bounded wave: exact E1 orchestration repair. Run wpa_supplicant as a normal shell-background process instead of relying on -B return; emit scan/hostapd evidence before association polling.",
+  "attempt": 8,
+  "reason": "Diagnosed semantic retry: association was proven, but prior harness terminated wpa_supplicant before AP station-dump, erasing the station oracle. Observe station/survey before disconnect.",
   "prior_gate": {
     "e0_run": 37287285078,
     "e0_artifact": 11335470679,
     "e0_passed_control_plane": true
   },
-  "resource_policy": "First public job in a new bounded wave; exact orchestration repair only.",
-  "prior_run": 37294455721,
+  "resource_policy": "One exact diagnosed semantic retry. Survey remains supporting-only; station presence is the acceptance oracle.",
+  "prior_run": 37295045390,
   "e2_green_run": 37288725640
 }
