@@ -1,0 +1,20 @@
+{
+  "schema": "wrt-hil-prequal-repair-trigger/v1",
+  "date": "2026-10-06",
+  "attempt": 1,
+  "diagnosed_prior_run": 37371809535,
+  "diagnosed_prior_artifact": 11380821004,
+  "repairs": [
+    "explicit wlan0 binding matching prior E3 green harness",
+    "unique deterministic virtio MACs for DUT-A and DUT-B",
+    "Gold observation window 40s -> 80s",
+    "RDTE observation window 85s -> 130s",
+    "consume refreshed 2026-10-06 kit name"
+  ],
+  "resource_limits": {
+    "jobs": 1,
+    "heavy_jobs": 1,
+    "timeout_minutes": 25
+  },
+  "physical_write_authority": "DENIED_PREHIL"
+}
