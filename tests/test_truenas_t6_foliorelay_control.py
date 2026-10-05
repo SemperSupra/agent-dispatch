@@ -11,6 +11,7 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 SCRIPT = SCRIPTS / "truenas_middleware_foliorelay_t6_probe.py"
+OBSERVER_GO = ROOT / "tools" / "foliorelay-observer" / "main.go"
 SPEC = importlib.util.spec_from_file_location("foliorelay_t6_probe", SCRIPT)
 MOD = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader
@@ -30,13 +31,15 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             '"/api/v1/printer"', '"/api/v1/jobs"', 'application/pdf', 'image/urf',
             'ipptool', 'UNIRAST', '"pool.dataset.create"', '"pool.dataset.delete"',
             '"app.create"', '"app.stop"', '"app.start"', '"app.delete"',
-            '"zero_residue":True', '_universal._sub._ipp._tcp.local',
+            '"zero_residue":True',
             'dnssd_uuid_match', 'restart_preserved_identity_and_inbox',
             'app.update', 'app.redeploy', 'replan_action', '"NOOP"',
             'update_redeploy_preserved_identity_and_inbox',
         ):
             self.assertIn(needle, text)
         self.assertIn(MOD.OBSERVER_IMAGE, text)
+        observer_text = OBSERVER_GO.read_text(encoding="utf-8")
+        self.assertIn('_universal._sub._ipp._tcp.local', observer_text)
         self.assertNotIn("avahi-publish-service", text)
         self.assertNotIn("/run/dbus", text)
         self.assertNotIn("/var/run/docker.sock", text)
@@ -55,14 +58,17 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"distinct_observer_context":True', text)
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
-        text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('result={"status":"pending"}', text)
-        self.assertIn('threading.Thread(target=run_observer', text)
-        self.assertIn('{"status":"success",**result}', text)
-        self.assertIn('{"status":"error","error":', text)
-        self.assertIn('p.add_argument("--seconds",type=float,default=25)', text)
-        self.assertIn('DNS-SD observer oracle failed:', text)
-        self.assertIn('DNS-SD observer oracle remained pending', text)
+        probe_text = SCRIPT.read_text(encoding="utf-8")
+        observer_text = OBSERVER_GO.read_text(encoding="utf-8")
+        self.assertIn('map[string]any{"status": "pending"}', observer_text)
+        self.assertIn('go func()', observer_text)
+        self.assertIn('r["status"] = "success"', observer_text)
+        self.assertIn('map[string]any{"status": "error"', observer_text)
+        self.assertIn('flag.Float64("seconds", 25', observer_text)
+        self.assertIn('DNS-SD observer oracle failed:', probe_text)
+        self.assertIn('DNS-SD observer oracle remained pending', probe_text)
+        self.assertNotIn("OBSERVER = r'''", probe_text)
+        self.assertNotIn("mdns_observer.py", probe_text)
 
 
     def test_failed_observer_create_preserves_diagnostics_and_cleans_owned_state(self):
