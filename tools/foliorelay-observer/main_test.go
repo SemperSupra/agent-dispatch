@@ -30,14 +30,14 @@ func TestQualifying(t *testing.T) {
     o := observation{
         universal: true,
         txt: []string{
-            "UUID=urn:uuid:01234567-89ab-4def-8123-456789abcdef",
+            "UUID=01234567-89ab-4def-8123-456789abcdef",
             "rp=printers/FolioRelay",
             "pdl=application/pdf,image/urf",
         },
         srvTarget: "foliorelay-t6.local.",
         srvPort: 8634,
     }
-    if !qualifying(o, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634) {
+    if !qualifying(o, "01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634) {
         t.Fatal("expected qualifying observation")
     }
 }
@@ -76,7 +76,7 @@ func TestParsePacket(t *testing.T) {
 
     o, err := parsePacket(pkt)
     if err != nil { t.Fatal(err) }
-    if !qualifying(o, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634) {
+    if !qualifying(o, "01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634) {
         t.Fatalf("not qualifying: %+v", o)
     }
 }
@@ -124,4 +124,20 @@ func TestParsePacketRejectsMalformedInput(t *testing.T) {
 	if _, err := parsePacket(loop); err == nil {
 		t.Fatal("expected DNS compression pointer loop error")
 	}
+}
+
+func TestQualifyingRejectsCanonicalURNInTXT(t *testing.T) {
+    o := observation{
+        universal: true,
+        txt: []string{
+            "UUID=urn:uuid:01234567-89ab-4def-8123-456789abcdef",
+            "rp=printers/FolioRelay",
+            "pdl=application/pdf,image/urf",
+        },
+        srvTarget: "foliorelay-t6.local.",
+        srvPort: 8634,
+    }
+    if qualifying(o, "01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634) {
+        t.Fatal("canonical URN must not satisfy bare TXT UUID projection")
+    }
 }
