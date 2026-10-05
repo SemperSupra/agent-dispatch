@@ -93,15 +93,40 @@ func nameAt(pkt []byte, off int, seen map[int]bool) (string, int, error) {
 	}
 }
 
+func normalizeDNSName(name string) string {
+	return strings.ToLower(strings.TrimSuffix(name, "."))
+}
+
+type srvRecord struct {
+	target string
+	port   int
+}
+
 type observation struct {
-	universal bool
-	txt       []string
-	srvTarget string
-	srvPort   int
+	universalTargets []string
+	txtByOwner       map[string][]string
+	srvByOwner       map[string]srvRecord
+}
+
+func newObservation() observation {
+	return observation{
+		txtByOwner: map[string][]string{},
+		srvByOwner: map[string]srvRecord{},
+	}
+}
+
+func (o *observation) merge(other observation) {
+	o.universalTargets = append(o.universalTargets, other.universalTargets...)
+	for owner, items := range other.txtByOwner {
+		o.txtByOwner[owner] = append(o.txtByOwner[owner], items...)
+	}
+	for owner, srv := range other.srvByOwner {
+		o.srvByOwner[owner] = srv
+	}
 }
 
 func parsePacket(pkt []byte) (observation, error) {
-	var o observation
+	o := newObservation()
 	if len(pkt) < 12 {
 		return o, errors.New("short dns packet")
 	}
@@ -139,47 +164,87 @@ func parsePacket(pkt []byte) (observation, error) {
 		}
 		rdata := pkt[off : off+rdlen]
 		off += rdlen
+		owner := normalizeDNSName(name)
 
-		if strings.EqualFold(strings.TrimSuffix(name, "."), queryName) && typ == 12 {
-			o.universal = true
+		if owner == normalizeDNSName(queryName) && typ == 12 {
+			target, _, err := nameAt(pkt, rstart, nil)
+			if err != nil {
+				return o, err
+			}
+			o.universalTargets = append(o.universalTargets, target)
 		}
 		if typ == 16 {
+			items := []string{}
 			for j := 0; j < len(rdata); {
 				n := int(rdata[j])
 				j++
 				if j+n > len(rdata) {
-					break
+					return o, errors.New("short dns txt item")
 				}
-				o.txt = append(o.txt, string(rdata[j:j+n]))
+				items = append(items, string(rdata[j:j+n]))
 				j += n
 			}
+			o.txtByOwner[owner] = append(o.txtByOwner[owner], items...)
 		}
 		if typ == 33 && rdlen >= 7 {
-			o.srvPort = int(binary.BigEndian.Uint16(rdata[4:6]))
 			target, _, err := nameAt(pkt, rstart+6, nil)
-			if err == nil {
-				o.srvTarget = target
+			if err != nil {
+				return o, err
+			}
+			o.srvByOwner[owner] = srvRecord{
+				target: target,
+				port:   int(binary.BigEndian.Uint16(rdata[4:6])),
 			}
 		}
 	}
 	return o, nil
 }
 
-func qualifying(o observation, expectedTxtUUID, expectedHost string, expectedPort int) bool {
-	joined := strings.ToLower(strings.Join(o.txt, "\n"))
-	uuidMatch := false
-	for _, item := range o.txt {
-		if strings.EqualFold(item, "UUID="+expectedTxtUUID) {
-			uuidMatch = true
-			break
+type serviceMatch struct {
+	instance  string
+	txt       []string
+	srvTarget string
+	srvPort   int
+}
+
+func matchObservation(o observation, expectedTxtUUID, expectedHost string, expectedPort int) (serviceMatch, bool) {
+	for _, instance := range o.universalTargets {
+		owner := normalizeDNSName(instance)
+		txt, ok := o.txtByOwner[owner]
+		if !ok {
+			continue
+		}
+		srv, ok := o.srvByOwner[owner]
+		if !ok {
+			continue
+		}
+		uuidMatch := false
+		for _, item := range txt {
+			if strings.EqualFold(item, "UUID="+expectedTxtUUID) {
+				uuidMatch = true
+				break
+			}
+		}
+		joined := strings.ToLower(strings.Join(txt, "\n"))
+		if uuidMatch &&
+			strings.Contains(joined, "rp=printers/foliorelay") &&
+			strings.Contains(joined, "pdl=application/pdf,image/urf") &&
+			strings.EqualFold(normalizeDNSName(srv.target), normalizeDNSName(expectedHost)) &&
+			srv.port == expectedPort {
+			return serviceMatch{
+				instance:  instance,
+				txt:       txt,
+				srvTarget: srv.target,
+				srvPort:   srv.port,
+			}, true
 		}
 	}
-	return o.universal &&
-		uuidMatch &&
-		strings.Contains(joined, "rp=printers/foliorelay") &&
-		strings.Contains(joined, "pdl=application/pdf,image/urf") &&
-		strings.EqualFold(strings.TrimSuffix(o.srvTarget, "."), strings.TrimSuffix(expectedHost, ".")) &&
-		o.srvPort == expectedPort
+	return serviceMatch{}, false
+}
+
+func qualifying(o observation, expectedTxtUUID, expectedHost string, expectedPort int) bool {
+	_, ok := matchObservation(o, expectedTxtUUID, expectedHost, expectedPort)
+	return ok
 }
 
 func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, seconds float64) (map[string]any, error) {
@@ -211,6 +276,7 @@ func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, s
 		return nil, err
 	}
 
+	aggregate := newObservation()
 	deadline := time.Now().Add(time.Duration(seconds * float64(time.Second)))
 	buf := make([]byte, 65535)
 	for time.Now().Before(deadline) {
@@ -222,17 +288,19 @@ func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, s
 			}
 			return nil, err
 		}
-		o, err := parsePacket(buf[:n])
+		packetObservation, err := parsePacket(buf[:n])
 		if err != nil {
 			continue
 		}
-		if qualifying(o, expectedTxtUUID, expectedHost, expectedPort) {
+		aggregate.merge(packetObservation)
+		if matched, ok := matchObservation(aggregate, expectedTxtUUID, expectedHost, expectedPort); ok {
 			return map[string]any{
-				"universal_ptr": true,
-				"uuid":          expected,
-				"txt":           o.txt,
-				"srv_target":    o.srvTarget,
-				"srv_port":      o.srvPort,
+				"universal_ptr":   true,
+				"service_instance": matched.instance,
+				"uuid":            expected,
+				"txt":             matched.txt,
+				"srv_target":      matched.srvTarget,
+				"srv_port":        matched.srvPort,
 			}, nil
 		}
 	}
