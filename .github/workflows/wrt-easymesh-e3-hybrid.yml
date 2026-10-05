@@ -97,8 +97,8 @@ jobs:
               echo E3_WIRELESS_AFTER_CONFIG > /dev/ttyS0
               uci show wireless > /dev/ttyS0 2>&1 || true
               iw reg get > /dev/ttyS0 2>&1 || true
-              wifi reload > /tmp/e3-wifi-reload.log 2>&1 || true
-              cat /tmp/e3-wifi-reload.log > /dev/ttyS0 2>&1 || true
+              /etc/init.d/network restart > /tmp/e3-network-restart.log 2>&1 || true
+              cat /tmp/e3-network-restart.log > /dev/ttyS0 2>&1 || true
             fi
             sleep 8
             iw dev > /tmp/e3-iw-dev 2>&1 || true
