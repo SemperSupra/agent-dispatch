@@ -27,9 +27,10 @@ permissions:
 
 jobs:
   foundry-control:
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@fb41afd3d112f361b8c490aeb5915a978b956b20
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2
     with:
-      foundry_ref: fb41afd3d112f361b8c490aeb5915a978b956b20
+      foundry_ref: e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2
+      target_version: 26.0.0-BETA.3
     permissions:
       contents: read
 
@@ -50,7 +51,7 @@ jobs:
       - name: Download exact Foundry FolioRelay control
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: foliorelay-t6-beta3-control
+          name: foliorelay-t6-control
           path: ${{ runner.temp }}/foliorelay-control
       - name: Smoke minimal static independent DNS-SD observer
         shell: bash
@@ -125,7 +126,7 @@ jobs:
           test -s "$root/compose.json"
           jq -e '
             .schema == "semper-supra.foliorelay-truenas-t6-control/1" and
-            .foundry_ref == "fb41afd3d112f361b8c490aeb5915a978b956b20" and
+            .foundry_ref == "e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2" and
             .candidate.truenas_version == "26.0.0-BETA.3" and
             .candidate.control_image == "ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce" and
             .candidate.cups_image == "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f" and
