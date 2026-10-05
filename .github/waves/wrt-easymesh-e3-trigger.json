@@ -1,8 +1,8 @@
 {
   "schema": "wrt-easymesh-e3-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 5,
-  "reason": "Exact E3 harness repair after run 37332198799: stable hwsim PHY identities are preserved, but hostapd still receives generated country_code 00 and rejects it. Remove the invalid synthetic country field for the hwsim radio; retain channel 1/HT20 and expose post-UCI/regdom/reload evidence.",
+  "attempt": 6,
+  "reason": "Exact E3 harness repair after run 37333397986: corrected UCI state contains no radio0 country, but in-place wifi reload preserves stale hostapd country_code 00. Restart only the disposable guest network service so netifd/hostapd rebuild from corrected UCI.",
   "prior_gates": {
     "e0_run": 37287285078,
     "e1_run": 37321249529,
@@ -11,9 +11,9 @@
     "e2_run": 37288725640,
     "e2_artifact": 11336174982
   },
-  "resource_policy": "Fresh bounded E3 wave for a newly evidenced hostapd config defect; one job only; no physical HIL; no unchanged retry.",
+  "resource_policy": "Fresh bounded E3 wave for a newly evidenced stale-reload defect; one job only; no physical HIL; no unchanged retry.",
   "hil_policy": "Physical HIL remains blocked pending Local Scout R1 -> R2 -> R3 cutover qualification.",
-  "prior_run": 37332198799,
-  "prior_artifact": 11354079601,
-  "prepared_workflow_commit": "fc390c7c3ca78d4cca539a73079e28ba3c2a087b"
+  "prior_run": 37333397986,
+  "prior_artifact": 11355436710,
+  "prepared_workflow_commit": "a2c9cdb0ece6aec42dd5f6a5c297670023c9712c"
 }
