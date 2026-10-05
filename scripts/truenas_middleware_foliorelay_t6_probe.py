@@ -447,12 +447,60 @@ def main():
                     raise JobFailure(label, x)
                 time.sleep(1)
             raise RuntimeError(f"{label} job timeout")
+        def capture_product_runtime_failure(name,app):
+            diagnostic={"app":bounded_app_snapshot(app)}
+            try:
+                download=call("core.download",["filesystem.get",["/var/log/app_lifecycle.log"],"app_lifecycle.log",True])
+                if not (isinstance(download,list) and len(download)==2 and isinstance(download[0],int) and isinstance(download[1],str)):
+                    raise RuntimeError("core.download app_lifecycle contract drifted")
+                wait_job(download[0],"product app lifecycle log download")
+                lifecycle=middleware_http_bytes(a.host,a.port,a.tls,download[1],timeout=a.timeout).decode("utf-8","replace")
+                diagnostic["app_lifecycle_excerpt"]=bounded_observer_lifecycle_excerpt(lifecycle,app_name=name)
+            except Exception as lifecycle_exc:
+                diagnostic["app_lifecycle_capture_error"]=f"{type(lifecycle_exc).__name__}: {lifecycle_exc}"
+            try:
+                log_tails=[]
+                details=((app.get("active_workloads") or {}).get("container_details") or []) if isinstance(app,dict) else []
+                for detail in details[:8]:
+                    container_id=detail.get("id") or detail.get("container_id")
+                    if not container_id:
+                        continue
+                    service_name=detail.get("service_name")
+                    container_state=str(detail.get("state") or "").lower()
+                    if service_name!="discovery" and container_state not in {"crashed","exited","restarting"}:
+                        continue
+                    try:
+                        entry=capture_container_log_tail(ws,name,str(container_id))
+                        entry["service_name"]=service_name
+                        entry["container_state"]=container_state
+                        log_tails.append(entry)
+                    except Exception as log_exc:
+                        log_tails.append({
+                            "container_id":str(container_id),
+                            "service_name":service_name,
+                            "container_state":container_state,
+                            "capture_error":f"{type(log_exc).__name__}: {log_exc}",
+                        })
+                diagnostic["container_log_tails"]=log_tails
+            except Exception as log_group_exc:
+                diagnostic["container_log_capture_error"]=f"{type(log_group_exc).__name__}: {log_group_exc}"
+            payload["product_runtime_failure"]=diagnostic
+
         def wait_state(name,state):
             deadline=time.monotonic()+a.state_timeout
             while time.monotonic()<deadline:
                 x=call("app.query",[[["id","=",name]],{"get":True}])
                 if x and x.get("state")==state: return x
-                if x and x.get("state") in {"CRASHED","ERROR"}: raise RuntimeError(f"{name} entered {x.get('state')}")
+                if x and x.get("state") in {"CRASHED","ERROR"}:
+                    if name==EXPECTED_APP_NAME:
+                        try:
+                            capture_product_runtime_failure(name,x)
+                        except Exception as diagnostic_exc:
+                            payload["product_runtime_failure"]={
+                                "app":bounded_app_snapshot(x),
+                                "diagnostic_error":f"{type(diagnostic_exc).__name__}: {diagnostic_exc}",
+                            }
+                    raise RuntimeError(f"{name} entered {x.get('state')}")
                 time.sleep(1)
             raise RuntimeError(f"{name} did not reach {state}")
         auth=call("auth.login_ex",[{"mechanism":"PASSWORD_PLAIN","username":"truenas_admin","password":password}])
