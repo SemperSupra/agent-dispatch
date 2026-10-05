@@ -316,6 +316,7 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 FolioRelay control client"
       command -v ipptool >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: ipptool"
       command -v cc >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: C compiler"
+      command -v go >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: go"
     else
       [[ -f "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 LiteLLM control client"
@@ -882,11 +883,16 @@ elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
     --foundry-commit "$FOUNDRY_COMMIT" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
+  FOLIORELAY_OBSERVER_BIN="$STATE_DIR/foliorelay-observer"
+  GO111MODULE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -buildid=" -o "$FOLIORELAY_OBSERVER_BIN" "$SCRIPT_DIR/../tools/foliorelay-observer"
+  [[ -s "$FOLIORELAY_OBSERVER_BIN" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "static FolioRelay observer build produced no binary"
+  (( $(stat -c%s "$FOLIORELAY_OBSERVER_BIN") <= 6291456 )) || fail_evidence HARNESS_FAILURE foundry-materialization "static FolioRelay observer exceeds 6 MiB budget"
   python3 "$SCRIPT_DIR/truenas_middleware_foliorelay_t6_probe.py" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
     --control-port "$FOLIORELAY_CONTROL_HOST_PORT" \
     --ipp-port "$FOLIORELAY_IPP_HOST_PORT" \
     --observer-port "$FOLIORELAY_OBSERVER_HOST_PORT" \
+    --observer-bin "$FOLIORELAY_OBSERVER_BIN" \
     "${MIDDLEWARE_TLS_ARG[@]}" \
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \

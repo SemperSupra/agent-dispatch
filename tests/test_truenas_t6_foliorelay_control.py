@@ -45,7 +45,13 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"', text)
         self.assertIn('"network_mode":"host"', text)
-        self.assertIn('"entrypoint":["python3","/observer/mdns_observer.py"]', text)
+        self.assertIn('"entrypoint":["/observer/foliorelay-observer"]', text)
+        self.assertIn('"user":"65534:65534"', text)
+        self.assertEqual(
+            MOD.OBSERVER_IMAGE,
+            "docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8",
+        )
+        self.assertNotIn("ghcr.io/truenas/apps_validation", MOD.OBSERVER_IMAGE)
         self.assertIn('"distinct_observer_context":True', text)
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
@@ -68,6 +74,9 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             text.index('wait_job(oj,"observer app.create")'),
         )
         self.assertIn('payload["observer_create_failure"]', text)
+        self.assertIn('p.add_argument("--observer-bin"', text)
+        self.assertIn('OBSERVER_DIR+"/foliorelay-observer"', text)
+        self.assertIn('observer_bytes,0o555', text)
         self.assertIn('"app.container_log_follow:"', text)
         self.assertIn('"tail_lines": tail_lines', text)
         self.assertIn('"container_log_tails"', text)
@@ -128,6 +137,9 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('FOLIORELAY_IPP_HOST_PORT', harness)
         self.assertIn('FOLIORELAY_OBSERVER_HOST_PORT', harness)
         self.assertIn('--observer-port "$FOLIORELAY_OBSERVER_HOST_PORT"', harness)
+        self.assertIn('--observer-bin "$FOLIORELAY_OBSERVER_BIN"', harness)
+        self.assertIn('CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build', harness)
+        self.assertIn('tools/foliorelay-observer', harness)
 
     def test_cups_uuid_oracle_preserves_canonical_urn_prefix(self):
         attrs = """
