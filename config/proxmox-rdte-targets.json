@@ -29,7 +29,14 @@
       "pve_qemu_submodule_commit": "98b060da3a4f92b2a994ead5b16a87e783baf77c",
       "container_fixture": {
         "template_name": "debian-13-standard_13.1-2_amd64.tar.zst",
-        "template_url": "https://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst",
+        "template_url": "http://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst",
+        "catalog_source": {
+          "repository": "proxmox/pve-manager",
+          "commit": "b9984c6d90a4bd80ab72dc2088c1b9103fb167b1",
+          "path": "PVE/APLInfo.pm",
+          "blob_sha": "433a8ef4bf78d606508c6bae162c49e9ef0ecfd3",
+          "base_url": "http://download.proxmox.com/images"
+        },
         "template_sha512": "5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8"
       },
       "required_rest_surfaces": [
