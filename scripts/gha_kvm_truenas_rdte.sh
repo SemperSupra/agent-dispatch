@@ -17,7 +17,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
 }
 
 OUT=""
@@ -65,7 +65,7 @@ TARGET_ENV="$(python3 "$SCRIPT_DIR/truenas_rdte_target.py" --registry "$TARGET_R
 # truenas_rdte_target.py emits only shell-quoted values after strict registry validation.
 eval "$TARGET_ENV"
 [[ "$RUNG" == "t0" || "$RUNG" == "t1" || "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" || "$RUNG" == "t6" ]] || { echo "rung must be t0, t1, t2, t3, t4, t5, or t6" >&2; exit 2; }
-[[ "$COMPUTE_FIXTURE" == "none" || "$COMPUTE_FIXTURE" == "container-c0" ]] || { echo "unsupported compute fixture: $COMPUTE_FIXTURE" >&2; exit 2; }
+[[ "$COMPUTE_FIXTURE" == "none" || "$COMPUTE_FIXTURE" == "container-c0" || "$COMPUTE_FIXTURE" == "vm-v0" ]] || { echo "unsupported compute fixture: $COMPUTE_FIXTURE" >&2; exit 2; }
 if [[ "$COMPUTE_FIXTURE" != "none" && "$RUNG" != "t3" ]]; then
   echo "compute fixture $COMPUTE_FIXTURE requires rung t3" >&2
   exit 2
@@ -260,6 +260,7 @@ payload = {
     "T2 adds vendor installation plus installed middleware authentication/health.",
     "T3 adds two experiment-owned sparse data disks and a real middleware-created ZFS mirror pool.",
     "Optional container-c0 on T3 proves only native product-API container lifecycle/read-back/update/restart semantics and zero-residue cleanup; C1 guest execution remains separate.",
+    "Optional vm-v0 on T3 proves only native VM/device lifecycle, source-bound preconditions and exact-owned storage cleanup; guest boot/V1, nested KVM/V2, Firecracker and Windows remain separate.",
     "T4 initializes Apps on that pool and runs one synthetic public-safe custom Compose app.",
     "T5 exercises stop/start, config mutation/read-back, redeploy, stop, and delete for that digest-pinned custom app.",
     "T6 consumes one exact public TrueNAS App Foundry materialization control and verifies native Custom App realization/read-back.",
@@ -292,6 +293,11 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
   if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
     [[ -f "$SCRIPT_DIR/truenas_compute_container_probe.py" ]] ||
       fail_evidence HARNESS_FAILURE preflight "missing TrueNAS compute container C0 client"
+  elif [[ "$COMPUTE_FIXTURE" == "vm-v0" ]]; then
+    [[ -f "$SCRIPT_DIR/truenas_compute_vm_probe.py" ]] ||
+      fail_evidence HARNESS_FAILURE preflight "missing TrueNAS compute VM V0 client"
+  fi
+  if [[ "$COMPUTE_FIXTURE" != "none" ]]; then
     [[ -f "$SCRIPT_DIR/../config/compute-materialization-targets.json" ]] ||
       fail_evidence HARNESS_FAILURE preflight "missing compute materialization target registry"
   fi
@@ -758,6 +764,41 @@ PY
     [[ "$COMPUTE_OK" == "true" ]] ||
       fail_evidence ORACLE_FAILURE compute-container-c0 "native TrueNAS container C0 lifecycle did not satisfy exact API/image/cleanup oracles"
     write_receipt SUPPORTED true compute-container-c0 "native TrueNAS container API completed exact image discovery, create/read-back/start/stop/update/restart-or-stop+start/delete/absence with zero residue; guest-level C1 remains unclaimed"
+  elif [[ "$COMPUTE_FIXTURE" == "vm-v0" ]]; then
+    COMPUTE_OUT="$STATE_DIR/compute-vm-v0.json"
+    python3 "$SCRIPT_DIR/truenas_compute_vm_probe.py" \
+      --registry "$SCRIPT_DIR/../config/compute-materialization-targets.json" \
+      --target-version "$VERSION" \
+      --zvol-name "$DATA_POOL_NAME/rdte-compute-vm-v0" \
+      --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+      "${MIDDLEWARE_TLS_ARG[@]}" \
+      --password-file "$PASSWORD_FILE" \
+      --out "$COMPUTE_OUT" --timeout 8 --job-timeout 600 --apply \
+      >/dev/null 2>&1 || true
+    [[ -f "$COMPUTE_OUT" ]] ||
+      fail_evidence HARNESS_FAILURE compute-vm-v0 "compute VM V0 client did not emit a receipt"
+    COMPUTE_RESULT_JSON="$(cat "$COMPUTE_OUT")"
+    COMPUTE_OK="$(python3 - "$COMPUTE_OUT" <<'PY'
+import json, pathlib, sys
+data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+cleanup=data.get("cleanup") or {}
+ok=(
+    data.get("classification")=="SUPPORTED"
+    and data.get("oracleSatisfied") is True
+    and data.get("v0_oracle_satisfied") is True
+    and data.get("v1_guest_oracle_satisfied") is False
+    and data.get("v2_firecracker_oracle_satisfied") is False
+    and data.get("windows_w1_oracle_satisfied") is False
+    and cleanup.get("vm_absent") is True
+    and cleanup.get("device_absent") is True
+    and cleanup.get("zvol_absent") is True
+)
+print("true" if ok else "false")
+PY
+)"
+    [[ "$COMPUTE_OK" == "true" ]] ||
+      fail_evidence ORACLE_FAILURE compute-vm-v0 "native TrueNAS VM V0 lifecycle did not satisfy exact ownership/precondition/cleanup oracles"
+    write_receipt SUPPORTED true compute-vm-v0 "native TrueNAS VM/device V0 completed create/read-back/update/owned-ZVOL device CRUD and zero-residue cleanup; guest boot, nested KVM, Firecracker and Windows remain unclaimed"
   else
     write_receipt SUPPORTED true data-pool "installed TrueNAS created an ONLINE healthy two-disk mirror containing exactly the selected disposable data disks"
   fi
