@@ -49,7 +49,10 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('"network_mode":"host"', text)
         self.assertIn('"entrypoint":["/observer/foliorelay-observer"]', text)
         self.assertIn('"user":"65534:65534"', text)
-        self.assertIn('hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8', text)
+        self.assertEqual(
+            MOD.OBSERVER_IMAGE,
+            "docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8",
+        )
         self.assertNotIn('ghcr.io/truenas/apps_validation@sha256:', text)
         self.assertIn('"distinct_observer_context":True', text)
 
