@@ -668,6 +668,24 @@ class SystemRdteContractTests(unittest.TestCase):
         shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
         self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
 
+    def test_truenas_t3_vm_v0_is_opt_in_and_strictly_pre_guest(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('vm-v0', workflow)
+        self.assertIn('vm-v0', text)
+        self.assertIn('truenas_compute_vm_probe.py', text)
+        self.assertIn('--zvol-name "$DATA_POOL_NAME/rdte-compute-vm-v0"', text)
+        self.assertIn('"v0_oracle_satisfied"', text)
+        self.assertIn('"v1_guest_oracle_satisfied"', text)
+        self.assertIn('"v2_firecracker_oracle_satisfied"', text)
+        self.assertIn('"windows_w1_oracle_satisfied"', text)
+        self.assertIn('"vm_absent"', text)
+        self.assertIn('"device_absent"', text)
+        self.assertIn('"zvol_absent"', text)
+        self.assertIn('guest boot, nested KVM, Firecracker and Windows remain unclaimed', text)
+        shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
+        self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
+
     def test_truenas_t4_apps_contract(self):
         text = TRUENAS.read_text(encoding="utf-8")
         app = TRUENAS_APP.read_text(encoding="utf-8")
