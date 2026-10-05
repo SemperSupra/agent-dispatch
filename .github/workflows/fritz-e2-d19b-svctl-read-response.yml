@@ -1,0 +1,110 @@
+name: FRITZ E2 D19b svctl-read response observe
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/fritz-e2-d19b-svctl-read-response.yml"
+      - "scripts/fritz_qemu_e2_d19_svctl_read_response.py"
+      - "tests/test_fritz_qemu_e2_d19_svctl_read_response.py"
+      - "evidence/fritz-e2-d19-response-role.json"
+      - "scripts/fritz_qemu_e2_d18_runtime_callsite_observe.py"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_qemu_e2_d19_svctl_read_response.py
+
+  exact-d19b:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends binutils binutils-mips-linux-gnu curl gdb-multiarch iproute2 qemu-user-static squashfs-tools util-linux
+      - name: Run exact svctl-read debugger transaction
+        id: probe
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/fritz-d19b" "${RUNNER_TEMP}/fritz-receipt"
+          python3 scripts/fritz_qemu_e2_d19_svctl_read_response.py \
+            --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+            --expected-size 42393600 \
+            --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+            --work-dir "${RUNNER_TEMP}/fritz-d19b" \
+            --receipt "${RUNNER_TEMP}/fritz-receipt/receipt.json"
+      - name: Enforce D19b evidence boundary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"fritz-receipt"/"receipt.json").read_text())
+          assert r.get("oracleSatisfied") is True,r
+          assert r["classification"] in {
+              "E2_D19B_SVCTL_READ_STABLE_RESPONSE_DISCRIMINATOR_FOUND",
+              "E2_D19B_SVCTL_READ_UNSTABLE_STATUS_NO_DISCRIMINATOR",
+              "E2_D19B_SVCTL_READ_NO_RUNTIME_DISCRIMINATOR",
+          },r["classification"]
+          assert r["transaction"]["apply"] == ["svctl","start","ctlmgr"]
+          assert r["transaction"]["applyCount"] <= 1
+          p=r["staticPrecondition"]
+          assert p["roleClassification"] == "E2_D19_SVCTL_READ_ENTRY_ROLE_EARNED"
+          assert p["roleOracleSatisfied"] is True
+          assert p["observedSymbol"] == "_svctl_read"
+          assert p["observedBoundary"] == "function_entry"
+          assert p["libcReadOwnershipAccepted"] is False
+          assert p["returnRoleAccepted"] is False
+          i=r["instrumentation"]
+          assert i["allCallsInstrumentationReady"] is True,i
+          assert i["allExpectedTargetHits"] is True,i
+          assert [t["target"] for t in i["perTarget"]] == ["_svctl_read"]
+          for call in i["callDiagnostics"].values():
+              assert call["hostStraceUsed"] is False,call
+              assert call["gdbListenerSeen"] is True,call
+              assert call["gdbAttempted"] is True,call
+              assert "post_target" in call["gdbStages"],call
+          b=r["interpretationBoundary"]
+          assert b["observedRole"] == "_svctl_read_entry"
+          assert b["libcReadOwnershipInferred"] is False
+          assert b["returnRoleEarned"] is False
+          assert b["responsePayloadPublished"] is False
+          assert b["responseFieldLayoutAccepted"] is False
+          assert b["protocolEnumValuesAccepted"] is False
+          assert b["payloadOffsetsAccepted"] is False
+          assert b["digestValuesPublished"] is False
+          for key in (
+              "rawFirmwarePublished","rootfsPublished","rawControlPayloadPublished",
+              "controlPayloadPersisted","rawHostStracePublished","rawDebuggerOutputPublished",
+              "rawRegisterValuesPublished","rawPointedMemoryPublished","callsiteAddressesPublished",
+              "physicalRouterContact","routerMutationAuthorized","externalNetworkAvailableToTarget",
+              "targetSpecificShimAdded","shippedFilesModified","sameRunWireCaptureAttempted"
+          ):
+              assert r["safety"][key] is False,(key,r["safety"][key])
+          print(json.dumps({
+              "classification":r["classification"],
+              "stableDimensionDiscriminatorCount":i["stableDimensionDiscriminatorCount"],
+              "unstableStatusDimensionCount":i["unstableStatusDimensionCount"],
+              "perTarget":i["perTarget"],
+              "runtimeSummary":r["runtimeSummary"],
+              "interpretationBoundary":b,
+          },sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fritz-e2-d19b-svctl-read-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fritz-receipt/receipt.json
+          if-no-files-found: error
+          retention-days: 7
