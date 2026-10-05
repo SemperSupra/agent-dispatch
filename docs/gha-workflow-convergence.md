@@ -90,3 +90,42 @@ Otherwise prefer:
 
 Existing workflows are evidence baselines until equivalence is proven. Deletion
 is the final step, not the first.
+
+
+## FRITZ runtime sample — measured duplication
+
+A bounded sample of eight runtime-oriented FRITZ workflows confirms the suspected
+shared geometry. All sampled workflows use `ubuntu-24.04`, a contract job plus
+a runtime job, a repository Python probe, inline Python receipt enforcement, and
+one uploaded receipt artifact.
+
+Two independently named workflows already share an exact host dependency set:
+
+- `fritz-e2-d18-runtime-callsite-observe.yml`
+- `fritz-e2-d19d-read-return-runtime.yml`
+
+Both install:
+
+`binutils binutils-mips-linux-gnu curl gdb-multiarch iproute2 qemu-user-static squashfs-tools util-linux`
+
+The sample also contains narrower variants such as
+`fritz-e2-order-chain-runtime.yml`, which installs only
+`curl iproute2 qemu-user-static squashfs-tools`.
+
+This earns an **audited setup-profile candidate**, but not yet a migration:
+`fritz-qemu-mips-debug-v1` can represent the exact repeated dependency set.
+The remaining blocker is semantic—not package installation. Current workflows
+also contain probe-specific inline receipt assertions. Those assertions should
+remain authoritative and move behind explicit verifier entrypoints before a
+generic executor replaces the dedicated YAML.
+
+Therefore the next safe decomposition is:
+
+`request -> audited setup profile -> probe argv -> verifier argv -> receipt upload`
+
+not:
+
+`request -> arbitrary packages/shell -> upload whatever happened`.
+
+This keeps setup reuse orthogonal to the workload oracle and lets FRITZ retain
+its existing evidence boundaries.
