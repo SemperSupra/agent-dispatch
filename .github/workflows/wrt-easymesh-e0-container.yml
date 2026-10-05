@@ -103,6 +103,9 @@ jobs:
           export controller_operational agent_operational agent_recovered shared_l2 pcap_present restart_before restart_after
           python3 -c 'import json,os; ks=["controller_operational","agent_operational","agent_recovered","shared_l2","pcap_present","restart_before","restart_after"]; d={k:int(os.environ[k]) for k in ks}; d["schema"]="wrt3200acm-easymesh-e0-container/v2"; d["passed_control_plane"]=bool(d["controller_operational"] and d["agent_operational"] and d["agent_recovered"] and d["shared_l2"]); d["pcap_is_supporting_evidence_only"]=True; print(json.dumps(d,indent=2,sort_keys=True))' > "$OUT/verdict.json"
 
+          echo '--- E0_SEMANTIC_VERDICT_BEGIN ---'
+          cat "$OUT/verdict.json"
+          echo '--- E0_SEMANTIC_VERDICT_END ---'
           cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload E0 evidence
