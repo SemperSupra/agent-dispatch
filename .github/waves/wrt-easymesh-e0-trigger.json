@@ -8,9 +8,9 @@
     "cp0_evidence_commit": "5fa48c1cfcf233c1d86d15904532786e0fc30ca6"
   },
   "purpose": "Run upstream prplMesh 6.0.1 controller+agent container topology as the E0 control-plane oracle, including agent restart/reconvergence.",
-  "resource_policy": "Second and final public job in this bounded wave.",
-  "attempt": 3,
-  "reason": "Diagnosed retry after build/install failure: E0 control-plane oracle does not need WHM/NBAPI; disable both to avoid privileged /etc/acl installation.",
-  "prior_run": 37275982945,
+  "resource_policy": "First public job in a new bounded wave. Second slot reserved for one exact diagnosed blocker only.",
+  "attempt": 4,
+  "reason": "New bounded wave: restore upstream default feature set; run isolated builder container as uid/gid 0 so its container-local /etc install surface is writable. No host/rootfs target patch.",
+  "prior_run": 37283475218,
   "cp0_green_run": 37273250460
 }
