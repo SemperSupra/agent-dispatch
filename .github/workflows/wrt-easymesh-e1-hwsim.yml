@@ -51,6 +51,15 @@ jobs:
           export load_rc phy_count hwsim_loaded
           python3 -c 'import json,os; lr=int(os.environ["load_rc"]); pc=int(os.environ["phy_count"]); hl=int(os.environ["hwsim_loaded"]); print(json.dumps({"schema":"wrt3200acm-easymesh-e1-hwsim-preflight/v1","modprobe_rc":lr,"hwsim_loaded":bool(hl),"phy_count":pc,"ready_for_e1":bool(hl and pc>=3)},indent=2,sort_keys=True))' > "$OUT/verdict.json"
 
+          echo '--- E1_SEMANTIC_VERDICT_BEGIN ---'
+
+
+          cat "$OUT/verdict.json"
+
+
+          echo '--- E1_SEMANTIC_VERDICT_END ---'
+
+
           cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload E1 preflight evidence
