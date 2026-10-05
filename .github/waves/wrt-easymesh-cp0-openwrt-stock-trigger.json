@@ -1,0 +1,7 @@
+{
+  "schema": "wrt-easymesh-cp0-openwrt-stock-trigger/v1",
+  "requested_at": "2026-10-05T06:20:00+02:00",
+  "purpose": "Build official openwrt/packages prplmesh 6.0.1 stock-OpenWrt recipe against OpenWrt 25.12.5 mvebu/cortexa9 SDK.",
+  "authority": "SemperSupra/wrt3200acm-recovery-private#1",
+  "resource_policy": "First public job in the new bounded wave."
+}
