@@ -319,6 +319,7 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
       command -v ipptool >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: ipptool"
       command -v cc >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: C compiler"
       command -v go >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: Go compiler"
+      command -v readelf >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: readelf"
     else
       [[ -f "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 LiteLLM control client"
@@ -346,9 +347,14 @@ if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "foliorelay" ]]; then
     go build -trimpath -ldflags='-s -w -buildid=' \
     -o "$FOLIORELAY_OBSERVER_BINARY" "$SCRIPT_DIR/../tools/foliorelay-observer" ||
     fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer build failed"
+  [[ -s "$FOLIORELAY_OBSERVER_BINARY" ]] ||
+    fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer build produced an empty binary"
   observer_size="$(stat -c%s "$FOLIORELAY_OBSERVER_BINARY")"
   (( observer_size <= 6291456 )) ||
     fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer exceeds 6 MiB budget"
+  if readelf -l "$FOLIORELAY_OBSERVER_BINARY" | grep -q 'INTERP'; then
+    fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer unexpectedly has a dynamic interpreter"
+  fi
 fi
 
 ISO="$STATE_DIR/$ISO_NAME"
