@@ -33,7 +33,23 @@ jobs:
           git -C prplMesh rev-parse HEAD > "$OUT/prplmesh_sha.txt"
 
           cd "$ROOT/prplMesh/tools/docker"
-          ./build.sh map BUILD_TESTS=OFF CMAKE_BUILD_TYPE=Release > "$OUT/prplmesh-build.log" 2>&1
+          # maptools.py treats bare trailing words as module names. CMake
+          # definitions must follow -f/--cmake_flags.
+          build_rc=0
+          set +e
+          ./build.sh map -f BUILD_TESTS=OFF CMAKE_BUILD_TYPE=Release > "$OUT/prplmesh-build.log" 2>&1
+          build_rc=$?
+          set -e
+          printf 'build_rc=%s\n' "$build_rc" > "$OUT/build-verdict.txt"
+          if [ "$build_rc" -ne 0 ]; then
+            export build_rc
+            python3 -c 'import json,os; print(json.dumps({"schema":"wrt3200acm-easymesh-e0-container/v3","build_rc":int(os.environ["build_rc"]),"topology_attempted":False,"passed_control_plane":False},indent=2,sort_keys=True))' > "$OUT/verdict.json"
+            echo '--- E0_SEMANTIC_VERDICT_BEGIN ---'
+            cat "$OUT/verdict.json"
+            echo '--- E0_SEMANTIC_VERDICT_END ---'
+            cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
 
           cleanup() {
             docker rm -f controller agent >/dev/null 2>&1 || true
@@ -100,8 +116,8 @@ jobs:
           [ -n "$controller_net" ] && [ "$controller_net" = "$agent_net" ] && shared_l2=1 || true
           [ -s "$OUT/e0-reconvergence.pcap" ] && pcap_present=1 || true
 
-          export controller_operational agent_operational agent_recovered shared_l2 pcap_present restart_before restart_after
-          python3 -c 'import json,os; ks=["controller_operational","agent_operational","agent_recovered","shared_l2","pcap_present","restart_before","restart_after"]; d={k:int(os.environ[k]) for k in ks}; d["schema"]="wrt3200acm-easymesh-e0-container/v2"; d["passed_control_plane"]=bool(d["controller_operational"] and d["agent_operational"] and d["agent_recovered"] and d["shared_l2"]); d["pcap_is_supporting_evidence_only"]=True; print(json.dumps(d,indent=2,sort_keys=True))' > "$OUT/verdict.json"
+          export build_rc controller_operational agent_operational agent_recovered shared_l2 pcap_present restart_before restart_after
+          python3 -c 'import json,os; ks=["build_rc","controller_operational","agent_operational","agent_recovered","shared_l2","pcap_present","restart_before","restart_after"]; d={k:int(os.environ[k]) for k in ks}; d["schema"]="wrt3200acm-easymesh-e0-container/v3"; d["topology_attempted"]=True; d["passed_control_plane"]=bool(d["build_rc"]==0 and d["controller_operational"] and d["agent_operational"] and d["agent_recovered"] and d["shared_l2"]); d["pcap_is_supporting_evidence_only"]=True; print(json.dumps(d,indent=2,sort_keys=True))' > "$OUT/verdict.json"
 
           echo '--- E0_SEMANTIC_VERDICT_BEGIN ---'
           cat "$OUT/verdict.json"
