@@ -196,9 +196,10 @@ jobs:
   foundry-foliorelay-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'foliorelay'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@fb41afd3d112f361b8c490aeb5915a978b956b20
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2
     with:
-      foundry_ref: fb41afd3d112f361b8c490aeb5915a978b956b20
+      foundry_ref: e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2
+      target_version: ${{ needs.changes.outputs.truenas_version }}
     permissions:
       contents: read
 
@@ -386,7 +387,7 @@ jobs:
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'foliorelay'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: foliorelay-t6-beta3-control
+          name: foliorelay-t6-control
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
@@ -469,7 +470,7 @@ jobs:
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "official-catalog" ]]; then
                 foundry_commit="60d56cc1752bc825cb232d72b397ff17fe6d47c4"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "foliorelay" ]]; then
-                foundry_commit="fb41afd3d112f361b8c490aeb5915a978b956b20"
+                foundry_commit="e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi
@@ -507,7 +508,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: gha-kvm-truenas-26-beta3-${{ github.run_attempt }}
+          name: gha-kvm-truenas-${{ needs.changes.outputs.truenas_version }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/gha-kvm-system-rdte/truenas-receipt.json
           if-no-files-found: error
           retention-days: 7
