@@ -28,6 +28,14 @@ PVE_QEMU_PACKAGE_SOURCE = {
     "commit": "684796e835289dab11af8606fbf7358b93526dd6",
     "package_version": "11.0.0-3",
 }
+PVE_QEMU_SERVER_SOURCE = {
+    "repository": "proxmox/qemu-server",
+    "commit": "6785065b3f766f15f6f151af8ec27ec8bb5b07ab",
+    "package_version": "9.1.15",
+    "api2_qemu_blob": "e029a204d121f3c8b104457ef14eb6d5ce029464",
+    "qemu_server_blob": "118f26bc94d9ee8e8c4c39a3d710e67c14f61bc0",
+    "changelog_blob": "63ded16d9d06ae0dd114a67d19bb36e14c71c980",
+}
 PVE_MANAGER_API_SOURCE = {
     "repository": "proxmox/pve-manager",
     "commit": "b9984c6d90a4bd80",
@@ -202,8 +210,9 @@ def main() -> int:
         "source_contract":{
             "pve_container":PVE_CONTAINER_SOURCE,
             "pve_qemu_package":PVE_QEMU_PACKAGE_SOURCE,
+            "qemu_server":PVE_QEMU_SERVER_SOURCE,
             "pve_manager_api":PVE_MANAGER_API_SOURCE,
-            "qemu_server_api":"OPEN: exact installed qemu-server package/source identity must be observed and admitted before VM apply",
+            "qemu_server_api":"SOURCE_BOUND: exact installed qemu-server 9.1.15 is admitted for V0 product-REST shell lifecycle; runtime VM qualification remains separate",
         },
     }
     def emit(code:int)->int:
@@ -253,8 +262,7 @@ def main() -> int:
             return emit(0)
         if a.kind=="vm" and not a.expected_qemu_server_version:
             raise ProxmoxProbeError(
-                "VM apply blocked: exact qemu-server API package/source identity is not admitted; "
-                "run --observe-only and bind the observed package before mutation"
+                "VM apply blocked: --expected-qemu-server-version must explicitly select the source-bound installed package"
             )
         if a.kind=="vm":
             observed_qemu=[
@@ -270,6 +278,11 @@ def main() -> int:
                 "installed_versions":sorted(installed_versions),
                 "available_versions":sorted(available_versions),
             }
+            if a.expected_qemu_server_version != PVE_QEMU_SERVER_SOURCE["package_version"]:
+                raise ProxmoxProbeError(
+                    f"VM apply blocked: requested qemu-server source version {a.expected_qemu_server_version!r} "
+                    f"is not the admitted {PVE_QEMU_SERVER_SOURCE['package_version']!r}"
+                )
             if a.expected_qemu_server_version not in installed_versions:
                 raise ProxmoxProbeError(
                     f"VM apply blocked: expected installed qemu-server {a.expected_qemu_server_version!r}, "
