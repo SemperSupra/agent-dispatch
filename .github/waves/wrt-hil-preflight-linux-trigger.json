@@ -1,0 +1,11 @@
+{
+  "schema": "wrt-hil-preflight-linux-trigger/v1",
+  "date": "2026-10-06",
+  "purpose": "Parse and execute the no-target/no-write Linux/USB arrival preflight.",
+  "physical_write_authority": "DENIED_PREHIL",
+  "resource_limits": {
+    "jobs": 1,
+    "heavy_jobs": 0,
+    "timeout_minutes": 5
+  }
+}
