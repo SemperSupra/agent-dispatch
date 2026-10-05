@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-002-discovery-crash-diagnostics",
-  "version": "25.10.7",
-  "rung": "t6",
-  "product": "foliorelay",
-  "authority_issue": 410,
-  "consumer_authority_issue": 273,
-  "purpose": "Re-run exact FolioRelay F0-F5 on TrueNAS 25.10.7 after row 001 localized failure to the discovery container. Preserve product/Foundry/image/Compose/DNS-SD/lifecycle semantics unchanged. The only causal delta is bounded pre-cleanup product-crash diagnostics: App/container snapshot, discovery/crashed-container log tails, and scoped app_lifecycle excerpt. This rep exists to identify the exact discovery exit cause; it must not be promoted as support unless the unchanged product unexpectedly reaches SUPPORTED/oracleSatisfied=true."
+  "request_id": "tn-26-beta3-t3-compute-container-c0-002-stop-options",
+  "version": "26.0.0-BETA.3",
+  "rung": "t3",
+  "compute_fixture": "container-c0",
+  "authority_issue": 426,
+  "consumer_authority_issue": 426,
+  "purpose": "Re-run the exact native TrueNAS 26.0.0-BETA.3 container C0 materialization fixture after rep 001 reached the product API but failed because the harness supplied unsupported container.stop options.timeout. Preserve target, image discovery, create/readback/start/update/restart-or-stop+start/delete/absence, pool, cleanup and C1 claim-boundary semantics. The only causal delta is stacked PR #282: remove options.timeout while retaining force_after_timeout. No C0 acceptance is inferred without SUPPORTED plus oracleSatisfied=true and c0_oracle_satisfied=true with zero-residue cleanup."
 }
