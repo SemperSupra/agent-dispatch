@@ -1,10 +1,9 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-012-txt-uuid-projection",
+  "request_id": "tn-26-beta3-t3-compute-container-c0-001",
   "version": "26.0.0-BETA.3",
-  "rung": "t6",
-  "product": "foliorelay",
-  "authority_issue": 396,
-  "consumer_authority_issue": 273,
-  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep 011 reached the DNS-SD oracle with healthy substrate/product lifecycle and zero residue but rejected the advertisement because the external observer compared the canonical urn:uuid identity against the product's intentionally bare DNS-SD TXT UUID projection. Preserve product, Foundry, image, Compose, IPP, lifecycle, cleanup, and acceptance semantics. The only causal delta is PR #253: keep canonical UUID comparison for control/CUPS identity while passing the derived bare UUID only to DNS-SD TXT matching. Service-instance correlation hardening remains separate in PR #256. No acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
+  "rung": "t3",
+  "compute_fixture": "container-c0",
+  "authority_issue": 426,
+  "purpose": "Run the first product-API-native TrueNAS compute materialization C0 rep on exact 26.0.0-BETA.3 using the existing #396 disposable system workcell. Preserve exact ISO/middleware/T3 pool evidence, then resolve the admitted Ubuntu Noble system-container image through container.image.query_registry and exercise container.create/query/start/stop/update/stop+start/delete/absence through middleware APIs. This rep claims C0 lifecycle only; guest-level C1 execution/nonce, VM lifecycle, nested KVM, Firecracker, Windows 11, physical HIL, and cross-version inheritance remain explicitly unclaimed."
 }
