@@ -8,6 +8,9 @@ on:
       - 'config/truenas-rdte-targets.json'
       - 'config/truenas-rdte-run-request.json'
       - 'config/proxmox-rdte-run-request.json'
+      - 'config/proxmox-rdte-targets.json'
+      - 'scripts/proxmox_rdte_target.py'
+      - 'tests/test_proxmox_rdte_target.py'
       - 'config/truenas-capsule-providers.json'
       - 'config/truenas-session-*.json'
       - 'scripts/gha_kvm_truenas_rdte.sh'
@@ -88,6 +91,9 @@ jobs:
           fi
           if [[ -f tests/test_truenas_rdte_target.py ]]; then
             tests+=(tests/test_truenas_rdte_target.py)
+          fi
+          if [[ -f tests/test_proxmox_rdte_target.py ]]; then
+            tests+=(tests/test_proxmox_rdte_target.py)
           fi
           if [[ -f tests/test_truenas_session_manifest.py ]]; then
             tests+=(tests/test_truenas_session_manifest.py)
