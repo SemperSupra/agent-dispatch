@@ -1,0 +1,9 @@
+{
+  "schema": "gha-kvm-proxmox-run-request/v1",
+  "request_id": "pve-9-2-rest-container-c0-001",
+  "version": "9.2-1",
+  "compute_fixture": "container-c0",
+  "authority_issue": 396,
+  "consumer_authority_issue": 426,
+  "purpose": "Run the first exact Proxmox VE 9.2-1 native REST system-container C0 parity rep after TrueNAS BETA.3 C0 acceptance. Reuse the admitted Debian 13 template identity and existing disposable PVE workcell. Template transport/staging is fixture preparation only; all container create/readback/start/stop/delete/absence mutation must use the PVE REST API. Require exact package/API census, REST materialization oracle=true, owned-resource cleanup absence, staged-template cleanup, and no guest/C1, nested-KVM, VM, Firecracker or Windows claim."
+}
