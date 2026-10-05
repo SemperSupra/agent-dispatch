@@ -1,4 +1,4 @@
-name: WRT EasyMesh E1 hwsim Oracle
+name: WRT EasyMesh E1 OpenWrt hwsim Oracle
 
 on:
   push:
@@ -13,75 +13,59 @@ permissions:
 jobs:
   e1-hwsim:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Exercise mac80211_hwsim nl80211 hostapd wpa substrate
+      - name: Boot OpenWrt with mac80211_hwsim and exercise nl80211 hostapd wpa
         shell: bash
         run: |
           set -u
-          OUT="$RUNNER_TEMP/wrt-e1/out"
-          TMP="$RUNNER_TEMP/wrt-e1/tmp"
-          mkdir -p "$OUT" "$TMP"
+          ROOT="$RUNNER_TEMP/wrt-e1"
+          OUT="$ROOT/out"
+          mkdir -p "$OUT"
+          cd "$ROOT"
+
+          IB_NAME='openwrt-imagebuilder-25.12.5-x86-64.Linux-x86_64'
+          IB_ARCHIVE="$IB_NAME.tar.zst"
+          IB_URL="https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/$IB_ARCHIVE"
+          IB_SHA='313221253d9bac534e4a4ee6492a4941b4ba0f43200eceb8d16a4785470ae9df'
 
           sudo apt-get update -qq
-          sudo apt-get install -y -qq iw hostapd wpasupplicant kmod rfkill iproute2 iputils-ping "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 || true
-          sudo depmod -a || true
+          sudo apt-get install -y -qq curl zstd qemu-system-x86 qemu-utils >/dev/null
+          curl -fL --retry 2 --connect-timeout 20 "$IB_URL" -o "$IB_ARCHIVE"
+          got=$(sha256sum "$IB_ARCHIVE" | awk '{print $1}')
+          printf 'imagebuilder_sha=%s\n' "$got" > "$OUT/identity.txt"
+          test "$got" = "$IB_SHA" || exit 2
+          tar --use-compress-program=unzstd -xf "$IB_ARCHIVE"
+          IB="$ROOT/$IB_NAME"
 
-          uname -a > "$OUT/uname.txt"
-          (modinfo mac80211_hwsim || true) > "$OUT/modinfo-hwsim.txt" 2>&1
-          (lsmod | grep -E 'mac80211_hwsim|mac80211|cfg80211' || true) > "$OUT/modules-before.txt"
+          OVERLAY="$ROOT/overlay"
+          mkdir -p "$OVERLAY/etc"
+          cat > "$OVERLAY/etc/rc.local" <<'EOS'
+          #!/bin/sh
+          (
+            sleep 12
+            echo E1_STATE_BEGIN > /dev/ttyS0
+            echo E1_KERNEL=$(uname -r) > /dev/ttyS0
+            rmmod mac80211_hwsim 2>/dev/null || true
+            modprobe mac80211_hwsim radios=3 2>/tmp/e1-modprobe.err || true
+            sleep 2
+            cat /tmp/e1-modprobe.err > /dev/ttyS0 2>&1 || true
+            lsmod | grep -E 'mac80211_hwsim|mac80211|cfg80211' > /dev/ttyS0 2>&1 || true
+            iw phy > /dev/ttyS0 2>&1 || true
+            iw dev > /tmp/e1-iw-dev 2>&1 || true
+            cat /tmp/e1-iw-dev > /dev/ttyS0
 
-          sudo pkill hostapd 2>/dev/null || true
-          sudo pkill wpa_supplicant 2>/dev/null || true
-          sudo modprobe -r mac80211_hwsim 2>/dev/null || true
+            IFACES=$(awk '$1=="Interface"{print $2}' /tmp/e1-iw-dev | sort | tr '\n' ' ')
+            set -- $IFACES
+            AP="$1"; STA="$2"; SCAN="$3"
+            echo E1_IFACES=$AP,$STA,$SCAN > /dev/ttyS0
 
-          load_rc=0
-          set +e
-          sudo modprobe mac80211_hwsim radios=3 > "$OUT/modprobe.txt" 2>&1
-          load_rc=$?
-          set -e
-          sleep 2
-
-          (lsmod | grep -E 'mac80211_hwsim|mac80211|cfg80211' || true) > "$OUT/modules-after.txt"
-          (iw phy || true) > "$OUT/iw-phy.txt" 2>&1
-          (iw dev || true) > "$OUT/iw-dev-before.txt" 2>&1
-          (iw reg get || true) > "$OUT/iw-reg.txt" 2>&1
-          (hostapd -v || true) > "$OUT/hostapd-version.txt" 2>&1
-          (wpa_supplicant -v || true) > "$OUT/wpa-version.txt" 2>&1
-
-          mapfile -t ifaces < <(iw dev | awk '$1=="Interface"{print $2}' | sort)
-          phy_count=$(find /sys/class/ieee80211 -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l)
-          hwsim_loaded=0
-          lsmod | grep -q '^mac80211_hwsim ' && hwsim_loaded=1 || true
-
-          associated=0
-          ping_ok=0
-          scan_seen=0
-          station_seen=0
-          survey_seen=0
-          full_attempted=0
-
-          cleanup() {
-            sudo pkill hostapd 2>/dev/null || true
-            sudo pkill wpa_supplicant 2>/dev/null || true
-            sudo modprobe -r mac80211_hwsim 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          if [ "$hwsim_loaded" -eq 1 ] && [ "$phy_count" -ge 3 ] && [ "${#ifaces[@]}" -ge 3 ]; then
-            full_attempted=1
-            AP="${ifaces[0]}"
-            STA="${ifaces[1]}"
-            SCAN="${ifaces[2]}"
-            printf 'ap=%s\nsta=%s\nscan=%s\n' "$AP" "$STA" "$SCAN" > "$OUT/interfaces.txt"
-
-            sudo rfkill unblock wifi 2>/dev/null || true
-            for i in "$AP" "$STA" "$SCAN"; do
-              sudo ip link set "$i" down 2>/dev/null || true
-              sudo ip addr flush dev "$i" 2>/dev/null || true
-            done
-
-            cat > "$TMP/hostapd.conf" <<EOF
+            assoc=0; pingok=0; scanok=0; staok=0; surveyok=0
+            if [ -n "$AP" ] && [ -n "$STA" ] && [ -n "$SCAN" ]; then
+              ip link set "$AP" down 2>/dev/null || true
+              ip link set "$STA" down 2>/dev/null || true
+              ip link set "$SCAN" down 2>/dev/null || true
+              cat > /tmp/e1-hostapd.conf <<EOF
           interface=$AP
           driver=nl80211
           ssid=rdte-e1
@@ -89,62 +73,95 @@ jobs:
           channel=1
           auth_algs=1
           wmm_enabled=1
-          ctrl_interface=$TMP/hostapd-ctrl
+          ctrl_interface=/var/run/e1-hostapd
           EOF
-
-            cat > "$TMP/wpa.conf" <<EOF
-          ctrl_interface=$TMP/wpa-ctrl
+              cat > /tmp/e1-wpa.conf <<EOF
+          ctrl_interface=/var/run/e1-wpa
           network={
             ssid="rdte-e1"
             key_mgmt=NONE
             scan_ssid=1
           }
           EOF
+              hostapd -B -P /tmp/e1-hostapd.pid /tmp/e1-hostapd.conf > /tmp/e1-hostapd.log 2>&1 || true
+              sleep 3
+              ip addr add 192.0.2.1/24 dev "$AP" 2>/dev/null || true
+              ip link set "$AP" up 2>/dev/null || true
+              mkdir -p /var/run/e1-wpa
+              wpa_supplicant -B -P /tmp/e1-wpa.pid -Dnl80211 -i "$STA" -c /tmp/e1-wpa.conf > /tmp/e1-wpa.log 2>&1 || true
+              sleep 6
+              ip addr add 192.0.2.2/24 dev "$STA" 2>/dev/null || true
+              ip link set "$STA" up 2>/dev/null || true
+              wpa_cli -p /var/run/e1-wpa -i "$STA" status > /tmp/e1-wpa-status 2>&1 || true
+              iw dev "$STA" link > /tmp/e1-link 2>&1 || true
+              iw dev "$AP" station dump > /tmp/e1-stations 2>&1 || true
+              iw dev "$AP" survey dump > /tmp/e1-survey 2>&1 || true
+              ip link set "$SCAN" up 2>/dev/null || true
+              iw dev "$SCAN" scan > /tmp/e1-scan 2>&1 || true
+              ping -c 3 -W 1 192.0.2.1 > /tmp/e1-ping 2>&1 || true
+              grep -q '^wpa_state=COMPLETED' /tmp/e1-wpa-status && assoc=1 || true
+              grep -q 'SSID: rdte-e1' /tmp/e1-scan && scanok=1 || true
+              grep -q '^Station ' /tmp/e1-stations && staok=1 || true
+              grep -q '^Survey data from ' /tmp/e1-survey && surveyok=1 || true
+              grep -Eq '3 packets transmitted, 3 packets received|3 packets transmitted, 3 received' /tmp/e1-ping && pingok=1 || true
+              cat /tmp/e1-hostapd.log > /dev/ttyS0 2>&1
+              cat /tmp/e1-wpa.log > /dev/ttyS0 2>&1
+              cat /tmp/e1-wpa-status > /dev/ttyS0 2>&1
+              cat /tmp/e1-link > /dev/ttyS0 2>&1
+              cat /tmp/e1-stations > /dev/ttyS0 2>&1
+              cat /tmp/e1-survey > /dev/ttyS0 2>&1
+              cat /tmp/e1-scan > /dev/ttyS0 2>&1
+              cat /tmp/e1-ping > /dev/ttyS0 2>&1
+            fi
+            echo E1_ASSOC=$assoc > /dev/ttyS0
+            echo E1_PING=$pingok > /dev/ttyS0
+            echo E1_SCAN=$scanok > /dev/ttyS0
+            echo E1_STATION=$staok > /dev/ttyS0
+            echo E1_SURVEY=$surveyok > /dev/ttyS0
+            echo E1_STATE_END > /dev/ttyS0
+          ) &
+          exit 0
+          EOS
+          chmod +x "$OVERLAY/etc/rc.local"
 
-            sudo hostapd -dd "$TMP/hostapd.conf" > "$OUT/hostapd.log" 2>&1 &
-            hostapd_pid=$!
-            sleep 3
-            sudo ip addr add 192.0.2.1/24 dev "$AP" 2>/dev/null || true
-            sudo ip link set "$AP" up 2>/dev/null || true
+          cd "$IB"
+          image_rc=0
+          set +e
+          make image PROFILE=generic PACKAGES="kmod-mac80211-hwsim iw-full wpad-openssl ip-full -wpad-basic-mbedtls" FILES="$OVERLAY" > "$OUT/imagebuilder.log" 2>&1
+          image_rc=$?
+          set -e
 
-            sudo mkdir -p "$TMP/wpa-ctrl"
-            sudo wpa_supplicant -Dnl80211 -i "$STA" -c "$TMP/wpa.conf" -dd > "$OUT/wpa.log" 2>&1 &
-            wpa_pid=$!
-            sleep 6
-            sudo ip addr add 192.0.2.2/24 dev "$STA" 2>/dev/null || true
-            sudo ip link set "$STA" up 2>/dev/null || true
-
-            (sudo wpa_cli -p "$TMP/wpa-ctrl" -i "$STA" status || true) > "$OUT/wpa-status.txt" 2>&1
-            (iw dev "$STA" link || true) > "$OUT/sta-link.txt" 2>&1
-            (iw dev "$AP" station dump || true) > "$OUT/ap-stations.txt" 2>&1
-            (iw dev "$AP" survey dump || true) > "$OUT/ap-survey.txt" 2>&1
-            (sudo iw dev "$SCAN" scan || true) > "$OUT/scan.txt" 2>&1
-            (ping -c 3 -W 1 192.0.2.1 || true) > "$OUT/ping.txt" 2>&1
-
-            grep -q '^wpa_state=COMPLETED' "$OUT/wpa-status.txt" && associated=1 || true
-            grep -Eq '3 packets transmitted, 3 received|3 packets transmitted, 3 packets received' "$OUT/ping.txt" && ping_ok=1 || true
-            grep -q 'SSID: rdte-e1' "$OUT/scan.txt" && scan_seen=1 || true
-            grep -q '^Station ' "$OUT/ap-stations.txt" && station_seen=1 || true
-            grep -q '^Survey data from ' "$OUT/ap-survey.txt" && survey_seen=1 || true
-
-            kill "$wpa_pid" 2>/dev/null || true
-            kill "$hostapd_pid" 2>/dev/null || true
-            wait "$wpa_pid" 2>/dev/null || true
-            wait "$hostapd_pid" 2>/dev/null || true
+          boot_attempted=0; hwsim_seen=0; assoc=0; pingok=0; scanok=0; staok=0; surveyok=0
+          image=$(find "$IB/bin/targets/x86/64" -type f -name '*generic-ext4-combined.img.gz' -print -quit 2>/dev/null)
+          if [ "$image_rc" -eq 0 ] && [ -n "$image" ]; then
+            cp "$image" "$OUT/"
+            sha256sum "$image" > "$OUT/image-sha256.txt"
+            gzip -dc "$image" > "$ROOT/openwrt.img"
+            boot_attempted=1
+            set +e
+            timeout 75 qemu-system-x86_64 -machine pc -m 512 -nographic -drive file="$ROOT/openwrt.img",format=raw,if=virtio -netdev user,id=net0 -device virtio-net-pci,netdev=net0 > "$OUT/qemu-serial.log" 2>&1
+            qemu_rc=$?
+            set -e
+            grep -q 'mac80211_hwsim' "$OUT/qemu-serial.log" && hwsim_seen=1 || true
+            assoc=$(sed -n 's/^E1_ASSOC=//p' "$OUT/qemu-serial.log" | tail -1); assoc=${assoc:-0}
+            pingok=$(sed -n 's/^E1_PING=//p' "$OUT/qemu-serial.log" | tail -1); pingok=${pingok:-0}
+            scanok=$(sed -n 's/^E1_SCAN=//p' "$OUT/qemu-serial.log" | tail -1); scanok=${scanok:-0}
+            staok=$(sed -n 's/^E1_STATION=//p' "$OUT/qemu-serial.log" | tail -1); staok=${staok:-0}
+            surveyok=$(sed -n 's/^E1_SURVEY=//p' "$OUT/qemu-serial.log" | tail -1); surveyok=${surveyok:-0}
+            printf 'qemu_rc=%s\n' "$qemu_rc" > "$OUT/qemu-verdict.txt"
           fi
 
-          export load_rc phy_count hwsim_loaded full_attempted associated ping_ok scan_seen station_seen survey_seen
+          export image_rc boot_attempted hwsim_seen assoc pingok scanok staok surveyok
           python3 - <<'PY' > "$OUT/verdict.json"
-          import json, os
-          keys=["load_rc","phy_count","hwsim_loaded","full_attempted","associated","ping_ok","scan_seen","station_seen","survey_seen"]
-          d={k:int(os.environ[k]) for k in keys}
-          d["schema"]="wrt3200acm-easymesh-e1-hwsim/v2"
-          d["ready_for_e1"]=bool(d["hwsim_loaded"] and d["phy_count"]>=3)
-          d["passed_nl80211_oracle"]=bool(d["ready_for_e1"] and d["full_attempted"] and d["associated"] and d["ping_ok"] and d["scan_seen"] and d["station_seen"])
-          d["survey_support_observed"]=bool(d["survey_seen"])
+          import json,os
+          ks=['image_rc','boot_attempted','hwsim_seen','assoc','pingok','scanok','staok','surveyok']
+          d={k:int(os.environ[k]) for k in ks}
+          d['schema']='wrt3200acm-easymesh-e1-openwrt-hwsim/v1'
+          d['qemu_mode']='tcg'
+          d['passed_nl80211_oracle']=bool(d['image_rc']==0 and d['boot_attempted'] and d['hwsim_seen'] and d['assoc'] and d['pingok'] and d['scanok'] and d['staok'])
+          d['survey_support_observed']=bool(d['surveyok'])
           print(json.dumps(d,indent=2,sort_keys=True))
           PY
-
           echo '--- E1_SEMANTIC_VERDICT_BEGIN ---'
           cat "$OUT/verdict.json"
           echo '--- E1_SEMANTIC_VERDICT_END ---'
