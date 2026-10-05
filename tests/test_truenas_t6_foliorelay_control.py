@@ -95,6 +95,25 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertNotIn("OBSERVER = r'''", text)
 
 
+    def test_product_crash_preserves_discovery_diagnostics_before_cleanup(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        for needle in (
+            'def capture_product_runtime_failure(name,app):',
+            'payload["product_runtime_failure"]',
+            'bounded_app_snapshot(app)',
+            'bounded_observer_lifecycle_excerpt(lifecycle,app_name=name)',
+            'service_name!="discovery"',
+            'container_state not in {"crashed","exited","restarting"}',
+            'capture_container_log_tail(ws,name,str(container_id))',
+            '"service_name":service_name',
+            '"container_state":container_state',
+        ):
+            self.assertIn(needle, text)
+        self.assertLess(
+            text.index('capture_product_runtime_failure(name,x)'),
+            text.index('raise RuntimeError(f"{name} entered {x.get(\'state\')}")'),
+        )
+
     def test_failed_observer_create_preserves_diagnostics_and_cleans_owned_state(self):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("class JobFailure", text)
