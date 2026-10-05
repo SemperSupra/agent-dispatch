@@ -168,14 +168,15 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertFalse(MOD.forwarded_ipp_uri_has_product_path("ipp://127.0.0.1:48634/printers/Other"))
 
     def test_dnssd_observer_proves_public_host_port_and_resource_path(self):
-        text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('"--expected-host",PUBLIC_HOST', text)
-        self.assertIn('"--expected-ipp-port",str(PUBLIC_IPP_PORT)', text)
-        self.assertIn('srv_target', text)
-        self.assertIn('srv_port', text)
-        self.assertIn('"rp=printers/FolioRelay"', text)
-        self.assertIn('"dnssd_public_uri_match":True', text)
-        self.assertNotIn('if PUBLIC_URI not in attrs', text)
+        probe_text = SCRIPT.read_text(encoding="utf-8")
+        observer_text = OBSERVER_GO.read_text(encoding="utf-8")
+        self.assertIn('"--expected-host",PUBLIC_HOST', probe_text)
+        self.assertIn('"--expected-ipp-port",str(PUBLIC_IPP_PORT)', probe_text)
+        self.assertIn('srvTarget', observer_text)
+        self.assertIn('srvPort', observer_text)
+        self.assertIn('"rp=printers/foliorelay"', observer_text.lower())
+        self.assertIn('"dnssd_public_uri_match":True', probe_text)
+        self.assertNotIn('if PUBLIC_URI not in attrs', probe_text)
 
     @unittest.skipUnless(pathlib.Path("/usr/include/cups/raster.h").is_file(), "CUPS development headers not installed")
     def test_synthetic_urf_generator_builds_and_emits_unirast(self):
