@@ -53,6 +53,14 @@ on:
           - garm-provider-g5
           - official-catalog
           - foliorelay
+      proxmox_compute_fixture:
+        description: "Optional native PVE REST compute fixture"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - container-c0
       truenas_compute_fixture:
         description: "Optional compute fixture layered on the selected system rung"
         required: true
@@ -78,6 +86,7 @@ jobs:
       truenas_rung: ${{ steps.scope.outputs.truenas_rung }}
       truenas_t6_product: ${{ steps.scope.outputs.truenas_t6_product }}
       truenas_compute_fixture: ${{ steps.scope.outputs.truenas_compute_fixture }}
+      proxmox_compute_fixture: ${{ steps.scope.outputs.proxmox_compute_fixture }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -91,6 +100,7 @@ jobs:
           DISPATCH_TRUENAS_RUNG: ${{ inputs.truenas_rung }}
           DISPATCH_TRUENAS_T6_PRODUCT: ${{ inputs.truenas_t6_product }}
           DISPATCH_TRUENAS_COMPUTE_FIXTURE: ${{ inputs.truenas_compute_fixture }}
+          DISPATCH_PROXMOX_COMPUTE_FIXTURE: ${{ inputs.proxmox_compute_fixture }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
           RUN_REQUEST_PATH: config/truenas-rdte-run-request.json
@@ -104,6 +114,7 @@ jobs:
           truenas_rung="${DISPATCH_TRUENAS_RUNG:-t6}"
           truenas_t6_product="${DISPATCH_TRUENAS_T6_PRODUCT:-litellm}"
           truenas_compute_fixture="${DISPATCH_TRUENAS_COMPUTE_FIXTURE:-none}"
+          proxmox_compute_fixture="${DISPATCH_PROXMOX_COMPUTE_FIXTURE:-none}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             case "$DISPATCH_TARGET" in
               proxmox) proxmox=true ;;
@@ -147,6 +158,7 @@ jobs:
               exit 2
             fi
             jq -e '.version == "9.2-1" and .authority_issue == 396' "$PROXMOX_RUN_REQUEST_PATH" >/dev/null
+            proxmox_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0")' "$PROXMOX_RUN_REQUEST_PATH")"
             printf 'fresh Proxmox request edge: previous=%s current=%s\n' "${previous_proxmox_request_id:-<none>}" "$current_proxmox_request_id"
           fi
           if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then
@@ -180,7 +192,8 @@ jobs:
           echo "truenas_rung=$truenas_rung" >>"$GITHUB_OUTPUT"
           echo "truenas_t6_product=$truenas_t6_product" >>"$GITHUB_OUTPUT"
           echo "truenas_compute_fixture=$truenas_compute_fixture" >>"$GITHUB_OUTPUT"
-          printf 'target scope: proxmox=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s t6_product=%s compute_fixture=%s\n' "$proxmox" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung" "$truenas_t6_product" "$truenas_compute_fixture"
+          echo "proxmox_compute_fixture=$proxmox_compute_fixture" >>"$GITHUB_OUTPUT"
+          printf 'target scope: proxmox=%s proxmox_compute_fixture=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s t6_product=%s truenas_compute_fixture=%s\n' "$proxmox" "$proxmox_compute_fixture" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung" "$truenas_t6_product" "$truenas_compute_fixture"
 
   contract:
     runs-on: ubuntu-24.04
@@ -338,6 +351,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
           bash scripts/gha_kvm_proxmox_rdte.sh \
             --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-state" \
+            --compute-fixture "${{ needs.changes.outputs.proxmox_compute_fixture }}" \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
       - name: Preserve Proxmox harness failure evidence
