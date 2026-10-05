@@ -1,14 +1,14 @@
 {
   "schema": "wrt-easymesh-e1-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 4,
-  "reason": "Exact diagnosed repair for E1 OpenWrt guest: hwsim phys existed but no netdevs. Explicitly create wlan0/wlan1/wlan2 from first three Wiphys before hostapd/wpa.",
+  "attempt": 5,
+  "reason": "New bounded wave: exact E1 two-radio harness repair. Use two hwsim radios, scan with wlan1 before association, include wpa-cli, accept iw/wpa association evidence, require AP station-table evidence; survey and same-namespace ping are supporting-only.",
   "prior_gate": {
     "e0_run": 37287285078,
     "e0_artifact": 11335470679,
     "e0_passed_control_plane": true
   },
-  "resource_policy": "Second and final public job in this bounded wave; exact repair only.",
-  "prior_run": 37292518932,
+  "resource_policy": "First public job in a new bounded wave; exact harness repair only. One further job slot remains only for a diagnosed blocker.",
+  "prior_run": 37293029030,
   "e2_green_run": 37288725640
 }
