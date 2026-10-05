@@ -142,6 +142,9 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"transport":"bounded SSH staging only; all container lifecycle mutation uses PVE REST"', rest)
         self.assertIn('"rest_api_container_c0_exercised"', script)
         self.assertIn("superseded-by-rest-c0", script)
+        self.assertIn("not-required-for-container-c0", script)
+        c0_tail = script.split('if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then', 2)[2]
+        self.assertIn('NESTED_KVM_INDICATORS="skipped"', c0_tail)
 
     def test_proxmox_rest_api_census_is_read_only_and_retained(self):
         text = PVE.read_text(encoding="utf-8")
