@@ -185,6 +185,20 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             self.assertTrue(out.is_file())
             self.assertEqual(out.read_bytes()[:7], b"UNIRAST")
 
+    def test_probe_cli_reaches_argparse_before_observer_validation(self):
+        cp=subprocess.run([sys.executable,str(SCRIPT),"--help"],capture_output=True,text=True)
+        self.assertEqual(cp.returncode,0,cp.stderr)
+        self.assertIn("--observer-bin",cp.stdout)
+
+    def test_observer_fixture_identity_is_receipted(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('payload["observer_fixture"]', text)
+        self.assertIn('"implementation":"go-static"', text)
+        self.assertIn('"carrier_image":OBSERVER_IMAGE', text)
+        self.assertIn('"binary_sha256":sha256_bytes(observer_bytes)', text)
+        self.assertIn('"binary_size_bytes":len(observer_bytes)', text)
+        self.assertIn('"run_as":"65534:65534"', text)
+
     def test_probe_compiles(self):
         cp=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],capture_output=True,text=True)
         self.assertEqual(cp.returncode,0,cp.stderr)
