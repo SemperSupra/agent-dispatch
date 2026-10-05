@@ -1,0 +1,16 @@
+{
+  "schema": "wrt-easymesh-e3-trigger/v1",
+  "date": "2026-10-05",
+  "attempt": 1,
+  "reason": "Promote to E3 only after independent E0, E1, and E2 semantic gates are green. Reuse the exact E2 prplMesh artifact in an OpenWrt 25.12.5 x86/64 QEMU TCG guest with guest-kernel mac80211_hwsim.",
+  "prior_gates": {
+    "e0_run": 37287285078,
+    "e1_run": 37321249529,
+    "e1_artifact": 11350866023,
+    "e1_passed_nl80211_oracle": true,
+    "e2_run": 37288725640,
+    "e2_artifact": 11336174982
+  },
+  "resource_policy": "Fresh bounded wave: one E3 integration job only; no physical HIL; diagnose any deterministic red before retry.",
+  "hil_policy": "Physical HIL remains blocked pending Local Scout R1 -> R2 -> R3 cutover qualification."
+}
