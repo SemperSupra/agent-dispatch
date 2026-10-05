@@ -39,6 +39,15 @@ jobs:
           export qemu_ok kvm_ok
           python3 -c 'import json,os; q=int(os.environ["qemu_ok"]); k=int(os.environ["kvm_ok"]); print(json.dumps({"schema":"wrt3200acm-easymesh-e2-qemu-preflight/v1","qemu_present":bool(q),"kvm_available":bool(k),"ready_for_tcg":bool(q),"ready_for_kvm":bool(q and k)},indent=2,sort_keys=True))' > "$OUT/verdict.json"
 
+          echo '--- E2_SEMANTIC_VERDICT_BEGIN ---'
+
+
+          cat "$OUT/verdict.json"
+
+
+          echo '--- E2_SEMANTIC_VERDICT_END ---'
+
+
           cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload E2 preflight evidence
