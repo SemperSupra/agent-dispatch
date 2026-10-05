@@ -160,6 +160,8 @@ class SessionManifestTests(unittest.TestCase):
         }
         actual = {item["id"]: item["probe"] for item in registry["providers"]}
         self.assertEqual(actual, expected)
+        folio = next(item for item in registry["providers"] if item["id"] == "foliorelay-t6")
+        self.assertEqual(folio["control_artifact"], "foliorelay-t6-control")
         for probe in actual.values():
             self.assertTrue((ROOT / probe).is_file(), probe)
 
