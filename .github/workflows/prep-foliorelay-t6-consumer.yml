@@ -10,6 +10,7 @@ on:
       - "scripts/gha_kvm_truenas_rdte.sh"
       - "scripts/truenas_middleware_foliorelay_t6_probe.py"
       - "tests/test_truenas_t6_foliorelay_control.py"
+      - "tools/foliorelay-observer/**"
   push:
     branches:
       - "prep/truenas-t6-foliorelay-v1"
@@ -19,6 +20,7 @@ on:
       - "scripts/gha_kvm_truenas_rdte.sh"
       - "scripts/truenas_middleware_foliorelay_t6_probe.py"
       - "tests/test_truenas_t6_foliorelay_control.py"
+      - "tools/foliorelay-observer/**"
 
 permissions:
   contents: read
