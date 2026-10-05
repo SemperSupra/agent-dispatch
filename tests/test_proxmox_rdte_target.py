@@ -23,6 +23,9 @@ class ProxmoxTargetRegistryTests(unittest.TestCase):
         self.assertEqual(t["pve_container_source_commit"],"5eb5574ee9158ac40a5230de2cf18d7d6345709f")
         self.assertEqual(t["pve_qemu_source_commit"],"684796e835289dab11af8606fbf7358b93526dd6")
         self.assertEqual(t["container_fixture"]["template_sha512"],"5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8")
+        self.assertEqual(t["container_fixture"]["template_url"],"http://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst")
+        self.assertEqual(t["container_fixture"]["catalog_source"]["blob_sha"],"433a8ef4bf78d606508c6bae162c49e9ef0ecfd3")
+        self.assertEqual(t["container_fixture"]["catalog_source"]["base_url"],"http://download.proxmox.com/images")
 
     def test_vm_source_profile_remains_explicitly_open(self):
         self.assertEqual(self.targets["9.2-1"]["vm_source_status"],"OPEN_PENDING_EXACT_QEMU_SERVER_PACKAGE_CENSUS")
