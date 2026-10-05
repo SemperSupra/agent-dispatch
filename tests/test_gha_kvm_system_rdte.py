@@ -127,6 +127,22 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("losetup --find --show --read-only --partscan", text)
         self.assertNotIn("qemu-nbd --connect", text)
 
+    def test_proxmox_rest_container_c0_is_opt_in_and_api_native(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        script = PVE.read_text(encoding="utf-8")
+        self.assertIn("proxmox_compute_fixture", workflow)
+        self.assertIn('(.compute_fixture // "none") | select(. == "none" or . == "container-c0")', workflow)
+        self.assertIn('--compute-fixture "${{ needs.changes.outputs.proxmox_compute_fixture }}"', workflow)
+        self.assertIn("probe_rest_lxc_c0()", script)
+        rest = script.split("probe_rest_lxc_c0()", 1)[1].split("probe_lxc_lifecycle()", 1)[0]
+        self.assertIn("proxmox_rest_compute_probe.py", rest)
+        self.assertIn("--kind container", rest)
+        self.assertIn("--apply --out", rest)
+        self.assertNotIn("pct create", rest)
+        self.assertIn('"transport":"bounded SSH staging only; all container lifecycle mutation uses PVE REST"', rest)
+        self.assertIn('"rest_api_container_c0_exercised"', script)
+        self.assertIn("superseded-by-rest-c0", script)
+
     def test_proxmox_rest_api_census_is_read_only_and_retained(self):
         text = PVE.read_text(encoding="utf-8")
         self.assertIn("proxmox_rest_compute_probe.py", text)
