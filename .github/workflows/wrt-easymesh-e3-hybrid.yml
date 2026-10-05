@@ -63,8 +63,12 @@ jobs:
             sleep 12
             echo E3_STATE_BEGIN > /dev/ttyS0
             echo E3_KERNEL=$(uname -r) > /dev/ttyS0
-            rmmod mac80211_hwsim 2>/dev/null || true
-            modprobe mac80211_hwsim radios=2 2>/tmp/e3-modprobe.err || true
+            # OpenWrt auto-loads kmod-mac80211-hwsim before rc.local.
+            # Preserve those original PHY identities: unloading/reloading here
+            # advances the wiphy indices and races netifd/hostapd radio mapping.
+            if ! lsmod | grep -q '^mac80211_hwsim'; then
+              modprobe mac80211_hwsim radios=2 2>/tmp/e3-modprobe.err || true
+            fi
             sleep 2
             cat /tmp/e3-modprobe.err > /dev/ttyS0 2>&1 || true
 
