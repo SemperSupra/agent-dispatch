@@ -18,10 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download qualified CP0 artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37273250460
+          name: wrt-easymesh-cp0-openwrt-stock-1
+          path: cp0
+          github-token: ${{ github.token }}
+
       - name: Build deterministic prep kit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 tools/wrt_hil_prep/build_kit.py --output dist
+        run: python3 tools/wrt_hil_prep/build_kit.py --output dist --cp0-dir cp0
 
       - name: Show build metadata
         run: cat dist/wrt3200acm-hil-prep-kit-20261005.build.json
