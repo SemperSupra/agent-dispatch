@@ -1,14 +1,14 @@
 {
   "schema": "wrt-easymesh-e1-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 2,
-  "reason": "Diagnosed hosted-runner retry: Ubuntu publishes linux-modules-extra for the exact Azure kernel. Install matching extra-modules package, depmod, then retry mac80211_hwsim preflight.",
+  "attempt": 3,
+  "reason": "New substrate, not a blind hosted-kernel retry: run mac80211_hwsim inside an OpenWrt 25.12.5 x86/64 QEMU TCG guest using the official kmod-mac80211-hwsim package, then exercise hostapd/wpa/nl80211 AP+STA, scan, station and traffic.",
   "prior_gate": {
     "e0_run": 37287285078,
     "e0_artifact": 11335470679,
     "e0_passed_control_plane": true
   },
-  "resource_policy": "First public job in a new bounded wave; low-cost preflight. If hwsim remains unavailable after exact package install, route E1 local and do not retry hosted.",
-  "prior_run": 37288066293,
+  "resource_policy": "First public job in a new bounded wave. ImageBuilder+QEMU only; no prplMesh rebuild. Stop on exact guest/image/runtime blocker.",
+  "prior_run": 37291888626,
   "e2_green_run": 37288725640
 }
