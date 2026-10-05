@@ -391,6 +391,13 @@ def main():
     if not observer_bytes or len(observer_bytes)>6291456: p.error("--observer-bin must be non-empty and <=6 MiB")
     started=time.time(); ws=None; dataset_owned=False; app_created=False; observer_created=False
     payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":EXPECTED_VERSION,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
+    payload["observer_fixture"]={
+        "implementation":"go-static",
+        "carrier_image":OBSERVER_IMAGE,
+        "binary_sha256":sha256_bytes(observer_bytes),
+        "binary_size_bytes":len(observer_bytes),
+        "run_as":"65534:65534",
+    }
     try:
         control,compose=load_control(a.control_dir,a.foundry_commit)
         payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS}
