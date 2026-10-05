@@ -388,10 +388,20 @@ def main():
     a=p.parse_args()
     if not a.observer_binary.is_file():
         raise RuntimeError("minimal observer binary is missing")
-    if a.observer_binary.stat().st_size > 6291456:
+    observer_bytes=a.observer_binary.read_bytes()
+    if not observer_bytes:
+        raise RuntimeError("minimal observer binary is empty")
+    if len(observer_bytes) > 6291456:
         raise RuntimeError("minimal observer binary exceeds 6 MiB budget")
     started=time.time(); ws=None; dataset_owned=False; app_created=False; observer_created=False
     payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":EXPECTED_VERSION,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
+    payload["observer_fixture"]={
+        "implementation":"go-static",
+        "carrier_image":OBSERVER_IMAGE,
+        "binary_sha256":sha256_bytes(observer_bytes),
+        "binary_size_bytes":len(observer_bytes),
+        "run_as":"65534:65534",
+    }
     try:
         control,compose=load_control(a.control_dir,a.foundry_commit)
         payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS}
@@ -485,7 +495,7 @@ def main():
                 if len(matches)!=1 or matches[0].get("artifact_sha256")!=sha or matches[0].get("substrate")!="cups": raise RuntimeError(f"{media} Inbox metadata drifted")
                 blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
-        sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/foliorelay-observer",a.observer_binary.read_bytes(),0o555,a.timeout); wait_job(sj,"observer upload")
+        sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/foliorelay-observer",observer_bytes,0o555,a.timeout); wait_job(sj,"observer upload")
         obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"user":"65534:65534","cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR+"/foliorelay-observer","target":"/observer/foliorelay-observer","read_only":True}],"entrypoint":["/observer/foliorelay-observer"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
