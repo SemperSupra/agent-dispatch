@@ -1,0 +1,12 @@
+{
+  "schema": "wrt-easymesh-e0-trigger/v1",
+  "requested_at": "2026-10-05T08:58:00+02:00",
+  "authority": "SemperSupra/wrt3200acm-recovery-private#1",
+  "prerequisite": {
+    "cp0_run": 37273250460,
+    "cp0_package_sha256": "0adddf13bac7161fb97c5db3f9e9d9a1390c886add6793cd19a3037357e322a7",
+    "cp0_evidence_commit": "5fa48c1cfcf233c1d86d15904532786e0fc30ca6"
+  },
+  "purpose": "Run upstream prplMesh 6.0.1 controller+agent container topology as the E0 control-plane oracle, including agent restart/reconvergence.",
+  "resource_policy": "Second and final public job in the current bounded wave."
+}
