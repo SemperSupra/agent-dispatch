@@ -14,7 +14,7 @@ OPENWRT_FILES=[
 CP0_ARTIFACT_ID=11329764103
 CP0_RUN_ID=37273250460
 PRPLMESH_SHA256="0adddf13bac7161fb97c5db3f9e9d9a1390c886add6793cd19a3037357e322a7"
-KIT_NAME="wrt3200acm-hil-prep-kit-20261005"
+KIT_NAME="wrt3200acm-hil-prep-kit-20261006"
 
 def sha256_file(path):
     h=hashlib.sha256()
@@ -67,7 +67,7 @@ def main():
     if pkg is None or sha256_file(pkg)!=PRPLMESH_SHA256: raise SystemExit("qualified prplMesh package mismatch")
     (kit/"packages").mkdir(exist_ok=True); shutil.copy2(pkg,kit/"packages"/pkg.name)
     provenance={
-      "schema":"wrt3200acm-hil-prep-kit/v1","date":"2026-10-05","kit":KIT_NAME,
+      "schema":"wrt3200acm-hil-prep-kit/v1","date":"2026-10-06","kit":KIT_NAME,
       "qualified_baseline":{"openwrt":OPENWRT_VERSION,"target":"mvebu/cortexa9","device":"linksys_wrt3200acm",
         "prplmesh":"6.0.1-r1","prplmesh_sha256":PRPLMESH_SHA256,"cp0_run_id":CP0_RUN_ID,"cp0_artifact_id":CP0_ARTIFACT_ID},
       "openwrt_files":selected,
