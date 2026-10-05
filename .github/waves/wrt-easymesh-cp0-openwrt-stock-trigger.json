@@ -3,5 +3,9 @@
   "requested_at": "2026-10-05T06:20:00+02:00",
   "purpose": "Build official openwrt/packages prplmesh 6.0.1 stock-OpenWrt recipe against OpenWrt 25.12.5 mvebu/cortexa9 SDK.",
   "authority": "SemperSupra/wrt3200acm-recovery-private#1",
-  "resource_policy": "First public job in the new bounded wave."
+  "resource_policy": "Second and final public job in this bounded wave.",
+  "attempt": 2,
+  "reason": "Diagnosed retry: isolate official prplmesh subtree from newer packages feed so the recipe uses the OpenWrt 25.12.5 release-matched python3-host helper.",
+  "prplmesh_package_pin": "1bb94b900fd4166ac8c36431ca7baed55c75a571",
+  "prior_run": 37263107492
 }
