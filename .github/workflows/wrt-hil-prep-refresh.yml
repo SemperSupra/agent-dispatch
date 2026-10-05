@@ -29,6 +29,11 @@ jobs:
       - name: Build deterministic refreshed prep kit
         run: python3 tools/wrt_hil_prep/build_kit.py --output dist --cp0-dir cp0
 
+      - name: Emit checksum sidecar
+        run: |
+          cd dist
+          sha256sum wrt3200acm-hil-prep-kit-20261006.zip > SHA256.txt
+
       - name: Show build metadata
         run: cat dist/wrt3200acm-hil-prep-kit-20261006.build.json
 
@@ -39,5 +44,6 @@ jobs:
           path: |
             dist/wrt3200acm-hil-prep-kit-20261006.zip
             dist/wrt3200acm-hil-prep-kit-20261006.build.json
+            dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
