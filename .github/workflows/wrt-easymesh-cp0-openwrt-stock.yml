@@ -63,10 +63,17 @@ jobs:
           # provide only its expected relative helper path from the release
           # feed so python3/host + python-yaml/host remain release-coherent.
           STOCK_FEED="$ROOT/stock-prplmesh-feed"
-          mkdir -p "$STOCK_FEED/net" "$STOCK_FEED/lang/python"
+          mkdir -p "$STOCK_FEED/net" "$STOCK_FEED/lang/python" "$STOCK_FEED/lang/rust"
           cp -a "$ROOT/packages/net/prplmesh" "$STOCK_FEED/net/"
+          # Copy the complete direct helper closure from the release-matched
+          # OpenWrt packages feed.  python3-host.mk includes both adjacent
+          # python3-version.mk and ../rust/rust-values.mk.
           cp "$SDK/feeds/packages/lang/python/python3-host.mk" "$STOCK_FEED/lang/python/python3-host.mk"
+          cp "$SDK/feeds/packages/lang/python/python3-version.mk" "$STOCK_FEED/lang/python/python3-version.mk"
+          cp "$SDK/feeds/packages/lang/rust/rust-values.mk" "$STOCK_FEED/lang/rust/rust-values.mk"
           cp "$STOCK_FEED/lang/python/python3-host.mk" "$OUT/release-python3-host.mk"
+          cp "$STOCK_FEED/lang/python/python3-version.mk" "$OUT/release-python3-version.mk"
+          cp "$STOCK_FEED/lang/rust/rust-values.mk" "$OUT/release-rust-values.mk"
 
           printf '\nsrc-link stockprplmesh %s\n' "$STOCK_FEED" >> feeds.conf
           ./scripts/feeds update stockprplmesh > "$OUT/feeds-update-stock.log" 2>&1
