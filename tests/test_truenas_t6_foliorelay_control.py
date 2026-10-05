@@ -139,6 +139,9 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('--observer-port "$FOLIORELAY_OBSERVER_HOST_PORT"', harness)
         self.assertIn('--observer-binary "$FOLIORELAY_OBSERVER_BINARY"', harness)
         self.assertIn('CGO_ENABLED=0 GOOS=linux GOARCH=amd64', harness)
+        self.assertIn('cd "$SCRIPT_DIR/.."', harness)
+        self.assertIn('./tools/foliorelay-observer', harness)
+        self.assertNotIn('"$SCRIPT_DIR/../tools/foliorelay-observer" ||', harness)
         self.assertIn('observer_size <= 6291456', harness)
 
     def test_cups_uuid_oracle_preserves_canonical_urn_prefix(self):
