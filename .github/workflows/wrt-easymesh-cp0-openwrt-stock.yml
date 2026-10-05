@@ -1,0 +1,145 @@
+name: WRT EasyMesh CP0 Official Stock OpenWrt
+
+on:
+  push:
+    branches:
+      - wrt-easymesh-cp0-openwrt-stock-20261005
+    paths:
+      - '.github/waves/wrt-easymesh-cp0-openwrt-stock-trigger.json'
+
+permissions:
+  contents: read
+
+jobs:
+  cp0-stock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Build official stock OpenWrt prplMesh 6.0.1 package
+        shell: bash
+        run: |
+          set -u
+          ROOT="$RUNNER_TEMP/wrt-cp0-stock"
+          OUT="$ROOT/out"
+          mkdir -p "$OUT"
+          cd "$ROOT"
+
+          SDK_NAME='openwrt-sdk-25.12.5-mvebu-cortexa9_gcc-14.3.0_musl_eabi.Linux-x86_64'
+          SDK_ARCHIVE="$SDK_NAME.tar.zst"
+          SDK_URL="https://downloads.openwrt.org/releases/25.12.5/targets/mvebu/cortexa9/$SDK_ARCHIVE"
+          SDK_SHA='6b24abad1feee5f071a53872ed355ae4c2a90017b00ff99907183b56b31d995a'
+          PKG_COMMIT='6c393a8732c33436260b1db8b5407c3ce8b17826'
+
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential git curl zstd rsync gawk gettext libncurses-dev unzip file jq python3-setuptools >/dev/null
+
+          curl -fL --retry 2 --connect-timeout 20 "$SDK_URL" -o "$SDK_ARCHIVE"
+          got=$(sha256sum "$SDK_ARCHIVE" | awk '{print $1}')
+          printf 'sdk_observed_sha256=%s\n' "$got" > "$OUT/identity.txt"
+          test "$got" = "$SDK_SHA" || { echo "SDK hash mismatch" >> "$OUT/identity.txt"; exit 2; }
+
+          tar --use-compress-program=unzstd -xf "$SDK_ARCHIVE"
+          SDK="$ROOT/$SDK_NAME"
+
+          git clone -q https://github.com/openwrt/packages.git packages
+          git -C packages checkout -q "$PKG_COMMIT"
+          git -C packages rev-parse HEAD > "$OUT/openwrt-packages-sha.txt"
+          cp packages/net/prplmesh/Makefile "$OUT/prplmesh-stock-Makefile.txt"
+          find packages/net/prplmesh/patches -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > "$OUT/prplmesh-patch-sha256.txt"
+          cp packages/net/prplmesh/files/prplmesh.config "$OUT/prplmesh-stock.config"
+          cp packages/net/prplmesh/files/prplmesh.init "$OUT/prplmesh-stock.init"
+
+          cd "$SDK"
+
+          # Install the SDK's ordinary release feed package definitions first.
+          cp feeds.conf.default feeds.conf
+          ./scripts/feeds update -a > "$OUT/feeds-update-default.log" 2>&1
+          ./scripts/feeds install -a > "$OUT/feeds-install-default.log" 2>&1
+
+          # Then add the exact OpenWrt packages snapshot only as a local feed
+          # and install only its prplmesh recipe, preserving its relative host
+          # Python include path and patch/files layout.
+          printf '\nsrc-link stockpackages %s\n' "$ROOT/packages" >> feeds.conf
+          ./scripts/feeds update stockpackages > "$OUT/feeds-update-stock.log" 2>&1
+          ./scripts/feeds install -p stockpackages prplmesh > "$OUT/feeds-install-stock.log" 2>&1
+
+          target='package/feeds/stockpackages/prplmesh'
+          target_present=0
+          [ -e "$target/Makefile" ] && target_present=1
+          [ "$target_present" -eq 0 ] || cp -L "$target/Makefile" "$OUT/installed-prplmesh-Makefile.txt"
+
+          normalize_config() {
+            tmp="$OUT/.config.tmp"
+            grep -Ev '^(CONFIG_ALL=|CONFIG_ALL_NONSHARED=|CONFIG_ALL_KMODS=|CONFIG_DEVEL=|CONFIG_PACKAGE_prplmesh=|# CONFIG_ALL |# CONFIG_ALL_NONSHARED |# CONFIG_ALL_KMODS |# CONFIG_DEVEL |# CONFIG_PACKAGE_prplmesh )' .config 2>/dev/null > "$tmp" || true
+            cat "$tmp" > .config
+            rm -f "$tmp"
+            {
+              echo '# CONFIG_ALL is not set'
+              echo '# CONFIG_ALL_NONSHARED is not set'
+              echo '# CONFIG_ALL_KMODS is not set'
+              echo '# CONFIG_DEVEL is not set'
+              echo 'CONFIG_PACKAGE_prplmesh=m'
+            } >> .config
+          }
+
+          defconfig1_rc=99
+          defconfig2_rc=99
+          config_assert_rc=99
+          prepare_rc=99
+          compile_rc=99
+
+          if [ "$target_present" -eq 1 ]; then
+            normalize_config
+            set +e
+            make defconfig > "$OUT/defconfig-initial.log" 2>&1
+            defconfig1_rc=$?
+            if [ "$defconfig1_rc" -eq 0 ]; then
+              normalize_config
+              make defconfig > "$OUT/defconfig.log" 2>&1
+              defconfig2_rc=$?
+            fi
+
+            if [ "$defconfig2_rc" -eq 0 ]; then
+              cp .config "$OUT/openwrt-sdk.config"
+              grep -E '^(CONFIG_ALL=|CONFIG_ALL_NONSHARED=|CONFIG_ALL_KMODS=|CONFIG_PACKAGE_prplmesh=|# CONFIG_ALL |# CONFIG_ALL_NONSHARED |# CONFIG_ALL_KMODS |# CONFIG_PACKAGE_prplmesh )' .config > "$OUT/prplmesh-config-selection.txt" || true
+
+              if grep -Eq '^(CONFIG_ALL=y|CONFIG_ALL_NONSHARED=y|CONFIG_ALL_KMODS=y)' .config; then
+                echo 'broad SDK selector unexpectedly re-enabled' > "$OUT/config-assertion-failure.txt"
+                config_assert_rc=1
+              else
+                config_assert_rc=0
+                make -j2 "$target/prepare" V=s > "$OUT/prepare.log" 2>&1
+                prepare_rc=$?
+                if [ "$prepare_rc" -eq 0 ]; then
+                  make -j2 "$target/compile" V=s > "$OUT/compile.log" 2>&1
+                  compile_rc=$?
+                fi
+              fi
+            fi
+            set -e
+          fi
+
+          find "$SDK/bin" -type f \( -name 'prplmesh*.apk' -o -name 'prplmesh*.ipk' \) -printf '%P\t%s\n' 2>/dev/null | sort > "$OUT/packages-built.txt" || true
+
+          export target_present defconfig1_rc defconfig2_rc config_assert_rc prepare_rc compile_rc
+          python3 -c 'import json,os; ks=["target_present","defconfig1_rc","defconfig2_rc","config_assert_rc","prepare_rc","compile_rc"]; d={k:int(os.environ[k]) for k in ks}; d["schema"]="wrt-easymesh-cp0-openwrt-stock/v1"; d["prepare_attempted"]=d["config_assert_rc"]==0; d["compile_attempted"]=d["prepare_rc"]==0; d["passed"]=d["compile_rc"]==0; print(json.dumps(d,indent=2,sort_keys=True))' > "$OUT/verdict.json"
+
+          echo '--- CP0_STOCK_VERDICT_BEGIN ---'
+          cat "$OUT/verdict.json"
+          echo '--- CP0_STOCK_VERDICT_END ---'
+          if [ "$compile_rc" -ne 0 ] && [ -f "$OUT/compile.log" ]; then
+            echo '--- CP0_STOCK_COMPILE_FAILURE_TAIL_BEGIN ---'
+            tail -n 180 "$OUT/compile.log"
+            echo '--- CP0_STOCK_COMPILE_FAILURE_TAIL_END ---'
+          fi
+          cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload CP0 stock-package evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-easymesh-cp0-openwrt-stock-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-cp0-stock/out
+          if-no-files-found: error
+          retention-days: 7
