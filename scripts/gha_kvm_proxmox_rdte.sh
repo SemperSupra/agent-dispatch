@@ -1155,15 +1155,19 @@ fi
 
 NESTED_KVM="unknown"
 NESTED_KVM_INDICATORS="unknown"
-if command -v sshpass >/dev/null 2>&1; then
-  if sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
-      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
-      root@127.0.0.1 'test -e /dev/kvm && grep -Eq "(vmx|svm)" /proc/cpuinfo' >/dev/null 2>&1; then
-    NESTED_KVM_INDICATORS="yes"
+if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
+  NESTED_KVM_INDICATORS="skipped"
+  NESTED_KVM_VCPU_JSON='{"contract":"proxmox-nested-kvm-vcpu/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"not-required-for-container-c0","detail":"nested KVM is outside the bounded native REST container C0 causal rep"}'
+else
+  if command -v sshpass >/dev/null 2>&1; then
+    if sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
+        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+        root@127.0.0.1 'test -e /dev/kvm && grep -Eq "(vmx|svm)" /proc/cpuinfo' >/dev/null 2>&1; then
+      NESTED_KVM_INDICATORS="yes"
+    fi
   fi
-fi
-NESTED_KVM_VCPU_JSON="$(probe_nested_kvm_vcpu || true)"
-if R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" python3 - <<'PY'
+  NESTED_KVM_VCPU_JSON="$(probe_nested_kvm_vcpu || true)"
+  if R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" python3 - <<'PY'
 import json, os
 try:
     payload = json.loads(os.environ.get("R_NESTED_VCPU", ""))
@@ -1172,8 +1176,9 @@ except Exception:
     ok = False
 raise SystemExit(0 if ok else 1)
 PY
-then
-  NESTED_KVM="yes"
+  then
+    NESTED_KVM="yes"
+  fi
 fi
 
 if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
