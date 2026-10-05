@@ -1,0 +1,43 @@
+name: WRT HIL Windows Arrival Preflight
+
+on:
+  push:
+    branches:
+      - wrt-hil-prequal-20261005
+    paths:
+      - '.github/waves/wrt-hil-preflight-windows-trigger.json'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-arrival-preflight:
+    runs-on: windows-2022
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse HIL PowerShell surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $files = @(
+            'tools/wrt_hil_prep/payload/scripts/Invoke-HilPreflight.ps1',
+            'tools/wrt_hil_prep/payload/scripts/R1-Readonly-Remote.ps1',
+            'tools/wrt_hil_prep/payload/scripts/Find-SerialPorts.ps1',
+            'tools/wrt_hil_prep/payload/scripts/Verify-Bundle.ps1'
+          )
+          foreach ($f in $files) {
+            $tokens=$null; $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f),[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count) { throw "$f parse errors: $($errors | Out-String)" }
+          }
+      - name: Execute no-target preflight
+        shell: pwsh
+        run: |
+          $raw = & ./tools/wrt_hil_prep/payload/scripts/Invoke-HilPreflight.ps1
+          $d = $raw | ConvertFrom-Json
+          if ($d.schema -ne 'wrt-hil-arrival-preflight/v1') { throw 'schema mismatch' }
+          if ($d.authority -ne 'R1_READ_ONLY') { throw 'authority mismatch' }
+          if ($d.dut_checks.Count -ne 0) { throw 'unexpected DUT interaction' }
+          if ($d.prohibited -notcontains 'sysupgrade') { throw 'missing mutation deny list' }
+          $raw
