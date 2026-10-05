@@ -1,0 +1,40 @@
+{
+  "schema": "rdte-wrt-r2-evidence/v1",
+  "reps": {
+    "R2-1": {
+      "verdict": "INCONCLUSIVE",
+      "evidence_refs": []
+    },
+    "R2-2": {
+      "verdict": "INCONCLUSIVE",
+      "evidence_refs": []
+    },
+    "R2-3": {
+      "verdict": "INCONCLUSIVE",
+      "evidence_refs": []
+    },
+    "R2-4": {
+      "verdict": "INCONCLUSIVE",
+      "evidence_refs": []
+    },
+    "R2-5": {
+      "verdict": "INCONCLUSIVE",
+      "evidence_refs": []
+    },
+    "R2-6": {
+      "verdict": "INCONCLUSIVE",
+      "evidence_refs": [],
+      "consecutive_passes": 0
+    }
+  },
+  "invariants": {
+    "gold_identity_match": false,
+    "rescue_identity_match": false,
+    "serial_available": false,
+    "power_actuator_available": false,
+    "protected_surfaces_unchanged": false,
+    "boot_env_expected": false,
+    "evidence_sink_available": false,
+    "nominal_recovery_without_manual_intervention": false
+  }
+}
