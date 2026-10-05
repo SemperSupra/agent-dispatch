@@ -134,6 +134,10 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"rest_api_census_observed"', text)
         self.assertIn('"rest_api_census": rest_api_census', text)
         self.assertIn("REST API census is read-only discovery evidence only", text)
+        census = text.index("# Read-only native REST census: capture exact installed PVE/package identity only")
+        self.assertLess(text.index('WEB_PORT="$(python3 - <<\'PY\''), census)
+        self.assertLess(text.index("installed Proxmox HTTPS API did not answer"), census)
+        self.assertEqual(text.count('--kind vm --observe-only'), 1)
 
     def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
         text = PVE.read_text(encoding="utf-8")
