@@ -8,5 +8,9 @@
     "cp0_evidence_commit": "5fa48c1cfcf233c1d86d15904532786e0fc30ca6"
   },
   "purpose": "Run upstream prplMesh 6.0.1 controller+agent container topology as the E0 control-plane oracle, including agent restart/reconvergence.",
-  "resource_policy": "Second and final public job in the current bounded wave."
+  "resource_policy": "First public job in the new bounded wave.",
+  "attempt": 2,
+  "reason": "Diagnosed retry after harness-only failure: pass CMake definitions through maptools -f.",
+  "prior_run": 37275486214,
+  "cp0_green_run": 37273250460
 }
