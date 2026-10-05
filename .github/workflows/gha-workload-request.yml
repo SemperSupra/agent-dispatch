@@ -20,7 +20,7 @@ on:
       - "scripts/gha_workload_request.py"
       - "tests/test_gha_workload_request.py"
       - "requests/gha/**"
-      - "docs/gha-workload-requests.md"
+      - "docs/gha-*.md"
 
 permissions:
   contents: read
