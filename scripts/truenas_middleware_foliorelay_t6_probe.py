@@ -20,8 +20,6 @@ import urllib.request
 
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
-EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
-EXPECTED_FOUNDRY_REF = "fb41afd3d112f361b8c490aeb5915a978b956b20"
 EXPECTED_SCHEMA = "semper-supra.foliorelay-truenas-t6-control/1"
 EXPECTED_APP_NAME = "rdte-t6-foliorelay"
 OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"
@@ -64,17 +62,17 @@ def load_json(path: pathlib.Path):
         raise RuntimeError(f"{path.name} must be an object")
     return value
 
-def load_control(root: pathlib.Path, foundry_ref: str):
+def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
     control = load_json(root / "control.json")
     compose = load_json(root / "compose.json")
     if control.get("schema") != EXPECTED_SCHEMA:
         raise RuntimeError("unexpected FolioRelay T6 control schema")
-    if foundry_ref != EXPECTED_FOUNDRY_REF or control.get("foundry_ref") != EXPECTED_FOUNDRY_REF:
+    if control.get("foundry_ref") != foundry_ref:
         raise RuntimeError("Foundry source ref drifted")
     if control.get("secrets_captured") is not False:
         raise RuntimeError("control bundle does not assert secrets_captured=false")
     candidate = control.get("candidate") or {}
-    if candidate.get("truenas_version") != "26.0.0-BETA.3":
+    if candidate.get("truenas_version") != target_version:
         raise RuntimeError("TrueNAS target drifted")
     if candidate.get("control_image") != EXPECTED_CONTROL:
         raise RuntimeError("control image drifted")
@@ -404,6 +402,7 @@ def main():
     p.add_argument("--control-port",type=int,required=True); p.add_argument("--ipp-port",type=int,required=True); p.add_argument("--observer-port",type=int,required=True)
     p.add_argument("--observer-binary",type=pathlib.Path,required=True)
     p.add_argument("--password-file",required=True); p.add_argument("--control-dir",type=pathlib.Path,required=True); p.add_argument("--foundry-commit",required=True)
+    p.add_argument("--target-version",required=True); p.add_argument("--expected-system-version",required=True)
     p.add_argument("--out",required=True); p.add_argument("--tls",action="store_true"); p.add_argument("--timeout",type=float,default=8); p.add_argument("--job-timeout",type=float,default=300); p.add_argument("--state-timeout",type=float,default=300)
     a=p.parse_args()
     if not a.observer_binary.is_file():
@@ -414,7 +413,7 @@ def main():
     if len(observer_bytes) > 6291456:
         raise RuntimeError("minimal observer binary exceeds 6 MiB budget")
     started=time.time(); ws=None; dataset_owned=False; app_created=False; observer_created=False
-    payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":EXPECTED_VERSION,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
+    payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":a.expected_system_version,"target_version":a.target_version,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
     payload["observer_fixture"]={
         "implementation":"go-static",
         "carrier_image":OBSERVER_IMAGE,
@@ -423,7 +422,7 @@ def main():
         "run_as":"65534:65534",
     }
     try:
-        control,compose=load_control(a.control_dir,a.foundry_commit)
+        control,compose=load_control(a.control_dir,a.foundry_commit,a.target_version)
         payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS}
         password=pathlib.Path(a.password_file).read_text().strip()
         ws=WebSocket(a.host,a.port,timeout=a.timeout,tls=a.tls); ws.send_json({"msg":"connect","version":"1","support":["1"]})
@@ -458,7 +457,7 @@ def main():
             raise RuntimeError(f"{name} did not reach {state}")
         auth=call("auth.login_ex",[{"mechanism":"PASSWORD_PLAIN","username":"truenas_admin","password":password}])
         if not isinstance(auth,dict) or auth.get("response_type")!="SUCCESS": raise RuntimeError("authentication failed")
-        if call("system.version",[])!=EXPECTED_VERSION: raise RuntimeError("target version drifted")
+        if call("system.version",[])!=a.expected_system_version: raise RuntimeError("target version drifted")
         if call("app.query",[[["id","in",[EXPECTED_APP_NAME,OBSERVER_APP_NAME]]]]): raise RuntimeError("refusing adopted FolioRelay app state")
         if call("pool.dataset.query",[[["id","=",DATASET]]]): raise RuntimeError("refusing adopted FolioRelay dataset")
         ds=call("pool.dataset.create",[{"name":DATASET,"type":"FILESYSTEM","share_type":"GENERIC","comments":"SemperSupra disposable FolioRelay T6 fixture"}])
