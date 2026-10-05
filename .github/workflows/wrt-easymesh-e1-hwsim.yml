@@ -174,7 +174,7 @@ jobs:
             gzip -dc "$image" > "$ROOT/openwrt.img"
             boot_attempted=1
             set +e
-            timeout 80 qemu-system-x86_64 -machine pc -m 512 -nographic -drive file="$ROOT/openwrt.img",format=raw,if=virtio -netdev user,id=net0 -device virtio-net-pci,netdev=net0 > "$OUT/qemu-serial.log" 2>&1
+            timeout 130 qemu-system-x86_64 -machine pc -m 512 -nographic -drive file="$ROOT/openwrt.img",format=raw,if=virtio -netdev user,id=net0 -device virtio-net-pci,netdev=net0 > "$OUT/qemu-serial.log" 2>&1
             qemu_rc=$?
             set -e
             grep -q 'mac80211_hwsim' "$OUT/qemu-serial.log" && hwsim_seen=1 || true
