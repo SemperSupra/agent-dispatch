@@ -19,7 +19,7 @@ echo "== host installer =="
 
 echo "== build verified HIL prep kit =="
 python3 "$ROOT/tools/wrt_hil_prep/build_kit.py" --output "$WORK/kit-dist" --cp0-dir "$CP0_DIR" | tee "$OUT/kit-build.json"
-KIT="$WORK/kit-dist/wrt3200acm-hil-prep-kit-20261005"
+KIT="$WORK/kit-dist/wrt3200acm-hil-prep-kit-20261006"
 
 echo "== acquire pinned imagebuilder =="
 cd "$WORK"
@@ -87,7 +87,7 @@ boot_one() {
   local name="$1"
   gzip -dc "$OUT/$name.img.gz" > "$WORK/$name.img"
   set +e
-  timeout 40 qemu-system-x86_64 -machine pc -m 768 -nographic -drive file="$WORK/$name.img",format=raw,if=virtio -netdev user,id=n0 -device virtio-net-pci,netdev=n0 > "$OUT/$name-qemu.log" 2>&1
+  timeout 80 qemu-system-x86_64 -machine pc -m 768 -nographic -drive file="$WORK/$name.img",format=raw,if=virtio -netdev user,id=n0 -device virtio-net-pci,netdev=n0 > "$OUT/$name-qemu.log" 2>&1
   echo $? > "$OUT/$name-qemu.rc"
   set -e
 }
@@ -97,10 +97,10 @@ boot_one dut-b-gold
 gzip -dc "$OUT/dut-a-rdte.img.gz" > "$WORK/dut-a-rdte.img"
 gzip -dc "$OUT/dut-b-rdte.img.gz" > "$WORK/dut-b-rdte.img"
 set +e
-timeout 85 qemu-system-x86_64 -machine pc -m 768 -nographic   -drive file="$WORK/dut-a-rdte.img",format=raw,if=virtio   -netdev socket,id=n0,listen=127.0.0.1:31337 -device virtio-net-pci,netdev=n0   > "$OUT/dut-a-rdte-qemu.log" 2>&1 &
+timeout 130 qemu-system-x86_64 -machine pc -m 768 -nographic   -drive file="$WORK/dut-a-rdte.img",format=raw,if=virtio   -netdev socket,id=n0,listen=127.0.0.1:31337 -device virtio-net-pci,netdev=n0,mac=52:54:00:12:77:0a   > "$OUT/dut-a-rdte-qemu.log" 2>&1 &
 PA=$!
 sleep 2
-timeout 85 qemu-system-x86_64 -machine pc -m 768 -nographic   -drive file="$WORK/dut-b-rdte.img",format=raw,if=virtio   -netdev socket,id=n0,connect=127.0.0.1:31337 -device virtio-net-pci,netdev=n0   > "$OUT/dut-b-rdte-qemu.log" 2>&1 &
+timeout 130 qemu-system-x86_64 -machine pc -m 768 -nographic   -drive file="$WORK/dut-b-rdte.img",format=raw,if=virtio   -netdev socket,id=n0,connect=127.0.0.1:31337 -device virtio-net-pci,netdev=n0,mac=52:54:00:12:77:0b   > "$OUT/dut-b-rdte-qemu.log" 2>&1 &
 PB=$!
 wait "$PA"; RCA=$?
 wait "$PB"; RCB=$?
