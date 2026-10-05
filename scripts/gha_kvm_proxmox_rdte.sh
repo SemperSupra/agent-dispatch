@@ -20,20 +20,23 @@ ROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR]"
+  echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR] [--compute-fixture none|container-c0]"
 }
 
 OUT=""
 STATE_DIR=""
+COMPUTE_FIXTURE="none"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --state-dir) STATE_DIR="$2"; shift 2 ;;
+    --compute-fixture) COMPUTE_FIXTURE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 [[ -n "$OUT" ]] || { usage >&2; exit 2; }
+[[ "$COMPUTE_FIXTURE" == "none" || "$COMPUTE_FIXTURE" == "container-c0" ]] || { echo "unsupported compute fixture: $COMPUTE_FIXTURE" >&2; exit 2; }
 
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-proxmox.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
@@ -52,6 +55,7 @@ NESTED_KVM_INDICATORS="unknown"
 NESTED_KVM_VCPU_JSON=""
 P3_LXC_JSON=""
 REST_API_CENSUS_JSON=""
+REST_C0_JSON=""
 SSH_HOSTFWD_ACCEPTED="false"
 API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
@@ -82,7 +86,7 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
-  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" R_P3_LXC="$P3_LXC_JSON" R_REST_API_CENSUS="$REST_API_CENSUS_JSON"
+  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" R_P3_LXC="$P3_LXC_JSON" R_REST_API_CENSUS="$REST_API_CENSUS_JSON" R_REST_C0="$REST_C0_JSON" R_COMPUTE_FIXTURE="$COMPUTE_FIXTURE"
   export R_HOSTFWD_API="$HOSTFWD_API_VERSION_JSON" R_GUEST_LOCAL_API="$GUEST_LOCAL_API_VERSION_JSON" R_API_ROUTE="$API_OBSERVATION_ROUTE"
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
@@ -104,6 +108,7 @@ def load_json_env(name):
 nested_vcpu = load_json_env("R_NESTED_VCPU")
 p3_lxc = load_json_env("R_P3_LXC")
 rest_api_census = load_json_env("R_REST_API_CENSUS")
+rest_c0 = load_json_env("R_REST_C0")
 
 payload = {
   "contract": "gha-kvm-system-lab/v1",
@@ -112,7 +117,7 @@ payload = {
   "oracleSatisfied": os.environ["R_ORACLE"].lower() == "true",
   "phase": os.environ["R_PHASE"],
   "detail": os.environ["R_DETAIL"],
-  "requested_shape": {"vcpus": 2, "ram_mib": 4096, "disk": "40G"},
+  "requested_shape": {"vcpus": 2, "ram_mib": 4096, "disk": "40G", "compute_fixture": os.environ.get("R_COMPUTE_FIXTURE", "none")},
   "source": {
     "iso_name": "proxmox-ve_9.2-1.iso",
     "iso_url": "https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso",
@@ -142,12 +147,14 @@ payload = {
     "nested_kvm_vcpu_executed": bool(nested_vcpu and nested_vcpu.get("oracleSatisfied") is True),
     "p3_lxc_lifecycle_exercised": bool(p3_lxc and p3_lxc.get("oracleSatisfied") is True),
     "rest_api_census_observed": bool(rest_api_census and rest_api_census.get("oracleSatisfied") is True and rest_api_census.get("phase") == "observe-only"),
+    "rest_api_container_c0_exercised": bool(rest_c0 and rest_c0.get("oracleSatisfied") is True and rest_c0.get("api_materialization_oracle") is True),
   },
   "api_version": json.loads(os.environ["R_API"]) if os.environ.get("R_API") else None,
   "nested_kvm": os.environ.get("R_NESTED"),
   "p5_nested_kvm": nested_vcpu,
   "p3_lxc": p3_lxc,
   "rest_api_census": rest_api_census,
+  "rest_api_container_c0": rest_c0,
   "diagnostics": {
     "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
     "ssh_hostfwd_accepted": os.environ.get("R_SSH_HOSTFWD_ACCEPTED") == "true",
@@ -169,6 +176,7 @@ payload = {
     "P5 nested KVM requires p5_nested_kvm.oracleSatisfied=true from an actual nested vCPU debug-exit; device/CPU flags alone are diagnostic.",
     "P3 LXC is a separate lifecycle oracle using one exact public Debian template; P2/P5 are not inferred from it.",
     "REST API census is read-only discovery evidence only; it does not claim LXC or QEMU materialization.",
+    "REST C0, when explicitly requested, proves only product-API LXC create/readback/start/stop/delete/absence; guest execution remains a separate C1 oracle.",
   ],
 }
 pathlib.Path(os.environ["R_OUT"]).write_text(json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8")
@@ -535,42 +543,130 @@ guest_diagnostics() {
 
 
 
-probe_lxc_lifecycle() {
+P3_STAGE_CLASS=""
+P3_STAGE_PHASE=""
+P3_STAGE_DETAIL=""
+
+stage_exact_p3_template() {
   local template_host="$STATE_DIR/$P3_TEMPLATE_NAME"
   local template_guest="/var/lib/vz/template/cache/$P3_TEMPLATE_NAME"
-  local observed_sha="" response=""
+  local observed_sha=""
 
-  if ! command -v sha512sum >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1; then
-    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"host-prerequisite","detail":"sha512sum or scp unavailable on GHA host"}'
-    return 0
-  fi
-  if ! curl --fail --location --retry 3 --silent --show-error "$P3_TEMPLATE_URL" -o "$template_host"; then
-    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"template-acquire","detail":"exact public LXC template download failed"}'
-    return 0
-  fi
+  P3_STAGE_CLASS="ENVIRONMENT_FAILURE"
+  P3_STAGE_PHASE="host-prerequisite"
+  P3_STAGE_DETAIL="sha512sum or scp unavailable on GHA host"
+  command -v sha512sum >/dev/null 2>&1 && command -v scp >/dev/null 2>&1 || return 1
+
+  P3_STAGE_PHASE="template-acquire"
+  P3_STAGE_DETAIL="exact public LXC template download failed"
+  curl --fail --location --retry 3 --silent --show-error "$P3_TEMPLATE_URL" -o "$template_host" || return 1
+
   observed_sha="$(sha512sum "$template_host" | awk '{print $1}')"
   if [[ "$observed_sha" != "$P3_TEMPLATE_SHA512" ]]; then
-    R_OBS="$observed_sha" R_EXP="$P3_TEMPLATE_SHA512" python3 - <<'PY'
-import json, os
-print(json.dumps({"contract":"proxmox-lxc-lifecycle/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"phase":"template-integrity","detail":"downloaded template SHA-512 did not match exact admitted PVE catalog","expected_sha512":os.environ["R_EXP"],"observed_sha512":os.environ["R_OBS"]},separators=(",",":")))
-PY
     rm -f -- "$template_host"
-    return 0
+    P3_STAGE_CLASS="ORACLE_FAILURE"
+    P3_STAGE_PHASE="template-integrity"
+    P3_STAGE_DETAIL="downloaded template SHA-512 did not match exact admitted PVE catalog"
+    return 1
   fi
 
+  P3_STAGE_CLASS="ENVIRONMENT_FAILURE"
+  P3_STAGE_PHASE="template-stage"
+  P3_STAGE_DETAIL="template destination already existed or guest cache could not be prepared"
   if ! sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
       root@127.0.0.1 "test ! -e '$template_guest' && install -d -m 0755 /var/lib/vz/template/cache" >/dev/null 2>&1; then
     rm -f -- "$template_host"
-    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"template-stage","detail":"template destination already existed or guest cache could not be prepared"}'
-    return 0
+    return 1
   fi
+  P3_STAGE_DETAIL="exact template could not be copied into PVE"
   if ! sshpass -p "$ROOT_PASSWORD" scp -q -P "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
       "$template_host" "root@127.0.0.1:$template_guest"; then
     rm -f -- "$template_host"
-    printf '%s' '{"contract":"proxmox-lxc-lifecycle/v1","classification":"ENVIRONMENT_FAILURE","oracleSatisfied":false,"phase":"template-stage","detail":"exact template could not be copied into PVE"}'
-    return 0
+    return 1
   fi
   rm -f -- "$template_host"
+  return 0
+}
+
+stage_failure_json() {
+  R_CLASS="$P3_STAGE_CLASS" R_PHASE="$P3_STAGE_PHASE" R_DETAIL="$P3_STAGE_DETAIL" python3 - <<'PY'
+import json, os
+print(json.dumps({
+  "classification": os.environ["R_CLASS"],
+  "oracleSatisfied": False,
+  "phase": os.environ["R_PHASE"],
+  "detail": os.environ["R_DETAIL"],
+}, separators=(",", ":")))
+PY
+}
+
+probe_rest_lxc_c0() {
+  local template_guest="/var/lib/vz/template/cache/$P3_TEMPLATE_NAME"
+  local password_file="$STATE_DIR/pve-rest-c0-password"
+  local probe_out="$STATE_DIR/proxmox-rest-c0.json"
+  local template_absent="false"
+
+  if ! stage_exact_p3_template; then
+    R_STAGE="$(stage_failure_json)" python3 - <<'PY'
+import json, os
+p=json.loads(os.environ["R_STAGE"])
+p.update({"schema":"proxmox-rest-compute-c0-v1","kind":"container","api_materialization_oracle":False,"cleanup":{"attempted":False,"absent":False,"fixture_input_absent":False}})
+print(json.dumps(p,separators=(",",":")))
+PY
+    return 0
+  fi
+
+  printf '%s\n' "$ROOT_PASSWORD" >"$password_file"
+  chmod 0400 "$password_file"
+  rm -f -- "$probe_out"
+  python3 "$SCRIPT_DIR/proxmox_rest_compute_probe.py" \
+    --base-url "https://127.0.0.1:$WEB_PORT" \
+    --password-file "$password_file" \
+    --kind container \
+    --vmid "$P3_VMID" \
+    --template "local:vztmpl/$P3_TEMPLATE_NAME" \
+    --apply --out "$probe_out" >/dev/null 2>&1 || true
+  rm -f -- "$password_file"
+
+  sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+    root@127.0.0.1 "rm -f -- '$template_guest'; test ! -e '$template_guest'" >/dev/null 2>&1 && template_absent="true"
+
+  if [[ ! -s "$probe_out" ]]; then
+    printf '%s' '{"schema":"proxmox-rest-compute-c0-v1","kind":"container","classification":"HARNESS_FAILURE","oracleSatisfied":false,"api_materialization_oracle":false,"phase":"rest-api-lifecycle","detail":"REST materializer exited without a receipt","cleanup":{"attempted":true,"absent":false,"fixture_input_absent":false}}'
+    return 0
+  fi
+
+  R_PROBE_OUT="$probe_out" R_TEMPLATE_ABSENT="$template_absent" R_TEMPLATE_SHA="$P3_TEMPLATE_SHA512" python3 - <<'PY'
+import json, os, pathlib
+p=json.loads(pathlib.Path(os.environ["R_PROBE_OUT"]).read_text())
+cleanup=p.setdefault("cleanup",{})
+cleanup["fixture_input_absent"]=os.environ["R_TEMPLATE_ABSENT"]=="true"
+p["fixture_input"]={
+  "template":"debian-13-standard_13.1-2_amd64.tar.zst",
+  "catalog_sha512":os.environ["R_TEMPLATE_SHA"],
+  "transport":"bounded SSH staging only; all container lifecycle mutation uses PVE REST",
+}
+if not cleanup["fixture_input_absent"]:
+    p["classification"]="ORACLE_FAILURE"
+    p["oracleSatisfied"]=False
+    p["api_materialization_oracle"]=False
+    p["detail"]=(p.get("detail","") + "; exact staged template remained after fixture cleanup").lstrip("; ")
+print(json.dumps(p,separators=(",",":")))
+PY
+}
+
+probe_lxc_lifecycle() {
+  local response=""
+  if ! stage_exact_p3_template; then
+    R_STAGE="$(stage_failure_json)" python3 - <<'PY'
+import json, os
+p=json.loads(os.environ["R_STAGE"])
+p["contract"]="proxmox-lxc-lifecycle/v1"
+print(json.dumps(p,separators=(",",":")))
+PY
+    return 0
+  fi
 
   response="$(sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
     root@127.0.0.1 'bash -s' 2>/dev/null <<'REMOTE' || true
@@ -1029,6 +1125,34 @@ REST_API_CENSUS_JSON="$(
 )"
 rm -f "$PVE_PASSWORD_FILE"
 
+if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
+  REST_C0_JSON="$(probe_rest_lxc_c0 || true)"
+  if ! R_REST_C0="$REST_C0_JSON" python3 - <<'PY'
+import json, os
+try:
+    p=json.loads(os.environ.get("R_REST_C0",""))
+    ok=(p.get("classification")=="SUPPORTED" and p.get("oracleSatisfied") is True and
+        p.get("api_materialization_oracle") is True and
+        p.get("cleanup",{}).get("absent") is True and
+        p.get("cleanup",{}).get("fixture_input_absent") is True)
+except Exception:
+    ok=False
+raise SystemExit(0 if ok else 1)
+PY
+  then
+    REST_C0_CLASS="$(R_REST_C0="$REST_C0_JSON" python3 - <<'PY'
+import json, os
+try:
+    c=json.loads(os.environ.get("R_REST_C0","")).get("classification","ORACLE_FAILURE")
+except Exception:
+    c="HARNESS_FAILURE"
+print(c if c in {"HARNESS_FAILURE","ENVIRONMENT_FAILURE","ORACLE_FAILURE"} else "ORACLE_FAILURE")
+PY
+)"
+    fail_evidence "$REST_C0_CLASS" compute-container-c0 "native PVE REST container C0 did not satisfy create/readback/start/stop/delete/absence plus fixture-input cleanup"
+  fi
+fi
+
 NESTED_KVM="unknown"
 NESTED_KVM_INDICATORS="unknown"
 if command -v sshpass >/dev/null 2>&1; then
@@ -1052,7 +1176,9 @@ then
   NESTED_KVM="yes"
 fi
 
-if [[ "$NESTED_KVM" == "yes" ]]; then
+if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
+  P3_LXC_JSON='{"contract":"proxmox-lxc-lifecycle/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"superseded-by-rest-c0","detail":"CLI P3 lifecycle intentionally skipped because this rep assigns the exact container fixture to native PVE REST"}'
+elif [[ "$NESTED_KVM" == "yes" ]]; then
   P3_LXC_JSON="$(probe_lxc_lifecycle || true)"
 else
   P3_LXC_JSON='{"contract":"proxmox-lxc-lifecycle/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"prerequisite","detail":"P5 nested-vCPU oracle was not satisfied in this rep"}'
