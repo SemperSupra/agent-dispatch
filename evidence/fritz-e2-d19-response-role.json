@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "fritz-e2-d19-response-role/v1",
+  "classification": "E2_D19_SVCTL_READ_ENTRY_ROLE_EARNED",
+  "oracleSatisfied": true,
+  "authorities": {
+    "d12": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5962695749,
+      "pr": "SemperSupra/agent-dispatch#176",
+      "run": 37074354449
+    },
+    "d16": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5963848217,
+      "pr": "SemperSupra/agent-dispatch#186",
+      "run": 37083914962
+    },
+    "d17": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5963912258,
+      "pr": "SemperSupra/agent-dispatch#189",
+      "run": 37084455189
+    },
+    "d18g": {
+      "issue": "SemperSupra/fritzbox-automation-private#72",
+      "comment": 5977309040,
+      "pr": "SemperSupra/agent-dispatch#231",
+      "run": 37182811183
+    }
+  },
+  "acceptedFacts": {
+    "libsvctl": {
+      "svctlReadSymbolRecovered": true,
+      "svctlReadFunctionBytes": 188
+    },
+    "caller": {
+      "svctlToSvctlReadCallsiteRecovered": true,
+      "svctlReadAcceptedCallsiteCount": 1
+    },
+    "calleeBoundary": {
+      "selectedLibcReadGotLoadCount": 1,
+      "firstTransferClass": "return_or_indirect_jump",
+      "freshPostReturnReadReloadObserved": false,
+      "boundedCalleeT9PreservationProven": false,
+      "svctlReadToLibcReadEdgeAccepted": false
+    },
+    "responseQuestion": {
+      "statusResponsesEquivalent": true,
+      "startResponseDiffers": true,
+      "statusChanged": false,
+      "ctlmgrStarted": false
+    }
+  },
+  "earnedObservationRole": {
+    "symbol": "_svctl_read",
+    "boundary": "function_entry",
+    "allowedDimensions": [
+      "hit_count",
+      "argument_scalar_class",
+      "bounded_pointed_memory_digest_relation"
+    ],
+    "requiresStatusRepeatStability": true,
+    "debuggerOnly": true,
+    "hostStraceExcluded": true,
+    "sameRunWireCaptureExcluded": true
+  },
+  "interpretationBoundary": {
+    "libcReadOwnershipInferred": false,
+    "responsePayloadPublished": false,
+    "responseFieldLayoutAccepted": false,
+    "protocolEnumValuesAccepted": false,
+    "payloadOffsetsAccepted": false,
+    "rawPointersPublished": false,
+    "rawMemoryPublished": false,
+    "rawDigestValuesPublished": false,
+    "returnRoleEarned": false,
+    "additionalDownstreamRoleEarned": false,
+    "typedNegativeStopsWithoutHeuristicWidening": true,
+    "physicalRouterContact": false,
+    "modifiedHilAuthorized": false
+  }
+}
