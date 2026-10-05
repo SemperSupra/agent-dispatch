@@ -157,7 +157,14 @@ jobs:
               echo "refusing stale Proxmox request replay: request_id did not change ($current_proxmox_request_id)" >&2
               exit 2
             fi
-            jq -e '.version == "9.2-1" and .authority_issue == 396' "$PROXMOX_RUN_REQUEST_PATH" >/dev/null
+            proxmox_version="$(jq -er '.version | select(type == "string" and length > 0)' "$PROXMOX_RUN_REQUEST_PATH")"
+            proxmox_target_json="$(python3 scripts/proxmox_rdte_target.py --registry config/proxmox-rdte-targets.json --version "$proxmox_version" --require-runtime-admitted)"
+            proxmox_target_authority="$(jq -er '.authority_issue' <<<"$proxmox_target_json")"
+            proxmox_request_authority="$(jq -er '.authority_issue' "$PROXMOX_RUN_REQUEST_PATH")"
+            [[ "$proxmox_request_authority" == "$proxmox_target_authority" ]] || {
+              echo "Proxmox request authority does not match exact target profile" >&2
+              exit 2
+            }
             proxmox_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0")' "$PROXMOX_RUN_REQUEST_PATH")"
             printf 'fresh Proxmox request edge: previous=%s current=%s\n' "${previous_proxmox_request_id:-<none>}" "$current_proxmox_request_id"
           fi

@@ -323,6 +323,16 @@ class SystemRdteContractTests(unittest.TestCase):
         )
         self.assertEqual(cp.returncode, 0, cp.stderr)
 
+    def test_proxmox_request_uses_exact_target_registry(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        prep = (ROOT / ".github" / "workflows" / "prep-rdte-static.yml").read_text(encoding="utf-8")
+        self.assertIn("config/proxmox-rdte-targets.json", workflow)
+        self.assertIn("scripts/proxmox_rdte_target.py", workflow)
+        self.assertIn("--require-runtime-admitted", workflow)
+        self.assertIn("'config/proxmox-rdte-targets.json'", prep)
+        self.assertIn("'scripts/proxmox_rdte_target.py'", prep)
+        self.assertIn("'tests/test_proxmox_rdte_target.py'", prep)
+
     def test_prep_static_gate_watches_proxmox_request_edge(self):
         prep = (ROOT / ".github" / "workflows" / "prep-rdte-static.yml").read_text(encoding="utf-8")
         self.assertIn("'config/proxmox-rdte-run-request.json'", prep)
