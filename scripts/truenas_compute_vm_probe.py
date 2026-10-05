@@ -82,6 +82,38 @@ def owned_zvol_device(vm_id: int, zvol_name: str, size_bytes: int) -> dict[str, 
     }
 
 
+def zvol_device_path(zvol_name: str) -> str:
+    if not zvol_name or "/" not in zvol_name:
+        raise ProbeError("owned ZVOL name must include a pool/dataset prefix")
+    return "/dev/zvol/" + zvol_name.replace(" ", "+")
+
+
+def legacy_owned_nic(name: str, parent: str) -> dict[str, Any]:
+    if not name or not parent:
+        raise ProbeError("legacy owned NIC requires name and observed parent")
+    return {
+        "name": name,
+        "description": "Agent Dispatch disposable VM V0 owned NIC",
+        "readonly": False,
+        "dev_type": "NIC",
+        "network": None,
+        "nic_type": "MACVLAN",
+        "parent": parent,
+    }
+
+
+def validate_modern_preconditions(details: Any, licensed: Any) -> dict[str, Any]:
+    if not isinstance(details, dict) or not isinstance(details.get("supported"), bool):
+        raise ProbeError(f"vm.virtualization_details invalid: {details!r}")
+    if not isinstance(licensed, bool):
+        raise ProbeError(f"vm.license_active invalid: {licensed!r}")
+    if not details["supported"]:
+        raise ProbeError(f"VM virtualization unavailable: {details.get('error')}")
+    if not licensed:
+        raise ProbeError("system is not entitled to use native vm.*")
+    return {"virtualization_details": details, "license_active": licensed}
+
+
 def main() -> int:
     p=argparse.ArgumentParser()
     p.add_argument("--registry",type=pathlib.Path,default=pathlib.Path("config/compute-materialization-targets.json"))
@@ -110,7 +142,8 @@ def main() -> int:
         "windows_w1_oracle_satisfied":False,
         "target_version_requested":a.target_version,
         "name":a.name,
-        "cleanup":{"attempted":False,"vm_absent":False,"device_absent":False},
+        "cleanup":{"attempted":False,"vm_absent":False,"device_absent":False,"zvol_absent":False},
+        "preconditions":{},
         "claim_boundary":"V0 native VM/device lifecycle only; Linux guest, Firecracker and Windows 11 remain separate rungs",
     }
     ws=None
@@ -162,6 +195,19 @@ def main() -> int:
             request_id+=1
             return result
         call=_call
+
+        def wait_job(job_id: Any, label: str, timeout: float | None = None):
+            if not isinstance(job_id, int) or isinstance(job_id, bool):
+                raise ProbeError(f"{label} did not return job id: {job_id!r}")
+            deadline=time.monotonic()+(timeout if timeout is not None else a.job_timeout)
+            while time.monotonic()<deadline:
+                state=call("core.get_jobs",[[["id","=",job_id]],{"get":True}])
+                if state and state.get("state")=="SUCCESS":
+                    return state
+                if state and state.get("state") in {"FAILED","ABORTED"}:
+                    raise ProbeError(f"{label} failed: {state.get('error') or state.get('exception')}")
+                time.sleep(1)
+            raise ProbeError(f"{label} timeout")
 
         auth=call("auth.login_ex",[{
             "mechanism":"PASSWORD_PLAIN","username":"truenas_admin","password":password,
@@ -223,6 +269,34 @@ def main() -> int:
             rows=call("virt.instance.query",[[["id","=",a.name]]])
             if not rows or rows[0].get("environment",{}).get("RDTE_GENERATION")!="2":
                 raise ProbeError("legacy VM update readback failed")
+
+            choices=call("virt.device.nic_choices",["MACVLAN"])
+            if not isinstance(choices,dict) or not choices:
+                raise ProbeError(f"no observed MACVLAN parent choices for legacy VM: {choices!r}")
+            parents=sorted(choices)
+            nic_name=f"{a.name}-nic"
+            nic=legacy_owned_nic(nic_name,parents[0])
+            receipt["desired_device"]=nic
+            if call("virt.instance.device_add",[a.name,nic]) is not True:
+                raise ProbeError("legacy VM device_add did not return true")
+            devices=call("virt.instance.device_list",[a.name])
+            observed_nic=next((d for d in devices if d.get("name")==nic_name),None) if isinstance(devices,list) else None
+            if not observed_nic or observed_nic.get("dev_type")!="NIC" or observed_nic.get("parent")!=parents[0]:
+                raise ProbeError(f"legacy owned NIC readback failed: {observed_nic!r}")
+            updated_nic=legacy_owned_nic(nic_name,parents[-1])
+            if call("virt.instance.device_update",[a.name,updated_nic]) is not True:
+                raise ProbeError("legacy VM device_update did not return true")
+            devices=call("virt.instance.device_list",[a.name])
+            observed_nic=next((d for d in devices if d.get("name")==nic_name),None) if isinstance(devices,list) else None
+            if not observed_nic or observed_nic.get("parent")!=parents[-1]:
+                raise ProbeError(f"legacy owned NIC update readback failed: {observed_nic!r}")
+            if call("virt.instance.device_delete",[a.name,nic_name]) is not True:
+                raise ProbeError("legacy VM device_delete did not return true")
+            devices=call("virt.instance.device_list",[a.name])
+            if isinstance(devices,list) and any(d.get("name")==nic_name for d in devices):
+                raise ProbeError("legacy owned NIC remained after delete")
+            receipt["cleanup"]["device_absent"]=True
+
             djob=call("virt.instance.delete",[a.name])
             if not isinstance(djob,int) or isinstance(djob,bool):
                 raise ProbeError(f"virt.instance.delete did not return job id: {djob!r}")
@@ -235,13 +309,21 @@ def main() -> int:
                     raise ProbeError(f"legacy VM delete failed: {state.get('error') or state.get('exception')}")
                 time.sleep(1)
             rows=call("virt.instance.query",[[["id","=",a.name]]])
-            receipt["cleanup"]={"attempted":True,"vm_absent":not rows,"device_absent":True}
+            receipt["cleanup"].update({"attempted":True,"vm_absent":not rows,"device_absent":True,"zvol_absent":True})
             if rows:
                 raise ProbeError("legacy VM remained after delete")
         elif adapter_id=="truenas-vm-libvirt":
+            details=call("vm.virtualization_details",[])
+            licensed=call("vm.license_active",[])
+            receipt["preconditions"]=validate_modern_preconditions(details,licensed)
             rows=call("vm.query",[[["name","=",a.name]]])
             if rows:
                 raise ProbeError(f"preexisting VM {a.name!r} blocks ownership-safe apply")
+            if not a.zvol_name:
+                raise ProbeError("native VM V0 requires --zvol-name for ownership-bound device test")
+            if call("pool.dataset.query",[[["id","=",a.zvol_name]]]):
+                raise ProbeError(f"preexisting ZVOL {a.zvol_name!r} blocks ownership-safe apply")
+            receipt["preconditions"]["zvol_preexisting"]=False
             payload=native_vm_create_payload(a.name,1)
             receipt["desired_create"]=payload
             created=call("vm.create",[payload])
@@ -256,8 +338,6 @@ def main() -> int:
             if not rows or "generation 2" not in rows[0].get("description",""):
                 raise ProbeError("native VM update readback failed")
 
-            if not a.zvol_name:
-                raise ProbeError("native VM V0 requires --zvol-name for ownership-bound device test")
             device_payload=owned_zvol_device(vm_id,a.zvol_name,a.zvol_size_bytes)
             receipt["desired_device"]=device_payload
             device=call("vm.device.create",[device_payload])
@@ -265,8 +345,12 @@ def main() -> int:
                 raise ProbeError(f"vm.device.create readback invalid: {device!r}")
             device_id=device["id"]
             devices=call("vm.device.query",[[["id","=",device_id],["vm","=",vm_id]]])
-            if not devices or devices[0].get("attributes",{}).get("zvol_name")!=a.zvol_name:
-                raise ProbeError("owned ZVOL device readback failed")
+            expected_path=zvol_device_path(a.zvol_name)
+            if not devices or devices[0].get("attributes",{}).get("path")!=expected_path:
+                raise ProbeError(f"owned ZVOL device readback failed: expected path {expected_path!r}, got {devices!r}")
+            if not call("pool.dataset.query",[[["id","=",a.zvol_name]]]):
+                raise ProbeError("owned ZVOL dataset was not independently observable after device create")
+            receipt["owned_zvol_path"]=expected_path
             call("vm.device.update",[device_id,{"order":900}])
             devices=call("vm.device.query",[[["id","=",device_id]]])
             if not devices or devices[0].get("order")!=900:
@@ -275,7 +359,10 @@ def main() -> int:
             devices=call("vm.device.query",[[["id","=",device_id]]])
             if devices:
                 raise ProbeError("VM device remained after owned ZVOL deletion")
+            if call("pool.dataset.query",[[["id","=",a.zvol_name]]]):
+                raise ProbeError("owned ZVOL dataset remained after vm.device.delete(zvol=true)")
             receipt["cleanup"]["device_absent"]=True
+            receipt["cleanup"]["zvol_absent"]=True
             call("vm.delete",[vm_id,{"zvols":False,"force":True}])
             rows=call("vm.query",[[["id","=",vm_id]]])
             receipt["cleanup"].update({"attempted":True,"vm_absent":not rows})
@@ -294,9 +381,43 @@ def main() -> int:
         return emit()
     except (ProbeError,ContractError,OSError,RuntimeError,ValueError) as exc:
         receipt["detail"]=f"{type(exc).__name__}: {exc}"
-        receipt["cleanup"]["attempted"]=bool(a.apply)
-        # Do not perform speculative blind cleanup here. Runtime integration must wrap this V0
-        # probe in an experiment-owned target and reconcile exact observed IDs before retry.
+        if a.apply and call is not None and adapter_id is not None:
+            receipt["cleanup"]["attempted"]=True
+            cleanup_errors=[]
+            try:
+                if adapter_id=="truenas-vm-libvirt":
+                    if device_id is not None:
+                        devices=call("vm.device.query",[[["id","=",device_id]]])
+                        if devices:
+                            call("vm.device.delete",[device_id,{"force":True,"zvol":True,"raw_file":False}])
+                        receipt["cleanup"]["device_absent"]=not call("vm.device.query",[[["id","=",device_id]]])
+                    if vm_id is not None:
+                        rows=call("vm.query",[[["id","=",vm_id]]])
+                        if rows:
+                            call("vm.delete",[vm_id,{"zvols":False,"force":True}])
+                        receipt["cleanup"]["vm_absent"]=not call("vm.query",[[["id","=",vm_id]]])
+                    if a.zvol_name:
+                        receipt["cleanup"]["zvol_absent"]=not bool(
+                            call("pool.dataset.query",[[["id","=",a.zvol_name]]])
+                        )
+                elif adapter_id=="truenas-virt-incus-vm":
+                    nic_name=f"{a.name}-nic"
+                    rows=call("virt.instance.query",[[["id","=",a.name]]])
+                    if rows:
+                        devices=call("virt.instance.device_list",[a.name])
+                        if isinstance(devices,list) and any(d.get("name")==nic_name for d in devices):
+                            call("virt.instance.device_delete",[a.name,nic_name])
+                        receipt["cleanup"]["device_absent"]=not any(
+                            d.get("name")==nic_name for d in call("virt.instance.device_list",[a.name])
+                        )
+                        djob=call("virt.instance.delete",[a.name])
+                        wait_job(djob,"failure cleanup legacy VM delete",min(a.job_timeout,120.0))
+                    receipt["cleanup"]["vm_absent"]=not bool(call("virt.instance.query",[[["id","=",a.name]]]))
+                    receipt["cleanup"]["zvol_absent"]=True
+            except Exception as cleanup_exc:
+                cleanup_errors.append(f"{type(cleanup_exc).__name__}: {cleanup_exc}")
+            if cleanup_errors:
+                receipt["cleanup"]["errors"]=cleanup_errors
         return emit()
     finally:
         if ws is not None:
