@@ -81,6 +81,80 @@ def build_create_payload(
     raise ProbeError(f"unsupported container adapter: {adapter_id}")
 
 
+def resolve_image_identity(
+    adapter: dict[str, Any],
+    call,
+    *,
+    legacy_image: str | None = None,
+    image_name: str | None = None,
+    image_version: str | None = None,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    adapter_id = adapter.get("id")
+    discovery = adapter.get("image_discovery")
+    if not isinstance(discovery, dict):
+        raise ProbeError(f"{adapter_id}: image discovery contract missing")
+    method = discovery.get("method")
+    selection = discovery.get("selection")
+    if not isinstance(method, str) or not isinstance(selection, dict):
+        raise ProbeError(f"{adapter_id}: invalid image discovery contract")
+
+    if adapter_id == "truenas-virt-incus-container":
+        request = discovery.get("request")
+        if not isinstance(request, dict):
+            raise ProbeError("legacy image discovery request missing")
+        choices = call(method, [request])
+        if not isinstance(choices, dict):
+            raise ProbeError(f"legacy image choices invalid: {choices!r}")
+        alias = selection.get("alias")
+        if not isinstance(alias, str) or not alias:
+            raise ProbeError("legacy image alias contract missing")
+        if legacy_image is not None and legacy_image != alias:
+            raise ProbeError(f"explicit legacy image {legacy_image!r} does not match admitted alias {alias!r}")
+        observed = choices.get(alias)
+        if not isinstance(observed, dict):
+            raise ProbeError(f"admitted legacy image alias unavailable: {alias!r}")
+        if selection.get("instance_type") not in set(observed.get("instance_types") or []):
+            raise ProbeError(f"legacy image lacks required instance type: {observed!r}")
+        if selection.get("arch") not in set(observed.get("archs") or []):
+            raise ProbeError(f"legacy image lacks required architecture: {observed!r}")
+        return {"legacy_image": alias}, {
+            "method": method,
+            "source": discovery.get("source"),
+            "selected": {"alias": alias},
+            "observed": observed,
+        }
+
+    if adapter_id == "truenas-container-lxc":
+        rows = call(method, [])
+        if not isinstance(rows, list):
+            raise ProbeError(f"container image registry response invalid: {rows!r}")
+        name = selection.get("name")
+        if not isinstance(name, str) or not name:
+            raise ProbeError("LXC image name contract missing")
+        if image_name is not None and image_name != name:
+            raise ProbeError(f"explicit image name {image_name!r} does not match admitted name {name!r}")
+        observed = next((x for x in rows if isinstance(x, dict) and x.get("name") == name), None)
+        if not isinstance(observed, dict):
+            raise ProbeError(f"admitted LXC image name unavailable: {name!r}")
+        versions = [
+            x.get("version") for x in (observed.get("versions") or [])
+            if isinstance(x, dict) and isinstance(x.get("version"), str) and x.get("version")
+        ]
+        if not versions:
+            raise ProbeError(f"admitted LXC image has no exact versions: {observed!r}")
+        chosen = image_version or versions[-1]
+        if chosen not in versions:
+            raise ProbeError(f"requested LXC image version {chosen!r} not returned by registry")
+        return {"image_name": name, "image_version": chosen}, {
+            "method": method,
+            "source": discovery.get("source"),
+            "selected": {"name": name, "version": chosen},
+            "available_versions": versions,
+        }
+
+    raise ProbeError(f"unsupported container adapter for image discovery: {adapter_id}")
+
+
 def update_payload(adapter_id: str, nonce: str) -> dict[str, Any]:
     if adapter_id == "truenas-virt-incus-container":
         return {"environment": {"RDTE_NONCE": nonce, "RDTE_GENERATION": "2"}}
@@ -223,10 +297,14 @@ def main() -> int:
         adapter_id = adapter["id"]
         receipt["adapter"] = adapter
 
+        resolved_image, image_resolution = resolve_image_identity(
+            adapter, call,
+            legacy_image=a.legacy_image, image_name=a.image_name, image_version=a.image_version,
+        )
+        receipt["image_resolution"] = image_resolution
         create_payload = build_create_payload(
             adapter_id, a.name, a.nonce,
-            legacy_image=a.legacy_image, image_name=a.image_name,
-            image_version=a.image_version, pool=a.pool,
+            pool=a.pool, **resolved_image,
         )
         receipt["desired_create"] = create_payload
 

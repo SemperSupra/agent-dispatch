@@ -6,6 +6,7 @@ from scripts.truenas_compute_container_probe import (
     method_shapes,
     normalize_system_version,
     observed_state,
+    resolve_image_identity,
     update_payload,
 )
 
@@ -55,6 +56,47 @@ class ContainerProbeContractTests(unittest.TestCase):
             update_payload("truenas-container-lxc", "n")["initenv"]["RDTE_GENERATION"],
             "2",
         )
+
+    def test_legacy_image_resolution_requires_exact_admitted_alias(self):
+        adapter = {
+            "id": "truenas-virt-incus-container",
+            "image_discovery": {
+                "method": "virt.instance.image_choices",
+                "request": {"remote": "LINUX_CONTAINERS"},
+                "source": "https://images.linuxcontainers.org",
+                "selection": {"alias": "debian/trixie", "instance_type": "CONTAINER", "arch": "amd64"},
+            },
+        }
+        def call(method, params):
+            self.assertEqual(method, "virt.instance.image_choices")
+            self.assertEqual(params, [{"remote": "LINUX_CONTAINERS"}])
+            return {"debian/trixie": {"instance_types": ["CONTAINER", "VM"], "archs": ["amd64"]}}
+        resolved, evidence = resolve_image_identity(adapter, call)
+        self.assertEqual(resolved, {"legacy_image": "debian/trixie"})
+        self.assertEqual(evidence["selected"]["alias"], "debian/trixie")
+
+    def test_lxc_image_resolution_retains_exact_returned_version(self):
+        adapter = {
+            "id": "truenas-container-lxc",
+            "image_discovery": {
+                "method": "container.image.query_registry",
+                "source": "https://images.sys.truenas.net/streams",
+                "selection": {"name": "ubuntu:noble:amd64:default", "version_policy": "last-returned-exact"},
+            },
+        }
+        def call(method, params):
+            self.assertEqual(method, "container.image.query_registry")
+            self.assertEqual(params, [])
+            return [{
+                "name": "ubuntu:noble:amd64:default",
+                "versions": [{"version": "20261001"}, {"version": "20261005"}],
+            }]
+        resolved, evidence = resolve_image_identity(adapter, call)
+        self.assertEqual(resolved, {
+            "image_name": "ubuntu:noble:amd64:default",
+            "image_version": "20261005",
+        })
+        self.assertEqual(evidence["selected"]["version"], "20261005")
 
     def test_state_normalizes_legacy_and_lxc(self):
         self.assertEqual(observed_state({"status": "RUNNING"}), "RUNNING")

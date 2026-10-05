@@ -16,7 +16,12 @@ def registry():
                         "container_adapters": [{
                             "id": "truenas-virt-incus-container",
                             "source_api_family": "v25_04_0",
-                            "required_methods": ["virt.instance.query", "virt.instance.create"],
+                            "required_methods": ["virt.instance.query", "virt.instance.create", "virt.instance.image_choices"],
+                            "image_discovery": {
+                                "method": "virt.instance.image_choices",
+                                "source": "https://images.linuxcontainers.org",
+                                "selection": {"alias": "debian/trixie"},
+                            },
                             "restart_semantics": "native",
                         }],
                         "vm_adapters": [{
@@ -32,7 +37,12 @@ def registry():
                         "container_adapters": [{
                             "id": "truenas-container-lxc",
                             "source_api_family": "v26_0_0",
-                            "required_methods": ["container.query", "container.create"],
+                            "required_methods": ["container.query", "container.create", "container.image.query_registry"],
+                            "image_discovery": {
+                                "method": "container.image.query_registry",
+                                "source": "https://images.sys.truenas.net/streams",
+                                "selection": {"name": "ubuntu:noble:amd64:default"},
+                            },
                             "restart_semantics": "compose-stop-start",
                         }],
                         "vm_adapters": [{
@@ -81,17 +91,23 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             validate(data)
 
+    def test_missing_container_image_discovery_fails_closed(self):
+        data = registry()
+        del data["platforms"]["truenas"]["targets"][0]["container_adapters"][0]["image_discovery"]
+        with self.assertRaises(ContractError):
+            validate(data)
+
     def test_2504_selects_legacy_incus_container(self):
         a = choose_adapter(
             registry(), "truenas", "25.04.1", "container",
-            {"virt.instance.query", "virt.instance.create"},
+            {"virt.instance.query", "virt.instance.create", "virt.instance.image_choices"},
         )
         self.assertEqual(a["id"], "truenas-virt-incus-container")
 
     def test_26_selects_lxc_container(self):
         a = choose_adapter(
             registry(), "truenas", "26.0.0-BETA.3", "container",
-            {"container.query", "container.create"},
+            {"container.query", "container.create", "container.image.query_registry"},
         )
         self.assertEqual(a["id"], "truenas-container-lxc")
         self.assertIn("stop+start", semantic_plan("container", a))

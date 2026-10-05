@@ -34,11 +34,24 @@
                 "virt.instance.delete",
                 "virt.instance.start",
                 "virt.instance.stop",
-                "virt.instance.restart"
+                "virt.instance.restart",
+                "virt.instance.image_choices"
               ],
               "guest_oracle": "virt.instance.get_shell-or-instance-network",
               "restart_semantics": "native",
-              "source_api_family": "v25_04_0"
+              "source_api_family": "v25_04_0",
+              "image_discovery": {
+                "method": "virt.instance.image_choices",
+                "request": {
+                  "remote": "LINUX_CONTAINERS"
+                },
+                "source": "https://images.linuxcontainers.org",
+                "selection": {
+                  "alias": "debian/trixie",
+                  "instance_type": "CONTAINER",
+                  "arch": "amd64"
+                }
+              }
             }
           ],
           "vm_adapters": [
@@ -103,11 +116,24 @@
                 "virt.instance.delete",
                 "virt.instance.start",
                 "virt.instance.stop",
-                "virt.instance.restart"
+                "virt.instance.restart",
+                "virt.instance.image_choices"
               ],
               "guest_oracle": "virt.instance.get_shell-or-instance-network",
               "restart_semantics": "native",
-              "source_api_family": "v25_04_2"
+              "source_api_family": "v25_04_2",
+              "image_discovery": {
+                "method": "virt.instance.image_choices",
+                "request": {
+                  "remote": "LINUX_CONTAINERS"
+                },
+                "source": "https://images.linuxcontainers.org",
+                "selection": {
+                  "alias": "debian/trixie",
+                  "instance_type": "CONTAINER",
+                  "arch": "amd64"
+                }
+              }
             }
           ],
           "vm_adapters": [
@@ -211,11 +237,24 @@
                 "virt.instance.delete",
                 "virt.instance.start",
                 "virt.instance.stop",
-                "virt.instance.restart"
+                "virt.instance.restart",
+                "virt.instance.image_choices"
               ],
               "guest_oracle": "virt.instance.get_shell-or-instance-network",
               "restart_semantics": "native",
-              "source_api_family": "v25_10_0"
+              "source_api_family": "v25_10_0",
+              "image_discovery": {
+                "method": "virt.instance.image_choices",
+                "request": {
+                  "remote": "LINUX_CONTAINERS"
+                },
+                "source": "https://images.linuxcontainers.org",
+                "selection": {
+                  "alias": "debian/trixie",
+                  "instance_type": "CONTAINER",
+                  "arch": "amd64"
+                }
+              }
             }
           ],
           "vm_adapters": [
@@ -307,7 +346,8 @@
             "vm.vms": "43ed4b532b40da02ad885039d954c99a93ea22ed",
             "vm.lifecycle": "b313e2eeb0baa0179ab9244fc244eee9b02e02e9",
             "vm.device": "b0f313b060ffec4cf08ec2e44c706bafc5121830",
-            "vm.info": "7a3dd519a011ae0cceeaa2e32dca7f37210a8f22"
+            "vm.info": "7a3dd519a011ae0cceeaa2e32dca7f37210a8f22",
+            "container.image": "43f01e991ceaacd46ca2292cc8cc6d460dc3dc7b"
           },
           "container_adapters": [
             {
@@ -318,12 +358,21 @@
                 "container.update",
                 "container.delete",
                 "container.start",
-                "container.stop"
+                "container.stop",
+                "container.image.query_registry"
               ],
               "guest_oracle": "supported-shell/namespace-or-instance-network",
               "restart_semantics": "compose-stop-start",
               "implementation_family": "lxc",
-              "source_api_family": "v26_0_0"
+              "source_api_family": "v26_0_0",
+              "image_discovery": {
+                "method": "container.image.query_registry",
+                "source": "https://images.sys.truenas.net/streams",
+                "selection": {
+                  "name": "ubuntu:noble:amd64:default",
+                  "version_policy": "last-returned-exact"
+                }
+              }
             }
           ],
           "vm_adapters": [
@@ -370,6 +419,10 @@
             "vm_device": {
               "path": "src/middlewared/middlewared/api/v26_0_0/vm_device.py",
               "blob_sha": "67603b6e2048da6235b802f970559b627857efc9"
+            },
+            "container_image": {
+              "path": "src/middlewared/middlewared/api/v26_0_0/container_image.py",
+              "blob_sha": "a8eec804213c011b334ab0ddc9c9a37003a35a31"
             }
           }
         }
