@@ -8,6 +8,7 @@ from scripts.truenas_compute_vm_probe import (
     normalize_system_version,
     owned_zvol_device,
     validate_modern_preconditions,
+    validate_public_modern_preconditions,
     zvol_device_path,
 )
 
@@ -69,6 +70,24 @@ class VmProbeContractTests(unittest.TestCase):
             validate_modern_preconditions({"supported":True,"error":None},False)
         with self.assertRaises(ProbeError):
             validate_modern_preconditions({},True)
+
+    def test_beta3_public_entitlement_path_never_needs_private_license_method(self):
+        community=validate_public_modern_preconditions(
+            {"supported":True,"error":None},"COMMUNITY_EDITION",None
+        )
+        self.assertEqual(community["product_type"],"COMMUNITY_EDITION")
+        enterprise=validate_public_modern_preconditions(
+            {"supported":True,"error":None},"ENTERPRISE",True
+        )
+        self.assertTrue(enterprise["enterprise_vm_feature_enabled"])
+        with self.assertRaises(ProbeError):
+            validate_public_modern_preconditions(
+                {"supported":True,"error":None},"ENTERPRISE",False
+            )
+        with self.assertRaises(ProbeError):
+            validate_public_modern_preconditions(
+                {"supported":False,"error":"no kvm"},"COMMUNITY_EDITION",None
+            )
 
 
 if __name__=="__main__":
