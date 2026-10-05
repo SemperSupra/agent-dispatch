@@ -61,7 +61,7 @@ func TestParsePacket(t *testing.T) {
     appendRR(queryName, 12, encodeName("FolioRelay._ipp._tcp.local"))
     txt := []byte{}
     for _, s := range []string{
-        "UUID=urn:uuid:01234567-89ab-4def-8123-456789abcdef",
+        "UUID=01234567-89ab-4def-8123-456789abcdef",
         "rp=printers/FolioRelay",
         "pdl=application/pdf,image/urf",
     } {
