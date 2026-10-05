@@ -305,6 +305,9 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("needs.changes.outputs.truenas_version", text)
         self.assertIn("needs.changes.outputs.truenas_rung", text)
         self.assertIn("config/truenas-rdte-run-request.json", text)
+        self.assertIn("config/proxmox-rdte-run-request.json", text)
+        self.assertIn("gha-kvm-proxmox-run-request/v1", text)
+        self.assertIn("refusing stale Proxmox request replay", text)
         self.assertIn(
             'if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then',
             text,
@@ -323,6 +326,8 @@ class SystemRdteContractTests(unittest.TestCase):
             "done < <(git diff --name-only", 1
         )[0]
         self.assertIn("config/truenas-rdte-run-request.json)", routing)
+        self.assertIn("config/proxmox-rdte-run-request.json)", routing)
+        self.assertNotIn("scripts/gha_kvm_proxmox_rdte.sh)", routing)
         for stale_replay_source in (
             "scripts/gha_kvm_truenas_rdte.sh",
             "scripts/truenas_installer_rpc_probe.py",
