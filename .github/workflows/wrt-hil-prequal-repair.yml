@@ -1,0 +1,58 @@
+name: WRT3200ACM Pre-HIL Twin Repair
+
+on:
+  push:
+    branches:
+      - wrt-hil-prequal-20261005
+    paths:
+      - '.github/waves/wrt-hil-prequal-repair-trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  ubuntu-prequal-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download physical-target CP0 package evidence
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37273250460
+          name: wrt-easymesh-cp0-openwrt-stock-1
+          path: cp0
+          github-token: ${{ github.token }}
+
+      - name: Download x86 E2 prplMesh package
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37288725640
+          name: wrt-easymesh-e2-qemu-1
+          path: e2
+          github-token: ${{ github.token }}
+
+      - name: Requalify USB plus repaired DUT twins
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-prehil-out"
+          bash tools/wrt_hil_prequal/run_prequal.sh "$GITHUB_WORKSPACE/cp0" "$GITHUB_WORKSPACE/e2" "$RUNNER_TEMP/wrt-prehil-out"
+          cat "$RUNNER_TEMP/wrt-prehil-out/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import json, os
+          p=os.path.join(os.environ["RUNNER_TEMP"],"wrt-prehil-out","verdict.json")
+          v=json.load(open(p))
+          if not v.get("passed"): raise SystemExit("semantic pre-HIL verdict RED")
+          PY
+
+      - name: Upload repair evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-prehil-repair-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-prehil-out
+          if-no-files-found: error
+          retention-days: 14
