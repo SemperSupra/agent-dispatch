@@ -64,6 +64,11 @@ jobs:
             go build -trimpath -ldflags='-s -w -buildid=' \
             -o "$work/foliorelay-observer" ./tools/foliorelay-observer
           test "$(stat -c%s "$work/foliorelay-observer")" -le 6291456
+          readelf -l "$work/foliorelay-observer" | tee "$RUNNER_TEMP/foliorelay-observer-elf.txt"
+          if grep -q 'INTERP' "$RUNNER_TEMP/foliorelay-observer-elf.txt"; then
+            echo "observer binary unexpectedly has a dynamic interpreter" >&2
+            exit 1
+          fi
           port="$(python3 - <<'PY'
           import socket
           s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
