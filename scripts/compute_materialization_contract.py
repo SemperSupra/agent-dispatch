@@ -50,6 +50,17 @@ def validate_adapter(adapter: dict[str, Any], platform: str, kind: str) -> None:
         methods = adapter.get("required_methods")
         if not isinstance(methods, list) or not methods or any(not isinstance(x, str) or "." not in x for x in methods):
             raise ContractError(f"{adapter['id']}: required_methods invalid")
+        if kind == "container":
+            discovery = adapter.get("image_discovery")
+            if not isinstance(discovery, dict):
+                raise ContractError(f"{adapter['id']}: image_discovery missing")
+            method = discovery.get("method")
+            if not isinstance(method, str) or method not in methods:
+                raise ContractError(f"{adapter['id']}: image_discovery method must be required")
+            if not isinstance(discovery.get("source"), str) or not discovery["source"].startswith("https://"):
+                raise ContractError(f"{adapter['id']}: image_discovery source invalid")
+            if not isinstance(discovery.get("selection"), dict) or not discovery["selection"]:
+                raise ContractError(f"{adapter['id']}: image_discovery selection missing")
     elif platform == "proxmox":
         templates = adapter.get("required_api_templates")
         if not isinstance(templates, list) or not templates or any(not isinstance(x, str) or " /" not in x for x in templates):
