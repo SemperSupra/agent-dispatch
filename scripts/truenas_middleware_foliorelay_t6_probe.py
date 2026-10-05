@@ -385,10 +385,10 @@ def main():
     p.add_argument("--password-file",required=True); p.add_argument("--control-dir",type=pathlib.Path,required=True); p.add_argument("--foundry-commit",required=True)
     p.add_argument("--observer-bin",type=pathlib.Path,required=True)
     p.add_argument("--out",required=True); p.add_argument("--tls",action="store_true"); p.add_argument("--timeout",type=float,default=8); p.add_argument("--job-timeout",type=float,default=300); p.add_argument("--state-timeout",type=float,default=300)
+    a=p.parse_args()
     if not a.observer_bin.is_file(): p.error("--observer-bin must name the built static observer")
     observer_bytes=a.observer_bin.read_bytes()
     if not observer_bytes or len(observer_bytes)>6291456: p.error("--observer-bin must be non-empty and <=6 MiB")
-    a=p.parse_args()
     started=time.time(); ws=None; dataset_owned=False; app_created=False; observer_created=False
     payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":EXPECTED_VERSION,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
     try:
