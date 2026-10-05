@@ -34,6 +34,7 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             'dnssd_uuid_match', 'restart_preserved_identity_and_inbox',
             'app.update', 'app.redeploy', 'replan_action', '"NOOP"',
             'update_redeploy_preserved_identity_and_inbox',
+            'second_plan_noop', 'retain_data_reinstall',
         ):
             self.assertIn(needle, text)
         observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
@@ -42,6 +43,33 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertNotIn("avahi-publish-service", text)
         self.assertNotIn("/run/dbus", text)
         self.assertNotIn("/var/run/docker.sock", text)
+
+    def test_f4_reconciliation_policy_and_f5_retention_contract(self):
+        exact={"services":{"control":{"image":"sha256:exact"}}}
+        drift={"services":{"control":{"image":"sha256:drift"}}}
+        self.assertEqual(MOD.reconciliation_action(None,None,exact),"CREATE")
+        self.assertEqual(MOD.reconciliation_action("DEPLOYING",None,exact),"WAIT")
+        self.assertEqual(MOD.reconciliation_action("STOPPING",None,exact),"WAIT")
+        self.assertEqual(MOD.reconciliation_action("CRASHED",exact,exact),"FAIL_CLOSED")
+        self.assertEqual(MOD.reconciliation_action("ERROR",exact,exact),"FAIL_CLOSED")
+        self.assertEqual(MOD.reconciliation_action("RUNNING",exact,exact),"NOOP")
+        self.assertEqual(MOD.reconciliation_action("STOPPED",exact,exact),"NOOP")
+        self.assertEqual(MOD.reconciliation_action("RUNNING",drift,exact),"UPDATE")
+
+        text = SCRIPT.read_text(encoding="utf-8")
+        for needle in (
+            'second_plan_action=reconciliation_action',
+            'second-plan reconciliation was',
+            '"inflight_policy":"WAIT"',
+            '"ambiguous_policy":"FAIL_CLOSED"',
+            '"retain_data_reinstall":True',
+            '"RETAIN_EXTERNAL_DATASET_ON_APP_DELETE_THEN_EXPLICIT_FIXTURE_CLEANUP"',
+            'external fixture dataset was not retained across App delete',
+            'identity or Inbox drifted after retain-data reinstall',
+            'retained artifact bytes drifted after reinstall',
+            'post-reinstall reconciliation was',
+        ):
+            self.assertIn(needle, text)
 
     def test_observer_is_separate_host_network_app(self):
         text = SCRIPT.read_text(encoding="utf-8")
