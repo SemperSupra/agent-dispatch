@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sempersupra.local/rdte/wrt-r1-device.schema.json",
+  "title": "WRT R1 read-only device descriptor",
+  "type": "object",
+  "required": [
+    "schema",
+    "adapter",
+    "boot",
+    "partitions",
+    "protected_or_unknown",
+    "write_authority",
+    "ready_for_r2"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rdte-wrt-r1-device-descriptor/v1"
+    },
+    "adapter": {
+      "const": "wrt-linksys-dual-nand/v1"
+    },
+    "board": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "boot": {
+      "type": "object",
+      "required": [
+        "boot_part",
+        "bootcount",
+        "bootlimit"
+      ],
+      "properties": {
+        "boot_part": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bootcount": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bootlimit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "partitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "device",
+          "size_bytes",
+          "erase_bytes",
+          "name",
+          "classification"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "erase_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "classification": {
+            "enum": [
+              "protected",
+              "candidate-firmware-slot",
+              "shared-state",
+              "unknown"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "protected_or_unknown": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "write_authority": {
+      "const": "DENIED_R1_READ_ONLY"
+    },
+    "ready_for_r2": {
+      "type": "boolean"
+    },
+    "source_evidence": {
+      "type": "string"
+    },
+    "r1_inventory_minimum_complete": {
+      "type": "boolean"
+    },
+    "r2_admission": {
+      "type": "object",
+      "required": [
+        "state",
+        "missing"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "BLOCKED_REQUIRES_EXTERNAL_PRECONDITIONS",
+            "ADMITTED_FOR_PLAN_ONLY"
+          ]
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
