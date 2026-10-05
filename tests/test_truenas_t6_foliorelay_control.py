@@ -188,6 +188,7 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('pdl=application/pdf,image/urf', observer.lower())
         self.assertIn('"dnssd_public_uri_match":True', text)
         self.assertIn('"service_instance"', observer)
+        self.assertIn('"service_instance":observed.get("service_instance")', text)
         self.assertIn('matchObservation', observer)
         self.assertIn('o.txtByOwner[owner]', observer)
         self.assertIn('o.srvByOwner[owner]', observer)
