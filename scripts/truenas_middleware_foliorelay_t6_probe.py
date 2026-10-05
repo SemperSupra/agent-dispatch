@@ -44,6 +44,17 @@ OBSERVER_LOG_CAPTURE_SECONDS = 2.0
 def canonical_sha256(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
+def reconciliation_action(app_state, live_compose, desired_compose):
+    if app_state is None:
+        return "CREATE"
+    if app_state in {"DEPLOYING","STOPPING"}:
+        return "WAIT"
+    if app_state not in {"RUNNING","STOPPED"}:
+        return "FAIL_CLOSED"
+    if not isinstance(live_compose, dict):
+        return "FAIL_CLOSED"
+    return "NOOP" if canonical_sha256(live_compose)==canonical_sha256(desired_compose) else "UPDATE"
+
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
