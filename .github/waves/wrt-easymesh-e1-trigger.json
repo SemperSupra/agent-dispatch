@@ -1,14 +1,14 @@
 {
   "schema": "wrt-easymesh-e1-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 8,
-  "reason": "Diagnosed semantic retry: association was proven, but prior harness terminated wpa_supplicant before AP station-dump, erasing the station oracle. Observe station/survey before disconnect.",
+  "attempt": 9,
+  "reason": "Diagnosed semantic retry: preserve guest-side 20s association bound and station-before-disconnect oracle; extend only the outer QEMU TCG allowance from 80s to 130s.",
   "prior_gate": {
     "e0_run": 37287285078,
     "e0_artifact": 11335470679,
     "e0_passed_control_plane": true
   },
-  "resource_policy": "One exact diagnosed semantic retry. Survey remains supporting-only; station presence is the acceptance oracle.",
-  "prior_run": 37295045390,
+  "resource_policy": "Fresh bounded wave: one diagnosed E1 retry only; survey/ping remain supporting-only.",
+  "prior_run": 37297504341,
   "e2_green_run": 37288725640
 }
