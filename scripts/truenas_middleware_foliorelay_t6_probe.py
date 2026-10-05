@@ -594,7 +594,7 @@ def main():
             "classification":"SUPPORTED","oracleSatisfied":True,
             "identity":{"printer_uuid":uuid,"public_uri":PUBLIC_URI,"control_cups_uuid_match":True,"dnssd_uuid_match":True,"dnssd_public_uri_match":True},
             "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP"},
-            "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True,"srv_target":PUBLIC_HOST,"srv_port":PUBLIC_IPP_PORT,"resource_path":PUBLIC_RESOURCE_PATH},
+            "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True,"service_instance":observed.get("service_instance"),"srv_target":PUBLIC_HOST,"srv_port":PUBLIC_IPP_PORT,"resource_path":PUBLIC_RESOURCE_PATH},
             "cleanup":{"apps_absent":True,"fixture_dataset_absent":True,"fixture_mountpoint_absent":True,"zero_residue":True},
             "producer_gate":{"replan_noop_required":True,"runtime_does_not_reconstruct_foundry_control":True},
             "detail":"exact Foundry-exported FolioRelay control realized on TrueNAS; exact three-service identity, portal/IPP, PDF+URF source preservation, independent in-guest DNS-SD observation, restart persistence, and zero-residue cleanup passed"
