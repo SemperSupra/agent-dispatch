@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          carrier='hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8'
+          carrier='docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8'
           work="$RUNNER_TEMP/foliorelay-observer-smoke"
           rm -rf "$work"
           mkdir -p "$work"
