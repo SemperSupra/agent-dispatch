@@ -50,6 +50,41 @@ jobs:
         with:
           name: foliorelay-t6-beta3-control
           path: ${{ runner.temp }}/foliorelay-control
+      - name: Inventory exact observer image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c'
+          docker pull "$image" >/dev/null
+          {
+            echo '== image inspect =='
+            docker image inspect "$image" --format '{{json .}}'
+            echo '== image history =='
+            docker history --no-trunc --format '{{json .}}' "$image"
+            echo '== rootfs inventory =='
+            docker run --rm --entrypoint sh "$image" -lc '
+              set -eu
+              echo "## os-release"
+              cat /etc/os-release 2>/dev/null || true
+              echo "## runtime"
+              uname -m 2>/dev/null || true
+              python3 --version 2>/dev/null || true
+              echo "## top-level sizes"
+              du -x -h -d 1 / 2>/dev/null | sort -h || true
+              echo "## /usr sizes"
+              du -x -h -d 1 /usr 2>/dev/null | sort -h || true
+              echo "## /opt sizes"
+              du -x -h -d 2 /opt 2>/dev/null | sort -h | tail -80 || true
+              echo "## /app sizes"
+              du -x -h -d 2 /app 2>/dev/null | sort -h | tail -80 || true
+              echo "## largest files"
+              find / -xdev -type f -printf "%s\t%p\n" 2>/dev/null | sort -nr | head -100 || true
+              echo "## python packages"
+              python3 -m pip list --format=freeze 2>/dev/null | sort || true
+              echo "## distro packages"
+              dpkg-query -W 2>/dev/null | sort || true
+            '
+          } | tee "$RUNNER_TEMP/foliorelay-observer-image-inventory.txt"
       - name: Smoke exact independent DNS-SD observer container
         shell: bash
         run: |
