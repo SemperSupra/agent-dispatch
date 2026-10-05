@@ -123,7 +123,7 @@ def wait_task(api: PveApi, node: str, upid: str, timeout: float = 180.0) -> dict
                 # PVE::UPID::status_is_error() treats OK and WARNINGS: <n> as non-errors.
                 if exitstatus == "OK" or (
                     isinstance(exitstatus, str)
-                    and re.fullmatch(r"WARNINGS: \\d+", exitstatus)
+                    and re.fullmatch(r"WARNINGS: \d+", exitstatus)
                 ):
                     return data
                 raise ProxmoxProbeError(f"task failed: {data!r}")
