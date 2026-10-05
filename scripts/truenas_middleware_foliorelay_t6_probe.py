@@ -27,7 +27,7 @@ EXPECTED_APP_NAME = "rdte-t6-foliorelay"
 OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"
 EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce"
 EXPECTED_CUPS = "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f"
-OBSERVER_IMAGE = "ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c"
+OBSERVER_IMAGE = "hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8"
 DATASET = "rdtepool/foliorelay-t6"
 ROOT = "/mnt/rdtepool/foliorelay-t6"
 TOKEN_PATH = ROOT + "/secrets/control.token"
@@ -462,9 +462,14 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--host",default="127.0.0.1"); p.add_argument("--port",type=int,required=True)
     p.add_argument("--control-port",type=int,required=True); p.add_argument("--ipp-port",type=int,required=True); p.add_argument("--observer-port",type=int,required=True)
+    p.add_argument("--observer-binary",type=pathlib.Path,required=True)
     p.add_argument("--password-file",required=True); p.add_argument("--control-dir",type=pathlib.Path,required=True); p.add_argument("--foundry-commit",required=True)
     p.add_argument("--out",required=True); p.add_argument("--tls",action="store_true"); p.add_argument("--timeout",type=float,default=8); p.add_argument("--job-timeout",type=float,default=300); p.add_argument("--state-timeout",type=float,default=300)
     a=p.parse_args()
+    if not a.observer_binary.is_file():
+        raise RuntimeError("minimal observer binary is missing")
+    if a.observer_binary.stat().st_size > 6291456:
+        raise RuntimeError("minimal observer binary exceeds 6 MiB budget")
     started=time.time(); ws=None; dataset_owned=False; app_created=False; observer_created=False
     payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":EXPECTED_VERSION,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
     try:
@@ -560,8 +565,8 @@ def main():
                 if len(matches)!=1 or matches[0].get("artifact_sha256")!=sha or matches[0].get("substrate")!="cups": raise RuntimeError(f"{media} Inbox metadata drifted")
                 blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
-        sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/mdns_observer.py",OBSERVER.encode(),0o555,a.timeout); wait_job(sj,"observer upload")
-        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
+        sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/foliorelay-observer",a.observer_binary.read_bytes(),0o555,a.timeout); wait_job(sj,"observer upload")
+        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"user":"65534:65534","cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR+"/foliorelay-observer","target":"/observer/foliorelay-observer","read_only":True}],"entrypoint":["/observer/foliorelay-observer"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
         observer_created=True
