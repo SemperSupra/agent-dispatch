@@ -14,7 +14,8 @@ python3 - "$OUT/device-descriptor.json" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d["write_authority"]=="DENIED_R1_READ_ONLY"
-print(json.dumps({"ready_for_r2":bool(d.get("ready_for_r2")),
+print(json.dumps({"r1_inventory_minimum_complete":bool(d.get("r1_inventory_minimum_complete")),
+                  "ready_for_r2":bool(d.get("ready_for_r2")),
                   "write_authority":d["write_authority"],
                   "descriptor":sys.argv[1]},indent=2,sort_keys=True))
 PY
