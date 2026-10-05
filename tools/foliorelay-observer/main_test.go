@@ -86,7 +86,7 @@ func TestQualifyingRejectsCrossedIdentity(t *testing.T) {
 	base := observation{
 		universal: true,
 		txt: []string{
-			"UUID=urn:uuid:01234567-89ab-4def-8123-456789abcdef",
+			"UUID=01234567-89ab-4def-8123-456789abcdef",
 			"rp=printers/FolioRelay",
 			"pdl=application/pdf,image/urf",
 		},
@@ -100,10 +100,10 @@ func TestQualifyingRejectsCrossedIdentity(t *testing.T) {
 		host string
 		port int
 	}{
-		{"missing-universal", observation{txt: base.txt, srvTarget: base.srvTarget, srvPort: base.srvPort}, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634},
-		{"wrong-uuid", base, "urn:uuid:ffffffff-ffff-4fff-8fff-ffffffffffff", "foliorelay-t6.local", 8634},
-		{"wrong-host", base, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "other.local", 8634},
-		{"wrong-port", base, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 9999},
+		{"missing-universal", observation{txt: base.txt, srvTarget: base.srvTarget, srvPort: base.srvPort}, "01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634},
+		{"wrong-uuid", base, "ffffffff-ffff-4fff-8fff-ffffffffffff", "foliorelay-t6.local", 8634},
+		{"wrong-host", base, "01234567-89ab-4def-8123-456789abcdef", "other.local", 8634},
+		{"wrong-port", base, "01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 9999},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
