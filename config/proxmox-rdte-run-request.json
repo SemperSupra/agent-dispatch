@@ -1,9 +1,9 @@
 {
   "schema": "gha-kvm-proxmox-run-request/v1",
-  "request_id": "pve-9-2-rest-container-c0-002-official-template-transport",
+  "request_id": "pve-9-2-rest-container-c0-003-task-delete-semantics",
   "version": "9.2-1",
   "compute_fixture": "container-c0",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact Proxmox VE 9.2-1 native REST system-container C0 parity fixture after rep 001 retained healthy install/API/package census but failed before mutation because the harness used a non-canonical HTTPS transport for download.proxmox.com. Preserve exact target, REST lifecycle, template identity, SHA-512 integrity, cleanup and claim boundaries. The only causal delta is merged #294: use the exact pve-manager-declared http://download.proxmox.com/images catalog transport while retaining SHA-512 verification. Require REST materialization oracle=true, owned-resource absence and fixture-input cleanup; no guest/C1, nested-KVM, VM, Firecracker or Windows claim."
+  "purpose": "Re-run the exact Proxmox VE 9.2-1 native REST system-container C0 parity fixture after rep 002 reached REST create but the adapter incorrectly rejected Proxmox's non-error WARNINGS: N terminal task state and incorrectly sent purge=1 as DELETE request content. Preserve exact target, source-declared template transport, SHA-512 integrity, REST lifecycle, cleanup and claim boundaries. The only causal delta is merged #298: accept OK or WARNINGS: N per Proxmox task semantics and encode DELETE options as query parameters. Require REST materialization oracle=true, owned-resource absence and fixture-input cleanup; no guest/C1, nested-KVM, VM, Firecracker or Windows claim."
 }
