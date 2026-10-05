@@ -104,6 +104,26 @@ class ContractTests(unittest.TestCase):
         )
         self.assertEqual(a["id"], "truenas-virt-incus-container")
 
+    def test_beta3_vm_adapter_binds_public_entitlement_only(self):
+        adapter=choose_adapter(
+            registry(), "truenas", "26.0.0-BETA.3", "vm",
+            {
+                "vm.query","vm.create","vm.update","vm.delete","vm.status",
+                "vm.start","vm.stop","vm.restart","vm.virtualization_details",
+                "pool.dataset.query","system.product_type","system.feature_enabled",
+                "vm.device.query","vm.device.create","vm.device.update","vm.device.delete",
+            },
+        )
+        self.assertEqual(adapter["id"],"truenas-vm-libvirt")
+        self.assertEqual(adapter["public_entitlement"],{
+            "product_type_method":"system.product_type",
+            "feature_method":"system.feature_enabled",
+            "enterprise_feature":"VMS",
+        })
+        self.assertNotIn("read_only_bootstrap_methods",adapter)
+        self.assertIn("system.product_type",adapter["required_methods"])
+        self.assertIn("system.feature_enabled",adapter["required_methods"])
+
     def test_26_selects_lxc_container(self):
         a = choose_adapter(
             registry(), "truenas", "26.0.0-BETA.3", "container",
