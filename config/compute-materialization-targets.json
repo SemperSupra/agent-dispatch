@@ -389,7 +389,9 @@
                 "vm.stop",
                 "vm.restart",
                 "vm.virtualization_details",
-                "pool.dataset.query"
+                "pool.dataset.query",
+                "system.product_type",
+                "system.feature_enabled"
               ],
               "guest_oracle": "network-or-console-capability",
               "restart_semantics": "native",
@@ -402,9 +404,11 @@
                 "vm.device.delete"
               ],
               "v0_storage_ownership": "exact-owned-zvol-device",
-              "read_only_bootstrap_methods": [
-                "vm.license_active"
-              ]
+              "public_entitlement": {
+                "product_type_method": "system.product_type",
+                "feature_method": "system.feature_enabled",
+                "enterprise_feature": "VMS"
+              }
             }
           ],
           "api_schema_fingerprint": {
