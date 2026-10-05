@@ -1,0 +1,37 @@
+name: WRT3200ACM HIL Prep Kit
+
+on:
+  push:
+    branches:
+      - wrt-hil-prep-kit-20261005
+    paths:
+      - '.github/waves/wrt-hil-prep-kit-trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-kit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build deterministic prep kit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/wrt_hil_prep/build_kit.py --output dist
+
+      - name: Show build metadata
+        run: cat dist/wrt3200acm-hil-prep-kit-20261005.build.json
+
+      - name: Upload complete kit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-hil-prep-kit-20261005
+          path: |
+            dist/wrt3200acm-hil-prep-kit-20261005.zip
+            dist/wrt3200acm-hil-prep-kit-20261005.build.json
+          if-no-files-found: error
+          retention-days: 30
