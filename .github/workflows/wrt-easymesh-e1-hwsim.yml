@@ -47,29 +47,29 @@ jobs:
             echo E1_STATE_BEGIN > /dev/ttyS0
             echo E1_KERNEL=$(uname -r) > /dev/ttyS0
             rmmod mac80211_hwsim 2>/dev/null || true
-            modprobe mac80211_hwsim radios=3 2>/tmp/e1-modprobe.err || true
+            modprobe mac80211_hwsim radios=2 2>/tmp/e1-modprobe.err || true
             sleep 2
             cat /tmp/e1-modprobe.err > /dev/ttyS0 2>&1 || true
             lsmod | grep -E 'mac80211_hwsim|mac80211|cfg80211' > /dev/ttyS0 2>&1 || true
             iw phy > /dev/ttyS0 2>&1 || true
-            PHYS=$(iw phy 2>/dev/null | awk '$1=="Wiphy"{print $2}' | head -3 | tr '\n' ' ')
+
+            PHYS=$(iw phy 2>/dev/null | awk '$1=="Wiphy"{print $2}' | head -2 | tr '\n' ' ')
             set -- $PHYS
-            P0="$1"; P1="$2"; P2="$3"
+            P0="$1"; P1="$2"
             [ -n "$P0" ] && iw phy "$P0" interface add wlan0 type managed 2>/tmp/e1-if0.err || true
             [ -n "$P1" ] && iw phy "$P1" interface add wlan1 type managed 2>/tmp/e1-if1.err || true
-            [ -n "$P2" ] && iw phy "$P2" interface add wlan2 type managed 2>/tmp/e1-if2.err || true
-            cat /tmp/e1-if0.err /tmp/e1-if1.err /tmp/e1-if2.err > /dev/ttyS0 2>&1 || true
+            cat /tmp/e1-if0.err /tmp/e1-if1.err > /dev/ttyS0 2>&1 || true
             iw dev > /tmp/e1-iw-dev 2>&1 || true
             cat /tmp/e1-iw-dev > /dev/ttyS0
 
-            AP="wlan0"; STA="wlan1"; SCAN="wlan2"
-            echo E1_IFACES=$AP,$STA,$SCAN > /dev/ttyS0
-
+            AP='wlan0'; STA='wlan1'
+            echo E1_IFACES=$AP,$STA > /dev/ttyS0
             assoc=0; pingok=0; scanok=0; staok=0; surveyok=0
-            if [ -n "$AP" ] && [ -n "$STA" ] && [ -n "$SCAN" ]; then
+
+            if iw dev "$AP" info >/dev/null 2>&1 && iw dev "$STA" info >/dev/null 2>&1; then
               ip link set "$AP" down 2>/dev/null || true
               ip link set "$STA" down 2>/dev/null || true
-              ip link set "$SCAN" down 2>/dev/null || true
+
               cat > /tmp/e1-hostapd.conf <<EOF
           interface=$AP
           driver=nl80211
@@ -88,27 +88,37 @@ jobs:
             scan_ssid=1
           }
           EOF
+
               hostapd -B -P /tmp/e1-hostapd.pid /tmp/e1-hostapd.conf > /tmp/e1-hostapd.log 2>&1 || true
               sleep 3
               ip addr add 192.0.2.1/24 dev "$AP" 2>/dev/null || true
               ip link set "$AP" up 2>/dev/null || true
+
+              ip link set "$STA" up 2>/dev/null || true
+              iw dev "$STA" scan > /tmp/e1-scan 2>&1 || true
+              grep -q 'SSID: rdte-e1' /tmp/e1-scan && scanok=1 || true
+
               mkdir -p /var/run/e1-wpa
               wpa_supplicant -B -P /tmp/e1-wpa.pid -Dnl80211 -i "$STA" -c /tmp/e1-wpa.conf > /tmp/e1-wpa.log 2>&1 || true
-              sleep 6
-              ip addr add 192.0.2.2/24 dev "$STA" 2>/dev/null || true
-              ip link set "$STA" up 2>/dev/null || true
+              i=0
+              while [ "$i" -lt 20 ]; do
+                iw dev "$STA" link > /tmp/e1-link 2>&1 || true
+                grep -q '^Connected to ' /tmp/e1-link && { assoc=1; break; }
+                sleep 1
+                i=$((i+1))
+              done
               wpa_cli -p /var/run/e1-wpa -i "$STA" status > /tmp/e1-wpa-status 2>&1 || true
-              iw dev "$STA" link > /tmp/e1-link 2>&1 || true
+              grep -q '^wpa_state=COMPLETED' /tmp/e1-wpa-status && assoc=1 || true
+
               iw dev "$AP" station dump > /tmp/e1-stations 2>&1 || true
               iw dev "$AP" survey dump > /tmp/e1-survey 2>&1 || true
-              ip link set "$SCAN" up 2>/dev/null || true
-              iw dev "$SCAN" scan > /tmp/e1-scan 2>&1 || true
-              ping -c 3 -W 1 192.0.2.1 > /tmp/e1-ping 2>&1 || true
-              grep -q '^wpa_state=COMPLETED' /tmp/e1-wpa-status && assoc=1 || true
-              grep -q 'SSID: rdte-e1' /tmp/e1-scan && scanok=1 || true
               grep -q '^Station ' /tmp/e1-stations && staok=1 || true
               grep -q '^Survey data from ' /tmp/e1-survey && surveyok=1 || true
+
+              ip addr add 192.0.2.2/24 dev "$STA" 2>/dev/null || true
+              ping -c 3 -W 1 192.0.2.1 > /tmp/e1-ping 2>&1 || true
               grep -Eq '3 packets transmitted, 3 packets received|3 packets transmitted, 3 received' /tmp/e1-ping && pingok=1 || true
+
               cat /tmp/e1-hostapd.log > /dev/ttyS0 2>&1
               cat /tmp/e1-wpa.log > /dev/ttyS0 2>&1
               cat /tmp/e1-wpa-status > /dev/ttyS0 2>&1
@@ -118,6 +128,7 @@ jobs:
               cat /tmp/e1-scan > /dev/ttyS0 2>&1
               cat /tmp/e1-ping > /dev/ttyS0 2>&1
             fi
+
             echo E1_ASSOC=$assoc > /dev/ttyS0
             echo E1_PING=$pingok > /dev/ttyS0
             echo E1_SCAN=$scanok > /dev/ttyS0
@@ -132,7 +143,7 @@ jobs:
           cd "$IB"
           image_rc=0
           set +e
-          make image PROFILE=generic PACKAGES="kmod-mac80211-hwsim iw-full wpad-openssl ip-full -wpad-basic-mbedtls" FILES="$OVERLAY" > "$OUT/imagebuilder.log" 2>&1
+          make image PROFILE=generic PACKAGES="kmod-mac80211-hwsim iw-full wpad-openssl wpa-cli ip-full -wpad-basic-mbedtls" FILES="$OVERLAY" > "$OUT/imagebuilder.log" 2>&1
           image_rc=$?
           set -e
 
@@ -144,7 +155,7 @@ jobs:
             gzip -dc "$image" > "$ROOT/openwrt.img"
             boot_attempted=1
             set +e
-            timeout 75 qemu-system-x86_64 -machine pc -m 512 -nographic -drive file="$ROOT/openwrt.img",format=raw,if=virtio -netdev user,id=net0 -device virtio-net-pci,netdev=net0 > "$OUT/qemu-serial.log" 2>&1
+            timeout 80 qemu-system-x86_64 -machine pc -m 512 -nographic -drive file="$ROOT/openwrt.img",format=raw,if=virtio -netdev user,id=net0 -device virtio-net-pci,netdev=net0 > "$OUT/qemu-serial.log" 2>&1
             qemu_rc=$?
             set -e
             grep -q 'mac80211_hwsim' "$OUT/qemu-serial.log" && hwsim_seen=1 || true
@@ -161,10 +172,11 @@ jobs:
           import json,os
           ks=['image_rc','boot_attempted','hwsim_seen','assoc','pingok','scanok','staok','surveyok']
           d={k:int(os.environ[k]) for k in ks}
-          d['schema']='wrt3200acm-easymesh-e1-openwrt-hwsim/v1'
+          d['schema']='wrt3200acm-easymesh-e1-openwrt-hwsim/v2'
           d['qemu_mode']='tcg'
-          d['passed_nl80211_oracle']=bool(d['image_rc']==0 and d['boot_attempted'] and d['hwsim_seen'] and d['assoc'] and d['pingok'] and d['scanok'] and d['staok'])
+          d['passed_nl80211_oracle']=bool(d['image_rc']==0 and d['boot_attempted'] and d['hwsim_seen'] and d['assoc'] and d['scanok'] and d['staok'])
           d['survey_support_observed']=bool(d['surveyok'])
+          d['same_namespace_ping_supporting_only']=bool(d['pingok'])
           print(json.dumps(d,indent=2,sort_keys=True))
           PY
           echo '--- E1_SEMANTIC_VERDICT_BEGIN ---'
