@@ -37,7 +37,7 @@ jobs:
           # definitions must follow -f/--cmake_flags.
           build_rc=0
           set +e
-          ./build.sh map -f BUILD_TESTS=OFF CMAKE_BUILD_TYPE=Release USE_PRPLMESH_WHM=OFF ENABLE_NBAPI=OFF > "$OUT/prplmesh-build.log" 2>&1
+          SUDO_UID=0 SUDO_GID=0 ./build.sh map -f BUILD_TESTS=OFF CMAKE_BUILD_TYPE=Release > "$OUT/prplmesh-build.log" 2>&1
           build_rc=$?
           set -e
           printf 'build_rc=%s\n' "$build_rc" > "$OUT/build-verdict.txt"
