@@ -1,8 +1,8 @@
 {
   "schema": "wrt-easymesh-e3-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 6,
-  "reason": "Exact E3 harness repair after run 37333397986: corrected UCI state contains no radio0 country, but in-place wifi reload preserves stale hostapd country_code 00. Restart only the disposable guest network service so netifd/hostapd rebuild from corrected UCI.",
+  "attempt": 7,
+  "reason": "Exact E3 harness repair after run 37334151965: radio0 is countryless in UCI, but radio1 still carries generated country 00 and the shell driver state leaks that value into the radio0 hostapd rebuild. Clear country on every generated hwsim wifi-device before restarting guest networking.",
   "prior_gates": {
     "e0_run": 37287285078,
     "e1_run": 37321249529,
@@ -11,9 +11,9 @@
     "e2_run": 37288725640,
     "e2_artifact": 11336174982
   },
-  "resource_policy": "Fresh bounded E3 wave for a newly evidenced stale-reload defect; one job only; no physical HIL; no unchanged retry.",
+  "resource_policy": "Fresh bounded E3 wave for a newly evidenced cross-radio config leak; one job only; no physical HIL; no unchanged retry.",
   "hil_policy": "Physical HIL remains blocked pending Local Scout R1 -> R2 -> R3 cutover qualification.",
-  "prior_run": 37333397986,
-  "prior_artifact": 11355436710,
-  "prepared_workflow_commit": "a2c9cdb0ece6aec42dd5f6a5c297670023c9712c"
+  "prior_run": 37334151965,
+  "prior_artifact": 11355367846,
+  "prepared_workflow_commit": "c3ca90872c5519397be514781c10059514cf841e"
 }
