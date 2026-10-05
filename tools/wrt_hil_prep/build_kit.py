@@ -39,7 +39,7 @@ def deterministic_zip(source,dest):
                 shutil.copyfileobj(src,dst,length=8*1024*1024)
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--output",default="dist");a=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--output",default="dist");ap.add_argument("--cp0-dir");a=ap.parse_args()
     repo_root=pathlib.Path(__file__).resolve().parents[2]
     payload=repo_root/"tools"/"wrt_hil_prep"/"payload"
     out=pathlib.Path(a.output).resolve();out.mkdir(parents=True,exist_ok=True)
@@ -56,16 +56,13 @@ def main():
         actual=sha256_file(images/name)
         if not official or actual!=official: raise SystemExit(f"OpenWrt SHA mismatch/missing: {name}")
         selected[name]={"sha256":actual,"size_bytes":(images/name).stat().st_size,"url":f"{OPENWRT_BASE}/{name}"}
-    token=os.environ.get("GH_TOKEN")
-    if not token: raise SystemExit("GH_TOKEN required")
-    tmp=pathlib.Path(tempfile.mkdtemp()); zpath=tmp/"cp0.zip"
-    download(
-        f"https://api.github.com/repos/SemperSupra/agent-dispatch/actions/artifacts/{CP0_ARTIFACT_ID}/zip",
-        zpath,
-        {"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","User-Agent":"SemperSupra-WRT-HIL-Kit/1"},
-    )
     cp0=meta/"cp0"; cp0.mkdir(parents=True,exist_ok=True)
-    with zipfile.ZipFile(zpath) as z: z.extractall(cp0)
+    if not a.cp0_dir: raise SystemExit("--cp0-dir is required")
+    cp0_source=pathlib.Path(a.cp0_dir).resolve()
+    if not cp0_source.is_dir(): raise SystemExit(f"CP0 directory not found: {cp0_source}")
+    for p in cp0_source.rglob("*"):
+        if p.is_file():
+            rel=p.relative_to(cp0_source); dst=cp0/rel; dst.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(p,dst)
     pkg=next(cp0.rglob("prplmesh-6.0.1-r1.apk"),None)
     if pkg is None or sha256_file(pkg)!=PRPLMESH_SHA256: raise SystemExit("qualified prplMesh package mismatch")
     (kit/"packages").mkdir(exist_ok=True); shutil.copy2(pkg,kit/"packages"/pkg.name)
