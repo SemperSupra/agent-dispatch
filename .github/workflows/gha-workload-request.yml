@@ -38,7 +38,7 @@ jobs:
 
 
   prove-pr:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && inputs.request_path == ''
     needs: contract
     strategy:
       fail-fast: false
@@ -86,7 +86,7 @@ jobs:
           retention-days: 7
 
   plan:
-    if: github.event_name != 'pull_request'
+    if: inputs.request_path != ''
     needs: contract
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -116,7 +116,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
   execute:
-    if: github.event_name != 'pull_request'
+    if: inputs.request_path != ''
     needs: plan
     runs-on: ${{ needs.plan.outputs.runner }}
     timeout-minutes: ${{ fromJSON(needs.plan.outputs.timeout_minutes) }}
