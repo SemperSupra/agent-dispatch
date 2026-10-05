@@ -30,12 +30,14 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             '"/api/v1/printer"', '"/api/v1/jobs"', 'application/pdf', 'image/urf',
             'ipptool', 'UNIRAST', '"pool.dataset.create"', '"pool.dataset.delete"',
             '"app.create"', '"app.stop"', '"app.start"', '"app.delete"',
-            '"zero_residue":True', '_universal._sub._ipp._tcp.local',
+            '"zero_residue":True',
             'dnssd_uuid_match', 'restart_preserved_identity_and_inbox',
             'app.update', 'app.redeploy', 'replan_action', '"NOOP"',
             'update_redeploy_preserved_identity_and_inbox',
         ):
             self.assertIn(needle, text)
+        observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
+        self.assertIn('_universal._sub._ipp._tcp.local', observer)
         self.assertIn(MOD.OBSERVER_IMAGE, text)
         self.assertNotIn("avahi-publish-service", text)
         self.assertNotIn("/run/dbus", text)
@@ -55,7 +57,7 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
         self.assertIn('"status": "pending"', observer)
-        self.assertIn('"status": "success"', observer)
+        self.assertIn('r["status"] = "success"', observer)
         self.assertIn('"status": "error"', observer)
         self.assertIn('flag.Float64("seconds", 25', observer)
         self.assertIn('DNS-SD observer oracle failed:', text)
@@ -158,11 +160,13 @@ class FolioRelayT6ContractTests(unittest.TestCase):
 
     def test_dnssd_observer_proves_public_host_port_and_resource_path(self):
         text = SCRIPT.read_text(encoding="utf-8")
+        observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
         self.assertIn('"--expected-host",PUBLIC_HOST', text)
         self.assertIn('"--expected-ipp-port",str(PUBLIC_IPP_PORT)', text)
-        self.assertIn('srv_target', text)
-        self.assertIn('srv_port', text)
-        self.assertIn('"rp=printers/FolioRelay"', text)
+        self.assertIn('"srv_target"', observer)
+        self.assertIn('"srv_port"', observer)
+        self.assertIn('rp=printers/foliorelay', observer.lower())
+        self.assertIn('pdl=application/pdf,image/urf', observer.lower())
         self.assertIn('"dnssd_public_uri_match":True', text)
         self.assertNotIn('if PUBLIC_URI not in attrs', text)
 
