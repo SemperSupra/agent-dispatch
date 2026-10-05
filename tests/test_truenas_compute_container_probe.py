@@ -109,6 +109,8 @@ class ContainerProbeContractTests(unittest.TestCase):
         self.assertNotIn("get_shell", {v[0] for v in legacy.values()})
         lxc = method_shapes("truenas-container-lxc", "x", 7)
         self.assertEqual(lxc["start"][0], "container.start")
+        self.assertEqual(lxc["stop"], ("container.stop", [7, {"force_after_timeout": True}], True))
+        self.assertNotIn("timeout", lxc["stop"][1][1])
         self.assertNotIn("nsenter", {v[0] for v in lxc.values()})
 
 
