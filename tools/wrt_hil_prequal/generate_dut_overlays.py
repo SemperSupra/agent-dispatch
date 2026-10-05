@@ -61,6 +61,7 @@ def rc_rdte(dut, peer, role):
     uci set wireless.$iface.network='lan'
     uci set wireless.$iface.ssid='rdte-prehil'
     uci set wireless.$iface.encryption='none'
+    uci set wireless.$iface.ifname='wlan0'
     uci commit wireless
     /etc/init.d/network restart >/tmp/rdte-network.log 2>&1 || true
   fi
