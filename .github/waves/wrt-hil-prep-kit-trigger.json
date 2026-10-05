@@ -1,0 +1,7 @@
+{
+  "schema": "wrt-hil-prep-kit-trigger/v1",
+  "date": "2026-10-05",
+  "attempt": 1,
+  "reason": "Build immutable self-contained WRT3200ACM R1/R2 prep byte bundle using AAR/CDR packaging pattern.",
+  "drive_destination": "WRT3200ACM Recovery Archive/HIL Prep Kit - 2026-10-05"
+}
