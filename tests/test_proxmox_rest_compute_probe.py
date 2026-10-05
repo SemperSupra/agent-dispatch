@@ -10,7 +10,7 @@ class ProxmoxRestComputeContractTests(unittest.TestCase):
         self.assertEqual(PVE_CONTAINER_SOURCE["commit"],"5eb5574ee9158ac40a5230de2cf18d7d6345709f")
         self.assertEqual(PVE_CONTAINER_SOURCE["package_version"],"6.1.10")
         self.assertEqual(PVE_QEMU_PACKAGE_SOURCE["commit"],"684796e835289dab11af8606fbf7358b93526dd6")
-        self.assertEqual(PVE_MANAGER_API_SOURCE["commit"],"b9984c6d90a4bd80")
+        self.assertEqual(PVE_MANAGER_API_SOURCE["commit"],"b9984c6d90a4bd80ab72dc2088c1b9103fb167b1")
         self.assertEqual(PVE_QEMU_SERVER_SOURCE["commit"],"6785065b3f766f15f6f151af8ec27ec8bb5b07ab")
         self.assertEqual(PVE_QEMU_SERVER_SOURCE["package_version"],"9.1.15")
         self.assertEqual(PVE_QEMU_SERVER_SOURCE["api2_qemu_blob"],"e029a204d121f3c8b104457ef14eb6d5ce029464")
