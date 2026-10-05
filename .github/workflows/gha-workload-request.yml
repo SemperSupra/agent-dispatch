@@ -51,6 +51,9 @@ jobs:
           - runner: ubuntu-24.04
             request_path: requests/gha/github-runner-frontier-android-ubuntu24.json
             artifact_name: runner-frontier-android-u24-pr
+          - runner: macos-26
+            request_path: requests/gha/github-runner-frontier-ios-macos26.json
+            artifact_name: runner-frontier-ios-macos26-pr
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
