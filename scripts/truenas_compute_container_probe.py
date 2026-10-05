@@ -186,7 +186,7 @@ def method_shapes(adapter_id: str, name: str, row_id: Any | None = None) -> dict
             "create": ("container.create", [], True),
             "update": ("container.update", [row_id], False),
             "start": ("container.start", [row_id], False),
-            "stop": ("container.stop", [row_id, {"timeout": 30, "force_after_timeout": True}], True),
+            "stop": ("container.stop", [row_id, {"force_after_timeout": True}], True),
             "delete": ("container.delete", [row_id], False),
         }
     raise ProbeError(f"unsupported container adapter: {adapter_id}")
