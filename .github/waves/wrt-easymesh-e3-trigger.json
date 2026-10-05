@@ -1,8 +1,8 @@
 {
   "schema": "wrt-easymesh-e3-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 3,
-  "reason": "New exact E3 blocker from run 37323039265: hostapd reached phy2/wlan0 but rejected generated country_code 00. Preserve the now-enabled wifi-iface and set an explicit valid synthetic hwsim regdom before wifi reload.",
+  "attempt": 4,
+  "reason": "Diagnosed E3 harness repair: preserve the mac80211_hwsim module and PHY identities auto-loaded by OpenWrt instead of rmmod/re-modprobe churn during rc.local. Retain the enabled wifi-iface and explicit valid synthetic regdom.",
   "prior_gates": {
     "e0_run": 37287285078,
     "e1_run": 37321249529,
@@ -11,8 +11,9 @@
     "e2_run": 37288725640,
     "e2_artifact": 11336174982
   },
-  "resource_policy": "Fresh bounded diagnostic wave for a newly evidenced harness defect; one E3 job only; no physical HIL.",
+  "resource_policy": "Fresh bounded E3 wave: one integration job only; no blind retry; diagnose exact hostapd/netifd/agent evidence on any red.",
   "hil_policy": "Physical HIL remains blocked pending Local Scout R1 -> R2 -> R3 cutover qualification.",
-  "prior_run": 37323039265,
-  "prior_artifact": 11349979668
+  "prior_run": 37323950675,
+  "prior_artifact": 11351725647,
+  "prepared_workflow_commit": "af7687b60a91b692dd297107c9c80cecda69ada9"
 }
