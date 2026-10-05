@@ -353,6 +353,20 @@ def bounded_text(value, limit=8000):
     text = str(value)
     return text if len(text) <= limit else text[:limit] + "...<truncated>"
 
+def bounded_head_tail_text(value, limit=8000):
+    if value is None:
+        return None
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    marker = "\n...<truncated-middle>...\n"
+    if limit <= len(marker):
+        return text[-limit:]
+    available = limit - len(marker)
+    head = max(1, available // 3)
+    tail = available - head
+    return text[:head] + marker + text[-tail:]
+
 def bounded_observer_lifecycle_excerpt(value, app_name=OBSERVER_APP_NAME, before=2, after=24, limit=8000):
     if value is None:
         return None
@@ -366,7 +380,7 @@ def bounded_observer_lifecycle_excerpt(value, app_name=OBSERVER_APP_NAME, before
         selected.update(range(max(0,i-before), min(len(lines),i+after+1)))
     excerpt="\n".join(lines[i] for i in sorted(selected))
     excerpt=re.sub(r"(auth_token=)[^&\s]+", r"\1<redacted>", excerpt)
-    return bounded_text(excerpt,limit)
+    return bounded_head_tail_text(excerpt,limit)
 
 def bounded_job_snapshot(job):
     if not isinstance(job, dict):
