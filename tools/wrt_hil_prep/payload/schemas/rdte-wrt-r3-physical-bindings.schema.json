@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sempersupra.local/rdte/wrt-r3-physical-bindings.schema.json",
+  "title": "WRT R3 physical bindings",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "management_ip",
+    "lan_interface",
+    "radio_interface",
+    "gold_image_sha256",
+    "rescue_image_sha256",
+    "gold_slot",
+    "rescue_slot"
+  ],
+  "properties": {
+    "asset_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "management_ip": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lan_interface": {
+      "type": "string",
+      "minLength": 1
+    },
+    "radio_interface": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gold_image_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "rescue_image_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "gold_slot": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rescue_slot": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}
