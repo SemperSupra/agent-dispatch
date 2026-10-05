@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sempersupra.local/rdte/wrt-r2-admission-evidence.schema.json",
+  "title": "WRT R2 admission evidence",
+  "type": "object",
+  "required": [
+    "schema",
+    "checks"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rdte-wrt-r2-admission-evidence/v1"
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "serial_console",
+        "independent_power_cycle",
+        "gold_image_identity",
+        "rescue_image_identity",
+        "independent_evidence_sink",
+        "human_review"
+      ],
+      "properties": {
+        "serial_console": {
+          "type": "object",
+          "required": [
+            "qualified",
+            "evidence_ref"
+          ],
+          "properties": {
+            "qualified": {
+              "type": "boolean"
+            },
+            "evidence_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "independent_power_cycle": {
+          "type": "object",
+          "required": [
+            "qualified",
+            "evidence_ref"
+          ],
+          "properties": {
+            "qualified": {
+              "type": "boolean"
+            },
+            "evidence_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "gold_image_identity": {
+          "type": "object",
+          "required": [
+            "qualified",
+            "evidence_ref"
+          ],
+          "properties": {
+            "qualified": {
+              "type": "boolean"
+            },
+            "evidence_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "rescue_image_identity": {
+          "type": "object",
+          "required": [
+            "qualified",
+            "evidence_ref"
+          ],
+          "properties": {
+            "qualified": {
+              "type": "boolean"
+            },
+            "evidence_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "independent_evidence_sink": {
+          "type": "object",
+          "required": [
+            "qualified",
+            "evidence_ref"
+          ],
+          "properties": {
+            "qualified": {
+              "type": "boolean"
+            },
+            "evidence_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "human_review": {
+          "type": "object",
+          "required": [
+            "qualified",
+            "evidence_ref"
+          ],
+          "properties": {
+            "qualified": {
+              "type": "boolean"
+            },
+            "evidence_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
