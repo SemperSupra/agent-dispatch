@@ -1,0 +1,29 @@
+{
+  "schema": "rdte-wrt-r2-admission-evidence/v1",
+  "checks": {
+    "serial_console": {
+      "qualified": false,
+      "evidence_ref": "PENDING_SERIAL_HIL"
+    },
+    "independent_power_cycle": {
+      "qualified": false,
+      "evidence_ref": "PENDING_POWER_HIL"
+    },
+    "gold_image_identity": {
+      "qualified": false,
+      "evidence_ref": "PENDING_R1_R2_REVIEW"
+    },
+    "rescue_image_identity": {
+      "qualified": false,
+      "evidence_ref": "PENDING_R1_R2_REVIEW"
+    },
+    "independent_evidence_sink": {
+      "qualified": false,
+      "evidence_ref": "PENDING_HIL_HOST_BINDING"
+    },
+    "human_review": {
+      "qualified": false,
+      "evidence_ref": "PENDING_REVIEW"
+    }
+  }
+}
