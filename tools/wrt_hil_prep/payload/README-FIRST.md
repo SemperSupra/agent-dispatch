@@ -1,37 +1,42 @@
 # WRT3200ACM EasyMesh / Local Scout HIL Prep Kit
 
-Build date: 2026-10-05
 Qualified software baseline: OpenWrt 25.12.5
-Current authority phase: R1 READ-ONLY
+Current physical authority phase: R1 READ-ONLY
 
-This kit follows the proven AAR/CDR packaging pattern: immutable bytes, checksums, provenance, scripts, and runbooks travel together; campaign authority remains fail-closed.
+This kit carries immutable firmware/package bytes plus the current fail-closed R1 -> R2 -> R3 tooling. Emulator qualification never grants physical write authority.
 
 ## Start here
 
-1. Label the routers DUT-A and DUT-B.
-2. Photograph/record each underside label, MAC address, serial number, and current firmware.
-3. Do not immediately flash both routers.
-4. If a router already runs OpenWrt and SSH works, run the included R1 read-only collector before flashing.
-5. If it still runs Linksys/OEM firmware, preserve the existing alternate NAND slot while bootstrapping OpenWrt. Do not intentionally homogenize both slots yet.
-6. Locate or obtain 3.3 V TTL serial hardware before R2 recovery qualification.
-7. R2 Gold/Rescue and R3 prplMesh deployment wait for reviewed R1 evidence.
+1. Label routers DUT-A and DUT-B.
+2. Record underside label, MAC address, serial number, and current firmware.
+3. Do not flash both routers.
+4. If OpenWrt + SSH already works, collect R1 first.
+5. Use either:
+   - Linux/macOS/WSL: scripts/r1-readonly-remote.sh root@DUT
+   - Windows PowerShell: scripts/R1-Readonly-Remote.ps1 root@DUT
+6. R1 may establish inventory sufficiency only. It does not admit R2 by itself.
+7. R2 requires separately evidenced serial console, independent power cycle, Gold identity, Rescue identity, independent evidence sink, and review.
+8. R3 remains external package/config generation only after a GREEN R2 verdict. Protected NAND remains denied.
 
-## Included immutable software
+## Included qualification tooling
 
-- OpenWrt 25.12.5 WRT3200ACM factory image.
-- OpenWrt 25.12.5 WRT3200ACM sysupgrade image.
-- OpenWrt 25.12.5 WRT3200ACM initramfs kernel.
+- R1 collector + fail-closed reducer.
+- Linux and native Windows R1 wrappers.
+- R2 admission gate.
+- Serial transcript observation reducer.
+- Fake independent-power actuator for zero-hardware orchestration tests.
+- R2 Gold/Rescue evidence reducer.
+- R3 physical generation binder.
+- R1/R2/R3 JSON schemas and fill-in templates.
+- DUT generation and independent-power contracts.
+- Linux/Windows bundle verification and Windows serial-port inventory.
+
+## Immutable software
+
+- OpenWrt 25.12.5 WRT3200ACM factory/sysupgrade/initramfs images.
 - Official target sha256sums, signature, and profiles.json.
-- Qualified stock prplMesh 6.0.1-r1 package from Agent Dispatch CP0 run 37273250460, staged for later R3.
-- Offline R1 collector/reducer/wrapper.
-- Linux and Windows hash verification.
-- Windows serial-port enumeration.
-- Physical and serial checklists plus offline diagrams.
+- Qualified prplMesh 6.0.1-r1 package staged for later R3.
 
-## R1 authority boundary
+## Physical authority boundary
 
-No persistent DUT changes are authorized. Do not use the kit yet for fw_setenv, sysupgrade, package installation, UCI changes, service restarts, reboot/power-cycle experiments, MTD/UBI writes, bootloader writes, factory/calibration writes, or radio-firmware mutation.
-
-## First command when OpenWrt + SSH is already available
-
-scripts/r1-readonly-remote.sh root@DUT-MANAGEMENT-IP-OR-SSH-ALIAS
+Until reviewed R1 evidence exists, do not perform fw_setenv, sysupgrade, package installation, UCI changes, service restarts, reboot/power-cycle experiments, MTD/UBI writes, bootloader writes, factory/calibration writes, or radio-firmware mutation.
