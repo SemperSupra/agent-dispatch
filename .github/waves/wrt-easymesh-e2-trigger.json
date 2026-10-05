@@ -1,12 +1,13 @@
 {
   "schema": "wrt-easymesh-e2-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 1,
-  "reason": "E1 public-runner preflight is substrate-blocked because mac80211_hwsim is absent from the Azure kernel module set. E2 is independent and READY: probe OpenWrt/QEMU system-emulation capability as the second/final job of this bounded wave.",
+  "attempt": 2,
+  "reason": "New bounded wave: E2 QEMU preflight is GREEN_TCG_ONLY. Build official stock prplMesh 6.0.1 for OpenWrt 25.12.5 x86/64, compose a generic image, and boot it under QEMU TCG to verify package/procd/UCI/service integration.",
   "dependencies": {
     "cp0_green": true,
     "e0_green_run": 37287285078,
     "e1_classification": "SUBSTRATE_BLOCKED_NOT_PRODUCT_RED"
   },
-  "resource_policy": "Second and final public job in this bounded wave; non-firmware, low-cost. No blind retry."
+  "resource_policy": "First public job in a new bounded wave; one heavy build/system-emulation job. No unchanged retry.",
+  "prior_run": 37288274235
 }
