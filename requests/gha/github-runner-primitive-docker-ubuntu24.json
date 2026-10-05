@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "id": "runner-primitive-docker-u24",
+  "runner": "ubuntu-24.04",
+  "timeout_minutes": 8,
+  "setup_profile": "none",
+  "argv": ["python3","scripts/github_runner_primitive.py","--label","ubuntu-24.04","--probe","docker-container","--out","{runner_temp}/gha-request/receipt.json"],
+  "artifact_name": "runner-primitive-docker-u24",
+  "artifact_relpath": "gha-request/receipt.json"
+}
