@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-001-f0-f5",
+  "request_id": "tn-25-10-7-t6-foliorelay-002-discovery-crash-diagnostics",
   "version": "25.10.7",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 410,
   "consumer_authority_issue": 273,
-  "purpose": "Run the first exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 after the BETA.3 row closed with complete F0-F5 evidence. No support is inherited from BETA.3 or generic T0-T5. Use the exact registered 25.10.7 ISO/middleware/profile, version-aware Foundry export, pinned FolioRelay control/CUPS images, service-instance-safe DNS-SD observer, exact PDF/URF source preservation, second-plan NOOP reconciliation, retain-data App delete/reinstall persistence, and final zero-residue cleanup. Acceptance requires a retained SUPPORTED/oracleSatisfied=true receipt with complete F0-F5 evidence."
+  "purpose": "Re-run exact FolioRelay F0-F5 on TrueNAS 25.10.7 after row 001 localized failure to the discovery container. Preserve product/Foundry/image/Compose/DNS-SD/lifecycle semantics unchanged. The only causal delta is bounded pre-cleanup product-crash diagnostics: App/container snapshot, discovery/crashed-container log tails, and scoped app_lifecycle excerpt. This rep exists to identify the exact discovery exit cause; it must not be promoted as support unless the unchanged product unexpectedly reaches SUPPORTED/oracleSatisfied=true."
 }
