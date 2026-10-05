@@ -647,6 +647,27 @@ class SystemRdteContractTests(unittest.TestCase):
         py_check = subprocess.run(["python3", "-m", "py_compile", str(TRUENAS_POOL)], text=True, capture_output=True)
         self.assertEqual(py_check.returncode, 0, py_check.stderr)
 
+    def test_truenas_t3_compute_c0_is_opt_in_api_native_and_c1_separate(self):
+        text = TRUENAS.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('--compute-fixture', text)
+        self.assertIn('COMPUTE_FIXTURE="none"', text)
+        self.assertIn('container-c0', text)
+        self.assertIn('requires rung t3', text)
+        self.assertIn('truenas_compute_container_probe.py', text)
+        self.assertIn('config/compute-materialization-targets.json', text)
+        self.assertIn('"compute_materialization_exercised"', text)
+        self.assertIn('"compute_materialization"', text)
+        self.assertIn('"c0_oracle_satisfied"', text)
+        self.assertIn('"c1_guest_oracle_satisfied"', text)
+        self.assertIn('"image_resolution"', text)
+        self.assertIn('truenas_compute_fixture:', workflow)
+        self.assertIn('needs.changes.outputs.truenas_compute_fixture', workflow)
+        self.assertIn('(.compute_fixture // "none")', workflow)
+        self.assertNotIn('scripts/truenas_compute_container_probe.py)', workflow.split("while IFS= read -r path; do", 1)[1].split("done < <(git diff --name-only", 1)[0])
+        shell_check = subprocess.run(["bash", "-n", str(TRUENAS)], text=True, capture_output=True)
+        self.assertEqual(shell_check.returncode, 0, shell_check.stderr)
+
     def test_truenas_t4_apps_contract(self):
         text = TRUENAS.read_text(encoding="utf-8")
         app = TRUENAS_APP.read_text(encoding="utf-8")
