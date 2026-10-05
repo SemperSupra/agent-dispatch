@@ -1,0 +1,105 @@
+name: WinBot Seed and Terminal Composition Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-seed-terminal-composition-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      AUTHORITY_CONTROL: '35d0c34ecb91933026d609546f20074f73e36029'
+      PRIOR_SEED_CONTROL: '4e4764f673ce5e8cbfe0a2572c1e0ddcd154929a'
+      CORRECTED_SEED_CONTROL: '251d121b4b9ed03a105359840b91866f790d9685'
+      TERMINAL_CONTROL: '49ad1b05cc01f5a0e310727d58e632223c6f4897'
+
+    steps:
+      - name: Fetch exact controls and prove composition
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{
+            Authorization="Bearer $env:GH_TOKEN"
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+          }
+          function Get-ExactBlob([string]$Sha,[string]$Name) {
+            $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha"
+            $o=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -ErrorAction Stop
+            if([string]$o.sha -ne $Sha -or [string]$o.encoding -ne 'base64'){throw "$Name identity/encoding mismatch"}
+            $raw=[Convert]::FromBase64String(([string]$o.content -replace '\s',''))
+            if($raw.Length -ne [int]$o.size){throw "$Name size mismatch"}
+            $p=Join-Path $env:RUNNER_TEMP ($Name+'.ps1')
+            [IO.File]::WriteAllBytes($p,$raw)
+            $tokens=$null;$errors=$null
+            [void][Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)
+            if($errors.Count -ne 0){throw "$Name PowerShell parse failure"}
+            return [Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xFEFF)
+          }
+          function Get-Section([string]$Text,[string]$Start,[string]$End) {
+            $i=$Text.IndexOf($Start)
+            if($i -lt 0){throw "missing start marker: $Start"}
+            $j=$Text.IndexOf($End,$i+1)
+            if($j -lt 0){throw "missing end marker: $End"}
+            return $Text.Substring($i,$j-$i)
+          }
+
+          $auth=Get-ExactBlob $env:AUTHORITY_CONTROL 'authority'
+          $priorSeed=Get-ExactBlob $env:PRIOR_SEED_CONTROL 'prior-seed'
+          $correctedSeed=Get-ExactBlob $env:CORRECTED_SEED_CONTROL 'corrected-seed'
+          $terminal=Get-ExactBlob $env:TERMINAL_CONTROL 'terminal'
+
+          foreach($pair in @(
+            @('function Get-HostedNatPlacement','function Invoke-WorkCellAuthorityRehydration'),
+            @('function Invoke-WorkCellAuthorityRehydration','function Get-WorkCellReadiness')
+          )){
+            if((Get-Section $correctedSeed $pair[0] $pair[1]) -cne (Get-Section $auth $pair[0] $pair[1])){throw "corrected seed authority helper drift: $($pair[0])"}
+            if((Get-Section $terminal $pair[0] $pair[1]) -cne (Get-Section $auth $pair[0] $pair[1])){throw "terminal authority helper drift: $($pair[0])"}
+          }
+          if((Get-Section $correctedSeed 'function Get-WorkCellReadiness' 'function Invoke-SeedFinalization') -cne
+             (Get-Section $auth 'function Get-WorkCellReadiness' 'function Remove-RunWorkCell')){throw 'corrected seed readiness helper drift'}
+          if((Get-Section $terminal 'function Get-WorkCellReadiness' 'function Invoke-SeedFinalization') -cne
+             (Get-Section $auth 'function Get-WorkCellReadiness' 'function Remove-RunWorkCell')){throw 'terminal readiness helper drift'}
+          if((Get-Section $correctedSeed 'function Invoke-SeedFinalization' 'function Remove-RunWorkCell') -cne
+             (Get-Section $priorSeed 'function Invoke-SeedFinalization' 'function Remove-RunWorkCell')){throw 'corrected seed finalization function drift'}
+          if((Get-Section $terminal 'function Invoke-SeedFinalization' 'function Remove-RunWorkCell') -cne
+             (Get-Section $priorSeed 'function Invoke-SeedFinalization' 'function Remove-RunWorkCell')){throw 'terminal seed finalization function drift'}
+
+          foreach($needle in @(
+            "profile = 'SeedFinalizationAuthorityRehydrated'",
+            'function Invoke-WorkCellAuthorityRehydration',
+            'function Invoke-SeedFinalization',
+            'api_token_absent',
+            'api_task_absent',
+            'seed_changed_by_finalization',
+            'seed_read_only'
+          )){ if(-not $correctedSeed.Contains($needle)){throw "corrected seed invariant missing: $needle"} }
+          foreach($forbidden in @('pytest','New-WinBotWorkCell -CustomName $vmNameA','New-WinBotWorkCell -CustomName $vmNameB','canary_survived_rematerialization')){
+            if($correctedSeed.Contains($forbidden)){throw "corrected seed causal boundary violation: $forbidden"}
+          }
+
+          foreach($needle in @(
+            "profile = 'FullRDTEFinalizedSeed'",
+            'runtime_seed.finalized = $true',
+            'New-WinBotWorkCell -CustomName $vmNameA',
+            'New-WinBotWorkCell -CustomName $vmNameB',
+            'canary_survived_rematerialization',
+            'prior_runtime_taint_absent',
+            'pytest',
+            'seed_vm_absent'
+          )){ if(-not $terminal.Contains($needle)){throw "terminal invariant missing: $needle"} }
+
+          Write-Host 'classification=SUPPORTED'
+          Write-Host "corrected_seed_control=$env:CORRECTED_SEED_CONTROL"
+          Write-Host "terminal_control=$env:TERMINAL_CONTROL"
+          Write-Host 'authority_helpers_exact=true'
+          Write-Host 'seed_finalization_function_exact=true'
