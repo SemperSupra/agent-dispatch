@@ -114,6 +114,31 @@ def validate_modern_preconditions(details: Any, licensed: Any) -> dict[str, Any]
     return {"virtualization_details": details, "license_active": licensed}
 
 
+def validate_public_modern_preconditions(
+    details: Any, product_type: Any, enterprise_feature_enabled: Any
+) -> dict[str, Any]:
+    if not isinstance(details, dict) or not isinstance(details.get("supported"), bool):
+        raise ProbeError(f"vm.virtualization_details invalid: {details!r}")
+    if not details["supported"]:
+        raise ProbeError(f"VM virtualization unavailable: {details.get('error')}")
+    if product_type not in {"COMMUNITY_EDITION", "ENTERPRISE"}:
+        raise ProbeError(f"system.product_type invalid: {product_type!r}")
+    if product_type == "ENTERPRISE":
+        if not isinstance(enterprise_feature_enabled, bool):
+            raise ProbeError(
+                f"system.feature_enabled enterprise result invalid: {enterprise_feature_enabled!r}"
+            )
+        if not enterprise_feature_enabled:
+            raise ProbeError("enterprise system is not entitled to use native vm.*")
+    elif enterprise_feature_enabled is not None:
+        raise ProbeError("community edition must not depend on enterprise feature licensing")
+    return {
+        "virtualization_details": details,
+        "product_type": product_type,
+        "enterprise_vm_feature_enabled": enterprise_feature_enabled,
+    }
+
+
 def main() -> int:
     p=argparse.ArgumentParser()
     p.add_argument("--registry",type=pathlib.Path,default=pathlib.Path("config/compute-materialization-targets.json"))
@@ -314,8 +339,21 @@ def main() -> int:
                 raise ProbeError("legacy VM remained after delete")
         elif adapter_id=="truenas-vm-libvirt":
             details=call("vm.virtualization_details",[])
-            licensed=call("vm.license_active",[])
-            receipt["preconditions"]=validate_modern_preconditions(details,licensed)
+            public_entitlement=adapter.get("public_entitlement")
+            if public_entitlement:
+                product_type=call(public_entitlement["product_type_method"],[])
+                enterprise_feature_enabled=None
+                if product_type=="ENTERPRISE":
+                    enterprise_feature_enabled=call(
+                        public_entitlement["feature_method"],
+                        [public_entitlement["enterprise_feature"]],
+                    )
+                receipt["preconditions"]=validate_public_modern_preconditions(
+                    details,product_type,enterprise_feature_enabled
+                )
+            else:
+                licensed=call("vm.license_active",[])
+                receipt["preconditions"]=validate_modern_preconditions(details,licensed)
             rows=call("vm.query",[[["name","=",a.name]]])
             if rows:
                 raise ProbeError(f"preexisting VM {a.name!r} blocks ownership-safe apply")
