@@ -4,7 +4,8 @@
   "version": "26.0.0-BETA.3",
   "rung": "t3",
   "compute_fixture": "container-c0",
-  "authority_issue": 426,
+  "authority_issue": 396,
   "purpose": "Run the first product-API-native TrueNAS compute materialization C0 rep on exact 26.0.0-BETA.3 using the existing #396 disposable system workcell. Preserve exact ISO/middleware/T3 pool evidence, then resolve the admitted Ubuntu Noble system-container image through container.image.query_registry and exercise container.create/query/start/stop/update/stop+start/delete/absence through middleware APIs. This rep claims C0 lifecycle only; guest-level C1 execution/nonce, VM lifecycle, nested KVM, Firecracker, Windows 11, physical HIL, and cross-version inheritance remain explicitly unclaimed.",
-  "claim_boundary": "C0 native product-API container lifecycle only; C1 guest execution, VM lifecycle, Firecracker, Windows, cross-version support, and physical HIL remain OPEN"
+  "claim_boundary": "C0 native product-API container lifecycle only; C1 guest execution, VM lifecycle, Firecracker, Windows, cross-version support, and physical HIL remain OPEN",
+  "consumer_authority_issue": 426
 }
