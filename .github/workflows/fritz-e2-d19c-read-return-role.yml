@@ -1,0 +1,50 @@
+name: FRITZ E2 D19c read return role
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/fritz-e2-d19c-read-return-role.yml"
+      - "scripts/fritz_qemu_e2_d19c_read_return_role.py"
+      - "tests/test_fritz_qemu_e2_d19c_read_return_role.py"
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - run: python3 -m unittest -v tests/test_fritz_qemu_e2_d19c_read_return_role.py
+  exact-d19c:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends binutils binutils-mips-linux-gnu curl squashfs-tools
+      - run: |
+          mkdir -p "${RUNNER_TEMP}/d19c" "${RUNNER_TEMP}/receipt"
+          python3 scripts/fritz_qemu_e2_d19c_read_return_role.py \
+            --firmware-url 'https://download.avm.de/fritzbox/fritzbox-7590/deutschland/fritz.os/FRITZ.Box_7590-08.25.image' \
+            --expected-size 42393600 \
+            --expected-sha256 267ef427337d2141736ad6ed5d9389722a6a1234dd590bb7d4ebf11a00616c0d \
+            --work-dir "${RUNNER_TEMP}/d19c" --receipt "${RUNNER_TEMP}/receipt/receipt.json"
+      - name: Enforce boundary
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"receipt"/"receipt.json").read_text())
+          assert r["oracleSatisfied"] is True,r
+          assert r["classification"] in {"E2_D19C_SVCTL_READ_RETURN_USE_ROLE_EARNED","E2_D19C_SVCTL_READ_RETURN_USE_PARTIAL"},r
+          b=r["interpretationBoundary"]
+          assert b["libcReadOwnershipInferred"] is False
+          assert b["responsePayloadPublished"] is False
+          assert b["returnValuePublished"] is False
+          assert b["sameBasicBlockSuccessorOnly"] is True
+          print(json.dumps({"classification":r["classification"],"callerReturnUse":r["callerReturnUse"],"interpretationBoundary":b},sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fritz-e2-d19c-return-role-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/receipt/receipt.json
+          retention-days: 7
