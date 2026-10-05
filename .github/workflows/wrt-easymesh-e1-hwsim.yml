@@ -23,7 +23,8 @@ jobs:
           mkdir -p "$OUT"
 
           sudo apt-get update -qq
-          sudo apt-get install -y -qq iw hostapd wpasupplicant kmod >/dev/null 2>&1 || true
+          sudo apt-get install -y -qq iw hostapd wpasupplicant kmod "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 || true
+          sudo depmod -a || true
 
           uname -a > "$OUT/uname.txt"
           (modinfo mac80211_hwsim || true) > "$OUT/modinfo-hwsim.txt" 2>&1
