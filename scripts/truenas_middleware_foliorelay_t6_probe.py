@@ -574,10 +574,14 @@ def main():
         after_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
         after_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
         if (after_printer.get("identity") or {}).get("printer_uuid")!=uuid or after_jobs!=before_jobs: raise RuntimeError("identity or Inbox drifted after restart")
-        # Re-plan from exact live read-back. No mutation is needed when desired and observed Compose identities match.
-        live_compose=call("app.config",[EXPECTED_APP_NAME])
-        replan_action="NOOP" if canonical_sha256(live_compose)==canonical_sha256(compose) else "UPDATE"
-        if replan_action!="NOOP": raise RuntimeError("exact desired/live Compose re-plan was not NOOP")
+        # F4: second-plan from exact live read-back must be a stable NOOP.
+        second_plan_app=query_optional("app.query",[["id","=",EXPECTED_APP_NAME]])
+        second_plan_state=(second_plan_app or {}).get("state")
+        live_compose=call("app.config",[EXPECTED_APP_NAME]) if second_plan_app else None
+        second_plan_action=reconciliation_action(second_plan_state,live_compose,compose)
+        replan_action=second_plan_action
+        if second_plan_action!="NOOP":
+            raise RuntimeError(f"second-plan reconciliation was {second_plan_action}, expected NOOP")
         # Exercise the public update/redeploy path separately from stop/start while preserving durable identity and Inbox.
         uj=call("app.update",[EXPECTED_APP_NAME,{"custom_compose_config":compose}])
         if not isinstance(uj,int): raise RuntimeError("app.update did not return job")
@@ -590,6 +594,46 @@ def main():
         redeploy_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
         if (redeploy_printer.get("identity") or {}).get("printer_uuid")!=uuid or redeploy_jobs!=before_jobs:
             raise RuntimeError("identity or Inbox drifted after update/redeploy")
+
+        # F5: product App deletion must retain the experiment-owned external dataset,
+        # and exact reinstall must recover durable identity, Inbox metadata, and bytes.
+        retained_before_delete=query_optional("pool.dataset.query",[["id","=",DATASET]])
+        if retained_before_delete is None:
+            raise RuntimeError("fixture dataset missing before retain-data delete")
+        md=call("app.delete",[EXPECTED_APP_NAME,{"remove_images":False,"remove_ix_volumes":False,"force_remove_custom_app":False}])
+        wait_job(md,"retain-data app delete"); app_created=False
+        if query_optional("app.query",[["id","=",EXPECTED_APP_NAME]]) is not None:
+            raise RuntimeError("product App remained after retain-data delete")
+        if query_optional("pool.dataset.query",[["id","=",DATASET]]) is None:
+            raise RuntimeError("external fixture dataset was not retained across App delete")
+        call("filesystem.stat",[TOKEN_PATH])
+
+        reinstall=call("app.create",[{"app_name":EXPECTED_APP_NAME,"custom_app":True,"custom_compose_config":compose}])
+        if not isinstance(reinstall,int): raise RuntimeError("reinstall app.create did not return job")
+        app_created=True
+        wait_job(reinstall,"reinstall app.create"); reinstall_app=wait_state(EXPECTED_APP_NAME,"RUNNING")
+        if canonical_sha256(call("app.config",[EXPECTED_APP_NAME]))!=canonical_sha256(compose):
+            raise RuntimeError("reinstall app.config readback drifted")
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout):
+            raise RuntimeError("readyz failed after retain-data reinstall")
+        reinstall_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
+        reinstall_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if ((reinstall_printer.get("identity") or {}).get("printer_uuid")!=uuid
+            or reinstall_printer.get("public_uri")!=PUBLIC_URI
+            or reinstall_jobs!=before_jobs):
+            raise RuntimeError("identity or Inbox drifted after retain-data reinstall")
+        for item in (reinstall_jobs.get("items") or []):
+            artifact_sha=item.get("artifact_sha256")
+            job_id=item.get("job_id")
+            if not artifact_sha or not job_id:
+                raise RuntimeError("reinstalled Inbox item missing artifact identity")
+            blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{job_id}/artifact",tok,timeout=a.timeout)
+            if sha256_bytes(blob)!=artifact_sha:
+                raise RuntimeError("retained artifact bytes drifted after reinstall")
+        reinstall_live=call("app.config",[EXPECTED_APP_NAME])
+        reinstall_plan_action=reconciliation_action((reinstall_app or {}).get("state"),reinstall_live,compose)
+        if reinstall_plan_action!="NOOP":
+            raise RuntimeError(f"post-reinstall reconciliation was {reinstall_plan_action}, expected NOOP")
         od=call("app.delete",[OBSERVER_APP_NAME,{"remove_images":False,"remove_ix_volumes":False,"force_remove_custom_app":False}]); wait_job(od,"observer delete"); observer_created=False
         md=call("app.delete",[EXPECTED_APP_NAME,{"remove_images":False,"remove_ix_volumes":False,"force_remove_custom_app":False}]); wait_job(md,"app delete"); app_created=False
         if call("app.query",[[["id","in",[EXPECTED_APP_NAME,OBSERVER_APP_NAME]]]]): raise RuntimeError("app residue remains")
@@ -604,11 +648,13 @@ def main():
         payload.update({
             "classification":"SUPPORTED","oracleSatisfied":True,
             "identity":{"printer_uuid":uuid,"public_uri":PUBLIC_URI,"control_cups_uuid_match":True,"dnssd_uuid_match":True,"dnssd_public_uri_match":True},
-            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP"},
+            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP","second_plan_noop":True,"retain_data_reinstall":True},
             "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True,"srv_target":PUBLIC_HOST,"srv_port":PUBLIC_IPP_PORT,"resource_path":PUBLIC_RESOURCE_PATH},
             "cleanup":{"apps_absent":True,"fixture_dataset_absent":True,"fixture_mountpoint_absent":True,"zero_residue":True},
+            "reconciliation":{"second_plan_action":second_plan_action,"post_reinstall_action":reinstall_plan_action,"inflight_policy":"WAIT","ambiguous_policy":"FAIL_CLOSED"},
+            "owned_data":{"policy":"RETAIN_EXTERNAL_DATASET_ON_APP_DELETE_THEN_EXPLICIT_FIXTURE_CLEANUP","dataset_retained_across_app_delete":True,"identity_preserved_after_reinstall":True,"inbox_preserved_after_reinstall":True,"artifact_bytes_preserved_after_reinstall":True},
             "producer_gate":{"replan_noop_required":True,"runtime_does_not_reconstruct_foundry_control":True},
-            "detail":"exact Foundry-exported FolioRelay control realized on TrueNAS; exact three-service identity, portal/IPP, PDF+URF source preservation, independent in-guest DNS-SD observation, restart persistence, and zero-residue cleanup passed"
+            "detail":"exact Foundry-exported FolioRelay control realized on TrueNAS; exact three-service identity, portal/IPP, PDF+URF source preservation, independent in-guest DNS-SD observation, restart/update/redeploy persistence, second-plan NOOP reconciliation, retain-data delete/reinstall persistence, and final zero-residue cleanup passed"
         })
     except Exception as exc:
         payload["detail"]=f"{type(exc).__name__}: {exc}"
