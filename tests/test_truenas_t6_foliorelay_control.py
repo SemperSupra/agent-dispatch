@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import ast
 import importlib.util
 import pathlib
 import subprocess
@@ -54,6 +55,19 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         workflow = (ROOT/".github"/"workflows"/"prep-foliorelay-t6-consumer.yml").read_text(encoding="utf-8")
         self.assertIn(MOD.OBSERVER_IMAGE, workflow)
         self.assertNotIn("ghcr.io/truenas/apps_validation", workflow)
+
+    def test_observer_runtime_is_stdlib_only(self):
+        tree = ast.parse(MOD.OBSERVER)
+        modules = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules.update(alias.name.split(".", 1)[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules.add(node.module.split(".", 1)[0])
+        self.assertEqual(
+            modules,
+            {"argparse", "http", "json", "socket", "struct", "threading", "time"},
+        )
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
         text = SCRIPT.read_text(encoding="utf-8")
