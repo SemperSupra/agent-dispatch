@@ -1,4 +1,4 @@
-name: WRT EasyMesh E2 QEMU Preflight
+name: WRT EasyMesh E2 OpenWrt QEMU
 
 on:
   push:
@@ -13,44 +13,160 @@ permissions:
 jobs:
   e2-qemu:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 50
     steps:
-      - name: Probe QEMU/KVM system-emulation capability
+      - name: Build stock prplMesh x86_64 and boot OpenWrt under QEMU TCG
         shell: bash
         run: |
           set -u
-          OUT="$RUNNER_TEMP/wrt-e2/out"
+          ROOT="$RUNNER_TEMP/wrt-e2"
+          OUT="$ROOT/out"
           mkdir -p "$OUT"
+          cd "$ROOT"
+
+          SDK_NAME='openwrt-sdk-25.12.5-x86-64_gcc-14.3.0_musl.Linux-x86_64'
+          SDK_ARCHIVE="$SDK_NAME.tar.zst"
+          SDK_URL="https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/$SDK_ARCHIVE"
+          SDK_SHA='0c8df0151a1e88feb7c03d694d61f6a18d51872815b7c811d76e2b77504d5e9c'
+          IB_NAME='openwrt-imagebuilder-25.12.5-x86-64.Linux-x86_64'
+          IB_ARCHIVE="$IB_NAME.tar.zst"
+          IB_URL="https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/$IB_ARCHIVE"
+          IB_SHA='313221253d9bac534e4a4ee6492a4941b4ba0f43200eceb8d16a4785470ae9df'
+          PKG_COMMIT='1bb94b900fd4166ac8c36431ca7baed55c75a571'
 
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86 qemu-utils jq >/dev/null
+          sudo apt-get install -y -qq build-essential git curl zstd rsync gawk gettext libncurses-dev unzip file jq python3-setuptools qemu-system-x86 qemu-utils >/dev/null
 
-          uname -a > "$OUT/uname.txt"
-          qemu-system-x86_64 --version > "$OUT/qemu-version.txt" 2>&1 || true
-          qemu-img --version > "$OUT/qemu-img-version.txt" 2>&1 || true
-          (ls -l /dev/kvm || true) > "$OUT/kvm.txt" 2>&1
-          (grep -E 'vmx|svm' /proc/cpuinfo | head -1 || true) > "$OUT/cpu-virt.txt" 2>&1
+          curl -fL --retry 2 --connect-timeout 20 "$SDK_URL" -o "$SDK_ARCHIVE"
+          curl -fL --retry 2 --connect-timeout 20 "$IB_URL" -o "$IB_ARCHIVE"
+          sdk_got=$(sha256sum "$SDK_ARCHIVE" | awk '{print $1}')
+          ib_got=$(sha256sum "$IB_ARCHIVE" | awk '{print $1}')
+          printf 'sdk_sha=%s\nimagebuilder_sha=%s\n' "$sdk_got" "$ib_got" > "$OUT/identity.txt"
+          test "$sdk_got" = "$SDK_SHA" || exit 2
+          test "$ib_got" = "$IB_SHA" || exit 2
 
-          qemu_ok=0
-          kvm_ok=0
-          command -v qemu-system-x86_64 >/dev/null 2>&1 && qemu_ok=1
-          [ -r /dev/kvm ] && [ -w /dev/kvm ] && kvm_ok=1 || true
+          tar --use-compress-program=unzstd -xf "$SDK_ARCHIVE"
+          tar --use-compress-program=unzstd -xf "$IB_ARCHIVE"
+          SDK="$ROOT/$SDK_NAME"
+          IB="$ROOT/$IB_NAME"
 
-          export qemu_ok kvm_ok
-          python3 -c 'import json,os; q=int(os.environ["qemu_ok"]); k=int(os.environ["kvm_ok"]); print(json.dumps({"schema":"wrt3200acm-easymesh-e2-qemu-preflight/v1","qemu_present":bool(q),"kvm_available":bool(k),"ready_for_tcg":bool(q),"ready_for_kvm":bool(q and k)},indent=2,sort_keys=True))' > "$OUT/verdict.json"
+          git clone -q https://github.com/openwrt/packages.git packages
+          git -C packages checkout -q "$PKG_COMMIT"
+          git -C packages rev-parse HEAD > "$OUT/openwrt-packages-sha.txt"
+
+          cd "$SDK"
+          cp feeds.conf.default feeds.conf
+          ./scripts/feeds update -a > "$OUT/feeds-update-default.log" 2>&1
+          ./scripts/feeds install -a > "$OUT/feeds-install-default.log" 2>&1
+
+          STOCK_FEED="$ROOT/stock-prplmesh-feed"
+          mkdir -p "$STOCK_FEED/net" "$STOCK_FEED/lang/python" "$STOCK_FEED/lang/rust"
+          cp -a "$ROOT/packages/net/prplmesh" "$STOCK_FEED/net/"
+          cp "$SDK/feeds/packages/lang/python/python3-host.mk" "$STOCK_FEED/lang/python/python3-host.mk"
+          cp "$SDK/feeds/packages/lang/python/python3-version.mk" "$STOCK_FEED/lang/python/python3-version.mk"
+          cp "$SDK/feeds/packages/lang/rust/rust-values.mk" "$STOCK_FEED/lang/rust/rust-values.mk"
+          printf '\nsrc-link stockprplmesh %s\n' "$STOCK_FEED" >> feeds.conf
+          ./scripts/feeds update stockprplmesh > "$OUT/feeds-update-stock.log" 2>&1
+          ./scripts/feeds install -p stockprplmesh prplmesh > "$OUT/feeds-install-stock.log" 2>&1
+
+          target='package/feeds/stockprplmesh/prplmesh'
+          cat > .config <<'EOF'
+          # CONFIG_ALL is not set
+          # CONFIG_ALL_NONSHARED is not set
+          # CONFIG_ALL_KMODS is not set
+          # CONFIG_DEVEL is not set
+          CONFIG_PACKAGE_prplmesh=m
+          EOF
+          make defconfig > "$OUT/defconfig.log" 2>&1
+
+          build_rc=0
+          set +e
+          make -j2 "$target/compile" V=s > "$OUT/prplmesh-x86-build.log" 2>&1
+          build_rc=$?
+          set -e
+
+          pkg=$(find "$SDK/bin" -type f -name 'prplmesh*.apk' -print -quit 2>/dev/null)
+          pkg_present=0
+          [ -n "$pkg" ] && [ -f "$pkg" ] && pkg_present=1
+          if [ "$pkg_present" -eq 1 ]; then
+            cp "$pkg" "$OUT/"
+            sha256sum "$pkg" > "$OUT/prplmesh-x86-sha256.txt"
+          fi
+
+          image_rc=99
+          boot_attempted=0
+          service_state_seen=0
+          controller_seen=0
+          transport_seen=0
+
+          if [ "$build_rc" -eq 0 ] && [ "$pkg_present" -eq 1 ]; then
+            mkdir -p "$IB/packages"
+            cp "$pkg" "$IB/packages/"
+            OVERLAY="$ROOT/overlay"
+            mkdir -p "$OVERLAY/etc/config" "$OVERLAY/etc"
+            cat > "$OVERLAY/etc/config/prplmesh" <<'EOF'
+          config prplmesh 'config'
+            option enabled '1'
+            option management_mode 'Multi-AP-Controller'
+            option backhaul_wire_iface 'br-lan'
+            option mandatory_interfaces ''
+          EOF
+            cat > "$OVERLAY/etc/rc.local" <<'EOF'
+          #!/bin/sh
+          (
+            sleep 15
+            echo E2_STATE_BEGIN > /dev/ttyS0
+            cat /etc/openwrt_release > /dev/ttyS0
+            uci show prplmesh > /dev/ttyS0 2>&1
+            /etc/init.d/prplmesh status > /dev/ttyS0 2>&1
+            ps w > /dev/ttyS0 2>&1
+            ls -l /usr/libexec/prplmesh/bin > /dev/ttyS0 2>&1
+            echo E2_STATE_END > /dev/ttyS0
+          ) &
+          exit 0
+          EOF
+            chmod +x "$OVERLAY/etc/rc.local"
+
+            cd "$IB"
+            set +e
+            make image PROFILE=generic PACKAGES="prplmesh -wpad-basic-mbedtls wpad-openssl" FILES="$OVERLAY" > "$OUT/imagebuilder.log" 2>&1
+            image_rc=$?
+            set -e
+
+            image=$(find "$IB/bin/targets/x86/64" -type f -name '*generic-ext4-combined.img.gz' -print -quit 2>/dev/null)
+            if [ "$image_rc" -eq 0 ] && [ -n "$image" ]; then
+              cp "$image" "$OUT/"
+              gzip -dc "$image" > "$ROOT/openwrt.img"
+              boot_attempted=1
+              set +e
+              timeout 65 qemu-system-x86_64 -machine pc -m 512 -nographic -drive file="$ROOT/openwrt.img",format=raw,if=virtio -netdev user,id=net0 -device virtio-net-pci,netdev=net0 > "$OUT/qemu-serial.log" 2>&1
+              qemu_rc=$?
+              set -e
+              grep -q 'E2_STATE_BEGIN' "$OUT/qemu-serial.log" && service_state_seen=1 || true
+              grep -q 'beerocks_controller' "$OUT/qemu-serial.log" && controller_seen=1 || true
+              grep -q 'ieee1905_transport' "$OUT/qemu-serial.log" && transport_seen=1 || true
+              printf 'qemu_rc=%s\n' "$qemu_rc" > "$OUT/qemu-verdict.txt"
+            fi
+          fi
+
+          export build_rc pkg_present image_rc boot_attempted service_state_seen controller_seen transport_seen
+          python3 - <<'PY' > "$OUT/verdict.json"
+          import json, os
+          keys=['build_rc','pkg_present','image_rc','boot_attempted','service_state_seen','controller_seen','transport_seen']
+          d={k:int(os.environ[k]) for k in keys}
+          d['schema']='wrt3200acm-easymesh-e2-openwrt-qemu/v2'
+          d['qemu_mode']='tcg'
+          d['passed_system_integration']=bool(d['build_rc']==0 and d['pkg_present'] and d['image_rc']==0 and d['boot_attempted'] and d['service_state_seen'] and d['controller_seen'] and d['transport_seen'])
+          print(json.dumps(d,indent=2,sort_keys=True))
+          PY
 
           echo '--- E2_SEMANTIC_VERDICT_BEGIN ---'
-
-
           cat "$OUT/verdict.json"
-
-
           echo '--- E2_SEMANTIC_VERDICT_END ---'
-
-
           cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
 
-      - name: Upload E2 preflight evidence
+      - name: Upload E2 evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
