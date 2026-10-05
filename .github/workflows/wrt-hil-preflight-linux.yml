@@ -1,0 +1,32 @@
+name: WRT HIL Linux Arrival Preflight
+
+on:
+  push:
+    branches:
+      - wrt-hil-prequal-20261005
+    paths:
+      - '.github/waves/wrt-hil-preflight-linux-trigger.json'
+
+permissions:
+  contents: read
+
+jobs:
+  linux-arrival-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse shell surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n tools/wrt_hil_prep/payload/scripts/hil-preflight.sh
+          bash -n tools/wrt_hil_prep/payload/scripts/r1-readonly-remote.sh
+          bash -n tools/wrt_hil_prep/payload/scripts/verify-bundle.sh
+      - name: Execute no-target preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(sh tools/wrt_hil_prep/payload/scripts/hil-preflight.sh)"
+          printf '%s\n' "$out"
+          printf '%s' "$out" | jq -e '.schema=="wrt-hil-arrival-preflight/v1" and .authority=="R1_READ_ONLY" and (.dut_checks|length)==0 and (.prohibited|index("sysupgrade")!=null)'
