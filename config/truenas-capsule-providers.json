@@ -42,7 +42,7 @@
       "kind": "foundry-product",
       "product": "foliorelay",
       "probe": "scripts/truenas_middleware_foliorelay_t6_probe.py",
-      "control_artifact": "foliorelay-t6-beta3-control",
+      "control_artifact": "foliorelay-t6-control",
       "existing_selector": "foliorelay"
     }
   ]
