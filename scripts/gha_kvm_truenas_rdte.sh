@@ -343,9 +343,12 @@ HOST_CPUS="$(nproc)"
 FOLIORELAY_OBSERVER_BINARY=""
 if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "foliorelay" ]]; then
   FOLIORELAY_OBSERVER_BINARY="$STATE_DIR/foliorelay-observer"
-  GO111MODULE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags='-s -w -buildid=' \
-    -o "$FOLIORELAY_OBSERVER_BINARY" "$SCRIPT_DIR/../tools/foliorelay-observer" ||
+  (
+    cd "$SCRIPT_DIR/.."
+    GO111MODULE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+      go build -trimpath -ldflags='-s -w -buildid=' \
+      -o "$FOLIORELAY_OBSERVER_BINARY" ./tools/foliorelay-observer
+  ) ||
     fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer build failed"
   [[ -s "$FOLIORELAY_OBSERVER_BINARY" ]] ||
     fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer build produced an empty binary"
