@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import ssl
 import time
 import urllib.error
@@ -102,7 +103,11 @@ class PveApi:
         return self._request("PUT", path, fields or {}).data
 
     def delete(self, path: str, fields: dict[str, Any] | None = None) -> Any:
-        return self._request("DELETE", path, fields or {}).data
+        # PVE rejects request content for DELETE. DELETE options are query parameters.
+        if fields:
+            query = urllib.parse.urlencode({k: str(v) for k, v in fields.items()})
+            path = f"{path}?{query}"
+        return self._request("DELETE", path).data
 
 
 def wait_task(api: PveApi, node: str, upid: str, timeout: float = 180.0) -> dict[str, Any]:
@@ -114,9 +119,14 @@ def wait_task(api: PveApi, node: str, upid: str, timeout: float = 180.0) -> dict
         if isinstance(data, dict):
             last = data
             if data.get("status") == "stopped":
-                if data.get("exitstatus") != "OK":
-                    raise ProxmoxProbeError(f"task failed: {data!r}")
-                return data
+                exitstatus = data.get("exitstatus")
+                # PVE::UPID::status_is_error() treats OK and WARNINGS: <n> as non-errors.
+                if exitstatus == "OK" or (
+                    isinstance(exitstatus, str)
+                    and re.fullmatch(r"WARNINGS: \\d+", exitstatus)
+                ):
+                    return data
+                raise ProxmoxProbeError(f"task failed: {data!r}")
         time.sleep(1)
     raise ProxmoxProbeError(f"task timeout: {last!r}")
 
