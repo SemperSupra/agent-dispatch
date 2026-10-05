@@ -80,3 +80,48 @@ func TestParsePacket(t *testing.T) {
         t.Fatalf("not qualifying: %+v", o)
     }
 }
+
+
+func TestQualifyingRejectsCrossedIdentity(t *testing.T) {
+	base := observation{
+		universal: true,
+		txt: []string{
+			"UUID=urn:uuid:01234567-89ab-4def-8123-456789abcdef",
+			"rp=printers/FolioRelay",
+			"pdl=application/pdf,image/urf",
+		},
+		srvTarget: "foliorelay-t6.local.",
+		srvPort:   8634,
+	}
+	tests := []struct {
+		name string
+		obs observation
+		expected string
+		host string
+		port int
+	}{
+		{"missing-universal", observation{txt: base.txt, srvTarget: base.srvTarget, srvPort: base.srvPort}, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 8634},
+		{"wrong-uuid", base, "urn:uuid:ffffffff-ffff-4fff-8fff-ffffffffffff", "foliorelay-t6.local", 8634},
+		{"wrong-host", base, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "other.local", 8634},
+		{"wrong-port", base, "urn:uuid:01234567-89ab-4def-8123-456789abcdef", "foliorelay-t6.local", 9999},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if qualifying(tc.obs, tc.expected, tc.host, tc.port) {
+				t.Fatal("unexpected qualifying observation")
+			}
+		})
+	}
+}
+
+func TestParsePacketRejectsMalformedInput(t *testing.T) {
+	if _, err := parsePacket([]byte{0, 1, 2}); err == nil {
+		t.Fatal("expected short packet error")
+	}
+	loop := make([]byte, 18)
+	binary.BigEndian.PutUint16(loop[4:6], 1)
+	loop[12], loop[13] = 0xC0, 0x0C
+	if _, err := parsePacket(loop); err == nil {
+		t.Fatal("expected DNS compression pointer loop error")
+	}
+}

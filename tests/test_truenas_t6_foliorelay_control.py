@@ -30,12 +30,14 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             '"/api/v1/printer"', '"/api/v1/jobs"', 'application/pdf', 'image/urf',
             'ipptool', 'UNIRAST', '"pool.dataset.create"', '"pool.dataset.delete"',
             '"app.create"', '"app.stop"', '"app.start"', '"app.delete"',
-            '"zero_residue":True', '_universal._sub._ipp._tcp.local',
+            '"zero_residue":True',
             'dnssd_uuid_match', 'restart_preserved_identity_and_inbox',
             'app.update', 'app.redeploy', 'replan_action', '"NOOP"',
             'update_redeploy_preserved_identity_and_inbox',
         ):
             self.assertIn(needle, text)
+        observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
+        self.assertIn('_universal._sub._ipp._tcp.local', observer)
         self.assertIn(MOD.OBSERVER_IMAGE, text)
         self.assertNotIn("avahi-publish-service", text)
         self.assertNotIn("/run/dbus", text)
@@ -45,18 +47,25 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"', text)
         self.assertIn('"network_mode":"host"', text)
-        self.assertIn('"entrypoint":["python3","/observer/mdns_observer.py"]', text)
+        self.assertIn('"entrypoint":["/observer/foliorelay-observer"]', text)
+        self.assertIn('"user":"65534:65534"', text)
+        self.assertEqual(
+            MOD.OBSERVER_IMAGE,
+            "docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8",
+        )
+        self.assertNotIn('ghcr.io/truenas/apps_validation@sha256:', text)
         self.assertIn('"distinct_observer_context":True', text)
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('result={"status":"pending"}', text)
-        self.assertIn('threading.Thread(target=run_observer', text)
-        self.assertIn('{"status":"success",**result}', text)
-        self.assertIn('{"status":"error","error":', text)
-        self.assertIn('p.add_argument("--seconds",type=float,default=25)', text)
+        observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
+        self.assertIn('"status": "pending"', observer)
+        self.assertIn('r["status"] = "success"', observer)
+        self.assertIn('"status": "error"', observer)
+        self.assertIn('flag.Float64("seconds", 25', observer)
         self.assertIn('DNS-SD observer oracle failed:', text)
         self.assertIn('DNS-SD observer oracle remained pending', text)
+        self.assertNotIn("OBSERVER = r'''", text)
 
 
     def test_failed_observer_create_preserves_diagnostics_and_cleans_owned_state(self):
@@ -128,6 +137,9 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('FOLIORELAY_IPP_HOST_PORT', harness)
         self.assertIn('FOLIORELAY_OBSERVER_HOST_PORT', harness)
         self.assertIn('--observer-port "$FOLIORELAY_OBSERVER_HOST_PORT"', harness)
+        self.assertIn('--observer-binary "$FOLIORELAY_OBSERVER_BINARY"', harness)
+        self.assertIn('CGO_ENABLED=0 GOOS=linux GOARCH=amd64', harness)
+        self.assertIn('observer_size <= 6291456', harness)
 
     def test_cups_uuid_oracle_preserves_canonical_urn_prefix(self):
         attrs = """
@@ -151,11 +163,13 @@ class FolioRelayT6ContractTests(unittest.TestCase):
 
     def test_dnssd_observer_proves_public_host_port_and_resource_path(self):
         text = SCRIPT.read_text(encoding="utf-8")
+        observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
         self.assertIn('"--expected-host",PUBLIC_HOST', text)
         self.assertIn('"--expected-ipp-port",str(PUBLIC_IPP_PORT)', text)
-        self.assertIn('srv_target', text)
-        self.assertIn('srv_port', text)
-        self.assertIn('"rp=printers/FolioRelay"', text)
+        self.assertIn('"srv_target"', observer)
+        self.assertIn('"srv_port"', observer)
+        self.assertIn('rp=printers/foliorelay', observer.lower())
+        self.assertIn('pdl=application/pdf,image/urf', observer.lower())
         self.assertIn('"dnssd_public_uri_match":True', text)
         self.assertNotIn('if PUBLIC_URI not in attrs', text)
 
@@ -165,6 +179,20 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             out = MOD.generate_urf(pathlib.Path(td))
             self.assertTrue(out.is_file())
             self.assertEqual(out.read_bytes()[:7], b"UNIRAST")
+
+    def test_probe_cli_reaches_argparse_before_observer_validation(self):
+        cp=subprocess.run([sys.executable,str(SCRIPT),"--help"],capture_output=True,text=True)
+        self.assertEqual(cp.returncode,0,cp.stderr)
+        self.assertIn("--observer-binary",cp.stdout)
+
+    def test_observer_fixture_identity_is_receipted(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('payload["observer_fixture"]', text)
+        self.assertIn('"implementation":"go-static"', text)
+        self.assertIn('"carrier_image":OBSERVER_IMAGE', text)
+        self.assertIn('"binary_sha256":sha256_bytes(observer_bytes)', text)
+        self.assertIn('"binary_size_bytes":len(observer_bytes)', text)
+        self.assertIn('"run_as":"65534:65534"', text)
 
     def test_probe_compiles(self):
         cp=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],capture_output=True,text=True)

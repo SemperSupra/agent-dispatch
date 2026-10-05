@@ -27,7 +27,7 @@ EXPECTED_APP_NAME = "rdte-t6-foliorelay"
 OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"
 EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce"
 EXPECTED_CUPS = "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f"
-OBSERVER_IMAGE = "ghcr.io/truenas/apps_validation@sha256:3f38cdaa6ed9c54e5c9c43ec15790aabc0028631dd3f0c28129832a69fd1f30c"
+OBSERVER_IMAGE = "docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8"
 DATASET = "rdtepool/foliorelay-t6"
 ROOT = "/mnt/rdtepool/foliorelay-t6"
 TOKEN_PATH = ROOT + "/secrets/control.token"
@@ -259,86 +259,6 @@ def ipptool_print(port:int, media:str, source:pathlib.Path, label:str, root:path
     (root/f"print-{label}.txt").write_text(p.stdout+"\n"+p.stderr,encoding="utf-8")
     if p.returncode: raise RuntimeError(f"{label} Print-Job failed")
 
-OBSERVER = r'''#!/usr/bin/env python3
-import argparse, json, socket, struct, threading, time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-Q="_universal._sub._ipp._tcp.local"
-def enc(name):
-    return b"".join(bytes([len(x)])+x.encode() for x in name.split("."))+b"\0"
-def name_at(pkt,off,seen=None):
-    if seen is None: seen=set()
-    labels=[]; end=None
-    while True:
-        if off>=len(pkt): raise ValueError("dns name overflow")
-        n=pkt[off]
-        if n==0:
-            if end is None: end=off+1
-            return ".".join(labels),end
-        if n&0xC0==0xC0:
-            ptr=((n&0x3f)<<8)|pkt[off+1]
-            if ptr in seen: raise ValueError("dns pointer loop")
-            seen.add(ptr); tail,_=name_at(pkt,ptr,seen)
-            if tail: labels.append(tail)
-            if end is None: end=off+2
-            return ".".join(labels),end
-        off+=1; labels.append(pkt[off:off+n].decode(errors="replace")); off+=n
-def observe(expected,expected_host,expected_ipp_port,seconds=25):
-    qid=0; query=struct.pack("!HHHHHH",qid,0,1,0,0,0)+enc(Q)+struct.pack("!HH",12,1)
-    s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM,socket.IPPROTO_UDP)
-    s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-    try: s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEPORT,1)
-    except OSError: pass
-    s.bind(("",5353))
-    mreq=socket.inet_aton("224.0.0.251")+socket.inet_aton("0.0.0.0")
-    s.setsockopt(socket.IPPROTO_IP,socket.IP_ADD_MEMBERSHIP,mreq); s.settimeout(1)
-    s.sendto(query,("224.0.0.251",5353))
-    deadline=time.monotonic()+seconds; packets=[]
-    while time.monotonic()<deadline:
-        try: pkt,_=s.recvfrom(65535)
-        except socket.timeout:
-            s.sendto(query,("224.0.0.251",5353)); continue
-        packets.append(pkt)
-        try:
-            _,_,qd,an,ns,ar=struct.unpack("!HHHHHH",pkt[:12]); off=12
-            for _ in range(qd):
-                _,off=name_at(pkt,off); off+=4
-            universal_ptr=False; txt=[]; srv_target=None; srv_port=None
-            for _ in range(an+ns+ar):
-                nm,off=name_at(pkt,off); typ,cls,ttl,rdlen=struct.unpack("!HHIH",pkt[off:off+10]); off+=10
-                rstart=off; r=pkt[off:off+rdlen]; off+=rdlen
-                if nm.rstrip(".").lower()==Q.lower() and typ==12: universal_ptr=True
-                if typ==16:
-                    j=0
-                    while j<len(r):
-                        n=r[j]; j+=1; txt.append(r[j:j+n].decode(errors="replace")); j+=n
-                if typ==33 and rdlen>=7:
-                    _,_,srv_port=struct.unpack("!HHH",r[:6])
-                    srv_target,_=name_at(pkt,rstart+6)
-            joined="\n".join(txt)
-            if (universal_ptr and expected.lower() in joined.lower()
-                and "rp=printers/FolioRelay" in joined
-                and "pdl=application/pdf,image/urf" in joined
-                and (srv_target or "").rstrip(".").lower()==expected_host.rstrip(".").lower()
-                and srv_port==expected_ipp_port):
-                return {"universal_ptr":True,"uuid":expected,"txt":txt,"srv_target":srv_target,"srv_port":srv_port}
-        except Exception: pass
-    raise RuntimeError("no qualifying _universal FolioRelay mDNS response")
-class H(BaseHTTPRequestHandler):
-    result={"status":"pending"}
-    def do_GET(self):
-        body=json.dumps(H.result).encode(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
-    def log_message(self,*args): pass
-def run_observer(args):
-    try:
-        result=observe(args.uuid,args.expected_host,args.expected_ipp_port,args.seconds)
-        H.result={"status":"success",**result}
-    except Exception as exc:
-        H.result={"status":"error","error":f"{type(exc).__name__}: {exc}"}
-p=argparse.ArgumentParser(); p.add_argument("--uuid",required=True); p.add_argument("--expected-host",required=True); p.add_argument("--expected-ipp-port",type=int,required=True); p.add_argument("--port",type=int,default=18081); p.add_argument("--seconds",type=float,default=25); a=p.parse_args()
-threading.Thread(target=run_observer,args=(a,),daemon=True).start()
-HTTPServer(("0.0.0.0",a.port),H).serve_forever()
-'''
-
 
 class JobFailure(RuntimeError):
     def __init__(self, label: str, job: dict):
@@ -462,11 +382,26 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--host",default="127.0.0.1"); p.add_argument("--port",type=int,required=True)
     p.add_argument("--control-port",type=int,required=True); p.add_argument("--ipp-port",type=int,required=True); p.add_argument("--observer-port",type=int,required=True)
+    p.add_argument("--observer-binary",type=pathlib.Path,required=True)
     p.add_argument("--password-file",required=True); p.add_argument("--control-dir",type=pathlib.Path,required=True); p.add_argument("--foundry-commit",required=True)
     p.add_argument("--out",required=True); p.add_argument("--tls",action="store_true"); p.add_argument("--timeout",type=float,default=8); p.add_argument("--job-timeout",type=float,default=300); p.add_argument("--state-timeout",type=float,default=300)
     a=p.parse_args()
+    if not a.observer_binary.is_file():
+        raise RuntimeError("minimal observer binary is missing")
+    observer_bytes=a.observer_binary.read_bytes()
+    if not observer_bytes:
+        raise RuntimeError("minimal observer binary is empty")
+    if len(observer_bytes) > 6291456:
+        raise RuntimeError("minimal observer binary exceeds 6 MiB budget")
     started=time.time(); ws=None; dataset_owned=False; app_created=False; observer_created=False
     payload={"schema":"truenas-foliorelay-foundry-t6/v1","classification":"ORACLE_FAILURE","oracleSatisfied":False,"expected_version":EXPECTED_VERSION,"foundry_commit":a.foundry_commit,"app_name":EXPECTED_APP_NAME,"secret_values_captured":False}
+    payload["observer_fixture"]={
+        "implementation":"go-static",
+        "carrier_image":OBSERVER_IMAGE,
+        "binary_sha256":sha256_bytes(observer_bytes),
+        "binary_size_bytes":len(observer_bytes),
+        "run_as":"65534:65534",
+    }
     try:
         control,compose=load_control(a.control_dir,a.foundry_commit)
         payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS}
@@ -560,8 +495,8 @@ def main():
                 if len(matches)!=1 or matches[0].get("artifact_sha256")!=sha or matches[0].get("substrate")!="cups": raise RuntimeError(f"{media} Inbox metadata drifted")
                 blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
-        sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/mdns_observer.py",OBSERVER.encode(),0o555,a.timeout); wait_job(sj,"observer upload")
-        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR,"target":"/observer","read_only":True}],"entrypoint":["python3","/observer/mdns_observer.py"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
+        sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/foliorelay-observer",observer_bytes,0o555,a.timeout); wait_job(sj,"observer upload")
+        obs_compose={"services":{"observer":{"image":OBSERVER_IMAGE,"network_mode":"host","read_only":True,"user":"65534:65534","cap_drop":["ALL"],"security_opt":["no-new-privileges:true"],"volumes":[{"type":"bind","source":OBSERVER_DIR+"/foliorelay-observer","target":"/observer/foliorelay-observer","read_only":True}],"entrypoint":["/observer/foliorelay-observer"],"command":["--uuid",uuid,"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]}}}
         oj=call("app.create",[{"app_name":OBSERVER_APP_NAME,"custom_app":True,"custom_compose_config":obs_compose}])
         if not isinstance(oj,int): raise RuntimeError("observer app.create did not return job")
         observer_created=True
