@@ -1,11 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-container-c0-001",
+  "request_id": "tn-26-beta3-t6-foliorelay-013-f0-f5-closure",
   "version": "26.0.0-BETA.3",
-  "rung": "t3",
-  "compute_fixture": "container-c0",
+  "rung": "t6",
+  "product": "foliorelay",
   "authority_issue": 396,
-  "purpose": "Run the first product-API-native TrueNAS compute materialization C0 rep on exact 26.0.0-BETA.3 using the existing #396 disposable system workcell. Preserve exact ISO/middleware/T3 pool evidence, then resolve the admitted Ubuntu Noble system-container image through container.image.query_registry and exercise container.create/query/start/stop/update/stop+start/delete/absence through middleware APIs. This rep claims C0 lifecycle only; guest-level C1 execution/nonce, VM lifecycle, nested KVM, Firecracker, Windows 11, physical HIL, and cross-version inheritance remain explicitly unclaimed.",
-  "claim_boundary": "C0 native product-API container lifecycle only; C1 guest execution, VM lifecycle, Firecracker, Windows, cross-version support, and physical HIL remain OPEN",
-  "consumer_authority_issue": 426
+  "consumer_authority_issue": 273,
+  "purpose": "Close the exact FolioRelay 26.0.0-BETA.3 Foundry F0-F5 matrix cell after rep 012 earned product-specific T6 SUPPORTED/oracleSatisfied=true. Preserve exact product/Foundry/image/Compose/IPP/PDF/URF semantics. New acceptance obligations are bounded to already-cheap-qualified harness hardening: DNS-SD PTR/TXT/SRV evidence must correlate to one service instance; F4 must prove second-plan NOOP with WAIT for in-flight states and fail-closed ambiguity; F5 must delete the product App while retaining the external fixture dataset, reinstall exact Compose, prove printer identity/Inbox/artifact bytes persist, then finish with zero residue. No acceptance is inferred without SUPPORTED plus oracleSatisfied=true and all new receipt fields."
 }
