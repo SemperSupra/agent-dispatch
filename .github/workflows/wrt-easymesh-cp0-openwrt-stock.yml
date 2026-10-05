@@ -56,14 +56,23 @@ jobs:
           ./scripts/feeds update -a > "$OUT/feeds-update-default.log" 2>&1
           ./scripts/feeds install -a > "$OUT/feeds-install-default.log" 2>&1
 
-          # Then add the exact OpenWrt packages snapshot only as a local feed
-          # and install only its prplmesh recipe, preserving its relative host
-          # Python include path and patch/files layout.
-          printf '\nsrc-link stockpackages %s\n' "$ROOT/packages" >> feeds.conf
-          ./scripts/feeds update stockpackages > "$OUT/feeds-update-stock.log" 2>&1
-          ./scripts/feeds install -p stockpackages prplmesh > "$OUT/feeds-install-stock.log" 2>&1
+          # Build a minimal synthetic feed containing only the official
+          # prplmesh package.  Do not index the whole newer packages tree:
+          # its python3-host.mk targets a newer host Python than the 25.12.5
+          # SDK release feed.  Preserve the prplmesh subtree byte-for-byte and
+          # provide only its expected relative helper path from the release
+          # feed so python3/host + python-yaml/host remain release-coherent.
+          STOCK_FEED="$ROOT/stock-prplmesh-feed"
+          mkdir -p "$STOCK_FEED/net" "$STOCK_FEED/lang/python"
+          cp -a "$ROOT/packages/net/prplmesh" "$STOCK_FEED/net/"
+          cp "$SDK/feeds/packages/lang/python/python3-host.mk" "$STOCK_FEED/lang/python/python3-host.mk"
+          cp "$STOCK_FEED/lang/python/python3-host.mk" "$OUT/release-python3-host.mk"
 
-          target='package/feeds/stockpackages/prplmesh'
+          printf '\nsrc-link stockprplmesh %s\n' "$STOCK_FEED" >> feeds.conf
+          ./scripts/feeds update stockprplmesh > "$OUT/feeds-update-stock.log" 2>&1
+          ./scripts/feeds install -p stockprplmesh prplmesh > "$OUT/feeds-install-stock.log" 2>&1
+
+          target='package/feeds/stockprplmesh/prplmesh'
           target_present=0
           [ -e "$target/Makefile" ] && target_present=1
           [ "$target_present" -eq 0 ] || cp -L "$target/Makefile" "$OUT/installed-prplmesh-Makefile.txt"
