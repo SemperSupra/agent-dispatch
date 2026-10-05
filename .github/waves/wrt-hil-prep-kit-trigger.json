@@ -1,7 +1,8 @@
 {
   "schema": "wrt-hil-prep-kit-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 1,
-  "reason": "Build immutable self-contained WRT3200ACM R1/R2 prep byte bundle using AAR/CDR packaging pattern.",
-  "drive_destination": "WRT3200ACM Recovery Archive/HIL Prep Kit - 2026-10-05"
+  "attempt": 2,
+  "reason": "Diagnosed build repair: hydrate the qualified CP0 artifact with actions/download-artifact so the Azure redirect does not inherit GitHub Authorization headers.",
+  "drive_destination": "WRT3200ACM Recovery Archive/HIL Prep Kit - 2026-10-05",
+  "prior_run": 37340115445
 }
