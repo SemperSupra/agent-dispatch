@@ -165,17 +165,24 @@ func parsePacket(pkt []byte) (observation, error) {
 	return o, nil
 }
 
-func qualifying(o observation, expected, expectedHost string, expectedPort int) bool {
+func qualifying(o observation, expectedTxtUUID, expectedHost string, expectedPort int) bool {
 	joined := strings.ToLower(strings.Join(o.txt, "\n"))
+	uuidMatch := false
+	for _, item := range o.txt {
+		if strings.EqualFold(item, "UUID="+expectedTxtUUID) {
+			uuidMatch = true
+			break
+		}
+	}
 	return o.universal &&
-		strings.Contains(joined, strings.ToLower(expected)) &&
+		uuidMatch &&
 		strings.Contains(joined, "rp=printers/foliorelay") &&
 		strings.Contains(joined, "pdl=application/pdf,image/urf") &&
 		strings.EqualFold(strings.TrimSuffix(o.srvTarget, "."), strings.TrimSuffix(expectedHost, ".")) &&
 		o.srvPort == expectedPort
 }
 
-func observe(expected, expectedHost string, expectedPort int, seconds float64) (map[string]any, error) {
+func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, seconds float64) (map[string]any, error) {
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
 	if err != nil {
 		return nil, err
@@ -219,7 +226,7 @@ func observe(expected, expectedHost string, expectedPort int, seconds float64) (
 		if err != nil {
 			continue
 		}
-		if qualifying(o, expected, expectedHost, expectedPort) {
+		if qualifying(o, expectedTxtUUID, expectedHost, expectedPort) {
 			return map[string]any{
 				"universal_ptr": true,
 				"uuid":          expected,
@@ -234,19 +241,20 @@ func observe(expected, expectedHost string, expectedPort int, seconds float64) (
 
 func main() {
 	uuid := flag.String("uuid", "", "expected canonical printer UUID")
+	txtUUID := flag.String("txt-uuid", "", "expected bare DNS-SD TXT UUID")
 	host := flag.String("expected-host", "", "expected DNS-SD SRV host")
 	ippPort := flag.Int("expected-ipp-port", 0, "expected DNS-SD SRV port")
 	port := flag.Int("port", 18081, "HTTP witness port")
 	seconds := flag.Float64("seconds", 25, "mDNS observation window")
 	flag.Parse()
-	if *uuid == "" || *host == "" || *ippPort <= 0 {
-		fmt.Fprintln(os.Stderr, "uuid, expected-host, and expected-ipp-port are required")
+	if *uuid == "" || *txtUUID == "" || *host == "" || *ippPort <= 0 {
+		fmt.Fprintln(os.Stderr, "uuid, txt-uuid, expected-host, and expected-ipp-port are required")
 		os.Exit(2)
 	}
 
 	state := &resultState{v: map[string]any{"status": "pending"}}
 	go func() {
-		r, err := observe(*uuid, *host, *ippPort, *seconds)
+		r, err := observe(*uuid, *txtUUID, *host, *ippPort, *seconds)
 		if err != nil {
 			state.set(map[string]any{"status": "error", "error": fmt.Sprintf("%T: %v", err, err)})
 			return
