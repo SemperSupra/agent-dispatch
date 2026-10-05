@@ -103,10 +103,15 @@ jobs:
               iw dev "$STA" scan dump > /tmp/e1-scan 2>&1 || true
               grep -q 'SSID: rdte-e1' /tmp/e1-scan && scanok=1 || true
               echo E1_STAGE=scan-done > /dev/ttyS0
+              cat /tmp/e1-hostapd.log > /dev/ttyS0 2>&1 || true
+              cat /tmp/e1-scan-trigger > /dev/ttyS0 2>&1 || true
+              cat /tmp/e1-scan > /dev/ttyS0 2>&1 || true
 
               mkdir -p /var/run/e1-wpa
               echo E1_STAGE=wpa-start > /dev/ttyS0
-              wpa_supplicant -B -P /tmp/e1-wpa.pid -Dnl80211 -i "$STA" -c /tmp/e1-wpa.conf > /tmp/e1-wpa.log 2>&1 || true
+              wpa_supplicant -Dnl80211 -i "$STA" -c /tmp/e1-wpa.conf > /tmp/e1-wpa.log 2>&1 &
+              wpa_pid=$!
+              echo E1_WPA_PID=$wpa_pid > /dev/ttyS0
               i=0
               while [ "$i" -lt 20 ]; do
                 iw dev "$STA" link > /tmp/e1-link 2>&1 || true
@@ -117,6 +122,8 @@ jobs:
               wpa_cli -p /var/run/e1-wpa -i "$STA" status > /tmp/e1-wpa-status 2>&1 || true
               grep -q '^wpa_state=COMPLETED' /tmp/e1-wpa-status && assoc=1 || true
               echo E1_STAGE=association-done > /dev/ttyS0
+              kill "$wpa_pid" 2>/dev/null || true
+              wait "$wpa_pid" 2>/dev/null || true
 
               iw dev "$AP" station dump > /tmp/e1-stations 2>&1 || true
               iw dev "$AP" survey dump > /tmp/e1-survey 2>&1 || true
