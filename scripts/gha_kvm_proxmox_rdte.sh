@@ -47,19 +47,6 @@ API_VERSION_JSON=""
 HOSTFWD_API_VERSION_JSON=""
 GUEST_LOCAL_API_VERSION_JSON=""
 API_OBSERVATION_ROUTE=""
-# Read-only native REST census: capture exact installed PVE/package identity for
-# later product-API materialization admission without changing this system claim.
-PVE_PASSWORD_FILE="$STATE_DIR/pve-rest-password"
-printf '%s\n' "$ROOT_PASSWORD" >"$PVE_PASSWORD_FILE"
-chmod 0400 "$PVE_PASSWORD_FILE"
-REST_API_CENSUS_JSON="$(
-  python3 "$SCRIPT_DIR/proxmox_rest_compute_probe.py" \
-    --base-url "https://127.0.0.1:$WEB_PORT" \
-    --password-file "$PVE_PASSWORD_FILE" \
-    --kind vm --observe-only 2>/dev/null || true
-)"
-rm -f "$PVE_PASSWORD_FILE"
-
 NESTED_KVM="unknown"
 NESTED_KVM_INDICATORS="unknown"
 NESTED_KVM_VCPU_JSON=""
@@ -1028,6 +1015,19 @@ if [[ "$API_VERSION_JSON" != *'"data"'* ]]; then
   INSTALLED_DISK_POSTBOOT="$(inspect_installed_disk postboot)"
   fail_evidence ORACLE_FAILURE installed-api "installed Proxmox HTTPS API did not answer via direct hostfwd or SSH-observed guest-local HTTPS (qemu_alive=$QEMU_ALIVE_AT_API_GATE first_boot_witness=$FIRST_BOOT_WITNESS_OBSERVED)"
 fi
+
+# Read-only native REST census: capture exact installed PVE/package identity only
+# after the installed HTTPS API is known-good.
+PVE_PASSWORD_FILE="$STATE_DIR/pve-rest-password"
+printf '%s\n' "$ROOT_PASSWORD" >"$PVE_PASSWORD_FILE"
+chmod 0400 "$PVE_PASSWORD_FILE"
+REST_API_CENSUS_JSON="$(
+  python3 "$SCRIPT_DIR/proxmox_rest_compute_probe.py" \
+    --base-url "https://127.0.0.1:$WEB_PORT" \
+    --password-file "$PVE_PASSWORD_FILE" \
+    --kind vm --observe-only 2>/dev/null || true
+)"
+rm -f "$PVE_PASSWORD_FILE"
 
 NESTED_KVM="unknown"
 NESTED_KVM_INDICATORS="unknown"
