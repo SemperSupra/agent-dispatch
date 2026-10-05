@@ -1,0 +1,21 @@
+name: FRITZ E2 D19 response-role gate
+
+on:
+  pull_request:
+    paths:
+      - "evidence/fritz-e2-d19-response-role.json"
+      - "tests/test_fritz_e2_d19_response_role.py"
+      - ".github/workflows/fritz-e2-d19-response-role.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v tests/test_fritz_e2_d19_response_role.py
