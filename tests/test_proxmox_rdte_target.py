@@ -27,8 +27,12 @@ class ProxmoxTargetRegistryTests(unittest.TestCase):
         self.assertEqual(t["container_fixture"]["catalog_source"]["blob_sha"],"433a8ef4bf78d606508c6bae162c49e9ef0ecfd3")
         self.assertEqual(t["container_fixture"]["catalog_source"]["base_url"],"http://download.proxmox.com/images")
 
-    def test_vm_source_profile_remains_explicitly_open(self):
-        self.assertEqual(self.targets["9.2-1"]["vm_source_status"],"OPEN_PENDING_EXACT_QEMU_SERVER_PACKAGE_CENSUS")
+    def test_vm_source_profile_is_exact_but_runtime_unqualified(self):
+        t=self.targets["9.2-1"]
+        self.assertEqual(t["vm_source_status"],"SOURCE_BOUND_RUNTIME_NOT_YET_QUALIFIED")
+        self.assertEqual(t["qemu_server_source"]["package_version"],"9.1.15")
+        self.assertEqual(t["qemu_server_source"]["commit"],"6785065b3f766f15f6f151af8ec27ec8bb5b07ab")
+        self.assertEqual(t["qemu_server_source"]["api2_qemu_blob"],"e029a204d121f3c8b104457ef14eb6d5ce029464")
 
     def test_request_is_registered_runtime_target(self):
         request=json.loads(RUN_REQUEST.read_text(encoding="utf-8"))
