@@ -127,6 +127,14 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("losetup --find --show --read-only --partscan", text)
         self.assertNotIn("qemu-nbd --connect", text)
 
+    def test_proxmox_rest_api_census_is_read_only_and_retained(self):
+        text = PVE.read_text(encoding="utf-8")
+        self.assertIn("proxmox_rest_compute_probe.py", text)
+        self.assertIn("--kind vm --observe-only", text)
+        self.assertIn('"rest_api_census_observed"', text)
+        self.assertIn('"rest_api_census": rest_api_census', text)
+        self.assertIn("REST API census is read-only discovery evidence only", text)
+
     def test_proxmox_hostfwd_is_diagnostic_not_guest_or_nested_oracle(self):
         text = PVE.read_text(encoding="utf-8")
         self.assertNotIn('NESTED_KVM="no"', text)
