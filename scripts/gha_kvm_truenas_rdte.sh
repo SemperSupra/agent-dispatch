@@ -314,8 +314,11 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
     elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_foliorelay_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 FolioRelay control client"
+      [[ -f "$SCRIPT_DIR/../tools/foliorelay-observer/main.go" ]] ||
+        fail_evidence HARNESS_FAILURE preflight "missing minimal FolioRelay observer source"
       command -v ipptool >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: ipptool"
       command -v cc >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: C compiler"
+      command -v go >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: Go compiler"
     else
       [[ -f "$SCRIPT_DIR/truenas_middleware_litellm_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 LiteLLM control client"
@@ -335,6 +338,18 @@ HOST_CPUS="$(nproc)"
 (( HOST_CPUS >= VCPUS )) || fail_evidence SKIPPED_GUARDRAIL preflight "host CPU count $HOST_CPUS below requested guest vCPU count $VCPUS"
 (( MEM_AVAIL_KIB >= MIN_HOST_MEM_KIB )) || fail_evidence SKIPPED_GUARDRAIL preflight "host memory headroom below 11 GiB required before allocating 8 GiB guest"
 (( FREE_KIB >= MIN_HOST_FREE_KIB )) || fail_evidence SKIPPED_GUARDRAIL preflight "host disk headroom below 28 GiB"
+
+FOLIORELAY_OBSERVER_BINARY=""
+if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "foliorelay" ]]; then
+  FOLIORELAY_OBSERVER_BINARY="$STATE_DIR/foliorelay-observer"
+  GO111MODULE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags='-s -w -buildid=' \
+    -o "$FOLIORELAY_OBSERVER_BINARY" "$SCRIPT_DIR/../tools/foliorelay-observer" ||
+    fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer build failed"
+  observer_size="$(stat -c%s "$FOLIORELAY_OBSERVER_BINARY")"
+  (( observer_size <= 6291456 )) ||
+    fail_evidence HARNESS_FAILURE preflight "minimal FolioRelay observer exceeds 6 MiB budget"
+fi
 
 ISO="$STATE_DIR/$ISO_NAME"
 curl --fail --location --retry 3 --silent --show-error "$SHA_URL" -o "$STATE_DIR/vendor.sha256" ||
@@ -887,6 +902,7 @@ elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
     --control-port "$FOLIORELAY_CONTROL_HOST_PORT" \
     --ipp-port "$FOLIORELAY_IPP_HOST_PORT" \
     --observer-port "$FOLIORELAY_OBSERVER_HOST_PORT" \
+    --observer-binary "$FOLIORELAY_OBSERVER_BINARY" \
     "${MIDDLEWARE_TLS_ARG[@]}" \
     --password-file "$PASSWORD_FILE" \
     --control-dir "$FOUNDRY_CONTROL_DIR" \
