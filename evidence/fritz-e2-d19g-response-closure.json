@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "fritz-e2-d19g-response-closure/v1",
+  "classification": "E2_D19G_CALLER_RETURN_RESPONSE_BRANCH_EXHAUSTED",
+  "oracleSatisfied": true,
+  "acceptedChain": {
+    "d19": "E2_D19_SVCTL_READ_ENTRY_ROLE_EARNED",
+    "d19b": "E2_D19B_SVCTL_READ_NO_RUNTIME_DISCRIMINATOR",
+    "d19c": "E2_D19C_SVCTL_READ_RETURN_USE_ROLE_EARNED",
+    "d19d": "E2_D19D_SVCTL_READ_RETURN_CLASS_NO_DISCRIMINATOR",
+    "d19e": "E2_D19E_SVCTL_READ_CALLER_BRANCH_ROLE_EARNED",
+    "d19f": "E2_D19F_BRANCH_RELATION_NO_DISCRIMINATOR"
+  },
+  "convergence": {
+    "entryDimensionsDiscriminateStart": false,
+    "returnScalarClassDiscriminatesStart": false,
+    "callerBranchRelationDiscriminatesStart": false,
+    "statusControlsStableAcrossAllRuntimeReps": true,
+    "statusChanged": false,
+    "ctlmgrStarted": false
+  },
+  "closure": {
+    "callerReturnBranchClosed": true,
+    "doNotWidenMemoryWindows": true,
+    "doNotWidenCfgHeuristics": true,
+    "doNotInferSvctlReadToLibcRead": true,
+    "doNotPublishResponsePayload": true,
+    "newResponseExperimentRequiresNewMechanicallyEarnedEvidence": true
+  },
+  "interpretationBoundary": {
+    "r9ResponseClassDifferenceStillAccepted": true,
+    "responseDifferenceExplained": false,
+    "libcReadOwnershipInferred": false,
+    "responseFieldLayoutAccepted": false,
+    "protocolEnumValuesAccepted": false,
+    "payloadOffsetsAccepted": false,
+    "physicalRouterContact": false,
+    "modifiedHilAuthorized": false
+  }
+}

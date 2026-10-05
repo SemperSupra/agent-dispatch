@@ -1,0 +1,17 @@
+name: FRITZ E2 D19g response closure
+on:
+  pull_request:
+    paths:
+      - "evidence/fritz-e2-d19g-response-closure.json"
+      - "tests/test_fritz_e2_d19g_response_closure.py"
+      - ".github/workflows/fritz-e2-d19g-response-closure.yml"
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - run: python3 -m unittest -v tests/test_fritz_e2_d19g_response_closure.py
