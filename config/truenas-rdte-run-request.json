@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-010-static-observer",
+  "request_id": "tn-26-beta3-t6-foliorelay-011-static-observer-build",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 396,
   "consumer_authority_issue": 273,
-  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep 009 demonstrated the external observer fixture image was grossly oversized relative to the bounded Apps pool and failed during pull/extraction before DNS-SD. Preserve all FolioRelay product, Foundry, control/cups images, Compose, public-URI, PDF/URF, cleanup, and acceptance semantics. The only causal harness delta is PR #245: replace the observer runtime with the cheap-qualified static CGO=0 observer and pinned scratch-like carrier under the same host-network/read-only/cap-drop/no-new-privileges contract. DNS-SD canonical-vs-TXT UUID semantics remain unchanged; PR #220 stays HOLD unless this rep reaches that comparison. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
+  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep 010 failed closed before VM work because the harness passed an absolute Go package path. Preserve all product, Foundry, observer logic, IPP, DNS-SD, cleanup, and acceptance semantics. The only causal delta is PR #249: build the already-qualified static observer from an explicit repository-root subshell using ./tools/foliorelay-observer. PR #220 remains HOLD unless this rep reaches the DNS-SD TXT UUID comparison. No acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
 }
