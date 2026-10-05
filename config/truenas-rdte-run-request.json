@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-009-terminal-pull-error",
+  "request_id": "tn-26-beta3-t6-foliorelay-010-static-observer",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 396,
   "consumer_authority_issue": 273,
-  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep 008 exposed observer image-pull activity but lost the terminal Docker/Compose stderr to head-only bounding. Preserve all FolioRelay product, Foundry, image, Compose, public-URI, URF, DNS-SD, cleanup, and acceptance semantics. The only causal harness delta is PR #238 head-plus-terminal-tail lifecycle evidence so the exact terminal observer image-pull error is retained. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true. PR #220 remains HOLD unless this rep actually reaches the DNS-SD TXT UUID comparison."
+  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep 009 demonstrated the external observer fixture image was grossly oversized relative to the bounded Apps pool and failed during pull/extraction before DNS-SD. Preserve all FolioRelay product, Foundry, control/cups images, Compose, public-URI, PDF/URF, cleanup, and acceptance semantics. The only causal harness delta is PR #245: replace the observer runtime with the cheap-qualified static CGO=0 observer and pinned scratch-like carrier under the same host-network/read-only/cap-drop/no-new-privileges contract. DNS-SD canonical-vs-TXT UUID semantics remain unchanged; PR #220 stays HOLD unless this rep reaches that comparison. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
 }
