@@ -187,6 +187,10 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('rp=printers/foliorelay', observer.lower())
         self.assertIn('pdl=application/pdf,image/urf', observer.lower())
         self.assertIn('"dnssd_public_uri_match":True', text)
+        self.assertIn('"service_instance"', observer)
+        self.assertIn('matchObservation', observer)
+        self.assertIn('o.txtByOwner[owner]', observer)
+        self.assertIn('o.srvByOwner[owner]', observer)
         self.assertNotIn('if PUBLIC_URI not in attrs', text)
 
     @unittest.skipUnless(pathlib.Path("/usr/include/cups/raster.h").is_file(), "CUPS development headers not installed")
