@@ -2,7 +2,7 @@ import pathlib
 import unittest
 from scripts.proxmox_rest_compute_probe import (
     PVE_CONTAINER_SOURCE, PVE_MANAGER_API_SOURCE, PVE_QEMU_PACKAGE_SOURCE, PVE_QEMU_SERVER_SOURCE,
-    ProxmoxProbeError, lxc_create_fields, plan_only, vm_create_fields
+    ProxmoxProbeError, PveApi, Response, lxc_create_fields, plan_only, vm_create_fields, wait_task
 )
 
 class ProxmoxRestComputeContractTests(unittest.TestCase):
@@ -45,6 +45,26 @@ class ProxmoxRestComputeContractTests(unittest.TestCase):
         self.assertNotIn("ide2",f)
         self.assertNotIn("password",f)
         self.assertNotIn("ciuser",f)
+
+    def test_wait_task_accepts_proxmox_warning_terminal_state(self):
+        class FakeApi:
+            def get(self, path):
+                return {"status":"stopped","exitstatus":"WARNINGS: 1","upid":"UPID:test"}
+        result=wait_task(FakeApi(),"pve-rdte","UPID:test",timeout=0.1)
+        self.assertEqual(result["exitstatus"],"WARNINGS: 1")
+
+    def test_delete_options_are_query_parameters_not_request_body(self):
+        api=PveApi("https://example.invalid","root@pam","unused")
+        captured={}
+        def fake_request(method,path,fields=None):
+            captured.update(method=method,path=path,fields=fields)
+            return Response(200,"UPID:test")
+        api._request=fake_request
+        result=api.delete("/nodes/pve/lxc/9101",{"purge":1})
+        self.assertEqual(result,"UPID:test")
+        self.assertEqual(captured["method"],"DELETE")
+        self.assertEqual(captured["path"],"/nodes/pve/lxc/9101?purge=1")
+        self.assertIsNone(captured["fields"])
 
     def test_apply_failure_path_has_owned_resource_cleanup(self):
         text=pathlib.Path("scripts/proxmox_rest_compute_probe.py").read_text(encoding="utf-8")
