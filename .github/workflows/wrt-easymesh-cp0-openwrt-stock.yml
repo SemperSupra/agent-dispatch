@@ -120,6 +120,14 @@ jobs:
           fi
 
           find "$SDK/bin" -type f \( -name 'prplmesh*.apk' -o -name 'prplmesh*.ipk' \) -printf '%P\t%s\n' 2>/dev/null | sort > "$OUT/packages-built.txt" || true
+          mkdir -p "$OUT/packages"
+          while IFS= read -r pkg; do
+            [ -n "$pkg" ] || continue
+            cp -a "$pkg" "$OUT/packages/"
+          done < <(find "$SDK/bin" -type f \( -name 'prplmesh*.apk' -o -name 'prplmesh*.ipk' \) -print 2>/dev/null)
+          if find "$OUT/packages" -type f -maxdepth 1 | grep -q .; then
+            sha256sum "$OUT"/packages/* > "$OUT/packages-sha256.txt"
+          fi
 
           export target_present defconfig1_rc defconfig2_rc config_assert_rc prepare_rc compile_rc
           python3 -c 'import json,os; ks=["target_present","defconfig1_rc","defconfig2_rc","config_assert_rc","prepare_rc","compile_rc"]; d={k:int(os.environ[k]) for k in ks}; d["schema"]="wrt-easymesh-cp0-openwrt-stock/v1"; d["prepare_attempted"]=d["config_assert_rc"]==0; d["compile_attempted"]=d["prepare_rc"]==0; d["passed"]=d["compile_rc"]==0; print(json.dumps(d,indent=2,sort_keys=True))' > "$OUT/verdict.json"
