@@ -182,7 +182,7 @@ class OfficialCatalogT6ContractTests(unittest.TestCase):
         self.assertIn('"official-catalog"', harness)
         self.assertIn("truenas_middleware_official_catalog_t6_probe.py", harness)
         self.assertIn(
-            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" ]]; then',
+            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" ]]; then',
             harness,
         )
 
