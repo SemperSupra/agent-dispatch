@@ -198,6 +198,8 @@ class SystemRdteContractTests(unittest.TestCase):
         text = PVE.read_text(encoding="utf-8")
         self.assertIn('P3_TEMPLATE_NAME="debian-13-standard_13.1-2_amd64.tar.zst"', text)
         self.assertIn('P3_TEMPLATE_SHA512="5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8"', text)
+        self.assertIn('P3_TEMPLATE_URL="http://download.proxmox.com/images/system/$P3_TEMPLATE_NAME"', text)
+        self.assertNotIn('P3_TEMPLATE_URL="https://download.proxmox.com/images/system/', text)
         self.assertIn('P3_PVE_CONTAINER_SOURCE_COMMIT="5eb5574ee9158ac40a5230de2cf18d7d6345709f"', text)
         self.assertIn("probe_lxc_lifecycle", text)
         self.assertIn('pct create "$VMID"', text)
