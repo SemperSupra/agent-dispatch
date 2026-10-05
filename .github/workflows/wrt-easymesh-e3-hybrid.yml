@@ -1,4 +1,4 @@
-name: WRT EasyMesh E3 Hybrid Preflight
+name: WRT EasyMesh E3 Hybrid OpenWrt hwsim
 
 on:
   push:
@@ -9,73 +9,166 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  e3-preflight:
+  e3-hybrid:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
-      - name: Probe hybrid OpenWrt+hwsim host primitives
+      - name: Boot stock prplMesh in OpenWrt hwsim guest
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          OUT="$RUNNER_TEMP/wrt-e3/out"
+          set -u
+          ROOT="$RUNNER_TEMP/wrt-e3"
+          OUT="$ROOT/out"
           mkdir -p "$OUT"
+          cd "$ROOT"
+
+          E2_ARTIFACT_ID='11336174982'
+          PRPL_SHA='ce91228d204b68cf37d0c46bf5f7492cfe3ac9d83463cb5d47cafb84197336d7'
+          IB_NAME='openwrt-imagebuilder-25.12.5-x86-64.Linux-x86_64'
+          IB_ARCHIVE="$IB_NAME.tar.zst"
+          IB_URL="https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/$IB_ARCHIVE"
+          IB_SHA='313221253d9bac534e4a4ee6492a4941b4ba0f43200eceb8d16a4785470ae9df'
 
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86 qemu-utils iw kmod tcpdump iproute2 jq >/dev/null
+          sudo apt-get install -y -qq curl unzip zstd qemu-system-x86 qemu-utils >/dev/null
 
-          cleanup() {
-            sudo ip netns del e3-a >/dev/null 2>&1 || true
-            sudo ip netns del e3-b >/dev/null 2>&1 || true
-            sudo ip link del e3-br >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
+          curl -fL --retry 2 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$E2_ARTIFACT_ID/zip" -o e2.zip
+          unzip -q e2.zip -d e2
+          pkg=$(find e2 -type f -name 'prplmesh-6.0.1-r1.apk' -print -quit)
+          [ -n "$pkg" ] || { echo 'E2 prplMesh package missing' > "$OUT/blocker.txt"; exit 2; }
+          got_pkg=$(sha256sum "$pkg" | awk '{print $1}')
+          printf 'e2_artifact_id=%s\nprplmesh_sha=%s\n' "$E2_ARTIFACT_ID" "$got_pkg" > "$OUT/identity.txt"
+          test "$got_pkg" = "$PRPL_SHA" || exit 2
 
-          docker_ok=0
-          qemu_ok=0
-          hwsim_ok=0
-          netns_ok=0
-          bridge_ok=0
-          capture_ok=0
-          phy_count=0
+          curl -fL --retry 2 --connect-timeout 20 "$IB_URL" -o "$IB_ARCHIVE"
+          got_ib=$(sha256sum "$IB_ARCHIVE" | awk '{print $1}')
+          printf 'imagebuilder_sha=%s\n' "$got_ib" >> "$OUT/identity.txt"
+          test "$got_ib" = "$IB_SHA" || exit 2
+          tar --use-compress-program=unzstd -xf "$IB_ARCHIVE"
+          IB="$ROOT/$IB_NAME"
+          mkdir -p "$IB/packages"
+          cp "$pkg" "$IB/packages/"
 
-          uname -a > "$OUT/uname.txt"
-          docker version > "$OUT/docker.txt" 2>&1 || true
-          qemu-system-x86_64 --version > "$OUT/qemu.txt" 2>&1 || true
-          modinfo mac80211_hwsim > "$OUT/hwsim-modinfo.txt" 2>&1 || true
+          OVERLAY="$ROOT/overlay"
+          mkdir -p "$OVERLAY/etc"
+          cat > "$OVERLAY/etc/rc.local" <<'EOS'
+          #!/bin/sh
+          (
+            sleep 12
+            echo E3_STATE_BEGIN > /dev/ttyS0
+            echo E3_KERNEL=$(uname -r) > /dev/ttyS0
+            rmmod mac80211_hwsim 2>/dev/null || true
+            modprobe mac80211_hwsim radios=2 2>/tmp/e3-modprobe.err || true
+            sleep 2
+            cat /tmp/e3-modprobe.err > /dev/ttyS0 2>&1 || true
 
-          command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && docker_ok=1 || true
-          command -v qemu-system-x86_64 >/dev/null 2>&1 && qemu_ok=1 || true
-          command -v tcpdump >/dev/null 2>&1 && capture_ok=1 || true
+            rm -f /etc/config/wireless
+            wifi config > /tmp/e3-wifi-config.log 2>&1 || true
+            cat /tmp/e3-wifi-config.log > /dev/ttyS0 2>&1
+            uci show wireless > /tmp/e3-wireless-before 2>&1 || true
+            cat /tmp/e3-wireless-before > /dev/ttyS0
 
-          if ! lsmod | grep -q '^mac80211_hwsim '; then
-            sudo modprobe mac80211_hwsim radios=3 > "$OUT/hwsim-load.txt" 2>&1 || true
+            radio=$(uci show wireless 2>/dev/null | sed -n 's/^wireless\.\([^.=]*\)=wifi-device.*/\1/p' | head -1)
+            iface=$(uci show wireless 2>/dev/null | sed -n 's/^wireless\.\([^.=]*\)=wifi-iface.*/\1/p' | head -1)
+            if [ -n "$radio" ] && [ -n "$iface" ]; then
+              uci set wireless.$radio.disabled='0'
+              uci set wireless.$radio.channel='1'
+              uci set wireless.$radio.band='2g'
+              uci set wireless.$radio.htmode='HT20'
+              uci set wireless.$iface.device="$radio"
+              uci set wireless.$iface.mode='ap'
+              uci set wireless.$iface.network='lan'
+              uci set wireless.$iface.ssid='rdte-e3'
+              uci set wireless.$iface.encryption='none'
+              uci set wireless.$iface.ifname='wlan0'
+              uci commit wireless
+              wifi reload > /tmp/e3-wifi-reload.log 2>&1 || true
+            fi
+            sleep 8
+            iw dev > /tmp/e3-iw-dev 2>&1 || true
+            cat /tmp/e3-iw-dev > /dev/ttyS0
+            ubus list 'hostapd.*' > /tmp/e3-hostapd-ubus 2>&1 || true
+            cat /tmp/e3-hostapd-ubus > /dev/ttyS0
+            ls -l /var/run/hostapd > /tmp/e3-hostapd-sockets 2>&1 || true
+            cat /tmp/e3-hostapd-sockets > /dev/ttyS0
+
+            actual=$(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}' | head -1)
+            [ -n "$actual" ] || actual='wlan0'
+            uci set prplmesh.config.enabled='1'
+            uci set prplmesh.config.management_mode='Multi-AP-Controller-and-Agent'
+            uci set prplmesh.config.mandatory_interfaces="$actual"
+            uci set prplmesh.config.backhaul_wire_iface='br-lan'
+            uci set prplmesh.main_24_5.ssid='rdte-e3'
+            uci set prplmesh.main_24_5.key='rdte-e3-pass'
+            uci set prplmesh.main_24_5.encryption='psk2'
+            uci commit prplmesh
+            /etc/init.d/prplmesh restart > /tmp/e3-prplmesh-restart.log 2>&1 || true
+            sleep 15
+
+            echo E3_ACTUAL_IFACE=$actual > /dev/ttyS0
+            uci show prplmesh > /dev/ttyS0 2>&1
+            /etc/init.d/prplmesh status > /dev/ttyS0 2>&1 || true
+            ps w > /tmp/e3-ps 2>&1 || true
+            cat /tmp/e3-ps > /dev/ttyS0
+            logread | grep -Ei 'prplmesh|beerocks|ieee1905|hostapd|wpa' > /tmp/e3-logread 2>&1 || true
+            cat /tmp/e3-logread > /dev/ttyS0
+            iw dev > /dev/ttyS0 2>&1 || true
+            echo E3_STATE_END > /dev/ttyS0
+          ) &
+          exit 0
+          EOS
+          chmod +x "$OVERLAY/etc/rc.local"
+
+          cd "$IB"
+          image_rc=0
+          set +e
+          make image PROFILE=generic PACKAGES="prplmesh kmod-mac80211-hwsim iw-full wpad-openssl ip-full -wpad-basic-mbedtls" FILES="$OVERLAY" > "$OUT/imagebuilder.log" 2>&1
+          image_rc=$?
+          set -e
+
+          boot_attempted=0; radio_seen=0; hostapd_seen=0; transport_seen=0; controller_seen=0; agent_seen=0; state_end=0
+          image=$(find "$IB/bin/targets/x86/64" -type f -name '*generic-ext4-combined.img.gz' -print -quit 2>/dev/null)
+          if [ "$image_rc" -eq 0 ] && [ -n "$image" ]; then
+            cp "$image" "$OUT/"
+            sha256sum "$image" > "$OUT/image-sha256.txt"
+            gzip -dc "$image" > "$ROOT/openwrt.img"
+            boot_attempted=1
+            set +e
+            timeout 90 qemu-system-x86_64 -machine pc -m 768 -nographic -drive file="$ROOT/openwrt.img",format=raw,if=virtio -netdev user,id=net0 -device virtio-net-pci,netdev=net0 > "$OUT/qemu-serial.log" 2>&1
+            qemu_rc=$?
+            set -e
+            grep -q 'Interface ' "$OUT/qemu-serial.log" && radio_seen=1 || true
+            grep -Eq 'hostapd\.|/var/run/hostapd|hostapd -' "$OUT/qemu-serial.log" && hostapd_seen=1 || true
+            grep -q 'ieee1905_transport' "$OUT/qemu-serial.log" && transport_seen=1 || true
+            grep -q 'beerocks_controller' "$OUT/qemu-serial.log" && controller_seen=1 || true
+            grep -q 'beerocks_agent' "$OUT/qemu-serial.log" && agent_seen=1 || true
+            grep -q 'E3_STATE_END' "$OUT/qemu-serial.log" && state_end=1 || true
+            printf 'qemu_rc=%s\n' "$qemu_rc" > "$OUT/qemu-verdict.txt"
           fi
-          phy_count=$(find /sys/class/ieee80211 -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l)
-          [ "$phy_count" -ge 3 ] && hwsim_ok=1 || true
 
-          if sudo ip netns add e3-a >/dev/null 2>&1 && sudo ip netns add e3-b >/dev/null 2>&1; then
-            netns_ok=1
-          fi
-          if sudo ip link add e3-br type bridge >/dev/null 2>&1; then
-            sudo ip link set e3-br up >/dev/null 2>&1 || true
-            bridge_ok=1
-          fi
-
-          sudo ip netns list > "$OUT/namespaces.txt" 2>&1 || true
-          sudo ip -details link show e3-br > "$OUT/bridge.txt" 2>&1 || true
-          iw phy > "$OUT/iw-phy.txt" 2>&1 || true
-
-          export docker_ok qemu_ok hwsim_ok netns_ok bridge_ok capture_ok phy_count
-          python3 -c 'import json,os; ks=["docker_ok","qemu_ok","hwsim_ok","netns_ok","bridge_ok","capture_ok","phy_count"]; d={k:int(os.environ[k]) for k in ks}; ready=all(d[k] for k in ["docker_ok","qemu_ok","hwsim_ok","netns_ok","bridge_ok"]); print(json.dumps({"schema":"wrt3200acm-easymesh-e3-hybrid-preflight/v1",**d,"ready_for_e3":bool(ready),"classification":"PASS" if ready else "HOST_PRIVILEGE_LIMITATION","note":"Host primitives only; no Marvell-specific emulation."},indent=2,sort_keys=True))' > "$OUT/verdict.json"
-
-          echo '--- E3_PREFLIGHT_VERDICT_BEGIN ---'
+          export image_rc boot_attempted radio_seen hostapd_seen transport_seen controller_seen agent_seen state_end
+          python3 - <<'PY' > "$OUT/verdict.json"
+          import json,os
+          ks=['image_rc','boot_attempted','radio_seen','hostapd_seen','transport_seen','controller_seen','agent_seen','state_end']
+          d={k:int(os.environ[k]) for k in ks}
+          d['schema']='wrt3200acm-easymesh-e3-openwrt-hwsim/v1'
+          d['qemu_mode']='tcg'
+          d['passed_hybrid_integration']=bool(d['image_rc']==0 and d['boot_attempted'] and d['radio_seen'] and d['hostapd_seen'] and d['transport_seen'] and d['controller_seen'] and d['agent_seen'] and d['state_end'])
+          print(json.dumps(d,indent=2,sort_keys=True))
+          PY
+          echo '--- E3_SEMANTIC_VERDICT_BEGIN ---'
           cat "$OUT/verdict.json"
-          echo '--- E3_PREFLIGHT_VERDICT_END ---'
+          echo '--- E3_SEMANTIC_VERDICT_END ---'
           cat "$OUT/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
 
-      - name: Upload E3 preflight evidence
+      - name: Upload E3 evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
