@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-013-f0-f5-closure",
-  "version": "26.0.0-BETA.3",
+  "request_id": "tn-25-10-7-t6-foliorelay-001-f0-f5",
+  "version": "25.10.7",
   "rung": "t6",
   "product": "foliorelay",
-  "authority_issue": 396,
+  "authority_issue": 410,
   "consumer_authority_issue": 273,
-  "purpose": "Close the exact FolioRelay 26.0.0-BETA.3 Foundry F0-F5 matrix cell after rep 012 earned product-specific T6 SUPPORTED/oracleSatisfied=true. Preserve exact product/Foundry/image/Compose/IPP/PDF/URF semantics. New acceptance obligations are bounded to already-cheap-qualified harness hardening: DNS-SD PTR/TXT/SRV evidence must correlate to one service instance; F4 must prove second-plan NOOP with WAIT for in-flight states and fail-closed ambiguity; F5 must delete the product App while retaining the external fixture dataset, reinstall exact Compose, prove printer identity/Inbox/artifact bytes persist, then finish with zero residue. No acceptance is inferred without SUPPORTED plus oracleSatisfied=true and all new receipt fields."
+  "purpose": "Run the first exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 after the BETA.3 row closed with complete F0-F5 evidence. No support is inherited from BETA.3 or generic T0-T5. Use the exact registered 25.10.7 ISO/middleware/profile, version-aware Foundry export, pinned FolioRelay control/CUPS images, service-instance-safe DNS-SD observer, exact PDF/URF source preservation, second-plan NOOP reconciliation, retain-data App delete/reinstall persistence, and final zero-residue cleanup. Acceptance requires a retained SUPPORTED/oracleSatisfied=true receipt with complete F0-F5 evidence."
 }
