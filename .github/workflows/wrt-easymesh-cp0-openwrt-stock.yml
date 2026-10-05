@@ -28,7 +28,7 @@ jobs:
           SDK_ARCHIVE="$SDK_NAME.tar.zst"
           SDK_URL="https://downloads.openwrt.org/releases/25.12.5/targets/mvebu/cortexa9/$SDK_ARCHIVE"
           SDK_SHA='6b24abad1feee5f071a53872ed355ae4c2a90017b00ff99907183b56b31d995a'
-          PKG_COMMIT='6c393a8732c33436260b1db8b5407c3ce8b17826'
+          PKG_COMMIT='1bb94b900fd4166ac8c36431ca7baed55c75a571'
 
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential git curl zstd rsync gawk gettext libncurses-dev unzip file jq python3-setuptools >/dev/null
