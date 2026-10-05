@@ -20,7 +20,7 @@ EXPECTED={
  "wow-sidecar-t6":("wow-sidecar","wow-sidecar-truenas-t6-control","scripts/truenas_middleware_wow_sidecar_t6_probe.py"),
  "garm-t6":("garm","garm-truenas-t6-control","scripts/truenas_middleware_garm_t6_probe.py"),
  "official-catalog-t6":("official-catalog","official-catalog-truenas-t6-control","scripts/truenas_middleware_official_catalog_t6_probe.py"),
- "foliorelay-t6":("foliorelay","foliorelay-t6-beta3-control","scripts/truenas_middleware_foliorelay_t6_probe.py"),
+ "foliorelay-t6":("foliorelay","foliorelay-t6-control","scripts/truenas_middleware_foliorelay_t6_probe.py"),
 }
 
 def manifest(provider):
