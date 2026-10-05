@@ -103,6 +103,19 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertNotIn("secret-value", excerpt)
         self.assertIn("auth_token=<redacted>", excerpt)
 
+    def test_observer_lifecycle_excerpt_preserves_terminal_error_when_long_line_is_bounded(self):
+        prefix = "pull progress " * 900
+        terminal = "failed to register layer: write /var/lib/docker/overlay2: no space left on device"
+        sample = (
+            "2026 app_lifecycle Failed 'up' action for 'rdte-t6-foliorelay-observer' app "
+            + prefix + terminal
+        )
+        excerpt = MOD.bounded_observer_lifecycle_excerpt(sample, before=0, after=0, limit=1200)
+        self.assertLessEqual(len(excerpt), 1200)
+        self.assertIn("rdte-t6-foliorelay-observer", excerpt)
+        self.assertIn("...<truncated-middle>...", excerpt)
+        self.assertIn(terminal, excerpt)
+
     def test_workflow_and_harness_route_exact_foliorelay_export(self):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
