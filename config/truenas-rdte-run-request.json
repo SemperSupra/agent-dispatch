@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-foliorelay-008-app-lifecycle-evidence",
+  "request_id": "tn-26-beta3-t6-foliorelay-009-terminal-pull-error",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 396,
   "consumer_authority_issue": 273,
-  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep-007 proved that failed app.create job logs contain no Docker Compose stderr even though cleanup is clean. Preserve all FolioRelay product, Foundry, image, Compose, public-URI, URF, and DNS-SD oracle semantics. The only causal harness delta is PR #235 evidence capture: after observer app.create fails, retrieve the appliance app lifecycle log through authenticated middleware and retain only a bounded observer-scoped excerpt, while preserving the primary failure and zero-residue accounting. Use that excerpt to identify the TrueNAS appliance/runtime Compose failure. PR #220 remains HOLD unless this rep reaches the TXT UUID comparison. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true."
+  "purpose": "Run the exact FolioRelay MVP on disposable TrueNAS 26.0.0-BETA.3 after rep 008 exposed observer image-pull activity but lost the terminal Docker/Compose stderr to head-only bounding. Preserve all FolioRelay product, Foundry, image, Compose, public-URI, URF, DNS-SD, cleanup, and acceptance semantics. The only causal harness delta is PR #238 head-plus-terminal-tail lifecycle evidence so the exact terminal observer image-pull error is retained. No product or matrix acceptance is inferred without SUPPORTED plus oracleSatisfied=true. PR #220 remains HOLD unless this rep actually reaches the DNS-SD TXT UUID comparison."
 }
