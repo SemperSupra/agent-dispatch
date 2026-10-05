@@ -94,6 +94,7 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
           RUN_REQUEST_PATH: config/truenas-rdte-run-request.json
+          PROXMOX_RUN_REQUEST_PATH: config/proxmox-rdte-run-request.json
         run: |
           set -euo pipefail
           proxmox=false
@@ -118,7 +119,9 @@ jobs:
                   # changes alone must never replay the previously committed request.
                   truenas=true
                   ;;
-                scripts/gha_kvm_proxmox_rdte.sh)
+                config/proxmox-rdte-run-request.json)
+                  # Heavy Proxmox work is request-edge driven. Harness/probe/workflow
+                  # changes alone must never launch or replay a heavyweight PVE rep.
                   proxmox=true
                   ;;
                 scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
@@ -130,6 +133,21 @@ jobs:
             proxmox=true
             truenas=true
             qemu_topology=true
+          fi
+          if [[ "$EVENT_NAME" != "workflow_dispatch" && "$proxmox" == "true" ]]; then
+            [[ -f "$PROXMOX_RUN_REQUEST_PATH" ]] || { echo "missing Proxmox run request" >&2; exit 2; }
+            jq -e '.schema == "gha-kvm-proxmox-run-request/v1"' "$PROXMOX_RUN_REQUEST_PATH" >/dev/null
+            current_proxmox_request_id="$(jq -er '.request_id | select(type == "string" and length > 0)' "$PROXMOX_RUN_REQUEST_PATH")"
+            previous_proxmox_request_id=""
+            if git cat-file -e "$BEFORE_SHA:$PROXMOX_RUN_REQUEST_PATH" 2>/dev/null; then
+              previous_proxmox_request_id="$(git show "$BEFORE_SHA:$PROXMOX_RUN_REQUEST_PATH" | jq -er '.request_id | select(type == "string" and length > 0)')"
+            fi
+            if [[ -n "$previous_proxmox_request_id" && "$current_proxmox_request_id" == "$previous_proxmox_request_id" ]]; then
+              echo "refusing stale Proxmox request replay: request_id did not change ($current_proxmox_request_id)" >&2
+              exit 2
+            fi
+            jq -e '.version == "9.2-1" and .authority_issue == 396' "$PROXMOX_RUN_REQUEST_PATH" >/dev/null
+            printf 'fresh Proxmox request edge: previous=%s current=%s\n' "${previous_proxmox_request_id:-<none>}" "$current_proxmox_request_id"
           fi
           if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then
             jq -e '.schema == "gha-kvm-truenas-run-request/v1"' "$RUN_REQUEST_PATH" >/dev/null
