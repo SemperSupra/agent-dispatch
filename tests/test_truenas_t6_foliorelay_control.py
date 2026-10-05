@@ -18,7 +18,6 @@ SPEC.loader.exec_module(MOD)
 
 class FolioRelayT6ContractTests(unittest.TestCase):
     def test_exact_product_and_foundry_identity_is_pinned(self):
-        self.assertEqual(MOD.EXPECTED_FOUNDRY_REF, "fb41afd3d112f361b8c490aeb5915a978b956b20")
         self.assertIn("@sha256:", MOD.EXPECTED_CONTROL)
         self.assertIn("@sha256:", MOD.EXPECTED_CUPS)
         self.assertEqual(MOD.DATASET, "rdtepool/foliorelay-t6")
@@ -129,20 +128,34 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
         self.assertIn("truenas_t6_product == 'foliorelay'", workflow)
-        self.assertIn("export-foliorelay-t6-control.yml@" + MOD.EXPECTED_FOUNDRY_REF, workflow)
-        self.assertIn("name: foliorelay-t6-beta3-control", workflow)
-        self.assertIn('foundry_commit="' + MOD.EXPECTED_FOUNDRY_REF + '"', workflow)
+        self.assertIn("export-foliorelay-t6-control.yml@e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2", workflow)
+        self.assertIn("target_version: ${{ needs.changes.outputs.truenas_version }}", workflow)
+        self.assertIn("name: foliorelay-t6-control", workflow)
+        self.assertIn('foundry_commit="e4fbab1da4d08dbdf505ecd40c12acd2adba3ff2"', workflow)
         self.assertIn("truenas_middleware_foliorelay_t6_probe.py", harness)
         self.assertIn('FOLIORELAY_CONTROL_HOST_PORT', harness)
         self.assertIn('FOLIORELAY_IPP_HOST_PORT', harness)
         self.assertIn('FOLIORELAY_OBSERVER_HOST_PORT', harness)
         self.assertIn('--observer-port "$FOLIORELAY_OBSERVER_HOST_PORT"', harness)
         self.assertIn('--observer-binary "$FOLIORELAY_OBSERVER_BINARY"', harness)
+        self.assertIn('--target-version "$VERSION"', harness)
+        self.assertIn('--expected-system-version "$EXPECTED_SYSTEM_VERSION"', harness)
+        self.assertIn('"$T6_PRODUCT" != "foliorelay"', harness)
         self.assertIn('CGO_ENABLED=0 GOOS=linux GOARCH=amd64', harness)
         self.assertIn('cd "$SCRIPT_DIR/.."', harness)
         self.assertIn('./tools/foliorelay-observer', harness)
         self.assertNotIn('"$SCRIPT_DIR/../tools/foliorelay-observer" ||', harness)
         self.assertIn('observer_size <= 6291456', harness)
+
+    def test_probe_binds_runtime_target_and_foundry_identity_from_arguments(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('control.get("foundry_ref") != foundry_ref', text)
+        self.assertIn('candidate.get("truenas_version") != target_version', text)
+        self.assertIn('call("system.version",[])!=a.expected_system_version', text)
+        self.assertIn('p.add_argument("--target-version",required=True)', text)
+        self.assertIn('p.add_argument("--expected-system-version",required=True)', text)
+        self.assertNotIn('EXPECTED_FOUNDRY_REF =', text)
+        self.assertNotIn('EXPECTED_VERSION =', text)
 
     def test_cups_uuid_oracle_preserves_canonical_urn_prefix(self):
         attrs = """
