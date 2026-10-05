@@ -1,12 +1,14 @@
 {
   "schema": "wrt-easymesh-e1-trigger/v1",
   "date": "2026-10-05",
-  "attempt": 1,
-  "reason": "E0 semantic gate is GREEN in run 37287285078. Start new bounded wave with E1 mac80211_hwsim hosted-runner viability preflight.",
+  "attempt": 2,
+  "reason": "Diagnosed hosted-runner retry: Ubuntu publishes linux-modules-extra for the exact Azure kernel. Install matching extra-modules package, depmod, then retry mac80211_hwsim preflight.",
   "prior_gate": {
     "e0_run": 37287285078,
     "e0_artifact": 11335470679,
     "e0_passed_control_plane": true
   },
-  "resource_policy": "First public job in a new bounded wave; non-firmware, low-cost. No retry if hosted runner kernel/privilege is the blocker; route E1 to local Linux actor instead."
+  "resource_policy": "First public job in a new bounded wave; low-cost preflight. If hwsim remains unavailable after exact package install, route E1 local and do not retry hosted.",
+  "prior_run": 37288066293,
+  "e2_green_run": 37288725640
 }
