@@ -38,7 +38,7 @@ PVE_QEMU_SERVER_SOURCE = {
 }
 PVE_MANAGER_API_SOURCE = {
     "repository": "proxmox/pve-manager",
-    "commit": "b9984c6d90a4bd80",
+    "commit": "b9984c6d90a4bd80ab72dc2088c1b9103fb167b1",
     "apt_api_blob": "9cb6e473436719f3024ac09fffaad8faf0d7160d",
     "manager_version": "9.2.2",
 }
