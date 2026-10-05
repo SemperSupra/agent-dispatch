@@ -53,13 +53,14 @@ class FolioRelayT6ContractTests(unittest.TestCase):
 
     def test_observer_lifecycle_is_independent_from_mdns_oracle_result(self):
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('result={"status":"pending"}', text)
-        self.assertIn('threading.Thread(target=run_observer', text)
-        self.assertIn('{"status":"success",**result}', text)
-        self.assertIn('{"status":"error","error":', text)
-        self.assertIn('p.add_argument("--seconds",type=float,default=25)', text)
+        observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
+        self.assertIn('"status": "pending"', observer)
+        self.assertIn('"status": "success"', observer)
+        self.assertIn('"status": "error"', observer)
+        self.assertIn('flag.Float64("seconds", 25', observer)
         self.assertIn('DNS-SD observer oracle failed:', text)
         self.assertIn('DNS-SD observer oracle remained pending', text)
+        self.assertNotIn("OBSERVER = r'''", text)
 
 
     def test_failed_observer_create_preserves_diagnostics_and_cleans_owned_state(self):
