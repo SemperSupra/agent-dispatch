@@ -1,0 +1,41 @@
+name: WRT3200ACM Target Composition Oracle
+
+on:
+  push:
+    branches:
+      - wrt-hil-prequal-20261005
+    paths:
+      - '.github/waves/wrt-target-compose-trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  target-compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download qualified physical-target prplMesh artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37273250460
+          name: wrt-easymesh-cp0-openwrt-stock-1
+          path: cp0
+          github-token: ${{ github.token }}
+      - name: Compose WRT3200ACM images without physical authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-target-compose-out"
+          bash tools/wrt_hil_prequal/run_wrt_target_compose.sh "$GITHUB_WORKSPACE/cp0" "$RUNNER_TEMP/wrt-target-compose-out"
+          cat "$RUNNER_TEMP/wrt-target-compose-out/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload composition evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-target-compose-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-target-compose-out
+          if-no-files-found: error
+          retention-days: 14
