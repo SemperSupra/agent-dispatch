@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sempersupra.local/rdte/wrt-r2-evidence.schema.json",
+  "title": "WRT R2 Gold/Rescue evidence",
+  "type": "object",
+  "required": [
+    "schema",
+    "reps",
+    "invariants"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rdte-wrt-r2-evidence/v1"
+    },
+    "reps": {
+      "type": "object",
+      "required": [
+        "R2-1",
+        "R2-2",
+        "R2-3",
+        "R2-4",
+        "R2-5",
+        "R2-6"
+      ],
+      "properties": {
+        "R2-1": {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "properties": {
+            "verdict": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "INCONCLUSIVE"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "consecutive_passes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "R2-2": {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "properties": {
+            "verdict": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "INCONCLUSIVE"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "consecutive_passes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "R2-3": {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "properties": {
+            "verdict": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "INCONCLUSIVE"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "consecutive_passes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "R2-4": {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "properties": {
+            "verdict": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "INCONCLUSIVE"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "consecutive_passes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "R2-5": {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "properties": {
+            "verdict": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "INCONCLUSIVE"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "consecutive_passes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "R2-6": {
+          "type": "object",
+          "required": [
+            "verdict"
+          ],
+          "properties": {
+            "verdict": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "INCONCLUSIVE"
+              ]
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "consecutive_passes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "invariants": {
+      "type": "object",
+      "required": [
+        "gold_identity_match",
+        "rescue_identity_match",
+        "serial_available",
+        "power_actuator_available",
+        "protected_surfaces_unchanged",
+        "boot_env_expected",
+        "evidence_sink_available",
+        "nominal_recovery_without_manual_intervention"
+      ],
+      "properties": {
+        "gold_identity_match": {
+          "type": "boolean"
+        },
+        "rescue_identity_match": {
+          "type": "boolean"
+        },
+        "serial_available": {
+          "type": "boolean"
+        },
+        "power_actuator_available": {
+          "type": "boolean"
+        },
+        "protected_surfaces_unchanged": {
+          "type": "boolean"
+        },
+        "boot_env_expected": {
+          "type": "boolean"
+        },
+        "evidence_sink_available": {
+          "type": "boolean"
+        },
+        "nominal_recovery_without_manual_intervention": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
