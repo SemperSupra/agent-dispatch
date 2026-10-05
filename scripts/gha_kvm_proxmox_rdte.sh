@@ -17,6 +17,7 @@ DISK_SIZE="40G"
 MIN_HOST_MEM_KIB=$((6 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((16 * 1024 * 1024))
 ROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR]"
@@ -46,10 +47,24 @@ API_VERSION_JSON=""
 HOSTFWD_API_VERSION_JSON=""
 GUEST_LOCAL_API_VERSION_JSON=""
 API_OBSERVATION_ROUTE=""
+# Read-only native REST census: capture exact installed PVE/package identity for
+# later product-API materialization admission without changing this system claim.
+PVE_PASSWORD_FILE="$STATE_DIR/pve-rest-password"
+printf '%s\n' "$ROOT_PASSWORD" >"$PVE_PASSWORD_FILE"
+chmod 0400 "$PVE_PASSWORD_FILE"
+REST_API_CENSUS_JSON="$(
+  python3 "$SCRIPT_DIR/proxmox_rest_compute_probe.py" \
+    --base-url "https://127.0.0.1:$WEB_PORT" \
+    --password-file "$PVE_PASSWORD_FILE" \
+    --kind vm --observe-only 2>/dev/null || true
+)"
+rm -f "$PVE_PASSWORD_FILE"
+
 NESTED_KVM="unknown"
 NESTED_KVM_INDICATORS="unknown"
 NESTED_KVM_VCPU_JSON=""
 P3_LXC_JSON=""
+REST_API_CENSUS_JSON=""
 SSH_HOSTFWD_ACCEPTED="false"
 API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
@@ -80,7 +95,7 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
-  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" R_P3_LXC="$P3_LXC_JSON"
+  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" R_P3_LXC="$P3_LXC_JSON" R_REST_API_CENSUS="$REST_API_CENSUS_JSON"
   export R_HOSTFWD_API="$HOSTFWD_API_VERSION_JSON" R_GUEST_LOCAL_API="$GUEST_LOCAL_API_VERSION_JSON" R_API_ROUTE="$API_OBSERVATION_ROUTE"
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
@@ -101,6 +116,7 @@ def load_json_env(name):
 
 nested_vcpu = load_json_env("R_NESTED_VCPU")
 p3_lxc = load_json_env("R_P3_LXC")
+rest_api_census = load_json_env("R_REST_API_CENSUS")
 
 payload = {
   "contract": "gha-kvm-system-lab/v1",
@@ -138,11 +154,13 @@ payload = {
     "nested_kvm_observed_via_ssh": os.environ.get("R_NESTED") == "yes",
     "nested_kvm_vcpu_executed": bool(nested_vcpu and nested_vcpu.get("oracleSatisfied") is True),
     "p3_lxc_lifecycle_exercised": bool(p3_lxc and p3_lxc.get("oracleSatisfied") is True),
+    "rest_api_census_observed": bool(rest_api_census and rest_api_census.get("oracleSatisfied") is True and rest_api_census.get("phase") == "observe-only"),
   },
   "api_version": json.loads(os.environ["R_API"]) if os.environ.get("R_API") else None,
   "nested_kvm": os.environ.get("R_NESTED"),
   "p5_nested_kvm": nested_vcpu,
   "p3_lxc": p3_lxc,
+  "rest_api_census": rest_api_census,
   "diagnostics": {
     "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
     "ssh_hostfwd_accepted": os.environ.get("R_SSH_HOSTFWD_ACCEPTED") == "true",
@@ -163,6 +181,7 @@ payload = {
     "Nested KVM is a separate oracle from Proxmox management-plane support.",
     "P5 nested KVM requires p5_nested_kvm.oracleSatisfied=true from an actual nested vCPU debug-exit; device/CPU flags alone are diagnostic.",
     "P3 LXC is a separate lifecycle oracle using one exact public Debian template; P2/P5 are not inferred from it.",
+    "REST API census is read-only discovery evidence only; it does not claim LXC or QEMU materialization.",
   ],
 }
 pathlib.Path(os.environ["R_OUT"]).write_text(json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8")
