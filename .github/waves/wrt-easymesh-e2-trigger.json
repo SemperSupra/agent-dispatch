@@ -1,0 +1,12 @@
+{
+  "schema": "wrt-easymesh-e2-trigger/v1",
+  "date": "2026-10-05",
+  "attempt": 1,
+  "reason": "E1 public-runner preflight is substrate-blocked because mac80211_hwsim is absent from the Azure kernel module set. E2 is independent and READY: probe OpenWrt/QEMU system-emulation capability as the second/final job of this bounded wave.",
+  "dependencies": {
+    "cp0_green": true,
+    "e0_green_run": 37287285078,
+    "e1_classification": "SUBSTRATE_BLOCKED_NOT_PRODUCT_RED"
+  },
+  "resource_policy": "Second and final public job in this bounded wave; non-firmware, low-cost. No blind retry."
+}
