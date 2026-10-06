@@ -26,6 +26,22 @@ jobs:
           path: cp0
           github-token: ${{ github.token }}
 
+      - name: Validate offline HIL scripts before packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/wrt_hil_prep/payload/scripts/r1-readonly-remote.sh
+          bash -n tools/wrt_hil_prep/payload/scripts/hil-preflight.sh
+          bash -n tools/wrt_hil_prep/payload/scripts/rdte/capture-serial-readonly.sh
+          busybox sh -n tools/wrt_hil_prep/payload/scripts/rdte/r1-readonly-collector.sh
+          python3 -m py_compile tools/wrt_hil_prep/payload/scripts/rdte/*.py
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/lint-serial-capture.py             tools/wrt_hil_prep/payload/scripts/rdte/capture-serial-readonly.sh
+          tmp="$(mktemp -d)"
+          busybox sh tools/wrt_hil_prep/payload/scripts/rdte/r1-readonly-collector.sh "$tmp"
+          grep -qx 'persistent_writes_performed=false' "$tmp/meta.txt"
+          grep -qx 'authority=R1_READ_ONLY' "$tmp/meta.txt"
+          grep -Eq '^captured_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$tmp/meta.txt"
+
       - name: Build deterministic refreshed prep kit
         run: python3 tools/wrt_hil_prep/build_kit.py --output dist --cp0-dir cp0
 
