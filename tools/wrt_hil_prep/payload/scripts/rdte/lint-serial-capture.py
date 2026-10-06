@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
 """Source-only fail-closed lint for passive WRT serial capture helpers."""
+import argparse
 from pathlib import Path
+
 ROOT=Path(__file__).resolve().parent
-shell=(ROOT/"capture_wrt_serial_readonly.sh").read_text()
-ps=(ROOT/"capture_wrt_serial_readonly.ps1").read_text()
+
+ap=argparse.ArgumentParser()
+ap.add_argument("--shell", default=str(ROOT/"capture_wrt_serial_readonly.sh"))
+ap.add_argument("--powershell", default=str(ROOT/"capture_wrt_serial_readonly.ps1"))
+args=ap.parse_args()
+
+shell_path=Path(args.shell)
+ps_path=Path(args.powershell)
+if not shell_path.is_file():
+    raise SystemExit(f"serial shell helper not found: {shell_path}")
+if not ps_path.is_file():
+    raise SystemExit(f"serial PowerShell helper not found: {ps_path}")
+
+shell=shell_path.read_text()
+ps=ps_path.read_text()
 
 required_shell=[
     'authority":"SENSOR_ONLY_NO_ACTUATION"',
@@ -28,4 +43,4 @@ for forbidden in ('.Write(', '.WriteLine(', 'BaseStream.Write'):
 for forbidden in ('> "$DEV"', '>> "$DEV"', 'tee "$DEV"', 'tee -a "$DEV"'):
     assert forbidden not in shell, f"shell serial transmit pattern found: {forbidden}"
 
-print("WRT passive serial capture lint PASS")
+print(f"WRT passive serial capture lint PASS: shell={shell_path.name} powershell={ps_path.name}")
