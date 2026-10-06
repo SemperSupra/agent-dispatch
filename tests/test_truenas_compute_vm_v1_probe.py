@@ -4,7 +4,7 @@ from scripts.truenas_compute_vm_v1_probe import (
     PINNED_CIRROS_SHA256,
     multipart_upload_body,
     plan,
-    raw_boot_device,
+    zvol_boot_device,
     seed_cdrom_device,
     stage_paths,
 )
@@ -22,20 +22,31 @@ class TrueNASVmV1ProbeTests(unittest.TestCase):
         self.assertEqual(paths["dataset"], "rdtepool/rdtev1stage")
         self.assertTrue(paths["raw_image"].startswith("/mnt/rdtepool/rdtev1stage/"))
         self.assertTrue(paths["seed_iso"].endswith("/seed.iso"))
+        self.assertEqual(paths["boot_zvol"], "rdtepool/rdtev1boot")
+        self.assertEqual(paths["boot_zvol_path"], "/dev/zvol/rdtepool/rdtev1boot")
 
-    def test_devices_use_public_raw_and_cdrom_shapes(self):
-        raw = raw_boot_device(7, "/mnt/rdtepool/rdtev1stage/cirros.raw")
-        self.assertEqual(raw["attributes"]["dtype"], "RAW")
-        self.assertTrue(raw["attributes"]["exists"])
-        self.assertTrue(raw["attributes"]["boot"])
-        self.assertEqual(raw["attributes"]["type"], "VIRTIO")
+    def test_devices_use_owned_zvol_disk_and_public_cdrom_shapes(self):
+        boot = zvol_boot_device(7, "rdtepool/rdtev1boot")
+        self.assertEqual(boot["attributes"]["dtype"], "DISK")
+        self.assertIsNone(boot["attributes"]["path"])
+        self.assertTrue(boot["attributes"]["create_zvol"])
+        self.assertEqual(boot["attributes"]["zvol_name"], "rdtepool/rdtev1boot")
+        self.assertEqual(boot["attributes"]["zvol_volsize"], 1024 * 1024 * 1024)
+        self.assertEqual(boot["attributes"]["type"], "VIRTIO")
+        self.assertEqual(boot["order"], 100)
         cd = seed_cdrom_device(7, "/mnt/rdtepool/rdtev1stage/seed.iso")
         self.assertEqual(cd["attributes"], {"dtype": "CDROM", "path": "/mnt/rdtepool/rdtev1stage/seed.iso"})
+        self.assertEqual(cd["order"], 1000)
 
     def test_plan_keeps_v1_claim_narrow(self):
         p = plan("rdtepool", "rdtecomputevmv1", "rep001nonceABCDEF12")
         self.assertEqual(p["schema"], "truenas-compute-vm-v1-plan/v1")
         self.assertEqual(p["oracle"]["surface"], "/websocket/shell")
+        self.assertEqual(p["devices"][0]["attributes"]["dtype"], "DISK")
+        self.assertEqual(p["media_lowering"]["method"], "vm.device.convert")
+        self.assertEqual(p["media_lowering"]["source"], p["staging"]["raw_image"])
+        self.assertEqual(p["media_lowering"]["destination"], p["staging"]["boot_zvol_path"])
+        self.assertNotIn('"dtype": "RAW"', str(p))
         self.assertNotIn("firecracker", str(p).lower())
         self.assertNotIn("nested-kvm", str(p).lower())
 
