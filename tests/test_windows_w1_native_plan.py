@@ -25,6 +25,7 @@ class WindowsW1NativePlanTests(unittest.TestCase):
             self.profile,
             pool="rdtepool",
             iso_path="/mnt/rdtepool/windows/windows11.iso",
+            seed_path="/mnt/rdtepool/windows/adw1seed.iso",
             bridge="br0",
         )
         pve = proxmox_plan(
@@ -32,6 +33,7 @@ class WindowsW1NativePlanTests(unittest.TestCase):
             vmid=9301,
             storage="local-lvm",
             iso_volume="local:iso/windows11.iso",
+            seed_volume="local:iso/adw1seed.iso",
             bridge="vmbr0",
         )
         self.assertEqual(tn["portable_intent"], pve["portable_intent"])
@@ -50,6 +52,7 @@ class WindowsW1NativePlanTests(unittest.TestCase):
             self.profile,
             pool="rdtepool",
             iso_path="/mnt/rdtepool/windows/windows11.iso",
+            seed_path="/mnt/rdtepool/windows/adw1seed.iso",
             bridge="br0",
         )
         create = plan["vm_create"]
@@ -65,6 +68,14 @@ class WindowsW1NativePlanTests(unittest.TestCase):
         disk = next(x for x in plan["device_templates"] if x["role"] == "system-disk")
         self.assertEqual(disk["attributes"]["type"], "AHCI")
         self.assertEqual(disk["attributes"]["zvol_volsize"], SYSTEM_DISK_BYTES)
+        seed = next(x for x in plan["device_templates"] if x["role"] == "unattended-seed")
+        self.assertEqual(seed["attributes"]["dtype"], "CDROM")
+        self.assertEqual(seed["attributes"]["path"], "/mnt/rdtepool/windows/adw1seed.iso")
+        self.assertEqual(plan["external_bindings"]["unattended_seed_contract"], "windows-w1-unattend-seed/v1")
+        self.assertEqual(
+            plan["post_install_transition"]["owned_roles"],
+            ["install-media", "unattended-seed"],
+        )
         nic = next(x for x in plan["device_templates"] if x["role"] == "network")
         self.assertEqual(nic["attributes"]["type"], "E1000")
         self.assertEqual(plan["guest_oracle"]["guest_device"], "COM1")
@@ -79,6 +90,7 @@ class WindowsW1NativePlanTests(unittest.TestCase):
             vmid=9301,
             storage="local-lvm",
             iso_volume="local:iso/windows11.iso",
+            seed_volume="local:iso/adw1seed.iso",
             bridge="vmbr0",
         )
         create = plan["create_fields"]
@@ -89,7 +101,18 @@ class WindowsW1NativePlanTests(unittest.TestCase):
         self.assertEqual(create["machine"], "q35")
         self.assertEqual(create["ostype"], "win11")
         self.assertEqual(create["sata0"], "local-lvm:64")
+        self.assertEqual(create["ide1"], "local:iso/adw1seed.iso,media=cdrom")
         self.assertEqual(create["ide2"], "local:iso/windows11.iso,media=cdrom")
+        self.assertEqual(plan["external_bindings"]["unattended_seed_contract"], "windows-w1-unattend-seed/v1")
+        ops = plan["post_install_transition"]["operations"]
+        self.assertEqual([x["role"] for x in ops], [
+            "detach-install-media",
+            "detach-unattended-seed",
+            "system-disk-only-boot",
+        ])
+        self.assertEqual(ops[0]["fields"]["delete"], "ide2")
+        self.assertEqual(ops[1]["fields"]["delete"], "ide1")
+        self.assertEqual(ops[2]["fields"]["boot"], "order=sata0")
         self.assertIn("pre-enrolled-keys=1", create["efidisk0"])
         self.assertIn("version=v2.0", create["tpmstate0"])
         self.assertEqual(create["net0"], "e1000,bridge=vmbr0")
@@ -104,13 +127,37 @@ class WindowsW1NativePlanTests(unittest.TestCase):
 
     def test_external_binding_validation_fails_closed(self):
         with self.assertRaises(WindowsW1PlanError):
-            truenas_plan(self.profile, pool="pool/dataset", iso_path="/mnt/pool/w.iso", bridge="br0")
+            truenas_plan(
+                self.profile,
+                pool="pool/dataset",
+                iso_path="/mnt/pool/w.iso",
+                seed_path="/mnt/pool/seed.iso",
+                bridge="br0",
+            )
+        with self.assertRaises(WindowsW1PlanError):
+            truenas_plan(
+                self.profile,
+                pool="rdtepool",
+                iso_path="/mnt/rdtepool/windows/windows11.iso",
+                seed_path="/mnt/rdtepool/windows/windows11.iso",
+                bridge="br0",
+            )
+        with self.assertRaises(WindowsW1PlanError):
+            proxmox_plan(
+                self.profile,
+                vmid=9301,
+                storage="local-lvm",
+                iso_volume="local:iso/windows11.iso",
+                seed_volume="local:iso/windows11.iso",
+                bridge="vmbr0",
+            )
         with self.assertRaises(WindowsW1PlanError):
             proxmox_plan(
                 self.profile,
                 vmid=9301,
                 storage="local-lvm",
                 iso_volume="not-a-volume-id",
+                seed_volume="local:iso/adw1seed.iso",
                 bridge="vmbr0",
             )
 
