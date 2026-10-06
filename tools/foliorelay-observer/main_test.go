@@ -20,6 +20,30 @@ func validObservation() observation {
 	return o
 }
 
+func TestObservationSocketPlan(t *testing.T) {
+	port, join, id := observationSocketPlan(false)
+	if port != 5353 || !join || id != 0 {
+		t.Fatalf("multicast plan = port %d join %v id %d", port, join, id)
+	}
+	port, join, id = observationSocketPlan(true)
+	if port != 0 || join || id != legacyQueryID {
+		t.Fatalf("legacy plan = port %d join %v id %d", port, join, id)
+	}
+}
+
+func TestBuildLegacyQueryCarriesCorrelationID(t *testing.T) {
+	q := buildQuery(legacyQueryID)
+	if len(q) < 12 {
+		t.Fatal("short query")
+	}
+	if got := binary.BigEndian.Uint16(q[0:2]); got != legacyQueryID {
+		t.Fatalf("query id=%#x want=%#x", got, legacyQueryID)
+	}
+	if got := binary.BigEndian.Uint16(q[4:6]); got != 1 {
+		t.Fatalf("question count=%d want=1", got)
+	}
+}
+
 func TestEncodeAndNameAt(t *testing.T) {
 	wire := encodeName("_universal._sub._ipp._tcp.local")
 	got, end, err := nameAt(wire, 0, nil)
