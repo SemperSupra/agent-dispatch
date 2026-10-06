@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v1-005-zvol-disk",
-  "version": "26.0.0-BETA.3",
-  "rung": "t3",
-  "compute_fixture": "vm-v1",
-  "authority_issue": 396,
-  "consumer_authority_issue": 426,
-  "purpose": "Exercise one bounded TrueNAS 26.0.0-BETA.3 Linux VM V1 rep after cheap falsification isolated generic libvirt plus file-backed RAW as reproducing the GRUB-to-silence failure while plain QEMU UEFI/q35 with the same repaired CirrOS 0.6.3 image and JSON cidata seed reaches userspace and emits the exact nonce. Preserve the pinned CirrOS source, repaired JSON NoCloud seed, native VM create payload, supported /websocket/shell nonce oracle, overall guest deadline, and zero-residue cleanup. The sole material native-lowering delta is merged commit 1256c6dcdde450f2a5d932567b43fe3ff435f3af: stage the same RAW image, convert it through public job-backed vm.device.convert into an experiment-owned ZVOL, attach that ZVOL as a DISK VIRTIO boot device, independently observe it, and prove boot-ZVOL absence in cleanup. Machine type was independently ruled out by cheap run 37481329210. Generic libvirt RAW+PTY reproduced the failure in run 37483398291. Nested KVM, Firecracker, Windows, Hyper-V and WinBot-provider acceptance remain outside this rep."
+  "request_id": "tn-25-10-7-t6-foliorelay-004-avahi-f0-f5",
+  "version": "25.10.7",
+  "rung": "t6",
+  "product": "foliorelay",
+  "authority_issue": 410,
+  "consumer_authority_issue": 273,
+  "purpose": "Run the exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 using the earned cooperative-Avahi design after row 001/diagnostic row 002 localized the prior failure to competing UDP/5353 ownership. Require merged Foundry authority e44bc2271de4c2065c68a8f7db53034fff36b4c5, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d and CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814 from signed publication run 37457117549/artifact 11410550658, exact 25.x Avahi command/user/read-only system-bus coupling, independent same-instance DNS-SD observation, PDF/URF exact-source preservation, F4 second-plan NOOP with WAIT/fail-closed policy, F5 retain-data delete/reinstall persistence, and final zero residue. No support is inherited from BETA.3 or generic T0-T5. Acceptance requires a retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt."
 }
