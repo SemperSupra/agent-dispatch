@@ -119,7 +119,9 @@ jobs:
 
           rm -f virsh-console.log
           (
-            timeout 150s sudo virsh -c qemu:///system console "$uuid" --force </dev/null >virsh-console.log 2>&1
+            # virsh console requires a controlling TTY; util-linux script supplies one
+            # while preserving a bounded transcript for the exact nonce oracle.
+            timeout 150s script -qefc "sudo virsh -c qemu:///system console '$uuid' --force" virsh-console.log >/dev/null 2>&1
           ) &
           console_pid=$!
 
