@@ -5,7 +5,7 @@ on:
     branches:
       - 'exp/windows-sealed-public-execution'
     paths:
-      - '.github/workflows/winbot-product-api-repair-a-only-run.yml'
+      - '.github/workflows/winbot-product-api-repair-diagnostic-v2-corrected-projection.yml'
 
 permissions:
   contents: read
