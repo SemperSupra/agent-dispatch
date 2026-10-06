@@ -15,9 +15,9 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 10
     env:
-      STAGE_BLOB: '4491ecf2013c2d67ee71e943667371305d4329e3'
+      STAGE_BLOB: '99052b87800ee00b4177f8bc3626316b4ab999d6'
       WINGET_BLOB: 'e2a1e2dc6f5eb90676a55d15758ffbdda31f561f'
-      TEST_BLOB: '3b30273392014f72dcf9616859df92b0f1afee51'
+      TEST_BLOB: '0a8d2fed51a75473439c1602c485cc7feec1647c'
     steps:
       - name: Reconstruct exact product test surface
         shell: pwsh
