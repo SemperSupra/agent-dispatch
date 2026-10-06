@@ -2,7 +2,7 @@ import pathlib
 import tempfile
 import unittest
 
-from scripts.compute_guest_seed import PREFIX, SeedError, render_seed, write_seed
+from scripts.compute_guest_seed import PREFIX, SeedError, render_seed, render_v2_observation_seed, write_seed
 
 
 class ComputeGuestSeedTests(unittest.TestCase):
@@ -21,6 +21,16 @@ class ComputeGuestSeedTests(unittest.TestCase):
         for bad in ("short", "nonce;touch-pwned-1234", "$(id)-abcdefghijkl"):
             with self.assertRaises(SeedError):
                 render_seed(bad, "rdte-v1-rep001")
+
+    def test_v2_observation_seed_only_observes_nested_kvm_prerequisites(self):
+        _, user = render_v2_observation_seed("rep002nonceABCDEF12", "rdte-v2-rep002")
+        self.assertIn("[ -c /dev/kvm ]", user)
+        self.assertIn("(vmx|svm)", user)
+        self.assertIn("AGENT_DISPATCH_V2_KVM_PRESENT=", user)
+        self.assertIn("AGENT_DISPATCH_V2_CPU_VMX_SVM=", user)
+        self.assertNotIn("firecracker", user.lower())
+        self.assertNotIn("modprobe", user.lower())
+        self.assertNotIn("chmod", user.lower())
 
     def test_write_seed_uses_expected_names_and_executable_userdata(self):
         with tempfile.TemporaryDirectory() as td:
