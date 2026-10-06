@@ -39,6 +39,7 @@ class WindowsW1NativePlanTests(unittest.TestCase):
         self.assertEqual(req["virtual_processors"], VCPUS)
         self.assertEqual(req["memory_mib"], MEMORY_MIB)
         self.assertEqual(req["system_disk_gib"], 64)
+        self.assertEqual(req["guest_readiness_oracle"], "serial-com1-exact-nonce")
         self.assertTrue(req["secure_boot"])
         self.assertEqual(req["tpm_version"], "2.0")
         self.assertEqual(tn["portable_intent"]["fixture"], FIXTURE_ID)
@@ -66,6 +67,10 @@ class WindowsW1NativePlanTests(unittest.TestCase):
         self.assertEqual(disk["attributes"]["zvol_volsize"], SYSTEM_DISK_BYTES)
         nic = next(x for x in plan["device_templates"] if x["role"] == "network")
         self.assertEqual(nic["attributes"]["type"], "E1000")
+        self.assertEqual(plan["guest_oracle"]["guest_device"], "COM1")
+        self.assertEqual(plan["guest_oracle"]["transport"], "truenas-vm-console")
+        self.assertIn("vm.get_console", plan["guest_oracle"]["surface"])
+        self.assertEqual(plan["guest_oracle"]["seed_volume_label"], "ADW1SEED")
         self.assertFalse(plan["mutation_authorized"])
 
     def test_proxmox_lowering_preserves_windows_requirements(self):
@@ -88,7 +93,13 @@ class WindowsW1NativePlanTests(unittest.TestCase):
         self.assertIn("pre-enrolled-keys=1", create["efidisk0"])
         self.assertIn("version=v2.0", create["tpmstate0"])
         self.assertEqual(create["net0"], "e1000,bridge=vmbr0")
+        self.assertEqual(create["serial0"], "socket")
         self.assertEqual(create["boot"], "order=ide2;sata0")
+        self.assertEqual(plan["guest_oracle"]["guest_device"], "COM1")
+        self.assertEqual(plan["guest_oracle"]["transport"], "pve-termproxy")
+        self.assertEqual(plan["guest_oracle"]["serial"], "serial0")
+        self.assertIn("/termproxy", plan["guest_oracle"]["create_surface"])
+        self.assertEqual(plan["source_binding"]["api2_qemu_blob"], "e029a204d121f3c8b104457ef14eb6d5ce029464")
         self.assertFalse(plan["mutation_authorized"])
 
     def test_external_binding_validation_fails_closed(self):
