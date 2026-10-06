@@ -101,7 +101,7 @@ def portable_intent(profile: dict[str, Any]) -> dict[str, Any]:
             "unattended-install",
             "guest-readiness-oracle",
             "restart",
-            "detach-install-media",
+            "detach-install-and-seed-media",
             "system-disk-boot-oracle",
             "stop",
             "delete",
@@ -119,6 +119,7 @@ def truenas_plan(
     *,
     pool: str,
     iso_path: str,
+    seed_path: str,
     bridge: str,
     name: str = "rdtewindowsw1",
 ) -> dict[str, Any]:
@@ -133,6 +134,11 @@ def truenas_plan(
     iso_path = _safe_binding(iso_path, "iso-path")
     if not iso_path.startswith("/mnt/"):
         raise WindowsW1PlanError("TrueNAS ISO binding must be a staged /mnt path")
+    seed_path = _safe_binding(seed_path, "seed-path")
+    if not seed_path.startswith("/mnt/"):
+        raise WindowsW1PlanError("TrueNAS seed binding must be a staged /mnt path")
+    if seed_path == iso_path:
+        raise WindowsW1PlanError("TrueNAS installer and unattended seed must be distinct media")
     bridge = _safe_binding(bridge, "bridge")
 
     zvol_name = f"{pool}/{name}system"
@@ -145,6 +151,9 @@ def truenas_plan(
         "external_bindings": {
             "install_media_path": iso_path,
             "install_media_required_sha256": MEDIA_SHA256,
+            "unattended_seed_path": seed_path,
+            "unattended_seed_contract": "windows-w1-unattend-seed/v1",
+            "unattended_seed_volume_label": "ADW1SEED",
             "network_attach": bridge,
             "system_zvol": zvol_name,
         },
@@ -176,6 +185,12 @@ def truenas_plan(
                 "attributes": {"dtype": "CDROM", "path": iso_path},
             },
             {
+                "role": "unattended-seed",
+                "vm_binding": "created_vm_id",
+                "order": 110,
+                "attributes": {"dtype": "CDROM", "path": seed_path},
+            },
+            {
                 "role": "system-disk",
                 "vm_binding": "created_vm_id",
                 "order": 200,
@@ -203,8 +218,9 @@ def truenas_plan(
             "nonce_prefix": "AGENT_DISPATCH_W1_NONCE=",
         },
         "post_install_transition": {
-            "action": "delete-owned-install-media-device",
-            "reason": "force restart/boot proof from the installed system disk without firmware boot ambiguity",
+            "action": "delete-owned-removable-media-devices",
+            "owned_roles": ["install-media", "unattended-seed"],
+            "reason": "force restart/boot proof from the installed system disk without installer/seed media ambiguity",
         },
         "mutation_authorized": False,
     }
@@ -216,6 +232,7 @@ def proxmox_plan(
     vmid: int,
     storage: str,
     iso_volume: str,
+    seed_volume: str,
     bridge: str,
     name: str = "rdte-windows-w1",
 ) -> dict[str, Any]:
@@ -234,6 +251,11 @@ def proxmox_plan(
     iso_volume = _safe_binding(iso_volume, "iso-volume")
     if ":" not in iso_volume:
         raise WindowsW1PlanError("PVE ISO binding must be a storage volume id")
+    seed_volume = _safe_binding(seed_volume, "seed-volume")
+    if ":" not in seed_volume:
+        raise WindowsW1PlanError("PVE seed binding must be a storage volume id")
+    if seed_volume == iso_volume:
+        raise WindowsW1PlanError("PVE installer and unattended seed must be distinct media")
     bridge = _safe_binding(bridge, "bridge")
     if "," in bridge:
         raise WindowsW1PlanError("PVE bridge binding must not contain commas")
@@ -248,6 +270,9 @@ def proxmox_plan(
         "external_bindings": {
             "install_media_volume": iso_volume,
             "install_media_required_sha256": MEDIA_SHA256,
+            "unattended_seed_volume": seed_volume,
+            "unattended_seed_contract": "windows-w1-unattend-seed/v1",
+            "unattended_seed_volume_label": "ADW1SEED",
             "vm_storage": storage,
             "network_bridge": bridge,
         },
@@ -266,6 +291,7 @@ def proxmox_plan(
             "net0": f"e1000,bridge={bridge}",
             "serial0": "socket",
             "sata0": f"{storage}:64",
+            "ide1": f"{seed_volume},media=cdrom",
             "ide2": f"{iso_volume},media=cdrom",
             "efidisk0": f"{storage}:1,efitype=4m,pre-enrolled-keys=1",
             "tpmstate0": f"{storage}:1,version=v2.0",
@@ -281,10 +307,27 @@ def proxmox_plan(
             "nonce_prefix": "AGENT_DISPATCH_W1_NONCE=",
         },
         "post_install_transition": {
-            "method": "PUT",
-            "path": "/nodes/{node}/qemu/{vmid}/config",
-            "fields": {"delete": "ide2", "boot": "order=sata0"},
-            "reason": "force restart/boot proof from the installed system disk without firmware boot ambiguity",
+            "operations": [
+                {
+                    "method": "PUT",
+                    "path": "/nodes/{node}/qemu/{vmid}/config",
+                    "fields": {"delete": "ide2"},
+                    "role": "detach-install-media",
+                },
+                {
+                    "method": "PUT",
+                    "path": "/nodes/{node}/qemu/{vmid}/config",
+                    "fields": {"delete": "ide1"},
+                    "role": "detach-unattended-seed",
+                },
+                {
+                    "method": "PUT",
+                    "path": "/nodes/{node}/qemu/{vmid}/config",
+                    "fields": {"boot": "order=sata0"},
+                    "role": "system-disk-only-boot",
+                },
+            ],
+            "reason": "force restart/boot proof from the installed system disk without installer/seed media ambiguity",
         },
         "mutation_authorized": False,
     }
@@ -296,6 +339,7 @@ def main() -> int:
     p.add_argument("--platform", choices=["truenas", "proxmox"], required=True)
     p.add_argument("--storage", required=True)
     p.add_argument("--media-ref", required=True)
+    p.add_argument("--seed-ref", required=True)
     p.add_argument("--network", required=True)
     p.add_argument("--name")
     p.add_argument("--vmid", type=int, default=9301)
@@ -308,6 +352,7 @@ def main() -> int:
                 profile,
                 pool=a.storage,
                 iso_path=a.media_ref,
+                seed_path=a.seed_ref,
                 bridge=a.network,
                 name=a.name or "rdtewindowsw1",
             )
@@ -317,6 +362,7 @@ def main() -> int:
                 vmid=a.vmid,
                 storage=a.storage,
                 iso_volume=a.media_ref,
+                seed_volume=a.seed_ref,
                 bridge=a.network,
                 name=a.name or "rdte-windows-w1",
             )
