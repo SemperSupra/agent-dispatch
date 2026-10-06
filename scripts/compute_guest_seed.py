@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import re
 
@@ -23,7 +24,11 @@ def validate_token(value: str, pattern: re.Pattern[str], label: str) -> str:
 def render_seed(nonce: str, instance_id: str) -> tuple[str, str]:
     nonce = validate_token(nonce, NONCE_RE, "nonce")
     instance_id = validate_token(instance_id, INSTANCE_RE, "instance-id")
-    meta = f"instance-id: {instance_id}\nlocal-hostname: rdtev1\n"
+    meta = json.dumps(
+        {"instance-id": instance_id, "local-hostname": "rdtev1"},
+        sort_keys=True,
+        separators=(",", ":"),
+    ) + "\n"
     user = (
         "#!/bin/sh\n"
         "set -eu\n"
@@ -37,7 +42,11 @@ def render_seed(nonce: str, instance_id: str) -> tuple[str, str]:
 def render_v2_observation_seed(nonce: str, instance_id: str) -> tuple[str, str]:
     nonce = validate_token(nonce, NONCE_RE, "nonce")
     instance_id = validate_token(instance_id, INSTANCE_RE, "instance-id")
-    meta = f"instance-id: {instance_id}\nlocal-hostname: rdtev2\n"
+    meta = json.dumps(
+        {"instance-id": instance_id, "local-hostname": "rdtev2"},
+        sort_keys=True,
+        separators=(",", ":"),
+    ) + "\n"
     user = (
         "#!/bin/sh\n"
         "set -eu\n"
