@@ -36,22 +36,28 @@ def stage_paths(pool: str, stem: str = "rdtev1") -> dict[str, str]:
         raise V1ProbeError("pool name violates V1 staging contract")
     dataset = f"{pool}/{stem}stage"
     mount = f"/mnt/{dataset}"
+    boot_zvol = f"{pool}/{stem}boot"
     return {
         "dataset": dataset,
         "raw_image": f"{mount}/cirros-0.6.3-x86_64.raw",
         "seed_iso": f"{mount}/seed.iso",
+        "boot_zvol": boot_zvol,
+        "boot_zvol_path": f"/dev/zvol/{boot_zvol}",
     }
 
 
-def raw_boot_device(vm_id: int, path: str) -> dict[str, Any]:
+def zvol_boot_device(vm_id: int, zvol_name: str, size_bytes: int = 1024 * 1024 * 1024) -> dict[str, Any]:
+    if not zvol_name or "/" not in zvol_name:
+        raise V1ProbeError("V1 boot ZVOL name must include pool prefix")
     return {
         "vm": vm_id,
         "attributes": {
-            "dtype": "RAW",
-            "path": path,
+            "dtype": "DISK",
+            "path": None,
             "type": "VIRTIO",
-            "exists": True,
-            "boot": True,
+            "create_zvol": True,
+            "zvol_name": zvol_name,
+            "zvol_volsize": size_bytes,
         },
         "order": 100,
     }
@@ -140,9 +146,14 @@ def plan(pool: str, name: str, nonce: str) -> dict[str, Any]:
         "staging": paths,
         "vm_create": native_vm_create_payload(name),
         "devices": [
-            raw_boot_device(0, paths["raw_image"]),
+            zvol_boot_device(0, paths["boot_zvol"]),
             seed_cdrom_device(0, paths["seed_iso"]),
         ],
+        "media_lowering": {
+            "source": paths["raw_image"],
+            "destination": paths["boot_zvol_path"],
+            "method": "vm.device.convert",
+        },
         "oracle": {
             "surface": "/websocket/shell",
             "nonce": f"AGENT_DISPATCH_V1_NONCE={nonce}",
@@ -172,11 +183,17 @@ def run_apply(a: argparse.Namespace) -> dict[str, Any]:
             "seed_iso_sha256": seed_sha,
         },
         "staging": paths,
-        "cleanup": {"attempted": False, "vm_absent": False, "staging_dataset_absent": False},
+        "cleanup": {
+            "attempted": False,
+            "vm_absent": False,
+            "boot_zvol_absent": False,
+            "staging_dataset_absent": False,
+        },
         "claim_boundary": "V1 Linux guest boot + exact external nonce only; nested KVM, Firecracker and Windows remain separate",
     }
     ws: WebSocket | None = None
     vm_id: int | None = None
+    boot_device_id: int | None = None
     stage_owned = False
     try:
         ws = WebSocket(a.host, a.port, timeout=a.timeout, tls=a.tls)
@@ -199,6 +216,8 @@ def run_apply(a: argparse.Namespace) -> dict[str, Any]:
             raise V1ProbeError(f"preexisting VM {a.name!r} blocks ownership-safe V1")
         if ddp_call(ws, "pre-stage", "pool.dataset.query", [[["id", "=", paths["dataset"]]]]):
             raise V1ProbeError(f"preexisting staging dataset {paths['dataset']!r} blocks ownership-safe V1")
+        if ddp_call(ws, "pre-boot-zvol", "pool.dataset.query", [[["id", "=", paths["boot_zvol"]]]]):
+            raise V1ProbeError(f"preexisting boot ZVOL {paths['boot_zvol']!r} blocks ownership-safe V1")
 
         ddp_call(ws, "mk-stage", "pool.dataset.create", [{
             "name": paths["dataset"], "type": "FILESYSTEM", "exec": "OFF", "share_type": "GENERIC",
@@ -218,11 +237,31 @@ def run_apply(a: argparse.Namespace) -> dict[str, Any]:
         if not isinstance(vm, dict) or not isinstance(vm.get("id"), int):
             raise V1ProbeError(f"vm.create returned invalid VM: {vm!r}")
         vm_id = vm["id"]
-        raw = raw_boot_device(vm_id, paths["raw_image"])
+        boot = zvol_boot_device(vm_id, paths["boot_zvol"])
         seed = seed_cdrom_device(vm_id, paths["seed_iso"])
-        ddp_call(ws, "raw-device", "vm.device.create", [raw])
+        created_boot = ddp_call(ws, "boot-device", "vm.device.create", [boot])
+        if not isinstance(created_boot, dict) or not isinstance(created_boot.get("id"), int):
+            raise V1ProbeError(f"boot DISK/ZVOL create returned invalid device: {created_boot!r}")
+        boot_device_id = created_boot["id"]
+        if created_boot.get("attributes", {}).get("path") != paths["boot_zvol_path"]:
+            raise V1ProbeError(
+                f"boot DISK/ZVOL path mismatch: {created_boot.get('attributes', {}).get('path')!r}"
+            )
+        if not ddp_call(ws, "observe-boot-zvol", "pool.dataset.query", [[["id", "=", paths["boot_zvol"]]]]):
+            raise V1ProbeError("owned boot ZVOL was not independently observable after device create")
+        convert_job = ddp_call(ws, "convert-boot", "vm.device.convert", [{
+            "source": paths["raw_image"],
+            "destination": paths["boot_zvol_path"],
+        }])
+        wait_job(ws, convert_job, a.job_timeout, "convert-boot")
         ddp_call(ws, "seed-device", "vm.device.create", [seed])
-        receipt["desired_devices"] = [raw, seed]
+        receipt["desired_devices"] = [boot, seed]
+        receipt["media_lowering"] = {
+            "source": paths["raw_image"],
+            "destination": paths["boot_zvol_path"],
+            "method": "vm.device.convert",
+            "classification": "SUPPORTED",
+        }
 
         ddp_call(ws, "vm-start", "vm.start", [vm_id, {"overcommit": False}])
         console = observe_console_nonce(
@@ -250,6 +289,20 @@ def run_apply(a: argparse.Namespace) -> dict[str, Any]:
                     ddp_call(ws, "cleanup-stop", "vm.stop", [vm_id, {"force": True, "force_after_timeout": True}])
                 except Exception:
                     pass
+                if boot_device_id is not None:
+                    try:
+                        boot_rows = ddp_call(
+                            ws, "cleanup-query-boot-device", "vm.device.query", [[["id", "=", boot_device_id]]]
+                        )
+                        if boot_rows:
+                            ddp_call(
+                                ws,
+                                "cleanup-delete-boot-device",
+                                "vm.device.delete",
+                                [boot_device_id, {"force": True, "zvol": True, "raw_file": False}],
+                            )
+                    except Exception:
+                        pass
                 try:
                     ddp_call(ws, "cleanup-delete-vm", "vm.delete", [vm_id, {"zvols": False, "force": True}])
                 except Exception:
@@ -262,6 +315,29 @@ def run_apply(a: argparse.Namespace) -> dict[str, Any]:
                     pass
             else:
                 receipt["cleanup"]["vm_absent"] = True
+
+            try:
+                zvol_rows = ddp_call(
+                    ws, "cleanup-query-boot-zvol", "pool.dataset.query", [[["id", "=", paths["boot_zvol"]]]]
+                )
+                if zvol_rows:
+                    ddp_call(
+                        ws,
+                        "cleanup-delete-boot-zvol",
+                        "pool.dataset.delete",
+                        [paths["boot_zvol"], {"recursive": True, "force": True}],
+                    )
+                receipt["cleanup"]["boot_zvol_absent"] = not bool(
+                    ddp_call(
+                        ws,
+                        "cleanup-confirm-boot-zvol",
+                        "pool.dataset.query",
+                        [[["id", "=", paths["boot_zvol"]]]],
+                    )
+                )
+            except Exception:
+                pass
+
             if stage_owned:
                 try:
                     ddp_call(ws, "cleanup-stage", "pool.dataset.delete", [
