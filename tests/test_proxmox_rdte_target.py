@@ -41,7 +41,7 @@ class ProxmoxTargetRegistryTests(unittest.TestCase):
         target=self.targets[request["version"]]
         self.assertTrue(target["runtime_admitted"])
         self.assertEqual(request["authority_issue"],target["authority_issue"])
-        self.assertIn(request.get("compute_fixture","none"),{"none","container-c0"})
+        self.assertIn(request.get("compute_fixture","none"),{"none","container-c0","vm-v0"})
 
     def test_unknown_target_fails_closed(self):
         with self.assertRaises(MOD.TargetError):
