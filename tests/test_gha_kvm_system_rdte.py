@@ -129,7 +129,7 @@ class SystemRdteContractTests(unittest.TestCase):
 
     def test_truenas_vm_v1_is_request_driven_and_claim_bounded(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        script = TN.read_text(encoding="utf-8")
+        script = TRUENAS.read_text(encoding="utf-8")
         self.assertIn('"container-c0" or . == "vm-v0" or . == "vm-v1"', workflow)
         self.assertIn('elif [[ "$COMPUTE_FIXTURE" == "vm-v1" ]]', script)
         self.assertIn("cirros-0.6.3-x86_64-disk.img", script)
