@@ -10,8 +10,8 @@
     "heavy_jobs": 1,
     "timeout_minutes": 24
   },
-  "attempt": 2,
-  "prior_run": 37407784183,
-  "diagnosis": "mac80211_hwsim loaded with zero PHYs; previous radio oracle falsely matched 'Host Controller Interface driver'",
-  "repair": "Preserve existing PHYs; only reload hwsim with radios=2 when /sys/class/ieee80211 has no phy*. Require literal wlan interface marker."
+  "attempt": 3,
+  "prior_run": 37408861704,
+  "diagnosis": "zero-PHY recovery succeeded (phy0/phy1 present), but Python f-string converted sed replacement \\\\1 into ASCII control-A, so generated radio/iface extraction failed and wlan0 was never configured",
+  "repair": "escape sed backreferences in generator; add generated-shell control-character guard; retain conditional zero-PHY hwsim recovery and strict wlan oracle"
 }
