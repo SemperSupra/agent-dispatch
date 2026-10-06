@@ -18,13 +18,19 @@ class VmProbeContractTests(unittest.TestCase):
         self.assertEqual(normalize_system_version("TrueNAS-25.10.7"),"25.10.7")
 
     def test_native_vm_defaults_are_stopped_safe_contract(self):
-        p=native_vm_create_payload("rdte-v0")
-        self.assertEqual(p["name"],"rdte-v0")
+        p=native_vm_create_payload("rdtecomputevmv0")
+        self.assertEqual(p["name"],"rdtecomputevmv0")
         self.assertFalse(p["autostart"])
         self.assertFalse(p["ensure_display_device"])
         self.assertEqual(p["bootloader"],"UEFI")
         self.assertFalse(p["trusted_platform_module"])
         self.assertFalse(p["enable_secure_boot"])
+
+    def test_native_vm_name_matches_exact_trueNAS_contract(self):
+        self.assertEqual(native_vm_create_payload("rdte_vm_v0")["name"], "rdte_vm_v0")
+        for invalid in ("rdte-v0", "rdte vm v0", "rdte/v0"):
+            with self.assertRaises(ProbeError):
+                native_vm_create_payload(invalid)
 
     def test_legacy_vm_uses_vm_instance_type(self):
         p=legacy_vm_create_payload("rdte-v0","ubuntu/24.04")
@@ -41,7 +47,7 @@ class VmProbeContractTests(unittest.TestCase):
         self.assertEqual(d["vm"],7)
         self.assertTrue(d["attributes"]["create_zvol"])
         self.assertEqual(d["attributes"]["zvol_name"],"rdtepool/rdte-compute-vm-v0")
-        self.assertFalse(d["attributes"]["boot"])
+        self.assertNotIn("boot", d["attributes"])
         self.assertEqual(d["order"],1000)
 
     def test_zvol_requires_owned_parent_name(self):

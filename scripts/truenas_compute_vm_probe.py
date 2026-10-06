@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import time
 from typing import Any
 
@@ -26,6 +27,9 @@ def normalize_system_version(value: Any) -> str:
 
 
 def native_vm_create_payload(name: str, generation: int = 1) -> dict[str, Any]:
+    # TrueNAS vm.* validates names against ^[a-zA-Z_0-9]+$ before create.
+    if not re.fullmatch(r"[A-Za-z0-9_]+", name):
+        raise ProbeError("native TrueNAS VM name must contain only letters, digits, or underscore")
     return {
         "name": name,
         "description": f"Agent Dispatch disposable VM V0 fixture generation {generation}",
@@ -76,7 +80,6 @@ def owned_zvol_device(vm_id: int, zvol_name: str, size_bytes: int) -> dict[str, 
             "create_zvol": True,
             "zvol_name": zvol_name,
             "zvol_volsize": size_bytes,
-            "boot": False,
         },
         "order": 1000,
     }
@@ -143,7 +146,7 @@ def main() -> int:
     p=argparse.ArgumentParser()
     p.add_argument("--registry",type=pathlib.Path,default=pathlib.Path("config/compute-materialization-targets.json"))
     p.add_argument("--target-version",required=True)
-    p.add_argument("--name",default="rdte-compute-vm-v0")
+    p.add_argument("--name",default="rdtecomputevmv0")
     p.add_argument("--legacy-image")
     p.add_argument("--zvol-name")
     p.add_argument("--zvol-size-bytes",type=int,default=2*1024*1024*1024)
