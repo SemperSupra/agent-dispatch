@@ -7,6 +7,7 @@ def fixture():
       "dependencies":{
         "firecracker":"SemperSupra/agent-dispatch-private#277",
         "windows_embodiment":"mark-e-deyoung/windows-utilities#26",
+        "windows_media":"mark-e-deyoung/WinBot#70",
       },
       "policy":{
         "source_capability_is_not_runtime_qualification":True,
@@ -34,12 +35,45 @@ def fixture():
             "must_match_injected_nonce":True,
           },
           "claim_boundary":"x",
+        },
+        "windows_w1":{
+          "id":"windows-11-enterprise-evaluation-26h2-x64-en-us",
+          "product":"Windows 11 Enterprise Evaluation",
+          "version":"26H2",
+          "build":"26300.9457",
+          "edition":"Enterprise",
+          "architecture":"x64",
+          "language":"English",
+          "source":{
+            "host":"software-static.download.prss.microsoft.com",
+            "sha256":"bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38",
+            "size_bytes":8225329152,
+            "qualification_authority":"mark-e-deyoung/WinBot#70",
+            "qualification_run":36695017130,
+            "accepted_artifact":11087331509,
+            "accepted_artifact_digest":"sha256:9f94fea45f82fe97056a89ac656d7009885a9d8b846747cf6f5f57d0943451dd",
+          },
+          "product_key_policy":"none-embedded",
+          "oracle_boundary":"x",
         }
       },
       "truenas":{},
       "proxmox":{
         "9.2-1":{
-          "windows11":{"runtime_status":"OPEN"},
+          "windows11":{
+            "source_status":"CANDIDATE",
+            "runtime_status":"OPEN",
+            "fixture":"windows-11-enterprise-evaluation-26h2-x64-en-us",
+            "source_binding":{
+              "qemu_server_commit":"6785065b3f766f15f6f151af8ec27ec8bb5b07ab",
+              "package_version":"9.1.15",
+            },
+            "capabilities":{
+              "secure_boot":{"source_proven":True},
+              "tpm":{"source_proven":True},
+              "uefi_q35":{"source_proven":True},
+            },
+          },
           "firecracker":{"runtime_status":"OPEN"},
         }
       },
@@ -65,6 +99,7 @@ def tnrow(version):
       },
     }
     if version=="26.0.0-BETA.3":
+        row["windows11"]["fixture"]="windows-11-enterprise-evaluation-26h2-x64-en-us"
         row["linux_v2"]={
           "source_status":"OBSERVATION_CANDIDATE",
           "runtime_status":"OPEN",
@@ -139,6 +174,21 @@ class Tests(unittest.TestCase):
     def test_beta3_v2_firecracker_gate_remains_authority_bound(self):
         p=self.profile()
         p["truenas"]["26.0.0-BETA.3"]["linux_v2"]["firecracker_gate"]="run whatever"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_beta3_windows_fixture_binding_fails_closed(self):
+        p=self.profile()
+        p["truenas"]["26.0.0-BETA.3"]["windows11"]["fixture"]="different"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_windows_media_digest_fails_closed(self):
+        p=self.profile()
+        p["fixtures"]["windows_w1"]["source"]["sha256"]="0"*64
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_proxmox_windows_source_binding_fails_closed(self):
+        p=self.profile()
+        p["proxmox"]["9.2-1"]["windows11"]["source_binding"]["package_version"]="9.1.14"
         with self.assertRaises(ProfileError):
             validate(p)
     def test_target_growth_fails_closed(self):

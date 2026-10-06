@@ -19,6 +19,8 @@ def validate(p:dict[str,Any])->dict[str,Any]:
         raise ProfileError("Firecracker authority must remain #277")
     if p.get("dependencies",{}).get("windows_embodiment")!="mark-e-deyoung/windows-utilities#26":
         raise ProfileError("Windows embodiment authority must remain windows-utilities#26")
+    if p.get("dependencies",{}).get("windows_media")!="mark-e-deyoung/WinBot#70":
+        raise ProfileError("Windows media authority must remain WinBot#70")
     policy=p.get("policy")
     if not isinstance(policy,dict) or any(policy.get(k) is not True for k in (
         "source_capability_is_not_runtime_qualification",
@@ -30,8 +32,8 @@ def validate(p:dict[str,Any])->dict[str,Any]:
     )):
         raise ProfileError("safety/claim policy incomplete")
     fixtures=p.get("fixtures")
-    if not isinstance(fixtures,dict) or set(fixtures)!={"linux_v1"}:
-        raise ProfileError("exact linux_v1 fixture missing")
+    if not isinstance(fixtures,dict) or set(fixtures)!={"linux_v1","windows_w1"}:
+        raise ProfileError("exact guest fixture set missing")
     v1=fixtures["linux_v1"]
     if v1.get("id")!="cirros-0.6.3-x86_64-nocloud-serial-nonce":
         raise ProfileError("linux_v1 fixture id drift")
@@ -49,6 +51,28 @@ def validate(p:dict[str,Any])->dict[str,Any]:
     oracle=v1.get("oracle")
     if not isinstance(oracle,dict) or oracle.get("transport")!="serial-console" or oracle.get("nonce_prefix")!="AGENT_DISPATCH_V1_NONCE=" or oracle.get("must_match_injected_nonce") is not True:
         raise ProfileError("linux_v1 guest nonce oracle incomplete")
+    w1=fixtures["windows_w1"]
+    if w1.get("id")!="windows-11-enterprise-evaluation-26h2-x64-en-us":
+        raise ProfileError("Windows W1 fixture id drift")
+    if any(w1.get(k)!=v for k,v in {
+        "product":"Windows 11 Enterprise Evaluation",
+        "version":"26H2",
+        "build":"26300.9457",
+        "edition":"Enterprise",
+        "architecture":"x64",
+        "language":"English",
+        "product_key_policy":"none-embedded",
+    }.items()):
+        raise ProfileError("Windows W1 product identity drift")
+    wsrc=w1.get("source")
+    if not isinstance(wsrc,dict) or wsrc.get("host")!="software-static.download.prss.microsoft.com":
+        raise ProfileError("Windows W1 source host drift")
+    if wsrc.get("sha256")!="bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38" or wsrc.get("size_bytes")!=8225329152:
+        raise ProfileError("Windows W1 media identity drift")
+    if wsrc.get("qualification_authority")!="mark-e-deyoung/WinBot#70" or wsrc.get("qualification_run")!=36695017130:
+        raise ProfileError("Windows W1 qualification authority drift")
+    if wsrc.get("accepted_artifact")!=11087331509 or wsrc.get("accepted_artifact_digest")!="sha256:9f94fea45f82fe97056a89ac656d7009885a9d8b846747cf6f5f57d0943451dd":
+        raise ProfileError("Windows W1 accepted artifact identity drift")
     tn=p.get("truenas")
     expected={"25.04.1","25.04.2.6","25.10.7","26.0.0-BETA.3"}
     if not isinstance(tn,dict) or set(tn)!=expected:
@@ -96,6 +120,8 @@ def validate(p:dict[str,Any])->dict[str,Any]:
             observation=linux.get("observation_requirement","")
             if "raw.qemu" not in observation or "virsh directly" not in observation:
                 raise ProfileError("BETA.3 Linux V1 must prohibit private hypervisor console escape")
+            if row.get("windows11",{}).get("fixture")!="windows-11-enterprise-evaluation-26h2-x64-en-us":
+                raise ProfileError("BETA.3 Windows W1 fixture binding drift")
         win=row["windows11"]
         if win.get("source_status")!="CANDIDATE":
             raise ProfileError(f"{version}: Windows source status must remain CANDIDATE")
@@ -108,6 +134,16 @@ def validate(p:dict[str,Any])->dict[str,Any]:
     for kind in ("windows11","firecracker"):
         if prox["9.2-1"][kind].get("runtime_status")!="OPEN":
             raise ProfileError(f"Proxmox {kind} runtime must remain OPEN")
+    pwin=prox["9.2-1"]["windows11"]
+    if pwin.get("source_status")!="CANDIDATE":
+        raise ProfileError("Proxmox Windows source profile must be CANDIDATE")
+    if pwin.get("fixture")!="windows-11-enterprise-evaluation-26h2-x64-en-us":
+        raise ProfileError("Proxmox Windows fixture binding drift")
+    if pwin.get("source_binding")!={"qemu_server_commit":"6785065b3f766f15f6f151af8ec27ec8bb5b07ab","package_version":"9.1.15"}:
+        raise ProfileError("Proxmox Windows qemu-server source binding drift")
+    pcaps=pwin.get("capabilities")
+    if not isinstance(pcaps,dict) or set(pcaps)!={"secure_boot","tpm","uefi_q35"} or any(pcaps[k].get("source_proven") is not True for k in pcaps):
+        raise ProfileError("Proxmox Windows source capability binding incomplete")
     rungs=p.get("rungs")
     if not isinstance(rungs,dict) or list(rungs)!=["V0","V1","V2","W1","WB"]:
         raise ProfileError("guest rung order/coverage invalid")

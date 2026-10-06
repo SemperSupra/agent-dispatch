@@ -3,7 +3,8 @@
   "authority": "SemperSupra/agent-dispatch-private#426",
   "dependencies": {
     "firecracker": "SemperSupra/agent-dispatch-private#277",
-    "windows_embodiment": "mark-e-deyoung/windows-utilities#26"
+    "windows_embodiment": "mark-e-deyoung/windows-utilities#26",
+    "windows_media": "mark-e-deyoung/WinBot#70"
   },
   "policy": {
     "source_capability_is_not_runtime_qualification": true,
@@ -117,7 +118,8 @@
             "source_proven": true
           }
         },
-        "runtime_status": "OPEN"
+        "runtime_status": "OPEN",
+        "fixture": "windows-11-enterprise-evaluation-26h2-x64-en-us"
       },
       "firecracker": {
         "source_status": "CANDIDATE",
@@ -156,8 +158,27 @@
     "9.2-1": {
       "vm_adapter": "proxmox-vm-rest",
       "windows11": {
-        "source_status": "PROFILE_PENDING_REST_PAYLOAD_BINDING",
-        "runtime_status": "OPEN"
+        "source_status": "CANDIDATE",
+        "runtime_status": "OPEN",
+        "capabilities": {
+          "secure_boot": {
+            "surface": "qemu config efidisk0 efitype=4m,pre-enrolled-keys=1",
+            "source_proven": true
+          },
+          "tpm": {
+            "surface": "qemu config tpmstate0 version=v2.0",
+            "source_proven": true
+          },
+          "uefi_q35": {
+            "surface": "qemu config bios=ovmf + machine=q35",
+            "source_proven": true
+          }
+        },
+        "source_binding": {
+          "qemu_server_commit": "6785065b3f766f15f6f151af8ec27ec8bb5b07ab",
+          "package_version": "9.1.15"
+        },
+        "fixture": "windows-11-enterprise-evaluation-26h2-x64-en-us"
       },
       "firecracker": {
         "source_status": "PROFILE_PENDING_REST_PAYLOAD_BINDING",
@@ -190,6 +211,26 @@
         "must_match_injected_nonce": true
       },
       "claim_boundary": "V1 proves pinned Linux guest boot plus exact externally observed per-run nonce only; nested KVM, Firecracker and Windows remain separate rungs"
+    },
+    "windows_w1": {
+      "id": "windows-11-enterprise-evaluation-26h2-x64-en-us",
+      "product": "Windows 11 Enterprise Evaluation",
+      "version": "26H2",
+      "build": "26300.9457",
+      "edition": "Enterprise",
+      "architecture": "x64",
+      "language": "English",
+      "source": {
+        "host": "software-static.download.prss.microsoft.com",
+        "sha256": "bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38",
+        "size_bytes": 8225329152,
+        "qualification_authority": "mark-e-deyoung/WinBot#70",
+        "qualification_run": 36695017130,
+        "accepted_artifact": 11087331509,
+        "accepted_artifact_digest": "sha256:9f94fea45f82fe97056a89ac656d7009885a9d8b846747cf6f5f57d0943451dd"
+      },
+      "product_key_policy": "none-embedded",
+      "oracle_boundary": "bounded guest readiness/nonce plus lifecycle; no WinBot backend admission claim"
     }
   }
 }
