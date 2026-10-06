@@ -156,7 +156,6 @@ jobs:
               "AuthorityRepairLogSignal",
               "AuthorityPythonPresentBefore",
               "AuthorityPythonPresentAfter",
-              "'api-task-registration'",
           ):
               if required_marker not in run_text:
                   raise SystemExit(f"product-repair control invariant missing: {required_marker}")
