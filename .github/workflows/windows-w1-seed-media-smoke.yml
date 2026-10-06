@@ -1,0 +1,51 @@
+name: Windows W1 seed media smoke
+on:
+  pull_request:
+    paths:
+      - "scripts/windows_w1_unattend.py"
+      - "scripts/windows_w1_seed_media.py"
+      - "tests/test_windows_w1_seed_media.py"
+      - ".github/workflows/windows-w1-seed-media-smoke.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Unit contract
+        run: python3 -m unittest -v tests/test_windows_w1_seed_media.py
+      - name: Install ISO tool
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xorriso
+      - name: Build and inspect exact seed media
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/w1-seed"
+          mkdir -p "$root/files"
+          python3 scripts/windows_w1_unattend.py \
+            --nonce windowsw1seedsmoke20261006 \
+            --image-name "Windows 11 Enterprise Evaluation" \
+            --out-dir "$root/files"
+          python3 scripts/windows_w1_seed_media.py \
+            --seed-dir "$root/files" \
+            --out-iso "$root/adw1seed.iso" \
+            --receipt "$root/media-receipt.json"
+          xorriso -indev "$root/adw1seed.iso" -pvd_info 2>&1 | tee "$root/pvd.txt"
+          grep -F "Volume id    : 'ADW1SEED'" "$root/pvd.txt"
+          for name in Autounattend.xml w1-bootstrap.ps1 seed-contract.json; do
+            xorriso -osirrox on -indev "$root/adw1seed.iso" -extract "/$name" "$root/extracted-$name" >/dev/null 2>&1
+            cmp "$root/files/$name" "$root/extracted-$name"
+          done
+      - name: Retain bounded seed-media evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-w1-seed-media-smoke
+          path: |
+            ${{ runner.temp }}/w1-seed/media-receipt.json
+            ${{ runner.temp }}/w1-seed/pvd.txt
+          retention-days: 7
