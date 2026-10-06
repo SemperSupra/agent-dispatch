@@ -43,3 +43,15 @@ This kit carries immutable firmware/package bytes plus the current fail-closed R
 ## Physical authority boundary
 
 Until reviewed R1 evidence exists, do not perform fw_setenv, sysupgrade, package installation, UCI changes, service restarts, reboot/power-cycle experiments, MTD/UBI writes, bootloader writes, factory/calibration writes, or radio-firmware mutation.
+
+## Staged post-R1 control tools
+
+These are present for later gates but do not expand current authority:
+- `scripts/rdte/serial-observe.py` — sensor-only serial transcript reduction;
+- `scripts/rdte/r2-admission.py` — fail-closed R2 admission assessment;
+- `scripts/rdte/r2-plan.py` — generates an R2 plan only from an admitted descriptor;
+- `scripts/rdte/fake-power-adapter.py` — zero-hardware power orchestration test double;
+- `scripts/rdte/r2-reduce.py` — fail-closed R2 evidence reduction;
+- `scripts/rdte/r3-bind-generation.py` — binds a generation only after R2 is green.
+
+Current physical authority remains **R1 READ-ONLY**. Presence of later-gate tools is not permission to execute them.
