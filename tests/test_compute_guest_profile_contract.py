@@ -65,6 +65,21 @@ def tnrow(version):
       },
     }
     if version=="26.0.0-BETA.3":
+        row["linux_v2"]={
+          "source_status":"OBSERVATION_CANDIDATE",
+          "runtime_status":"OPEN",
+          "prerequisite":"V1 accepted",
+          "fixture":"cirros-0.6.3-x86_64-nocloud-serial-nonce",
+          "vm_cpu_mode":"HOST-PASSTHROUGH",
+          "observation":{
+            "kvm_device_marker":"AGENT_DISPATCH_V2_KVM_PRESENT=",
+            "cpu_extension_marker":"AGENT_DISPATCH_V2_CPU_VMX_SVM=",
+            "transport":"supported TrueNAS VM console",
+          },
+          "firecracker_gate":"execute #277 portable Firecracker contract only when /dev/kvm and vmx|svm are both observed inside the guest",
+          "negative_boundary":"nested-KVM absence is a nested-virtualization capability result and does not invalidate V0/V1 VM support",
+        }
+    if version=="26.0.0-BETA.3":
         row["linux_v1"]={
           "source_status":"CANDIDATE",
           "runtime_status":"OPEN",
@@ -114,6 +129,16 @@ class Tests(unittest.TestCase):
     def test_beta3_v1_runtime_claim_fails_closed(self):
         p=self.profile()
         p["truenas"]["26.0.0-BETA.3"]["linux_v1"]["runtime_status"]="PASS"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_beta3_v2_nested_kvm_negative_does_not_revoke_vm_support(self):
+        p=self.profile()
+        row=p["truenas"]["26.0.0-BETA.3"]["linux_v2"]
+        self.assertIn("does not invalidate V0/V1", row["negative_boundary"])
+        self.assertEqual(row["runtime_status"], "OPEN")
+    def test_beta3_v2_firecracker_gate_remains_authority_bound(self):
+        p=self.profile()
+        p["truenas"]["26.0.0-BETA.3"]["linux_v2"]["firecracker_gate"]="run whatever"
         with self.assertRaises(ProfileError):
             validate(p)
     def test_target_growth_fails_closed(self):
