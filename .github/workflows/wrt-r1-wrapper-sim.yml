@@ -1,0 +1,38 @@
+name: WRT R1 Remote Wrapper Synthetic Oracle
+
+on:
+  push:
+    branches:
+      - wrt-hil-prequal-20261005
+    paths:
+      - '.github/waves/wrt-r1-wrapper-sim-trigger.json'
+
+permissions:
+  contents: read
+
+jobs:
+  r1-wrapper-sim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bounded dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zstd qemu-system-x86 qemu-utils openssh-client >/dev/null
+      - name: Boot OpenWrt and execute exact R1 remote wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-r1-wrapper-out"
+          bash tools/wrt_hil_prequal/run_r1_wrapper_synthetic.sh "$RUNNER_TEMP/wrt-r1-wrapper-out"
+          cat "$RUNNER_TEMP/wrt-r1-wrapper-out/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload R1 synthetic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-r1-wrapper-synthetic-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-r1-wrapper-out
+          if-no-files-found: error
+          retention-days: 14
