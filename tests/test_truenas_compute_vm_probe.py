@@ -47,7 +47,7 @@ class VmProbeContractTests(unittest.TestCase):
         self.assertEqual(d["vm"],7)
         self.assertTrue(d["attributes"]["create_zvol"])
         self.assertEqual(d["attributes"]["zvol_name"],"rdtepool/rdte-compute-vm-v0")
-        self.assertFalse(d["attributes"]["boot"])
+        self.assertNotIn("boot", d["attributes"])
         self.assertEqual(d["order"],1000)
 
     def test_zvol_requires_owned_parent_name(self):
