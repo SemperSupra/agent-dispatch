@@ -66,7 +66,7 @@ def t(n): return (o/n).read_text(errors="replace") if (o/n).exists() else ""
 def one(dut, expect_controller):
     s=t(f"{dut}-standalone.log")
     return {
-      "radio": "\tInterface wlan" in s,
+      "radio": any(line.lstrip().startswith("Interface wlan") for line in s.splitlines()),
       "hostapd_process": "/usr/sbin/hostapd" in s,
       "transport": "ieee1905_transport" in s,
       "agent": "beerocks_agent" in s,
@@ -77,7 +77,8 @@ def one(dut, expect_controller):
 v={"schema":"wrt-rdte-fresh-standalone-parity/v1",
    "dut_a":one("dut-a",True),
    "dut_b":one("dut-b",False)}
-v["passed"]=all(all(x.values()) for x in v.values() if isinstance(x,dict))
+required=("radio","hostapd_process","transport","agent","role_marker","controller_semantics")
+v["passed"]=all(all(x.get(k,False) for k in required) for x in (v["dut_a"],v["dut_b"]))
 print(json.dumps(v,indent=2,sort_keys=True))
 PY
 
@@ -111,8 +112,8 @@ dual={
  "b_controller_absent": "beerocks_controller" not in b,
  "a_peer_ping": "RDTE_PEER_PING=1" in a,
  "b_peer_ping": "RDTE_PEER_PING=1" in b,
- "a_radio": "\tInterface wlan" in a,
- "b_radio": "\tInterface wlan" in b
+ "a_radio": any(line.lstrip().startswith("Interface wlan") for line in a.splitlines()),
+ "b_radio": any(line.lstrip().startswith("Interface wlan") for line in b.splitlines())
 }
 dual["passed"]=dual["attempted"] and all(v for k,v in dual.items() if k not in ("attempted","passed"))
 v={
