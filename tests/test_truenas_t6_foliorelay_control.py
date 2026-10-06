@@ -87,10 +87,32 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"must not couple to host D-Bus"):
             MOD.validate_discovery_materialization(direct_dbus,"26.0.0-BETA.3")
 
-    def test_control_fixture_parent_is_group_traversable_without_group_listing(self):
-        probe=(ROOT/"scripts"/"truenas_middleware_foliorelay_t6_probe.py").read_text(encoding="utf-8")
-        self.assertIn('(ROOT+"/control","710",10001)', probe)
-        self.assertNotIn('(ROOT+"/control","700",10001)', probe)
+    def test_host_path_contract_drives_least_privilege_materialization(self):
+        common=[
+            {"path":MOD.ROOT+"/artifacts","kind":"directory","uid":10001,"gid":10001,"mode":"0700"},
+            {"path":MOD.ROOT+"/cups-state","kind":"directory","uid":10001,"gid":10001,"mode":"0755"},
+            {"path":MOD.ROOT+"/cups-spool","kind":"directory","uid":10001,"gid":10001,"mode":"0755"},
+            {"path":MOD.ROOT+"/secrets","kind":"directory","uid":10001,"gid":10001,"mode":"0700"},
+            {"path":MOD.TOKEN_PATH,"kind":"file","uid":10001,"gid":10001,"mode":"0400"},
+        ]
+        avahi={"runtime":{"host_path_requirements":[
+            {"path":MOD.ROOT+"/control","kind":"directory","uid":10001,"gid":10001,"mode":"0710"},
+            *common,
+        ]}}
+        direct={"runtime":{"host_path_requirements":[
+            {"path":MOD.ROOT+"/control","kind":"directory","uid":10001,"gid":10001,"mode":"0700"},
+            *common,
+        ]}}
+        got=MOD.validate_host_path_requirements(avahi,"25.10.7")
+        self.assertEqual(next(x for x in got if x["path"]==MOD.ROOT+"/control")["mode"],"0710")
+        self.assertEqual(MOD.middleware_mode("0710"),"710")
+        self.assertEqual(MOD.middleware_mode("0400"),"400")
+        self.assertEqual(next(x for x in MOD.validate_host_path_requirements(direct,"26.0.0-BETA.3") if x["path"]==MOD.ROOT+"/control")["mode"],"0700")
+
+        widened=json.loads(json.dumps(avahi))
+        widened["runtime"]["host_path_requirements"][0]["mode"]="0750"
+        with self.assertRaisesRegex(RuntimeError,"kind/mode drifted"):
+            MOD.validate_host_path_requirements(widened,"25.10.7")
 
     def test_f4_reconciliation_policy_and_f5_retention_contract(self):
         exact={"services":{"control":{"image":"sha256:exact"}}}
@@ -224,10 +246,10 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
         self.assertIn("truenas_t6_product == 'foliorelay'", workflow)
-        self.assertIn("export-foliorelay-t6-control.yml@e44bc2271de4c2065c68a8f7db53034fff36b4c5", workflow)
+        self.assertIn("export-foliorelay-t6-control.yml@c969b815faeecdf044ad1edf327916c90c9a9c06", workflow)
         self.assertIn("target_version: ${{ needs.changes.outputs.truenas_version }}", workflow)
         self.assertIn("name: foliorelay-t6-control", workflow)
-        self.assertIn('foundry_commit="e44bc2271de4c2065c68a8f7db53034fff36b4c5"', workflow)
+        self.assertIn('foundry_commit="c969b815faeecdf044ad1edf327916c90c9a9c06"', workflow)
         self.assertIn("truenas_middleware_foliorelay_t6_probe.py", harness)
         self.assertIn('FOLIORELAY_CONTROL_HOST_PORT', harness)
         self.assertIn('FOLIORELAY_IPP_HOST_PORT', harness)
