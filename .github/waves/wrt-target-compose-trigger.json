@@ -1,0 +1,7 @@
+{
+  "schema": "wrt-target-compose-trigger/v1",
+  "date": "2026-10-06",
+  "purpose": "Compose WRT3200ACM OpenWrt 25.12.5 images with the exact qualified physical-target prplMesh package present but runtime-disabled; validate target/rootfs composition only.",
+  "physical_write_authority": "DENIED_PREHIL",
+  "claim_ceiling": "TARGET_PACKAGE_AND_IMAGE_COMPOSITION_ONLY"
+}
