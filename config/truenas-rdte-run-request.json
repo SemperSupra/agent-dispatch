@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v1-004-cirros-json-seed",
+  "request_id": "tn-26-beta3-t3-compute-vm-v1-005-zvol-disk",
   "version": "26.0.0-BETA.3",
   "rung": "t3",
   "compute_fixture": "vm-v1",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact TrueNAS 26.0.0-BETA.3 Linux VM V1 fixture after rep003 and the plain-QEMU falsifier isolated the remaining failure to CirrOS 0.6.3 NoCloud meta-data encoding. Preserve the pinned CirrOS 0.6.3 image digest, supported filesystem.put staging, RAW boot disk, CDROM cidata seed, vm.start, supported /websocket/shell exact-nonce oracle, repaired 180-second overall guest deadline, and zero-residue cleanup. The only guest-fixture semantic delta is merged commit 59677931f942f98f3701ecafb73515a30483a9c6: emit CirrOS NoCloud meta-data as JSON for json2fstree. Cheap QEMU TCG smoke run 37465128038 independently proved the repaired exact seed under q35/UEFI and BIOS with uefi_nonce=true and bios_nonce=true; artifact 11414348724 digest sha256:202f5bbf787fcdd19b174d49d5d8b0ee4428a575cc9d3d6231fe4c6cd811beb8. Nested KVM, Firecracker and Windows remain outside this rep."
+  "purpose": "Exercise one bounded TrueNAS 26.0.0-BETA.3 Linux VM V1 rep after cheap falsification isolated generic libvirt plus file-backed RAW as reproducing the GRUB-to-silence failure while plain QEMU UEFI/q35 with the same repaired CirrOS 0.6.3 image and JSON cidata seed reaches userspace and emits the exact nonce. Preserve the pinned CirrOS source, repaired JSON NoCloud seed, native VM create payload, supported /websocket/shell nonce oracle, overall guest deadline, and zero-residue cleanup. The sole material native-lowering delta is merged commit 1256c6dcdde450f2a5d932567b43fe3ff435f3af: stage the same RAW image, convert it through public job-backed vm.device.convert into an experiment-owned ZVOL, attach that ZVOL as a DISK VIRTIO boot device, independently observe it, and prove boot-ZVOL absence in cleanup. Machine type was independently ruled out by cheap run 37481329210. Generic libvirt RAW+PTY reproduced the failure in run 37483398291. Nested KVM, Firecracker, Windows, Hyper-V and WinBot-provider acceptance remain outside this rep."
 }
