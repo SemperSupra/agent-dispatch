@@ -14,6 +14,8 @@ run() {
 {
   echo "schema=rdte-wrt-r1-readonly/v1"
   date -u + "captured_utc=%Y-%m-%dT%H:%M:%SZ"
+  echo "persistent_writes_performed=false"
+  echo "authority=R1_READ_ONLY"
 } > "$OUT/meta.txt"
 
 run uname uname -a
@@ -89,21 +91,6 @@ for k in mwlwifi mac80211 cfg80211; do
   fi
 done
 
-# Produce a compact machine-oriented summary from read-only observations.
-boot_part="$(awk -F= '$1=="boot_part"{print $2}' "$OUT/boot-env-selected.txt" 2>/dev/null | tail -1)"
-board="$(cat "$OUT/board_name.txt" 2>/dev/null || true)"
-model="$(cat "$OUT/model.txt" 2>/dev/null || true)"
-python3 - "$OUT/summary.json" "$board" "$model" "$boot_part" <<'PY'
-import json,sys
-path,board,model,boot_part=sys.argv[1:]
-print(json.dumps({
-  "schema":"rdte-wrt-r1-readonly/v1",
-  "board":board or None,
-  "model":model or None,
-  "boot_part":boot_part or None,
-  "persistent_writes_performed":False,
-  "classification":"OBSERVED_READ_ONLY"
-},indent=2,sort_keys=True),file=open(path,"w"))
-PY
-
+# The authoritative machine descriptor is reduced on the HIL host after retrieval.
+# Keep the DUT collector POSIX/BusyBox-only; do not require Python or install packages.
 echo "$OUT"
