@@ -1,0 +1,80 @@
+name: WinBot Deterministic Hosted NAT Primitive Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-deterministic-hosted-nat-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Qualify create-observe-clean deterministic NAT primitive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $switchName='WinBot-RDTE-NAT-Probe'
+          $natName='WinBot-RDTE-NAT-Probe'
+          $prefix='172.29.250.0/24'
+          $gateway='172.29.250.1'
+          $createdSwitch=$false
+          $createdNat=$false
+          $hostIpCreated=$false
+          try {
+            foreach($cmd in @('New-VMSwitch','Remove-VMSwitch','New-NetNat','Remove-NetNat','New-NetIPAddress','Remove-NetIPAddress','Get-VMSwitch','Get-NetNat','Get-NetIPAddress')){
+              if(-not (Get-Command $cmd -ErrorAction SilentlyContinue)){ throw "required primitive unavailable: $cmd" }
+            }
+
+            Get-NetNat -Name $natName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+            Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue
+
+            New-VMSwitch -Name $switchName -SwitchType Internal -ErrorAction Stop | Out-Null
+            $createdSwitch=$true
+            $alias='vEthernet ('+$switchName+')'
+            $adapter=Get-NetAdapter -Name $alias -ErrorAction Stop
+            New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $gateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
+            $hostIpCreated=$true
+            New-NetNat -Name $natName -InternalIPInterfaceAddressPrefix $prefix -ErrorAction Stop | Out-Null
+            $createdNat=$true
+
+            $sw=Get-VMSwitch -Name $switchName -ErrorAction Stop
+            $nat=Get-NetNat -Name $natName -ErrorAction Stop
+            $ip=Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -IPAddress $gateway -ErrorAction Stop
+
+            if([string]$sw.SwitchType -ne 'Internal'){throw 'switch type mismatch'}
+            if([string]$nat.InternalIPInterfaceAddressPrefix -ne $prefix){throw 'NetNat prefix mismatch'}
+            if([string]$ip.IPAddress -ne $gateway -or [int]$ip.PrefixLength -ne 24){throw 'gateway identity mismatch'}
+
+            [ordered]@{
+              classification='SUPPORTED'
+              switch_name=$switchName
+              switch_type=[string]$sw.SwitchType
+              nat_name=$natName
+              nat_prefix=[string]$nat.InternalIPInterfaceAddressPrefix
+              gateway=[string]$ip.IPAddress
+              prefix_length=[int]$ip.PrefixLength
+              create_switch=$true
+              create_gateway=$true
+              create_netnat=$true
+              cleanup_planned=$true
+            } | ConvertTo-Json -Compress
+          }
+          finally {
+            if($createdNat){ Get-NetNat -Name $natName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue }
+            if($hostIpCreated){
+              Get-NetIPAddress -InterfaceAlias ('vEthernet ('+$switchName+')') -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object IPAddress -eq $gateway |
+                Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+            }
+            if($createdSwitch){ Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue }
+
+            if(Get-NetNat -Name $natName -ErrorAction SilentlyContinue){ throw 'NetNat cleanup failed' }
+            if(Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue){ throw 'vSwitch cleanup failed' }
+            Write-Host 'deterministic hosted NAT cleanup: PASS'
+          }
