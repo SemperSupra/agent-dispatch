@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-006-legacy-unicast-observer",
-  "version": "25.10.7",
+  "request_id": "tn-25-04-2-6-t6-foliorelay-001-avahi-hostpath-f0-f5",
+  "version": "25.04.2.6",
   "rung": "t6",
   "product": "foliorelay",
-  "authority_issue": 410,
+  "authority_issue": 423,
   "consumer_authority_issue": 273,
-  "purpose": "Re-run the exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 after rep 005 proved all three product containers RUNNING and localized the remaining failure to the independent observer competing with host Avahi for UDP/5353. Preserve the cooperative-Avahi product, Foundry e44bc2271de4c2065c68a8f7db53034fff36b4c5, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d, CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814, 0710 control-root traversal, product functional oracles, F4/F5 semantics and zero-residue cleanup. The sole causal oracle delta is that on 25.x the separate observer issues an RFC 6762 legacy one-shot mDNS query from an ephemeral UDP source port and requires the correlated unicast response, avoiding a competing UDP/5353 listener while still parsing same-instance PTR/TXT/SRV records independently. BETA.3 retains the existing multicast-5353 observer path. Acceptance requires retained SUPPORTED/oracleSatisfied=true complete F0-F5 evidence."
+  "purpose": "Run the first exact FolioRelay F0-F5 qualification row on TrueNAS 25.04.2.6 after 25.10.7 rep 006 earned PASS. Require merged Foundry host-path authority 6494dbd336260b549772ffa5c398d7a104fabf15, publication-bound immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d and CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814, exact 25.x Avahi command/user/read-only system-bus coupling, Foundry-driven control-root 0710 traversal contract, independent legacy-unicast same-instance DNS-SD observation, PDF/URF exact-source preservation, F4 second-plan NOOP with WAIT/fail-closed policy, F5 retain-data delete/reinstall persistence, and final zero residue. No support is inherited from 25.10.7, 25.04.1, BETA.3, or generic T0-T5. Acceptance requires a retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt."
 }
