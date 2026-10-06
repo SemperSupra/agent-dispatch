@@ -43,6 +43,54 @@ def nonce_marker(nonce: str) -> bytes:
     return f"{PREFIX}{nonce}".encode("ascii")
 
 
+def _observe_nonce_frames(shell: ShellWebSocket, marker: bytes, timeout: float) -> dict:
+    """Observe VM-console frames until the exact marker or the overall deadline.
+
+    The websocket itself intentionally keeps a short socket timeout so a dead
+    transport remains responsive.  A quiet guest console can legitimately be
+    idle longer than that while firmware/kernel/userspace boots, so per-read
+    TimeoutError is transient here; only the caller's overall deadline is an
+    oracle failure.
+    """
+    buffer = bytearray()
+    deadline = time.monotonic() + timeout
+    connected_shell = False
+    idle_read_timeouts = 0
+    while time.monotonic() < deadline:
+        try:
+            opcode, payload = shell.recv_payload()
+        except TimeoutError:
+            idle_read_timeouts += 1
+            continue
+
+        if opcode == 0x1:
+            try:
+                message = json.loads(payload.decode())
+            except Exception:
+                message = None
+            if isinstance(message, dict) and message.get("msg") == "connected":
+                connected_shell = True
+            continue
+
+        buffer.extend(payload)
+        if len(buffer) > 65536:
+            del buffer[:-65536]
+        if marker in buffer:
+            return {
+                "found": True,
+                "shell_connected": connected_shell,
+                "idle_read_timeouts": idle_read_timeouts,
+                "console_tail": bytes(buffer[-4096:]).decode("utf-8", "replace"),
+            }
+
+    return {
+        "found": False,
+        "shell_connected": connected_shell,
+        "idle_read_timeouts": idle_read_timeouts,
+        "console_tail": bytes(buffer[-4096:]).decode("utf-8", "replace"),
+    }
+
+
 def observe_console_nonce(
     host: str,
     port: int,
@@ -83,31 +131,20 @@ def observe_console_nonce(
 
         shell = ShellWebSocket(host, port, path="/websocket/shell", timeout=min(timeout, 8), tls=tls)
         shell.send_json({"token": token, "options": {"vm_id": vm_id}})
-        buffer = bytearray()
-        deadline = time.monotonic() + timeout
-        connected_shell = False
-        while time.monotonic() < deadline:
-            opcode, payload = shell.recv_payload()
-            if opcode == 0x1:
-                try:
-                    message = json.loads(payload.decode())
-                except Exception:
-                    message = None
-                if isinstance(message, dict) and message.get("msg") == "connected":
-                    connected_shell = True
-            else:
-                buffer.extend(payload)
-                if len(buffer) > 65536:
-                    del buffer[:-65536]
-                if marker in buffer:
-                    receipt.update({
-                        "classification": "SUPPORTED",
-                        "oracleSatisfied": True,
-                        "shell_connected": connected_shell,
-                        "elapsed_seconds": round(time.monotonic() - started, 3),
-                        "detail": "exact injected V1 nonce observed through supported TrueNAS VM console websocket",
-                    })
-                    return receipt
+        observed = _observe_nonce_frames(shell, marker, timeout)
+        receipt.update({
+            "shell_connected": observed["shell_connected"],
+            "idle_read_timeouts": observed["idle_read_timeouts"],
+            "console_tail": observed["console_tail"],
+        })
+        if observed["found"]:
+            receipt.update({
+                "classification": "SUPPORTED",
+                "oracleSatisfied": True,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "detail": "exact injected V1 nonce observed through supported TrueNAS VM console websocket",
+            })
+            return receipt
         raise TimeoutError("exact V1 nonce not observed before console deadline")
     except Exception as exc:
         receipt["detail"] = f"{type(exc).__name__}: {exc}"
