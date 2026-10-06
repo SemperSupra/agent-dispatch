@@ -61,6 +61,7 @@ on:
         options:
           - none
           - container-c0
+          - vm-v0
       truenas_compute_fixture:
         description: "Optional compute fixture layered on the selected system rung"
         required: true
@@ -166,7 +167,7 @@ jobs:
               echo "Proxmox request authority does not match exact target profile" >&2
               exit 2
             }
-            proxmox_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0")' "$PROXMOX_RUN_REQUEST_PATH")"
+            proxmox_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0")' "$PROXMOX_RUN_REQUEST_PATH")"
             printf 'fresh Proxmox request edge: previous=%s current=%s\n' "${previous_proxmox_request_id:-<none>}" "$current_proxmox_request_id"
           fi
           if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then

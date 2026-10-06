@@ -20,7 +20,7 @@ ROOT_PASSWORD="rdte-proxmox-${RANDOM}-${RANDOM}-${RANDOM}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR] [--compute-fixture none|container-c0]"
+  echo "Usage: gha_kvm_proxmox_rdte.sh --out RECEIPT [--state-dir DIR] [--compute-fixture none|container-c0|vm-v0]"
 }
 
 OUT=""
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$OUT" ]] || { usage >&2; exit 2; }
-[[ "$COMPUTE_FIXTURE" == "none" || "$COMPUTE_FIXTURE" == "container-c0" ]] || { echo "unsupported compute fixture: $COMPUTE_FIXTURE" >&2; exit 2; }
+[[ "$COMPUTE_FIXTURE" == "none" || "$COMPUTE_FIXTURE" == "container-c0" || "$COMPUTE_FIXTURE" == "vm-v0" ]] || { echo "unsupported compute fixture: $COMPUTE_FIXTURE" >&2; exit 2; }
 
 if [[ -z "$STATE_DIR" ]]; then STATE_DIR="$(mktemp -d -t gha-kvm-proxmox.XXXXXX)"; fi
 mkdir -p "$STATE_DIR" "$(dirname "$OUT")"
@@ -56,6 +56,7 @@ NESTED_KVM_VCPU_JSON=""
 P3_LXC_JSON=""
 REST_API_CENSUS_JSON=""
 REST_C0_JSON=""
+REST_VM_V0_JSON=""
 SSH_HOSTFWD_ACCEPTED="false"
 API_HOSTFWD_ACCEPTED="false"
 QEMU_ALIVE_AT_API_GATE="unknown"
@@ -86,7 +87,7 @@ write_receipt() {
   fi
   export R_OUT="$OUT" R_CLASS="$classification" R_ORACLE="$oracle" R_PHASE="$phase" R_DETAIL="$detail"
   export R_SERIAL="$serial_tail" R_ISO_SHA="$OBSERVED_ISO_SHA" R_API="$API_VERSION_JSON" R_NESTED="$NESTED_KVM"
-  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" R_P3_LXC="$P3_LXC_JSON" R_REST_API_CENSUS="$REST_API_CENSUS_JSON" R_REST_C0="$REST_C0_JSON" R_COMPUTE_FIXTURE="$COMPUTE_FIXTURE"
+  export R_NESTED_INDICATORS="$NESTED_KVM_INDICATORS" R_NESTED_VCPU="$NESTED_KVM_VCPU_JSON" R_P3_LXC="$P3_LXC_JSON" R_REST_API_CENSUS="$REST_API_CENSUS_JSON" R_REST_C0="$REST_C0_JSON" R_REST_VM_V0="$REST_VM_V0_JSON" R_COMPUTE_FIXTURE="$COMPUTE_FIXTURE"
   export R_HOSTFWD_API="$HOSTFWD_API_VERSION_JSON" R_GUEST_LOCAL_API="$GUEST_LOCAL_API_VERSION_JSON" R_API_ROUTE="$API_OBSERVATION_ROUTE"
   export R_SSH_HOSTFWD_ACCEPTED="$SSH_HOSTFWD_ACCEPTED" R_API_HOSTFWD_ACCEPTED="$API_HOSTFWD_ACCEPTED"
   export R_QEMU_ALIVE="$QEMU_ALIVE_AT_API_GATE" R_GUEST_DIAGNOSTICS="$GUEST_DIAGNOSTICS"
@@ -109,6 +110,7 @@ nested_vcpu = load_json_env("R_NESTED_VCPU")
 p3_lxc = load_json_env("R_P3_LXC")
 rest_api_census = load_json_env("R_REST_API_CENSUS")
 rest_c0 = load_json_env("R_REST_C0")
+rest_vm_v0 = load_json_env("R_REST_VM_V0")
 
 payload = {
   "contract": "gha-kvm-system-lab/v1",
@@ -148,6 +150,7 @@ payload = {
     "p3_lxc_lifecycle_exercised": bool(p3_lxc and p3_lxc.get("oracleSatisfied") is True),
     "rest_api_census_observed": bool(rest_api_census and rest_api_census.get("oracleSatisfied") is True and rest_api_census.get("phase") == "observe-only"),
     "rest_api_container_c0_exercised": bool(rest_c0 and rest_c0.get("oracleSatisfied") is True and rest_c0.get("api_materialization_oracle") is True),
+    "rest_api_vm_v0_exercised": bool(rest_vm_v0 and rest_vm_v0.get("oracleSatisfied") is True and rest_vm_v0.get("api_materialization_oracle") is True and rest_vm_v0.get("kind") == "vm"),
   },
   "api_version": json.loads(os.environ["R_API"]) if os.environ.get("R_API") else None,
   "nested_kvm": os.environ.get("R_NESTED"),
@@ -155,6 +158,7 @@ payload = {
   "p3_lxc": p3_lxc,
   "rest_api_census": rest_api_census,
   "rest_api_container_c0": rest_c0,
+  "rest_api_vm_v0": rest_vm_v0,
   "diagnostics": {
     "qemu_alive_at_api_gate": os.environ.get("R_QEMU_ALIVE"),
     "ssh_hostfwd_accepted": os.environ.get("R_SSH_HOSTFWD_ACCEPTED") == "true",
@@ -177,6 +181,7 @@ payload = {
     "P3 LXC is a separate lifecycle oracle using one exact public Debian template; P2/P5 are not inferred from it.",
     "REST API census is read-only discovery evidence only; it does not claim LXC or QEMU materialization.",
     "REST C0, when explicitly requested, proves only product-API LXC create/readback/start/stop/delete/absence; guest execution remains a separate C1 oracle.",
+    "REST VM V0, when explicitly requested, proves only source-bound product-API QEMU shell create/readback/start/stop/delete/absence; guest boot/workload and nested-KVM remain separate.",
   ],
 }
 pathlib.Path(os.environ["R_OUT"]).write_text(json.dumps(payload, indent=2, sort_keys=True)+"\n", encoding="utf-8")
@@ -1125,6 +1130,40 @@ REST_API_CENSUS_JSON="$(
 )"
 rm -f "$PVE_PASSWORD_FILE"
 
+if [[ "$COMPUTE_FIXTURE" == "vm-v0" ]]; then
+  REST_VM_V0_OUT="$STATE_DIR/proxmox-rest-vm-v0.json"
+  rm -f -- "$REST_VM_V0_OUT"
+  PVE_PASSWORD_FILE="$STATE_DIR/pve-rest-vm-v0-password"
+  printf '%s\n' "$ROOT_PASSWORD" >"$PVE_PASSWORD_FILE"
+  chmod 0400 "$PVE_PASSWORD_FILE"
+  python3 "$SCRIPT_DIR/proxmox_rest_compute_probe.py" \
+    --base-url "https://127.0.0.1:$WEB_PORT" \
+    --password-file "$PVE_PASSWORD_FILE" \
+    --kind vm --vmid 9201 \
+    --expected-qemu-server-version "9.1.15" \
+    --apply --out "$REST_VM_V0_OUT" >/dev/null 2>&1 || true
+  rm -f "$PVE_PASSWORD_FILE"
+  if [[ -s "$REST_VM_V0_OUT" ]]; then
+    REST_VM_V0_JSON="$(cat "$REST_VM_V0_OUT")"
+  else
+    REST_VM_V0_JSON='{"schema":"proxmox-rest-compute-c0-v1","kind":"vm","classification":"HARNESS_FAILURE","oracleSatisfied":false,"api_materialization_oracle":false,"phase":"rest-api-lifecycle","detail":"REST VM V0 materializer exited without a receipt","cleanup":{"attempted":true,"absent":false}}'
+  fi
+  if ! R_REST_VM_V0="$REST_VM_V0_JSON" python3 - <<'PY'
+import json, os
+try:
+    p=json.loads(os.environ.get("R_REST_VM_V0",""))
+    ok=(p.get("kind")=="vm" and p.get("classification")=="SUPPORTED" and
+        p.get("oracleSatisfied") is True and p.get("api_materialization_oracle") is True and
+        p.get("cleanup",{}).get("absent") is True)
+except Exception:
+    ok=False
+raise SystemExit(0 if ok else 1)
+PY
+  then
+    fail_evidence ORACLE_FAILURE compute-vm-v0 "native PVE REST VM V0 did not satisfy exact source/create/readback/start/stop/delete/absence cleanup oracle"
+  fi
+fi
+
 if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
   REST_C0_JSON="$(probe_rest_lxc_c0 || true)"
   if ! R_REST_C0="$REST_C0_JSON" python3 - <<'PY'
@@ -1155,9 +1194,9 @@ fi
 
 NESTED_KVM="unknown"
 NESTED_KVM_INDICATORS="unknown"
-if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
+if [[ "$COMPUTE_FIXTURE" == "container-c0" || "$COMPUTE_FIXTURE" == "vm-v0" ]]; then
   NESTED_KVM_INDICATORS="skipped"
-  NESTED_KVM_VCPU_JSON='{"contract":"proxmox-nested-kvm-vcpu/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"not-required-for-container-c0","detail":"nested KVM is outside the bounded native REST container C0 causal rep"}'
+  NESTED_KVM_VCPU_JSON='{"contract":"proxmox-nested-kvm-vcpu/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"not-required-for-bounded-compute-fixture","detail":"nested KVM is outside the bounded native REST container C0 / VM V0 causal rep"}'
 else
   if command -v sshpass >/dev/null 2>&1; then
     if sshpass -p "$ROOT_PASSWORD" ssh -p "$SSH_PORT" \
@@ -1183,6 +1222,8 @@ fi
 
 if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then
   P3_LXC_JSON='{"contract":"proxmox-lxc-lifecycle/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"superseded-by-rest-c0","detail":"CLI P3 lifecycle intentionally skipped because this rep assigns the exact container fixture to native PVE REST"}'
+elif [[ "$COMPUTE_FIXTURE" == "vm-v0" ]]; then
+  P3_LXC_JSON='{"contract":"proxmox-lxc-lifecycle/v1","classification":"SKIPPED_GUARDRAIL","oracleSatisfied":false,"phase":"not-required-for-vm-v0","detail":"CLI P3 LXC lifecycle intentionally skipped because this rep is bounded to native PVE REST VM V0"}'
 elif [[ "$NESTED_KVM" == "yes" ]]; then
   P3_LXC_JSON="$(probe_lxc_lifecycle || true)"
 else
