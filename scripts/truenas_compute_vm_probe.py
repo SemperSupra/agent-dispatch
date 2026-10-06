@@ -80,7 +80,6 @@ def owned_zvol_device(vm_id: int, zvol_name: str, size_bytes: int) -> dict[str, 
             "create_zvol": True,
             "zvol_name": zvol_name,
             "zvol_volsize": size_bytes,
-            "boot": False,
         },
         "order": 1000,
     }
