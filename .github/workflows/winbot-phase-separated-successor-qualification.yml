@@ -15,11 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SEED_MASTER: '84457ddd53b390875849e02d3746b2c3145d0897'
-      TERMINAL_MASTER: '6ee302a111fc99032df9d24bfb9d09d32a1aa4e1'
-      EXPECTED_SOURCE: 'd623e0b0a6503457754d48adbfb737135500ebbe'
-      EXPECTED_PROJECTION: '7327a8de5927da3dbe52db0756012a2c6b24b2236dc7f471425880d139bfc3e7'
-      EXPECTED_POLICY: '2060e4ee1149483e41fb3a17d007d597c993ac5a'
+      SEED_MASTER: '2fcd7f1bc90e5770bcfe7334546b1016f3cfa0e1'
+      TERMINAL_MASTER: 'fd1b4816602d871db11be20056af7b3b9f62f268'
+      EXPECTED_SOURCE: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      EXPECTED_PROJECTION: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+      EXPECTED_POLICY: '498182e3e7d463916393bb9358f5c536be65f55c'
       SEED_CONTROL: '291d61f1522dff4a6a9ee66597e90316cbbb08c7'
       TERMINAL_CONTROL: '8eaf889dc19cea30ec9dbdd4127a83ab759db13a'
     steps:
@@ -48,7 +48,7 @@ jobs:
               m=json.loads(blob(master_sha))
               if m["source_revision"]!=os.environ["EXPECTED_SOURCE"]: raise SystemExit(f"{profile}: source mismatch")
               if m["projection_identity_sha256"]!=os.environ["EXPECTED_PROJECTION"]: raise SystemExit(f"{profile}: projection mismatch")
-              if m["projected_file_count"]!=82 or m["projected_bytes"]!=1049035: raise SystemExit(f"{profile}: projection cardinality mismatch")
+              if m["projected_file_count"]!=82 or m["projected_bytes"]!=1050197: raise SystemExit(f"{profile}: projection cardinality mismatch")
               entries=[]
               for b in m["source_batch_manifests"]:
                   batch=json.loads(blob(b))
