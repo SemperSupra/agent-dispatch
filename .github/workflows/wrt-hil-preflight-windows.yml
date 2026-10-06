@@ -24,7 +24,8 @@ jobs:
             'tools/wrt_hil_prep/payload/scripts/Invoke-HilPreflight.ps1',
             'tools/wrt_hil_prep/payload/scripts/R1-Readonly-Remote.ps1',
             'tools/wrt_hil_prep/payload/scripts/Find-SerialPorts.ps1',
-            'tools/wrt_hil_prep/payload/scripts/Verify-Bundle.ps1'
+            'tools/wrt_hil_prep/payload/scripts/Verify-Bundle.ps1',
+            'tools/wrt_hil_prep/payload/scripts/rdte/Capture-SerialReadonly.ps1'
           )
           foreach ($f in $files) {
             $tokens=$null; $errors=$null
