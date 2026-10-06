@@ -35,7 +35,7 @@ jobs:
           bash -n tools/wrt_hil_prep/payload/scripts/rdte/capture-serial-readonly.sh
           busybox sh -n tools/wrt_hil_prep/payload/scripts/rdte/r1-readonly-collector.sh
           python3 -m py_compile tools/wrt_hil_prep/payload/scripts/rdte/*.py
-          python3 tools/wrt_hil_prep/payload/scripts/rdte/lint-serial-capture.py             tools/wrt_hil_prep/payload/scripts/rdte/capture-serial-readonly.sh
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/lint-serial-capture.py --shell tools/wrt_hil_prep/payload/scripts/rdte/capture-serial-readonly.sh --powershell tools/wrt_hil_prep/payload/scripts/rdte/Capture-SerialReadonly.ps1
           tmp="$(mktemp -d)"
           busybox sh tools/wrt_hil_prep/payload/scripts/rdte/r1-readonly-collector.sh "$tmp"
           grep -qx 'persistent_writes_performed=false' "$tmp/meta.txt"
