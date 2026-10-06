@@ -1,0 +1,57 @@
+name: WRT RDTE Fresh ImageBuilder Parity
+
+on:
+  push:
+    branches:
+      - wrt-hil-prequal-20261005
+    paths:
+      - '.github/waves/wrt-rdte-fresh-parity-trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fresh-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download qualified x86 prplMesh package
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37288725640
+          name: wrt-easymesh-e2-qemu-1
+          path: e2
+          github-token: ${{ github.token }}
+
+      - name: Install bounded emulator dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl zstd qemu-system-x86 qemu-utils >/dev/null
+
+      - name: Fresh-build standalone parity then gated dual-DUT
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-rdte-fresh-out"
+          bash tools/wrt_hil_prequal/run_rdte_fresh_parity.sh "$GITHUB_WORKSPACE/e2" "$RUNNER_TEMP/wrt-rdte-fresh-out"
+          cat "$RUNNER_TEMP/wrt-rdte-fresh-out/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import json,os
+          p=os.path.join(os.environ["RUNNER_TEMP"],"wrt-rdte-fresh-out","verdict.json")
+          v=json.load(open(p))
+          if not v.get("passed"):
+              raise SystemExit("fresh ImageBuilder parity verdict RED")
+          PY
+
+      - name: Upload bounded parity evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-rdte-fresh-parity-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-rdte-fresh-out
+          if-no-files-found: error
+          retention-days: 14
