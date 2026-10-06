@@ -204,7 +204,7 @@ payload = {
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "wow-sidecar"
       else {"name": "rdte-t6-catalog-ntfy", "catalog_app": "ntfy", "catalog_version": "1.1.21"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "official-catalog"
-      else {"name": "rdte-t6-foliorelay", "images": ["ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce", "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f"]}
+      else {"name": "rdte-t6-foliorelay", "images": ["ghcr.io/sempersupra/foliorelay-control@sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d", "ghcr.io/sempersupra/foliorelay-cups@sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814"]}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "foliorelay"
       else {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
       if os.environ.get("R_RUNG") == "t6"
