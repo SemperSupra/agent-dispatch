@@ -149,7 +149,7 @@ class SystemRdteContractTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         script = PVE.read_text(encoding="utf-8")
         self.assertIn("proxmox_compute_fixture", workflow)
-        self.assertIn('(.compute_fixture // "none") | select(. == "none" or . == "container-c0")', workflow)
+        self.assertIn('(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0")', workflow)
         self.assertIn('--compute-fixture "${{ needs.changes.outputs.proxmox_compute_fixture }}"', workflow)
         self.assertIn("probe_rest_lxc_c0()", script)
         rest = script.split("probe_rest_lxc_c0()", 1)[1].split("probe_lxc_lifecycle()", 1)[0]
