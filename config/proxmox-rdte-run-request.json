@@ -1,9 +1,9 @@
 {
   "schema": "gha-kvm-proxmox-run-request/v1",
-  "request_id": "pve-9-2-rest-container-c0-003-task-delete-semantics",
+  "request_id": "pve-9-2-compute-vm-v0-001-source-bound-rest-restaged",
   "version": "9.2-1",
-  "compute_fixture": "container-c0",
+  "compute_fixture": "vm-v0",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact Proxmox VE 9.2-1 native REST system-container C0 parity fixture after rep 002 reached REST create but the adapter incorrectly rejected Proxmox's non-error WARNINGS: N terminal task state and incorrectly sent purge=1 as DELETE request content. Preserve exact target, source-declared template transport, SHA-512 integrity, REST lifecycle, cleanup and claim boundaries. The only causal delta is merged #298: accept OK or WARNINGS: N per Proxmox task semantics and encode DELETE options as query parameters. Require REST materialization oracle=true, owned-resource absence and fixture-input cleanup; no guest/C1, nested-KVM, VM, Firecracker or Windows claim."
+  "purpose": "Exercise the first bounded Proxmox VE 9.2-1 native REST VM V0 materialization rep after source/profile binding, merged #318 runtime support, and #320 request-contract repair. Require exact installed qemu-server 9.1.15 admission, REST VM create/readback/start/stop/delete/absence, provider-owned cleanup and zero residue. This rep proves only the native VM/config lifecycle shell (V0); no Linux guest boot/nonce, nested KVM, Firecracker, Windows, Hyper-V or WinBot provider claim."
 }
