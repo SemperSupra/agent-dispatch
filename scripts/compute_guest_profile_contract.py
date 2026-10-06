@@ -65,6 +65,22 @@ def validate(p:dict[str,Any])->dict[str,Any]:
         else:
             if row["firecracker"].get("cpu_passthrough_control")!="vm.create.cpu_mode=HOST-PASSTHROUGH":
                 raise ProfileError(f"{version}: native Firecracker candidate must bind HOST-PASSTHROUGH")
+        if version=="26.0.0-BETA.3":
+            linux=row.get("linux_v1")
+            if not isinstance(linux,dict) or linux.get("source_status")!="CANDIDATE" or linux.get("runtime_status")!="OPEN":
+                raise ProfileError("BETA.3 Linux V1 must remain source candidate/runtime OPEN")
+            if linux.get("fixture")!="cirros-0.6.3-x86_64-nocloud-serial-nonce":
+                raise ProfileError("BETA.3 Linux V1 fixture binding drift")
+            surfaces=linux.get("public_surfaces")
+            if surfaces != {
+                "boot_disk":"vm.device.create RAW exists=true boot=true",
+                "seed_media":"vm.device.create CDROM",
+                "console_discovery":"vm.get_console",
+            }:
+                raise ProfileError("BETA.3 Linux V1 public surface binding drift")
+            observation=linux.get("observation_requirement","")
+            if "raw.qemu" not in observation or "virsh directly" not in observation:
+                raise ProfileError("BETA.3 Linux V1 must prohibit private hypervisor console escape")
         win=row["windows11"]
         if win.get("source_status")!="CANDIDATE":
             raise ProfileError(f"{version}: Windows source status must remain CANDIDATE")
