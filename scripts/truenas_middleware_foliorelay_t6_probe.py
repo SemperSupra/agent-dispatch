@@ -22,6 +22,15 @@ from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 EXPECTED_SCHEMA = "semper-supra.foliorelay-truenas-t6-control/1"
 EXPECTED_APP_NAME = "rdte-t6-foliorelay"
+DBUS_SOCKET = "/run/dbus/system_bus_socket"
+AVAHI_TARGETS = {"25.04.1","25.04.2.6","25.10.7"}
+DIRECT_TARGETS = {"26.0.0-BETA.3"}
+AVAHI_DISCOVERY_USER = "65534:10001"
+AVAHI_DISCOVERY_COMMAND = [
+    "-identity-file","/var/lib/foliorelay-control/config/printer.json",
+    "-backend","avahi",
+    "-dbus-address","unix:path=/run/dbus/system_bus_socket",
+]
 OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"
 EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:0ffabcc1ced0325c41c54d860c6fe248e4fc8afeea3994dcebb999d6a14ee1ce"
 EXPECTED_CUPS = "ghcr.io/sempersupra/foliorelay-cups@sha256:b644b4b1e064a1d10c18fbbb9f9aa09a2835e7e9a48ccda5a67d44cbda006b4f"
@@ -62,6 +71,42 @@ def load_json(path: pathlib.Path):
         raise RuntimeError(f"{path.name} must be an object")
     return value
 
+def validate_discovery_materialization(services: dict, target_version: str):
+    discovery=services.get("discovery") or {}
+    dbus_mounts=[]
+    for service_name,service in services.items():
+        for mount in (service or {}).get("volumes") or []:
+            if not isinstance(mount,dict):
+                continue
+            paths=[mount.get("source"),mount.get("target")]
+            if any(isinstance(x,str) and (x=="/run/dbus" or x.startswith("/run/dbus/") or x=="/var/run/dbus" or x.startswith("/var/run/dbus/")) for x in paths):
+                dbus_mounts.append((service_name,mount))
+    if target_version in AVAHI_TARGETS:
+        if discovery.get("command")!=AVAHI_DISCOVERY_COMMAND:
+            raise RuntimeError("25.x discovery command drifted from exact Avahi contract")
+        if discovery.get("user")!=AVAHI_DISCOVERY_USER:
+            raise RuntimeError("25.x discovery user drifted from exact Avahi contract")
+        if len(dbus_mounts)!=1:
+            raise RuntimeError("25.x requires exactly one host D-Bus mount")
+        service_name,mount=dbus_mounts[0]
+        if not (
+            service_name=="discovery"
+            and mount.get("type")=="bind"
+            and mount.get("source")==DBUS_SOCKET
+            and mount.get("target")==DBUS_SOCKET
+            and mount.get("read_only") is True
+        ):
+            raise RuntimeError("25.x host D-Bus coupling exceeds exact read-only Avahi socket")
+        return "avahi"
+    if target_version in DIRECT_TARGETS:
+        if dbus_mounts:
+            raise RuntimeError("direct discovery target must not couple to host D-Bus")
+        command=discovery.get("command") or []
+        if "-backend" in command or "-dbus-address" in command or "user" in discovery:
+            raise RuntimeError("direct discovery target drifted into Avahi materialization")
+        return "direct"
+    raise RuntimeError(f"unsupported FolioRelay target version {target_version!r}")
+
 def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
     control = load_json(root / "control.json")
     compose = load_json(root / "compose.json")
@@ -87,6 +132,9 @@ def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
         raise RuntimeError("control/discovery exact image identity drifted")
     if services["cups"].get("image") != EXPECTED_CUPS:
         raise RuntimeError("CUPS exact image identity drifted")
+    discovery_backend=validate_discovery_materialization(services,target_version)
+    if candidate.get("discovery_backend") not in (None,discovery_backend):
+        raise RuntimeError("control discovery backend disagrees with rendered Compose")
     required = set(control.get("required_oracles") or [])
     expected = {
         "app-create-running", "config-readback-exact-compose", "portal-ready",
