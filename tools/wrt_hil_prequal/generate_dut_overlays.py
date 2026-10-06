@@ -56,14 +56,14 @@ def rc_rdte(dut, peer, role):
   echo 'RDTE_HWSIM_PHY_STATE_END' > /dev/ttyS0
   rm -f /etc/config/wireless
   wifi config >/tmp/rdte-wifi-config.log 2>&1 || true
-  radio=$(uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-device.*/\1/p' | head -1)
-  iface=$(uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-iface.*/\1/p' | head -1)
+  radio=$(uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-device.*/\\1/p' | head -1)
+  iface=$(uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-iface.*/\\1/p' | head -1)
   if [ -n "$radio" ] && [ -n "$iface" ]; then
     uci set wireless.$radio.disabled='0'
     uci set wireless.$radio.channel='1'
     uci set wireless.$radio.band='2g'
     uci set wireless.$radio.htmode='HT20'
-    for dev in $(uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-device.*/\1/p'); do
+    for dev in $(uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-device.*/\\1/p'); do
       uci -q delete wireless.$dev.country >/dev/null 2>&1 || true
     done
     uci set wireless.$iface.device="$radio"
@@ -115,7 +115,11 @@ def main():
             }
             write(r/"etc/rdte/generation.json",json.dumps(meta,indent=2,sort_keys=True)+"\n")
             write(r/"etc/uci-defaults/90-rdte-identity",identity_script(dut,gen,d["ip"]),0o755)
-            write(r/"etc/rc.local",rc_gold(dut,d["peer"]) if gen=="gold" else rc_rdte(dut,d["peer"],d["rdte_role"]),0o755)
+            rc = rc_gold(dut,d["peer"]) if gen=="gold" else rc_rdte(dut,d["peer"],d["rdte_role"])
+            bad = sorted({ord(ch) for ch in rc if ord(ch) < 32 and ch not in "\n\r\t"})
+            if bad:
+                raise ValueError(f"generated shell contains control characters: {bad}")
+            write(r/"etc/rc.local",rc,0o755)
     print(json.dumps({"schema":"wrt-prehil-config-render/v1","root":str(root),"generations":4},indent=2))
 
 if __name__=="__main__": main()
