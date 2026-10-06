@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-005-control-traverse",
-  "version": "25.10.7",
+  "request_id": "tn-25-04-2-6-t6-foliorelay-003-avahi-traverse",
+  "version": "25.04.2.6",
   "rung": "t6",
   "product": "foliorelay",
-  "authority_issue": 410,
+  "authority_issue": 423,
   "consumer_authority_issue": 273,
-  "purpose": "Re-run the exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 after rep 004 retained ORACLE_FAILURE evidence showing discovery uid 65534/gid 10001 could not traverse the experiment-owned control bind root because Agent Dispatch provisioned it mode 0700. Preserve merged Foundry authority e44bc2271de4c2065c68a8f7db53034fff36b4c5, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d and CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814, cooperative Avahi command/user/read-only system-bus coupling, same-instance DNS-SD oracle, PDF/URF exact-source preservation, F4 reconciliation semantics, F5 retain-data delete/reinstall persistence, and zero residue. The sole causal runtime delta is the experiment-owned control parent mode 0700->0710, granting gid 10001 traverse only while retaining all per-file permissions. Acceptance requires retained SUPPORTED/oracleSatisfied=true complete F0-F5 evidence."
+  "purpose": "Stage the exact FolioRelay F0-F5 qualification row on TrueNAS 25.04.2.6 from execution head 8418a126da996c4a46a75ed0973b1886baca714a, inheriting the cooperative-Avahi product, publication-bound Foundry e44bc2271de4c2065c68a8f7db53034fff36b4c5, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d, immutable CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814, and the least-privilege control bind-root mode 0710 earned by 25.10.7 rep 004. Require same-instance DNS-SD observation, PDF/URF exact-source preservation, F4 NOOP/WAIT/fail-closed reconciliation, F5 retained-data delete/reinstall persistence, and zero residue. This edge is HOLD until every preceding exact FolioRelay row is accepted and the heavyweight lane is empty. No support is inherited from another release."
 }
