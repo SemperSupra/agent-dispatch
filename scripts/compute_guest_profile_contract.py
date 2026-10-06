@@ -120,6 +120,8 @@ def validate(p:dict[str,Any])->dict[str,Any]:
             observation=linux.get("observation_requirement","")
             if "raw.qemu" not in observation or "virsh directly" not in observation:
                 raise ProfileError("BETA.3 Linux V1 must prohibit private hypervisor console escape")
+            if row.get("windows11",{}).get("fixture")!="windows-11-enterprise-evaluation-26h2-x64-en-us":
+                raise ProfileError("BETA.3 Windows W1 fixture binding drift")
         win=row["windows11"]
         if win.get("source_status")!="CANDIDATE":
             raise ProfileError(f"{version}: Windows source status must remain CANDIDATE")
