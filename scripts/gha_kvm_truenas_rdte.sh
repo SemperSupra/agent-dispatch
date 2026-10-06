@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TARGET_REGISTRY="$SCRIPT_DIR/../config/truenas-rdte-targets.json"
 TARGET_VERSION="26.0.0-BETA.3"
@@ -836,9 +837,26 @@ PY
     ) || fail_evidence HARNESS_FAILURE compute-vm-v1-media "failed to package deterministic NoCloud seed ISO"
 
     COMPUTE_OUT="$STATE_DIR/compute-vm-v1.json"
-    python3 "$SCRIPT_DIR/truenas_compute_vm_v1_probe.py"       --target-version "$VERSION"       --pool "$DATA_POOL_NAME"       --name "rdtecomputevmv1"       --nonce "$V1_NONCE"       --source-image "$V1_SOURCE"       --raw-image "$V1_RAW"       --seed-iso "$V1_SEED_ISO"       --host 127.0.0.1 --port "$MIDDLEWARE_PORT"       "${MIDDLEWARE_TLS_ARG[@]}"       --password-file "$PASSWORD_FILE"       --out "$COMPUTE_OUT" --timeout 8 --job-timeout 600 --guest-timeout 180 --apply       >/dev/null 2>&1 || true
-    [[ -f "$COMPUTE_OUT" ]] ||
-      fail_evidence HARNESS_FAILURE compute-vm-v1 "compute VM V1 client did not emit a receipt"
+    V1_CLIENT_STDERR="$V1_DIR/client.stderr.log"
+    (
+      cd "$REPO_ROOT"
+      python3 -m scripts.truenas_compute_vm_v1_probe \
+        --target-version "$VERSION" \
+        --pool "$DATA_POOL_NAME" \
+        --name "rdtecomputevmv1" \
+        --nonce "$V1_NONCE" \
+        --source-image "$V1_SOURCE" \
+        --raw-image "$V1_RAW" \
+        --seed-iso "$V1_SEED_ISO" \
+        --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
+        "${MIDDLEWARE_TLS_ARG[@]}" \
+        --password-file "$PASSWORD_FILE" \
+        --out "$COMPUTE_OUT" --timeout 8 --job-timeout 600 --guest-timeout 180 --apply
+    ) >/dev/null 2>"$V1_CLIENT_STDERR" || true
+    if [[ ! -f "$COMPUTE_OUT" ]]; then
+      V1_CLIENT_ERROR="$(tail -c 2000 "$V1_CLIENT_STDERR" 2>/dev/null | tr '\n\r' '  ' || true)"
+      fail_evidence HARNESS_FAILURE compute-vm-v1 "compute VM V1 client did not emit a receipt; client stderr: ${V1_CLIENT_ERROR:-<empty>}"
+    fi
     COMPUTE_RESULT_JSON="$(cat "$COMPUTE_OUT")"
     COMPUTE_OK="$(python3 - "$COMPUTE_OUT" <<'PY'
 import json, pathlib, sys
