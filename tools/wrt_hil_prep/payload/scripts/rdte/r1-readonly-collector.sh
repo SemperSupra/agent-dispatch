@@ -13,7 +13,7 @@ run() {
 
 {
   echo "schema=rdte-wrt-r1-readonly/v1"
-  date -u + "captured_utc=%Y-%m-%dT%H:%M:%SZ"
+  date -u +"captured_utc=%Y-%m-%dT%H:%M:%SZ"
   echo "persistent_writes_performed=false"
   echo "authority=R1_READ_ONLY"
 } > "$OUT/meta.txt"
