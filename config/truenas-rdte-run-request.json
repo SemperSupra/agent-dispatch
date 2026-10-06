@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v0-002-name-device-schema",
+  "request_id": "tn-26-beta3-t3-compute-vm-v1-001-cirros-nocloud-console",
   "version": "26.0.0-BETA.3",
   "rung": "t3",
-  "compute_fixture": "vm-v0",
+  "compute_fixture": "vm-v1",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact native TrueNAS 26.0.0-BETA.3 VM V0 materialization fixture after rep 001 reached vm.create and falsified the fixture name. The causal repair uses exact-source-valid VM name rdtecomputevmv0, enforces the BETA.3 VM name regex locally, and removes the unsupported DISK attributes.boot field found by source-level red-team before mutation. Preserve the public entitlement gate, exact-owned ZVOL/device lifecycle, independent dataset observation, and zero-residue cleanup. No guest boot, nonce, nested KVM, Firecracker, or Windows claim is permitted."
+  "purpose": "Advance the accepted BETA.3 VM V0 shell to the bounded Linux V1 guest rung. Download and verify pinned CirrOS 0.6.3 x86_64 source, convert it to RAW on the GHA host, generate deterministic NoCloud seed media with the exact per-run nonce, stage media only through supported TrueNAS filesystem.put, create native RAW/CDROM VM devices, start the guest through vm.start, and require the exact nonce through the supported /websocket/shell VM console. Acceptance additionally requires owned VM and staging dataset absence. Nested KVM, Firecracker and Windows are explicitly outside this rep."
 }
