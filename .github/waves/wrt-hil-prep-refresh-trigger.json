@@ -1,0 +1,15 @@
+{
+  "schema": "wrt-hil-prep-refresh-trigger/v1",
+  "date": "2026-10-06",
+  "purpose": "Rebuild the self-contained HIL kit after authoritative R1 collector sync and staged R2/R3 control-tool convergence.",
+  "payload_checks": {
+    "authoritative_r1_collector_synced": true,
+    "serial_sensor_exact": true,
+    "r2_admission_exact": true,
+    "r2_plan_present": true,
+    "r2_reducer_exact": true,
+    "r3_binder_exact": true
+  },
+  "physical_write_authority": "DENIED_PREHIL",
+  "note": "Packaging refresh only; no DUT interaction."
+}
