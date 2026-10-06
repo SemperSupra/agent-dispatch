@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: mark-e-deyoung/WinBot
-          ref: 3bb09d89f98f3dd2d0b834a96049ab14c4da4e77
+          ref: 37b6a504fee18d49f1be807ad0a7f8ef15e4d97a
           persist-credentials: false
           path: WinBot
 
@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           mkdir -p out
           set +e
-          python WinBot/rdte/gha/build_capsule.py             --profile FullRDTE             --source-root WinBot             --source-revision 3bb09d89f98f3dd2d0b834a96049ab14c4da4e77             --output-dir out             --assignment-id projection-winget-recompute             --recipient age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq             --timeout-seconds 1
+          python WinBot/rdte/gha/build_capsule.py             --profile FullRDTE             --source-root WinBot             --source-revision 37b6a504fee18d49f1be807ad0a7f8ef15e4d97a             --output-dir out             --assignment-id projection-winget-recompute             --recipient age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq             --timeout-seconds 1
           rc=$?
           set -e
           review=out/projection-winget-recompute.projection-review.json
@@ -38,17 +38,19 @@ jobs:
           import json, os, pathlib
           p=pathlib.Path("out/projection-winget-recompute.projection-review.json")
           r=json.loads(p.read_text())
-          assert r["source_revision"]=="3bb09d89f98f3dd2d0b834a96049ab14c4da4e77"
+          assert r["source_revision"]=="37b6a504fee18d49f1be807ad0a7f8ef15e4d97a"
           files={x["path"]:x for x in r["projected_files"]}
           assert "guest/tools/configuration.winget" in files
+          assert "guest/api/static/index.html" in files
           assert len(files)==r["projected_file_count"]
-          assert r["projected_file_count"]==81
+          assert r["projected_file_count"]==82
           print(json.dumps({
             "source_revision":r["source_revision"],
             "projection_identity_sha256":r["projection_identity_sha256"],
             "projected_file_count":r["projected_file_count"],
             "projected_bytes":r["projected_bytes"],
             "winget_entry":files["guest/tools/configuration.winget"],
+            "html_entry":files["guest/api/static/index.html"],
             "builder_exit":int(os.environ["BUILDER_RC"]),
           },sort_keys=True))
           PY
