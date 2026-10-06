@@ -87,6 +87,11 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"must not couple to host D-Bus"):
             MOD.validate_discovery_materialization(direct_dbus,"26.0.0-BETA.3")
 
+    def test_control_fixture_parent_is_group_traversable_without_group_listing(self):
+        probe=(ROOT/"scripts"/"truenas_middleware_foliorelay_t6_probe.py").read_text(encoding="utf-8")
+        self.assertIn('(ROOT+"/control","710",10001)', probe)
+        self.assertNotIn('(ROOT+"/control","700",10001)', probe)
+
     def test_f4_reconciliation_policy_and_f5_retention_contract(self):
         exact={"services":{"control":{"image":"sha256:exact"}}}
         drift={"services":{"control":{"image":"sha256:drift"}}}
