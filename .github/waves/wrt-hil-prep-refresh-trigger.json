@@ -16,8 +16,11 @@
   },
   "physical_write_authority": "DENIED_PREHIL",
   "note": "Packaging/validation refresh only; no DUT interaction and no R2/R3 physical promotion.",
-  "attempt": 2,
+  "attempt": 3,
   "prior_refresh_run": 37408165053,
   "parity_green_run": 37419200950,
-  "parity_green_artifact": 11392572165
+  "parity_green_artifact": 11392572165,
+  "prior_run": 37420189108,
+  "reason": "Diagnosed validation repair: packaged serial helpers use hyphen/CamelCase names while linter inherited private underscore defaults. Linter now accepts explicit helper paths; no product, image, or physical-authority change.",
+  "repair_commit": "4933e4338117524b8ff3481479312231a7d40b3c"
 }
