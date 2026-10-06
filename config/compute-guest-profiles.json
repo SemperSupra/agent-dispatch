@@ -135,6 +135,20 @@
           "console_discovery": "vm.get_console"
         },
         "observation_requirement": "consume guest console through supported TrueNAS console surface; do not inject raw.qemu or invoke virsh directly"
+      },
+      "linux_v2": {
+        "source_status": "OBSERVATION_CANDIDATE",
+        "runtime_status": "OPEN",
+        "prerequisite": "V1 accepted",
+        "fixture": "cirros-0.6.3-x86_64-nocloud-serial-nonce",
+        "vm_cpu_mode": "HOST-PASSTHROUGH",
+        "observation": {
+          "kvm_device_marker": "AGENT_DISPATCH_V2_KVM_PRESENT=",
+          "cpu_extension_marker": "AGENT_DISPATCH_V2_CPU_VMX_SVM=",
+          "transport": "supported TrueNAS VM console"
+        },
+        "firecracker_gate": "execute #277 portable Firecracker contract only when /dev/kvm and vmx|svm are both observed inside the guest",
+        "negative_boundary": "nested-KVM absence is a nested-virtualization capability result and does not invalidate V0/V1 VM support"
       }
     }
   },

@@ -66,6 +66,21 @@ def validate(p:dict[str,Any])->dict[str,Any]:
             if row["firecracker"].get("cpu_passthrough_control")!="vm.create.cpu_mode=HOST-PASSTHROUGH":
                 raise ProfileError(f"{version}: native Firecracker candidate must bind HOST-PASSTHROUGH")
         if version=="26.0.0-BETA.3":
+            linux2=row.get("linux_v2")
+            if not isinstance(linux2,dict) or linux2.get("source_status")!="OBSERVATION_CANDIDATE" or linux2.get("runtime_status")!="OPEN":
+                raise ProfileError("BETA.3 Linux V2 must remain observation candidate/runtime OPEN")
+            if linux2.get("prerequisite")!="V1 accepted" or linux2.get("vm_cpu_mode")!="HOST-PASSTHROUGH":
+                raise ProfileError("BETA.3 Linux V2 prerequisite/cpu mode drift")
+            obs=linux2.get("observation")
+            if obs != {
+                "kvm_device_marker":"AGENT_DISPATCH_V2_KVM_PRESENT=",
+                "cpu_extension_marker":"AGENT_DISPATCH_V2_CPU_VMX_SVM=",
+                "transport":"supported TrueNAS VM console",
+            }:
+                raise ProfileError("BETA.3 Linux V2 observation contract drift")
+            if "#277" not in linux2.get("firecracker_gate","") or "does not invalidate V0/V1" not in linux2.get("negative_boundary",""):
+                raise ProfileError("BETA.3 Linux V2 claim boundary incomplete")
+        if version=="26.0.0-BETA.3":
             linux=row.get("linux_v1")
             if not isinstance(linux,dict) or linux.get("source_status")!="CANDIDATE" or linux.get("runtime_status")!="OPEN":
                 raise ProfileError("BETA.3 Linux V1 must remain source candidate/runtime OPEN")
