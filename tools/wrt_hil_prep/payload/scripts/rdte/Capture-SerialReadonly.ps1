@@ -42,7 +42,8 @@ finally {
     $serial.Dispose()
 }
 $end = [DateTime]::UtcNow
-[System.IO.File]::WriteAllBytes((Join-Path (Get-Location) $transcript),$buffer.ToArray())
+$transcriptPath = [System.IO.Path]::GetFullPath($transcript)
+[System.IO.File]::WriteAllBytes($transcriptPath,$buffer.ToArray())
 $sha = (Get-FileHash -Algorithm SHA256 -Path $transcript).Hash.ToLowerInvariant()
 
 [ordered]@{
