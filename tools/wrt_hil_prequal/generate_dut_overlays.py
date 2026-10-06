@@ -42,7 +42,18 @@ def rc_rdte(dut, peer, role):
 (
   sleep 12
   echo 'RDTE_BOOT_MARKER {dut} rdte' > /dev/ttyS0
-  if ! lsmod | grep -q '^mac80211_hwsim'; then modprobe mac80211_hwsim radios=2 >/tmp/rdte-modprobe.log 2>&1 || true; fi
+  if ! lsmod | grep -q '^mac80211_hwsim'; then
+    modprobe mac80211_hwsim radios=2 >/tmp/rdte-modprobe.log 2>&1 || true
+  elif ! ls /sys/class/ieee80211/phy* >/dev/null 2>&1; then
+    echo 'RDTE_HWSIM_ZERO_PHY_RECOVERY=1' > /dev/ttyS0
+    modprobe -r mac80211_hwsim >/tmp/rdte-hwsim-reload.log 2>&1 || true
+    modprobe mac80211_hwsim radios=2 >>/tmp/rdte-hwsim-reload.log 2>&1 || true
+  fi
+  sleep 2
+  echo 'RDTE_HWSIM_PHY_STATE_BEGIN' > /dev/ttyS0
+  ls -l /sys/class/ieee80211 > /dev/ttyS0 2>&1 || true
+  cat /sys/module/mac80211_hwsim/parameters/radios > /dev/ttyS0 2>&1 || true
+  echo 'RDTE_HWSIM_PHY_STATE_END' > /dev/ttyS0
   rm -f /etc/config/wireless
   wifi config >/tmp/rdte-wifi-config.log 2>&1 || true
   radio=$(uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-device.*/\1/p' | head -1)
