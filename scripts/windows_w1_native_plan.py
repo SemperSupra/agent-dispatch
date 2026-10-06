@@ -31,6 +31,7 @@ TRUENAS_SOURCE = {
 PROXMOX_SOURCE = {
     "qemu_server_commit": "6785065b3f766f15f6f151af8ec27ec8bb5b07ab",
     "qemu_server_blob": "118f26bc94d9ee8e8c4c39a3d710e67c14f61bc0",
+    "api2_qemu_blob": "e029a204d121f3c8b104457ef14eb6d5ce029464",
     "secure_boot_tpm_fixture_blob": "51e525b34ab3e670af887260e436973bdb2f1755",
     "package_version": "9.1.15",
 }
@@ -90,6 +91,7 @@ def portable_intent(profile: dict[str, Any]) -> dict[str, Any]:
             "cpu_semantics": "host-passthrough",
             "install_storage_semantics": "inbox-driver-compatible-ahci-sata",
             "install_network_semantics": "inbox-driver-compatible-e1000",
+            "guest_readiness_oracle": "serial-com1-exact-nonce",
         },
         "lifecycle": [
             "observe-preconditions",
@@ -192,6 +194,14 @@ def truenas_plan(
                 "attributes": {"dtype": "NIC", "type": "E1000", "nic_attach": bridge},
             },
         ],
+        "guest_oracle": {
+            "guest_device": "COM1",
+            "transport": "truenas-vm-console",
+            "surface": "vm.get_console -> /websocket/shell",
+            "serial_binding": "native VM domain automatic PTY serial",
+            "seed_volume_label": "ADW1SEED",
+            "nonce_prefix": "AGENT_DISPATCH_W1_NONCE=",
+        },
         "post_install_transition": {
             "action": "delete-owned-install-media-device",
             "reason": "force restart/boot proof from the installed system disk without firmware boot ambiguity",
@@ -254,12 +264,21 @@ def proxmox_plan(
             "ostype": "win11",
             "start": 0,
             "net0": f"e1000,bridge={bridge}",
+            "serial0": "socket",
             "sata0": f"{storage}:64",
             "ide2": f"{iso_volume},media=cdrom",
             "efidisk0": f"{storage}:1,efitype=4m,pre-enrolled-keys=1",
             "tpmstate0": f"{storage}:1,version=v2.0",
             "boot": "order=ide2;sata0",
             "description": "Agent Dispatch disposable Windows W1 fixture",
+        },
+        "guest_oracle": {
+            "guest_device": "COM1",
+            "transport": "pve-termproxy",
+            "serial": "serial0",
+            "create_surface": "POST /nodes/{node}/qemu/{vmid}/termproxy",
+            "seed_volume_label": "ADW1SEED",
+            "nonce_prefix": "AGENT_DISPATCH_W1_NONCE=",
         },
         "post_install_transition": {
             "method": "PUT",
