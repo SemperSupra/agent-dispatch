@@ -1,0 +1,61 @@
+name: WinBot Provisioning Product Unit Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-provisioning-product-unit-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      STAGE_BLOB: '4491ecf2013c2d67ee71e943667371305d4329e3'
+      WINGET_BLOB: 'e2a1e2dc6f5eb90676a55d15758ffbdda31f561f'
+      TEST_BLOB: '3b30273392014f72dcf9616859df92b0f1afee51'
+    steps:
+      - name: Reconstruct exact product test surface
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-product-unit'
+          New-Item -ItemType Directory -Force -Path (Join-Path $root 'guest\tools'),(Join-Path $root 'test') | Out-Null
+
+          function Get-ExactBlob([string]$Sha,[string]$Path) {
+            $headers=@{
+              Authorization="Bearer $env:GH_TOKEN"
+              Accept='application/vnd.github+json'
+              'X-GitHub-Api-Version'='2022-11-28'
+            }
+            $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha"
+            $obj=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+            if ([string]$obj.sha -ne $Sha -or [string]$obj.encoding -ne 'base64') { throw "blob identity mismatch: $Sha" }
+            $bytes=[Convert]::FromBase64String(([string]$obj.content -replace '\s',''))
+            $prefix=[Text.Encoding]::ASCII.GetBytes(('blob ' + $bytes.Length + [char]0))
+            $gitObject=New-Object byte[] ($prefix.Length+$bytes.Length)
+            [Array]::Copy($prefix,0,$gitObject,0,$prefix.Length)
+            [Array]::Copy($bytes,0,$gitObject,$prefix.Length,$bytes.Length)
+            $sha1=[Security.Cryptography.SHA1]::Create()
+            try { $observed=([BitConverter]::ToString($sha1.ComputeHash($gitObject))).Replace('-','').ToLowerInvariant() } finally { $sha1.Dispose() }
+            if ($observed -ne $Sha) { throw "Git object digest mismatch: $Sha" }
+            [IO.File]::WriteAllBytes($Path,$bytes)
+          }
+
+          Get-ExactBlob $env:STAGE_BLOB (Join-Path $root 'guest\tools\stage-provision.ps1')
+          Get-ExactBlob $env:WINGET_BLOB (Join-Path $root 'guest\tools\configuration.winget')
+          Get-ExactBlob $env:TEST_BLOB (Join-Path $root 'test\test-winget-configuration.ps1')
+
+          & (Join-Path $root 'test\test-winget-configuration.ps1')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $stage=Get-Content -LiteralPath (Join-Path $root 'guest\tools\stage-provision.ps1') -Raw
+          if ($stage.IndexOf('2.5/8-network') -gt $stage.IndexOf('# ---- Step 3: Ensure WinGet')) { throw 'network gate ordering regression' }
+          if ($stage.IndexOf('Critical readiness gate') -gt $stage.IndexOf('# === Done ===')) { throw 'fail-closed readiness ordering regression' }
+          Write-Host 'WinBot provisioning product unit qualification: PASS'
