@@ -9,5 +9,9 @@
     "jobs": 1,
     "heavy_jobs": 1,
     "timeout_minutes": 24
-  }
+  },
+  "attempt": 2,
+  "prior_run": 37407784183,
+  "diagnosis": "mac80211_hwsim loaded with zero PHYs; previous radio oracle falsely matched 'Host Controller Interface driver'",
+  "repair": "Preserve existing PHYs; only reload hwsim with radios=2 when /sys/class/ieee80211 has no phy*. Require literal wlan interface marker."
 }
