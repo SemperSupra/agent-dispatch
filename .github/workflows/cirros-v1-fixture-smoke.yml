@@ -1,0 +1,119 @@
+name: CirrOS V1 fixture smoke
+
+on:
+  push:
+    branches:
+      - experiment/cirros-v1-fixture-smoke-json-20261006
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bounded QEMU fixture tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils xorriso ovmf
+
+      - name: Build exact V1 media once
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/v1/seed"
+          cd "${RUNNER_TEMP}/v1"
+          curl --fail --location --retry 3 --silent --show-error \
+            https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img \
+            -o cirros.qcow2
+          echo "7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b  cirros.qcow2" | sha256sum -c -
+          qemu-img convert -f qcow2 -O raw cirros.qcow2 cirros.raw
+          python3 "${GITHUB_WORKSPACE}/scripts/compute_guest_seed.py" \
+            --nonce v1fixturesmoke20261006 \
+            --instance-id rdte-v1-fixture-smoke \
+            --out-dir seed
+          (
+            cd seed
+            xorriso -as mkisofs -quiet -output ../seed.iso -volid cidata -joliet -rock user-data meta-data
+          )
+          sha256sum cirros.raw seed.iso | tee fixture-sha256.txt
+
+      - name: Exercise exact fixture under QEMU TCG with UEFI and BIOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/v1"
+          marker='AGENT_DISPATCH_V1_NONCE=v1fixturesmoke20261006'
+
+          run_guest() {
+            local label="$1"
+            shift
+            local log="${label}.console.log"
+            rm -f "$log"
+            qemu-system-x86_64 \
+              -machine q35,accel=tcg \
+              -cpu max -smp 1 -m 512 \
+              -display none -monitor none \
+              -serial "file:$log" \
+              -drive file=cirros.raw,format=raw,if=virtio \
+              -drive file=seed.iso,format=raw,media=cdrom,readonly=on \
+              "$@" &
+            local qpid=$!
+            local found=0
+            for _ in $(seq 1 150); do
+              if grep -Fq "$marker" "$log" 2>/dev/null; then
+                found=1
+                break
+              fi
+              if ! kill -0 "$qpid" 2>/dev/null; then
+                break
+              fi
+              sleep 1
+            done
+            kill "$qpid" 2>/dev/null || true
+            wait "$qpid" 2>/dev/null || true
+            echo "=== ${label} console tail ==="
+            tail -c 12000 "$log" || true
+            echo
+            if [[ "$found" != 1 ]]; then
+              echo "::error::exact V1 nonce not observed in ${label} control"
+              return 1
+            fi
+            echo "${label}: exact V1 nonce observed"
+          }
+
+          code="$(find /usr/share/OVMF -maxdepth 1 -type f -name 'OVMF_CODE*.fd' ! -name '*secboot*' | head -n1)"
+          vars="$(find /usr/share/OVMF -maxdepth 1 -type f -name 'OVMF_VARS*.fd' | head -n1)"
+          test -n "$code" -a -n "$vars"
+          cp "$vars" OVMF_VARS.fixture.fd
+
+          uefi_rc=0
+          run_guest uefi \
+            -drive "if=pflash,format=raw,readonly=on,file=$code" \
+            -drive "if=pflash,format=raw,file=OVMF_VARS.fixture.fd" || uefi_rc=$?
+
+          bios_rc=0
+          run_guest bios || bios_rc=$?
+
+          printf '{"schema":"cirros-v1-fixture-smoke/v1","uefi_nonce":%s,"bios_nonce":%s}\n' \
+            "$([[ "$uefi_rc" == 0 ]] && echo true || echo false)" \
+            "$([[ "$bios_rc" == 0 ]] && echo true || echo false)" \
+            | tee fixture-smoke.json
+
+          # At least one native boot path must prove the fixture can boot and execute the seed.
+          [[ "$uefi_rc" == 0 || "$bios_rc" == 0 ]]
+
+      - name: Retain bounded fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cirros-v1-fixture-smoke
+          path: |
+            ${{ runner.temp }}/v1/fixture-smoke.json
+            ${{ runner.temp }}/v1/fixture-sha256.txt
+            ${{ runner.temp }}/v1/uefi.console.log
+            ${{ runner.temp }}/v1/bios.console.log
+          retention-days: 7
