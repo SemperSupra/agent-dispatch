@@ -4,7 +4,9 @@ on:
     paths:
       - "config/compute-guest-profiles.json"
       - "scripts/compute_guest_profile_contract.py"
+      - "scripts/compute_guest_seed.py"
       - "tests/test_compute_guest_profile_contract.py"
+      - "tests/test_compute_guest_seed.py"
       - ".github/workflows/validate-compute-guest-profile-contract.yml"
   workflow_dispatch:
 permissions:
@@ -14,5 +16,5 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - run: python3 -m unittest -v tests/test_compute_guest_profile_contract.py
+      - run: python3 -m unittest -v tests/test_compute_guest_profile_contract.py tests/test_compute_guest_seed.py
       - run: python3 scripts/compute_guest_profile_contract.py
