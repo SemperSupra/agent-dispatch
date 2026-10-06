@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v1-002-module-launch",
+  "request_id": "tn-26-beta3-t3-compute-vm-v1-003-console-idle-deadline",
   "version": "26.0.0-BETA.3",
   "rung": "t3",
   "compute_fixture": "vm-v1",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact TrueNAS 26.0.0-BETA.3 Linux VM V1 fixture after rep 001 reached the real workcell but the V1 client emitted no receipt because the package-importing client was launched by absolute script path with stderr discarded. Preserve the exact pinned CirrOS 0.6.3 digest, deterministic NoCloud nonce seed, supported filesystem.put staging, RAW/CDROM native devices, vm.start, supported /websocket/shell exact-nonce oracle, and zero-residue cleanup. The only causal harness delta is merged #314: invoke the client from repository root with python -m and retain bounded stderr. Nested KVM, Firecracker and Windows remain outside this rep."
+  "purpose": "Re-run the exact TrueNAS 26.0.0-BETA.3 Linux VM V1 fixture after rep 002 reached the supported VM console oracle but the observer let its 8-second per-read websocket timeout escape the intended 180-second guest deadline. Preserve the pinned CirrOS 0.6.3 digest, deterministic NoCloud nonce seed, supported filesystem.put staging, RAW/CDROM native devices, vm.start, supported /websocket/shell exact-nonce oracle, and zero-residue cleanup. The only causal observer delta is merged #316: idle per-read TimeoutError is transient until the overall deadline, with bounded console-tail diagnostics retained. Nested KVM, Firecracker and Windows remain outside this rep."
 }
