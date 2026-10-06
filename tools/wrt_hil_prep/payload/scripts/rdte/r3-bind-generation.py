@@ -11,6 +11,7 @@ ROLES={
 }
 REQUIRED_BINDINGS=(
  "asset_id","management_ip","lan_interface","radio_interface",
+ "network_uci_section","wireless_device_section","wireless_iface_section",
  "gold_image_sha256","rescue_image_sha256","gold_slot","rescue_slot",
 )
 
@@ -35,8 +36,8 @@ def bind(intent, descriptor, r2, physical):
       "asset_id":physical["asset_id"],
       "board":descriptor.get("board"),
       "model":descriptor.get("model"),
-      "management":{"ip":physical["management_ip"],"lan_interface":physical["lan_interface"]},
-      "radio":{"interface":physical["radio_interface"]},
+      "management":{"ip":physical["management_ip"],"lan_interface":physical["lan_interface"],"uci_network_section":physical["network_uci_section"]},
+      "radio":{"interface":physical["radio_interface"],"uci_device_section":physical["wireless_device_section"],"uci_iface_section":physical["wireless_iface_section"]},
       "recovery":{
         "gold_slot":physical["gold_slot"],"rescue_slot":physical["rescue_slot"],
         "gold_image_sha256":physical["gold_image_sha256"],
