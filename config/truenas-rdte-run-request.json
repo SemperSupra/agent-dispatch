@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-container-c0-002-stop-options",
+  "request_id": "tn-26-beta3-t3-compute-vm-v0-001-public-entitlement",
   "version": "26.0.0-BETA.3",
   "rung": "t3",
-  "compute_fixture": "container-c0",
+  "compute_fixture": "vm-v0",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact native TrueNAS 26.0.0-BETA.3 container C0 materialization fixture after rep 001 reached the product API but failed because the harness supplied unsupported container.stop options.timeout. Preserve target, image discovery, create/readback/start/update/restart-or-stop+start/delete/absence, pool, cleanup and C1 claim-boundary semantics. The only causal delta is merged PR #282: remove options.timeout while retaining force_after_timeout. No C0 acceptance is inferred without SUPPORTED plus oracleSatisfied=true and c0_oracle_satisfied=true with zero-residue cleanup."
+  "purpose": "Exercise the exact native TrueNAS 26.0.0-BETA.3 VM V0 materialization fixture after cross-platform container C0 parity is proven. Require the BETA.3 adapter's public entitlement gate via system.product_type plus system.feature_enabled(VMS), then prove source/capability-gated vm.* create/update/readback and exact-owned ZVOL device create/update/delete with independent dataset observation and zero-residue cleanup. This is strictly pre-guest: no guest boot, nonce, nested KVM, Firecracker, or Windows 11 claim is permitted. No V0 acceptance is inferred without SUPPORTED plus oracleSatisfied=true and v0_oracle_satisfied=true with zero owned residue."
 }
