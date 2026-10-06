@@ -10,8 +10,12 @@
     "heavy_jobs": 1,
     "timeout_minutes": 24
   },
-  "attempt": 3,
-  "prior_run": 37408861704,
+  "attempt": 4,
+  "prior_run": 37409657921,
   "diagnosis": "zero-PHY recovery succeeded (phy0/phy1 present), but Python f-string converted sed replacement \\\\1 into ASCII control-A, so generated radio/iface extraction failed and wlan0 was never configured",
-  "repair": "escape sed backreferences in generator; add generated-shell control-character guard; retain conditional zero-PHY hwsim recovery and strict wlan oracle"
+  "repair": "escape sed backreferences in generator; add generated-shell control-character guard; retain conditional zero-PHY hwsim recovery and strict wlan oracle",
+  "reason": "Diagnosed verdict-only repair: radio matcher was double-escaped and Agent-only DUT-B controller absence was incorrectly aggregated as failure. No product/image/config logic changed.",
+  "prior_artifact": 11388369333,
+  "repair_commit": "649d5b30129c923869f8013796885ecd40803a3a",
+  "expected_next": "Standalone A/B parity should admit the dual-DUT stage; dual stage then decides peer reachability and role/service parity."
 }
