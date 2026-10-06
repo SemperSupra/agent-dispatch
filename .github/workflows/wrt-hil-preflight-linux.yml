@@ -22,7 +22,7 @@ jobs:
           set -euo pipefail
           sh -n tools/wrt_hil_prep/payload/scripts/hil-preflight.sh
           bash -n tools/wrt_hil_prep/payload/scripts/rdte/capture-serial-readonly.sh
-          python3 tools/wrt_hil_prep/payload/scripts/rdte/lint-serial-capture.py
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/lint-serial-capture.py --shell tools/wrt_hil_prep/payload/scripts/rdte/capture-serial-readonly.sh --powershell tools/wrt_hil_prep/payload/scripts/rdte/Capture-SerialReadonly.ps1
           bash -n tools/wrt_hil_prep/payload/scripts/r1-readonly-remote.sh
           bash -n tools/wrt_hil_prep/payload/scripts/verify-bundle.sh
       - name: Execute no-target preflight
