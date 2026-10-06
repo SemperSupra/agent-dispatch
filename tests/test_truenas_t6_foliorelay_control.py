@@ -40,8 +40,51 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('_universal._sub._ipp._tcp.local', observer)
         self.assertIn(MOD.OBSERVER_IMAGE, text)
         self.assertNotIn("avahi-publish-service", text)
-        self.assertNotIn("/run/dbus", text)
+        self.assertIn('DBUS_SOCKET = "/run/dbus/system_bus_socket"', text)
+        self.assertIn('25.x requires exactly one host D-Bus mount', text)
+        self.assertIn('direct discovery target must not couple to host D-Bus', text)
         self.assertNotIn("/var/run/docker.sock", text)
+
+    def test_discovery_materialization_is_exact_per_target(self):
+        base={
+            "control":{"volumes":[]},
+            "cups":{"volumes":[]},
+            "discovery":{
+                "volumes":[],
+                "command":["-identity-file","/var/lib/foliorelay-control/config/printer.json"],
+            },
+        }
+        self.assertEqual(MOD.validate_discovery_materialization(base,"26.0.0-BETA.3"),"direct")
+
+        avahi=json.loads(json.dumps(base))
+        avahi["discovery"]["user"]="65534:10001"
+        avahi["discovery"]["command"]=list(MOD.AVAHI_DISCOVERY_COMMAND)
+        avahi["discovery"]["volumes"].append({
+            "type":"bind",
+            "source":MOD.DBUS_SOCKET,
+            "target":MOD.DBUS_SOCKET,
+            "read_only":True,
+        })
+        self.assertEqual(MOD.validate_discovery_materialization(avahi,"25.10.7"),"avahi")
+
+        widened=json.loads(json.dumps(avahi))
+        widened["control"]["volumes"].append({
+            "type":"bind","source":"/run/dbus/other","target":"/run/dbus/other","read_only":True,
+        })
+        with self.assertRaisesRegex(RuntimeError,"exactly one host D-Bus mount"):
+            MOD.validate_discovery_materialization(widened,"25.10.7")
+
+        wrong_user=json.loads(json.dumps(avahi))
+        wrong_user["discovery"]["user"]="10001:10001"
+        with self.assertRaisesRegex(RuntimeError,"discovery user"):
+            MOD.validate_discovery_materialization(wrong_user,"25.10.7")
+
+        direct_dbus=json.loads(json.dumps(base))
+        direct_dbus["discovery"]["volumes"].append({
+            "type":"bind","source":MOD.DBUS_SOCKET,"target":MOD.DBUS_SOCKET,"read_only":True,
+        })
+        with self.assertRaisesRegex(RuntimeError,"must not couple to host D-Bus"):
+            MOD.validate_discovery_materialization(direct_dbus,"26.0.0-BETA.3")
 
     def test_f4_reconciliation_policy_and_f5_retention_contract(self):
         exact={"services":{"control":{"image":"sha256:exact"}}}
