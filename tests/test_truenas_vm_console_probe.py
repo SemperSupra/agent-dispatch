@@ -1,7 +1,7 @@
 import unittest
 
 from scripts.compute_guest_seed import SeedError
-from scripts.truenas_vm_console_probe import _observe_nonce_frames, nonce_marker
+from scripts.truenas_vm_console_probe import _observe_nonce_frames, exact_marker, nonce_marker
 
 
 class TrueNASVmConsoleProbeTests(unittest.TestCase):
@@ -14,6 +14,18 @@ class TrueNASVmConsoleProbeTests(unittest.TestCase):
     def test_nonce_marker_rejects_shell_metacharacters(self):
         with self.assertRaises(SeedError):
             nonce_marker("nonce;touch-pwned-1234")
+
+    def test_exact_marker_accepts_windows_w1_marker(self):
+        self.assertEqual(
+            exact_marker("AGENT_DISPATCH_W1_NONCE=windowsw1nonce20261006"),
+            b"AGENT_DISPATCH_W1_NONCE=windowsw1nonce20261006",
+        )
+
+    def test_exact_marker_rejects_non_ascii_and_controls(self):
+        with self.assertRaises(SeedError):
+            exact_marker("AGENT_DISPATCH_W1_NONCE=bad\nmarker")
+        with self.assertRaises(SeedError):
+            exact_marker("AGENT_DISPATCH_W1_NONCE=é")
 
     def test_idle_socket_timeout_is_transient_until_overall_deadline(self):
         marker = nonce_marker("rep003nonceABCDEF12")
