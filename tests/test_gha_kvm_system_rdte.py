@@ -153,7 +153,7 @@ class SystemRdteContractTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         script = PVE.read_text(encoding="utf-8")
         self.assertIn("proxmox_compute_fixture", workflow)
-        self.assertIn('(.compute_fixture // "none") | select(. == "none" or . == "container-c0")', workflow)
+        self.assertIn('(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0")', workflow)
         self.assertIn('--compute-fixture "${{ needs.changes.outputs.proxmox_compute_fixture }}"', workflow)
         self.assertIn("probe_rest_lxc_c0()", script)
         rest = script.split("probe_rest_lxc_c0()", 1)[1].split("probe_lxc_lifecycle()", 1)[0]
@@ -164,9 +164,29 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn('"transport":"bounded SSH staging only; all container lifecycle mutation uses PVE REST"', rest)
         self.assertIn('"rest_api_container_c0_exercised"', script)
         self.assertIn("superseded-by-rest-c0", script)
-        self.assertIn("not-required-for-container-c0", script)
-        c0_tail = script.split('if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]; then', 2)[2]
-        self.assertIn('NESTED_KVM_INDICATORS="skipped"', c0_tail)
+        self.assertIn("not-required-for-bounded-compute-fixture", script)
+        self.assertIn(
+            'if [[ "$COMPUTE_FIXTURE" == "container-c0" || "$COMPUTE_FIXTURE" == "vm-v0" ]]; then',
+            script,
+        )
+        self.assertIn('NESTED_KVM_INDICATORS="skipped"', script)
+
+    def test_proxmox_rest_vm_v0_is_request_driven_and_source_bound(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        script = PVE.read_text(encoding="utf-8")
+        self.assertIn('(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0")', workflow)
+        self.assertIn('if [[ "$COMPUTE_FIXTURE" == "vm-v0" ]]', script)
+        self.assertIn("--kind vm --vmid 9201", script)
+        self.assertIn('--expected-qemu-server-version "9.1.15"', script)
+        self.assertIn('"rest_api_vm_v0_exercised"', script)
+        self.assertIn('"rest_api_vm_v0": rest_vm_v0', script)
+        self.assertIn("not-required-for-vm-v0", script)
+        self.assertIn("not-required-for-bounded-compute-fixture", script)
+        vmv0 = script.split('if [[ "$COMPUTE_FIXTURE" == "vm-v0" ]]', 1)[1].split('if [[ "$COMPUTE_FIXTURE" == "container-c0" ]]', 1)[0]
+        self.assertIn("proxmox_rest_compute_probe.py", vmv0)
+        self.assertIn("--apply --out", vmv0)
+        self.assertNotIn("qm create", vmv0)
+        self.assertNotIn("pct ", vmv0)
 
     def test_proxmox_rest_api_census_is_read_only_and_retained(self):
         text = PVE.read_text(encoding="utf-8")
