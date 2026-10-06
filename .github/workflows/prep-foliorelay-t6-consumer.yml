@@ -30,7 +30,7 @@ jobs:
     uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@1ae18cde62d8ff4bb68f22146b27fd72dcc7e1b9
     with:
       foundry_ref: 1ae18cde62d8ff4bb68f22146b27fd72dcc7e1b9
-      target_version: 26.0.0-BETA.3
+      target_version: 25.10.7
     permissions:
       contents: read
 
@@ -127,7 +127,7 @@ jobs:
           jq -e '
             .schema == "semper-supra.foliorelay-truenas-t6-control/1" and
             .foundry_ref == "1ae18cde62d8ff4bb68f22146b27fd72dcc7e1b9" and
-            .candidate.truenas_version == "26.0.0-BETA.3" and
+            .candidate.truenas_version == "25.10.7" and
             .candidate.control_image == "ghcr.io/sempersupra/foliorelay-control@sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d" and
             .candidate.cups_image == "ghcr.io/sempersupra/foliorelay-cups@sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814" and
             .secrets_captured == false
