@@ -29,6 +29,26 @@ def validate(p:dict[str,Any])->dict[str,Any]:
         "guest_oracle_required_before_backend_admission",
     )):
         raise ProfileError("safety/claim policy incomplete")
+    fixtures=p.get("fixtures")
+    if not isinstance(fixtures,dict) or set(fixtures)!={"linux_v1"}:
+        raise ProfileError("exact linux_v1 fixture missing")
+    v1=fixtures["linux_v1"]
+    if v1.get("id")!="cirros-0.6.3-x86_64-nocloud-serial-nonce":
+        raise ProfileError("linux_v1 fixture id drift")
+    if v1.get("release")!="0.6.3" or v1.get("architecture")!="x86_64":
+        raise ProfileError("linux_v1 release/architecture drift")
+    source=v1.get("source")
+    if not isinstance(source,dict) or source.get("url")!="https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img":
+        raise ProfileError("linux_v1 source URL drift")
+    if source.get("sha256")!="7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b":
+        raise ProfileError("linux_v1 source digest drift")
+    if source.get("checksum_url")!="https://download.cirros-cloud.net/0.6.3/SHA256SUMS":
+        raise ProfileError("linux_v1 checksum authority drift")
+    if v1.get("datasource")!="nocloud" or v1.get("user_data_contract")!="executable-shell":
+        raise ProfileError("linux_v1 datasource contract drift")
+    oracle=v1.get("oracle")
+    if not isinstance(oracle,dict) or oracle.get("transport")!="serial-console" or oracle.get("nonce_prefix")!="AGENT_DISPATCH_V1_NONCE=" or oracle.get("must_match_injected_nonce") is not True:
+        raise ProfileError("linux_v1 guest nonce oracle incomplete")
     tn=p.get("truenas")
     expected={"25.04.1","25.04.2.6","25.10.7","26.0.0-BETA.3"}
     if not isinstance(tn,dict) or set(tn)!=expected:
