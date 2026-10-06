@@ -15,6 +15,7 @@ import (
 )
 
 const queryName = "_universal._sub._ipp._tcp.local"
+const legacyQueryID uint16 = 0x4652
 
 type resultState struct {
 	mu sync.RWMutex
@@ -247,7 +248,23 @@ func qualifying(o observation, expectedTxtUUID, expectedHost string, expectedPor
 	return ok
 }
 
-func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, seconds float64) (map[string]any, error) {
+func observationSocketPlan(legacyUnicast bool) (bindPort int, joinMulticast bool, queryID uint16) {
+	if legacyUnicast {
+		return 0, false, legacyQueryID
+	}
+	return 5353, true, 0
+}
+
+func buildQuery(queryID uint16) []byte {
+	q := make([]byte, 12)
+	binary.BigEndian.PutUint16(q[0:2], queryID)
+	binary.BigEndian.PutUint16(q[4:6], 1)
+	q = append(q, encodeName(queryName)...)
+	q = append(q, 0, 12, 0, 1)
+	return q
+}
+
+func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, seconds float64, legacyUnicast bool) (map[string]any, error) {
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
 	if err != nil {
 		return nil, err
@@ -255,11 +272,17 @@ func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, s
 	defer syscall.Close(fd)
 	_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 	_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, 15, 1)
-	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Port: 5353}); err != nil {
+	bindPort, joinMulticast, queryID := observationSocketPlan(legacyUnicast)
+	if err := syscall.Bind(fd, &syscall.SockaddrInet4{Port: bindPort}); err != nil {
 		return nil, err
 	}
-	mreq := &syscall.IPMreq{Multiaddr: [4]byte{224, 0, 0, 251}}
-	if err := syscall.SetsockoptIPMreq(fd, syscall.IPPROTO_IP, syscall.IP_ADD_MEMBERSHIP, mreq); err != nil {
+	if joinMulticast {
+		mreq := &syscall.IPMreq{Multiaddr: [4]byte{224, 0, 0, 251}}
+		if err := syscall.SetsockoptIPMreq(fd, syscall.IPPROTO_IP, syscall.IP_ADD_MEMBERSHIP, mreq); err != nil {
+			return nil, err
+		}
+	}
+	if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_MULTICAST_TTL, 255); err != nil {
 		return nil, err
 	}
 	tv := syscall.NsecToTimeval(int64(time.Second))
@@ -267,10 +290,7 @@ func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, s
 		return nil, err
 	}
 
-	q := make([]byte, 12)
-	binary.BigEndian.PutUint16(q[4:6], 1)
-	q = append(q, encodeName(queryName)...)
-	q = append(q, 0, 12, 0, 1)
+	q := buildQuery(queryID)
 	dst := &syscall.SockaddrInet4{Port: 5353, Addr: [4]byte{224, 0, 0, 251}}
 	if err := syscall.Sendto(fd, q, 0, dst); err != nil {
 		return nil, err
@@ -288,13 +308,21 @@ func observe(expected, expectedTxtUUID, expectedHost string, expectedPort int, s
 			}
 			return nil, err
 		}
+		if legacyUnicast && n >= 2 && binary.BigEndian.Uint16(buf[:2]) != queryID {
+			continue
+		}
 		packetObservation, err := parsePacket(buf[:n])
 		if err != nil {
 			continue
 		}
 		aggregate.merge(packetObservation)
 		if matched, ok := matchObservation(aggregate, expectedTxtUUID, expectedHost, expectedPort); ok {
+			transport := "multicast-5353"
+			if legacyUnicast {
+				transport = "legacy-unicast"
+			}
 			return map[string]any{
+				"query_transport": transport,
 				"universal_ptr":   true,
 				"service_instance": matched.instance,
 				"uuid":            expected,
@@ -314,6 +342,7 @@ func main() {
 	ippPort := flag.Int("expected-ipp-port", 0, "expected DNS-SD SRV port")
 	port := flag.Int("port", 18081, "HTTP witness port")
 	seconds := flag.Float64("seconds", 25, "mDNS observation window")
+	legacyUnicast := flag.Bool("legacy-unicast", false, "query mDNS from an ephemeral source port and receive the RFC 6762 legacy-unicast reply")
 	flag.Parse()
 	if *uuid == "" || *txtUUID == "" || *host == "" || *ippPort <= 0 {
 		fmt.Fprintln(os.Stderr, "uuid, txt-uuid, expected-host, and expected-ipp-port are required")
@@ -322,7 +351,7 @@ func main() {
 
 	state := &resultState{v: map[string]any{"status": "pending"}}
 	go func() {
-		r, err := observe(*uuid, *txtUUID, *host, *ippPort, *seconds)
+		r, err := observe(*uuid, *txtUUID, *host, *ippPort, *seconds, *legacyUnicast)
 		if err != nil {
 			state.set(map[string]any{"status": "error", "error": fmt.Sprintf("%T: %v", err, err)})
 			return
