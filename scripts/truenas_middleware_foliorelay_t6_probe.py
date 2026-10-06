@@ -560,7 +560,7 @@ def main():
         if not isinstance(ds,dict) or ds.get("id")!=DATASET: raise RuntimeError("dataset identity mismatch")
         dataset_owned=True
         dirs=[
-            (ROOT+"/control","700",10001),(ROOT+"/artifacts","700",10001),(ROOT+"/cups-state","755",10001),(ROOT+"/cups-spool","755",10001),
+            (ROOT+"/control","710",10001),(ROOT+"/artifacts","700",10001),(ROOT+"/cups-state","755",10001),(ROOT+"/cups-spool","755",10001),
             (ROOT+"/secrets","700",10001),(OBSERVER_DIR,"755",0),
         ]
         for path,mode,uid in dirs:
