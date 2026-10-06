@@ -127,6 +127,24 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("losetup --find --show --read-only --partscan", text)
         self.assertNotIn("qemu-nbd --connect", text)
 
+    def test_truenas_vm_v1_is_request_driven_and_claim_bounded(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        script = TRUENAS.read_text(encoding="utf-8")
+        self.assertIn('"container-c0" or . == "vm-v0" or . == "vm-v1"', workflow)
+        self.assertIn('elif [[ "$COMPUTE_FIXTURE" == "vm-v1" ]]', script)
+        self.assertIn("cirros-0.6.3-x86_64-disk.img", script)
+        self.assertIn("7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b", script)
+        self.assertIn("qemu-img convert -f qcow2 -O raw", script)
+        self.assertIn("-volid cidata", script)
+        self.assertIn("truenas_compute_vm_v1_probe.py", script)
+        self.assertIn('"v1_oracle_satisfied"', script)
+        self.assertIn('"staging_dataset_absent"', script)
+        self.assertIn("nested KVM, Firecracker and Windows remain unclaimed", script)
+        v1 = script.split('elif [[ "$COMPUTE_FIXTURE" == "vm-v1" ]]', 1)[1].split("\n  else\n", 1)[0]
+        self.assertNotIn("ssh ", v1)
+        self.assertNotIn("virsh", v1)
+        self.assertNotIn("raw.qemu", v1)
+
     def test_proxmox_rest_container_c0_is_opt_in_and_api_native(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         script = PVE.read_text(encoding="utf-8")
