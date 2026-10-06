@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v1-003-console-idle-deadline",
+  "request_id": "tn-26-beta3-t3-compute-vm-v1-004-cirros-json-seed",
   "version": "26.0.0-BETA.3",
   "rung": "t3",
   "compute_fixture": "vm-v1",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact TrueNAS 26.0.0-BETA.3 Linux VM V1 fixture after rep 002 reached the supported VM console oracle but the observer let its 8-second per-read websocket timeout escape the intended 180-second guest deadline. Preserve the pinned CirrOS 0.6.3 digest, deterministic NoCloud nonce seed, supported filesystem.put staging, RAW/CDROM native devices, vm.start, supported /websocket/shell exact-nonce oracle, and zero-residue cleanup. The only causal observer delta is merged #316: idle per-read TimeoutError is transient until the overall deadline, with bounded console-tail diagnostics retained. Nested KVM, Firecracker and Windows remain outside this rep."
+  "purpose": "Re-run the exact TrueNAS 26.0.0-BETA.3 Linux VM V1 fixture after rep003 and the plain-QEMU falsifier isolated the remaining failure to CirrOS 0.6.3 NoCloud meta-data encoding. Preserve the pinned CirrOS 0.6.3 image digest, supported filesystem.put staging, RAW boot disk, CDROM cidata seed, vm.start, supported /websocket/shell exact-nonce oracle, repaired 180-second overall guest deadline, and zero-residue cleanup. The only guest-fixture semantic delta is merged commit 59677931f942f98f3701ecafb73515a30483a9c6: emit CirrOS NoCloud meta-data as JSON for json2fstree. Cheap QEMU TCG smoke run 37465128038 independently proved the repaired exact seed under q35/UEFI and BIOS with uefi_nonce=true and bios_nonce=true; artifact 11414348724 digest sha256:202f5bbf787fcdd19b174d49d5d8b0ee4428a575cc9d3d6231fe4c6cd811beb8. Nested KVM, Firecracker and Windows remain outside this rep."
 }
