@@ -99,6 +99,7 @@ def tnrow(version):
       },
     }
     if version=="26.0.0-BETA.3":
+        row["windows11"]["fixture"]="windows-11-enterprise-evaluation-26h2-x64-en-us"
         row["linux_v2"]={
           "source_status":"OBSERVATION_CANDIDATE",
           "runtime_status":"OPEN",
@@ -173,6 +174,11 @@ class Tests(unittest.TestCase):
     def test_beta3_v2_firecracker_gate_remains_authority_bound(self):
         p=self.profile()
         p["truenas"]["26.0.0-BETA.3"]["linux_v2"]["firecracker_gate"]="run whatever"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_beta3_windows_fixture_binding_fails_closed(self):
+        p=self.profile()
+        p["truenas"]["26.0.0-BETA.3"]["windows11"]["fixture"]="different"
         with self.assertRaises(ProfileError):
             validate(p)
     def test_windows_media_digest_fails_closed(self):
