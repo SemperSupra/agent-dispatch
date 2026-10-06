@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v1-001-cirros-nocloud-console",
+  "request_id": "tn-26-beta3-t3-compute-vm-v1-002-module-launch",
   "version": "26.0.0-BETA.3",
   "rung": "t3",
   "compute_fixture": "vm-v1",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Advance the accepted BETA.3 VM V0 shell to the bounded Linux V1 guest rung. Download and verify pinned CirrOS 0.6.3 x86_64 source, convert it to RAW on the GHA host, generate deterministic NoCloud seed media with the exact per-run nonce, stage media only through supported TrueNAS filesystem.put, create native RAW/CDROM VM devices, start the guest through vm.start, and require the exact nonce through the supported /websocket/shell VM console. Acceptance additionally requires owned VM and staging dataset absence. Nested KVM, Firecracker and Windows are explicitly outside this rep."
+  "purpose": "Re-run the exact TrueNAS 26.0.0-BETA.3 Linux VM V1 fixture after rep 001 reached the real workcell but the V1 client emitted no receipt because the package-importing client was launched by absolute script path with stderr discarded. Preserve the exact pinned CirrOS 0.6.3 digest, deterministic NoCloud nonce seed, supported filesystem.put staging, RAW/CDROM native devices, vm.start, supported /websocket/shell exact-nonce oracle, and zero-residue cleanup. The only causal harness delta is merged #314: invoke the client from repository root with python -m and retain bounded stderr. Nested KVM, Firecracker and Windows remain outside this rep."
 }
