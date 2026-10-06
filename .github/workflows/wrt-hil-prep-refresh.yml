@@ -42,6 +42,113 @@ jobs:
           grep -qx 'authority=R1_READ_ONLY' "$tmp/meta.txt"
           grep -Eq '^captured_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$tmp/meta.txt"
 
+      - name: Exercise fail-closed R1 to R3 control path
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/wrt-rdte-chain"
+          mkdir -p "$T"
+          cat > "$T/r1.json" <<'JSON'
+          {
+            "schema":"rdte-wrt-r1-device-descriptor/v1",
+            "adapter":"wrt-linksys-dual-nand/v1",
+            "board":"linksys,wrt3200acm",
+            "model":"Linksys WRT3200ACM",
+            "boot":{"boot_part":"1","bootcount":"0","bootlimit":"3"},
+            "partitions":[
+              {"device":"mtd1","size_bytes":4194304,"erase_bytes":131072,"name":"kernel1","classification":"candidate-firmware-slot"},
+              {"device":"mtd2","size_bytes":33554432,"erase_bytes":131072,"name":"rootfs1","classification":"candidate-firmware-slot"},
+              {"device":"mtd3","size_bytes":4194304,"erase_bytes":131072,"name":"kernel2","classification":"candidate-firmware-slot"},
+              {"device":"mtd4","size_bytes":33554432,"erase_bytes":131072,"name":"rootfs2","classification":"candidate-firmware-slot"},
+              {"device":"mtd0","size_bytes":1048576,"erase_bytes":131072,"name":"u-boot","classification":"protected"}
+            ],
+            "protected_or_unknown":["mtd0"],
+            "write_authority":"DENIED_R1_READ_ONLY",
+            "r1_inventory_minimum_complete":true,
+            "ready_for_r2":false,
+            "r2_admission":{"state":"BLOCKED_REQUIRES_EXTERNAL_PRECONDITIONS","missing":["serial_console"]},
+            "source_evidence":"synthetic"
+          }
+          JSON
+          cat > "$T/admission.json" <<'JSON'
+          {
+            "schema":"rdte-wrt-r2-admission-evidence/v1",
+            "checks":{
+              "serial_console":{"qualified":true,"evidence_ref":"synthetic:serial"},
+              "independent_power_cycle":{"qualified":true,"evidence_ref":"synthetic:power"},
+              "gold_image_identity":{"qualified":true,"evidence_ref":"synthetic:gold"},
+              "rescue_image_identity":{"qualified":true,"evidence_ref":"synthetic:rescue"},
+              "independent_evidence_sink":{"qualified":true,"evidence_ref":"synthetic:sink"},
+              "human_review":{"qualified":true,"evidence_ref":"synthetic:review"}
+            }
+          }
+          JSON
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/r2-admission.py             "$T/r1.json" "$T/admission.json" -o "$T/r1-admitted.json"
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/r2-plan.py             "$T/r1-admitted.json" -o "$T/r2-plan.json"
+          cat > "$T/r2-evidence.json" <<'JSON'
+          {
+            "schema":"rdte-wrt-r2-evidence/v1",
+            "reps":{
+              "R2-1":{"verdict":"PASS"},
+              "R2-2":{"verdict":"PASS"},
+              "R2-3":{"verdict":"PASS"},
+              "R2-4":{"verdict":"PASS"},
+              "R2-5":{"verdict":"PASS"},
+              "R2-6":{"verdict":"PASS","consecutive_passes":3}
+            },
+            "invariants":{
+              "gold_identity_match":true,
+              "rescue_identity_match":true,
+              "serial_available":true,
+              "power_actuator_available":true,
+              "protected_surfaces_unchanged":true,
+              "boot_env_expected":true,
+              "evidence_sink_available":true,
+              "nominal_recovery_without_manual_intervention":true
+            }
+          }
+          JSON
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/r2-reduce.py             "$T/r2-evidence.json" -o "$T/r2-verdict.json"
+          cat > "$T/intent.json" <<'JSON'
+          {"generation":"dut-a-rdte"}
+          JSON
+          cat > "$T/physical.json" <<'JSON'
+          {
+            "asset_id":"DUT-A",
+            "management_ip":"192.0.2.10",
+            "lan_interface":"br-lan",
+            "radio_interface":"wlan0",
+            "network_uci_section":"lan",
+            "wireless_device_section":"radio0",
+            "wireless_iface_section":"default_radio0",
+            "gold_image_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "rescue_image_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "gold_slot":"1",
+            "rescue_slot":"2"
+          }
+          JSON
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/r3-bind-generation.py             "$T/intent.json" "$T/r1-admitted.json" "$T/r2-verdict.json" "$T/physical.json"             -o "$T/bound.json"
+          python3 tools/wrt_hil_prep/payload/scripts/rdte/r3-render-config.py             "$T/bound.json" "$T/rendered"
+          python3 - "$T/r2-verdict.json" "$T/rendered/render-manifest.json" <<'PY'
+          import json,sys
+          r2=json.load(open(sys.argv[1])); m=json.load(open(sys.argv[2]))
+          assert r2["r3_admitted"] is True
+          assert r2["protected_nand_write_authority"]=="DENIED"
+          assert m["apply_authority"]=="R3_REQUIRED_NOT_GRANTED_BY_RENDER"
+          assert m["protected_nand_write_authority"]=="DENIED"
+          assert m["flash_or_boot_env_commands_included"] is False
+          assert m["mutation_count"]>0
+          PY
+          python3 - "$T/r2-verdict.json" "$T/r2-red.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1])); d["r3_admitted"]=False; d["status"]="RED_OR_INCOMPLETE_R3_BLOCKED"
+          json.dump(d,open(sys.argv[2],"w"))
+          PY
+          if python3 tools/wrt_hil_prep/payload/scripts/rdte/r3-bind-generation.py                "$T/intent.json" "$T/r1-admitted.json" "$T/r2-red.json" "$T/physical.json"                -o "$T/should-not-exist.json"; then
+            echo "binder failed open on RED R2 verdict" >&2
+            exit 1
+          fi
+
       - name: Build deterministic refreshed prep kit
         run: python3 tools/wrt_hil_prep/build_kit.py --output dist --cp0-dir cp0
 
