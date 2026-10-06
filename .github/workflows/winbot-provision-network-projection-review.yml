@@ -1,0 +1,140 @@
+name: WinBot Provision-Network Projection Review
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-provision-network-projection-review.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_REVISION: 'd623e0b0a6503457754d48adbfb737135500ebbe'
+      BATCH_SHAS: 'a9fa9be7b9097c4d4f0776510e37b35b6a2542f2;679f9d20200fd3d305a34ee0cf1dad6de75e6dd1;4c464f8ca025272d8be7c1f8c90b8af4ec61a454;8c9b841472d4b3be9c779abd6268dbc74bae6acc;d908bb77f23f4003d6b636b0fce555c349772951;3e08cff6714a3475fe35739af467fda3317c4ee5;1cf458556f797b8115d76aa876e94788a1f6ac8a;dbf4c15cb252741c19cce290bfc1935a3a774716;c4644d1a818a31c66092e3ac754d1e569a0f7d63'
+      STAGE_BLOB: '4491ecf2013c2d67ee71e943667371305d4329e3'
+    steps:
+      - name: Reconstruct and review exact projection
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, re, urllib.request
+
+          repo=os.environ["GITHUB_REPOSITORY"]
+          token=os.environ["GH_TOKEN"]
+          revision=os.environ["SOURCE_REVISION"]
+          batches=os.environ["BATCH_SHAS"].split(";")
+
+          sensitive={
+              "private_key": re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+              "github_token": re.compile(rb"gh[pousr]_[A-Za-z0-9]{20,}"),
+              "aws_access_key": re.compile(rb"AKIA[0-9A-Z]{16}"),
+              "openai_style_key": re.compile(rb"sk-[A-Za-z0-9_-]{20,}"),
+          }
+
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization":f"Bearer {token}",
+                      "Accept":"application/vnd.github+json",
+                      "X-GitHub-Api-Version":"2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req,timeout=60) as r:
+                  obj=json.load(r)
+              if obj.get("sha")!=sha or obj.get("encoding")!="base64":
+                  raise SystemExit(f"blob identity/encoding mismatch: {sha}")
+              raw=base64.b64decode(obj["content"])
+              if len(raw)!=int(obj["size"]):
+                  raise SystemExit(f"blob size mismatch: {sha}")
+              if hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"git digest mismatch: {sha}")
+              return raw
+
+          entries=[]
+          for batch_sha in batches:
+              batch=json.loads(blob(batch_sha))
+              if batch["source_revision"]!=revision:
+                  raise SystemExit(f"batch revision mismatch: {batch_sha}")
+              entries.extend(batch["entries"])
+          if len(entries)!=82 or len({e["path"] for e in entries})!=82:
+              raise SystemExit("projection cardinality/uniqueness mismatch")
+
+          bypath={e["path"]:e for e in entries}
+          required={
+              "guest/tools/configuration.winget",
+              "guest/api/static/index.html",
+              "guest/api/main.py",
+              "guest/tools/stage-provision.ps1",
+              "guest/tools/fix-api-service.ps1",
+              "host/WinBot.psm1",
+          }
+          if not required.issubset(bypath):
+              raise SystemExit(f"required paths missing: {sorted(required-set(bypath))}")
+          if bypath["guest/tools/stage-provision.ps1"]["git_blob_sha"]!=os.environ["STAGE_BLOB"]:
+              raise SystemExit("stage-provision identity mismatch")
+          if any(p.startswith("guest/winpe/") for p in bypath):
+              raise SystemExit("excluded WinPE path entered projection")
+
+          projected=[]
+          total=0
+          for e in sorted(entries,key=lambda x:x["path"]):
+              raw=blob(e["git_blob_sha"])
+              if len(raw)!=int(e["size"]):
+                  raise SystemExit(f"source size mismatch: {e['path']}")
+              if len(raw)>512*1024:
+                  raise SystemExit(f"per-file bound exceeded: {e['path']}")
+              for name,pattern in sensitive.items():
+                  if pattern.search(raw):
+                      raise SystemExit(f"sensitive marker {name}: {e['path']}")
+              total+=len(raw)
+              projected.append({
+                  "path":e["path"],
+                  "bytes":len(raw),
+                  "sha256":hashlib.sha256(raw).hexdigest(),
+              })
+
+          stage=blob(os.environ["STAGE_BLOB"]).decode("utf-8-sig")
+          for marker in (
+              "2.5/8-network",
+              "outbound-package-network-unavailable",
+              "refusing to write .provisioned",
+              "authenticated-health-200",
+              ".provision-failed",
+          ):
+              if marker not in stage:
+                  raise SystemExit(f"stage-provision gate marker missing: {marker}")
+          if stage.find("2.5/8-network") > stage.find("# ---- Step 3: Ensure WinGet"):
+              raise SystemExit("network readiness gate occurs after package-manager step")
+          if stage.find("Critical readiness gate") > stage.find("# === Done ==="):
+              raise SystemExit("critical readiness gate occurs after .provisioned marker block")
+
+          identity=hashlib.sha256(
+              json.dumps(
+                  {"source_revision":revision,"projected_files":projected},
+                  sort_keys=True,separators=(",",":"),
+              ).encode()
+          ).hexdigest()
+          result={
+              "classification":"SUPPORTED",
+              "source_revision":revision,
+              "projection_identity_sha256":identity,
+              "projected_file_count":len(projected),
+              "projected_bytes":total,
+              "stage_provision_blob":bypath["guest/tools/stage-provision.ps1"]["git_blob_sha"],
+              "sensitive_scan":"PASS",
+              "private_repo_checkout":False,
+              "network_gate_before_packages":True,
+              "provisioned_fail_closed":True,
+          }
+          print(json.dumps(result,sort_keys=True))
+          PY
