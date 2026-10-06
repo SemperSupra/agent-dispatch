@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-005-control-traverse",
+  "request_id": "tn-25-10-7-t6-foliorelay-006-legacy-unicast-observer",
   "version": "25.10.7",
   "rung": "t6",
   "product": "foliorelay",
   "authority_issue": 410,
   "consumer_authority_issue": 273,
-  "purpose": "Re-run the exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 after rep 004 retained ORACLE_FAILURE evidence showing discovery uid 65534/gid 10001 could not traverse the experiment-owned control bind root because Agent Dispatch provisioned it mode 0700. Preserve merged Foundry authority e44bc2271de4c2065c68a8f7db53034fff36b4c5, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d and CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814, cooperative Avahi command/user/read-only system-bus coupling, same-instance DNS-SD oracle, PDF/URF exact-source preservation, F4 reconciliation semantics, F5 retain-data delete/reinstall persistence, and zero residue. The sole causal runtime delta is the experiment-owned control parent mode 0700->0710, granting gid 10001 traverse only while retaining all per-file permissions. Acceptance requires retained SUPPORTED/oracleSatisfied=true complete F0-F5 evidence."
+  "purpose": "Re-run the exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 after rep 005 proved all three product containers RUNNING and localized the remaining failure to the independent observer competing with host Avahi for UDP/5353. Preserve the cooperative-Avahi product, Foundry e44bc2271de4c2065c68a8f7db53034fff36b4c5, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d, CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814, 0710 control-root traversal, product functional oracles, F4/F5 semantics and zero-residue cleanup. The sole causal oracle delta is that on 25.x the separate observer issues an RFC 6762 legacy one-shot mDNS query from an ephemeral UDP source port and requires the correlated unicast response, avoiding a competing UDP/5353 listener while still parsing same-instance PTR/TXT/SRV records independently. BETA.3 retains the existing multicast-5353 observer path. Acceptance requires retained SUPPORTED/oracleSatisfied=true complete F0-F5 evidence."
 }
