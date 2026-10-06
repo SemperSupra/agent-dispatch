@@ -338,7 +338,8 @@ jobs:
 
   proxmox-9-2:
     concurrency:
-      group: gha-kvm-system-rdte-heavy
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
       cancel-in-progress: false
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.proxmox == 'true'
@@ -392,7 +393,8 @@ jobs:
 
   truenas-26-beta3:
     concurrency:
-      group: gha-kvm-system-rdte-heavy
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
       cancel-in-progress: false
     needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix]
     if: >-

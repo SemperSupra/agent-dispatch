@@ -448,11 +448,13 @@ class SystemRdteContractTests(unittest.TestCase):
             expected = (
                 f"  {job}:\n"
                 "    concurrency:\n"
-                "      group: gha-kvm-system-rdte-heavy\n"
+                "      group: agent-dispatch-heavyweight-rdte\n"
+                "      queue: max\n"
                 "      cancel-in-progress: false\n"
             )
             self.assertIn(expected, text)
-        self.assertEqual(text.count("group: gha-kvm-system-rdte-heavy"), 2)
+        self.assertEqual(text.count("group: agent-dispatch-heavyweight-rdte"), 2)
+        self.assertEqual(text.count("queue: max"), 2)
         self.assertEqual(text.count("cancel-in-progress: false"), 2)
         self.assertNotIn("cancel-in-progress: true", text)
 
