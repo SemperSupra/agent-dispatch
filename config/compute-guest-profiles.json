@@ -124,6 +124,17 @@
         "cpu_passthrough_control": "vm.create.cpu_mode=HOST-PASSTHROUGH",
         "nested_kvm_requirement": "observe /dev/kvm inside guest before invoking Firecracker",
         "runtime_status": "OPEN"
+      },
+      "linux_v1": {
+        "source_status": "CANDIDATE",
+        "runtime_status": "OPEN",
+        "fixture": "cirros-0.6.3-x86_64-nocloud-serial-nonce",
+        "public_surfaces": {
+          "boot_disk": "vm.device.create RAW exists=true boot=true",
+          "seed_media": "vm.device.create CDROM",
+          "console_discovery": "vm.get_console"
+        },
+        "observation_requirement": "consume guest console through supported TrueNAS console surface; do not inject raw.qemu or invoke virsh directly"
       }
     }
   },

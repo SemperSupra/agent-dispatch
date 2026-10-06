@@ -48,7 +48,7 @@ def fixture():
 
 def tnrow(version):
     legacy=version=="25.04.1"
-    return {
+    row = {
       "windows11":{
         "source_status":"CANDIDATE",
         "runtime_status":"OPEN",
@@ -64,6 +64,19 @@ def tnrow(version):
         "runtime_status":"OPEN",
       },
     }
+    if version=="26.0.0-BETA.3":
+        row["linux_v1"]={
+          "source_status":"CANDIDATE",
+          "runtime_status":"OPEN",
+          "fixture":"cirros-0.6.3-x86_64-nocloud-serial-nonce",
+          "public_surfaces":{
+            "boot_disk":"vm.device.create RAW exists=true boot=true",
+            "seed_media":"vm.device.create CDROM",
+            "console_discovery":"vm.get_console",
+          },
+          "observation_requirement":"consume guest console through supported TrueNAS console surface; do not inject raw.qemu or invoke virsh directly",
+        }
+    return row
 
 class Tests(unittest.TestCase):
     def profile(self):
@@ -91,6 +104,16 @@ class Tests(unittest.TestCase):
     def test_linux_v1_nonce_oracle_fails_closed(self):
         p=self.profile()
         p["fixtures"]["linux_v1"]["oracle"]["must_match_injected_nonce"]=False
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_beta3_v1_console_must_remain_public_surface(self):
+        p=self.profile()
+        p["truenas"]["26.0.0-BETA.3"]["linux_v1"]["public_surfaces"]["console_discovery"]="virsh console"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_beta3_v1_runtime_claim_fails_closed(self):
+        p=self.profile()
+        p["truenas"]["26.0.0-BETA.3"]["linux_v1"]["runtime_status"]="PASS"
         with self.assertRaises(ProfileError):
             validate(p)
     def test_target_growth_fails_closed(self):
