@@ -34,6 +34,25 @@ def render_seed(nonce: str, instance_id: str) -> tuple[str, str]:
     return meta, user
 
 
+def render_v2_observation_seed(nonce: str, instance_id: str) -> tuple[str, str]:
+    nonce = validate_token(nonce, NONCE_RE, "nonce")
+    instance_id = validate_token(instance_id, INSTANCE_RE, "instance-id")
+    meta = f"instance-id: {instance_id}\nlocal-hostname: rdtev2\n"
+    user = (
+        "#!/bin/sh\n"
+        "set -eu\n"
+        f"nonce='{nonce}'\n"
+        "kvm=0\n"
+        "cpu=0\n"
+        "[ -c /dev/kvm ] && kvm=1 || true\n"
+        "grep -Eq '(^|[[:space:]])(vmx|svm)([[:space:]]|$)' /proc/cpuinfo && cpu=1 || true\n"
+        f"printf '%s%s\\n' '{PREFIX}' \"$nonce\" >/dev/ttyS0\n"
+        "printf 'AGENT_DISPATCH_V2_KVM_PRESENT=%s\\n' \"$kvm\" >/dev/ttyS0\n"
+        "printf 'AGENT_DISPATCH_V2_CPU_VMX_SVM=%s\\n' \"$cpu\" >/dev/ttyS0\n"
+    )
+    return meta, user
+
+
 def write_seed(out_dir: pathlib.Path, nonce: str, instance_id: str) -> None:
     meta, user = render_seed(nonce, instance_id)
     out_dir.mkdir(parents=True, exist_ok=True)
