@@ -43,6 +43,18 @@ def nonce_marker(nonce: str) -> bytes:
     return f"{PREFIX}{nonce}".encode("ascii")
 
 
+def exact_marker(value: str) -> bytes:
+    if not isinstance(value, str) or not value or len(value) > 256:
+        raise SeedError("marker violates exact console-marker contract")
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise SeedError("marker must be ASCII") from exc
+    if any(b < 0x20 or b > 0x7E for b in encoded):
+        raise SeedError("marker contains non-printable ASCII")
+    return encoded
+
+
 def _observe_nonce_frames(shell: ShellWebSocket, marker: bytes, timeout: float) -> dict:
     """Observe VM-console frames until the exact marker or the overall deadline.
 
@@ -91,24 +103,28 @@ def _observe_nonce_frames(shell: ShellWebSocket, marker: bytes, timeout: float) 
     }
 
 
-def observe_console_nonce(
+def observe_console_marker(
     host: str,
     port: int,
     password: str,
     vm_id: int,
-    nonce: str,
+    marker_text: str,
     timeout: float,
     tls: bool,
+    *,
+    schema: str = "truenas-vm-console-marker/v1",
+    claim_boundary: str = "exact external guest-console marker only",
+    success_detail: str = "exact caller-supplied marker observed through supported TrueNAS VM console websocket",
 ) -> dict:
-    marker = nonce_marker(nonce)
+    marker = exact_marker(marker_text)
     receipt = {
-        "schema": "truenas-vm-console-nonce/v1",
+        "schema": schema,
         "classification": "ORACLE_FAILURE",
         "oracleSatisfied": False,
         "vm_id": vm_id,
-        "nonce_marker": marker.decode(),
+        "marker": marker.decode(),
         "transport": "wss:/websocket/shell" if tls else "ws:/websocket/shell",
-        "claim_boundary": "external guest-console nonce only; no nested-KVM or guest capability claim",
+        "claim_boundary": claim_boundary,
     }
     ddp = shell = None
     started = time.monotonic()
@@ -142,10 +158,10 @@ def observe_console_nonce(
                 "classification": "SUPPORTED",
                 "oracleSatisfied": True,
                 "elapsed_seconds": round(time.monotonic() - started, 3),
-                "detail": "exact injected V1 nonce observed through supported TrueNAS VM console websocket",
+                "detail": success_detail,
             })
             return receipt
-        raise TimeoutError("exact V1 nonce not observed before console deadline")
+        raise TimeoutError("exact console marker not observed before console deadline")
     except Exception as exc:
         receipt["detail"] = f"{type(exc).__name__}: {exc}"
         return receipt
@@ -154,6 +170,33 @@ def observe_console_nonce(
             shell.close()
         if ddp is not None:
             ddp.close()
+
+
+def observe_console_nonce(
+    host: str,
+    port: int,
+    password: str,
+    vm_id: int,
+    nonce: str,
+    timeout: float,
+    tls: bool,
+) -> dict:
+    marker = nonce_marker(nonce).decode()
+    receipt = observe_console_marker(
+        host,
+        port,
+        password,
+        vm_id,
+        marker,
+        timeout,
+        tls,
+        schema="truenas-vm-console-nonce/v1",
+        claim_boundary="external guest-console nonce only; no nested-KVM or guest capability claim",
+        success_detail="exact injected V1 nonce observed through supported TrueNAS VM console websocket",
+    )
+    receipt["nonce_marker"] = marker
+    receipt.pop("marker", None)
+    return receipt
 
 
 def main() -> int:
