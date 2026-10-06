@@ -1,0 +1,13 @@
+{
+  "schema": "wrt-rdte-fresh-parity-trigger/v1",
+  "date": "2026-10-06",
+  "purpose": "Falsify ImageBuilder cross-generation contamination by using one fresh x86/64 ImageBuilder tree per DUT, requiring standalone E3 parity before gated dual-DUT execution.",
+  "prior_red_run": 37390148214,
+  "exact_package_sha256": "ce91228d204b68cf37d0c46bf5f7492cfe3ac9d83463cb5d47cafb84197336d7",
+  "physical_write_authority": "DENIED_PREHIL",
+  "resource_limits": {
+    "jobs": 1,
+    "heavy_jobs": 1,
+    "timeout_minutes": 24
+  }
+}
