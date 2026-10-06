@@ -1,0 +1,208 @@
+name: WRT HIL Validated Arrival Readiness
+
+on:
+  push:
+    branches:
+      - wrt-hil-prequal-20261005
+    paths:
+      - '.github/waves/wrt-hil-arrival-refresh-trigger.json'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  usb-refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated October 6 kit
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37420507066
+          name: wrt3200acm-hil-prep-kit-20261006
+          path: validated
+          github-token: ${{ github.token }}
+
+      - name: Verify validated kit bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd validated
+          sha256sum -c SHA256.txt
+          mkdir -p "$RUNNER_TEMP/validated-kit"
+          unzip -q wrt3200acm-hil-prep-kit-20261006.zip -d "$RUNNER_TEMP/validated-kit"
+          cd "$RUNNER_TEMP/validated-kit"
+          sha256sum -c metadata/SHA256SUMS
+          test "$(find . -type f | wc -l)" -eq 76
+
+      - name: Install bounded image/boot dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl unzip zstd qemu-system-x86 qemu-utils >/dev/null
+
+      - name: Build validated HIL-host USB image
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=25.12.5
+          IB_NAME="openwrt-imagebuilder-$VER-x86-64.Linux-x86_64"
+          IB_ARCHIVE="$RUNNER_TEMP/$IB_NAME.tar.zst"
+          IB_URL="https://downloads.openwrt.org/releases/$VER/targets/x86/64/$IB_NAME.tar.zst"
+          IB_SHA=313221253d9bac534e4a4ee6492a4941b4ba0f43200eceb8d16a4785470ae9df
+          curl -fL --retry 2 --connect-timeout 20 "$IB_URL" -o "$IB_ARCHIVE"
+          test "$(sha256sum "$IB_ARCHIVE" | awk '{print $1}')" = "$IB_SHA"
+          mkdir -p "$RUNNER_TEMP/ib"
+          tar --use-compress-program=unzstd -xf "$IB_ARCHIVE" -C "$RUNNER_TEMP/ib"
+          IB="$RUNNER_TEMP/ib/$IB_NAME"
+
+          OVERLAY="$RUNNER_TEMP/usb-overlay"
+          mkdir -p "$OVERLAY/opt/wrt-hil" "$OVERLAY/etc"
+          cp -a "$RUNNER_TEMP/validated-kit" "$OVERLAY/opt/wrt-hil/kit"
+          cat > "$OVERLAY/etc/rc.local" <<'EOF'
+          #!/bin/sh
+          (
+            sleep 8
+            echo WRT_HIL_USB_READY=1 > /dev/ttyS0
+            cd /opt/wrt-hil/kit || exit 1
+            if sha256sum -c metadata/SHA256SUMS >/tmp/wrt-hil-manifest.log 2>&1; then
+              echo WRT_HIL_USB_MANIFEST_OK=1 > /dev/ttyS0
+            else
+              echo WRT_HIL_USB_MANIFEST_OK=0 > /dev/ttyS0
+            fi
+            ok=1
+            for c in ssh python3 jq curl socat picocom; do command -v "$c" >/dev/null 2>&1 || ok=0; done
+            echo WRT_HIL_USB_USERSPACE_OK=$ok > /dev/ttyS0
+            stack=1
+            find /lib/modules -type f -name 'ftdi_sio.ko*' | grep -q . || stack=0
+            find /lib/modules -type f -name 'cp210x.ko*' | grep -q . || stack=0
+            find /lib/modules -type f -name 'ch341.ko*' | grep -q . || stack=0
+            echo WRT_HIL_USB_SERIAL_STACK_OK=$stack > /dev/ttyS0
+            tools=1
+            for f in scripts/hil-preflight.sh scripts/r1-readonly-remote.sh scripts/rdte/capture-serial-readonly.sh scripts/rdte/r2-admission.py scripts/rdte/r3-bind-generation.py scripts/rdte/r3-render-config.py; do
+              [ -f "$f" ] || tools=0
+            done
+            echo WRT_HIL_USB_RDTE_TOOLS_OK=$tools > /dev/ttyS0
+            echo WRT_HIL_USB_AUTHORITY=R1_READ_ONLY > /dev/ttyS0
+          ) &
+          exit 0
+          EOF
+          chmod +x "$OVERLAY/etc/rc.local"
+
+          mkdir -p usb-out
+          (
+            cd "$IB"
+            make image PROFILE=generic               PACKAGES="openssh-client python3-light jq curl ca-bundle socat picocom kmod-usb-serial-ftdi kmod-usb-serial-cp210x kmod-usb-serial-ch341"               FILES="$OVERLAY" ROOTFS_PARTSIZE=384 > "$GITHUB_WORKSPACE/usb-out/imagebuilder.log" 2>&1
+          )
+          IMG="$(find "$IB/bin/targets/x86/64" -type f -name '*generic-ext4-combined.img.gz' -print -quit)"
+          test -n "$IMG"
+          cp "$IMG" usb-out/wrt-hil-host-usb-20261006.img.gz
+          sha256sum usb-out/wrt-hil-host-usb-20261006.img.gz > usb-out/SHA256.txt
+          gzip -dc usb-out/wrt-hil-host-usb-20261006.img.gz > "$RUNNER_TEMP/wrt-hil-usb.img"
+          set +e
+          timeout 65 qemu-system-x86_64 -machine pc -m 768 -nographic             -drive file="$RUNNER_TEMP/wrt-hil-usb.img",format=raw,if=virtio             -netdev user,id=n0 -device virtio-net-pci,netdev=n0             > usb-out/qemu-serial.log 2>&1
+          qrc=$?
+          set -e
+          printf '%s\n' "$qrc" > usb-out/qemu.rc
+          python3 - <<'PY' > usb-out/verdict.json
+          import json,pathlib
+          s=pathlib.Path("usb-out/qemu-serial.log").read_text(errors="replace")
+          v={
+            "schema":"wrt-hil-host-usb-validated/v1",
+            "kit_sha256":"d6c09fff84f09c52f6df21e0102d355439777c71ef021da99bd79f981bc82751",
+            "usb_ready":"WRT_HIL_USB_READY=1" in s,
+            "manifest_ok":"WRT_HIL_USB_MANIFEST_OK=1" in s,
+            "userspace_ok":"WRT_HIL_USB_USERSPACE_OK=1" in s,
+            "serial_stack_ok":"WRT_HIL_USB_SERIAL_STACK_OK=1" in s,
+            "rdte_tools_ok":"WRT_HIL_USB_RDTE_TOOLS_OK=1" in s,
+            "authority_r1_read_only":"WRT_HIL_USB_AUTHORITY=R1_READ_ONLY" in s,
+            "physical_write_authority":"DENIED_PREHIL"
+          }
+          v["passed"]=all(v[k] for k in ("usb_ready","manifest_ok","userspace_ok","serial_stack_ok","rdte_tools_ok","authority_r1_read_only"))
+          print(json.dumps(v,indent=2,sort_keys=True))
+          PY
+          cat usb-out/verdict.json
+          python3 - <<'PY'
+          import json
+          v=json.load(open("usb-out/verdict.json"))
+          if not v["passed"]: raise SystemExit("validated USB semantic verdict RED")
+          PY
+
+      - name: Upload validated USB image and evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-hil-host-usb-validated-${{ github.run_attempt }}
+          path: usb-out
+          if-no-files-found: error
+          retention-days: 30
+
+  windows-validated-kit:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download validated October 6 kit
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37420507066
+          name: wrt3200acm-hil-prep-kit-20261006
+          path: validated
+          github-token: ${{ github.token }}
+
+      - name: Verify and exercise exact shipped PowerShell surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force windows-evidence | Out-Null
+          $sidecar = Get-Content validated\SHA256.txt | Select-Object -First 1
+          if ($sidecar -notmatch '^([0-9a-f]{64})\s+(.+)$') { throw 'invalid SHA256 sidecar' }
+          $expected=$Matches[1]
+          $inner=Join-Path $PWD 'validated\wrt3200acm-hil-prep-kit-20261006.zip'
+          $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $inner).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'inner kit SHA256 mismatch' }
+          if ($actual -ne 'd6c09fff84f09c52f6df21e0102d355439777c71ef021da99bd79f981bc82751') { throw 'unexpected validated kit identity' }
+
+          $kit=Join-Path $env:RUNNER_TEMP 'wrt-validated-kit'
+          Expand-Archive -LiteralPath $inner -DestinationPath $kit -Force
+          & (Join-Path $kit 'scripts\Verify-Bundle.ps1')
+
+          $scripts=Get-ChildItem -LiteralPath $kit -Recurse -Filter *.ps1
+          if ($scripts.Count -lt 5) { throw 'expected packaged PowerShell helpers missing' }
+          foreach ($f in $scripts) {
+            $tokens=$null; $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count) { throw "$($f.FullName) parse errors: $($errors | Out-String)" }
+          }
+
+          $raw = & (Join-Path $kit 'scripts\Invoke-HilPreflight.ps1')
+          $d = $raw | ConvertFrom-Json
+          if ($d.schema -ne 'wrt-hil-arrival-preflight/v1') { throw 'preflight schema mismatch' }
+          if ($d.authority -ne 'R1_READ_ONLY') { throw 'preflight authority mismatch' }
+          if (-not $d.bundle_verified) { throw 'bundle did not verify inside Windows preflight' }
+          if ($d.dut_checks.Count -ne 0) { throw 'unexpected DUT interaction' }
+          if ($d.prohibited -notcontains 'sysupgrade') { throw 'mutation deny list incomplete' }
+          $d | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 windows-evidence\preflight.json
+          [ordered]@{
+            schema='wrt-hil-windows-validated-kit/v1'
+            kit_sha256=$actual
+            bundle_verified=$true
+            powershell_helpers=$scripts.Count
+            preflight_authority=$d.authority
+            dut_interactions=$d.dut_checks.Count
+            physical_write_authority='DENIED_PREHIL'
+            passed=$true
+          } | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 windows-evidence\verdict.json
+
+      - name: Upload Windows validation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-hil-windows-validated-${{ github.run_attempt }}
+          path: windows-evidence
+          if-no-files-found: error
+          retention-days: 30
