@@ -107,6 +107,42 @@ def validate_discovery_materialization(services: dict, target_version: str):
         return "direct"
     raise RuntimeError(f"unsupported FolioRelay target version {target_version!r}")
 
+def validate_host_path_requirements(control: dict, target_version: str):
+    runtime=control.get("runtime") or {}
+    requirements=runtime.get("host_path_requirements")
+    if not isinstance(requirements,list):
+        raise RuntimeError("Foundry control missing host_path_requirements")
+    expected={
+        ROOT+"/control":("directory","0710" if target_version in AVAHI_TARGETS else "0700"),
+        ROOT+"/artifacts":("directory","0700"),
+        ROOT+"/cups-state":("directory","0755"),
+        ROOT+"/cups-spool":("directory","0755"),
+        ROOT+"/secrets":("directory","0700"),
+        TOKEN_PATH:("file","0400"),
+    }
+    by_path={}
+    for item in requirements:
+        if not isinstance(item,dict):
+            raise RuntimeError("host_path_requirements entries must be objects")
+        path=item.get("path")
+        if not isinstance(path,str) or path in by_path:
+            raise RuntimeError("host_path_requirements path missing or duplicated")
+        by_path[path]=item
+    if set(by_path)!=set(expected):
+        raise RuntimeError("Foundry host path set drifted")
+    for path,(kind,mode) in expected.items():
+        item=by_path[path]
+        if item.get("kind")!=kind or item.get("mode")!=mode:
+            raise RuntimeError(f"Foundry host path kind/mode drifted: {path}")
+        if item.get("uid")!=10001 or item.get("gid")!=10001:
+            raise RuntimeError(f"Foundry host path ownership drifted: {path}")
+    return [by_path[item["path"]] for item in requirements]
+
+def middleware_mode(mode: str) -> str:
+    if not isinstance(mode,str) or not re.fullmatch(r"0?[0-7]{3}",mode):
+        raise RuntimeError(f"invalid host path mode {mode!r}")
+    return mode[-3:]
+
 def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
     control = load_json(root / "control.json")
     compose = load_json(root / "compose.json")
@@ -145,6 +181,7 @@ def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
     }
     if not expected.issubset(required):
         raise RuntimeError("required FolioRelay oracle contract drifted")
+    validate_host_path_requirements(control,target_version)
     return control, compose
 
 def multipart_upload(host, port, tls, username, password, remote_path, content, mode, timeout):
@@ -559,17 +596,23 @@ def main():
         ds=call("pool.dataset.create",[{"name":DATASET,"type":"FILESYSTEM","share_type":"GENERIC","comments":"SemperSupra disposable FolioRelay T6 fixture"}])
         if not isinstance(ds,dict) or ds.get("id")!=DATASET: raise RuntimeError("dataset identity mismatch")
         dataset_owned=True
-        dirs=[
-            (ROOT+"/control","710",10001),(ROOT+"/artifacts","700",10001),(ROOT+"/cups-state","755",10001),(ROOT+"/cups-spool","755",10001),
-            (ROOT+"/secrets","700",10001),(OBSERVER_DIR,"755",0),
-        ]
-        for path,mode,uid in dirs:
+        host_requirements=validate_host_path_requirements(control,a.target_version)
+        for item in host_requirements:
+            if item["kind"]!="directory":
+                continue
+            path=item["path"]; mode=middleware_mode(item["mode"]); uid=item["uid"]; gid=item["gid"]
             d=call("filesystem.mkdir",[{"path":path,"options":{"mode":mode,"raise_chmod_error":True}}])
             if not isinstance(d,dict) or d.get("path")!=path: raise RuntimeError(f"mkdir failed: {path}")
-            j=call("filesystem.setperm",[{"path":path,"uid":uid,"gid":uid,"mode":mode,"options":{"stripacl":True,"recursive":False,"traverse":False}}])
+            j=call("filesystem.setperm",[{"path":path,"uid":uid,"gid":gid,"mode":mode,"options":{"stripacl":True,"recursive":False,"traverse":False}}])
             if isinstance(j,int): wait_job(j,f"setperm {path}")
-        tj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,TOKEN_PATH,TOKEN,0o400,a.timeout); wait_job(tj,"token upload")
-        j=call("filesystem.setperm",[{"path":TOKEN_PATH,"uid":10001,"gid":10001,"mode":"400","options":{"stripacl":True,"recursive":False,"traverse":False}}])
+        d=call("filesystem.mkdir",[{"path":OBSERVER_DIR,"options":{"mode":"755","raise_chmod_error":True}}])
+        if not isinstance(d,dict) or d.get("path")!=OBSERVER_DIR: raise RuntimeError(f"mkdir failed: {OBSERVER_DIR}")
+        j=call("filesystem.setperm",[{"path":OBSERVER_DIR,"uid":0,"gid":0,"mode":"755","options":{"stripacl":True,"recursive":False,"traverse":False}}])
+        if isinstance(j,int): wait_job(j,f"setperm {OBSERVER_DIR}")
+        token_req=next(item for item in host_requirements if item["path"]==TOKEN_PATH)
+        token_mode=middleware_mode(token_req["mode"])
+        tj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,TOKEN_PATH,TOKEN,int(token_req["mode"],8),a.timeout); wait_job(tj,"token upload")
+        j=call("filesystem.setperm",[{"path":TOKEN_PATH,"uid":token_req["uid"],"gid":token_req["gid"],"mode":token_mode,"options":{"stripacl":True,"recursive":False,"traverse":False}}])
         if isinstance(j,int): wait_job(j,"token setperm")
         create=call("app.create",[{"app_name":EXPECTED_APP_NAME,"custom_app":True,"custom_compose_config":compose}])
         if not isinstance(create,int): raise RuntimeError("app.create did not return job")
