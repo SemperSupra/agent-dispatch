@@ -50,8 +50,8 @@ jobs:
             "Test-Path -LiteralPath 'C:\WinBot\.provisioned'",
             "C:\WinBot\.api_token",
             'RNGCryptoServiceProvider',
-            "SetEnvironmentVariable('WINBOT_API_TOKEN',$token,'Machine')",
-            "Get-ScheduledTask -TaskName $taskName",
+            "SetEnvironmentVariable('WINBOT_API_TOKEN'",
+            'Get-ScheduledTask -TaskName $taskName',
             'task_preexisting = $taskPreexisting',
             'rehydration-stage=',
             'AuthorityTaskPreexisting',
@@ -62,8 +62,8 @@ jobs:
           }
           if(($text -split 'function Invoke-WorkCellAuthorityRehydration').Count -ne 2){throw 'expected exactly one rehydration helper'}
           if($text -match 'api_token\s*=\s*[''"][0-9a-fA-F]{32,}'){throw 'static API token literal detected'}
-          if(-not $priorText.Contains("Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue")){throw 'prior destructive task replacement invariant not found'}
-          if($text.Contains("Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue")){throw 'v2 still destructively unregisters a preexisting API task'}
+          if(-not $priorText.Contains('Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue')){throw 'prior destructive task replacement invariant not found'}
+          if($text.Contains('Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue')){throw 'v2 still destructively unregisters a preexisting API task'}
           Write-Host 'classification=SUPPORTED'
           Write-Host "control_blob=$env:CONTROL_BLOB_SHA"
           Write-Host 'reuse_preexisting_task=true'
