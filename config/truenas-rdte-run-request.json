@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v1-003-console-idle-deadline",
-  "version": "26.0.0-BETA.3",
-  "rung": "t3",
-  "compute_fixture": "vm-v1",
-  "authority_issue": 396,
-  "consumer_authority_issue": 426,
-  "purpose": "Re-run the exact TrueNAS 26.0.0-BETA.3 Linux VM V1 fixture after rep 002 reached the supported VM console oracle but the observer let its 8-second per-read websocket timeout escape the intended 180-second guest deadline. Preserve the pinned CirrOS 0.6.3 digest, deterministic NoCloud nonce seed, supported filesystem.put staging, RAW/CDROM native devices, vm.start, supported /websocket/shell exact-nonce oracle, and zero-residue cleanup. The only causal observer delta is merged #316: idle per-read TimeoutError is transient until the overall deadline, with bounded console-tail diagnostics retained. Nested KVM, Firecracker and Windows remain outside this rep."
+  "request_id": "tn-25-10-7-t6-foliorelay-003-avahi-f0-f5",
+  "version": "25.10.7",
+  "rung": "t6",
+  "product": "foliorelay",
+  "authority_issue": 410,
+  "consumer_authority_issue": 273,
+  "purpose": "Run the exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 using the earned cooperative-Avahi design after row 001/diagnostic row 002 localized the prior discovery failure to competing UDP/5353 ownership. Require exact Foundry authority 1ae18cde62d8ff4bb68f22146b27fd72dcc7e1b9, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d and CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814, exact 25.x Avahi command/user/read-only system-bus coupling, independent same-instance DNS-SD observation, PDF/URF exact-source preservation, F4 second-plan NOOP with WAIT/fail-closed policy, F5 retain-data delete/reinstall persistence, and final zero residue. No support is inherited from BETA.3 or generic T0-T5. Acceptance requires a retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt."
 }
