@@ -16,6 +16,26 @@ def fixture():
         "windows_product_key_must_not_be_embedded":True,
         "guest_oracle_required_before_backend_admission":True,
       },
+      "fixtures":{
+        "linux_v1":{
+          "id":"cirros-0.6.3-x86_64-nocloud-serial-nonce",
+          "release":"0.6.3",
+          "architecture":"x86_64",
+          "source":{
+            "url":"https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
+            "sha256":"7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b",
+            "checksum_url":"https://download.cirros-cloud.net/0.6.3/SHA256SUMS",
+          },
+          "datasource":"nocloud",
+          "user_data_contract":"executable-shell",
+          "oracle":{
+            "transport":"serial-console",
+            "nonce_prefix":"AGENT_DISPATCH_V1_NONCE=",
+            "must_match_injected_nonce":True,
+          },
+          "claim_boundary":"x",
+        }
+      },
       "truenas":{},
       "proxmox":{
         "9.2-1":{
@@ -61,6 +81,16 @@ class Tests(unittest.TestCase):
     def test_runtime_claim_fails_closed(self):
         p=self.profile()
         p["truenas"]["25.10.7"]["windows11"]["runtime_status"]="PASS"
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_linux_v1_fixture_digest_fails_closed(self):
+        p=self.profile()
+        p["fixtures"]["linux_v1"]["source"]["sha256"]="0"*64
+        with self.assertRaises(ProfileError):
+            validate(p)
+    def test_linux_v1_nonce_oracle_fails_closed(self):
+        p=self.profile()
+        p["fixtures"]["linux_v1"]["oracle"]["must_match_injected_nonce"]=False
         with self.assertRaises(ProfileError):
             validate(p)
     def test_target_growth_fails_closed(self):
