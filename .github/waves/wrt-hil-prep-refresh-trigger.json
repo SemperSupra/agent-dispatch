@@ -1,15 +1,23 @@
 {
   "schema": "wrt-hil-prep-refresh-trigger/v1",
   "date": "2026-10-06",
-  "purpose": "Rebuild the self-contained HIL kit after authoritative R1 collector sync and staged R2/R3 control-tool convergence.",
+  "purpose": "Refresh HIL kit after green dual-DUT parity and R1 script fixes; prove BusyBox/source checks plus synthetic fail-closed R1→R2→R3 chain before packaging.",
   "payload_checks": {
     "authoritative_r1_collector_synced": true,
     "serial_sensor_exact": true,
     "r2_admission_exact": true,
     "r2_plan_present": true,
     "r2_reducer_exact": true,
-    "r3_binder_exact": true
+    "r3_binder_exact": true,
+    "busybox_collector_exec": true,
+    "serial_no_transmit_lint": true,
+    "r1_to_r3_synthetic_chain": true,
+    "negative_r2_blocks_r3": true
   },
   "physical_write_authority": "DENIED_PREHIL",
-  "note": "Packaging refresh only; no DUT interaction."
+  "note": "Packaging/validation refresh only; no DUT interaction and no R2/R3 physical promotion.",
+  "attempt": 2,
+  "prior_refresh_run": 37408165053,
+  "parity_green_run": 37419200950,
+  "parity_green_artifact": 11392572165
 }
