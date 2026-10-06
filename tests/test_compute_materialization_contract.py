@@ -49,7 +49,19 @@ def registry():
                             "id": "truenas-vm-libvirt",
                             "source_api_family": "v26_0_0",
                             "preferred": True,
-                            "required_methods": ["vm.query", "vm.create"],
+                            "required_methods": [
+                                "vm.query", "vm.create", "vm.update", "vm.delete", "vm.status",
+                                "vm.start", "vm.stop", "vm.restart", "vm.virtualization_details",
+                                "pool.dataset.query", "system.product_type", "system.feature_enabled",
+                            ],
+                            "required_device_methods": [
+                                "vm.device.query", "vm.device.create", "vm.device.update", "vm.device.delete",
+                            ],
+                            "public_entitlement": {
+                                "product_type_method": "system.product_type",
+                                "feature_method": "system.feature_enabled",
+                                "enterprise_feature": "VMS",
+                            },
                         }],
                     },
                 ]
