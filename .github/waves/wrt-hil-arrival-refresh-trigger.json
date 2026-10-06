@@ -1,0 +1,22 @@
+{
+  "schema": "wrt-hil-arrival-refresh-trigger/v1",
+  "date": "2026-10-06",
+  "wave": 1,
+  "purpose": "Build and boot-test a HIL-host USB from the exact validated 76-file kit while independently validating the exact shipped PowerShell surface on Windows.",
+  "validated_kit": {
+    "run_id": 37420507066,
+    "artifact_id": 11392264031,
+    "inner_sha256": "d6c09fff84f09c52f6df21e0102d355439777c71ef021da99bd79f981bc82751"
+  },
+  "prior_evidence": {
+    "dual_dut_parity_run": 37419200950,
+    "target_composition_run": 37400039886
+  },
+  "resource_limits": {
+    "jobs": 2,
+    "heavy_jobs": 1,
+    "runner_minutes_target": 20
+  },
+  "physical_write_authority": "DENIED_PREHIL",
+  "physical_dut_interaction": false
+}
