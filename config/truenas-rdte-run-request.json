@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t3-compute-vm-v0-001-public-entitlement",
+  "request_id": "tn-26-beta3-t3-compute-vm-v0-002-name-device-schema",
   "version": "26.0.0-BETA.3",
   "rung": "t3",
   "compute_fixture": "vm-v0",
   "authority_issue": 396,
   "consumer_authority_issue": 426,
-  "purpose": "Exercise the exact native TrueNAS 26.0.0-BETA.3 VM V0 materialization fixture after cross-platform container C0 parity is proven. Require the BETA.3 adapter's public entitlement gate via system.product_type plus system.feature_enabled(VMS), then prove source/capability-gated vm.* create/update/readback and exact-owned ZVOL device create/update/delete with independent dataset observation and zero-residue cleanup. This is strictly pre-guest: no guest boot, nonce, nested KVM, Firecracker, or Windows 11 claim is permitted. No V0 acceptance is inferred without SUPPORTED plus oracleSatisfied=true and v0_oracle_satisfied=true with zero owned residue."
+  "purpose": "Re-run the exact native TrueNAS 26.0.0-BETA.3 VM V0 materialization fixture after rep 001 reached vm.create and falsified the fixture name. The causal repair uses exact-source-valid VM name rdtecomputevmv0, enforces the BETA.3 VM name regex locally, and removes the unsupported DISK attributes.boot field found by source-level red-team before mutation. Preserve the public entitlement gate, exact-owned ZVOL/device lifecycle, independent dataset observation, and zero-residue cleanup. No guest boot, nonce, nested KVM, Firecracker, or Windows claim is permitted."
 }
