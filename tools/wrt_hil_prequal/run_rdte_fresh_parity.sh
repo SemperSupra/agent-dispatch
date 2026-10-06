@@ -66,7 +66,7 @@ def t(n): return (o/n).read_text(errors="replace") if (o/n).exists() else ""
 def one(dut, expect_controller):
     s=t(f"{dut}-standalone.log")
     return {
-      "radio": "Interface " in s,
+      "radio": "\\tInterface wlan" in s,
       "hostapd_process": "/usr/sbin/hostapd" in s,
       "transport": "ieee1905_transport" in s,
       "agent": "beerocks_agent" in s,
@@ -111,8 +111,8 @@ dual={
  "b_controller_absent": "beerocks_controller" not in b,
  "a_peer_ping": "RDTE_PEER_PING=1" in a,
  "b_peer_ping": "RDTE_PEER_PING=1" in b,
- "a_radio": "Interface " in a,
- "b_radio": "Interface " in b
+ "a_radio": "\\tInterface wlan" in a,
+ "b_radio": "\\tInterface wlan" in b
 }
 dual["passed"]=dual["attempted"] and all(v for k,v in dual.items() if k not in ("attempted","passed"))
 v={
