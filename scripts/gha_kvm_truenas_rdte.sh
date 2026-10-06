@@ -769,6 +769,7 @@ PY
     python3 "$SCRIPT_DIR/truenas_compute_vm_probe.py" \
       --registry "$SCRIPT_DIR/../config/compute-materialization-targets.json" \
       --target-version "$VERSION" \
+      --name "rdtecomputevmv0" \
       --zvol-name "$DATA_POOL_NAME/rdte-compute-vm-v0" \
       --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
       "${MIDDLEWARE_TLS_ARG[@]}" \
