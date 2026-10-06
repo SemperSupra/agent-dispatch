@@ -1,3 +1,4 @@
+import json
 import pathlib
 import tempfile
 import unittest
@@ -9,7 +10,11 @@ class ComputeGuestSeedTests(unittest.TestCase):
     def test_seed_is_deterministic_and_serial_nonce_is_external(self):
         nonce = "rep001nonceABCDEF12"
         meta, user = render_seed(nonce, "rdte-v1-rep001")
-        self.assertEqual(meta, "instance-id: rdte-v1-rep001\nlocal-hostname: rdtev1\n")
+        self.assertEqual(
+            json.loads(meta),
+            {"instance-id": "rdte-v1-rep001", "local-hostname": "rdtev1"},
+        )
+        self.assertEqual(meta, '{"instance-id":"rdte-v1-rep001","local-hostname":"rdtev1"}\n')
         self.assertTrue(user.startswith("#!/bin/sh\nset -eu\n"))
         self.assertIn(PREFIX, user)
         self.assertIn(">/dev/ttyS0", user)
@@ -23,7 +28,11 @@ class ComputeGuestSeedTests(unittest.TestCase):
                 render_seed(bad, "rdte-v1-rep001")
 
     def test_v2_observation_seed_only_observes_nested_kvm_prerequisites(self):
-        _, user = render_v2_observation_seed("rep002nonceABCDEF12", "rdte-v2-rep002")
+        meta, user = render_v2_observation_seed("rep002nonceABCDEF12", "rdte-v2-rep002")
+        self.assertEqual(
+            json.loads(meta),
+            {"instance-id": "rdte-v2-rep002", "local-hostname": "rdtev2"},
+        )
         self.assertIn("[ -c /dev/kvm ]", user)
         self.assertIn("(vmx|svm)", user)
         self.assertIn("AGENT_DISPATCH_V2_KVM_PRESENT=", user)
