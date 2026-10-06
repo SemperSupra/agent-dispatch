@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-004-avahi-f0-f5",
-  "version": "25.10.7",
+  "request_id": "tn-25-04-2-6-t6-foliorelay-002-avahi-f0-f5",
+  "version": "25.04.2.6",
   "rung": "t6",
   "product": "foliorelay",
-  "authority_issue": 410,
+  "authority_issue": 423,
   "consumer_authority_issue": 273,
-  "purpose": "Run the exact FolioRelay F0-F5 qualification row on TrueNAS 25.10.7 using the earned cooperative-Avahi design after row 001/diagnostic row 002 localized the prior failure to competing UDP/5353 ownership. Require merged Foundry authority e44bc2271de4c2065c68a8f7db53034fff36b4c5, immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d and CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814 from signed publication run 37457117549/artifact 11410550658, exact 25.x Avahi command/user/read-only system-bus coupling, independent same-instance DNS-SD observation, PDF/URF exact-source preservation, F4 second-plan NOOP with WAIT/fail-closed policy, F5 retain-data delete/reinstall persistence, and final zero residue. No support is inherited from BETA.3 or generic T0-T5. Acceptance requires a retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt."
+  "purpose": "Stage the exact FolioRelay F0-F5 qualification row on TrueNAS 25.04.2.6 using the merged cooperative-Avahi product and publication-bound Foundry authority e44bc2271de4c2065c68a8f7db53034fff36b4c5. Require immutable control sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d and CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814 from signed publication run 37457117549/artifact 11410550658, exact 25.x Avahi command/user/read-only system-bus coupling, independent same-instance DNS-SD observation, PDF/URF exact-source preservation, F4 second-plan NOOP with WAIT/fail-closed policy, F5 retain-data delete/reinstall persistence, and final zero residue. No support is inherited from any other release. HOLD until every preceding exact FolioRelay row is terminal and accepted, this request is rebased/requalified against the then-current execution head, and the shared heavyweight slot is empty."
 }
