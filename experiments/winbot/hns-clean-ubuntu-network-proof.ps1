@@ -321,7 +321,7 @@ ethernets:
   if (-not $receipt.gates.outbound) { throw 'HNS-clean guest outbound oracle failed' }
   $receipt.status = 'PASS'
   $receipt.productionAdmission = $true
-
+}
 catch {
   $failure = $_
   $receipt.error = $_.Exception.Message

@@ -36,7 +36,7 @@ jobs:
           [Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
           if(@($errors).Count -gt 0){$errors|ForEach-Object{Write-Error $_.Message};throw 'discriminator parse failed'}
           $sha=(git hash-object $path).Trim()
-          if($sha -ne '4ecdbd8496c9cedb484ee7329ecbab692591ab5c'){throw "discriminator Git identity mismatch: $sha"}
+          if($sha -ne 'c197a214d42950870fd1ab82142b46bfe8bcd7d9'){throw "discriminator Git identity mismatch: $sha"}
 
       - name: Execute HNS-clean nested guest network proof
         shell: pwsh
