@@ -1,6 +1,7 @@
 import importlib.util
 import pathlib
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -32,6 +33,28 @@ class PassiveRunnerCensusTests(unittest.TestCase):
         cap = MOD._presence_capability("test", False)
         self.assertEqual(cap["classification"], "NEGATIVE_OBSERVATION")
         self.assertNotEqual(cap["classification"], "HARNESS_FAILURE")
+
+    def test_windows_hyperv_presence_remains_passive(self):
+        evidence = '{"HypervisorPresent":true,"GetVMHostPresent":true,"GetVMSwitchPresent":true,"VMMSPresent":true,"VMMSStatus":"Running"}'
+        with mock.patch.object(MOD.shutil, "which", return_value="powershell.exe"), \
+             mock.patch.object(MOD, "_run_text", return_value=evidence):
+            caps = MOD._windows_hyperv_capabilities()
+        self.assertEqual(len(caps), 1)
+        cap = caps[0]
+        self.assertEqual(cap["name"], "windows:hyperv-control-plane")
+        self.assertTrue(cap["observed"])
+        self.assertEqual(cap["classification"], "INCONCLUSIVE")
+        self.assertFalse(cap["exercised"])
+        self.assertFalse(cap["oracleSatisfied"])
+
+    def test_windows_hyperv_absence_is_negative_observation(self):
+        evidence = '{"HypervisorPresent":false,"GetVMHostPresent":false,"GetVMSwitchPresent":false,"VMMSPresent":false,"VMMSStatus":null}'
+        with mock.patch.object(MOD.shutil, "which", return_value="powershell.exe"), \
+             mock.patch.object(MOD, "_run_text", return_value=evidence):
+            cap = MOD._windows_hyperv_capabilities()[0]
+        self.assertFalse(cap["observed"])
+        self.assertEqual(cap["classification"], "NEGATIVE_OBSERVATION")
+        self.assertFalse(cap["oracleSatisfied"])
 
     def test_environment_is_allowlisted_not_dumped(self):
         receipt = MOD.build_receipt("test-runner")
