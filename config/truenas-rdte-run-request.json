@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-1-t6-garm-controller-f0-f5-001",
-  "version": "25.04.1",
+  "request_id": "tn-26-beta3-t6-garm-container-pre-b4-001",
+  "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "garm-controller-f0f5",
-  "authority_issue": 411,
-  "consumer_authority_issue": 282,
-  "purpose": "Run the final exact GARM controller generic Foundry F0-F5 matrix row on TrueNAS 25.04.1 under registered target authority 411 using merged Agent Dispatch consumer 5e97ed4af269f7848771801bd9de1485a3502790 and exact merged Foundry producer bfbf2158c3f679c3422e6035bdb67e7874a5c07a. BETA.3, 25.10.7, and 25.04.2.6 are independently accepted and matrix-promoted, with 25.04.2.6 promoted via Foundry #107 / merge b6e9bc91ebecc0a2c464fd25952a7dd7209e714b; do not inherit support. Require exact profile blob 800aca038ded29e6a91bfc4c1b1fe2d2199182e8 and middleware commit 74ab5a2d373be4097dece257d00e1086376333ba; exact GARM appliance/source/materialization identity; create/readback and HTTPS/config/db health; stop/start/update/redeploy persistence; F4 second-plan NOOP with WAIT/fail-closed ambiguity; F5 external-config retention across App delete/reinstall, post-reinstall NOOP, and final zero residue. No GitHub/JIT, physical TrueNAS, capacity, Container, or VM backend claim."
+  "product": "garm-provider-container-pre-b4",
+  "authority_issue": 396,
+  "consumer_authority_issue": 43,
+  "purpose": "Run the first exact BETA.3 GARM TrueNAS Container backend pre-B4 real-system capsule under registered target authority 396. Bind merged provider source ae9d3bf99a010fb962775a185941ed1b732f54c3 and merged Agent Dispatch consumer e7388b1e9e7b72a705d6c92b1fb6a9b41fc99efe. Require exact TrueNAS-26.0.0-BETA.3 / middleware 81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3; supported container.* create/readback; exact Ubuntu Noble image resolution; provider-owned root-dataset mountpoint; filesystem.put/stat staging of exact non-secret scripts plus one run-local 0600 credential file; observed init-wrapper and bootstrap-child markers; explicit credential-file deletion; persisted init/initenv scrub to /sbin/init plus empty environment; supported stop/delete; and final named-container absence. This is B0-B3/B5 pre-B4 evidence only. Do not claim callback/JIT, GitHub registration, runtime admission, per-runner memory isolation, Docker/container-actions, physical TrueNAS readiness, or capacity promotion."
 }
