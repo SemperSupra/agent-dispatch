@@ -18,7 +18,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-controller-f0f5|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-controller-f0f5|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|garm-provider-container-pre-b4|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--container-fixture-dir DIR] [--container-fixture-producer SHA] [--session-manifest FILE]"
 }
 
 OUT=""
@@ -36,6 +36,8 @@ G4_FIXTURE_DIR=""
 G4_FIXTURE_PRODUCER=""
 G5_MATRIX_DIR=""
 G5_MATRIX_PRODUCER=""
+CONTAINER_FIXTURE_DIR=""
+CONTAINER_FIXTURE_PRODUCER=""
 SESSION_MANIFEST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +57,8 @@ while [[ $# -gt 0 ]]; do
     --g4-fixture-producer) G4_FIXTURE_PRODUCER="$2"; shift 2 ;;
     --g5-matrix-dir) G5_MATRIX_DIR="$2"; shift 2 ;;
     --g5-matrix-producer) G5_MATRIX_PRODUCER="$2"; shift 2 ;;
+    --container-fixture-dir) CONTAINER_FIXTURE_DIR="$2"; shift 2 ;;
+    --container-fixture-producer) CONTAINER_FIXTURE_PRODUCER="$2"; shift 2 ;;
     --session-manifest) SESSION_MANIFEST="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -75,7 +79,7 @@ if [[ "$RUNG" == "t6" ]]; then
   if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "garm-controller-f0f5" ]]; then
     [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
   fi
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-controller-f0f5" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-controller-f0f5" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "garm-provider-container-pre-b4" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
     [[ -n "$G2_FIXTURE_DIR" && -d "$G2_FIXTURE_DIR" ]] || { echo "garm-provider-g2 requires --g2-fixture-dir" >&2; exit 2; }
     [[ "$G2_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g2 requires exact --g2-fixture-producer SHA" >&2; exit 2; }
@@ -88,6 +92,10 @@ if [[ "$RUNG" == "t6" ]]; then
     [[ -n "$G4_FIXTURE_DIR" && -d "$G4_FIXTURE_DIR" ]] || { echo "garm-provider-g4 requires --g4-fixture-dir" >&2; exit 2; }
     [[ "$G4_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g4 requires exact --g4-fixture-producer SHA" >&2; exit 2; }
     G4_FIXTURE_DIR="$(realpath "$G4_FIXTURE_DIR")"
+  elif [[ "$T6_PRODUCT" == "garm-provider-container-pre-b4" ]]; then
+    [[ -n "$CONTAINER_FIXTURE_DIR" && -d "$CONTAINER_FIXTURE_DIR" ]] || { echo "garm-provider-container-pre-b4 requires --container-fixture-dir" >&2; exit 2; }
+    [[ "$CONTAINER_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-container-pre-b4 requires exact --container-fixture-producer SHA" >&2; exit 2; }
+    CONTAINER_FIXTURE_DIR="$(realpath "$CONTAINER_FIXTURE_DIR")"
   elif [[ "$T6_PRODUCT" == "garm-provider-g5" ]]; then
     [[ -n "$G5_MATRIX_DIR" && -d "$G5_MATRIX_DIR" ]] || { echo "garm-provider-g5 requires --g5-matrix-dir" >&2; exit 2; }
     [[ "$G5_MATRIX_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g5 requires exact --g5-matrix-producer SHA" >&2; exit 2; }
@@ -340,6 +348,9 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS GARM provider G4 client"
       command -v docker >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: docker"
       command -v openssl >/dev/null 2>&1 || fail_evidence ENVIRONMENT_FAILURE preflight "missing prerequisite: openssl"
+    elif [[ "$T6_PRODUCT" == "garm-provider-container-pre-b4" ]]; then
+      [[ -f "$SCRIPT_DIR/truenas_middleware_garm_container_pre_b4_probe.py" ]] ||
+        fail_evidence HARNESS_FAILURE preflight "missing TrueNAS GARM Container pre-B4 client"
     elif [[ "$T6_PRODUCT" == "garm-provider-g5" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_garm_provider_g5_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS GARM provider G5 client"
@@ -1054,6 +1065,13 @@ elif [[ "$T6_PRODUCT" == "garm-provider-g4" ]]; then
     --fixture-dir "$G4_FIXTURE_DIR" \
     --fixture-producer-commit "$G4_FIXTURE_PRODUCER" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 >/dev/null 2>&1 || true
+elif [[ "$T6_PRODUCT" == "garm-provider-container-pre-b4" ]]; then
+  python3 "$SCRIPT_DIR/truenas_middleware_garm_container_pre_b4_probe.py" \
+    --host 127.0.0.1 --http-port "$HTTP_PORT" --middleware-port "$MIDDLEWARE_PORT" \
+    --password-file "$PASSWORD_FILE" --pool "$DATA_POOL_NAME" \
+    --fixture-dir "$CONTAINER_FIXTURE_DIR" \
+    --fixture-producer-commit "$CONTAINER_FIXTURE_PRODUCER" \
+    --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 600 --state-timeout 180 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "garm-provider-g5" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_provider_g5_probe.py" \
     --host 127.0.0.1 --http-port "$HTTP_PORT" --https-port "$HTTPS_PORT" \
@@ -1137,6 +1155,8 @@ elif [[ "$T6_PRODUCT" == "garm-provider-g3" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact packaged GARM TrueNAS provider CreateInstance realized the source-derived fixed runner App profile, exact Compose read-back and provider Get/List reconciliation passed, supported middleware moved the experiment App inactive, provider DeleteInstance retired it, and GitHub/JIT/private workload/physical/capacity claims remained unexercised"
 elif [[ "$T6_PRODUCT" == "garm-provider-g4" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact packaged GARM TrueNAS provider realized two source-derived runner Apps concurrently, exact Compose and fresh-process Get/List reconciliation passed for both, active deletion failed closed, both retirement orders reached empty inventory with zero residue, and GitHub/JIT/private workload/physical/capacity claims remained unexercised"
+elif [[ "$T6_PRODUCT" == "garm-provider-container-pre-b4" ]]; then
+  write_receipt SUPPORTED true foundry-materialization "exact BETA.3 GARM Container pre-B4 fixture completed supported container.* creation, rootfs staging, bootstrap execution markers, one-shot credential-file consumption, desired init/env scrub, stop/delete, and zero-residue absence; callback/JIT/runtime admission remain separate gates"
 elif [[ "$T6_PRODUCT" == "garm-provider-g5" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact G5 TrueNAS source-matrix row matched the RDTE target and the fixed packaged provider completed the capacity-one Create/read-back/Get/List/inactive/Delete/absence/empty-inventory/zero-residue lifecycle without runtime support inheritance or GitHub/JIT/private/physical/capacity claims"
 elif [[ "$T6_PRODUCT" == "garm-controller-f0f5" ]]; then

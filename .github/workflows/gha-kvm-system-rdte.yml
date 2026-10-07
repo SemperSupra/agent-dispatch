@@ -52,6 +52,7 @@ on:
           - garm-provider-g3
           - garm-provider-g4
           - garm-provider-g5
+          - garm-provider-container-pre-b4
           - official-catalog
           - foliorelay
       proxmox_compute_fixture:
@@ -184,7 +185,7 @@ jobs:
             fi
             truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
             truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
-            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "official-catalog" or . == "foliorelay")' "$RUN_REQUEST_PATH")"
+            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay")' "$RUN_REQUEST_PATH")"
             truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
             python3 scripts/truenas_rdte_target.py \
               --registry config/truenas-rdte-targets.json \
@@ -213,7 +214,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate public-safe contract
-        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_garm_provider_g2.py tests/test_truenas_garm_provider_g3.py tests/test_truenas_garm_provider_g4.py tests/test_truenas_garm_provider_g5.py tests/test_truenas_garm_controller_f0_f5.py tests/test_truenas_t6_official_catalog_control.py tests/test_truenas_t6_foliorelay_control.py tests/test_truenas_rdte_target.py
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_garm_provider_g2.py tests/test_truenas_garm_provider_g3.py tests/test_truenas_garm_provider_g4.py tests/test_truenas_garm_provider_g5.py tests/test_truenas_garm_container_pre_b4.py tests/test_truenas_garm_controller_f0_f5.py tests/test_truenas_t6_official_catalog_control.py tests/test_truenas_t6_foliorelay_control.py tests/test_truenas_rdte_target.py
 
   foundry-t6-control:
     needs: [changes, contract]
@@ -317,6 +318,15 @@ jobs:
     permissions:
       contents: read
 
+  provider-container-pre-b4-fixture:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4'
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-container-b0-b5-fixture.yml@ae9d3bf99a010fb962775a185941ed1b732f54c3
+    with:
+      provider_ref: ae9d3bf99a010fb962775a185941ed1b732f54c3
+    permissions:
+      contents: read
+
   qemu-t3-topology:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.qemu_topology == 'true'
@@ -407,7 +417,7 @@ jobs:
       group: agent-dispatch-heavyweight-rdte
       queue: max
       cancel-in-progress: false
-    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix]
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
     if: >-
       always() &&
       needs.contract.result == 'success' &&
@@ -424,7 +434,8 @@ jobs:
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g2' && needs['provider-g2-fixtures'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g3' && needs['provider-g3-fixture'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g4' && needs['provider-g4-fixture'].result == 'success') ||
-        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g5' && needs['provider-g5-runner-fixture'].result == 'success' && needs['provider-g5-version-matrix'].result == 'success')
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g5' && needs['provider-g5-runner-fixture'].result == 'success' && needs['provider-g5-version-matrix'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4' && needs['provider-container-pre-b4-fixture'].result == 'success')
       )
     runs-on: ubuntu-26.04
     timeout-minutes: 50
@@ -498,6 +509,12 @@ jobs:
         with:
           name: garm-provider-truenas-g5-version-matrix
           path: ${{ runner.temp }}/gha-kvm-system-rdte/g5-matrix
+      - name: Download exact GARM Container pre-B4 fixture
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-container-pre-b4-fixture
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/container-pre-b4-fixture
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
@@ -533,6 +550,12 @@ jobs:
                 --t6-product "garm-provider-g4"
                 --g4-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/g4-fixture"
                 --g4-fixture-producer "e5fc7c50780de54f7579f64990c87b2e16482613"
+              )
+            elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-container-pre-b4" ]]; then
+              args+=(
+                --t6-product "garm-provider-container-pre-b4"
+                --container-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/container-pre-b4-fixture"
+                --container-fixture-producer "ae9d3bf99a010fb962775a185941ed1b732f54c3"
               )
             elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-g5" ]]; then
               args+=(
