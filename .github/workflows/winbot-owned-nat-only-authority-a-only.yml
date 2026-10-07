@@ -183,7 +183,7 @@ jobs:
               "ProvisionFailureDnsReady",
               "ProvisionFailureTlsHostReady",
               "authority_readiness_path",
-              "WinBot-RDTE-NAT-",
+              "$ownedNatName = 'WbNat-' + $ownedNatHash.Substring(0,20)",
               "New-NetNat -Name $ownedNatName",
               "network_provider = 'deterministic-netnat'",
               "deterministic_nat_absent",
