@@ -190,7 +190,35 @@ def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
     if not expected.issubset(required):
         raise RuntimeError("required FolioRelay oracle contract drifted")
     validate_host_path_requirements(control,target_version)
+    validate_management_transport(control, services)
     return control, compose
+
+def validate_management_transport(control: dict, services: dict) -> str:
+    runtime=control.get("runtime") or {}
+    scheme=(runtime.get("management_scheme") or "http").lower()
+    if scheme=="http":
+        return scheme
+    if scheme!="https":
+        raise RuntimeError(f"unsupported management scheme {scheme!r}")
+    if runtime.get("management_tls_root")!=ROOT+"/tls":
+        raise RuntimeError("HTTPS management TLS root drifted")
+    if runtime.get("management_tls_state")!="/var/lib/foliorelay-tls":
+        raise RuntimeError("HTTPS management TLS state target drifted")
+    required=set(control.get("required_oracles") or [])
+    for oracle in ("management-tls-ready","management-tls-identity-persistent"):
+        if oracle not in required:
+            raise RuntimeError(f"HTTPS control missing required oracle {oracle}")
+    tls_root=runtime["management_tls_root"]
+    tls_target=runtime["management_tls_state"]
+    control_service=services.get("control") or {}
+    mounts=[m for m in (control_service.get("volumes") or []) if isinstance(m,dict)]
+    if not any(m.get("source")==tls_root and m.get("target")==tls_target and m.get("read_only") is not True for m in mounts):
+        raise RuntimeError("HTTPS control missing writable dedicated TLS mount")
+    for service_name in ("cups","discovery"):
+        for mount in (services.get(service_name) or {}).get("volumes") or []:
+            if isinstance(mount,dict) and (mount.get("source")==tls_root or mount.get("target")==tls_target):
+                raise RuntimeError(f"{service_name} must not receive management TLS state")
+    return scheme
 
 def multipart_upload(host, port, tls, username, password, remote_path, content, mode, timeout):
     boundary = "----semper-supra-foliorelay-t6"
