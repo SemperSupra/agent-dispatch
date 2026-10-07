@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-garm-controller-f0-f5-001",
+  "request_id": "tn-25-10-7-t6-garm-controller-f0-f5-002-authority-corrected",
   "version": "25.10.7",
   "rung": "t6",
   "product": "garm-controller-f0f5",
   "authority_issue": 410,
   "consumer_authority_issue": 282,
-  "purpose": "Run the corrected exact GARM controller generic Foundry F0-F5 matrix row on TrueNAS 25.10.7 under registered target authority 410 using merged Agent Dispatch consumer 5e97ed4af269f7848771801bd9de1485a3502790 and exact merged Foundry producer bfbf2158c3f679c3422e6035bdb67e7874a5c07a. BETA.3 is independently accepted and matrix-promoted via Foundry #105 / merge 623d9aefb3c8d508c5461286ae6250ab67daf87e; do not inherit that support. Require exact profile blob 1320cc849a9cc1e7ff6bd78989fc0e4708397248 and middleware commit 8ede398839710e56893d88ce85088139d8fab18e; exact GARM appliance/source/materialization identity; create/readback and HTTPS/config/db health; stop/start/update/redeploy persistence; F4 second-plan NOOP with WAIT/fail-closed ambiguity; F5 external-config retention across App delete/reinstall, post-reinstall NOOP, and final zero residue. No GitHub/JIT, physical TrueNAS, capacity, Container, or VM backend claim."
+  "purpose": "Run corrected rep 002 of the exact GARM controller generic Foundry F0-F5 matrix row on TrueNAS 25.10.7 under registered target authority 410 using merged Agent Dispatch consumer 5e97ed4af269f7848771801bd9de1485a3502790 and exact merged Foundry producer bfbf2158c3f679c3422e6035bdb67e7874a5c07a. BETA.3 is independently accepted and matrix-promoted via Foundry #105 / merge 623d9aefb3c8d508c5461286ae6250ab67daf87e; do not inherit that support. Require exact profile blob 1320cc849a9cc1e7ff6bd78989fc0e4708397248 and middleware commit 8ede398839710e56893d88ce85088139d8fab18e; exact GARM appliance/source/materialization identity; create/readback and HTTPS/config/db health; stop/start/update/redeploy persistence; F4 second-plan NOOP with WAIT/fail-closed ambiguity; F5 external-config retention across App delete/reinstall, post-reinstall NOOP, and final zero residue. No GitHub/JIT, physical TrueNAS, capacity, Container, or VM backend claim."
 }
