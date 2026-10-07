@@ -176,6 +176,14 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'Ubuntu VHD extraction failed'}
             $vhd=(Get-ChildItem -LiteralPath $imgDir -Recurse -Filter *.vhd | Select-Object -First 1).FullName
             if(-not $vhd){throw 'Ubuntu Azure VHD not found after extraction'}
+            $sparseFlag=[System.IO.FileAttributes]::SparseFile
+            if(((Get-Item -LiteralPath $vhd -Force).Attributes -band $sparseFlag) -ne 0){
+              & fsutil.exe sparse setflag $vhd 0 | Out-Null
+              if($LASTEXITCODE -ne 0){throw 'failed to clear sparse flag from extracted Ubuntu VHD'}
+            }
+            if(((Get-Item -LiteralPath $vhd -Force).Attributes -band $sparseFlag) -ne 0){
+              throw 'extracted Ubuntu VHD remains sparse after explicit de-sparsification'
+            }
             $vhdx=Join-Path $root 'ubuntu-probe.vhdx'
             Convert-VHD -Path $vhd -DestinationPath $vhdx -VHDType Dynamic -ErrorAction Stop
             if(-not (Test-VHD -Path $vhdx -ErrorAction Stop)){throw 'converted Ubuntu VHDX failed Test-VHD'}
