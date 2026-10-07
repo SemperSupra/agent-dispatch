@@ -52,6 +52,7 @@ on:
           - garm-provider-g3
           - garm-provider-g4
           - garm-provider-g5
+          - garm-provider-container-pre-b4
           - official-catalog
           - foliorelay
       proxmox_compute_fixture:
