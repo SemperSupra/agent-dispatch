@@ -71,6 +71,37 @@ def _cpu_model(system: str) -> str | None:
                 or _run_text(["sysctl", "-n", "hw.model"]))
     return platform.processor() or None
 
+def _windows_hyperv_capabilities() -> list[dict[str, Any]]:
+    """Passive Windows virtualization control-plane observations."""
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return [_presence_capability("windows:hyperv-control-plane", False)]
+
+    script = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$cs = Get-CimInstance Win32_ComputerSystem
+$vmhost = Get-Command Get-VMHost -ErrorAction SilentlyContinue
+$vmswitch = Get-Command Get-VMSwitch -ErrorAction SilentlyContinue
+$vmms = Get-Service vmms -ErrorAction SilentlyContinue
+[pscustomobject]@{
+  HypervisorPresent = [bool]$cs.HypervisorPresent
+  GetVMHostPresent = [bool]$vmhost
+  GetVMSwitchPresent = [bool]$vmswitch
+  VMMSPresent = [bool]$vmms
+  VMMSStatus = if ($vmms) { [string]$vmms.Status } else { $null }
+} | ConvertTo-Json -Compress
+"""
+    raw = _run_text([ps, "-NoProfile", "-NonInteractive", "-Command", script])
+    if not raw:
+        return [_presence_capability("windows:hyperv-control-plane", False)]
+    try:
+        evidence = json.loads(raw)
+    except json.JSONDecodeError:
+        return [_presence_capability("windows:hyperv-control-plane", False)]
+    present = bool(evidence.get("GetVMHostPresent") or evidence.get("GetVMSwitchPresent") or evidence.get("VMMSPresent"))
+    return [_presence_capability("windows:hyperv-control-plane", present, evidence, installed=None)]
+
+
 def _storage() -> list[dict[str, Any]]:
     raw = _run_text(["df", "-Pk"])
     rows: list[dict[str, Any]] = []
@@ -152,6 +183,8 @@ def build_receipt(requested_label: str | None = None) -> dict[str, Any]:
         capabilities.append(_presence_capability("linux:binfmt-misc", binfmt,
                                                  "/proc/sys/fs/binfmt_misc" if binfmt else None,
                                                  installed=None))
+    elif system == "Windows":
+        capabilities.extend(_windows_hyperv_capabilities())
     elif system == "Darwin":
         for framework in ("Hypervisor.framework", "Virtualization.framework", "Metal.framework"):
             p = pathlib.Path("/System/Library/Frameworks") / framework

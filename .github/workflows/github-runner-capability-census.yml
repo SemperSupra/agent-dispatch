@@ -1,7 +1,31 @@
 name: GitHub Runner Capability Census
+run-name: ${{ inputs.assignment_id && format('sidecar:{0}:{1}:{2}', inputs.workset_id, inputs.delegation_id, inputs.assignment_id) || 'GitHub Runner Capability Census' }}
 
 on:
   workflow_dispatch:
+    inputs:
+      workset_id:
+        description: "Public-safe Sidecar workset correlation"
+        required: false
+        type: string
+      delegation_id:
+        description: "Public-safe Sidecar delegation correlation"
+        required: false
+        type: string
+      assignment_id:
+        description: "Public-safe Sidecar assignment correlation"
+        required: false
+        type: string
+      include_windows_arm:
+        description: "Include passive Windows ARM census"
+        required: false
+        default: false
+        type: boolean
+      arm_only:
+        description: "Skip the baseline matrix for a bounded ARM census"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -18,6 +42,7 @@ jobs:
         run: python3 -m unittest -v tests/test_github_runner_census.py
 
   passive:
+    if: ${{ !inputs.arm_only }}
     needs: contract
     strategy:
       fail-fast: false
@@ -52,6 +77,32 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: runner-census-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-census/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-arm:
+    if: inputs.include_windows_arm
+    needs: contract
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run passive Windows ARM census
+        shell: pwsh
+        env:
+          CENSUS_REQUESTED_LABEL: windows-11-arm
+          CENSUS_REPOSITORY_VISIBILITY: public
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/runner-census" | Out-Null
+          python scripts/github_runner_census.py --label windows-11-arm --out "$env:RUNNER_TEMP/runner-census/receipt.json"
+      - name: Upload public-safe Windows ARM receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-census-windows-11-arm-${{ github.run_attempt }}
           path: ${{ runner.temp }}/runner-census/receipt.json
           if-no-files-found: error
           retention-days: 7
