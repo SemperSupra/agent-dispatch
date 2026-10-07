@@ -250,10 +250,17 @@ def multipart_upload(host, port, tls, username, password, remote_path, content, 
         raise RuntimeError("filesystem.put did not return job_id")
     return job_id
 
-def http_bytes(host, port, path, token=None, method="GET", timeout=8.0):
-    req=urllib.request.Request(f"http://{host}:{port}{path}", method=method)
+def http_bytes(host, port, path, token=None, method="GET", timeout=8.0, tls=False):
+    scheme="https" if tls else "http"
+    req=urllib.request.Request(f"{scheme}://{host}:{port}{path}", method=method)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
+    if tls:
+        ctx=ssl.create_default_context()
+        ctx.check_hostname=False
+        ctx.verify_mode=ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            return r.read()
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
@@ -272,11 +279,11 @@ def middleware_http_bytes(host, port, tls, path, timeout=8.0):
         raise RuntimeError(f"middleware download HTTP {resp.status}")
     return payload
 
-def wait_http(host, port, path, timeout_s):
+def wait_http(host, port, path, timeout_s, tls=False):
     deadline=time.monotonic()+timeout_s
     while time.monotonic()<deadline:
         try:
-            http_bytes(host,port,path,timeout=3)
+            http_bytes(host,port,path,timeout=3,tls=tls)
             return True
         except Exception:
             time.sleep(1)
