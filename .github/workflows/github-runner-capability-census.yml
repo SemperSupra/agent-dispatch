@@ -2,6 +2,12 @@ name: GitHub Runner Capability Census
 
 on:
   workflow_dispatch:
+    inputs:
+      include_windows_arm:
+        description: "Include passive Windows ARM census"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -52,6 +58,32 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: runner-census-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-census/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-arm:
+    if: inputs.include_windows_arm
+    needs: contract
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run passive Windows ARM census
+        shell: pwsh
+        env:
+          CENSUS_REQUESTED_LABEL: windows-11-arm
+          CENSUS_REPOSITORY_VISIBILITY: public
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/runner-census" | Out-Null
+          python scripts/github_runner_census.py --label windows-11-arm --out "$env:RUNNER_TEMP/runner-census/receipt.json"
+      - name: Upload public-safe Windows ARM receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runner-census-windows-11-arm-${{ github.run_attempt }}
           path: ${{ runner.temp }}/runner-census/receipt.json
           if-no-files-found: error
           retention-days: 7
