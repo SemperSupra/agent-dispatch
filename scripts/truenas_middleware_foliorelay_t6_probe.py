@@ -697,9 +697,11 @@ def main():
             if needed not in exact: raise RuntimeError(f"container identity mismatch: {needed[0]}")
         readback=call("app.config",[EXPECTED_APP_NAME])
         if canonical_sha256(readback)!=canonical_sha256(compose): raise RuntimeError("app.config readback drifted")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout): raise RuntimeError("control readyz failed")
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls): raise RuntimeError("control readyz failed")
+        if management_tls:
+            management_tls_initial=management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)
         tok=TOKEN.decode().strip()
-        printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
+        printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
         uuid=(printer.get("identity") or {}).get("printer_uuid"); uri=printer.get("public_uri")
         if not isinstance(uuid,str) or not uuid or uri!=PUBLIC_URI: raise RuntimeError("control canonical printer identity drifted")
         with tempfile.TemporaryDirectory() as td:
@@ -716,7 +718,7 @@ def main():
             expected={"application/pdf":sha256_bytes(pdf.read_bytes()),"image/urf":sha256_bytes(urf.read_bytes())}
             deadline=time.monotonic()+60; jobs=None
             while time.monotonic()<deadline:
-                jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+                jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
                 if len(jobs.get("items") or [])==2: break
                 time.sleep(1)
             items=jobs.get("items") or []
@@ -724,7 +726,7 @@ def main():
             for media,sha in expected.items():
                 matches=[x for x in items if x.get("media_type")==media]
                 if len(matches)!=1 or matches[0].get("artifact_sha256")!=sha or matches[0].get("substrate")!="cups": raise RuntimeError(f"{media} Inbox metadata drifted")
-                blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
+                blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout,tls=management_tls)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
         sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/foliorelay-observer",observer_bytes,0o555,a.timeout); wait_job(sj,"observer upload")
         observer_command=["--uuid",uuid,"--txt-uuid",dnssd_txt_uuid(uuid),"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]
@@ -784,12 +786,14 @@ def main():
             or (observed.get("srv_target") or "").rstrip(".").lower()!=PUBLIC_HOST.lower()
             or observed.get("srv_port")!=PUBLIC_IPP_PORT):
             raise RuntimeError("DNS-SD observer public URI identity mismatch")
-        before_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        before_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         stop=call("app.stop",[EXPECTED_APP_NAME]); wait_job(stop,"app.stop"); wait_state(EXPECTED_APP_NAME,"STOPPED")
         start=call("app.start",[EXPECTED_APP_NAME]); wait_job(start,"app.start"); wait_state(EXPECTED_APP_NAME,"RUNNING")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout): raise RuntimeError("readyz failed after restart")
-        after_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
-        after_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls): raise RuntimeError("readyz failed after restart")
+        if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
+            raise RuntimeError("management TLS identity drifted after restart")
+        after_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
+        after_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if (after_printer.get("identity") or {}).get("printer_uuid")!=uuid or after_jobs!=before_jobs: raise RuntimeError("identity or Inbox drifted after restart")
         # F4: second-plan from exact live read-back must be a stable NOOP.
         second_plan_app=query_optional("app.query",[["id","=",EXPECTED_APP_NAME]])
@@ -806,9 +810,11 @@ def main():
         rj=call("app.redeploy",[EXPECTED_APP_NAME])
         if not isinstance(rj,int): raise RuntimeError("app.redeploy did not return job")
         wait_job(rj,"app.redeploy"); wait_state(EXPECTED_APP_NAME,"RUNNING")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout): raise RuntimeError("readyz failed after update/redeploy")
-        redeploy_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
-        redeploy_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls): raise RuntimeError("readyz failed after update/redeploy")
+        if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
+            raise RuntimeError("management TLS identity drifted after update/redeploy")
+        redeploy_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
+        redeploy_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if (redeploy_printer.get("identity") or {}).get("printer_uuid")!=uuid or redeploy_jobs!=before_jobs:
             raise RuntimeError("identity or Inbox drifted after update/redeploy")
 
@@ -831,10 +837,12 @@ def main():
         wait_job(reinstall,"reinstall app.create"); reinstall_app=wait_state(EXPECTED_APP_NAME,"RUNNING")
         if canonical_sha256(call("app.config",[EXPECTED_APP_NAME]))!=canonical_sha256(compose):
             raise RuntimeError("reinstall app.config readback drifted")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout):
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls):
             raise RuntimeError("readyz failed after retain-data reinstall")
-        reinstall_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
-        reinstall_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
+            raise RuntimeError("management TLS identity drifted after retain-data reinstall")
+        reinstall_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
+        reinstall_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if ((reinstall_printer.get("identity") or {}).get("printer_uuid")!=uuid
             or reinstall_printer.get("public_uri")!=PUBLIC_URI
             or reinstall_jobs!=before_jobs):
@@ -844,7 +852,7 @@ def main():
             job_id=item.get("job_id")
             if not artifact_sha or not job_id:
                 raise RuntimeError("reinstalled Inbox item missing artifact identity")
-            blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{job_id}/artifact",tok,timeout=a.timeout)
+            blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{job_id}/artifact",tok,timeout=a.timeout,tls=management_tls)
             if sha256_bytes(blob)!=artifact_sha:
                 raise RuntimeError("retained artifact bytes drifted after reinstall")
         reinstall_live=call("app.config",[EXPECTED_APP_NAME])
