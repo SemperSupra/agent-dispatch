@@ -152,13 +152,15 @@ try {
   $receipt.gates.sourceHash = $true
 
   $qemu = Get-Command qemu-img.exe -ErrorAction SilentlyContinue
-  if (-not $qemu) {
+  if ($qemu) {
+    $qemuPath = $qemu.Source
+  } else {
     & choco.exe install qemu -y --no-progress
     if ($LASTEXITCODE -ne 0) { throw 'qemu installation failed' }
     $candidate = 'C:\Program Files\qemu\qemu-img.exe'
-    if (Test-Path $candidate) { $qemu = Get-Item $candidate } else { $qemu = Get-Command qemu-img.exe -ErrorAction Stop }
+    if (Test-Path $candidate) { $qemuPath = $candidate } else { $qemuPath = (Get-Command qemu-img.exe -ErrorAction Stop).Source }
   }
-  & $qemu.Source convert -p -f qcow2 -O vhdx -o subformat=dynamic $imagePath $osDisk
+  & $qemuPath convert -p -f qcow2 -O vhdx -o subformat=dynamic $imagePath $osDisk
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $osDisk)) { throw 'qemu-img conversion to VHDX failed' }
   Remove-Item -Force $imagePath
 
@@ -247,7 +249,7 @@ ethernets:
   }
   $receipt.gates.ssh = $true
 
-  $first = Invoke-Guest "cloud-init status --wait; printf 'OS='; . /etc/os-release; echo \$PRETTY_NAME; uname -r; ip -brief address; ip route; systemctl is-active ssh"
+  $first = Invoke-Guest 'cloud-init status --wait; printf "OS="; . /etc/os-release; echo "$PRETTY_NAME"; uname -r; ip -brief address; ip route; systemctl is-active ssh'
   $receipt.observations.firstBoot = $first
   $outbound = Invoke-Guest "getent hosts archive.ubuntu.com >/dev/null && curl -fsS --max-time 20 https://archive.ubuntu.com/ >/dev/null && echo outbound-ok"
   if ($outbound -match 'outbound-ok') { $receipt.gates.outbound = $true }
@@ -280,7 +282,7 @@ ss -ltn | egrep ':(22|3389|5901)\b'
   $receipt.observations.hypervDrivers = $drivers
   if ($drivers -match 'hv_vmbus' -and $drivers -match 'hv_storvsc' -and $drivers -match 'hv_netvsc') { $receipt.gates.hypervDrivers = $true }
 
-  $daemons = Invoke-Guest "for s in hv-kvp-daemon.service hv-vss-daemon.service hv-fcopy-daemon.service; do printf '%s=' \$s; systemctl is-active \$s || true; done"
+  $daemons = Invoke-Guest 'for s in hv-kvp-daemon.service hv-vss-daemon.service hv-fcopy-daemon.service; do printf "%s=" "$s"; systemctl is-active "$s" || true; done'
   $receipt.observations.integrationDaemons = $daemons
   if ($daemons -match 'hv-kvp-daemon.service=active' -and $daemons -match 'hv-vss-daemon.service=active') { $receipt.gates.integrationDaemons = $true }
 
@@ -295,7 +297,7 @@ ss -ltn | egrep ':(22|3389|5901)\b'
 from vncdotool import api
 from PIL import Image, ImageChops
 import time, sys, hashlib
-host = '$guestIp::5901'
+host = '$($guestIp)::5901'
 before = r'$beforePng'
 after = r'$afterPng'
 with api.connect(host, password=None, timeout=30) as c:
@@ -341,6 +343,7 @@ if not changed:
     Checkpoint-VM -VMName $vmName -SnapshotName 'production-oracle' | Out-Null
     Invoke-Guest "echo mutation | sudo tee /var/tmp/hv-qualification-mutation >/dev/null"
     Restore-VMSnapshot -VMName $vmName -Name 'production-oracle' -Confirm:$false
+    if ((Get-VM -Name $vmName).State -eq 'Off') { Start-VM -Name $vmName | Out-Null }
     if (-not (Wait-TcpPort -HostName $guestIp -Port 22 -TimeoutSeconds 420)) { throw 'SSH did not recover after checkpoint restore' }
     $cp = Invoke-Guest "test -f /var/tmp/hv-qualification-baseline && test ! -e /var/tmp/hv-qualification-mutation && echo checkpoint-ok"
     if ($cp -match 'checkpoint-ok') { $receipt.gates.productionCheckpoint = $true }

@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: agent-dispatch-hyperv-guest-rdte
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   qualify:
@@ -33,7 +33,7 @@ jobs:
           Get-VMHost | Format-List *
           Get-PSDrive C | Format-List Name,Used,Free
           Get-VMSwitch | Format-Table -AutoSize
-          if ((Get-PSDrive C).Free -lt 45GB) { throw 'Need at least 45 GiB free for image conversion/build' }
+          if ((Get-PSDrive C).Free -lt 16GB) { throw 'Need at least 16 GiB free for image conversion/build' }
 
       - name: Qualify Ubuntu guest
         shell: pwsh
