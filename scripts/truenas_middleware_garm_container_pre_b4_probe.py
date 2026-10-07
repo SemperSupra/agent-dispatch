@@ -97,6 +97,7 @@ def main() -> int:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--http-port", type=int, required=True)
     p.add_argument("--middleware-port", type=int, required=True)
+    p.add_argument("--tls", action="store_true")
     p.add_argument("--password-file", type=pathlib.Path, required=True)
     p.add_argument("--fixture-dir", type=pathlib.Path, required=True)
     p.add_argument("--fixture-producer-commit", required=True)
