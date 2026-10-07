@@ -58,7 +58,10 @@ jobs:
 
             $existingNats=@(Get-NetNat -ErrorAction SilentlyContinue)
             $existingHns=@(Get-HnsNetwork -ErrorAction SilentlyContinue | Where-Object {
-              [string]$_.Name -eq 'nat' -or [string]$_.Type -eq 'nat'
+              $nameProp=$_.PSObject.Properties['Name']
+              $typeProp=$_.PSObject.Properties['Type']
+              ($nameProp -and [string]$nameProp.Value -eq 'nat') -or
+              ($typeProp -and [string]$typeProp.Value -eq 'nat')
             })
             $result.initial_netnat_count=$existingNats.Count
             $result.initial_hns_nat_count=$existingHns.Count
@@ -81,7 +84,10 @@ jobs:
 
             $result.post_cleanup_netnat_count=@(Get-NetNat -ErrorAction SilentlyContinue).Count
             $result.post_cleanup_hns_nat_count=@(Get-HnsNetwork -ErrorAction SilentlyContinue | Where-Object {
-              [string]$_.Name -eq 'nat' -or [string]$_.Type -eq 'nat'
+              $nameProp=$_.PSObject.Properties['Name']
+              $typeProp=$_.PSObject.Properties['Type']
+              ($nameProp -and [string]$nameProp.Value -eq 'nat') -or
+              ($typeProp -and [string]$typeProp.Value -eq 'nat')
             }).Count
             $result.post_cleanup_nat_switch=[bool](Get-VMSwitch -Name 'nat' -ErrorAction SilentlyContinue)
             if($result.post_cleanup_netnat_count -ne 0){throw 'NetNat state not exclusive after cleanup'}
