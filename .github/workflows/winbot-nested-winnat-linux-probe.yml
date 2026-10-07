@@ -1,4 +1,5 @@
 name: WinBot Nested WinNAT Linux Probe
+# targeted egress discriminator; no WinBot product mutation
 
 on:
   push:
