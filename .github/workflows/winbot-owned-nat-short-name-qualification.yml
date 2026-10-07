@@ -47,7 +47,7 @@ jobs:
               )
               with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
               raw=base64.b64decode(obj["content"])
-              got=hashlib.sha1(f"blob {len(raw)}\\0".encode()+raw).hexdigest()
+              got=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
               if obj.get("sha")!=sha or got!=sha: raise SystemExit(f"blob identity mismatch: {sha}")
               return raw
           graphs=[
