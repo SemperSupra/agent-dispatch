@@ -89,6 +89,9 @@ jobs:
           if [[ -f tests/test_truenas_garm_provider_g5.py ]]; then
             tests+=(tests/test_truenas_garm_provider_g5.py)
           fi
+          if [[ -f tests/test_truenas_garm_container_pre_b4.py ]]; then
+            tests+=(tests/test_truenas_garm_container_pre_b4.py)
+          fi
           if [[ -f tests/test_truenas_rdte_target.py ]]; then
             tests+=(tests/test_truenas_rdte_target.py)
           fi
