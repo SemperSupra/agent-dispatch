@@ -47,6 +47,7 @@ on:
           - litellm
           - wow-sidecar
           - garm
+          - garm-controller-f0f5
           - garm-provider-g2
           - garm-provider-g3
           - garm-provider-g4
@@ -183,7 +184,7 @@ jobs:
             fi
             truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
             truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
-            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "official-catalog" or . == "foliorelay")' "$RUN_REQUEST_PATH")"
+            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "official-catalog" or . == "foliorelay")' "$RUN_REQUEST_PATH")"
             truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
             python3 scripts/truenas_rdte_target.py \
               --registry config/truenas-rdte-targets.json \
