@@ -338,7 +338,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_garm_provider_g5_probe.py", text)
         self.assertIn('G5_MATRIX_PRODUCER', text)
         self.assertIn(
-            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" ]]; then',
+            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "garm-controller-f0f5" ]]; then',
             text,
         )
         g5_probe = (ROOT / "scripts" / "truenas_middleware_garm_provider_g5_probe.py").read_text(
@@ -346,6 +346,28 @@ class SystemRdteContractTests(unittest.TestCase):
         )
         self.assertNotIn("GITHUB_TOKEN", g5_probe)
         self.assertNotIn("GH_TOKEN", g5_probe)
+
+    def test_garm_controller_f0_f5_route_is_exact_cross_version_and_public_safe(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        script = TRUENAS.read_text(encoding="utf-8")
+        probe = (ROOT / "scripts" / "truenas_middleware_garm_f0_f5_probe.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("garm-controller-f0f5", workflow)
+        self.assertIn(
+            "export-garm-f0-f5-control.yml@bfbf2158c3f679c3422e6035bdb67e7874a5c07a",
+            workflow,
+        )
+        self.assertIn(
+            'foundry_commit="bfbf2158c3f679c3422e6035bdb67e7874a5c07a"',
+            workflow,
+        )
+        self.assertIn("garm-truenas-f0-f5-control", workflow)
+        self.assertIn("truenas_middleware_garm_f0_f5_probe.py", script)
+        self.assertIn('--expected-profile-blob "$FOUNDRY_PROFILE_BLOB"', script)
+        self.assertIn('"foundry_profile_blob": os.environ["R_FOUNDRY_PROFILE_BLOB"]', script)
+        self.assertNotIn("GITHUB_TOKEN", probe)
+        self.assertNotIn("GH_TOKEN", probe)
 
     def test_no_literal_escaped_shell_parameter_expansions(self):
         needle = chr(92) + "$" + "{"
