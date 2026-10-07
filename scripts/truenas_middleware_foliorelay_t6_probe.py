@@ -264,6 +264,33 @@ def http_bytes(host, port, path, token=None, method="GET", timeout=8.0, tls=Fals
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
+def management_tls_fingerprint(host: str, port: int, server_name: str, timeout: float) -> str:
+    ctx=ssl.create_default_context()
+    ctx.check_hostname=False
+    ctx.verify_mode=ssl.CERT_NONE
+    with socket.create_connection((host,port),timeout=timeout) as raw:
+        with ctx.wrap_socket(raw,server_hostname=server_name) as conn:
+            der=conn.getpeercert(binary_form=True)
+    if not der:
+        raise RuntimeError("management TLS peer returned no certificate")
+    pem=ssl.DER_cert_to_PEM_cert(der)
+    cert_path=None
+    try:
+        with tempfile.NamedTemporaryFile("w",encoding="utf-8",delete=False) as handle:
+            handle.write(pem)
+            cert_path=handle.name
+        checked=subprocess.run(
+            ["openssl","x509","-in",cert_path,"-noout","-checkhost",server_name],
+            text=True,capture_output=True,
+        )
+        if checked.returncode!=0:
+            detail=(checked.stdout+"\n"+checked.stderr).strip()
+            raise RuntimeError(f"management TLS certificate host mismatch: {detail}")
+    finally:
+        if cert_path:
+            pathlib.Path(cert_path).unlink(missing_ok=True)
+    return hashlib.sha256(der).hexdigest()
+
 def middleware_http_bytes(host, port, tls, path, timeout=8.0):
     if tls:
         ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
