@@ -160,8 +160,23 @@ try {
     $candidate = 'C:\Program Files\qemu\qemu-img.exe'
     if (Test-Path $candidate) { $qemuPath = $candidate } else { $qemuPath = (Get-Command qemu-img.exe -ErrorAction Stop).Source }
   }
-  & $qemuPath convert -p -f qcow2 -O vhdx -o subformat=dynamic $imagePath $osDisk
+  # qemu-img on Windows can mark VHDX output with the NTFS sparse attribute; Hyper-V
+  # refuses such a backing file with 0xC03A001A. Disable sparse conversion and
+  # explicitly clear/verify the NTFS sparse flag before attaching the disk.
+  & $qemuPath convert -p -S 0 -f qcow2 -O vhdx -o subformat=dynamic $imagePath $osDisk
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $osDisk)) { throw 'qemu-img conversion to VHDX failed' }
+  $sparseFlag = [System.IO.FileAttributes]::SparseFile
+  if (((Get-Item -LiteralPath $osDisk -Force).Attributes -band $sparseFlag) -ne 0) {
+    & fsutil.exe sparse setflag $osDisk 0 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'failed to clear NTFS sparse flag from converted VHDX' }
+  }
+  if (((Get-Item -LiteralPath $osDisk -Force).Attributes -band $sparseFlag) -ne 0) {
+    throw 'converted VHDX remains NTFS sparse after explicit de-sparsification'
+  }
+  $receipt.observations.vhdx = [ordered]@{
+    bytes = (Get-Item -LiteralPath $osDisk).Length
+    sparse = $false
+  }
   Remove-Item -Force $imagePath
 
   $sshKeygen = (Get-Command ssh-keygen.exe -ErrorAction Stop).Source
@@ -395,3 +410,5 @@ exit 0
 # launch-stamp: 2026-10-07T16:00Z
 
 # launch-stamp: corrected-harness-rep
+
+# launch-stamp: nonsparse-vhdx-rep
