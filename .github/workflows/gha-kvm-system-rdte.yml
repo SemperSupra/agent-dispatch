@@ -370,13 +370,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Download exact GARM Container pre-B4 fixture
-        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: garm-provider-truenas-container-pre-b4-fixture
-          path: ${{ runner.temp }}/gha-kvm-system-rdte/container-pre-b4-fixture
-
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
@@ -441,7 +434,8 @@ jobs:
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g2' && needs['provider-g2-fixtures'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g3' && needs['provider-g3-fixture'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g4' && needs['provider-g4-fixture'].result == 'success') ||
-        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g5' && needs['provider-g5-runner-fixture'].result == 'success' && needs['provider-g5-version-matrix'].result == 'success') ||\n        (needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4' && needs['provider-container-pre-b4-fixture'].result == 'success')
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g5' && needs['provider-g5-runner-fixture'].result == 'success' && needs['provider-g5-version-matrix'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4' && needs['provider-container-pre-b4-fixture'].result == 'success')
       )
     runs-on: ubuntu-26.04
     timeout-minutes: 50
@@ -515,6 +509,12 @@ jobs:
         with:
           name: garm-provider-truenas-g5-version-matrix
           path: ${{ runner.temp }}/gha-kvm-system-rdte/g5-matrix
+      - name: Download exact GARM Container pre-B4 fixture
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-container-pre-b4-fixture
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/container-pre-b4-fixture
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
