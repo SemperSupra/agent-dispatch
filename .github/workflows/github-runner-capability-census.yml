@@ -1,10 +1,28 @@
 name: GitHub Runner Capability Census
+run-name: ${{ inputs.assignment_id && format('sidecar:{0}:{1}:{2}', inputs.workset_id, inputs.delegation_id, inputs.assignment_id) || 'GitHub Runner Capability Census' }}
 
 on:
   workflow_dispatch:
     inputs:
+      workset_id:
+        description: "Public-safe Sidecar workset correlation"
+        required: false
+        type: string
+      delegation_id:
+        description: "Public-safe Sidecar delegation correlation"
+        required: false
+        type: string
+      assignment_id:
+        description: "Public-safe Sidecar assignment correlation"
+        required: false
+        type: string
       include_windows_arm:
         description: "Include passive Windows ARM census"
+        required: false
+        default: false
+        type: boolean
+      arm_only:
+        description: "Skip the baseline matrix for a bounded ARM census"
         required: false
         default: false
         type: boolean
@@ -24,6 +42,7 @@ jobs:
         run: python3 -m unittest -v tests/test_github_runner_census.py
 
   passive:
+    if: ${{ !inputs.arm_only }}
     needs: contract
     strategy:
       fail-fast: false
