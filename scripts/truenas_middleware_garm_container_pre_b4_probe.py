@@ -27,6 +27,11 @@ class ProbeError(RuntimeError):
     pass
 
 
+def is_explicit_not_found(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return '"error": 2' in text or "enoent" in text or "not found" in text
+
+
 def load_fixture(directory: pathlib.Path, producer: str) -> dict:
     p = directory / "garm-provider-container-pre-b4-fixture.json"
     doc = json.loads(p.read_text(encoding="utf-8"))
@@ -198,7 +203,7 @@ def main() -> int:
             "pool": a.pool,
             "image": {"name": family, "version": image_version},
         }
-        if any(token in json.dumps(create_payload) for _ in [0]):
+        if token in json.dumps(create_payload):
             raise ProbeError("runtime credential leaked into container.create payload")
 
         create_job = call("container.create", [create_payload])
@@ -289,12 +294,12 @@ def main() -> int:
         receipt["bootstrap_execution_observed"] = True
 
         token_path = mountpoint.rstrip("/") + "/var/lib/garm-container/bootstrap-instance-token"
-        token_absent = False
         try:
             call("filesystem.stat", [token_path])
-        except Exception:
-            token_absent = True
-        if not token_absent:
+        except RuntimeError as exc:
+            if not is_explicit_not_found(exc):
+                raise ProbeError(f"credential-file absence could not be proven: {exc}") from exc
+        else:
             raise ProbeError("one-shot credential file remained after wrapper consumption")
         receipt["credential_file_deleted"] = True
 
