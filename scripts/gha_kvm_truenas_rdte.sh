@@ -110,7 +110,7 @@ if [[ "$RUNG" == "t6" ]]; then
   fi
 fi
 
-if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "garm-provider-container-pre-b4" ) ]]; then
+if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" ) ]]; then
   VCPUS=4
 fi
 
