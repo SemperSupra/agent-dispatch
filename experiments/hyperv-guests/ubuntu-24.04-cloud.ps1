@@ -388,3 +388,5 @@ finally {
 
 if ($failure -or $receipt.status -ne 'PASS') { exit 1 }
 exit 0
+
+# launch-stamp: 2026-10-07T16:00Z
