@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-container-pre-b4-002",
+  "request_id": "tn-26-beta3-t6-garm-container-pre-b4-003",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
   "product": "garm-provider-container-pre-b4",
   "authority_issue": 396,
   "consumer_authority_issue": 43,
-  "purpose": "Run the first exact BETA.3 GARM TrueNAS Container backend pre-B4 real-system capsule under registered target authority 396. Bind merged provider source ae9d3bf99a010fb962775a185941ed1b732f54c3 and merged Agent Dispatch consumer e7388b1e9e7b72a705d6c92b1fb6a9b41fc99efe with request-contract allowlist corrections through 2f3d8070675814eafaf9e309a58802358d91242f. Require exact TrueNAS-26.0.0-BETA.3 / middleware 81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3; supported container.* create/readback; exact Ubuntu Noble image resolution; provider-owned root-dataset mountpoint; filesystem.put/stat staging of exact non-secret scripts plus one run-local 0600 credential file; observed init-wrapper and bootstrap-child markers; explicit credential-file deletion; persisted init/initenv scrub to /sbin/init plus empty environment; supported stop/delete; and final named-container absence. This is B0-B3/B5 pre-B4 evidence only. Do not claim callback/JIT, GitHub registration, runtime admission, per-runner memory isolation, Docker/container-actions, physical TrueNAS readiness, or capacity promotion."
+  "purpose": "Retry the exact BETA.3 GARM TrueNAS Container backend pre-B4 real-system capsule after the rep-002 WSS transport defect was corrected. Bind merged provider source ae9d3bf99a010fb962775a185941ed1b732f54c3 and corrected Agent Dispatch consumer a1fc1b25510a0bb2709a8ba3c408ce6cefa361e1. Require exact TrueNAS-26.0.0-BETA.3 / middleware 81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3; authenticated WSS middleware transport; supported container.* create/readback; exact Ubuntu Noble image resolution; provider-owned root-dataset mountpoint; filesystem.put/stat staging of exact non-secret scripts plus one run-local 0600 credential file; observed init-wrapper and bootstrap-child markers; explicit credential-file deletion; persisted init/initenv scrub to /sbin/init plus empty environment; supported stop/delete; and final named-container absence. This is B0-B3/B5 pre-B4 evidence only. Do not claim callback/JIT, GitHub registration, runtime admission, per-runner memory isolation, Docker/container-actions, physical TrueNAS readiness, or capacity promotion."
 }
