@@ -1,0 +1,70 @@
+name: WinBot HNS-clean Successor Graph Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hns-clean-successor-graph-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      SOURCE_REVISION: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      PROJECTION_IDENTITY: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+      SEED_CONTROL: '624a1cdb1aa0f066c7238f6166eb2b3884b15cf8'
+      SEED_MANIFEST: '96d2ac2b846039d2feb33635c0f17c2e009cd204'
+      SEED_MASTER: 'f3257f150fc7714056846382f0b02ddf9b52f548'
+      TERMINAL_CONTROL: 'a95a4e923d515c56d972790a8544cefa2e063f3d'
+      TERMINAL_MANIFEST: '2bc78fd94360a09eb77b3d0ad94b38109215556f'
+      TERMINAL_MASTER: '1572a4a9d2c2c3efd02f407e619d24bd74c7810f'
+    steps:
+      - name: Qualify exact phase controls and manifests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          function Get-ExactBlob([string]$Sha) {
+            $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+            $o=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha" -Headers $headers
+            if([string]$o.sha -ne $Sha -or [string]$o.encoding -ne 'base64'){throw "blob identity mismatch $Sha"}
+            return ,[Convert]::FromBase64String(([string]$o.content -replace '\s',''))
+          }
+          function Qualify-Phase([string]$Name,[string]$ControlSha,[string]$ManifestSha,[string]$MasterSha,[string]$ControlKey) {
+            $manifest=([Text.Encoding]::UTF8.GetString((Get-ExactBlob $ManifestSha))) | ConvertFrom-Json
+            $master=([Text.Encoding]::UTF8.GetString((Get-ExactBlob $MasterSha))) | ConvertFrom-Json
+            if([string]$manifest.source_revision -ne $env:SOURCE_REVISION){throw "$Name source mismatch"}
+            if([string]$manifest.projection_identity_sha256 -ne $env:PROJECTION_IDENTITY){throw "$Name projection mismatch"}
+            if([string]$master.control_manifest_sha -ne $ManifestSha){throw "$Name manifest linkage mismatch"}
+            if([string]$master.construction.$ControlKey -ne $ControlSha){throw "$Name control linkage mismatch"}
+            if([int64]$master.construction.hns_exclusivity_qualification_run -ne 37652441260){throw "$Name HNS qualification mismatch"}
+            if([int64]$master.construction.hns_clean_linux_proof_run -ne 37663244388){throw "$Name Linux proof gate mismatch"}
+            $entry=@($manifest.entries | Where-Object path -eq 'rdte/gha/full-rdte.ps1')
+            if($entry.Count -ne 1 -or [string]$entry[0].git_blob_sha -ne $ControlSha){throw "$Name exact control entry mismatch"}
+            $path=Join-Path $env:RUNNER_TEMP ($Name+'.ps1')
+            [IO.File]::WriteAllBytes($path,(Get-ExactBlob $ControlSha))
+            $tokens=$null;$errors=$null
+            [Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+            if(@($errors).Count -gt 0){throw "$Name control parse failed"}
+            $text=Get-Content -LiteralPath $path -Raw
+            foreach($marker in @('Get-HnsNetwork','Remove-HnsNetwork','preexisting_hns_nat_count','removed_preexisting_hns_nat_count','post_condition_hns_nat_count','winnat-exclusivity')){
+              if(-not $text.Contains($marker)){throw "$Name missing HNS invariant $marker"}
+            }
+          }
+          Qualify-Phase 'seed' $env:SEED_CONTROL $env:SEED_MANIFEST $env:SEED_MASTER 'seed_control'
+          Qualify-Phase 'terminal' $env:TERMINAL_CONTROL $env:TERMINAL_MANIFEST $env:TERMINAL_MASTER 'terminal_control'
+          [ordered]@{
+            classification='SUPPORTED'
+            seed_control=$env:SEED_CONTROL
+            seed_manifest=$env:SEED_MANIFEST
+            seed_master=$env:SEED_MASTER
+            terminal_control=$env:TERMINAL_CONTROL
+            terminal_manifest=$env:TERMINAL_MANIFEST
+            terminal_master=$env:TERMINAL_MASTER
+          } | ConvertTo-Json -Compress
