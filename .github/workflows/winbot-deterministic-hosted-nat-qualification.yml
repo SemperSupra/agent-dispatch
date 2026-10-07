@@ -15,66 +15,123 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 10
     steps:
-      - name: Qualify create-observe-clean deterministic NAT primitive
+      - name: Probe exact run-owned NetNat placement
+        id: probe
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $switchName='WinBot-RDTE-NAT-Probe'
-          $natName='WinBot-RDTE-NAT-Probe'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-owned-nat-probe'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $out=Join-Path $root 'owned-nat-placement.json'
+          $tag=([string]$env:GITHUB_RUN_ID)+'-'+([string]$env:GITHUB_RUN_ATTEMPT)
+          $name='WinBot-RDTE-NAT-Probe-'+$tag
           $prefix='172.29.250.0/24'
           $gateway='172.29.250.1'
+          $stage='preflight'
           $createdSwitch=$false
           $createdNat=$false
-          $hostIpCreated=$false
-          try {
-            foreach($cmd in @('New-VMSwitch','Remove-VMSwitch','New-NetNat','Remove-NetNat','New-NetIPAddress','Remove-NetIPAddress','Get-VMSwitch','Get-NetNat','Get-NetIPAddress')){
-              if(-not (Get-Command $cmd -ErrorAction SilentlyContinue)){ throw "required primitive unavailable: $cmd" }
-            }
-
-            Get-NetNat -Name $natName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
-            Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue
-
-            New-VMSwitch -Name $switchName -SwitchType Internal -ErrorAction Stop | Out-Null
-            $createdSwitch=$true
-            $alias='vEthernet ('+$switchName+')'
-            $adapter=Get-NetAdapter -Name $alias -ErrorAction Stop
-            New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $gateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
-            $hostIpCreated=$true
-            New-NetNat -Name $natName -InternalIPInterfaceAddressPrefix $prefix -ErrorAction Stop | Out-Null
-            $createdNat=$true
-
-            $sw=Get-VMSwitch -Name $switchName -ErrorAction Stop
-            $nat=Get-NetNat -Name $natName -ErrorAction Stop
-            $ip=Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -IPAddress $gateway -ErrorAction Stop
-
-            if([string]$sw.SwitchType -ne 'Internal'){throw 'switch type mismatch'}
-            if([string]$nat.InternalIPInterfaceAddressPrefix -ne $prefix){throw 'NetNat prefix mismatch'}
-            if([string]$ip.IPAddress -ne $gateway -or [int]$ip.PrefixLength -ne 24){throw 'gateway identity mismatch'}
-
-            [ordered]@{
-              classification='SUPPORTED'
-              switch_name=$switchName
-              switch_type=[string]$sw.SwitchType
-              nat_name=$natName
-              nat_prefix=[string]$nat.InternalIPInterfaceAddressPrefix
-              gateway=[string]$ip.IPAddress
-              prefix_length=[int]$ip.PrefixLength
-              create_switch=$true
-              create_gateway=$true
-              create_netnat=$true
-              cleanup_planned=$true
-            } | ConvertTo-Json -Compress
+          $createdIp=$false
+          $record=[ordered]@{
+            schema_version=1
+            classification='HARNESS_FAILURE'
+            stage=$stage
+            runner_image_os=[string]$env:ImageOS
+            runner_image_version=[string]$env:ImageVersion
+            default_switch_present=$false
+            command_presence=[ordered]@{}
+            observed_switches=@()
+            name=$name
+            prefix=$prefix
+            gateway=$gateway
+            switch_created=$false
+            gateway_created=$false
+            nat_created=$false
+            cleanup=[ordered]@{nat_absent=$null;switch_absent=$null;gateway_absent=$null;oracle_satisfied=$false}
+            error_type=$null
+            fully_qualified_error_id=$null
           }
-          finally {
-            if($createdNat){ Get-NetNat -Name $natName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue }
-            if($hostIpCreated){
-              Get-NetIPAddress -InterfaceAlias ('vEthernet ('+$switchName+')') -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+          $rc=1
+          try {
+            $commands=@('Get-VMSwitch','New-VMSwitch','Remove-VMSwitch','Get-NetAdapter','New-NetIPAddress','Get-NetIPAddress','Remove-NetIPAddress','New-NetNat','Get-NetNat','Remove-NetNat')
+            foreach($cmd in $commands){
+              $present=[bool](Get-Command $cmd -ErrorAction SilentlyContinue)
+              $record.command_presence[$cmd]=$present
+              if(-not $present){
+                $record.classification='ENVIRONMENT_FAILURE'
+                $record.stage='missing-command'
+                throw [InvalidOperationException]::new('required primitive unavailable')
+              }
+            }
+            $record.observed_switches=@(Get-VMSwitch -ErrorAction Stop | ForEach-Object {
+              [ordered]@{name=[string]$_.Name;switch_type=[string]$_.SwitchType}
+            })
+            $record.default_switch_present=[bool](Get-VMSwitch -Name 'Default Switch' -ErrorAction SilentlyContinue)
+
+            $stage='create-switch';$record.stage=$stage
+            New-VMSwitch -Name $name -SwitchType Internal -ErrorAction Stop | Out-Null
+            $createdSwitch=$true;$record.switch_created=$true
+
+            $stage='resolve-adapter';$record.stage=$stage
+            $alias='vEthernet ('+$name+')'
+            $adapter=Get-NetAdapter -Name $alias -ErrorAction Stop
+
+            $stage='create-gateway';$record.stage=$stage
+            New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $gateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
+            $createdIp=$true;$record.gateway_created=$true
+
+            $stage='create-netnat';$record.stage=$stage
+            New-NetNat -Name $name -InternalIPInterfaceAddressPrefix $prefix -ErrorAction Stop | Out-Null
+            $createdNat=$true;$record.nat_created=$true
+
+            $stage='observe';$record.stage=$stage
+            $sw=Get-VMSwitch -Name $name -ErrorAction Stop
+            $nat=Get-NetNat -Name $name -ErrorAction Stop
+            $ip=Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -IPAddress $gateway -ErrorAction Stop
+            if([string]$sw.SwitchType -ne 'Internal'){throw [InvalidOperationException]::new('switch type mismatch')}
+            if([string]$nat.InternalIPInterfaceAddressPrefix -ne $prefix){throw [InvalidOperationException]::new('NAT prefix mismatch')}
+            if([string]$ip.IPAddress -ne $gateway -or [int]$ip.PrefixLength -ne 24){throw [InvalidOperationException]::new('gateway identity mismatch')}
+
+            $record.classification='SUPPORTED'
+            $record.stage='complete'
+            $rc=0
+          } catch {
+            if($record.classification -eq 'HARNESS_FAILURE'){$record.classification='ENVIRONMENT_FAILURE'}
+            $record.error_type=[string]$_.Exception.GetType().FullName
+            $record.fully_qualified_error_id=[string]$_.FullyQualifiedErrorId
+            $rc=1
+          } finally {
+            if($createdNat){Get-NetNat -Name $name -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue}
+            if($createdIp){
+              Get-NetIPAddress -InterfaceAlias ('vEthernet ('+$name+')') -AddressFamily IPv4 -ErrorAction SilentlyContinue |
                 Where-Object IPAddress -eq $gateway |
                 Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
             }
-            if($createdSwitch){ Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue }
-
-            if(Get-NetNat -Name $natName -ErrorAction SilentlyContinue){ throw 'NetNat cleanup failed' }
-            if(Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue){ throw 'vSwitch cleanup failed' }
-            Write-Host 'deterministic hosted NAT cleanup: PASS'
+            if($createdSwitch){Get-VMSwitch -Name $name -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue}
+            $record.cleanup.nat_absent=-not [bool](Get-NetNat -Name $name -ErrorAction SilentlyContinue)
+            $record.cleanup.switch_absent=-not [bool](Get-VMSwitch -Name $name -ErrorAction SilentlyContinue)
+            $record.cleanup.gateway_absent=-not [bool](Get-NetIPAddress -InterfaceAlias ('vEthernet ('+$name+')') -AddressFamily IPv4 -IPAddress $gateway -ErrorAction SilentlyContinue)
+            $record.cleanup.oracle_satisfied=$record.cleanup.nat_absent -and $record.cleanup.switch_absent -and $record.cleanup.gateway_absent
+            $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding utf8
+            "probe_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
+          exit 0
+
+      - name: Upload bounded placement evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-owned-nat-placement-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-owned-nat-probe/owned-nat-placement.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Preserve placement verdict
+        if: always()
+        shell: pwsh
+        env:
+          PROBE_RC: ${{ steps.probe.outputs.probe_rc }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PROBE_RC)){exit 1}
+          exit [int]$env:PROBE_RC
