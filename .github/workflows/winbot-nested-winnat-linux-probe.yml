@@ -153,58 +153,58 @@ jobs:
             $metaData=Join-Path $root 'meta-data'
             $networkConfig=Join-Path $root 'network-config'
             @"
-#cloud-config
-users:
-  - default
-  - name: probe
-    groups: [sudo]
-    shell: /bin/bash
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    ssh_authorized_keys:
-      - $pub
-ssh_pwauth: false
-disable_root: true
-package_update: false
-"@ | Set-Content -LiteralPath $userData -Encoding utf8
+          #cloud-config
+          users:
+            - default
+            - name: probe
+              groups: [sudo]
+              shell: /bin/bash
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - $pub
+          ssh_pwauth: false
+          disable_root: true
+          package_update: false
+          "@ | Set-Content -LiteralPath $userData -Encoding utf8
             @"
-instance-id: wb-$env:GITHUB_RUN_ID
-local-hostname: wbnetprobe
-"@ | Set-Content -LiteralPath $metaData -Encoding ascii
+          instance-id: wb-$env:GITHUB_RUN_ID
+          local-hostname: wbnetprobe
+          "@ | Set-Content -LiteralPath $metaData -Encoding ascii
             @"
-version: 2
-ethernets:
-  eth0:
-    match:
-      macaddress: "$macColon"
-    set-name: eth0
-    dhcp4: false
-    addresses:
-      - $guestIp/24
-    routes:
-      - to: default
-        via: $gateway
-    nameservers:
-      addresses:
-        - 1.1.1.1
-        - 8.8.8.8
-"@ | Set-Content -LiteralPath $networkConfig -Encoding ascii
+          version: 2
+          ethernets:
+            eth0:
+              match:
+                macaddress: "$macColon"
+              set-name: eth0
+              dhcp4: false
+              addresses:
+                - $guestIp/24
+              routes:
+                - to: default
+                  via: $gateway
+              nameservers:
+                addresses:
+                  - 1.1.1.1
+                  - 8.8.8.8
+          "@ | Set-Content -LiteralPath $networkConfig -Encoding ascii
 
             python.exe -m pip install --disable-pip-version-check --quiet pycdlib==1.14.0
             if($LASTEXITCODE -ne 0){throw 'pycdlib install failed'}
             $isoPy=Join-Path $root 'make_seed.py'
             @'
-import pycdlib, sys
-iso=pycdlib.PyCdlib()
-iso.new(interchange_level=3, vol_ident='CIDATA', joliet=3, rock_ridge='1.09')
-for src,isoname,rr in [
-    (sys.argv[1],'/USER_DATA.;1','user-data'),
-    (sys.argv[2],'/META_DATA.;1','meta-data'),
-    (sys.argv[3],'/NETWORK_CONFIG.;1','network-config'),
-]:
-    iso.add_file(src, iso_path=isoname, rr_name=rr, joliet_path='/'+rr)
-iso.write(sys.argv[4])
-iso.close()
-'@ | Set-Content -LiteralPath $isoPy -Encoding ascii
+          import pycdlib, sys
+          iso=pycdlib.PyCdlib()
+          iso.new(interchange_level=3, vol_ident='CIDATA', joliet=3, rock_ridge='1.09')
+          for src,isoname,rr in [
+              (sys.argv[1],'/USER_DATA.;1','user-data'),
+              (sys.argv[2],'/META_DATA.;1','meta-data'),
+              (sys.argv[3],'/NETWORK_CONFIG.;1','network-config'),
+          ]:
+              iso.add_file(src, iso_path=isoname, rr_name=rr, joliet_path='/'+rr)
+          iso.write(sys.argv[4])
+          iso.close()
+          '@ | Set-Content -LiteralPath $isoPy -Encoding ascii
             python.exe $isoPy $userData $metaData $networkConfig $seedIso
             if($LASTEXITCODE -ne 0){throw 'cloud-init seed ISO creation failed'}
 
