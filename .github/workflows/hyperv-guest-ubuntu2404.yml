@@ -1,0 +1,49 @@
+name: Hyper-V guest Ubuntu 24.04 pilot
+
+on:
+  push:
+    branches:
+      - exp/hyperv-guest-os-qualification-20261007
+    paths:
+      - experiments/hyperv-guests/ubuntu-24.04-cloud.ps1
+      - .github/workflows/hyperv-guest-ubuntu2404.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-dispatch-hyperv-guest-rdte
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Ubuntu 24.04 Gen2 production-surface probe
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v5
+
+      - name: Host preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ComputerInfo | Select-Object WindowsProductName,WindowsVersion,OsBuildNumber
+          Get-VMHost | Format-List *
+          Get-PSDrive C | Format-List Name,Used,Free
+          Get-VMSwitch | Format-Table -AutoSize
+          if ((Get-PSDrive C).Free -lt 45GB) { throw 'Need at least 45 GiB free for image conversion/build' }
+
+      - name: Qualify Ubuntu guest
+        shell: pwsh
+        run: ./experiments/hyperv-guests/ubuntu-24.04-cloud.ps1
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyperv-guest-ubuntu2404-${{ github.run_id }}
+          path: artifacts/hyperv-guest-ubuntu2404/
+          if-no-files-found: warn
+          retention-days: 14
