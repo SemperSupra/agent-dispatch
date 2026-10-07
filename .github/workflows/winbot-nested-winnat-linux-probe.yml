@@ -109,7 +109,7 @@ jobs:
               $result.initial_hns_nat_present=($initialHns.Count -gt 0)
             }
 
-            foreach($cmd in @('New-VMSwitch','New-NetNat','New-NetIPAddress','New-VM','Start-VM','Remove-VM','ssh.exe','ssh-keygen.exe','tar.exe','python.exe','Remove-NetNat','Remove-HnsNetwork','Remove-VMSwitch')){
+            foreach($cmd in @('New-VMSwitch','New-NetNat','New-NetIPAddress','New-VM','Start-VM','Remove-VM','Convert-VHD','Test-VHD','ssh.exe','ssh-keygen.exe','tar.exe','python.exe','Remove-NetNat','Remove-HnsNetwork','Remove-VMSwitch')){
               if(-not (Get-Command $cmd -ErrorAction SilentlyContinue)){ throw "required command unavailable: $cmd" }
             }
 
@@ -176,6 +176,9 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'Ubuntu VHD extraction failed'}
             $vhd=(Get-ChildItem -LiteralPath $imgDir -Recurse -Filter *.vhd | Select-Object -First 1).FullName
             if(-not $vhd){throw 'Ubuntu Azure VHD not found after extraction'}
+            $vhdx=Join-Path $root 'ubuntu-probe.vhdx'
+            Convert-VHD -Path $vhd -DestinationPath $vhdx -VHDType Dynamic -ErrorAction Stop
+            if(-not (Test-VHD -Path $vhdx -ErrorAction Stop)){throw 'converted Ubuntu VHDX failed Test-VHD'}
 
             $macHex=((Get-Random -Minimum 0 -Maximum 16777215).ToString('X6'))
             $macNoSep='00155D'+$macHex
@@ -240,7 +243,7 @@ jobs:
             python.exe $isoPy $userData $metaData $networkConfig $seedIso
             if($LASTEXITCODE -ne 0){throw 'cloud-init seed ISO creation failed'}
 
-            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 2GB -VHDPath $vhd -SwitchName $natName -ErrorAction Stop | Out-Null
+            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 2GB -VHDPath $vhdx -SwitchName $natName -ErrorAction Stop | Out-Null
             $createdVm=$true
             Set-VMProcessor -VMName $vmName -Count 2 -ErrorAction Stop
             Set-VMNetworkAdapter -VMName $vmName -StaticMacAddress $macNoSep -ErrorAction Stop
