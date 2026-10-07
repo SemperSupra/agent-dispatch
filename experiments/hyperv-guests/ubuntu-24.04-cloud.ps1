@@ -173,8 +173,16 @@ try {
   if (((Get-Item -LiteralPath $osDisk -Force).Attributes -band $sparseFlag) -ne 0) {
     throw 'converted VHDX remains NTFS sparse after explicit de-sparsification'
   }
+  # Cloud images are intentionally small. Give the guest enough virtual capacity
+  # for a real desktop/tooling workload; Ubuntu cloud-init grows the root FS at first boot.
+  Resize-VHD -Path $osDisk -SizeBytes 16GB
+  if (((Get-Item -LiteralPath $osDisk -Force).Attributes -band $sparseFlag) -ne 0) {
+    throw 'VHDX became NTFS sparse after Resize-VHD'
+  }
+  $vhdInfo = Get-VHD -Path $osDisk
   $receipt.observations.vhdx = [ordered]@{
     bytes = (Get-Item -LiteralPath $osDisk).Length
+    virtualBytes = $vhdInfo.Size
     sparse = $false
   }
   Remove-Item -Force $imagePath
@@ -264,7 +272,7 @@ ethernets:
   }
   $receipt.gates.ssh = $true
 
-  $first = Invoke-Guest 'cloud-init status --wait; printf "OS="; . /etc/os-release; echo "$PRETTY_NAME"; uname -r; ip -brief address; ip route; systemctl is-active ssh'
+  $first = Invoke-Guest 'cloud-init status --wait; printf "OS="; . /etc/os-release; echo "$PRETTY_NAME"; uname -r; lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS; df -h /; ip -brief address; ip route; systemctl is-active ssh'
   $receipt.observations.firstBoot = $first
   $outbound = Invoke-Guest "getent hosts archive.ubuntu.com >/dev/null && curl -fsS --max-time 20 https://archive.ubuntu.com/ >/dev/null && echo outbound-ok"
   if ($outbound -match 'outbound-ok') { $receipt.gates.outbound = $true }
@@ -272,6 +280,11 @@ ethernets:
   $guestSetup = @'
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
+avail_kb=$(df --output=avail -k / | tail -1 | tr -d ' ')
+if [ "$avail_kb" -lt 6000000 ]; then
+  echo "root filesystem did not grow to production minimum: available_kb=$avail_kb" >&2
+  exit 41
+fi
 sudo apt-get update
 sudo apt-get install -y linux-cloud-tools-virtual xfce4 xfce4-terminal xterm xrdp tigervnc-standalone-server dbus-x11
 printf '%s\n' 'startxfce4' > "$HOME/.xsession"
@@ -417,3 +430,5 @@ exit 0
 # launch-stamp: nonsparse-vhdx-rep
 
 # launch-stamp: lf-normalized-guest-setup
+
+# launch-stamp: expanded-guest-disk-rep
