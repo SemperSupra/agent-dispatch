@@ -1068,6 +1068,7 @@ elif [[ "$T6_PRODUCT" == "garm-provider-g4" ]]; then
 elif [[ "$T6_PRODUCT" == "garm-provider-container-pre-b4" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_container_pre_b4_probe.py" \
     --host 127.0.0.1 --http-port "$HTTP_PORT" --middleware-port "$MIDDLEWARE_PORT" \
+    "${MIDDLEWARE_TLS_ARG[@]}" \
     --password-file "$PASSWORD_FILE" --pool "$DATA_POOL_NAME" \
     --fixture-dir "$CONTAINER_FIXTURE_DIR" \
     --fixture-producer-commit "$CONTAINER_FIXTURE_PRODUCER" \
