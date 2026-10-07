@@ -144,7 +144,7 @@ def main() -> int:
         if not password:
             raise ProbeError("password file is empty")
 
-        ws = WebSocket(a.host, a.middleware_port, timeout=a.timeout, tls=False)
+        ws = WebSocket(a.host, a.middleware_port, timeout=a.timeout, tls=a.tls)
         ws.send_json({"msg": "connect", "version": "1", "support": ["1"]})
         connected = wait_for(ws, lambda m: m.get("msg") in {"connected", "failed"})
         if connected.get("msg") != "connected":
