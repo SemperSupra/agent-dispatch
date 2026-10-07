@@ -11,6 +11,13 @@ import truenas_middleware_garm_container_pre_b4_probe as probe
 
 
 class ContainerPreB4Tests(unittest.TestCase):
+    def test_probe_and_harness_propagate_tls(self):
+        script = (ROOT / "scripts" / "truenas_middleware_garm_container_pre_b4_probe.py").read_text(encoding="utf-8")
+        harness = (ROOT / "scripts" / "gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertIn('p.add_argument("--tls", action="store_true")', script)
+        self.assertIn("tls=a.tls", script)
+        self.assertIn('"${MIDDLEWARE_TLS_ARG[@]}"', harness)
+
     def fixture(self, producer="a" * 40):
         return {
             "schema": probe.EXPECTED_SCHEMA,
