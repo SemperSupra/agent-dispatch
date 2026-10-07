@@ -31,6 +31,12 @@ class ContainerPreB4Tests(unittest.TestCase):
             },
         }
 
+    def test_not_found_classifier_is_fail_closed(self):
+        self.assertTrue(probe.is_explicit_not_found(RuntimeError('filesystem.stat: {"error": 2, "reason": "Path not found"}')))
+        self.assertTrue(probe.is_explicit_not_found(RuntimeError("ENOENT")))
+        self.assertFalse(probe.is_explicit_not_found(RuntimeError("authentication failed")))
+        self.assertFalse(probe.is_explicit_not_found(RuntimeError("transport timeout")))
+
     def test_load_accepts_exact_non_admitted_fixture(self):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
