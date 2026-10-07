@@ -15,8 +15,8 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 10
     env:
-      SEED_WRAPPER: 'd06579865fc3893c52a18ad5a5ad17597391f4ac'
-      TERMINAL_WRAPPER: 'ecfa201bf35cf2801b46646a6b77b4db4b6ae9df'
+      SEED_WRAPPER: 'e5fb3fcf3958c6db42757b7371cbc84b2ebe2eea'
+      TERMINAL_WRAPPER: '151ad0619d5f907efdbe6e554b0813a33d36d033'
     steps:
       - name: Qualify exact dormant wrappers
         shell: pwsh
@@ -42,7 +42,9 @@ jobs:
             "preexisting_hns_nat_count",
             "removed_preexisting_hns_nat_count",
             "post_condition_hns_nat_count",
-            "winnat-exclusivity"
+            "winnat-exclusivity",
+            "preexisting_hns_nat_count=$r.build.preexisting_hns_nat_count",
+            "netnat_count_after_cleanup=$r.cleanup.netnat_count_after_cleanup"
           )){if(-not $seed.Contains($m)){throw "seed wrapper missing: $m"}}
           if($seed.Contains("690a5e61147249c554475b1dc3ecbac92b746d32")){throw 'seed wrapper retains old master'}
           if($seed.Contains("0d31656db7ae4a8ca478bc621a3d60bb064c4430")){throw 'seed wrapper retains old control'}
