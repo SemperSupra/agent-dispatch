@@ -578,7 +578,10 @@ def main():
     }
     try:
         control,compose=load_control(a.control_dir,a.foundry_commit,a.target_version)
-        payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS}
+        management_scheme=validate_management_transport(control,compose.get("services") or {})
+        management_tls=management_scheme=="https"
+        management_tls_initial=None
+        payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS,"management_scheme":management_scheme}
         password=pathlib.Path(a.password_file).read_text().strip()
         ws=WebSocket(a.host,a.port,timeout=a.timeout,tls=a.tls); ws.send_json({"msg":"connect","version":"1","support":["1"]})
         if wait_for(ws,lambda m:m.get("msg") in {"connected","failed"}).get("msg")!="connected": raise RuntimeError("DDP connection failed")
