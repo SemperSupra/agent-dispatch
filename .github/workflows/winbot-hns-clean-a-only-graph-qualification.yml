@@ -75,8 +75,8 @@ jobs:
             'removed_preexisting_hns_nat_count',
             'post_condition_hns_nat_count',
             'winnat-exclusivity',
-            "$ownedNatName = 'WbNat-' + $ownedNatHash.Substring(0,20)",
-            "New-NetNat -Name $ownedNatName -InternalIPInterfaceAddressPrefix $ownedNatPrefix"
+            '$ownedNatName = ''WbNat-'' + $ownedNatHash.Substring(0,20)',
+            'New-NetNat -Name $ownedNatName -InternalIPInterfaceAddressPrefix $ownedNatPrefix'
           )){
             if(-not $control.Contains($marker)){throw "control invariant missing: $marker"}
           }
