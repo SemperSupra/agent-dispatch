@@ -20,15 +20,15 @@ jobs:
       A_MASTER: '158ac139db287bd6c7efcf5d2c7477e802b86796'
       A_MANIFEST: '35cf3d54ddca6eb56cf564837e4206295cc2079b'
       A_CONTROL: '357abe0886b36e93f818f5f17704ae11f6348199'
-      A_WRAPPER: '2a7f37de8f4e377b8ddebc31493e46d00530a2b8'
+      A_WRAPPER: '4ced6c09df12e66d7da4cad4dd91ce8a05958fe6'
       SEED_MASTER: '690a5e61147249c554475b1dc3ecbac92b746d32'
       SEED_MANIFEST: 'ef599cd1feae56ad12862b87bb4a7ec9a6d41105'
       SEED_CONTROL: '0d31656db7ae4a8ca478bc621a3d60bb064c4430'
-      SEED_WRAPPER: '50997aedf9adb1305be5676ef49c3ce4bf005ec0'
+      SEED_WRAPPER: '263d219f3c2324300aa7625caf03f7933e4a163d'
       TERMINAL_MASTER: 'ebebb9280785ec77fd9ff7c00d941a3777cc44b4'
       TERMINAL_MANIFEST: 'dc52b21c8c8e1004883de1a58ab6684eb26cf625'
       TERMINAL_CONTROL: '33a9c68073e5b21251b02c36ae7f0937f825f6cc'
-      TERMINAL_WRAPPER: 'c712d172aea83f92137976f0efc5aa2be590acf6'
+      TERMINAL_WRAPPER: 'a07600faf63bbc8ead3424ec11b90db9346016d5'
 
     steps:
       - name: Qualify exact graph and wrapper identities
@@ -79,6 +79,10 @@ jobs:
               wrapper=blob(wrapper_sha).decode("utf-8-sig")
               for marker in (master_sha,manifest_sha,control_sha,"group: agent-dispatch-heavyweight-rdte","queue: max","cancel-in-progress: false"):
                   if marker not in wrapper: raise SystemExit(f"{label}: wrapper invariant missing: {marker}")
+              if "$ownedNatName = 'WbNat-' + $ownedNatHash.Substring(0,20)" not in wrapper:
+                  raise SystemExit(f"{label}: corrected short-name wrapper guard missing")
+              if "WinBot-RDTE-NAT-" in wrapper:
+                  raise SystemExit(f"{label}: stale long-name wrapper guard remains")
           print(json.dumps({"classification":"SUPPORTED","source":os.environ["EXPECTED_SOURCE"],"projection":os.environ["EXPECTED_PROJECTION"]},sort_keys=True))
           '@
           $p=Join-Path $env:RUNNER_TEMP 'qualify.py'
