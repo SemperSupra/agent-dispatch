@@ -18,7 +18,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-controller-f0f5|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|official-catalog|foliorelay] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--session-manifest FILE]"
 }
 
 OUT=""
@@ -72,10 +72,10 @@ if [[ "$COMPUTE_FIXTURE" != "none" && "$RUNG" != "t3" ]]; then
   exit 2
 fi
 if [[ "$RUNG" == "t6" ]]; then
-  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" ]]; then
+  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "garm-controller-f0f5" ]]; then
     [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
   fi
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-controller-f0f5" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
     [[ -n "$G2_FIXTURE_DIR" && -d "$G2_FIXTURE_DIR" ]] || { echo "garm-provider-g2 requires --g2-fixture-dir" >&2; exit 2; }
     [[ "$G2_FIXTURE_PRODUCER" =~ ^[0-9a-f]{40}$ ]] || { echo "garm-provider-g2 requires exact --g2-fixture-producer SHA" >&2; exit 2; }
@@ -163,7 +163,7 @@ write_receipt() {
   export R_TARGET_VERSION="$VERSION" R_EXPECTED_SYSTEM_VERSION="$EXPECTED_SYSTEM_VERSION"
   export R_ISO_NAME="$ISO_NAME" R_ISO_URL="$ISO_URL" R_SHA_URL="$SHA_URL"
   export R_MIDDLEWARE_REF="$MIDDLEWARE_REF" R_MIDDLEWARE_COMMIT="$MIDDLEWARE_COMMIT"
-  export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_HA_APPS_GATE="$HA_APPS_GATE" R_INSTALLER_RPC_PATH="$INSTALLER_RPC_PATH" R_INSTALLER_RPC_GUEST_PORT="$INSTALLER_RPC_GUEST_PORT" R_INSTALLER_SOURCE_REF="$INSTALLER_SOURCE_REF" R_INSTALLER_MAIN_BLOB_SHA="$INSTALLER_MAIN_BLOB_SHA" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
+  export R_FOUNDRY_PROFILE="$FOUNDRY_PROFILE" R_FOUNDRY_PROFILE_BLOB="$FOUNDRY_PROFILE_BLOB" R_HA_APPS_GATE="$HA_APPS_GATE" R_INSTALLER_RPC_PATH="$INSTALLER_RPC_PATH" R_INSTALLER_RPC_GUEST_PORT="$INSTALLER_RPC_GUEST_PORT" R_INSTALLER_SOURCE_REF="$INSTALLER_SOURCE_REF" R_INSTALLER_MAIN_BLOB_SHA="$INSTALLER_MAIN_BLOB_SHA" R_AUTHORITY_ISSUE="$AUTHORITY_ISSUE"
   export R_RUNG="$RUNG" R_T6_PRODUCT="$T6_PRODUCT" R_COMPUTE_FIXTURE="$COMPUTE_FIXTURE" R_T0="$T0_OBSERVED" R_RPC_HOSTFWD="$RPC_HOSTFWD_ACCEPTED"
   export R_VCPUS="$VCPUS" R_RAM_MIB="$RAM_MIB"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
@@ -199,7 +199,7 @@ payload = {
       else {"name": "garm-provider-g5-version-row", "count": 1, "image": "ghcr.io/actions/actions-runner:2.336.0@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "garm-provider-g5"
       else {"name": "rdte-t6-garm", "image": "ghcr.io/sempersupra/garm-appliance@sha256:1af67841ddd4589e3798dcda8be49230565c849d07ab57fd05899432dcdabca9"}
-      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "garm"
+      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") in {"garm", "garm-controller-f0f5"}
       else {"name": "rdte-t6-wow-sidecar", "image": "ghcr.io/sempersupra/wow-sidecar@sha256:6b700ce7ba5ae44116b240ccbb54fb3b60dc952a9b4072ca1314b6f311bc5376"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "wow-sidecar"
       else {"name": "rdte-t6-catalog-ntfy", "catalog_app": "ntfy", "catalog_version": "1.1.21"}
@@ -221,6 +221,7 @@ payload = {
     "middleware_ref": os.environ["R_MIDDLEWARE_REF"],
     "middleware_commit": os.environ["R_MIDDLEWARE_COMMIT"],
     "foundry_profile": os.environ["R_FOUNDRY_PROFILE"],
+    "foundry_profile_blob": os.environ["R_FOUNDRY_PROFILE_BLOB"],
     "ha_apps_gate": os.environ["R_HA_APPS_GATE"],
     "installer_rpc_path": os.environ["R_INSTALLER_RPC_PATH"],
     "installer_rpc_guest_port": int(os.environ["R_INSTALLER_RPC_GUEST_PORT"]),
@@ -630,7 +631,7 @@ PY
 )"
   LITELLM_HOSTFWD=",hostfwd=tcp:127.0.0.1:${LITELLM_HOST_PORT}-:30401"
 fi
-if [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "garm" ]]; then
+if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-controller-f0f5" ) ]]; then
   GARM_HOST_PORT="$(python3 - <<'PY'
 import socket
 s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
@@ -1064,6 +1065,19 @@ elif [[ "$T6_PRODUCT" == "garm-provider-g5" ]]; then
     --target-version "$VERSION" \
     --expected-middleware-commit "$MIDDLEWARE_COMMIT" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 >/dev/null 2>&1 || true
+elif [[ "$T6_PRODUCT" == "garm-controller-f0f5" ]]; then
+  python3 "$SCRIPT_DIR/truenas_middleware_garm_f0_f5_probe.py" \
+    --host 127.0.0.1 --port "$MIDDLEWARE_PORT" --service-port "$GARM_HOST_PORT" \
+    "${MIDDLEWARE_TLS_ARG[@]}" \
+    --password-file "$PASSWORD_FILE" \
+    --control-dir "$FOUNDRY_CONTROL_DIR" \
+    --foundry-commit "$FOUNDRY_COMMIT" \
+    --target-version "$VERSION" \
+    --expected-system-version "$EXPECTED_SYSTEM_VERSION" \
+    --expected-middleware-commit "$MIDDLEWARE_COMMIT" \
+    --expected-profile-path "$FOUNDRY_PROFILE" \
+    --expected-profile-blob "$FOUNDRY_PROFILE_BLOB" \
+    --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 300 --state-timeout 240 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "garm" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_garm_t6_probe.py" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" --service-port "$GARM_HOST_PORT" \
@@ -1125,6 +1139,8 @@ elif [[ "$T6_PRODUCT" == "garm-provider-g4" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact packaged GARM TrueNAS provider realized two source-derived runner Apps concurrently, exact Compose and fresh-process Get/List reconciliation passed for both, active deletion failed closed, both retirement orders reached empty inventory with zero residue, and GitHub/JIT/private workload/physical/capacity claims remained unexercised"
 elif [[ "$T6_PRODUCT" == "garm-provider-g5" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact G5 TrueNAS source-matrix row matched the RDTE target and the fixed packaged provider completed the capacity-one Create/read-back/Get/List/inactive/Delete/absence/empty-inventory/zero-residue lifecycle without runtime support inheritance or GitHub/JIT/private/physical/capacity claims"
+elif [[ "$T6_PRODUCT" == "garm-controller-f0f5" ]]; then
+  write_receipt SUPPORTED true foundry-materialization "exact-target Foundry GARM controller completed F0-F5: exact profile/materialization identity, create/read-back, product health and persistent state, stop/start/update/redeploy, second-plan NOOP with WAIT/fail-closed reconciliation, retain-data delete/reinstall/post-reinstall NOOP, and final zero-residue cleanup"
 elif [[ "$T6_PRODUCT" == "garm" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported GARM controller control passed exact appliance and secret-normalized config read-back, persistent state, external HTTPS, restart persistence, and zero-residue cleanup; GitHub/JIT registration intentionally not exercised"
 elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
