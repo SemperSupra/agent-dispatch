@@ -17,6 +17,11 @@ class TargetRegistryTests(unittest.TestCase):
         self.assertEqual(self.targets["25.04.2.6"]["middleware_commit"], "244b717370fe35fb9eefc3096acfbc25f12b57b6")
         self.assertEqual(self.targets["25.10.7"]["middleware_commit"], "8ede398839710e56893d88ce85088139d8fab18e")
         self.assertEqual(self.targets["26.0.0-BETA.3"]["middleware_commit"], "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3")
+    def test_exact_foundry_profile_blobs(self):
+        expected = {"25.04.1":"800aca038ded29e6a91bfc4c1b1fe2d2199182e8","25.04.2.6":"631467044411c96a0fe6d361688b99a794f07c80","25.10.7":"1320cc849a9cc1e7ff6bd78989fc0e4708397248","26.0.0-BETA.3":"a8ebc533dc84172520eba2237ffeeb52b102dc24"}
+        for version, blob in expected.items():
+            self.assertEqual(self.targets[version]["foundry_profile_blob"], blob)
+
     def test_vendor_media_is_exact_and_has_digest_sidecar(self):
         for version,target in self.targets.items():
             self.assertIn(version, target["iso_name"])
@@ -66,11 +71,13 @@ class TargetRegistryTests(unittest.TestCase):
         target=self.targets[request["version"]]
         self.assertEqual(request["authority_issue"], target["authority_issue"])
         if request["rung"] == "t6":
-            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-provider-g2","garm-provider-g3","garm-provider-g4","garm-provider-g5","official-catalog","foliorelay"})
+            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-controller-f0f5","garm-provider-g2","garm-provider-g3","garm-provider-g4","garm-provider-g5","official-catalog","foliorelay"})
         if request.get("product") == "wow-sidecar":
             self.assertEqual(request.get("consumer_authority_issue"), 276)
         if request.get("product") == "garm":
             self.assertEqual(request.get("consumer_authority_issue"), 277)
+        if request.get("product") == "garm-controller-f0f5":
+            self.assertEqual(request.get("consumer_authority_issue"), 282)
         if request.get("product") == "garm-provider-g2":
             self.assertEqual(request.get("consumer_authority_issue"), 39)
         if request.get("product") == "garm-provider-g3":
