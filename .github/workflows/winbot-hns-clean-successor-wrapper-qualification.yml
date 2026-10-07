@@ -43,8 +43,8 @@ jobs:
             "removed_preexisting_hns_nat_count",
             "post_condition_hns_nat_count",
             "winnat-exclusivity",
-            "preexisting_hns_nat_count=$r.build.preexisting_hns_nat_count",
-            "netnat_count_after_cleanup=$r.cleanup.netnat_count_after_cleanup"
+            'preexisting_hns_nat_count=$r.build.preexisting_hns_nat_count',
+            'netnat_count_after_cleanup=$r.cleanup.netnat_count_after_cleanup'
           )){if(-not $seed.Contains($m)){throw "seed wrapper missing: $m"}}
           if($seed.Contains("690a5e61147249c554475b1dc3ecbac92b746d32")){throw 'seed wrapper retains old master'}
           if($seed.Contains("0d31656db7ae4a8ca478bc621a3d60bb064c4430")){throw 'seed wrapper retains old control'}
