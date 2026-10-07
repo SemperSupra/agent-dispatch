@@ -120,6 +120,14 @@ def validate_host_path_requirements(control: dict, target_version: str):
         ROOT+"/secrets":("directory","0700"),
         TOKEN_PATH:("file","0400"),
     }
+    scheme=(runtime.get("management_scheme") or "http").lower()
+    if scheme=="https":
+        tls_root=runtime.get("management_tls_root")
+        if tls_root!=ROOT+"/tls":
+            raise RuntimeError("HTTPS management TLS root drifted")
+        expected[tls_root]=("directory","0700")
+    elif scheme!="http":
+        raise RuntimeError(f"unsupported management scheme {scheme!r}")
     by_path={}
     for item in requirements:
         if not isinstance(item,dict):
