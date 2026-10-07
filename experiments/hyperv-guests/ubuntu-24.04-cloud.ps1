@@ -289,7 +289,10 @@ sleep 8
 systemctl is-active xrdp
 ss -ltn | egrep ':(22|3389|5901)\b'
 '@
-  $guestSetupB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($guestSetup))
+  # PowerShell source is checked out with CRLF on Windows; normalize before
+  # transporting the shell payload or bash sees option names with a trailing CR.
+  $guestSetupLf = $guestSetup.Replace("`r`n","`n")
+  $guestSetupB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($guestSetupLf))
   $setupOut = Invoke-Guest "echo $guestSetupB64 | base64 -d | bash"
   $receipt.observations.desktopSetup = $setupOut
 
@@ -412,3 +415,5 @@ exit 0
 # launch-stamp: corrected-harness-rep
 
 # launch-stamp: nonsparse-vhdx-rep
+
+# launch-stamp: lf-normalized-guest-setup
