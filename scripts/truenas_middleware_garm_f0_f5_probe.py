@@ -33,7 +33,7 @@ TLS_KEY_CONFIG = "garm-tls-private-key"
 BOOTSTRAP_PLACEHOLDER = "__EPHEMERAL_NESTED_GARM_CONFIG__"
 TLS_PREFIX = "__EPHEMERAL_NESTED_TLS__:"
 REQUIRED_METHODS = {
-    "system.version", "core.get_methods",
+    "system.version",
     "app.query", "app.config", "app.create", "app.update", "app.redeploy",
     "app.stop", "app.start", "app.delete",
     "pool.dataset.query", "pool.dataset.create", "pool.dataset.delete",
