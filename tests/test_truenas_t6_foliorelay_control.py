@@ -114,6 +114,56 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"kind/mode drifted"):
             MOD.validate_host_path_requirements(widened,"25.10.7")
 
+    def test_https_management_contract_is_control_only_and_backward_compatible(self):
+        self.assertEqual(MOD.validate_management_transport({"runtime":{}},{"control":{},"cups":{},"discovery":{}}),"http")
+
+        tls_root=MOD.ROOT+"/tls"
+        tls_target="/var/lib/foliorelay-tls"
+        control={
+            "runtime":{
+                "management_scheme":"https",
+                "management_tls_root":tls_root,
+                "management_tls_state":tls_target,
+            },
+            "required_oracles":["management-tls-ready","management-tls-identity-persistent"],
+        }
+        services={
+            "control":{"volumes":[{"type":"bind","source":tls_root,"target":tls_target,"read_only":False}]},
+            "cups":{"volumes":[]},
+            "discovery":{"volumes":[]},
+        }
+        self.assertEqual(MOD.validate_management_transport(control,services),"https")
+
+        leaked=json.loads(json.dumps(services))
+        leaked["cups"]["volumes"].append({"type":"bind","source":tls_root,"target":tls_target,"read_only":True})
+        with self.assertRaisesRegex(RuntimeError,"cups must not receive"):
+            MOD.validate_management_transport(control,leaked)
+
+        missing_oracle=json.loads(json.dumps(control))
+        missing_oracle["required_oracles"]=["management-tls-ready"]
+        with self.assertRaisesRegex(RuntimeError,"management-tls-identity-persistent"):
+            MOD.validate_management_transport(missing_oracle,services)
+
+    def test_https_host_path_contract_adds_private_tls_root(self):
+        tls_root=MOD.ROOT+"/tls"
+        requirements=[
+            {"path":MOD.ROOT+"/control","kind":"directory","uid":10001,"gid":10001,"mode":"0710"},
+            {"path":tls_root,"kind":"directory","uid":10001,"gid":10001,"mode":"0700"},
+            {"path":MOD.ROOT+"/artifacts","kind":"directory","uid":10001,"gid":10001,"mode":"0700"},
+            {"path":MOD.ROOT+"/cups-state","kind":"directory","uid":10001,"gid":10001,"mode":"0755"},
+            {"path":MOD.ROOT+"/cups-spool","kind":"directory","uid":10001,"gid":10001,"mode":"0755"},
+            {"path":MOD.ROOT+"/secrets","kind":"directory","uid":10001,"gid":10001,"mode":"0700"},
+            {"path":MOD.TOKEN_PATH,"kind":"file","uid":10001,"gid":10001,"mode":"0400"},
+        ]
+        got=MOD.validate_host_path_requirements({
+            "runtime":{
+                "management_scheme":"https",
+                "management_tls_root":tls_root,
+                "host_path_requirements":requirements,
+            }
+        },"25.10.7")
+        self.assertEqual(next(x for x in got if x["path"]==tls_root)["mode"],"0700")
+
     def test_f4_reconciliation_policy_and_f5_retention_contract(self):
         exact={"services":{"control":{"image":"sha256:exact"}}}
         drift={"services":{"control":{"image":"sha256:drift"}}}
