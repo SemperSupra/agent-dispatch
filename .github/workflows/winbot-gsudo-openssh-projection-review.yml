@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 10
     env:
       SOURCE_REVISION: '90d5d8a7244b781c28d438d9ba01155735c765b7'
-      BATCHES: '33c9bce72a6bcf325e695476e0b33ae7aa80bdfb d1bf5980317f61d6ea49475d8bde75c403dac5df b3add22fa08f13fac8560ff01f8529195a81a981 034fc973cf012846db15b9302ef03f42b78fa720 e3a8e689d1650383af0e2097c5595520a30f2782 a40c7d7a35105d8b8ed87814ac13c8c942dd0b3e 56f855678dd81c67ae0b6c6a5172e561eaa21cef 381e36c7ee3229af67a92d2ae9ee9aba43b53f88 492ecbac643f64b589860aedff6a2902400d67ac'
+      BATCHES: '33c9bce72a6bcf325e695476e0b33ae7aa80bdfb d1bf5980317f61d6ea49475d8bde75c403dac5df b3add22fa08f13fac8560ff01f8529195a81a981 034fc973cf012846db15b9302ef03f42b78fa720 bb7528e2c552d1acdaa5769fb39d03e1e822aea7 a40c7d7a35105d8b8ed87814ac13c8c942dd0b3e 56f855678dd81c67ae0b6c6a5172e561eaa21cef 8e41a109933cb051ea81babb835a4720b1a90239 492ecbac643f64b589860aedff6a2902400d67ac'
     steps:
       - name: Recompute exact projection identity
         shell: bash
@@ -65,8 +65,8 @@ jobs:
 
           by_path={e["path"]:e for e in entries}
           expected_changed={
-              "guest/tools/configuration.winget":("aaebafd43b350886171f16828fd3b74b420c95fc",3218),
-              "guest/tools/stage-provision.ps1":("0efa30b3c585a7a5fbee2271040cb8046d7ec262",45576),
+              "guest/tools/configuration.winget":("aaebafd43b350886171f16828fd3b74b420c95fc",3262),
+              "guest/tools/stage-provision.ps1":("0efa30b3c585a7a5fbee2271040cb8046d7ec262",45578),
           }
           for path,(sha,size) in expected_changed.items():
               e=by_path.get(path)
@@ -96,7 +96,7 @@ jobs:
               })
           if suspicious:
               raise SystemExit("high-confidence sensitive material in projection: "+",".join(sorted(set(suspicious))))
-          if total!=1053152:
+          if total!=1053198:
               raise SystemExit(f"projected byte count mismatch: {total}")
 
           identity=hashlib.sha256(json.dumps(
