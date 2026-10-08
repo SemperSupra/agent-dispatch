@@ -659,7 +659,7 @@ for _ in range(3):
 print(" ".join(ports))
 PY
 )
-  FOLIORELAY_HOSTFWD=",hostfwd=tcp:127.0.0.1:${FOLIORELAY_CONTROL_HOST_PORT}-:18080,hostfwd=tcp:127.0.0.1:${FOLIORELAY_IPP_HOST_PORT}-:8634,hostfwd=tcp:127.0.0.1:${FOLIORELAY_OBSERVER_HOST_PORT}-:18081"
+  FOLIORELAY_HOSTFWD=",hostfwd=tcp:127.0.0.1:${FOLIORELAY_CONTROL_HOST_PORT}-:18443,hostfwd=tcp:127.0.0.1:${FOLIORELAY_IPP_HOST_PORT}-:8634,hostfwd=tcp:127.0.0.1:${FOLIORELAY_OBSERVER_HOST_PORT}-:18081"
 fi
 : >"$STATE_DIR/serial.log"
 sudo -n qemu-system-x86_64 \
