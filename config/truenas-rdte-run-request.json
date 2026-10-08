@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-007-webui-https-f0-f5",
-  "version": "25.10.7",
+  "request_id": "tn-26-beta3-t6-garm-container-pre-b4-004",
+  "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "foliorelay",
-  "authority_issue": 410,
-  "consumer_authority_issue": 273,
-  "purpose": "Requalify the exact FolioRelay TrueNAS 25.10.7 F0-F5 matrix cell for the accepted WebUI/product-native HTTPS candidate after refreshed BETA.3 rep 016 independently earned support. Bind Agent Dispatch consumer + HTTPS host-forward authority 11e6caed23512b9e042d0500ef8fcd1e2eef88b5, Foundry 81deb97185760975fd8d3162df42056c77b3c0fd, immutable control sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5, and unchanged CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814. Require exact TrueNAS-25.10.7/profile identity; cooperative host Avahi discovery with the existing 25.x least-privilege control-root contract and independent legacy-unicast observer; exact three-service RUNNING/readback; TrueNAS Web UI portal https://foliorelay-t6.local:18443/; HTTPS management and stable TLS leaf identity across restart/update/redeploy/retained-data reinstall; IPP; PDF/URF exact-source Inbox preservation; canonical printer identity; F4 second-plan NOOP with WAIT/fail-closed reconciliation; F5 retained-data reinstall preserving identity, Inbox, artifact bytes, portal metadata, and TLS identity; final zero residue. Do not inherit BETA.3 or historical 25.10.7 support; acceptance requires this exact row's retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt."
+  "product": "garm-provider-container-pre-b4",
+  "authority_issue": 396,
+  "consumer_authority_issue": 43,
+  "purpose": "Run corrected BETA.3 GARM TrueNAS Container pre-B4 real-system rep 004 after rep 003 proved WSS, exact image resolution, container.create and cleanup but failed on a stale hidden-dataset query assumption. Bind merged provider source 9f3c86169320b6a2330bbb345d25a41c736c73c2 and merged Agent Dispatch consumer 84be7a83d436758788ab08dedf96815053b6c14b. Require exact TrueNAS-26.0.0-BETA.3 / middleware 81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3; supported container.* create/readback; exact Ubuntu Noble image resolution; exact source-derived dataset <pool>/.truenas_containers/containers/<name> and rootfs /.truenas_containers/<pool>/containers/<name> with no pool.dataset.query dependency; filesystem.put/stat staging of exact non-secret scripts plus one run-local 0600 credential file; observed init-wrapper and bootstrap-child markers; explicit credential-file deletion; persisted init/initenv scrub to /sbin/init plus empty environment; supported stop/delete; and final named-container absence. This remains B0-B3/B5 pre-B4 evidence only. Do not claim callback/JIT, GitHub registration, runtime admission, per-runner memory isolation, Docker/container-actions, physical TrueNAS readiness, or capacity promotion."
 }
