@@ -23,7 +23,7 @@ import winbot_95_receipt_patch as receipt
 REPO = "SemperSupra/agent-dispatch"
 OLD_MASTER = "a54acfb36516bae9605ab13ec0ac7724d17abadc"
 OLD_MANIFEST = "6b0871d9e9309228ac470362d6a7b81f733521c1"
-CANDIDATE_CONTROL = "05541160bf797526d60ff2a726bb0c9d4b530f8b"
+CANDIDATE_CONTROL = "e0853ca10c7b2474010fc271a73808f90afd0d94"
 CANDIDATE_RECEIPT_WRAPPER = "8de3136c2e053b131ae83827676d54d0dc03362f"
 SOURCE = "90d5d8a7244b781c28d438d9ba01155735c765b7"
 PROJECTION = "d4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45"
@@ -103,7 +103,7 @@ def run() -> None:
     master["construction"]["readiness_control"] = CANDIDATE_CONTROL
     master["construction"]["bounded_failure_diagnostic"] = "9.5 ten boolean flags; fail-closed terminal early exit"
     master["construction"]["parent_control_manifest"] = OLD_MANIFEST
-    master["construction"]["cheap_qualification_run"] = 37854027529
+    master["construction"]["cheap_qualification_run"] = 37854376785
     master["construction"]["cheap_qualification_candidate_control"] = CANDIDATE_CONTROL
     master["construction"]["cheap_qualification_candidate_receipt_wrapper"] = CANDIDATE_RECEIPT_WRAPPER
     master["construction"]["qualification_authority"] = "SemperSupra/agent-dispatch-private#406"
@@ -151,7 +151,7 @@ def run() -> None:
         "authority": "SemperSupra/agent-dispatch-private#406",
         "product_source_revision": SOURCE,
         "projection_identity_sha256": PROJECTION,
-        "cheap_qualification_run": 37854027529,
+        "cheap_qualification_run": 37854376785,
         "cheap_qualification_pass": True,
         "graph": created,
         "wrapper_path_when_admitted": WRAPPER_PATH,
@@ -169,7 +169,7 @@ def run() -> None:
         "state": "success",
         "context": "winbot-95-exact-graph",
         "description": "receipt_git_blob=" + receipt_blob,
-        "target_url": "https://github.com/" + REPO + "/pull/379",
+        "target_url": "https://api.github.com/repos/" + REPO + "/git/blobs/" + receipt_blob,
     })
     print(json.dumps({"receipt_git_blob": receipt_blob, **result}, sort_keys=True))
 
