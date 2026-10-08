@@ -21,6 +21,29 @@ class RunnerRuntimeTemplateContractTests(unittest.TestCase):
     def setUp(self):
         self.doc = MOD.load(CATALOG)
 
+    def test_runner_agent_reference_is_exact_and_cross_platform(self):
+        agent = self.doc["runner_agent_reference"]
+        self.assertEqual(agent["version"], "2.337.0")
+        self.assertEqual(agent["observed_hosted_agent_version"], "2.337.0")
+        self.assertEqual(
+            set(agent["assets"]),
+            {"linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64", "windows-arm64"},
+        )
+        self.assertEqual(
+            agent["assets"]["linux-x64"]["sha256"],
+            "70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613",
+        )
+        self.assertEqual(
+            agent["linux_x64_oci"]["digest"],
+            "sha256:e5496277be5d09bc968b3d64911b74e219ac4a3f2edce956a3ecf9271bea1ef4",
+        )
+
+    def test_runner_agent_drift_fails_closed(self):
+        bad = copy.deepcopy(self.doc)
+        bad["runner_agent_reference"]["version"] = "latest"
+        with self.assertRaises(MOD.ContractError):
+            MOD.validate(bad)
+
     def test_all_censused_gha_reference_classes_are_frozen(self):
         self.assertEqual(set(self.doc["gha_reference_classes"]), MOD.REQUIRED_GHA_CLASSES)
 

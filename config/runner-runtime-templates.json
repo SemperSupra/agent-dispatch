@@ -374,5 +374,41 @@
     "T6": "Execute one real ephemeral GARM/GitHub runner workload through the local provider.",
     "T7": "For sovereign-enhanced profiles only, independently prove each enhancement.",
     "T8": "Admit the exact template to workload placement with evidence refs and no inheritance."
+  },
+  "runner_agent_reference": {
+    "source": "https://github.com/actions/runner/releases/tag/v2.337.0",
+    "version": "2.337.0",
+    "observed_hosted_agent_version": "2.337.0",
+    "assets": {
+      "linux-x64": {
+        "filename": "actions-runner-linux-x64-2.337.0.tar.gz",
+        "sha256": "70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
+      },
+      "linux-arm64": {
+        "filename": "actions-runner-linux-arm64-2.337.0.tar.gz",
+        "sha256": "9b1dc70626422526e3c94767cf024896beb15da5342a3f4819bf2feac13e0393"
+      },
+      "macos-x64": {
+        "filename": "actions-runner-osx-x64-2.337.0.tar.gz",
+        "sha256": "d383f505d7ed041b1873ab68c35dd766fc093f2252330f95bb427be8f2c6dcfc"
+      },
+      "macos-arm64": {
+        "filename": "actions-runner-osx-arm64-2.337.0.tar.gz",
+        "sha256": "5a2cd92908a93d7276a194e1de6008099f3e7946f3f8e14aa7a1a7b4a31fdec2"
+      },
+      "windows-x64": {
+        "filename": "actions-runner-win-x64-2.337.0.zip",
+        "sha256": "1150692afa94e71f872017e254ea55b6eece1eece3fe7e3a6d4c93d0a1b85cfc"
+      },
+      "windows-arm64": {
+        "filename": "actions-runner-win-arm64-2.337.0.zip",
+        "sha256": "7ee1a72a0e0ad384ac7871ffc2356063a116e20d1db3ea41000eb49272cf0030"
+      }
+    },
+    "linux_x64_oci": {
+      "image": "ghcr.io/actions/actions-runner:2.337.0",
+      "digest": "sha256:e5496277be5d09bc968b3d64911b74e219ac4a3f2edce956a3ecf9271bea1ef4"
+    },
+    "claim_boundary": "Runner-agent identity is part of local/GHA runtime compatibility. Matching this agent does not imply OS, toolchain, primitive, workload, lifecycle, or placement parity."
   }
 }

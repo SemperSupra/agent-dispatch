@@ -67,6 +67,35 @@ def validate(doc: dict[str, Any]) -> None:
         if policy.get(key) is not True:
             raise ContractError(f"policy must fail closed: {key}")
 
+    agent = doc.get("runner_agent_reference")
+    if not isinstance(agent, dict):
+        raise ContractError("runner_agent_reference missing")
+    if agent.get("version") != "2.337.0" or agent.get("observed_hosted_agent_version") != "2.337.0":
+        raise ContractError("runner agent reference drifted")
+    assets = agent.get("assets")
+    expected_assets = {
+        "linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64", "windows-arm64"
+    }
+    if not isinstance(assets, dict) or set(assets) != expected_assets:
+        raise ContractError("runner agent asset matrix drifted")
+    for platform_arch, asset in assets.items():
+        if not isinstance(asset, dict):
+            raise ContractError(f"{platform_arch}: runner agent asset missing")
+        filename = asset.get("filename")
+        digest = asset.get("sha256")
+        if not isinstance(filename, str) or "2.337.0" not in filename:
+            raise ContractError(f"{platform_arch}: runner filename drifted")
+        if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise ContractError(f"{platform_arch}: invalid runner SHA-256")
+    oci = agent.get("linux_x64_oci")
+    if not isinstance(oci, dict) or oci.get("image") != "ghcr.io/actions/actions-runner:2.337.0":
+        raise ContractError("Linux x64 runner OCI tag drifted")
+    oci_digest = oci.get("digest")
+    if not isinstance(oci_digest, str) or not oci_digest.startswith("sha256:") or len(oci_digest) != 71:
+        raise ContractError("Linux x64 runner OCI digest invalid")
+    if not isinstance(agent.get("claim_boundary"), str) or not agent["claim_boundary"]:
+        raise ContractError("runner agent claim boundary missing")
+
     refs = doc.get("gha_reference_classes")
     if not isinstance(refs, dict):
         raise ContractError("gha_reference_classes missing")
