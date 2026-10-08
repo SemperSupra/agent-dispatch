@@ -18,7 +18,7 @@ $tokens=$null; $errors=$null
 [void][System.Management.Automation.Language.Parser]::ParseInput($script,[ref]$tokens,[ref]$errors)
 if ($errors.Count -ne 0) { throw 'bounded receipt PowerShell parser failure' }
 $start = $script.IndexOf('# Validate again on the trusted side', [StringComparison]::Ordinal)
-$end = $script.IndexOf('            $out = [ordered]@{', $start, [StringComparison]::Ordinal)
+$end = $script.IndexOf('$out = [ordered]@{', $start, [StringComparison]::Ordinal)
 if ($start -lt 0 -or $end -le $start) { throw 'trusted whitelist injection missing' }
 $validator = [ScriptBlock]::Create($script.Substring($start, $end-$start))
 $required = @(
