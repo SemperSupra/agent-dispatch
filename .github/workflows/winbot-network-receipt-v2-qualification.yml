@@ -1,0 +1,65 @@
+name: WinBot Windows Diagnostic Receipt V2 Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-network-receipt-v2-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      WRAPPER_BLOB: '1d86a9b25ed924cc1659f914782cd99ac4c4e4b2'
+      EXPECTED_MASTER: '2edff2f28d4aa435863aba61d05f27b1dc5f3e6b'
+      EXPECTED_CONTROL: '8551bb14ced74428db451eac3e0e91ec526ad997'
+    steps:
+      - name: Qualify exact bounded receipt and mixed-case nested JSON
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $h=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$env:WRAPPER_BLOB"
+          $o=Invoke-RestMethod -Uri $uri -Headers $h
+          if([string]$o.sha -ne $env:WRAPPER_BLOB -or [string]$o.encoding -ne 'base64'){throw 'wrapper Git identity mismatch'}
+          $raw=[Convert]::FromBase64String(([string]$o.content -replace '\s',''))
+          $text=[Text.Encoding]::UTF8.GetString($raw)
+          foreach($marker in @(
+            "MASTER_MANIFEST_SHA: '2edff2f28d4aa435863aba61d05f27b1dc5f3e6b'",
+            "EXPECTED_A_ONLY_CONTROL_BLOB: '8551bb14ced74428db451eac3e0e91ec526ad997'",
+            "group: agent-dispatch-heavyweight-rdte",
+            "ConvertFrom-Json -AsHashtable -Depth 100",
+            "EVIDENCE_DERIVATION_FAILURE",
+            "artifact_raw_disclosed = `$false",
+            "winbot-hns-clean-windows-network-diagnostic-receipt-v2.yml"
+          )){
+            if(-not $text.Contains($marker)){throw "wrapper invariant missing: $marker"}
+          }
+
+          # Synthetic fixture reproduces the real sealed result's case-distinct
+          # duplicate name condition; this must survive a decode + bounded emit.
+          $fixture='{"work_cells":{"a":{"guest_network_snapshot":{"adapters":[{"Name":"Ethernet","value":7,"Value":8}],"raw_tcp_1_1_1_1_443":false}}},"classification":"ORACLE_FAILURE"}'
+          $decoded=$fixture | ConvertFrom-Json -AsHashtable -Depth 100
+          $adapter=$decoded['work_cells']['a']['guest_network_snapshot']['adapters'][0]
+          if($adapter['value'] -ne 7 -or $adapter['Value'] -ne 8){throw 'case-distinct nested keys were collapsed'}
+          $bounded=[ordered]@{classification=[string]$decoded.classification;network=[ordered]@{adapters=@($decoded.work_cells.a.guest_network_snapshot.adapters)}}
+          $roundtrip=($bounded|ConvertTo-Json -Depth 10)|ConvertFrom-Json -AsHashtable -Depth 100
+          if($roundtrip.network.adapters[0]['value'] -ne 7 -or $roundtrip.network.adapters[0]['Value'] -ne 8){
+            throw 'bounded receipt roundtrip damaged mixed-case nested values'
+          }
+          [ordered]@{
+            classification='SUPPORTED'
+            wrapper_blob=$env:WRAPPER_BLOB
+            master_manifest=$env:EXPECTED_MASTER
+            control=$env:EXPECTED_CONTROL
+            fixture_case_distinct_keys='PASS'
+            bounded_receipt_roundtrip='PASS'
+            fail_closed_fallback_present=$true
+          }|ConvertTo-Json -Compress
