@@ -5,7 +5,9 @@ on:
     paths:
       - "config/runner-runtime-templates.json"
       - "scripts/runner_runtime_template_contract.py"
+      - "scripts/runner_runtime_template_probe.py"
       - "tests/test_runner_runtime_template_contract.py"
+      - "tests/test_runner_runtime_template_probe.py"
       - "docs/sovereign-runner-runtime-templates.md"
       - ".github/workflows/validate-runner-runtime-templates.yml"
   workflow_dispatch:
@@ -23,5 +25,5 @@ jobs:
           persist-credentials: false
       - name: Validate catalog
         run: python3 scripts/runner_runtime_template_contract.py
-      - name: Contract tests
-        run: python3 -m unittest -v tests/test_runner_runtime_template_contract.py
+      - name: Contract and passive-probe tests
+        run: python3 -m unittest -v tests/test_runner_runtime_template_contract.py tests/test_runner_runtime_template_probe.py
