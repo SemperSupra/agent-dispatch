@@ -1,0 +1,337 @@
+name: WinBot Nested WinNAT Linux Probe
+# targeted egress discriminator; no WinBot product mutation
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-nested-winnat-linux-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
+      cancel-in-progress: false
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Probe nested WinNAT with pinned Ubuntu VHD
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-winnat-linux-probe'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $vmName='WbNatProbe-' + $env:GITHUB_RUN_ID
+          $natHash=[Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($env:GITHUB_RUN_ID))
+          $natName='WbP-' + (([BitConverter]::ToString($natHash)).Replace('-','').ToLowerInvariant().Substring(0,16))
+          $prefix='172.29.251.0/24'
+          $gateway='172.29.251.1'
+          $guestIp='172.29.251.2'
+          $alias='vEthernet ('+$natName+')'
+          $fwName=$natName+'-http'
+          $key=Join-Path $root 'probe_key'
+          $seedIso=Join-Path $root 'seed.iso'
+          $httpProc=$null
+          $createdSwitch=$false
+          $createdNat=$false
+          $createdIp=$false
+          $createdVm=$false
+          $forwardChanges=@()
+
+          $result=[ordered]@{
+            schema_version=1
+            classification='UNKNOWN'
+            image='ubuntu-24.04-server-cloudimg-amd64-azure.vhd.tar.gz'
+            image_release='20260911'
+            image_sha256=$null
+            initial_netnat_count=0
+            initial_hns_nat_present=$false
+            initial_nat_switch_present=$false
+            removed_netnat_count=0
+            removed_hns_nat_count=0
+            removed_nat_switch=$false
+            post_cleanup_hns_nat_count=$null
+            post_cleanup_netnat_count=$null
+            owned_nat_created=$false
+            guest_ssh_ready=$false
+            guest_to_gateway_http=$false
+            baseline_route_1_1_1_1_443=$false
+            baseline_dns_github=$false
+            baseline_tls_github=$false
+            baseline_nat_sessions=0
+            forwarding_enabled=$false
+            forwarded_route_1_1_1_1_443=$false
+            forwarded_dns_github=$false
+            forwarded_tls_github=$false
+            forwarded_nat_sessions=0
+            guest_routes=$null
+            cleanup=[ordered]@{}
+          }
+
+          function Test-Tcp([string]$Address,[int]$Port,[int]$TimeoutMs=2000){
+            try{
+              $c=[Net.Sockets.TcpClient]::new()
+              $a=$c.BeginConnect($Address,$Port,$null,$null)
+              if(-not $a.AsyncWaitHandle.WaitOne($TimeoutMs,$false)){ $c.Dispose(); return $false }
+              $c.EndConnect($a); $c.Dispose(); return $true
+            }catch{return $false}
+          }
+
+          function Invoke-SshBool([string]$Command){
+            & ssh.exe -i $key -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConnectTimeout=5 "probe@$guestIp" $Command *> $null
+            return ($LASTEXITCODE -eq 0)
+          }
+
+          function Get-NatSessionCount {
+            try { return @(Get-NetNatSession -NatName $natName -ErrorAction SilentlyContinue).Count } catch { return 0 }
+          }
+
+          try {
+            $initialNats=@(Get-NetNat -ErrorAction SilentlyContinue)
+            $result.initial_netnat_count=$initialNats.Count
+            $initialSwitch=Get-VMSwitch -Name 'nat' -ErrorAction SilentlyContinue
+            $result.initial_nat_switch_present=[bool]$initialSwitch
+            $initialHns=@()
+            if(Get-Command Get-HnsNetwork -ErrorAction SilentlyContinue){
+              $initialHns=@(Get-HnsNetwork -ErrorAction SilentlyContinue | ForEach-Object {
+                if($null -ne $_){
+                  $hnsJson=($_ | ConvertTo-Json -Depth 6 -Compress -ErrorAction SilentlyContinue)
+                  if($hnsJson -match '"Name":"nat"' -or $hnsJson -match '"Type":"nat"'){ $_ }
+                }
+              })
+              $result.initial_hns_nat_present=($initialHns.Count -gt 0)
+            }
+
+            foreach($cmd in @('New-VMSwitch','New-NetNat','New-NetIPAddress','New-VM','Start-VM','Remove-VM','Convert-VHD','Test-VHD','ssh.exe','ssh-keygen.exe','tar.exe','python.exe','Remove-NetNat','Remove-HnsNetwork','Remove-VMSwitch')){
+              if(-not (Get-Command $cmd -ErrorAction SilentlyContinue)){ throw "required command unavailable: $cmd" }
+            }
+
+            foreach($n in $initialNats){
+              $n | Remove-NetNat -Confirm:$false -ErrorAction Stop
+              $result.removed_netnat_count++
+            }
+            foreach($h in $initialHns){
+              $h | Remove-HnsNetwork -ErrorAction Stop | Out-Null
+              $result.removed_hns_nat_count++
+            }
+            Start-Sleep -Seconds 2
+            $staleNatSwitch=Get-VMSwitch -Name 'nat' -ErrorAction SilentlyContinue
+            if($staleNatSwitch){
+              $staleNatSwitch | Remove-VMSwitch -Force -ErrorAction Stop
+              $result.removed_nat_switch=$true
+            }
+            $result.post_cleanup_netnat_count=@(Get-NetNat -ErrorAction SilentlyContinue).Count
+            $result.post_cleanup_hns_nat_count=@(Get-HnsNetwork -ErrorAction SilentlyContinue | ForEach-Object {
+              if($null -ne $_){
+                $hnsJson=($_ | ConvertTo-Json -Depth 6 -Compress -ErrorAction SilentlyContinue)
+                if($hnsJson -match '"Name":"nat"' -or $hnsJson -match '"Type":"nat"'){ $_ }
+              }
+            }).Count
+            if($result.post_cleanup_netnat_count -ne 0 -or $result.post_cleanup_hns_nat_count -ne 0){
+              throw 'HNS/WinNAT exclusivity cleanup did not converge'
+            }
+
+            New-VMSwitch -Name $natName -SwitchType Internal -ErrorAction Stop | Out-Null
+            $createdSwitch=$true
+            $adapter=Get-NetAdapter -Name $alias -ErrorAction Stop
+            New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $gateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
+            $createdIp=$true
+            New-NetNat -Name $natName -InternalIPInterfaceAddressPrefix $prefix -ErrorAction Stop | Out-Null
+            $createdNat=$true
+            $result.owned_nat_created=$true
+
+            $httpRoot=Join-Path $root 'http'
+            New-Item -ItemType Directory -Force -Path $httpRoot | Out-Null
+            'gateway-ok' | Set-Content -LiteralPath (Join-Path $httpRoot 'index.txt') -Encoding ascii
+            New-NetFirewallRule -DisplayName $fwName -Direction Inbound -Action Allow -Protocol TCP -LocalPort 18080 -Profile Any -ErrorAction Stop | Out-Null
+            $httpProc=Start-Process -FilePath python.exe -ArgumentList @('-m','http.server','18080','--bind',$gateway,'--directory',$httpRoot) -PassThru -WindowStyle Hidden
+
+            & ssh-keygen.exe -q -t ed25519 -N "" -f $key
+            if($LASTEXITCODE -ne 0){throw 'ssh-keygen failed'}
+            $pub=(Get-Content -LiteralPath ($key+'.pub') -Raw).Trim()
+
+            $base='https://cloud-images.ubuntu.com/releases/noble/release-20260911'
+            $imageName='ubuntu-24.04-server-cloudimg-amd64-azure.vhd.tar.gz'
+            # Exact digest independently resolved from Canonical SHA256SUMS by
+            # preflight run 37649824962; pin it here so checksum parsing is not
+            # part of this network experiment.
+            $expected='bcf5f2e60e55b3eb0eb57201fd57c0e34ced8b2dd1cdf4718084f41854786195'
+            $archive=Join-Path $root $imageName
+            & curl.exe -fL --retry 3 --retry-delay 2 -o $archive ($base+'/'+$imageName)
+            if($LASTEXITCODE -ne 0){throw 'Ubuntu VHD download failed'}
+            $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+            if($actual -ne $expected){throw 'Ubuntu VHD SHA256 mismatch'}
+            $result.image_sha256=$actual
+
+            $imgDir=Join-Path $root 'image'
+            New-Item -ItemType Directory -Force -Path $imgDir | Out-Null
+            & tar.exe -xzf $archive -C $imgDir
+            if($LASTEXITCODE -ne 0){throw 'Ubuntu VHD extraction failed'}
+            $vhd=(Get-ChildItem -LiteralPath $imgDir -Recurse -Filter *.vhd | Select-Object -First 1).FullName
+            if(-not $vhd){throw 'Ubuntu Azure VHD not found after extraction'}
+            $sparseFlag=[System.IO.FileAttributes]::SparseFile
+            if(((Get-Item -LiteralPath $vhd -Force).Attributes -band $sparseFlag) -ne 0){
+              & fsutil.exe sparse setflag $vhd 0 | Out-Null
+              if($LASTEXITCODE -ne 0){throw 'failed to clear sparse flag from extracted Ubuntu VHD'}
+            }
+            if(((Get-Item -LiteralPath $vhd -Force).Attributes -band $sparseFlag) -ne 0){
+              throw 'extracted Ubuntu VHD remains sparse after explicit de-sparsification'
+            }
+            $vhdx=Join-Path $root 'ubuntu-probe.vhdx'
+            Convert-VHD -Path $vhd -DestinationPath $vhdx -VHDType Dynamic -ErrorAction Stop
+            if(-not (Test-VHD -Path $vhdx -ErrorAction Stop)){throw 'converted Ubuntu VHDX failed Test-VHD'}
+
+            $macHex=((Get-Random -Minimum 0 -Maximum 16777215).ToString('X6'))
+            $macNoSep='00155D'+$macHex
+            $macColon=($macNoSep -replace '(..)(?!$)','$1:').ToLowerInvariant()
+
+            $userData=Join-Path $root 'user-data'
+            $metaData=Join-Path $root 'meta-data'
+            $networkConfig=Join-Path $root 'network-config'
+            @"
+          #cloud-config
+          users:
+            - default
+            - name: probe
+              groups: [sudo]
+              shell: /bin/bash
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - $pub
+          ssh_pwauth: false
+          disable_root: true
+          package_update: false
+          "@ | Set-Content -LiteralPath $userData -Encoding utf8
+            @"
+          instance-id: wb-$env:GITHUB_RUN_ID
+          local-hostname: wbnetprobe
+          "@ | Set-Content -LiteralPath $metaData -Encoding ascii
+            @"
+          version: 2
+          ethernets:
+            eth0:
+              match:
+                macaddress: "$macColon"
+              set-name: eth0
+              dhcp4: false
+              addresses:
+                - $guestIp/24
+              routes:
+                - to: default
+                  via: $gateway
+              nameservers:
+                addresses:
+                  - 1.1.1.1
+                  - 8.8.8.8
+          "@ | Set-Content -LiteralPath $networkConfig -Encoding ascii
+
+            python.exe -m pip install --disable-pip-version-check --quiet pycdlib==1.14.0
+            if($LASTEXITCODE -ne 0){throw 'pycdlib install failed'}
+            $isoPy=Join-Path $root 'make_seed.py'
+            @'
+          import pycdlib, sys
+          iso=pycdlib.PyCdlib()
+          iso.new(interchange_level=3, vol_ident='CIDATA', joliet=3, rock_ridge='1.09')
+          for src,isoname,rr in [
+              (sys.argv[1],'/USER_DATA.;1','user-data'),
+              (sys.argv[2],'/META_DATA.;1','meta-data'),
+              (sys.argv[3],'/NETWORK_CONFIG.;1','network-config'),
+          ]:
+              iso.add_file(src, iso_path=isoname, rr_name=rr, joliet_path='/'+rr)
+          iso.write(sys.argv[4])
+          iso.close()
+          '@ | Set-Content -LiteralPath $isoPy -Encoding ascii
+            python.exe $isoPy $userData $metaData $networkConfig $seedIso
+            if($LASTEXITCODE -ne 0){throw 'cloud-init seed ISO creation failed'}
+
+            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 2GB -VHDPath $vhdx -SwitchName $natName -ErrorAction Stop | Out-Null
+            $createdVm=$true
+            Set-VMProcessor -VMName $vmName -Count 2 -ErrorAction Stop
+            Set-VMNetworkAdapter -VMName $vmName -StaticMacAddress $macNoSep -ErrorAction Stop
+            Set-VMFirmware -VMName $vmName -EnableSecureBoot On -SecureBootTemplate MicrosoftUEFICertificateAuthority -ErrorAction Stop
+            Add-VMDvdDrive -VMName $vmName -Path $seedIso -ErrorAction Stop
+            Start-VM -Name $vmName -ErrorAction Stop
+
+            $sshDeadline=(Get-Date).AddMinutes(7)
+            while((Get-Date) -lt $sshDeadline -and -not (Test-Tcp $guestIp 22 1500)){
+              Start-Sleep -Seconds 4
+            }
+            $result.guest_ssh_ready=Test-Tcp $guestIp 22 3000
+            if(-not $result.guest_ssh_ready){
+              $reported=@(Get-VMNetworkAdapter -VMName $vmName -ErrorAction SilentlyContinue).IPAddresses
+              throw ('guest SSH did not become ready; reported IPs='+($reported -join ','))
+            }
+
+            $result.guest_routes=(& ssh.exe -i $key -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o ConnectTimeout=5 "probe@$guestIp" "ip -4 route show" 2>$null | Out-String).Trim()
+            $gatewayCmd='curl -fsS --connect-timeout 4 http://' + $gateway + ':18080/index.txt >/dev/null'
+            $result.guest_to_gateway_http=Invoke-SshBool $gatewayCmd
+            $result.baseline_route_1_1_1_1_443=Invoke-SshBool "timeout 7 bash -c 'cat </dev/null >/dev/tcp/1.1.1.1/443'"
+            $result.baseline_dns_github=Invoke-SshBool "getent ahostsv4 github.com >/dev/null 2>&1"
+            $result.baseline_tls_github=Invoke-SshBool "curl -fsSI --connect-timeout 7 https://github.com >/dev/null"
+            $result.baseline_nat_sessions=Get-NatSessionCount
+
+            if(-not $result.baseline_route_1_1_1_1_443){
+              $internal=Get-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction Stop
+              $forwardChanges += [pscustomobject]@{ifIndex=$adapter.ifIndex; forwarding=[string]$internal.Forwarding}
+              Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop
+
+              $defaultRoute=Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
+                Where-Object { $_.NextHop -and $_.NextHop -ne '0.0.0.0' } |
+                Sort-Object RouteMetric |
+                Select-Object -First 1
+              if($defaultRoute){
+                $external=Get-NetIPInterface -InterfaceIndex $defaultRoute.InterfaceIndex -AddressFamily IPv4 -ErrorAction Stop
+                $forwardChanges += [pscustomobject]@{ifIndex=$defaultRoute.InterfaceIndex; forwarding=[string]$external.Forwarding}
+                Set-NetIPInterface -InterfaceIndex $defaultRoute.InterfaceIndex -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop
+              }
+              $result.forwarding_enabled=$true
+              Start-Sleep -Seconds 3
+              $result.forwarded_route_1_1_1_1_443=Invoke-SshBool "timeout 7 bash -c 'cat </dev/null >/dev/tcp/1.1.1.1/443'"
+              $result.forwarded_dns_github=Invoke-SshBool "getent ahostsv4 github.com >/dev/null 2>&1"
+              $result.forwarded_tls_github=Invoke-SshBool "curl -fsSI --connect-timeout 7 https://github.com >/dev/null"
+              $result.forwarded_nat_sessions=Get-NatSessionCount
+            } else {
+              $result.forwarded_route_1_1_1_1_443=$result.baseline_route_1_1_1_1_443
+              $result.forwarded_dns_github=$result.baseline_dns_github
+              $result.forwarded_tls_github=$result.baseline_tls_github
+              $result.forwarded_nat_sessions=$result.baseline_nat_sessions
+            }
+
+            if($result.baseline_route_1_1_1_1_443 -or $result.forwarded_route_1_1_1_1_443){
+              $result.classification='WINNAT_EGRESS_SUPPORTED'
+            } elseif(-not $result.guest_to_gateway_http){
+              $result.classification='INTERNAL_SWITCH_PATH_FAILURE'
+            } else {
+              $result.classification='WINNAT_EGRESS_UNSUPPORTED'
+            }
+            $result | ConvertTo-Json -Depth 8 -Compress
+          }
+          finally {
+            try { if($createdVm){ Stop-VM -Name $vmName -TurnOff -Force -ErrorAction SilentlyContinue; Remove-VM -Name $vmName -Force -ErrorAction SilentlyContinue } } catch {}
+            try { if($httpProc -and -not $httpProc.HasExited){ Stop-Process -Id $httpProc.Id -Force -ErrorAction SilentlyContinue } } catch {}
+            try { Get-NetFirewallRule -DisplayName $fwName -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch {}
+            foreach($change in @($forwardChanges)){
+              try { Set-NetIPInterface -InterfaceIndex $change.ifIndex -AddressFamily IPv4 -Forwarding $change.forwarding -ErrorAction SilentlyContinue } catch {}
+            }
+            try { if($createdNat){ Get-NetNat -Name $natName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue } } catch {}
+            try {
+              if($createdIp){
+                Get-NetIPAddress -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                  Where-Object { $_.IPAddress -eq $gateway } |
+                  Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+              }
+            } catch {}
+            try { if($createdSwitch){ Get-VMSwitch -Name $natName -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue } } catch {}
+            $result.cleanup.vm_absent=-not [bool](Get-VM -Name $vmName -ErrorAction SilentlyContinue)
+            $result.cleanup.nat_absent=-not [bool](Get-NetNat -Name $natName -ErrorAction SilentlyContinue)
+            $result.cleanup.switch_absent=-not [bool](Get-VMSwitch -Name $natName -ErrorAction SilentlyContinue)
+            $result.cleanup.firewall_rule_absent=-not [bool](Get-NetFirewallRule -DisplayName $fwName -ErrorAction SilentlyContinue)
+            Write-Host ('FINAL='+($result | ConvertTo-Json -Depth 8 -Compress))
+          }

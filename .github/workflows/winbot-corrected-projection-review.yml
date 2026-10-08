@@ -1,0 +1,118 @@
+name: WinBot Corrected Projection Review
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-corrected-projection-review.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_REVISION: 'ba3be1cea9bd8b258e51c65431a09fbff27c6dcf'
+      BATCH_SHAS: 'fe1de2efda1f3def84c228ab72d200cdc4b47113;7cc5413b966defc76df11345248610bcec08ac8f;085af08174d97c17fe648ca475d474459f99438c;68e6b4eca7f5117d10003d98982d898b27797dca;b4715e6205ae77022ea5daccfa8b6a9a05ea75d1;87465f0f3a8c6a684272aa13f70444546eca68ee;724a0e049b33731b0e00dfbe60cf8192a937e6a7;d606aa7831125a069177c436873babd53b8c74d5;d9aa687f50e4c84cc3a48d9f36d86d30146805e5'
+    steps:
+      - name: Reconstruct and review exact public-safe projection
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, re, urllib.request
+
+          repo=os.environ["GITHUB_REPOSITORY"]
+          token=os.environ["GH_TOKEN"]
+          revision=os.environ["SOURCE_REVISION"]
+          batches=os.environ["BATCH_SHAS"].split(";")
+
+          sensitive={
+              "private_key": re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+              "github_token": re.compile(rb"gh[pousr]_[A-Za-z0-9]{20,}"),
+              "aws_access_key": re.compile(rb"AKIA[0-9A-Z]{16}"),
+              "openai_style_key": re.compile(rb"sk-[A-Za-z0-9_-]{20,}"),
+          }
+
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization":f"Bearer {token}",
+                      "Accept":"application/vnd.github+json",
+                      "X-GitHub-Api-Version":"2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req,timeout=60) as r:
+                  obj=json.load(r)
+              if obj.get("sha")!=sha or obj.get("encoding")!="base64":
+                  raise SystemExit(f"blob identity/encoding mismatch: {sha}")
+              raw=base64.b64decode(obj["content"])
+              if len(raw)!=int(obj["size"]):
+                  raise SystemExit(f"blob size mismatch: {sha}")
+              if hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"git digest mismatch: {sha}")
+              return raw
+
+          entries=[]
+          for batch_sha in batches:
+              batch=json.loads(blob(batch_sha))
+              if batch["source_revision"]!=revision:
+                  raise SystemExit(f"batch revision mismatch: {batch_sha}")
+              entries.extend(batch["entries"])
+
+          if len(entries)!=82 or len({e["path"] for e in entries})!=82:
+              raise SystemExit("projection cardinality/uniqueness mismatch")
+          paths={e["path"] for e in entries}
+          required={"guest/tools/configuration.winget","guest/api/static/index.html","guest/api/main.py","guest/tools/stage-provision.ps1","host/WinBot.psm1"}
+          missing=required-paths
+          if missing:
+              raise SystemExit(f"required projection paths missing: {sorted(missing)}")
+          if any(p.startswith("guest/winpe/") for p in paths):
+              raise SystemExit("excluded WinPE path entered public projection")
+
+          projected=[]
+          total=0
+          for e in sorted(entries,key=lambda x:x["path"]):
+              raw=blob(e["git_blob_sha"])
+              if len(raw)!=int(e["size"]):
+                  raise SystemExit(f"source size mismatch: {e['path']}")
+              if len(raw)>512*1024:
+                  raise SystemExit(f"per-file bound exceeded: {e['path']}")
+              for name,pattern in sensitive.items():
+                  if pattern.search(raw):
+                      raise SystemExit(f"sensitive marker {name}: {e['path']}")
+              total+=len(raw)
+              projected.append({
+                  "path":e["path"],
+                  "bytes":len(raw),
+                  "sha256":hashlib.sha256(raw).hexdigest(),
+              })
+          if total>8*1024*1024:
+              raise SystemExit("projection exceeds 8 MiB")
+
+          identity=hashlib.sha256(
+              json.dumps(
+                  {"source_revision":revision,"projected_files":projected},
+                  sort_keys=True,separators=(",",":"),
+              ).encode()
+          ).hexdigest()
+          bypath={x["path"]:x for x in projected}
+          result={
+              "classification":"SUPPORTED",
+              "source_revision":revision,
+              "projection_identity_sha256":identity,
+              "projected_file_count":len(projected),
+              "projected_bytes":total,
+              "configuration_winget":bypath["guest/tools/configuration.winget"],
+              "static_index_html":bypath["guest/api/static/index.html"],
+              "sensitive_scan":"PASS",
+              "private_repo_checkout":False,
+          }
+          print(json.dumps(result,sort_keys=True))
+          PY

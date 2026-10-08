@@ -1,0 +1,74 @@
+name: WinBot Product-Repair Seed Terminal Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-product-repair-seed-terminal-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      REPAIR_CONTROL: 'f54f5f38dad1f690759f69e38c325e10be3b05ad'
+      SEED_FUNCTION_SOURCE: '4e4764f673ce5e8cbfe0a2572c1e0ddcd154929a'
+      SEED_CONTROL: '334ace52bba1053e54b385752d01e6d4d0384d03'
+      TERMINAL_CONTROL: '677d89dd15a3ec9eda12325fc0c097032832e83c'
+    steps:
+      - name: Prove exact product-repair composition
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          function Text([string]$sha,[string]$name){
+            $o=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$sha" -Headers $headers
+            if([string]$o.sha -ne $sha -or [string]$o.encoding -ne 'base64'){throw "$name identity mismatch"}
+            $raw=[Convert]::FromBase64String(([string]$o.content -replace '\s',''))
+            $p=Join-Path $env:RUNNER_TEMP ($name+'.ps1');[IO.File]::WriteAllBytes($p,$raw)
+            $tokens=$null;$errors=$null;[void][Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)
+            if($errors.Count -ne 0){throw "$name parse failure"}
+            return [Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xFEFF)
+          }
+          function Section([string]$text,[string]$a,[string]$b){
+            $i=$text.IndexOf($a);$j=$text.IndexOf($b,$i+1)
+            if($i -lt 0 -or $j -lt 0){throw "section missing: $a -> $b"}
+            return $text.Substring($i,$j-$i)
+          }
+          $repair=Text $env:REPAIR_CONTROL 'repair'
+          $seedSource=Text $env:SEED_FUNCTION_SOURCE 'seed-source'
+          $seed=Text $env:SEED_CONTROL 'seed'
+          $terminal=Text $env:TERMINAL_CONTROL 'terminal'
+          $repairHelpers=Section $repair 'function Get-HostedNatPlacement' 'function Remove-RunWorkCell'
+          if((Section $seed 'function Get-HostedNatPlacement' 'function Invoke-SeedFinalization') -cne $repairHelpers){throw 'seed repair-helper drift'}
+          if((Section $terminal 'function Get-HostedNatPlacement' 'function Invoke-SeedFinalization') -cne $repairHelpers){throw 'terminal repair-helper drift'}
+          $seedFn=Section $seedSource 'function Invoke-SeedFinalization' 'function Remove-RunWorkCell'
+          if((Section $seed 'function Invoke-SeedFinalization' 'function Remove-RunWorkCell') -cne $seedFn){throw 'seed finalization function drift'}
+          if((Section $terminal 'function Invoke-SeedFinalization' 'function Remove-RunWorkCell') -cne $seedFn){throw 'terminal seed finalization function drift'}
+          foreach($needle in @(
+            "profile = 'SeedFinalizationProductRepair'",
+            'AuthorityRepairScriptIdentity',
+            'api_token_absent','api_task_absent','seed_changed_by_finalization','seed_read_only'
+          )){if(-not $seed.Contains($needle)){throw "seed invariant missing: $needle"}}
+          foreach($forbidden in @('pytest','New-WinBotWorkCell -CustomName $vmNameA','New-WinBotWorkCell -CustomName $vmNameB','canary_survived_rematerialization')){
+            if($seed.Contains($forbidden)){throw "seed causal-boundary violation: $forbidden"}
+          }
+          foreach($needle in @(
+            "profile = 'FullRDTEFinalizedSeedProductRepair'",
+            'runtime_seed.finalized = $true',
+            'AuthorityRepairScriptIdentity',
+            'New-WinBotWorkCell -CustomName $vmNameA',
+            'New-WinBotWorkCell -CustomName $vmNameB',
+            'canary_survived_rematerialization','prior_runtime_taint_absent','pytest','seed_vm_absent'
+          )){if(-not $terminal.Contains($needle)){throw "terminal invariant missing: $needle"}}
+          Write-Host 'classification=SUPPORTED'
+          Write-Host "seed_control=$env:SEED_CONTROL"
+          Write-Host "terminal_control=$env:TERMINAL_CONTROL"
+          Write-Host 'repair_helpers_exact=true'
+          Write-Host 'seed_function_exact=true'

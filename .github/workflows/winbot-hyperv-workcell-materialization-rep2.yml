@@ -1,0 +1,47 @@
+name: WinBot Hyper-V Work Cell Materialization Rep 2
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hyperv-workcell-materialization-rep2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-workcell:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise corrected disposable work-cell lifecycle
+        id: workcell
+        shell: pwsh
+        run: |
+          & .\scripts\winbot_hyperv_workcell_materialization.ps1
+          "task_rc=$LASTEXITCODE" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+      - name: Upload work-cell evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-hyperv-workcell-rep2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-workcell-materialization/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce work-cell and cleanup oracle
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.workcell.outputs.task_rc }}
+        run: |
+          $p=Join-Path $env:RUNNER_TEMP 'winbot-workcell-materialization\receipt.json'
+          if(-not(Test-Path $p)){throw 'receipt missing'}
+          $r=Get-Content $p -Raw|ConvertFrom-Json
+          Write-Host "classification=$($r.classification) failure_domain=$($r.failure_domain)"
+          Write-Host "accepted=$($r.oracles.accepted) cleanup=$($r.cleanup.oracle_satisfied)"
+          if([int]$env:TASK_RC-ne0-or$r.classification-ne'SUPPORTED'-or-not$r.oracles.accepted-or-not$r.cleanup.oracle_satisfied){throw 'work-cell oracle failed'}

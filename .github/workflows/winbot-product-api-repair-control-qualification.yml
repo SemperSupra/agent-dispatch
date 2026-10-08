@@ -1,0 +1,69 @@
+name: WinBot Product API Repair Control Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-product-api-repair-control-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    env:
+      CONTROL_BLOB: 'f54f5f38dad1f690759f69e38c325e10be3b05ad'
+      PRODUCT_REPAIR_BLOB: 'c34b8e891220ba4ceab9f4e08c415f26d1490741'
+      MASTER_MANIFEST: 'e4505b71bdbd5793d0a56f1d20fcf5c6dc970bd5'
+    steps:
+      - name: Qualify exact A-only product-repair composition
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          function Blob([string]$sha){
+            $o=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$sha" -Headers $headers
+            if([string]$o.sha -ne $sha -or [string]$o.encoding -ne 'base64'){throw "blob identity mismatch: $sha"}
+            $raw=[Convert]::FromBase64String(([string]$o.content -replace '\s',''))
+            if($raw.Length -ne [int]$o.size){throw "blob size mismatch: $sha"}
+            return $raw
+          }
+          $controlRaw=Blob $env:CONTROL_BLOB
+          $productRaw=Blob $env:PRODUCT_REPAIR_BLOB
+          $master=( [Text.Encoding]::UTF8.GetString((Blob $env:MASTER_MANIFEST)) | ConvertFrom-Json )
+          $entry=$null
+          foreach($batchSha in $master.source_batch_manifests){
+            $batch=( [Text.Encoding]::UTF8.GetString((Blob ([string]$batchSha))) | ConvertFrom-Json )
+            foreach($e in $batch.entries){
+              if([string]$e.path -eq 'guest/tools/fix-api-service.ps1'){$entry=$e}
+            }
+          }
+          if(-not $entry){throw 'authorized source projection lacks product repair primitive'}
+          if([string]$entry.git_blob_sha -ne $env:PRODUCT_REPAIR_BLOB){throw 'product repair source identity drift'}
+          $control=[Text.Encoding]::UTF8.GetString($controlRaw).TrimStart([char]0xFEFF)
+          $path=Join-Path $env:RUNNER_TEMP 'authority-repair-a-only.ps1'
+          [IO.File]::WriteAllBytes($path,$controlRaw)
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'composed control parse failure'}
+          foreach($needle in @(
+            "profile = 'AuthorityRepairAOnly'",
+            "C:\WinBot\tools\fix-api-service.ps1",
+            $env:PRODUCT_REPAIR_BLOB,
+            'RNGCryptoServiceProvider',
+            "repair_stage='product-repair'",
+            'AuthorityRepairScriptIdentity',
+            "'api-task-registration'"
+          )){if(-not $control.Contains($needle)){throw "control invariant missing: $needle"}}
+          foreach($forbidden in @('pytest','New-WinBotWorkCell -CustomName $vmNameB','workcell-taint','Invoke-SeedFinalization')){
+            if($control.Contains($forbidden)){throw "A-only causal boundary violation: $forbidden"}
+          }
+          Write-Host 'classification=SUPPORTED'
+          Write-Host "control_blob=$env:CONTROL_BLOB"
+          Write-Host "product_repair_blob=$env:PRODUCT_REPAIR_BLOB"
+          Write-Host 'product_repair_projection_identity=true'

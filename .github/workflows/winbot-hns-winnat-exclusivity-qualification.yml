@@ -1,0 +1,128 @@
+name: WinBot HNS WinNAT Exclusivity Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hns-winnat-exclusivity-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1,2,3,4]
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Clean hidden HNS NAT and prove single owned WinNAT
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $rep=[int]'${{ matrix.rep }}'
+          $ownedName=('WbHx-' + $env:GITHUB_RUN_ID.Substring([Math]::Max(0,$env:GITHUB_RUN_ID.Length-10)) + '-' + $rep)
+          if($ownedName.Length -gt 32){$ownedName=$ownedName.Substring(0,32)}
+          $ownedPrefix="172.29.$(240+$rep).0/24"
+          $ownedGateway="172.29.$(240+$rep).1"
+          $ownedCreated=$false
+          $switchCreated=$false
+          $ipCreated=$false
+          $result=[ordered]@{
+            rep=$rep
+            image=$env:ImageOS
+            image_version=$env:ImageVersion
+            initial_netnat_count=0
+            initial_hns_nat_count=0
+            initial_nat_switch=$false
+            removed_netnat_count=0
+            removed_hns_nat_count=0
+            removed_nat_switch=$false
+            post_cleanup_netnat_count=$null
+            post_cleanup_hns_nat_count=$null
+            post_cleanup_nat_switch=$null
+            owned_nat_created=$false
+            owned_nat_count=$null
+            final_netnat_count=$null
+            final_owned_switch_absent=$false
+            classification='FAIL'
+          }
+          try {
+            foreach($cmd in @('Get-NetNat','Remove-NetNat','New-NetNat','Get-VMSwitch','New-VMSwitch','Remove-VMSwitch','New-NetIPAddress','Remove-NetIPAddress','Get-HnsNetwork','Remove-HnsNetwork')){
+              if(-not (Get-Command $cmd -ErrorAction SilentlyContinue)){throw "required command unavailable: $cmd"}
+            }
+
+            $existingNats=@(Get-NetNat -ErrorAction SilentlyContinue)
+            $existingHns=@(Get-HnsNetwork -ErrorAction SilentlyContinue | ForEach-Object {
+              if($null -ne $_){
+                $hnsJson=($_ | ConvertTo-Json -Depth 6 -Compress -ErrorAction SilentlyContinue)
+                if($hnsJson -match '"Name":"nat"' -or $hnsJson -match '"Type":"nat"'){ $_ }
+              }
+            })
+            $result.initial_netnat_count=$existingNats.Count
+            $result.initial_hns_nat_count=$existingHns.Count
+            $result.initial_nat_switch=[bool](Get-VMSwitch -Name 'nat' -ErrorAction SilentlyContinue)
+
+            foreach($n in $existingNats){
+              $n | Remove-NetNat -Confirm:$false -ErrorAction Stop
+              $result.removed_netnat_count++
+            }
+            foreach($h in $existingHns){
+              $h | Remove-HnsNetwork -ErrorAction Stop | Out-Null
+              $result.removed_hns_nat_count++
+            }
+            Start-Sleep -Seconds 2
+            $staleSwitch=Get-VMSwitch -Name 'nat' -ErrorAction SilentlyContinue
+            if($staleSwitch){
+              $staleSwitch | Remove-VMSwitch -Force -ErrorAction Stop
+              $result.removed_nat_switch=$true
+            }
+
+            $result.post_cleanup_netnat_count=@(Get-NetNat -ErrorAction SilentlyContinue).Count
+            $result.post_cleanup_hns_nat_count=@(Get-HnsNetwork -ErrorAction SilentlyContinue | ForEach-Object {
+              if($null -ne $_){
+                $hnsJson=($_ | ConvertTo-Json -Depth 6 -Compress -ErrorAction SilentlyContinue)
+                if($hnsJson -match '"Name":"nat"' -or $hnsJson -match '"Type":"nat"'){ $_ }
+              }
+            }).Count
+            $result.post_cleanup_nat_switch=[bool](Get-VMSwitch -Name 'nat' -ErrorAction SilentlyContinue)
+            if($result.post_cleanup_netnat_count -ne 0){throw 'NetNat state not exclusive after cleanup'}
+            if($result.post_cleanup_hns_nat_count -ne 0){throw 'HNS nat state not exclusive after cleanup'}
+            if($result.post_cleanup_nat_switch){throw 'stale nat vSwitch remains after HNS cleanup'}
+
+            New-VMSwitch -Name $ownedName -SwitchType Internal -ErrorAction Stop | Out-Null
+            $switchCreated=$true
+            $alias='vEthernet ('+$ownedName+')'
+            $adapter=Get-NetAdapter -Name $alias -ErrorAction Stop
+            New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ownedGateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
+            $ipCreated=$true
+            New-NetNat -Name $ownedName -InternalIPInterfaceAddressPrefix $ownedPrefix -ErrorAction Stop | Out-Null
+            $ownedCreated=$true
+            $result.owned_nat_created=$true
+            $owned=@(Get-NetNat -ErrorAction Stop)
+            $result.owned_nat_count=$owned.Count
+            if($owned.Count -ne 1){throw "expected exactly one owned NetNat; got $($owned.Count)"}
+            if([string]$owned[0].Name -ne $ownedName){throw 'owned NetNat identity mismatch'}
+            if([string]$owned[0].InternalIPInterfaceAddressPrefix -ne $ownedPrefix){throw 'owned NetNat prefix mismatch'}
+
+            $result.classification='SUPPORTED'
+            $result | ConvertTo-Json -Depth 6 -Compress
+          }
+          finally {
+            if($ownedCreated){Get-NetNat -Name $ownedName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue}
+            if($ipCreated){
+              Get-NetIPAddress -InterfaceAlias ('vEthernet ('+$ownedName+')') -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object IPAddress -eq $ownedGateway |
+                Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+            }
+            if($switchCreated){Get-VMSwitch -Name $ownedName -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue}
+            $result.final_netnat_count=@(Get-NetNat -ErrorAction SilentlyContinue).Count
+            $result.final_owned_switch_absent=-not [bool](Get-VMSwitch -Name $ownedName -ErrorAction SilentlyContinue)
+            Write-Host ('FINAL='+($result | ConvertTo-Json -Depth 6 -Compress))
+            if($result.final_netnat_count -ne 0){throw 'final NetNat cleanup failed'}
+            if(-not $result.final_owned_switch_absent){throw 'final owned vSwitch cleanup failed'}
+          }

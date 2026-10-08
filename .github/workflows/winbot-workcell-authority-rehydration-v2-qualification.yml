@@ -1,0 +1,71 @@
+name: WinBot Work-Cell Authority Rehydration V2 Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-workcell-authority-rehydration-v2-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    env:
+      CONTROL_BLOB_SHA: '142fa1e0df3be726ad997503b5fda2f36f082ebc'
+      PRIOR_CONTROL_BLOB_SHA: '35d0c34ecb91933026d609546f20074f73e36029'
+    steps:
+      - name: Parse and inspect exact authority-rehydration v2 control
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          function Get-BlobBytes([string]$sha) {
+            $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$sha"
+            $blob=Invoke-RestMethod -Headers $headers -Uri $uri
+            if([string]$blob.sha -ne $sha -or [string]$blob.encoding -ne 'base64'){throw "blob identity mismatch: $sha"}
+            $raw=[Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+            if($raw.Length -ne [int]$blob.size){throw "blob size mismatch: $sha"}
+            return $raw
+          }
+          $raw=Get-BlobBytes $env:CONTROL_BLOB_SHA
+          $prior=Get-BlobBytes $env:PRIOR_CONTROL_BLOB_SHA
+          $path=Join-Path $env:RUNNER_TEMP 'authority-rehydration-v2.ps1'
+          [IO.File]::WriteAllBytes($path,$raw)
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if($errors.Count -gt 0){
+            $errors | ForEach-Object { Write-Error ("{0}:{1}: {2}" -f $path,$_.Extent.StartLineNumber,$_.Message) }
+            throw 'authority-rehydration v2 control parse failed'
+          }
+          $text=[Text.Encoding]::UTF8.GetString($raw)
+          $priorText=[Text.Encoding]::UTF8.GetString($prior)
+          foreach($needle in @(
+            'function Invoke-WorkCellAuthorityRehydration',
+            "Test-Path -LiteralPath 'C:\WinBot\.provisioned'",
+            "C:\WinBot\.api_token",
+            'RNGCryptoServiceProvider',
+            "SetEnvironmentVariable('WINBOT_API_TOKEN'",
+            'Get-ScheduledTask -TaskName $taskName',
+            'task_preexisting = $taskPreexisting',
+            'rehydration-stage=',
+            'AuthorityTaskPreexisting',
+            'AuthorityRehydrationFailureStage',
+            'NetworkCorrectionApplied'
+          )){
+            if(-not $text.Contains($needle)){throw "rehydration v2 invariant missing: $needle"}
+          }
+          if(($text -split 'function Invoke-WorkCellAuthorityRehydration').Count -ne 2){throw 'expected exactly one rehydration helper'}
+          if($text -match 'api_token\s*=\s*[''"][0-9a-fA-F]{32,}'){throw 'static API token literal detected'}
+          if(-not $priorText.Contains('Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue')){throw 'prior destructive task replacement invariant not found'}
+          if($text.Contains('Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue')){throw 'v2 still destructively unregisters a preexisting API task'}
+          Write-Host 'classification=SUPPORTED'
+          Write-Host "control_blob=$env:CONTROL_BLOB_SHA"
+          Write-Host 'reuse_preexisting_task=true'
+          Write-Host 'machine_token_authority=true'
+          Write-Host 'bounded_failure_stage=true'

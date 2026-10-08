@@ -1,0 +1,56 @@
+name: WinBot Projection Recompute After Winget Inclusion
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-projection-recompute-winget.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recompute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact public WinBot source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mark-e-deyoung/WinBot
+          ref: ba3be1cea9bd8b258e51c65431a09fbff27c6dcf
+          persist-credentials: false
+          path: WinBot
+
+      - name: Recompute exact projection review
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          set +e
+          python WinBot/rdte/gha/build_capsule.py             --profile FullRDTE             --source-root WinBot             --source-revision ba3be1cea9bd8b258e51c65431a09fbff27c6dcf             --output-dir out             --assignment-id projection-winget-recompute             --recipient age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq             --timeout-seconds 1
+          rc=$?
+          set -e
+          review=out/projection-winget-recompute.projection-review.json
+          test -f "$review"
+          BUILDER_RC="$rc" python - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path("out/projection-winget-recompute.projection-review.json")
+          r=json.loads(p.read_text())
+          assert r["source_revision"]=="ba3be1cea9bd8b258e51c65431a09fbff27c6dcf"
+          files={x["path"]:x for x in r["projected_files"]}
+          assert "guest/tools/configuration.winget" in files
+          assert "guest/api/static/index.html" in files
+          assert len(files)==r["projected_file_count"]
+          assert r["projected_file_count"]==82
+          print(json.dumps({
+            "source_revision":r["source_revision"],
+            "projection_identity_sha256":r["projection_identity_sha256"],
+            "projected_file_count":r["projected_file_count"],
+            "projected_bytes":r["projected_bytes"],
+            "winget_entry":files["guest/tools/configuration.winget"],
+            "html_entry":files["guest/api/static/index.html"],
+            "builder_exit":int(os.environ["BUILDER_RC"]),
+          },sort_keys=True))
+          PY

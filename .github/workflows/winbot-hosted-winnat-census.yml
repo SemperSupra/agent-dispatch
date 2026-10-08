@@ -1,0 +1,73 @@
+name: WinBot Hosted WinNAT Census
+# bounded four-wave environment census
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hosted-winnat-census.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1,2,3,4]
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Census WinNAT and Hyper-V network state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nats=@(Get-NetNat -ErrorAction SilentlyContinue | ForEach-Object {
+            [ordered]@{
+              name=[string]$_.Name
+              internal_prefix=[string]$_.InternalIPInterfaceAddressPrefix
+              external_prefix=[string]$_.ExternalIPInterfaceAddressPrefix
+              active=[bool]$_.Active
+            }
+          })
+          $switches=@(Get-VMSwitch -ErrorAction SilentlyContinue | ForEach-Object {
+            [ordered]@{
+              name=[string]$_.Name
+              switch_type=[string]$_.SwitchType
+            }
+          })
+          $hns=@()
+          if(Get-Command Get-HnsNetwork -ErrorAction SilentlyContinue){
+            $hns=@(Get-HnsNetwork -ErrorAction SilentlyContinue | ForEach-Object {
+              [ordered]@{
+                name=[string]$_.Name
+                type=[string]$_.Type
+                subnets=@($_.Subnets | ForEach-Object {
+                  [ordered]@{prefix=[string]$_.AddressPrefix;gateway=[string]$_.GatewayAddress}
+                })
+              }
+            })
+          }
+          $privateHostIps=@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.IPAddress -match '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)'
+            } |
+            ForEach-Object {
+              [ordered]@{
+                alias=[string]$_.InterfaceAlias
+                ip=[string]$_.IPAddress
+                prefix=[int]$_.PrefixLength
+              }
+            })
+          [ordered]@{
+            rep=[int]'${{ matrix.rep }}'
+            image=$env:ImageOS
+            image_version=$env:ImageVersion
+            netnat_count=$nats.Count
+            nats=$nats
+            switches=$switches
+            hns=$hns
+            private_host_ips=$privateHostIps
+          } | ConvertTo-Json -Depth 8 -Compress

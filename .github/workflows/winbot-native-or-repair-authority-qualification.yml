@@ -1,0 +1,133 @@
+name: WinBot Native-or-Repair Authority Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-native-or-repair-authority-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MASTER_MANIFEST_SHA: '018b27372f7771eb0e465e0e14b36e99aa16bdcf'
+      EXPECTED_SOURCE: 'd623e0b0a6503457754d48adbfb737135500ebbe'
+      EXPECTED_PROJECTION: '7327a8de5927da3dbe52db0756012a2c6b24b2236dc7f471425880d139bfc3e7'
+      EXPECTED_CONTROL: '94698a72647cdf9d9442bc9d898093223b16c632'
+      EXPECTED_POLICY: '2060e4ee1149483e41fb3a17d007d597c993ac5a'
+    steps:
+      - name: Qualify exact native-or-repair authority graph
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+
+          repo=os.environ["GITHUB_REPOSITORY"]
+          token=os.environ["GH_TOKEN"]
+
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization":f"Bearer {token}",
+                      "Accept":"application/vnd.github+json",
+                      "X-GitHub-Api-Version":"2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req,timeout=60) as r:
+                  obj=json.load(r)
+              if obj.get("sha")!=sha or obj.get("encoding")!="base64":
+                  raise SystemExit(f"blob identity/encoding mismatch: {sha}")
+              raw=base64.b64decode(obj["content"])
+              if len(raw)!=int(obj["size"]):
+                  raise SystemExit(f"blob size mismatch: {sha}")
+              if hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"Git digest mismatch: {sha}")
+              return raw
+
+          master=json.loads(blob(os.environ["MASTER_MANIFEST_SHA"]))
+          if master["source_revision"]!=os.environ["EXPECTED_SOURCE"]:
+              raise SystemExit("source mismatch")
+          if master["projection_identity_sha256"]!=os.environ["EXPECTED_PROJECTION"]:
+              raise SystemExit("projection mismatch")
+          if master["projected_file_count"]!=82 or master["projected_bytes"]!=1049035:
+              raise SystemExit("projection cardinality mismatch")
+
+          entries=[]
+          for batch_sha in master["source_batch_manifests"]:
+              batch=json.loads(blob(batch_sha))
+              if batch["source_revision"]!=master["source_revision"]:
+                  raise SystemExit("batch source mismatch")
+              entries.extend(batch["entries"])
+          if len(entries)!=82 or len({e["path"] for e in entries})!=82:
+              raise SystemExit("projection entry mismatch")
+
+          projected=[]
+          for e in sorted(entries,key=lambda x:x["path"]):
+              raw=blob(e["git_blob_sha"])
+              if len(raw)!=int(e["size"]):
+                  raise SystemExit(f"source size mismatch: {e['path']}")
+              projected.append({"path":e["path"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()})
+          identity=hashlib.sha256(
+              json.dumps({"source_revision":master["source_revision"],"projected_files":projected},sort_keys=True,separators=(",",":")).encode()
+          ).hexdigest()
+          if identity!=master["projection_identity_sha256"]:
+              raise SystemExit("recomputed projection identity mismatch")
+
+          cm=json.loads(blob(master["control_manifest_sha"]))
+          ctl={e["path"]:e["git_blob_sha"] for e in cm["entries"]}
+          if ctl["rdte/gha/full-rdte.ps1"]!=os.environ["EXPECTED_CONTROL"]:
+              raise SystemExit("readiness control mismatch")
+          if ctl["rdte/gha/projection-policy.json"]!=os.environ["EXPECTED_POLICY"]:
+              raise SystemExit("policy mismatch")
+          policy=json.loads(blob(ctl["rdte/gha/projection-policy.json"]))
+          auth=policy.get("authorization",{})
+          if not (
+              policy.get("state")=="authorized"
+              and auth.get("approved_revision")==master["source_revision"]
+              and auth.get("approved_manifest_sha256")==master["projection_identity_sha256"]
+          ):
+              raise SystemExit("exact projection authorization mismatch")
+
+          text=blob(os.environ["EXPECTED_CONTROL"]).decode("utf-8-sig")
+          required=[
+              "$nativeAuthorityReady",
+              "$repairAuthorityReady",
+              "authority_readiness_path",
+              "'native-provision'",
+              "'product-repair'",
+              "run_owned_token_created = [bool]$authorityEvidence.api_token_present",
+              "api_task_registered",
+              "api_task_started",
+              "health_status -eq 200",
+          ]
+          for marker in required:
+              if marker not in text:
+                  raise SystemExit(f"native-or-repair invariant missing: {marker}")
+          forbidden=[
+              "$readyA.AuthorityRehydrationSucceeded -and $authorityEvidence.api_token_present",
+              "product repair did not establish authenticated API readiness",
+          ]
+          for marker in forbidden:
+              if marker in text:
+                  raise SystemExit(f"superseded repair-only oracle still present: {marker}")
+
+          print(json.dumps({
+              "classification":"SUPPORTED",
+              "source_revision":master["source_revision"],
+              "projection_identity_sha256":identity,
+              "readiness_control":os.environ["EXPECTED_CONTROL"],
+              "control_manifest":master["control_manifest_sha"],
+              "master_manifest":os.environ["MASTER_MANIFEST_SHA"],
+              "native_path":True,
+              "product_repair_fallback":True,
+          },sort_keys=True))
+          PY

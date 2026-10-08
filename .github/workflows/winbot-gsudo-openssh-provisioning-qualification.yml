@@ -1,0 +1,97 @@
+name: WinBot gsudo + OpenSSH Provisioning Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-gsudo-openssh-provisioning-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      SOURCE_REVISION: '90d5d8a7244b781c28d438d9ba01155735c765b7'
+      CONFIG_BLOB: 'aaebafd43b350886171f16828fd3b74b420c95fc'
+      STAGE_BLOB: '0efa30b3c585a7a5fbee2271040cb8046d7ec262'
+      TEST_BLOB: 'd750065f2ad32d926172dbdb1a4e8db66a517772'
+    steps:
+      - name: Reconstruct exact changed provisioning surfaces
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-provision-qual'
+          New-Item -ItemType Directory -Force -Path (Join-Path $root 'guest\tools'),(Join-Path $root 'test') | Out-Null
+
+          function Get-ExactBlob([string]$Sha) {
+            $h=@{
+              Authorization="Bearer $env:GH_TOKEN"
+              Accept='application/vnd.github+json'
+              'X-GitHub-Api-Version'='2022-11-28'
+            }
+            $o=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha" -Headers $h
+            if([string]$o.sha -ne $Sha -or [string]$o.encoding -ne 'base64'){throw "blob identity mismatch: $Sha"}
+            $bytes=[Convert]::FromBase64String(([string]$o.content -replace '\s',''))
+            $prefix=[Text.Encoding]::ASCII.GetBytes(('blob ' + $bytes.Length + [char]0))
+            $git=New-Object byte[] ($prefix.Length+$bytes.Length)
+            [Array]::Copy($prefix,0,$git,0,$prefix.Length)
+            [Array]::Copy($bytes,0,$git,$prefix.Length,$bytes.Length)
+            $sha1=[Security.Cryptography.SHA1]::Create()
+            try{$observed=([BitConverter]::ToString($sha1.ComputeHash($git))).Replace('-','').ToLowerInvariant()}finally{$sha1.Dispose()}
+            if($observed -ne $Sha){throw "Git blob digest mismatch: $Sha"}
+            return ,$bytes
+          }
+
+          [IO.File]::WriteAllBytes((Join-Path $root 'guest\tools\configuration.winget'),(Get-ExactBlob $env:CONFIG_BLOB))
+          [IO.File]::WriteAllBytes((Join-Path $root 'guest\tools\stage-provision.ps1'),(Get-ExactBlob $env:STAGE_BLOB))
+          [IO.File]::WriteAllBytes((Join-Path $root 'test\test-winget-configuration.ps1'),(Get-ExactBlob $env:TEST_BLOB))
+          "QUAL_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run authoritative provisioning fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & (Join-Path $env:QUAL_ROOT 'test\test-winget-configuration.ps1')
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+
+      - name: Verify gsudo resolves from WinGet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $winget=Get-Command winget -ErrorAction Stop
+          $out=@(& $winget.Source show --id gerardog.gsudo --exact --source winget --accept-source-agreements 2>&1)
+          if($LASTEXITCODE -ne 0){throw "winget show gerardog.gsudo failed: $($out -join ' ')"}
+          if(-not (($out -join [Environment]::NewLine) -match 'gerardog\.gsudo')){throw 'WinGet result did not resolve gerardog.gsudo'}
+          Write-Host 'gsudo WinGet resolution: PASS'
+
+      - name: Verify OpenSSH Server capability is available
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $cap=Get-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0' -ErrorAction Stop
+          if([string]$cap.Name -ne 'OpenSSH.Server~~~~0.0.1.0'){throw 'OpenSSH Server capability identity mismatch'}
+          if([string]$cap.State -notin @('Installed','NotPresent','Staged')){throw "unexpected OpenSSH Server capability state: $($cap.State)"}
+          Write-Host ("OpenSSH Server capability: PASS ("+[string]$cap.State+")")
+
+      - name: Emit qualification receipt
+        shell: pwsh
+        run: |
+          [ordered]@{
+            classification='SUPPORTED'
+            source_revision=$env:SOURCE_REVISION
+            configuration_blob=$env:CONFIG_BLOB
+            stage_provision_blob=$env:STAGE_BLOB
+            test_blob=$env:TEST_BLOB
+            gsudo_package='gerardog.gsudo'
+            openssh_capability='OpenSSH.Server~~~~0.0.1.0'
+            sshd_startup='Automatic'
+            ssh_firewall_rule='OpenSSH-Server-In-TCP'
+            readiness_requires_gsudo=$true
+            readiness_requires_sshd=$true
+          } | ConvertTo-Json -Compress

@@ -1,0 +1,72 @@
+name: WinBot Seed Finalization V2 Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-seed-finalization-v2-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    env:
+      CONTROL_BLOB_SHA: 'f7c3703466d7358c6b196a55ee720a68fe0560a6'
+      PRIOR_CONTROL_BLOB_SHA: '4e4764f673ce5e8cbfe0a2572c1e0ddcd154929a'
+    steps:
+      - name: Parse and inspect exact seed-finalization v2 control
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          function Get-BlobBytes([string]$sha) {
+            $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$sha"
+            $blob=Invoke-RestMethod -Headers $headers -Uri $uri
+            if([string]$blob.sha -ne $sha -or [string]$blob.encoding -ne 'base64'){throw "blob identity mismatch: $sha"}
+            $raw=[Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+            if($raw.Length -ne [int]$blob.size){throw "blob size mismatch: $sha"}
+            return $raw
+          }
+          $raw=Get-BlobBytes $env:CONTROL_BLOB_SHA
+          $prior=Get-BlobBytes $env:PRIOR_CONTROL_BLOB_SHA
+          $path=Join-Path $env:RUNNER_TEMP 'seed-finalization-v2.ps1'
+          [IO.File]::WriteAllBytes($path,$raw)
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if($errors.Count -gt 0){throw 'seed-finalization v2 parse failed'}
+          $text=[Text.Encoding]::UTF8.GetString($raw)
+          $priorText=[Text.Encoding]::UTF8.GetString($prior)
+          foreach($needle in @(
+            "profile = 'SeedFinalizationV2'",
+            'function Invoke-SeedFinalization',
+            "ProvisionStatus -eq 'complete'",
+            'api_token_absent',
+            'api_task_absent',
+            'runtime_taint_absent',
+            'clean_shutdown',
+            'seed_changed_by_finalization',
+            'seed_read_only'
+          )){
+            if(-not $text.Contains($needle)){throw "seed-finalization v2 invariant missing: $needle"}
+          }
+          if($text.Contains('seed did not complete first-boot provisioning/API readiness')){throw 'seed-finalization still depends on API readiness'}
+          if(-not $priorText.Contains('seed did not complete first-boot provisioning/API readiness')){throw 'prior API-readiness dependency not found'}
+          foreach($forbidden in @(
+            'New-WinBotWorkCell -CustomName $vmNameA',
+            'New-WinBotWorkCell -CustomName $vmNameB',
+            'pytest',
+            'canary_survived_rematerialization'
+          )){
+            if($text.Contains($forbidden)){throw "seed-finalization causal boundary violation: $forbidden"}
+          }
+          Write-Host 'classification=SUPPORTED'
+          Write-Host "control_blob=$env:CONTROL_BLOB_SHA"
+          Write-Host 'api_readiness_required=false'
+          Write-Host 'provisioning_completion_required=true'
+          Write-Host 'scrub_reseal_oracles_preserved=true'

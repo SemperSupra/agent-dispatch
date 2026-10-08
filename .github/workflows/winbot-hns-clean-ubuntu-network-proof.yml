@@ -1,0 +1,52 @@
+name: WinBot HNS-clean Ubuntu Network Proof
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - 'experiments/winbot/hns-clean-ubuntu-network-proof.ps1'
+      - '.github/workflows/winbot-hns-clean-ubuntu-network-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    name: HNS-clean nested guest network proof
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
+      cancel-in-progress: false
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Parse exact PowerShell discriminator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path='experiments/winbot/hns-clean-ubuntu-network-proof.ps1'
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){$errors|ForEach-Object{Write-Error $_.Message};throw 'discriminator parse failed'}
+          $sha=(git hash-object $path).Trim()
+          if($sha -ne 'c197a214d42950870fd1ab82142b46bfe8bcd7d9'){throw "discriminator Git identity mismatch: $sha"}
+
+      - name: Execute HNS-clean nested guest network proof
+        shell: pwsh
+        run: ./experiments/winbot/hns-clean-ubuntu-network-proof.ps1
+
+      - name: Upload bounded network proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-hns-clean-ubuntu-network-${{ github.run_id }}
+          path: artifacts/winbot-hns-clean-ubuntu-network/
+          if-no-files-found: warn
+          retention-days: 14
