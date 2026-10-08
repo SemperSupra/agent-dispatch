@@ -1,6 +1,15 @@
 name: WinBot 9.5 Bounded Diagnostic Cheap Qualification
 
 on:
+  pull_request:
+    branches:
+      - exp/windows-sealed-public-execution
+    paths:
+      - scripts/winbot_95_readiness_patch.py
+      - scripts/winbot_95_receipt_patch.py
+      - tests/winbot_95_static_qualification.py
+      - tests/winbot_95_marker_contract.ps1
+      - .github/workflows/winbot-95-static-qualification.yml
   push:
     branches:
       - exp/winbot-95-bounded-diagnostic-20261009
