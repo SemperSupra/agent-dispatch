@@ -32,7 +32,7 @@ AVAHI_DISCOVERY_COMMAND = [
     "-dbus-address","unix:path=/run/dbus/system_bus_socket",
 ]
 OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"
-EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d"
+EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5"
 EXPECTED_CUPS = "ghcr.io/sempersupra/foliorelay-cups@sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814"
 OBSERVER_IMAGE = "docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8"
 DATASET = "rdtepool/foliorelay-t6"
@@ -120,6 +120,14 @@ def validate_host_path_requirements(control: dict, target_version: str):
         ROOT+"/secrets":("directory","0700"),
         TOKEN_PATH:("file","0400"),
     }
+    scheme=(runtime.get("management_scheme") or "http").lower()
+    if scheme=="https":
+        tls_root=runtime.get("management_tls_root")
+        if tls_root!=ROOT+"/tls":
+            raise RuntimeError("HTTPS management TLS root drifted")
+        expected[tls_root]=("directory","0700")
+    elif scheme!="http":
+        raise RuntimeError(f"unsupported management scheme {scheme!r}")
     by_path={}
     for item in requirements:
         if not isinstance(item,dict):
@@ -182,7 +190,35 @@ def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
     if not expected.issubset(required):
         raise RuntimeError("required FolioRelay oracle contract drifted")
     validate_host_path_requirements(control,target_version)
+    validate_management_transport(control, services)
     return control, compose
+
+def validate_management_transport(control: dict, services: dict) -> str:
+    runtime=control.get("runtime") or {}
+    scheme=(runtime.get("management_scheme") or "http").lower()
+    if scheme=="http":
+        return scheme
+    if scheme!="https":
+        raise RuntimeError(f"unsupported management scheme {scheme!r}")
+    if runtime.get("management_tls_root")!=ROOT+"/tls":
+        raise RuntimeError("HTTPS management TLS root drifted")
+    if runtime.get("management_tls_state")!="/var/lib/foliorelay-tls":
+        raise RuntimeError("HTTPS management TLS state target drifted")
+    required=set(control.get("required_oracles") or [])
+    for oracle in ("management-tls-ready","management-tls-identity-persistent"):
+        if oracle not in required:
+            raise RuntimeError(f"HTTPS control missing required oracle {oracle}")
+    tls_root=runtime["management_tls_root"]
+    tls_target=runtime["management_tls_state"]
+    control_service=services.get("control") or {}
+    mounts=[m for m in (control_service.get("volumes") or []) if isinstance(m,dict)]
+    if not any(m.get("source")==tls_root and m.get("target")==tls_target and m.get("read_only") is not True for m in mounts):
+        raise RuntimeError("HTTPS control missing writable dedicated TLS mount")
+    for service_name in ("cups","discovery"):
+        for mount in (services.get(service_name) or {}).get("volumes") or []:
+            if isinstance(mount,dict) and (mount.get("source")==tls_root or mount.get("target")==tls_target):
+                raise RuntimeError(f"{service_name} must not receive management TLS state")
+    return scheme
 
 def multipart_upload(host, port, tls, username, password, remote_path, content, mode, timeout):
     boundary = "----semper-supra-foliorelay-t6"
@@ -214,12 +250,46 @@ def multipart_upload(host, port, tls, username, password, remote_path, content, 
         raise RuntimeError("filesystem.put did not return job_id")
     return job_id
 
-def http_bytes(host, port, path, token=None, method="GET", timeout=8.0):
-    req=urllib.request.Request(f"http://{host}:{port}{path}", method=method)
+def http_bytes(host, port, path, token=None, method="GET", timeout=8.0, tls=False):
+    scheme="https" if tls else "http"
+    req=urllib.request.Request(f"{scheme}://{host}:{port}{path}", method=method)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
+    if tls:
+        ctx=ssl.create_default_context()
+        ctx.check_hostname=False
+        ctx.verify_mode=ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            return r.read()
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
+
+def management_tls_fingerprint(host: str, port: int, server_name: str, timeout: float) -> str:
+    ctx=ssl.create_default_context()
+    ctx.check_hostname=False
+    ctx.verify_mode=ssl.CERT_NONE
+    with socket.create_connection((host,port),timeout=timeout) as raw:
+        with ctx.wrap_socket(raw,server_hostname=server_name) as conn:
+            der=conn.getpeercert(binary_form=True)
+    if not der:
+        raise RuntimeError("management TLS peer returned no certificate")
+    pem=ssl.DER_cert_to_PEM_cert(der)
+    cert_path=None
+    try:
+        with tempfile.NamedTemporaryFile("w",encoding="utf-8",delete=False) as handle:
+            handle.write(pem)
+            cert_path=handle.name
+        checked=subprocess.run(
+            ["openssl","x509","-in",cert_path,"-noout","-checkhost",server_name],
+            text=True,capture_output=True,
+        )
+        if checked.returncode!=0:
+            detail=(checked.stdout+"\n"+checked.stderr).strip()
+            raise RuntimeError(f"management TLS certificate host mismatch: {detail}")
+    finally:
+        if cert_path:
+            pathlib.Path(cert_path).unlink(missing_ok=True)
+    return hashlib.sha256(der).hexdigest()
 
 def middleware_http_bytes(host, port, tls, path, timeout=8.0):
     if tls:
@@ -236,11 +306,11 @@ def middleware_http_bytes(host, port, tls, path, timeout=8.0):
         raise RuntimeError(f"middleware download HTTP {resp.status}")
     return payload
 
-def wait_http(host, port, path, timeout_s):
+def wait_http(host, port, path, timeout_s, tls=False):
     deadline=time.monotonic()+timeout_s
     while time.monotonic()<deadline:
         try:
-            http_bytes(host,port,path,timeout=3)
+            http_bytes(host,port,path,timeout=3,tls=tls)
             return True
         except Exception:
             time.sleep(1)
@@ -508,7 +578,10 @@ def main():
     }
     try:
         control,compose=load_control(a.control_dir,a.foundry_commit,a.target_version)
-        payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS}
+        management_scheme=validate_management_transport(control,compose.get("services") or {})
+        management_tls=management_scheme=="https"
+        management_tls_initial=None
+        payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS,"management_scheme":management_scheme}
         password=pathlib.Path(a.password_file).read_text().strip()
         ws=WebSocket(a.host,a.port,timeout=a.timeout,tls=a.tls); ws.send_json({"msg":"connect","version":"1","support":["1"]})
         if wait_for(ws,lambda m:m.get("msg") in {"connected","failed"}).get("msg")!="connected": raise RuntimeError("DDP connection failed")
@@ -624,9 +697,11 @@ def main():
             if needed not in exact: raise RuntimeError(f"container identity mismatch: {needed[0]}")
         readback=call("app.config",[EXPECTED_APP_NAME])
         if canonical_sha256(readback)!=canonical_sha256(compose): raise RuntimeError("app.config readback drifted")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout): raise RuntimeError("control readyz failed")
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls): raise RuntimeError("control readyz failed")
+        if management_tls:
+            management_tls_initial=management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)
         tok=TOKEN.decode().strip()
-        printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
+        printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
         uuid=(printer.get("identity") or {}).get("printer_uuid"); uri=printer.get("public_uri")
         if not isinstance(uuid,str) or not uuid or uri!=PUBLIC_URI: raise RuntimeError("control canonical printer identity drifted")
         with tempfile.TemporaryDirectory() as td:
@@ -643,7 +718,7 @@ def main():
             expected={"application/pdf":sha256_bytes(pdf.read_bytes()),"image/urf":sha256_bytes(urf.read_bytes())}
             deadline=time.monotonic()+60; jobs=None
             while time.monotonic()<deadline:
-                jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+                jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
                 if len(jobs.get("items") or [])==2: break
                 time.sleep(1)
             items=jobs.get("items") or []
@@ -651,7 +726,7 @@ def main():
             for media,sha in expected.items():
                 matches=[x for x in items if x.get("media_type")==media]
                 if len(matches)!=1 or matches[0].get("artifact_sha256")!=sha or matches[0].get("substrate")!="cups": raise RuntimeError(f"{media} Inbox metadata drifted")
-                blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout)
+                blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{matches[0]['job_id']}/artifact",tok,timeout=a.timeout,tls=management_tls)
                 if sha256_bytes(blob)!=sha: raise RuntimeError(f"{media} downloaded artifact drifted")
         sj=multipart_upload(a.host,a.port,a.tls,"truenas_admin",password,OBSERVER_DIR+"/foliorelay-observer",observer_bytes,0o555,a.timeout); wait_job(sj,"observer upload")
         observer_command=["--uuid",uuid,"--txt-uuid",dnssd_txt_uuid(uuid),"--expected-host",PUBLIC_HOST,"--expected-ipp-port",str(PUBLIC_IPP_PORT),"--port","18081"]
@@ -711,12 +786,14 @@ def main():
             or (observed.get("srv_target") or "").rstrip(".").lower()!=PUBLIC_HOST.lower()
             or observed.get("srv_port")!=PUBLIC_IPP_PORT):
             raise RuntimeError("DNS-SD observer public URI identity mismatch")
-        before_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        before_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         stop=call("app.stop",[EXPECTED_APP_NAME]); wait_job(stop,"app.stop"); wait_state(EXPECTED_APP_NAME,"STOPPED")
         start=call("app.start",[EXPECTED_APP_NAME]); wait_job(start,"app.start"); wait_state(EXPECTED_APP_NAME,"RUNNING")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout): raise RuntimeError("readyz failed after restart")
-        after_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
-        after_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls): raise RuntimeError("readyz failed after restart")
+        if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
+            raise RuntimeError("management TLS identity drifted after restart")
+        after_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
+        after_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if (after_printer.get("identity") or {}).get("printer_uuid")!=uuid or after_jobs!=before_jobs: raise RuntimeError("identity or Inbox drifted after restart")
         # F4: second-plan from exact live read-back must be a stable NOOP.
         second_plan_app=query_optional("app.query",[["id","=",EXPECTED_APP_NAME]])
@@ -733,9 +810,11 @@ def main():
         rj=call("app.redeploy",[EXPECTED_APP_NAME])
         if not isinstance(rj,int): raise RuntimeError("app.redeploy did not return job")
         wait_job(rj,"app.redeploy"); wait_state(EXPECTED_APP_NAME,"RUNNING")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout): raise RuntimeError("readyz failed after update/redeploy")
-        redeploy_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
-        redeploy_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls): raise RuntimeError("readyz failed after update/redeploy")
+        if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
+            raise RuntimeError("management TLS identity drifted after update/redeploy")
+        redeploy_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
+        redeploy_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if (redeploy_printer.get("identity") or {}).get("printer_uuid")!=uuid or redeploy_jobs!=before_jobs:
             raise RuntimeError("identity or Inbox drifted after update/redeploy")
 
@@ -758,10 +837,12 @@ def main():
         wait_job(reinstall,"reinstall app.create"); reinstall_app=wait_state(EXPECTED_APP_NAME,"RUNNING")
         if canonical_sha256(call("app.config",[EXPECTED_APP_NAME]))!=canonical_sha256(compose):
             raise RuntimeError("reinstall app.config readback drifted")
-        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout):
+        if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls):
             raise RuntimeError("readyz failed after retain-data reinstall")
-        reinstall_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout))
-        reinstall_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout))
+        if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
+            raise RuntimeError("management TLS identity drifted after retain-data reinstall")
+        reinstall_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
+        reinstall_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if ((reinstall_printer.get("identity") or {}).get("printer_uuid")!=uuid
             or reinstall_printer.get("public_uri")!=PUBLIC_URI
             or reinstall_jobs!=before_jobs):
@@ -771,7 +852,7 @@ def main():
             job_id=item.get("job_id")
             if not artifact_sha or not job_id:
                 raise RuntimeError("reinstalled Inbox item missing artifact identity")
-            blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{job_id}/artifact",tok,timeout=a.timeout)
+            blob=http_bytes(a.host,a.control_port,f"/api/v1/jobs/{job_id}/artifact",tok,timeout=a.timeout,tls=management_tls)
             if sha256_bytes(blob)!=artifact_sha:
                 raise RuntimeError("retained artifact bytes drifted after reinstall")
         reinstall_live=call("app.config",[EXPECTED_APP_NAME])
@@ -792,7 +873,7 @@ def main():
         payload.update({
             "classification":"SUPPORTED","oracleSatisfied":True,
             "identity":{"printer_uuid":uuid,"public_uri":PUBLIC_URI,"control_cups_uuid_match":True,"dnssd_uuid_match":True,"dnssd_public_uri_match":True},
-            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP","second_plan_noop":True,"retain_data_reinstall":True},
+            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"management_scheme":management_scheme,"management_tls_identity_persistent":(True if management_tls else None),"management_tls_fingerprint_sha256":management_tls_initial,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP","second_plan_noop":True,"retain_data_reinstall":True},
             "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True,"service_instance":observed.get("service_instance"),"srv_target":PUBLIC_HOST,"srv_port":PUBLIC_IPP_PORT,"resource_path":PUBLIC_RESOURCE_PATH},
             "cleanup":{"apps_absent":True,"fixture_dataset_absent":True,"fixture_mountpoint_absent":True,"zero_residue":True},
             "reconciliation":{"second_plan_action":second_plan_action,"post_reinstall_action":reinstall_plan_action,"inflight_policy":"WAIT","ambiguous_policy":"FAIL_CLOSED"},
