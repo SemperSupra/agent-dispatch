@@ -4,7 +4,7 @@
   "version": "25.10.7",
   "rung": "t6",
   "product": "foliorelay",
-  "authority_issue": 396,
+  "authority_issue": 410,
   "consumer_authority_issue": 273,
   "purpose": "Requalify the exact FolioRelay TrueNAS 25.10.7 F0-F5 matrix cell for the accepted WebUI/product-native HTTPS candidate after refreshed BETA.3 rep 016 independently earned support. Bind Agent Dispatch consumer + HTTPS host-forward authority 11e6caed23512b9e042d0500ef8fcd1e2eef88b5, Foundry 81deb97185760975fd8d3162df42056c77b3c0fd, immutable control sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5, and unchanged CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814. Require exact TrueNAS-25.10.7/profile identity; cooperative host Avahi discovery with the existing 25.x least-privilege control-root contract and independent legacy-unicast observer; exact three-service RUNNING/readback; TrueNAS Web UI portal https://foliorelay-t6.local:18443/; HTTPS management and stable TLS leaf identity across restart/update/redeploy/retained-data reinstall; IPP; PDF/URF exact-source Inbox preservation; canonical printer identity; F4 second-plan NOOP with WAIT/fail-closed reconciliation; F5 retained-data reinstall preserving identity, Inbox, artifact bytes, portal metadata, and TLS identity; final zero residue. Do not inherit BETA.3 or historical 25.10.7 support; acceptance requires this exact row's retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt."
 }
