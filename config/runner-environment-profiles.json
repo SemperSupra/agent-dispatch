@@ -1,0 +1,126 @@
+{
+  "schema": "semper-supra.runner-environment-profiles/v1",
+  "authority": "SemperSupra/agent-dispatch-private#480",
+  "policy": {
+    "environment_equivalence_is_not_hardware_identity": true,
+    "resource_scaling_may_exceed_reference": true,
+    "support_inheritance_allowed": false,
+    "census_receipt_required_before_parity_claim": true,
+    "workload_oracle_required_before_workload_claim": true,
+    "sovereign_extensions_must_be_declared": true,
+    "provider_independent_profile_ids": true,
+    "placement_must_match_environment_and_capabilities": true
+  },
+  "qualification_rungs": {
+    "P0": "Bind exact GHA reference label and retained census/capacity/frontier receipts.",
+    "P1": "Build an immutable local template with declared OS/arch/runner/toolchain identity.",
+    "P2": "Run the same passive census locally and compare required compatibility fields.",
+    "P3": "Run callable/frontier oracles required by the reference environment.",
+    "P4": "Run representative placement workloads on both GHA reference and local template.",
+    "P5": "Admit local template for compatible workloads; stronger local resources remain an explicit resource-class delta.",
+    "S1": "Qualify sovereign-only capabilities independently; never imply GHA parity from a sovereign extension."
+  },
+  "gha_references": [
+    {"id":"gha-ubuntu-26.04","label":"ubuntu-26.04","status":"REFERENCE_OPEN"},
+    {"id":"gha-ubuntu-26.04-arm","label":"ubuntu-26.04-arm","status":"REFERENCE_OPEN"},
+    {"id":"gha-ubuntu-24.04","label":"ubuntu-24.04","status":"REFERENCE_OPEN"},
+    {"id":"gha-ubuntu-24.04-arm","label":"ubuntu-24.04-arm","status":"REFERENCE_OPEN"},
+    {"id":"gha-ubuntu-slim","label":"ubuntu-slim","status":"REFERENCE_OPEN"},
+    {"id":"gha-macos-26","label":"macos-26","status":"REFERENCE_OPEN"},
+    {"id":"gha-macos-26-intel","label":"macos-26-intel","status":"REFERENCE_OPEN"},
+    {"id":"gha-xcode-27","label":"xcode-27","status":"REFERENCE_OPEN"}
+  ],
+  "local_templates": [
+    {
+      "id":"local-linux-x64-ubuntu-24.04",
+      "reference":"gha-ubuntu-24.04",
+      "environment_class":"GHA_PARITY",
+      "resource_class":"SCALED_LOCAL",
+      "candidate_substrates":["truenas-app","truenas-container","truenas-vm"],
+      "required_capability_deltas":[],
+      "status":"OPEN"
+    },
+    {
+      "id":"local-linux-x64-ubuntu-26.04",
+      "reference":"gha-ubuntu-26.04",
+      "environment_class":"GHA_PARITY",
+      "resource_class":"SCALED_LOCAL",
+      "candidate_substrates":["truenas-app","truenas-container","truenas-vm"],
+      "required_capability_deltas":[],
+      "status":"OPEN"
+    },
+    {
+      "id":"local-linux-x64-ubuntu-slim",
+      "reference":"gha-ubuntu-slim",
+      "environment_class":"GHA_PARITY",
+      "resource_class":"SCALED_LOCAL",
+      "candidate_substrates":["truenas-app","truenas-container"],
+      "required_capability_deltas":[],
+      "status":"OPEN"
+    },
+    {
+      "id":"local-linux-arm64-ubuntu-24.04",
+      "reference":"gha-ubuntu-24.04-arm",
+      "environment_class":"GHA_PARITY",
+      "resource_class":"SCALED_LOCAL",
+      "candidate_substrates":["apple-silicon-linux-vm"],
+      "required_capability_deltas":[],
+      "status":"OPEN"
+    },
+    {
+      "id":"local-linux-arm64-ubuntu-26.04",
+      "reference":"gha-ubuntu-26.04-arm",
+      "environment_class":"GHA_PARITY",
+      "resource_class":"SCALED_LOCAL",
+      "candidate_substrates":["apple-silicon-linux-vm"],
+      "required_capability_deltas":[],
+      "status":"OPEN"
+    },
+    {
+      "id":"local-macos-26-arm64",
+      "reference":"gha-macos-26",
+      "environment_class":"GHA_PARITY",
+      "resource_class":"SCALED_LOCAL",
+      "candidate_substrates":["apple-silicon-native"],
+      "required_capability_deltas":[],
+      "status":"OPEN"
+    },
+    {
+      "id":"local-xcode-27-arm64",
+      "reference":"gha-xcode-27",
+      "environment_class":"GHA_PARITY",
+      "resource_class":"SCALED_LOCAL",
+      "candidate_substrates":["apple-silicon-native"],
+      "required_capability_deltas":[],
+      "status":"OPEN"
+    },
+    {
+      "id":"sovereign-linux-x64-gpu",
+      "reference":"gha-ubuntu-24.04",
+      "environment_class":"SOVEREIGN_EXTENSION",
+      "resource_class":"LOCAL_ACCELERATED",
+      "candidate_substrates":["truenas-app","truenas-container","truenas-vm"],
+      "required_capability_deltas":["gpu-compute"],
+      "status":"OPEN"
+    },
+    {
+      "id":"sovereign-macos-apple-silicon-highperf",
+      "reference":"gha-macos-26",
+      "environment_class":"SOVEREIGN_EXTENSION",
+      "resource_class":"LOCAL_ACCELERATED",
+      "candidate_substrates":["apple-silicon-native"],
+      "required_capability_deltas":["apple-silicon-native","metal"],
+      "status":"OPEN"
+    },
+    {
+      "id":"cloud-only-macos-26-intel",
+      "reference":"gha-macos-26-intel",
+      "environment_class":"REFERENCE_ONLY",
+      "resource_class":"CLOUD_ONLY",
+      "candidate_substrates":[],
+      "required_capability_deltas":[],
+      "status":"NOT_LOCAL_MATERIALIZABLE"
+    }
+  ],
+  "claim_boundary": "Registry and qualification plan only. No local template is admitted until its exact GHA reference receipt is retained and P0-P5 evidence independently passes. Sovereign extensions require separate S1 evidence."
+}
