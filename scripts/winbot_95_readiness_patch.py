@@ -50,6 +50,18 @@ def patch_control(original: bytes) -> bytes:
         "                $criticalFlags = $null\n"
         "                if (Test-Path -LiteralPath $failurePath) {",
     )
+    # Separate I/O failures from corrupt JSON; neither can establish readiness.
+    text = replace_once(
+        text,
+        "                        $failureObj = (Get-Content -LiteralPath $failurePath -Raw -ErrorAction Stop) | ConvertFrom-Json",
+        "                        $failureRaw = Get-Content -LiteralPath $failurePath -Raw -ErrorAction Stop\n"
+        "                        try {\n"
+        "                            $failureObj = $failureRaw | ConvertFrom-Json -ErrorAction Stop\n"
+        "                        } catch {\n"
+        "                            $criticalMarkerState = 'malformed'\n"
+        "                            throw\n"
+        "                        }",
+    )
     # Guest PowerShell Direct uses Windows PowerShell 5.1: -AsHashtable is
     # unavailable there. Explicit exact-case property inspection is required.
     read_marker = """
@@ -92,7 +104,7 @@ def patch_control(original: bytes) -> bytes:
         "                    Token = $observedToken",
         "                    } catch {\n"
         "                        if ([string]$phase -ceq '9.5/9-ready' -and [string]$phaseStatus -ceq 'failed') {\n"
-        "                            $criticalMarkerState = 'unreadable'\n"
+        "                            if ($criticalMarkerState -ne 'malformed') { $criticalMarkerState = 'unreadable' }\n"
         "                            $criticalFlags = $null\n"
         "                        }\n"
         "                    }\n"
