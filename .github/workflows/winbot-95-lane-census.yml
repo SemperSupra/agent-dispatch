@@ -1,0 +1,39 @@
+name: WinBot 9.5 Shared Heavyweight Census
+
+on:
+  push:
+    branches:
+      - exp/winbot-95-bounded-diagnostic-20261009
+    paths:
+      - scripts/winbot_95_lane_census.py
+      - .github/workflows/winbot-95-lane-census.yml
+
+permissions:
+  actions: read
+  contents: read
+  statuses: write
+
+jobs:
+  cheap-census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Enumerate all active and queued shared-heavyweight jobs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/winbot_95_lane_census.py
+      - name: Persist bounded lane snapshot
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-95-lane-${{ github.run_id }}
+          path: ${{ runner.temp }}/winbot-95-lane-census.json
+          if-no-files-found: warn
+          retention-days: 14
