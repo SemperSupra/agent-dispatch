@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-26-beta3-t6-garm-container-pre-b4-003",
+  "request_id": "tn-26-beta3-t6-foliorelay-014-webui-https-f0-f5",
   "version": "26.0.0-BETA.3",
   "rung": "t6",
-  "product": "garm-provider-container-pre-b4",
+  "product": "foliorelay",
   "authority_issue": 396,
-  "consumer_authority_issue": 43,
-  "purpose": "Retry the exact BETA.3 GARM TrueNAS Container backend pre-B4 real-system capsule after the rep-002 WSS transport defect was corrected. Bind merged provider source ae9d3bf99a010fb962775a185941ed1b732f54c3 and corrected Agent Dispatch consumer a1fc1b25510a0bb2709a8ba3c408ce6cefa361e1. Require exact TrueNAS-26.0.0-BETA.3 / middleware 81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3; authenticated WSS middleware transport; supported container.* create/readback; exact Ubuntu Noble image resolution; provider-owned root-dataset mountpoint; filesystem.put/stat staging of exact non-secret scripts plus one run-local 0600 credential file; observed init-wrapper and bootstrap-child markers; explicit credential-file deletion; persisted init/initenv scrub to /sbin/init plus empty environment; supported stop/delete; and final named-container absence. This is B0-B3/B5 pre-B4 evidence only. Do not claim callback/JIT, GitHub registration, runtime admission, per-runner memory isolation, Docker/container-actions, physical TrueNAS readiness, or capacity promotion."
+  "consumer_authority_issue": 273,
+  "purpose": "Requalify the exact FolioRelay 26.0.0-BETA.3 Foundry F0-F5 matrix cell after the accepted WebUI, product-native HTTPS management, and TLS-key-isolation changes. Bind merged Agent Dispatch consumer 04bdab5fa2bcadd7cfd09f6480f29f7e7ca9e9fd, merged Foundry authority 25801ed41ff15f4f68c2878dac8b32c2ee2a2e0e, immutable control sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5, and unchanged CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814. Require exact TrueNAS-26.0.0-BETA.3/profile identity; exact three-service readback; host-published HTTPS management on 18443 with private app-network HTTP 18080 not host-published; certificate host binding; stable management TLS leaf fingerprint across restart, update/redeploy, and retained-data reinstall; dedicated 0700 TLS state mounted only into control and absent from CUPS/discovery; canonical printer identity; IPP; PDF and URF exact-source Inbox preservation; same-instance DNS-SD; F4 second-plan NOOP with WAIT/fail-closed reconciliation; F5 retained-data delete/reinstall preserving identity, Inbox, artifact bytes, and TLS identity; and final zero-residue cleanup. Do not inherit the prior c8d578 FolioRelay matrix or infer support from workflow success; acceptance requires a retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt with TLS oracles satisfied."
 }
