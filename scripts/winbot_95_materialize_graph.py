@@ -162,7 +162,16 @@ def run() -> None:
     }
     output = Path(os.environ["RUNNER_TEMP"]) / "winbot-95-graph.json"
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    print(json.dumps(result, sort_keys=True))
+    # Git status is a discoverable, secret-free receipt pointer. No refs change.
+    result_bytes = (json.dumps(result, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    receipt_blob = create_blob(result_bytes)
+    call("POST", "/statuses/" + os.environ["GITHUB_SHA"], {
+        "state": "success",
+        "context": "winbot-95-exact-graph",
+        "description": "receipt_git_blob=" + receipt_blob,
+        "target_url": "https://github.com/" + REPO + "/pull/379",
+    })
+    print(json.dumps({"receipt_git_blob": receipt_blob, **result}, sort_keys=True))
 
 
 if __name__ == "__main__":
