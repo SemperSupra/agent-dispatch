@@ -1,0 +1,27 @@
+name: Validate runner runtime template contract
+
+on:
+  pull_request:
+    paths:
+      - "config/runner-runtime-templates.json"
+      - "scripts/runner_runtime_template_contract.py"
+      - "tests/test_runner_runtime_template_contract.py"
+      - "docs/sovereign-runner-runtime-templates.md"
+      - ".github/workflows/validate-runner-runtime-templates.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate catalog
+        run: python3 scripts/runner_runtime_template_contract.py
+      - name: Contract tests
+        run: python3 -m unittest -v tests/test_runner_runtime_template_contract.py
