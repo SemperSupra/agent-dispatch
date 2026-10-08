@@ -156,8 +156,7 @@
       "reference": "ubuntu-24.04",
       "host_class": "truenas",
       "materialization_candidates": [
-        "truenas-vm-libvirt",
-        "truenas-container-v1"
+        "truenas-vm-libvirt"
       ],
       "status": "OPEN",
       "required_local_oracles": [
@@ -166,7 +165,7 @@
         "lifecycle:ephemeral-retirement",
         "reference-predicates:all"
       ],
-      "claim_boundary": "No parity until every required GHA predicate is independently reproduced on the admitted local backend."
+      "claim_boundary": "Full ubuntu-24.04 GHA parity includes Docker, sudo-KVM VCPU, native/docker contract and Android-emulator predicates; use the VM materialization path unless another backend independently reproduces all of them."
     },
     "truenas-ubuntu-26.04-x64": {
       "classification": "GHA_COMPATIBLE_DELTA",
@@ -362,6 +361,24 @@
         "network:bounded-sovereign-path"
       ],
       "claim_boundary": "Local Hyper-V/WSL/LAN authority is an enhanced sovereign surface and must remain separated from hosted-runner compatibility evidence."
+    },
+    "truenas-system-container-x64": {
+      "classification": "SOVEREIGN_ENHANCED",
+      "compatible_base": "truenas-ubuntu-slim-x64",
+      "host_class": "truenas",
+      "status": "OPEN",
+      "enhancements": [
+        "primitive:system-container-lifecycle",
+        "primitive:systemd-init",
+        "workload:ephemeral-linux-runner"
+      ],
+      "required_local_oracles": [
+        "container:systemd-init",
+        "runner:github-actions-bootstrap",
+        "workload:representative-container-runner",
+        "lifecycle:ephemeral-retirement"
+      ],
+      "claim_boundary": "The TrueNAS system-container runner is a sovereign specialized extension of the lightweight Linux contract; it must not be advertised as full ubuntu-24.04 GHA parity unless it independently proves that class's Docker/KVM/Android predicates."
     }
   },
   "acceptance_rungs": {
