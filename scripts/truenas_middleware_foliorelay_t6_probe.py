@@ -32,7 +32,7 @@ AVAHI_DISCOVERY_COMMAND = [
     "-dbus-address","unix:path=/run/dbus/system_bus_socket",
 ]
 OBSERVER_APP_NAME = "rdte-t6-foliorelay-observer"
-EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d"
+EXPECTED_CONTROL = "ghcr.io/sempersupra/foliorelay-control@sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5"
 EXPECTED_CUPS = "ghcr.io/sempersupra/foliorelay-cups@sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814"
 OBSERVER_IMAGE = "docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8"
 DATASET = "rdtepool/foliorelay-t6"
