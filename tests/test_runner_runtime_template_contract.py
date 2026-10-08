@@ -53,6 +53,15 @@ class RunnerRuntimeTemplateContractTests(unittest.TestCase):
         self.assertTrue(policy["performance_observation_is_not_functional_support"])
         self.assertTrue(policy["representative_workload_oracle_required_for_placement"])
 
+    def test_full_ubuntu_parity_prefers_vm_and_system_container_is_specialized(self):
+        full = self.doc["sovereign_template_candidates"]["truenas-ubuntu-24.04-x64"]
+        specialized = self.doc["sovereign_template_candidates"]["truenas-system-container-x64"]
+        self.assertEqual(full["materialization_candidates"], ["truenas-vm-libvirt"])
+        self.assertEqual(specialized["classification"], "SOVEREIGN_ENHANCED")
+        self.assertEqual(specialized["compatible_base"], "truenas-ubuntu-slim-x64")
+        self.assertIn("primitive:system-container-lifecycle", specialized["enhancements"])
+        self.assertIn("must not be advertised as full ubuntu-24.04 GHA parity", specialized["claim_boundary"])
+
     def test_sovereign_gpu_profile_derives_from_compatible_base_and_requires_oracles(self):
         row = self.doc["sovereign_template_candidates"]["truenas-linux-x64-nvidia-gpu"]
         self.assertEqual(row["classification"], "SOVEREIGN_ENHANCED")
