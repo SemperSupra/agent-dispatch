@@ -321,9 +321,9 @@ jobs:
   provider-container-pre-b4-fixture:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4'
-    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-container-b0-b5-fixture.yml@ae9d3bf99a010fb962775a185941ed1b732f54c3
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-container-b0-b5-fixture.yml@9f3c86169320b6a2330bbb345d25a41c736c73c2
     with:
-      provider_ref: ae9d3bf99a010fb962775a185941ed1b732f54c3
+      provider_ref: 9f3c86169320b6a2330bbb345d25a41c736c73c2
     permissions:
       contents: read
 
@@ -555,7 +555,7 @@ jobs:
               args+=(
                 --t6-product "garm-provider-container-pre-b4"
                 --container-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/container-pre-b4-fixture"
-                --container-fixture-producer "ae9d3bf99a010fb962775a185941ed1b732f54c3"
+                --container-fixture-producer "9f3c86169320b6a2330bbb345d25a41c736c73c2"
               )
             elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-g5" ]]; then
               args+=(
