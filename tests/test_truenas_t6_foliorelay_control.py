@@ -35,6 +35,11 @@ class FolioRelayT6ContractTests(unittest.TestCase):
             'app.update', 'app.redeploy', 'replan_action', '"NOOP"',
             'update_redeploy_preserved_identity_and_inbox',
             'second_plan_noop', 'retain_data_reinstall',
+            'TrueNAS Web UI portal readback drifted',
+            'TrueNAS Web UI portal drifted after update/redeploy',
+            'TrueNAS Web UI portal drifted after retain-data reinstall',
+            '"truenas_webui_portal_advertised":True',
+            '"management_portal_persistent":True',
         ):
             self.assertIn(needle, text)
         observer = (ROOT/"tools"/"foliorelay-observer"/"main.go").read_text(encoding="utf-8")
@@ -113,6 +118,38 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         widened["runtime"]["host_path_requirements"][0]["mode"]="0750"
         with self.assertRaisesRegex(RuntimeError,"kind/mode drifted"):
             MOD.validate_host_path_requirements(widened,"25.10.7")
+
+    def test_true_nas_webui_portal_contract_is_exact(self):
+        portal={
+            "name":"Web UI",
+            "scheme":"https",
+            "host":MOD.PUBLIC_HOST,
+            "port":18443,
+            "path":"/",
+        }
+        control={
+            "runtime":{
+                "management_port":18443,
+                "management_portal":portal,
+            },
+            "required_oracles":[
+                "management-endpoint-ready",
+                "truenas-webui-portal-advertised",
+            ],
+        }
+        compose={"x-portals":[portal]}
+        self.assertEqual(
+            MOD.validate_management_portal_contract(control,compose),
+            "https://foliorelay-t6.local:18443/",
+        )
+        drift=json.loads(json.dumps(compose))
+        drift["x-portals"][0]["host"]="127.0.0.1"
+        with self.assertRaisesRegex(RuntimeError,"Compose metadata drifted"):
+            MOD.validate_management_portal_contract(control,drift)
+        legacy=json.loads(json.dumps(control))
+        legacy["required_oracles"].append("portal-ready")
+        with self.assertRaisesRegex(RuntimeError,"legacy portal-ready"):
+            MOD.validate_management_portal_contract(legacy,compose)
 
     def test_https_management_contract_is_control_only_and_backward_compatible(self):
         self.assertEqual(MOD.validate_management_transport({"runtime":{}},{"control":{},"cups":{},"discovery":{}}),"http")
@@ -296,10 +333,10 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         workflow=(ROOT/".github"/"workflows"/"gha-kvm-system-rdte.yml").read_text(encoding="utf-8")
         harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
         self.assertIn("truenas_t6_product == 'foliorelay'", workflow)
-        self.assertIn("export-foliorelay-t6-control.yml@25801ed41ff15f4f68c2878dac8b32c2ee2a2e0e", workflow)
+        self.assertIn("export-foliorelay-t6-control.yml@5dfa9b430cb83151170c4cc3080e01d605cbcf43", workflow)
         self.assertIn("target_version: ${{ needs.changes.outputs.truenas_version }}", workflow)
         self.assertIn("name: foliorelay-t6-control", workflow)
-        self.assertIn('foundry_commit="25801ed41ff15f4f68c2878dac8b32c2ee2a2e0e"', workflow)
+        self.assertIn('foundry_commit="5dfa9b430cb83151170c4cc3080e01d605cbcf43"', workflow)
         self.assertIn("truenas_middleware_foliorelay_t6_probe.py", harness)
         self.assertIn('FOLIORELAY_CONTROL_HOST_PORT', harness)
         self.assertIn('FOLIORELAY_IPP_HOST_PORT', harness)
