@@ -9,6 +9,7 @@ on:
       - scripts/winbot_95_receipt_patch.py
       - tests/winbot_95_static_qualification.py
       - tests/winbot_95_marker_contract.ps1
+      - tests/winbot_95_receipt_contract.ps1
       - .github/workflows/winbot-95-static-qualification.yml
   push:
     branches:
@@ -18,6 +19,7 @@ on:
       - scripts/winbot_95_receipt_patch.py
       - tests/winbot_95_static_qualification.py
       - tests/winbot_95_marker_contract.ps1
+      - tests/winbot_95_receipt_contract.ps1
       - .github/workflows/winbot-95-static-qualification.yml
   workflow_dispatch:
 
@@ -56,6 +58,13 @@ jobs:
           $control = Join-Path $env:RUNNER_TEMP 'winbot-95-static/candidate-control.ps1'
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/winbot_95_marker_contract.ps1 -Control $control
           if ($LASTEXITCODE -ne 0) { throw 'guest PS5.1 marker contract failed' }
+      - name: Parse trusted bounded receipt and red-team forwarding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $workflow = Join-Path $env:RUNNER_TEMP 'winbot-95-static/candidate-workflow.yml'
+          & pwsh -NoProfile -File tests/winbot_95_receipt_contract.ps1 -Workflow $workflow
+          if ($LASTEXITCODE -ne 0) { throw 'trusted bounded receipt contract failed' }
       - name: Publish secret-free cheap qualification receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
