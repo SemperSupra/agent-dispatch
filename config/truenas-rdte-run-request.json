@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-10-7-t6-foliorelay-007-webui-https-f0-f5",
-  "version": "25.10.7",
+  "request_id": "tn-25-04-2-6-t6-foliorelay-002-webui-https-f0-f5",
+  "version": "25.04.2.6",
   "rung": "t6",
   "product": "foliorelay",
-  "authority_issue": 410,
+  "authority_issue": 423,
   "consumer_authority_issue": 273,
-  "purpose": "Requalify the exact FolioRelay TrueNAS 25.10.7 F0-F5 matrix cell for the accepted WebUI/product-native HTTPS candidate after refreshed BETA.3 rep 016 independently earned support. Bind Agent Dispatch consumer + HTTPS host-forward authority 11e6caed23512b9e042d0500ef8fcd1e2eef88b5, Foundry 81deb97185760975fd8d3162df42056c77b3c0fd, immutable control sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5, and unchanged CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814. Require exact TrueNAS-25.10.7/profile identity; cooperative host Avahi discovery with the existing 25.x least-privilege control-root contract and independent legacy-unicast observer; exact three-service RUNNING/readback; TrueNAS Web UI portal https://foliorelay-t6.local:18443/; HTTPS management and stable TLS leaf identity across restart/update/redeploy/retained-data reinstall; IPP; PDF/URF exact-source Inbox preservation; canonical printer identity; F4 second-plan NOOP with WAIT/fail-closed reconciliation; F5 retained-data reinstall preserving identity, Inbox, artifact bytes, portal metadata, and TLS identity; final zero residue. Do not inherit BETA.3 or historical 25.10.7 support; acceptance requires this exact row's retained SUPPORTED/oracleSatisfied=true complete F0-F5 receipt."
+  "purpose": "Prepare the exact FolioRelay TrueNAS 25.04.2.6 F0-F5 matrix row for the accepted WebUI/product-native HTTPS candidate. Bind Agent Dispatch consumer + HTTPS host-forward authority 11e6caed23512b9e042d0500ef8fcd1e2eef88b5, Foundry 81deb97185760975fd8d3162df42056c77b3c0fd, immutable control sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5, and unchanged CUPS sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814. Require exact TrueNAS-25.04.2.6/profile authority issue 423; cooperative host Avahi discovery and 25.x least-privilege control-root contract; independent legacy-unicast observer; exact three-service RUNNING/readback; TrueNAS Web UI portal https://foliorelay-t6.local:18443/; HTTPS management and stable TLS leaf identity across restart/update/redeploy/retained-data reinstall; IPP; PDF/URF exact-source Inbox preservation; canonical printer identity; F4 second-plan NOOP with WAIT/fail-closed reconciliation; F5 retained-data reinstall preserving identity, Inbox, artifact bytes, portal metadata, and TLS identity; final zero residue. Do not inherit support from BETA.3, 25.10.7, or the historical pre-WebUI 25.04.2.6 receipt."
 }
