@@ -1,0 +1,378 @@
+{
+  "schema": "semper-supra.runner-runtime-templates/v1",
+  "authority": "SemperSupra/agent-dispatch-private#514",
+  "reference_authority": "SemperSupra/agent-dispatch-private#223",
+  "policy": {
+    "gha_reference_is_compatibility_contract_not_hardware_clone": true,
+    "passive_census_is_not_admission": true,
+    "performance_observation_is_not_functional_support": true,
+    "cross_architecture_inheritance_prohibited": true,
+    "cross_provider_runtime_inheritance_prohibited": true,
+    "representative_workload_oracle_required_for_placement": true,
+    "sovereign_enhancement_requires_independent_oracle": true,
+    "classification_order": [
+      "GHA_EQUIVALENT",
+      "GHA_COMPATIBLE_DELTA",
+      "SOVEREIGN_ENHANCED"
+    ]
+  },
+  "gha_reference_classes": {
+    "ubuntu-24.04": {
+      "platform": "linux",
+      "architecture": "x64",
+      "required_predicates": [
+        "platform:linux-x64",
+        "primitive:docker-container-bind",
+        "primitive:kvm-vcpu-sudo",
+        "workload:agent-dispatch-contract-native",
+        "workload:agent-dispatch-contract-docker",
+        "workload:android-api35-emulator-setup-boot"
+      ],
+      "known_limits": []
+    },
+    "ubuntu-26.04": {
+      "platform": "linux",
+      "architecture": "x64",
+      "required_predicates": [
+        "platform:linux-x64",
+        "primitive:docker-container-bind",
+        "primitive:kvm-vcpu-sudo",
+        "workload:agent-dispatch-contract-native",
+        "workload:agent-dispatch-contract-docker",
+        "workload:android-api35-emulator-setup-boot"
+      ],
+      "known_limits": []
+    },
+    "ubuntu-24.04-arm": {
+      "platform": "linux",
+      "architecture": "arm64",
+      "required_predicates": [
+        "platform:linux-arm64",
+        "primitive:docker-container-bind",
+        "workload:agent-dispatch-contract-native",
+        "workload:agent-dispatch-contract-docker",
+        "workload:native-arm64-c-artifact"
+      ],
+      "known_limits": [
+        "primitive:kvm-vcpu-sudo:not-observed"
+      ]
+    },
+    "ubuntu-26.04-arm": {
+      "platform": "linux",
+      "architecture": "arm64",
+      "required_predicates": [
+        "platform:linux-arm64",
+        "primitive:docker-container-bind",
+        "workload:agent-dispatch-contract-native",
+        "workload:agent-dispatch-contract-docker",
+        "workload:native-arm64-c-artifact"
+      ],
+      "known_limits": [
+        "primitive:kvm-vcpu-sudo:not-observed"
+      ]
+    },
+    "ubuntu-slim": {
+      "platform": "linux",
+      "architecture": "x64",
+      "required_predicates": [
+        "platform:linux-x64",
+        "workload:agent-dispatch-contract-native"
+      ],
+      "known_limits": [
+        "primitive:docker-container-bind:daemon-unavailable"
+      ]
+    },
+    "macos-26": {
+      "platform": "macos",
+      "architecture": "arm64",
+      "required_predicates": [
+        "platform:macos-arm64",
+        "primitive:rosetta-x86_64",
+        "workload:ios-simulator-sdk-compile"
+      ],
+      "known_limits": [
+        "primitive:simulator-boot-service-spawn:not-qualified"
+      ]
+    },
+    "macos-26-intel": {
+      "platform": "macos",
+      "architecture": "x64",
+      "required_predicates": [
+        "platform:macos-x64",
+        "primitive:simulator-boot-service-spawn",
+        "workload:ios-simulator-sdk-compile"
+      ],
+      "known_limits": [
+        "workload:synthetic-ios-simulator-app-lifecycle:not-qualified"
+      ]
+    },
+    "xcode-27": {
+      "platform": "macos",
+      "architecture": "arm64",
+      "required_predicates": [
+        "platform:macos-arm64",
+        "primitive:rosetta-x86_64",
+        "workload:ios-simulator-sdk-compile"
+      ],
+      "known_limits": [
+        "primitive:simulator-boot-service-spawn:not-qualified"
+      ]
+    },
+    "windows-2025": {
+      "platform": "windows",
+      "architecture": "x64",
+      "required_predicates": [
+        "platform:windows-x64",
+        "primitive:windows-interactive-hwnd",
+        "primitive:windows-vhd",
+        "primitive:hyperv-control-plane",
+        "primitive:windows-docker-daemon",
+        "primitive:hyperv-l2-execution",
+        "primitive:hyperv-l1-l2-network"
+      ],
+      "known_limits": [
+        "primitive:hyperv-l2-internet-egress:not-qualified"
+      ]
+    },
+    "windows-11-arm": {
+      "platform": "windows",
+      "architecture": "arm64",
+      "required_predicates": [
+        "platform:windows-arm64",
+        "primitive:windows-interactive-hwnd",
+        "primitive:windows-vhd",
+        "primitive:hyperv-control-plane"
+      ],
+      "known_limits": [
+        "primitive:windows-docker-daemon:not-observed",
+        "primitive:wsl-runtime:not-observed",
+        "primitive:hyperv-l2-execution:not-qualified"
+      ]
+    }
+  },
+  "sovereign_template_candidates": {
+    "truenas-ubuntu-24.04-x64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "ubuntu-24.04",
+      "host_class": "truenas",
+      "materialization_candidates": [
+        "truenas-vm-libvirt",
+        "truenas-container-v1"
+      ],
+      "status": "OPEN",
+      "required_local_oracles": [
+        "template:ubuntu-24.04-x64-exact-source",
+        "runner:github-actions-bootstrap",
+        "lifecycle:ephemeral-retirement",
+        "reference-predicates:all"
+      ],
+      "claim_boundary": "No parity until every required GHA predicate is independently reproduced on the admitted local backend."
+    },
+    "truenas-ubuntu-26.04-x64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "ubuntu-26.04",
+      "host_class": "truenas",
+      "materialization_candidates": [
+        "truenas-vm-libvirt"
+      ],
+      "status": "OPEN",
+      "required_local_oracles": [
+        "template:ubuntu-26.04-x64-exact-source",
+        "runner:github-actions-bootstrap",
+        "lifecycle:ephemeral-retirement",
+        "reference-predicates:all"
+      ],
+      "claim_boundary": "No 26.04 inheritance from a qualified 24.04 image or from another TrueNAS release."
+    },
+    "bigmac-ubuntu-24.04-arm64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "ubuntu-24.04-arm",
+      "host_class": "bigmac",
+      "materialization_candidates": [
+        "apple-virtualization-framework"
+      ],
+      "status": "OPEN",
+      "required_local_oracles": [
+        "template:ubuntu-24.04-arm64-exact-source",
+        "runner:github-actions-bootstrap",
+        "lifecycle:ephemeral-retirement",
+        "reference-predicates:all"
+      ],
+      "claim_boundary": "Native ARM64 virtualization may satisfy the GHA ARM workload contract without copying GitHub's physical host implementation."
+    },
+    "bigmac-ubuntu-26.04-arm64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "ubuntu-26.04-arm",
+      "host_class": "bigmac",
+      "materialization_candidates": [
+        "apple-virtualization-framework"
+      ],
+      "status": "OPEN",
+      "required_local_oracles": [
+        "template:ubuntu-26.04-arm64-exact-source",
+        "runner:github-actions-bootstrap",
+        "lifecycle:ephemeral-retirement",
+        "reference-predicates:all"
+      ],
+      "claim_boundary": "No 26.04 inheritance from 24.04; Docker and native ARM workload predicates must be proven independently."
+    },
+    "truenas-ubuntu-slim-x64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "ubuntu-slim",
+      "host_class": "truenas",
+      "materialization_candidates": [
+        "truenas-container-v1",
+        "truenas-apps"
+      ],
+      "status": "OPEN",
+      "required_local_oracles": [
+        "runner:github-actions-bootstrap",
+        "workload:agent-dispatch-contract-native",
+        "lifecycle:ephemeral-retirement"
+      ],
+      "claim_boundary": "Reproduce the qualified slim workload contract, not GitHub's proprietary image internals."
+    },
+    "bigmac-macos-26-arm64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "macos-26",
+      "host_class": "bigmac",
+      "materialization_candidates": [
+        "native-macos"
+      ],
+      "status": "DISCOVERY",
+      "required_local_oracles": [
+        "host:macos-26-arm64-exact-version",
+        "primitive:rosetta-x86_64",
+        "workload:ios-simulator-sdk-compile",
+        "runner:github-actions-bootstrap"
+      ],
+      "claim_boundary": "Native Apple Silicon is a candidate only when the local macOS/toolchain version and GHA reference predicates are current and independently observed."
+    },
+    "bigmac-xcode-27-arm64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "xcode-27",
+      "host_class": "bigmac",
+      "materialization_candidates": [
+        "native-macos"
+      ],
+      "status": "DISCOVERY",
+      "required_local_oracles": [
+        "toolchain:xcode-27-exact-version",
+        "primitive:rosetta-x86_64",
+        "workload:ios-simulator-sdk-compile",
+        "runner:github-actions-bootstrap"
+      ],
+      "claim_boundary": "Xcode label parity is toolchain-contract parity; macOS host differences remain explicit."
+    },
+    "windows-dev-windows-2025-x64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "windows-2025",
+      "host_class": "windows-dev",
+      "materialization_candidates": [
+        "hyper-v"
+      ],
+      "status": "OPEN",
+      "required_local_oracles": [
+        "template:windows-2025-x64-legal-source",
+        "runner:github-actions-bootstrap",
+        "reference-predicates:all",
+        "lifecycle:ephemeral-retirement"
+      ],
+      "claim_boundary": "Hosted Windows evidence is the compatibility contract; WinBot backend admission remains a separate product gate."
+    },
+    "bigmac-windows-11-arm64": {
+      "classification": "GHA_COMPATIBLE_DELTA",
+      "reference": "windows-11-arm",
+      "host_class": "bigmac",
+      "materialization_candidates": [
+        "apple-virtualization-framework"
+      ],
+      "status": "DISCOVERY",
+      "required_local_oracles": [
+        "template:windows-11-arm64-legal-source",
+        "runner:github-actions-bootstrap",
+        "reference-predicates:all",
+        "lifecycle:ephemeral-retirement"
+      ],
+      "claim_boundary": "ARM Windows materialization requires a legal image path and independent Hyper-V/control-surface evidence; no inference from macOS ARM capability."
+    },
+    "truenas-linux-x64-nvidia-gpu": {
+      "classification": "SOVEREIGN_ENHANCED",
+      "compatible_base": "truenas-ubuntu-24.04-x64",
+      "host_class": "truenas",
+      "status": "OPEN",
+      "enhancements": [
+        "accelerator:nvidia-gpu",
+        "workload:gpu-compute-or-inference"
+      ],
+      "required_local_oracles": [
+        "gpu:device-visible-in-runner",
+        "gpu:driver-runtime-callable",
+        "gpu:bounded-compute-or-inference",
+        "gpu:cleanup-and-reuse"
+      ],
+      "claim_boundary": "GPU presence in the sovereign census does not imply guest/container passthrough, runtime callability, or workload support."
+    },
+    "truenas-linux-x64-high-throughput": {
+      "classification": "SOVEREIGN_ENHANCED",
+      "compatible_base": "truenas-ubuntu-24.04-x64",
+      "host_class": "truenas",
+      "status": "OPEN",
+      "enhancements": [
+        "capacity:larger-local-memory-envelope",
+        "capacity:local-storage-throughput"
+      ],
+      "required_local_oracles": [
+        "capacity:bounded-memory",
+        "capacity:bounded-storage",
+        "workload:representative-high-throughput"
+      ],
+      "claim_boundary": "Capacity measurements are placement evidence only after a representative workload shows material benefit."
+    },
+    "bigmac-macos-arm64-enhanced": {
+      "classification": "SOVEREIGN_ENHANCED",
+      "compatible_base": "bigmac-macos-26-arm64",
+      "host_class": "bigmac",
+      "status": "DISCOVERY",
+      "enhancements": [
+        "accelerator:apple-metal",
+        "capacity:large-unified-memory",
+        "workload:local-apple-silicon-inference"
+      ],
+      "required_local_oracles": [
+        "metal:device-and-runtime-callable",
+        "memory:bounded-large-working-set",
+        "workload:representative-local-inference"
+      ],
+      "claim_boundary": "Apple Silicon performance and unified-memory advantages are sovereign extensions, not assumptions imported into GHA parity."
+    },
+    "windows-dev-hyperv-enhanced": {
+      "classification": "SOVEREIGN_ENHANCED",
+      "compatible_base": "windows-dev-windows-2025-x64",
+      "host_class": "windows-dev",
+      "status": "OPEN",
+      "enhancements": [
+        "primitive:hyperv-local-control",
+        "primitive:wsl-local-control",
+        "network:sovereign-lan-integration"
+      ],
+      "required_local_oracles": [
+        "hyperv:local-lifecycle",
+        "wsl:local-lifecycle",
+        "network:bounded-sovereign-path"
+      ],
+      "claim_boundary": "Local Hyper-V/WSL/LAN authority is an enhanced sovereign surface and must remain separated from hosted-runner compatibility evidence."
+    }
+  },
+  "acceptance_rungs": {
+    "T0": "Freeze exact GHA reference predicates and local source identity.",
+    "T1": "Build/materialize the candidate template without runtime support claim.",
+    "T2": "Run the same passive census schema on the local candidate.",
+    "T3": "Reproduce required primitive oracles.",
+    "T4": "Reproduce representative GHA workload predicates.",
+    "T5": "Prove create/start/restart/retire/rebuild reconciliation and zero residue.",
+    "T6": "Execute one real ephemeral GARM/GitHub runner workload through the local provider.",
+    "T7": "For sovereign-enhanced profiles only, independently prove each enhancement.",
+    "T8": "Admit the exact template to workload placement with evidence refs and no inheritance."
+  }
+}
