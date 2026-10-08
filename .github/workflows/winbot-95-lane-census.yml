@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/winbot_95_lane_census.py
       - .github/workflows/winbot-95-lane-census.yml
+      - .github/workflows/winbot-95-diagnostic-a-only.yml
 
 permissions:
   actions: read
