@@ -27,7 +27,12 @@ class ContainerPreB4Tests(unittest.TestCase):
                 "driver": "container-v1",
                 "control_surface": "container.*",
                 "status": "OPEN",
-                "required_methods": ["system.version", "container.query"],
+                "required_methods": ["system.version", "container.query", "filesystem.put", "filesystem.stat"],
+            },
+            "rootfs_projection": {
+                "dataset_template": probe.EXPECTED_DATASET_TEMPLATE,
+                "mountpoint_template": probe.EXPECTED_MOUNTPOINT_TEMPLATE,
+                "source_path": probe.EXPECTED_ROOTFS_SOURCE,
             },
             "profile": "truenas-container-linux-general",
             "image_family": "ubuntu:noble:amd64:default",
@@ -35,8 +40,33 @@ class ContainerPreB4Tests(unittest.TestCase):
             "source_oracles": {
                 "runtime_admission_claimed": False,
                 "github_jit_boundary_claimed": False,
+                "source_derived_rootfs_projection_required": True,
             },
         }
+
+    def test_rootfs_projection_is_exact_and_fail_closed(self):
+        doc = self.fixture()
+        name = doc["expected_name"]
+        dataset = f"rdtepool/.truenas_containers/containers/{name}"
+        self.assertEqual(
+            probe.derive_rootfs_mountpoint(doc, "rdtepool", name, dataset),
+            f"/.truenas_containers/rdtepool/containers/{name}",
+        )
+        with self.assertRaises(probe.ProbeError):
+            probe.derive_rootfs_mountpoint(
+                doc, "rdtepool", name, f"rdtepool/foreign_layout/{name}"
+            )
+
+    def test_load_rejects_hidden_dataset_query_reintroduction(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            doc = self.fixture()
+            doc["target"]["required_methods"].append("pool.dataset.query")
+            (root / "garm-provider-container-pre-b4-fixture.json").write_text(
+                json.dumps(doc), encoding="utf-8"
+            )
+            with self.assertRaises(probe.ProbeError):
+                probe.load_fixture(root, "a" * 40)
 
     def test_not_found_classifier_is_fail_closed(self):
         self.assertTrue(probe.is_explicit_not_found(RuntimeError('filesystem.stat: {"error": 2, "reason": "Path not found"}')))
