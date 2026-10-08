@@ -1,0 +1,9 @@
+{
+  "schema": "gha-kvm-proxmox-run-request/v1",
+  "request_id": "pve-9-2-compute-vm-v0-001-source-bound-rest-restaged",
+  "version": "9.2-1",
+  "compute_fixture": "vm-v0",
+  "authority_issue": 396,
+  "consumer_authority_issue": 426,
+  "purpose": "Exercise the first bounded Proxmox VE 9.2-1 native REST VM V0 materialization rep after source/profile binding, merged #318 runtime support, and #320 request-contract repair. Require exact installed qemu-server 9.1.15 admission, REST VM create/readback/start/stop/delete/absence, provider-owned cleanup and zero residue. This rep proves only the native VM/config lifecycle shell (V0); no Linux guest boot/nonce, nested KVM, Firecracker, Windows, Hyper-V or WinBot provider claim."
+}
