@@ -6,6 +6,8 @@ on:
       - .github/workflows/garm-vm-pre-b4-static.yml
       - scripts/truenas_garm_vm_pre_b4_fixture.py
       - tests/test_truenas_garm_vm_pre_b4.py
+      - scripts/truenas_garm_vm_template_preflight.py
+      - tests/test_truenas_garm_vm_template_preflight.py
 
 permissions:
   contents: read
@@ -22,8 +24,8 @@ jobs:
       - name: Compile and adversarial source tests
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/truenas_garm_vm_pre_b4_fixture.py tests/test_truenas_garm_vm_pre_b4.py
-          python3 -m unittest -v tests/test_truenas_garm_vm_pre_b4.py
+          python3 -m py_compile scripts/truenas_garm_vm_pre_b4_fixture.py tests/test_truenas_garm_vm_pre_b4.py scripts/truenas_garm_vm_template_preflight.py tests/test_truenas_garm_vm_template_preflight.py
+          python3 -m unittest -v tests/test_truenas_garm_vm_pre_b4.py tests/test_truenas_garm_vm_template_preflight.py
       - name: Export exact public GARM VM source fixture
         env:
           PROVIDER_REF: 5944d1dc62b4da2a247dda9754cfe674caedf5cf
