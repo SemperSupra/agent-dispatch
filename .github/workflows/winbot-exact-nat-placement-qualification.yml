@@ -1,0 +1,92 @@
+name: WinBot Exact NAT Placement Qualification
+
+on:
+  push:
+    branches: ['exp/windows-sealed-public-execution']
+    paths: ['.github/workflows/winbot-exact-nat-placement-qualification.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      MASTER_SHA: 'a54acfb36516bae9605ab13ec0ac7724d17abadc'
+      MANIFEST_SHA: '6b0871d9e9309228ac470362d6a7b81f733521c1'
+      CONTROL_SHA: 'e8156d246bab134a38f33a4f49e5cd18831d4257'
+      WRAPPER_SHA: '7ff7918f02736c95eab6100da51f6275d70387de'
+      SOURCE_SHA: '90d5d8a7244b781c28d438d9ba01155735c765b7'
+      PROJECTION_SHA: 'd4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45'
+    steps:
+      - name: Reconcile exact graph and parse guest placement control
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          function Read-Blob([string]$Sha){
+            $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+            $obj=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha" -Headers $headers
+            if([string]$obj.sha -ne $Sha -or [string]$obj.encoding -ne 'base64'){throw "identity mismatch: $Sha"}
+            $bytes=[Convert]::FromBase64String(([string]$obj.content -replace '\s',''))
+            $prefix=[Text.Encoding]::ASCII.GetBytes(('blob '+$bytes.Length+[char]0))
+            $combined=New-Object byte[] ($prefix.Length+$bytes.Length)
+            [Array]::Copy($prefix,0,$combined,0,$prefix.Length)
+            [Array]::Copy($bytes,0,$combined,$prefix.Length,$bytes.Length)
+            $hash=[Security.Cryptography.SHA1]::Create()
+            try{$actual=([BitConverter]::ToString($hash.ComputeHash($combined))).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
+            if($actual -ne $Sha){throw "Git object mismatch: $Sha"}
+            return ,$bytes
+          }
+          $master=[Text.Encoding]::UTF8.GetString((Read-Blob $env:MASTER_SHA)) | ConvertFrom-Json
+          $manifest=[Text.Encoding]::UTF8.GetString((Read-Blob $env:MANIFEST_SHA)) | ConvertFrom-Json
+          if($master.control_manifest_sha -ne $env:MANIFEST_SHA){throw 'master control manifest mismatch'}
+          if($master.source_revision -ne $env:SOURCE_SHA -or $master.projection_identity_sha256 -ne $env:PROJECTION_SHA){throw 'master projection mismatch'}
+          if($manifest.readiness_control_blob -ne $env:CONTROL_SHA){throw 'manifest control mismatch'}
+          $entry=@($manifest.entries | Where-Object path -eq 'rdte/gha/full-rdte.ps1')
+          if($entry.Count -ne 1 -or [string]$entry[0].git_blob_sha -ne $env:CONTROL_SHA){throw 'control file identity mismatch'}
+          $path=Join-Path $env:RUNNER_TEMP 'exact-nat-placement.ps1'
+          [IO.File]::WriteAllBytes($path,(Read-Blob $env:CONTROL_SHA))
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){$errors|ForEach-Object{Write-Error $_.Message};throw 'PowerShell control parser errors'}
+          $control=Get-Content -LiteralPath $path -Raw
+          $wrapper=[Text.Encoding]::UTF8.GetString((Read-Blob $env:WRAPPER_SHA))
+          $required=@(
+            "Source = 'exact-run-owned-netnat'",
+            "Get-NetNat -Name `$attachedSwitch",
+            'run-owned NAT gateway/prefix identity mismatch; HNS fallback prohibited',
+            "(`$guest.DefaultGateways)",
+            'guest NAT correction did not converge to exact address/default gateway',
+            'Get-NetRoute -InterfaceIndex $adapter.ifIndex',
+            '-ExpectedNatGateway $(if ($ownedNatSwitch)',
+            "control marker not used"
+          )
+          foreach($mark in $required | Where-Object {$_ -ne 'control marker not used'}){
+            if(-not $control.Contains($mark)){throw "control invariant missing: $mark"}
+          }
+          foreach($mark in @(
+            "MASTER_MANIFEST_SHA: 'a54acfb36516bae9605ab13ec0ac7724d17abadc'",
+            "EXPECTED_CONTROL_MANIFEST_SHA: '6b0871d9e9309228ac470362d6a7b81f733521c1'",
+            "EXPECTED_A_ONLY_CONTROL_BLOB: 'e8156d246bab134a38f33a4f49e5cd18831d4257'",
+            'group: agent-dispatch-heavyweight-rdte',
+            'network_correction_address = [string]$r.work_cells.a.network_correction_address',
+            'network_correction_gateway = [string]$r.work_cells.a.network_correction_gateway',
+            'ConvertFrom-Json -AsHashtable'
+          )){
+            if(-not $wrapper.Contains($mark)){throw "wrapper invariant missing: $mark"}
+          }
+          # Synthetic regression against the exact observed mismatch; this is
+          # a cheap invariant test, NOT a substitute for actual guest egress.
+          $netGateway='172.29.250.1'
+          $bytes=[Net.IPAddress]::Parse($netGateway).GetAddressBytes()
+          $bytes[3]=[byte]250
+          $expected=([Net.IPAddress]::new($bytes)).ToString()
+          $guestIPv4=@('172.18.176.250')
+          $guestRoutes=@('172.18.176.1')
+          if($expected -ne '172.29.250.250'){throw 'candidate address selection regression'}
+          if(($guestIPv4 -contains $expected) -or ($guestRoutes -contains $netGateway)){throw 'mismatched HNS route accepted'}
+          if(-not (@('172.29.250.250') -contains $expected) -or -not (@('172.29.250.1') -contains $netGateway)){throw 'corrected placement rejected'}
+          [ordered]@{classification='SUPPORTED';control=$env:CONTROL_SHA;master=$env:MASTER_SHA;wrapper=$env:WRAPPER_SHA;run_owned_gateway=$netGateway;run_owned_candidate=$expected;wrong_hns_gateway_rejected=$true} | ConvertTo-Json -Compress
