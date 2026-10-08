@@ -181,7 +181,8 @@ def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
         raise RuntimeError("control discovery backend disagrees with rendered Compose")
     required = set(control.get("required_oracles") or [])
     expected = {
-        "app-create-running", "config-readback-exact-compose", "portal-ready",
+        "app-create-running", "config-readback-exact-compose",
+        "management-endpoint-ready", "truenas-webui-portal-advertised",
         "ipp-get-printer-attributes", "canonical-uri-coherence",
         "control-cups-dnssd-uuid-coherence", "dnssd-universal-visible",
         "pdf-exact-source-inbox", "urf-exact-source-inbox",
@@ -191,7 +192,30 @@ def load_control(root: pathlib.Path, foundry_ref: str, target_version: str):
         raise RuntimeError("required FolioRelay oracle contract drifted")
     validate_host_path_requirements(control,target_version)
     validate_management_transport(control, services)
+    validate_management_portal_contract(control, compose)
     return control, compose
+
+def validate_management_portal_contract(control: dict, compose: dict) -> str:
+    runtime=control.get("runtime") or {}
+    portal=runtime.get("management_portal")
+    expected={
+        "name":"Web UI",
+        "scheme":"https",
+        "host":PUBLIC_HOST,
+        "port":runtime.get("management_port"),
+        "path":"/",
+    }
+    if portal!=expected:
+        raise RuntimeError("TrueNAS Web UI portal control metadata drifted")
+    if compose.get("x-portals")!=[expected]:
+        raise RuntimeError("TrueNAS Web UI portal Compose metadata drifted")
+    required=set(control.get("required_oracles") or [])
+    for oracle in ("management-endpoint-ready","truenas-webui-portal-advertised"):
+        if oracle not in required:
+            raise RuntimeError(f"portal control missing required oracle {oracle}")
+    if "portal-ready" in required:
+        raise RuntimeError("ambiguous legacy portal-ready oracle must not remain")
+    return f"https://{PUBLIC_HOST}:{expected['port']}{expected['path']}"
 
 def validate_management_transport(control: dict, services: dict) -> str:
     runtime=control.get("runtime") or {}
@@ -581,7 +605,8 @@ def main():
         management_scheme=validate_management_transport(control,compose.get("services") or {})
         management_tls=management_scheme=="https"
         management_tls_initial=None
-        payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS,"management_scheme":management_scheme}
+        management_portal_url=validate_management_portal_contract(control,compose)
+        payload["materialization"]={"schema":control["schema"],"foundry_ref":control["foundry_ref"],"compose_canonical_sha256":canonical_sha256(compose),"control_image":EXPECTED_CONTROL,"cups_image":EXPECTED_CUPS,"management_scheme":management_scheme,"management_portal_url":management_portal_url}
         password=pathlib.Path(a.password_file).read_text().strip()
         ws=WebSocket(a.host,a.port,timeout=a.timeout,tls=a.tls); ws.send_json({"msg":"connect","version":"1","support":["1"]})
         if wait_for(ws,lambda m:m.get("msg") in {"connected","failed"}).get("msg")!="connected": raise RuntimeError("DDP connection failed")
@@ -691,6 +716,9 @@ def main():
         if not isinstance(create,int): raise RuntimeError("app.create did not return job")
         app_created=True
         wait_job(create,"app.create"); app=wait_state(EXPECTED_APP_NAME,"RUNNING")
+        portals=app.get("portals") or {}
+        if portals!={"Web UI":management_portal_url}:
+            raise RuntimeError(f"TrueNAS Web UI portal readback drifted: {portals!r}")
         details=(app.get("active_workloads") or {}).get("container_details") or []
         exact={(x.get("service_name"),x.get("image"),x.get("state")) for x in details}
         for needed in [("control",EXPECTED_CONTROL,"running"),("cups",EXPECTED_CUPS,"running"),("discovery",EXPECTED_CONTROL,"running")]:
@@ -813,6 +841,9 @@ def main():
         if not wait_http(a.host,a.control_port,"/readyz",a.state_timeout,tls=management_tls): raise RuntimeError("readyz failed after update/redeploy")
         if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
             raise RuntimeError("management TLS identity drifted after update/redeploy")
+        redeploy_app=wait_state(EXPECTED_APP_NAME,"RUNNING")
+        if (redeploy_app.get("portals") or {})!={"Web UI":management_portal_url}:
+            raise RuntimeError("TrueNAS Web UI portal drifted after update/redeploy")
         redeploy_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
         redeploy_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if (redeploy_printer.get("identity") or {}).get("printer_uuid")!=uuid or redeploy_jobs!=before_jobs:
@@ -841,6 +872,9 @@ def main():
             raise RuntimeError("readyz failed after retain-data reinstall")
         if management_tls and management_tls_fingerprint(a.host,a.control_port,PUBLIC_HOST,a.timeout)!=management_tls_initial:
             raise RuntimeError("management TLS identity drifted after retain-data reinstall")
+        reinstall_app=wait_state(EXPECTED_APP_NAME,"RUNNING")
+        if (reinstall_app.get("portals") or {})!={"Web UI":management_portal_url}:
+            raise RuntimeError("TrueNAS Web UI portal drifted after retain-data reinstall")
         reinstall_printer=json.loads(http_bytes(a.host,a.control_port,"/api/v1/printer",tok,timeout=a.timeout,tls=management_tls))
         reinstall_jobs=json.loads(http_bytes(a.host,a.control_port,"/api/v1/jobs",tok,timeout=a.timeout,tls=management_tls))
         if ((reinstall_printer.get("identity") or {}).get("printer_uuid")!=uuid
@@ -873,13 +907,13 @@ def main():
         payload.update({
             "classification":"SUPPORTED","oracleSatisfied":True,
             "identity":{"printer_uuid":uuid,"public_uri":PUBLIC_URI,"control_cups_uuid_match":True,"dnssd_uuid_match":True,"dnssd_public_uri_match":True},
-            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"portal_ready":True,"management_scheme":management_scheme,"management_tls_identity_persistent":(True if management_tls else None),"management_tls_fingerprint_sha256":management_tls_initial,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP","second_plan_noop":True,"retain_data_reinstall":True},
+            "runtime":{"three_services_exact":True,"compose_readback_exact":True,"management_endpoint_ready":True,"truenas_webui_portal_advertised":True,"management_portal_url":management_portal_url,"management_portal_persistent":True,"management_scheme":management_scheme,"management_tls_identity_persistent":(True if management_tls else None),"management_tls_fingerprint_sha256":management_tls_initial,"ipp_get_printer_attributes":True,"forwarded_ipp_resource_path_match":True,"pdf_exact_source_inbox":True,"urf_exact_source_inbox":True,"restart_preserved_identity_and_inbox":True,"update_redeploy_preserved_identity_and_inbox":True,"replan_action":"NOOP","second_plan_noop":True,"retain_data_reinstall":True},
             "dnssd":{"observer_app":OBSERVER_APP_NAME,"universal_visible":True,"distinct_observer_context":True,"service_instance":observed.get("service_instance"),"srv_target":PUBLIC_HOST,"srv_port":PUBLIC_IPP_PORT,"resource_path":PUBLIC_RESOURCE_PATH},
             "cleanup":{"apps_absent":True,"fixture_dataset_absent":True,"fixture_mountpoint_absent":True,"zero_residue":True},
             "reconciliation":{"second_plan_action":second_plan_action,"post_reinstall_action":reinstall_plan_action,"inflight_policy":"WAIT","ambiguous_policy":"FAIL_CLOSED"},
             "owned_data":{"policy":"RETAIN_EXTERNAL_DATASET_ON_APP_DELETE_THEN_EXPLICIT_FIXTURE_CLEANUP","dataset_retained_across_app_delete":True,"identity_preserved_after_reinstall":True,"inbox_preserved_after_reinstall":True,"artifact_bytes_preserved_after_reinstall":True},
             "producer_gate":{"replan_noop_required":True,"runtime_does_not_reconstruct_foundry_control":True},
-            "detail":"exact Foundry-exported FolioRelay control realized on TrueNAS; exact three-service identity, portal/IPP, PDF+URF source preservation, independent in-guest DNS-SD observation, restart/update/redeploy persistence, second-plan NOOP reconciliation, retain-data delete/reinstall persistence, and final zero-residue cleanup passed"
+            "detail":"exact Foundry-exported FolioRelay control realized on TrueNAS; exact three-service identity, HTTPS management endpoint + TrueNAS Web UI portal + IPP, PDF+URF source preservation, independent in-guest DNS-SD observation, restart/update/redeploy persistence, second-plan NOOP reconciliation, retain-data delete/reinstall persistence, and final zero-residue cleanup passed"
         })
     except Exception as exc:
         payload["detail"]=f"{type(exc).__name__}: {exc}"
