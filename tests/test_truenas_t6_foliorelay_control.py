@@ -339,6 +339,8 @@ class FolioRelayT6ContractTests(unittest.TestCase):
         self.assertIn('foundry_commit="81deb97185760975fd8d3162df42056c77b3c0fd"', workflow)
         self.assertIn("truenas_middleware_foliorelay_t6_probe.py", harness)
         self.assertIn('FOLIORELAY_CONTROL_HOST_PORT', harness)
+        self.assertIn('hostfwd=tcp:127.0.0.1:${FOLIORELAY_CONTROL_HOST_PORT}-:18443', harness)
+        self.assertNotIn('hostfwd=tcp:127.0.0.1:${FOLIORELAY_CONTROL_HOST_PORT}-:18080', harness)
         self.assertIn('FOLIORELAY_IPP_HOST_PORT', harness)
         self.assertIn('FOLIORELAY_OBSERVER_HOST_PORT', harness)
         self.assertIn('--observer-port "$FOLIORELAY_OBSERVER_HOST_PORT"', harness)
