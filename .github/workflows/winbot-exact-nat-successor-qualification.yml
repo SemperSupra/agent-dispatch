@@ -22,10 +22,10 @@ jobs:
       CONFIG: 'aaebafd43b350886171f16828fd3b74b420c95fc'
       SEED_MANIFEST: '66d09a8991b681dd9ff195597e70ab8477f11f65'
       SEED_MASTER: '5c6970fee8d751f2466c208798af203c44318164'
-      SEED_WRAPPER: 'a1e950e07e07d7cb8deedcb6d7ee841c82d28f56'
+      SEED_WRAPPER: '1fc9f65dd8b4eb556c7df63e56ce2b70e196b716'
       TERMINAL_MANIFEST: '4a439f3ecb96c1f3a313926272d6b0bd1e4a9fd6'
       TERMINAL_MASTER: 'e01db1c63a66ad4b50dbc4f174de048c78731de7'
-      TERMINAL_WRAPPER: '62a9da5510227d5ce8bcf1cb266f980346f10b79'
+      TERMINAL_WRAPPER: '438439b038672e2156025757ed19db73593c9328'
     steps:
       - name: Qualify exact downstream graphs
         shell: bash
@@ -98,6 +98,8 @@ jobs:
               if by_path["guest/tools/stage-provision.ps1"]["git_blob_sha"]!=os.environ["STAGE"]:
                   raise SystemExit(f"{name}: projected stage mismatch")
 
+              exact_path=f".github/workflows/winbot-{'seed-finalization' if name=='seed' else 'terminal-fullrdte'}-exact-nat-gsudo-openssh.yml"
+              if exact_path not in wrapper: raise SystemExit(f"{name}: exact gated trigger path missing")
               markers=[
                   "group: agent-dispatch-heavyweight-rdte",
                   "queue: max",
