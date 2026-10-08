@@ -266,9 +266,9 @@ jobs:
   foundry-foliorelay-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'foliorelay'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@5dfa9b430cb83151170c4cc3080e01d605cbcf43
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@81deb97185760975fd8d3162df42056c77b3c0fd
     with:
-      foundry_ref: 5dfa9b430cb83151170c4cc3080e01d605cbcf43
+      foundry_ref: 81deb97185760975fd8d3162df42056c77b3c0fd
       target_version: ${{ needs.changes.outputs.truenas_version }}
     permissions:
       contents: read
@@ -575,7 +575,7 @@ jobs:
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "official-catalog" ]]; then
                 foundry_commit="60d56cc1752bc825cb232d72b397ff17fe6d47c4"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "foliorelay" ]]; then
-                foundry_commit="5dfa9b430cb83151170c4cc3080e01d605cbcf43"
+                foundry_commit="81deb97185760975fd8d3162df42056c77b3c0fd"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi
