@@ -68,13 +68,16 @@ def evaluate_passive(
     platform_match = observed_platform == reference["platform"]
     arch_match = observed_arch == reference["architecture"]
     passive_match = platform_match and arch_match
+    resolved_base_id = (
+        candidate["compatible_base"]
+        if candidate["classification"] == "SOVEREIGN_ENHANCED"
+        else candidate_id
+    )
     return {
         "schema": SCHEMA,
         "candidate_id": candidate_id,
         "candidate_classification": candidate["classification"],
-        "compatible_base": base_id if (base_id := (
-            candidate.get("compatible_base") if candidate["classification"] == "SOVEREIGN_ENHANCED" else candidate_id
-        )) else candidate_id,
+        "compatible_base": resolved_base_id,
         "reference": reference_id,
         "expected": {
             "platform": reference["platform"],
