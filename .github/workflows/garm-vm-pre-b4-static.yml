@@ -1,0 +1,69 @@
+name: GARM VM pre-B4 static consumer
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/garm-vm-pre-b4-static.yml
+      - scripts/truenas_garm_vm_pre_b4_fixture.py
+      - tests/test_truenas_garm_vm_pre_b4.py
+
+permissions:
+  contents: read
+
+jobs:
+  vm-fixture-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout Agent Dispatch consumer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile and adversarial source tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/truenas_garm_vm_pre_b4_fixture.py tests/test_truenas_garm_vm_pre_b4.py
+          python3 -m unittest -v tests/test_truenas_garm_vm_pre_b4.py
+      - name: Export exact public GARM VM source fixture
+        env:
+          PROVIDER_REF: 5944d1dc62b4da2a247dda9754cfe674caedf5cf
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/garm-vm-provider" "$RUNNER_TEMP/garm-vm-evidence"
+          git -C "$RUNNER_TEMP/garm-vm-provider" init -q
+          git -C "$RUNNER_TEMP/garm-vm-provider" fetch -q --depth=1 \
+            https://github.com/SemperSupra/garm-provider-truenas.git "$PROVIDER_REF"
+          git -C "$RUNNER_TEMP/garm-vm-provider" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/garm-vm-provider" rev-parse HEAD)" = "$PROVIDER_REF"
+          (
+            cd "$RUNNER_TEMP/garm-vm-provider"
+            GARM_VM_FIXTURE_OUT="$RUNNER_TEMP/garm-vm-evidence/garm-provider-vm-pre-b4-fixture.json" \
+            GARM_VM_FIXTURE_SOURCE="$PROVIDER_REF" \
+            go test ./internal/vmbackend -run '^TestExportNestedVMPreB4Fixture$' -count=1
+          )
+      - name: Independently validate exact exported fixture without runtime mutation
+        run: |
+          set -euo pipefail
+          python3 scripts/truenas_garm_vm_pre_b4_fixture.py \
+            --fixture "$RUNNER_TEMP/garm-vm-evidence/garm-provider-vm-pre-b4-fixture.json" \
+            --producer-commit 5944d1dc62b4da2a247dda9754cfe674caedf5cf \
+            --out "$RUNNER_TEMP/garm-vm-evidence/consumer-static-receipt.json"
+          python3 - "$RUNNER_TEMP/garm-vm-evidence/consumer-static-receipt.json" <<'PY'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          assert r["classification"] == "STATIC_CONTRACT_PASS"
+          assert r["source_only"] is True
+          assert r["vm_runtime_admitted"] is False
+          assert r["guest_boot_observed"] is False
+          assert r["bootstrap_consumption_observed"] is False
+          assert r["github_jit_exercised"] is False
+          assert r["zero_residue_runtime_proven"] is False
+          PY
+      - name: Retain only sanitized static consumer receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: garm-vm-pre-b4-static-receipt
+          path: ${{ runner.temp }}/garm-vm-evidence/consumer-static-receipt.json
+          if-no-files-found: warn
+          retention-days: 7
