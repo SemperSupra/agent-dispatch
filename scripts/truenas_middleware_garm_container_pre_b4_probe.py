@@ -21,6 +21,9 @@ from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 
 EXPECTED_SCHEMA = "semper-supra.garm-provider-truenas-container-pre-b4-fixture/3"
 EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
+EXPECTED_DATASET_TEMPLATE = "{pool}/.truenas_containers/containers/{name}"
+EXPECTED_MOUNTPOINT_TEMPLATE = "/.truenas_containers/{pool}/containers/{name}"
+EXPECTED_ROOTFS_SOURCE = "src/middlewared/middlewared/plugins/container/utils.py"
 
 
 class ProbeError(RuntimeError):
@@ -46,9 +49,35 @@ def load_fixture(directory: pathlib.Path, producer: str) -> dict:
         raise ProbeError("fixture driver drifted")
     if target.get("status") != "OPEN":
         raise ProbeError("fixture must remain non-admitted before runtime evidence")
-    if (doc.get("source_oracles") or {}).get("runtime_admission_claimed") is not False:
+    source_oracles = doc.get("source_oracles") or {}
+    if source_oracles.get("runtime_admission_claimed") is not False:
         raise ProbeError("fixture illegally claims runtime admission")
+    if source_oracles.get("source_derived_rootfs_projection_required") is not True:
+        raise ProbeError("fixture does not require source-derived rootfs projection")
+    required = set(target.get("required_methods") or [])
+    if "pool.dataset.query" in required:
+        raise ProbeError("fixture illegally reintroduced hidden-dataset query lowering")
+    projection = doc.get("rootfs_projection") or {}
+    if projection.get("dataset_template") != EXPECTED_DATASET_TEMPLATE:
+        raise ProbeError("fixture dataset projection drifted")
+    if projection.get("mountpoint_template") != EXPECTED_MOUNTPOINT_TEMPLATE:
+        raise ProbeError("fixture mountpoint projection drifted")
+    if projection.get("source_path") != EXPECTED_ROOTFS_SOURCE:
+        raise ProbeError("fixture rootfs source path drifted")
     return doc
+
+
+def derive_rootfs_mountpoint(fixture: dict, pool: str, name: str, dataset: str) -> str:
+    projection = fixture.get("rootfs_projection") or {}
+    expected_dataset = projection["dataset_template"].replace("{pool}", pool).replace("{name}", name)
+    if dataset != expected_dataset:
+        raise ProbeError(
+            f"container dataset drifted from source projection: got {dataset!r}, expected {expected_dataset!r}"
+        )
+    mountpoint = projection["mountpoint_template"].replace("{pool}", pool).replace("{name}", name)
+    if not mountpoint.startswith("/.truenas_containers/"):
+        raise ProbeError(f"unsafe source-derived container mountpoint: {mountpoint!r}")
+    return mountpoint
 
 
 def multipart_upload(host: str, port: int, password: str, remote_path: str, content: bytes, mode: int) -> int:
@@ -240,14 +269,10 @@ def main() -> int:
         dataset = row.get("dataset")
         if not isinstance(dataset, str) or not dataset:
             raise ProbeError("container dataset identity missing")
-        ds_rows = call("pool.dataset.query", [[["id", "=", dataset]]])
-        if not isinstance(ds_rows, list) or len(ds_rows) != 1:
-            raise ProbeError("container dataset did not resolve exactly once")
-        mountpoint = ds_rows[0].get("mountpoint")
-        if not isinstance(mountpoint, str) or not mountpoint.startswith(f"/mnt/{a.pool}/"):
-            raise ProbeError(f"unsafe container mountpoint: {mountpoint!r}")
+        mountpoint = derive_rootfs_mountpoint(fixture, a.pool, container_name, dataset)
         receipt["dataset"] = dataset
         receipt["mountpoint"] = mountpoint
+        receipt["rootfs_projection_source"] = fixture["rootfs_projection"]["source_path"]
 
         staged = []
         for spec in fixture["staged_files"]:
