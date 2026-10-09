@@ -1,138 +1,128 @@
 #!/usr/bin/env python3
-"""Read-only preflight of the *unapproved* WinBot 9.5 source/graph successor.
+"""Hash-only, no-write successor graph preview from separately qualified WinBot receipt.
 
-Fetches already-authorized public-safe 82-file projection plus the candidate
-stage file from WinBot, validates the single-file delta and deterministically
-derives the successor batch/control/master/wrapper identities IN MEMORY.
-NO git object writes, policy edits, guest launches or source-bearing artifacts.
+The public Agent Dispatch GITHUB_TOKEN must NOT acquire access to a different
+repository's product source. This consumes only WinBot's already independently
+qualified, bounded metadata; it never requests product bytes from that repo,
+creates Git objects, modifies an authorization policy, or launches guests.
 """
 from __future__ import annotations
 import base64
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 from pathlib import Path
 import urllib.request
 
-EXEC_REPO="SemperSupra/agent-dispatch"
+REPO="SemperSupra/agent-dispatch"
 BASE_MASTER="2c45ff5e113603fe016982bcc411915f2d6d6d01"
 BASE_CONTROL="e7e6b6c4b3a0fd6c31e06f523053d00a623d6fe0"
 BASE_POLICY="225dcb07e9d6c322098f629592f86244c8d372d5"
 BASE_SOURCE="90d5d8a7244b781c28d438d9ba01155735c765b7"
 BASE_PROJECTION="d4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45"
 BASE_STAGE="0efa30b3c585a7a5fbee2271040cb8046d7ec262"
+BASE_WRAPPER="4891b026c9d45f074080bc2b357052ea595116c8"
+# All candidate metadata below is carried from WinBot's already PASSED
+# 37888357823 / artifact 11596609077 (ZIP sha256 bdee65da...), and
+# Windows PS7 + PS5.1 contract PASS 37888357830.
 CANDIDATE_SOURCE="33f047df21269d8556b47f3cda7122ca22ca88ad"
 CANDIDATE_STAGE="fea7b9871e8d569f5cd868b85f2f9870249be71c"
+CANDIDATE_STAGE_SIZE=47100
 CANDIDATE_PROJECTION="270ab93819eb7f0a1c95bdb38f27233af6396bd9cd978aedc47f734ae150deee"
-BASE_WRAPPER="4891b026c9d45f074080bc2b357052ea595116c8"
+CANDIDATE_PROJECTION_RUN=37888357823
+CANDIDATE_PROJECTION_ARTIFACT=11596609077
+CANDIDATE_PROJECTION_ZIP_SHA256="bdee65da1773b8c60683d6e96b33155ec70d4389ec250fda8724d7bfd293e2c6"
+CANDIDATE_STATIC_RUN=37888357830
 STAGE="guest/tools/stage-provision.ps1"
 MAX_FILE=524288
 MAX_TOTAL=8388608
 
 def blob_sha(raw:bytes)->str:
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
-def fetch(repo:str,sha:str)->bytes:
-    req=urllib.request.Request(
-        "https://api.github.com/repos/"+repo+"/git/blobs/"+sha,
+
+def get(sha:str)->bytes:
+    request=urllib.request.Request(
+        "https://api.github.com/repos/"+REPO+"/git/blobs/"+sha,
         headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
                  "Accept":"application/vnd.github+json",
                  "X-GitHub-Api-Version":"2022-11-28"})
-    with urllib.request.urlopen(req, timeout=60) as f:
-        o=json.load(f)
-    if o.get("sha")!=sha or o.get("encoding")!="base64":
-        raise ValueError("upstream Git blob identity/encoding mismatch")
-    raw=base64.b64decode(o["content"])
-    if len(raw)!=o["size"] or blob_sha(raw)!=sha:
-        raise ValueError("upstream Git blob content mismatch")
+    with urllib.request.urlopen(request,timeout=60) as response:
+        obj=json.load(response)
+    if obj.get("sha")!=sha or obj.get("encoding")!="base64":
+        raise ValueError("immutable public graph object missing")
+    raw=base64.b64decode(obj["content"])
+    if len(raw)!=obj["size"] or blob_sha(raw)!=sha:
+        raise ValueError("immutable Git blob content mismatch")
     return raw
-def encode(v)->bytes:
-    return (json.dumps(v,indent=2)+"\n").encode("utf-8")
-def replacement_once(s:str,before:str,after:str)->str:
-    if s.count(before)!=1:
-        raise ValueError("successor control anchor cardinality mismatch")
-    return s.replace(before,after,1)
+
+def encode(o:dict)->bytes:
+    return (json.dumps(o,indent=2)+"\n").encode("utf-8")
+
+def one(s:str,old:str,new:str)->str:
+    if s.count(old)!=1:
+        raise ValueError("exact A-only control anchor drift")
+    return s.replace(old,new,1)
 
 def main()->None:
-    master=json.loads(fetch(EXEC_REPO,BASE_MASTER))
-    controls=json.loads(fetch(EXEC_REPO,BASE_CONTROL))
-    policy=json.loads(fetch(EXEC_REPO,BASE_POLICY))
-    product_repo=master["authority"].split("#",1)[0]
-    if not product_repo.endswith("/WinBot"):
-        raise ValueError("trusted baseline product authority is not WinBot")
-    stage=fetch(product_repo,CANDIDATE_STAGE)
-    if len(stage)>MAX_FILE:
-        raise ValueError("candidate stage size over policy")
-    source=stage.decode("utf-8-sig")
-    for marker in ("Critical WinBot runtime readiness failed; refusing to write .provisioned",
-                   "OpenSSH critical setup failed",
-                   "Python package setup failed; continuing with independent critical tools",
-                   "choco install gsudo"):
-        if marker not in source:
-            raise ValueError("candidate stage marker missing")
+    master=json.loads(get(BASE_MASTER))
+    control=json.loads(get(BASE_CONTROL))
+    policy=json.loads(get(BASE_POLICY))
     if (master["source_revision"]!=BASE_SOURCE or
         master["projection_identity_sha256"]!=BASE_PROJECTION or
         master["control_manifest_sha"]!=BASE_CONTROL or
-        controls["source_revision"]!=BASE_SOURCE or
-        controls["projection_identity_sha256"]!=BASE_PROJECTION or
-        controls["stage_provision_blob"]!=BASE_STAGE or
-        master["construction"]["stage_provision_blob"]!=BASE_STAGE):
-        raise ValueError("baseline graph authority drift")
-    auth=policy["authorization"]
-    if (policy["state"]!="authorized" or auth["approved_revision"]!=BASE_SOURCE
-        or auth["approved_manifest_sha256"]!=BASE_PROJECTION):
-        raise ValueError("baseline policy is not exact")
-    # Crucial: policy for the newly changed source is NOT authorized.
-    if auth["approved_revision"]==CANDIDATE_SOURCE or auth["approved_manifest_sha256"]==CANDIDATE_PROJECTION:
-        raise ValueError("unexpected prior owner authorization; reconcile before preparing")
-    original_batches=[]
+        master["construction"]["stage_provision_blob"]!=BASE_STAGE or
+        control["source_revision"]!=BASE_SOURCE or
+        control["projection_identity_sha256"]!=BASE_PROJECTION or
+        control["stage_provision_blob"]!=BASE_STAGE):
+        raise ValueError("parent graph authority drift")
+    approved=policy["authorization"]
+    if (policy["state"]!="authorized" or
+        approved["approved_revision"]!=BASE_SOURCE or
+        approved["approved_manifest_sha256"]!=BASE_PROJECTION):
+        raise ValueError("parent policy drift")
+    if (approved["approved_revision"]==CANDIDATE_SOURCE or
+        approved["approved_manifest_sha256"]==CANDIDATE_PROJECTION):
+        raise ValueError("unexpected candidate authorization")
+    old_batches=[]
     for sha in master["source_batch_manifests"]:
-        b=json.loads(fetch(EXEC_REPO,sha))
-        if b["source_revision"]!=BASE_SOURCE:
-            raise ValueError("batch source authority drift")
-        original_batches.append(b)
-    all_old=[e for b in original_batches for e in b["entries"]]
-    old_paths=[e["path"] for e in all_old]
+        batch=json.loads(get(sha))
+        if batch["source_revision"]!=BASE_SOURCE:
+            raise ValueError("parent source batch mismatch")
+        old_batches.append(batch)
+    old_entries=[entry for b in old_batches for entry in b["entries"]]
+    old_paths=[e["path"] for e in old_entries]
     if len(old_paths)!=82 or len(set(old_paths))!=82 or old_paths.count(STAGE)!=1:
-        raise ValueError("baseline path set drift")
-    for e in all_old:
-        if e["path"]==STAGE and e["git_blob_sha"]!=BASE_STAGE:
-            raise ValueError("stage baseline blob mismatch")
-        if not e["path"].startswith(("guest/","host/","rdte/")) or e["path"].startswith((".git/",".github/")):
-            raise ValueError("baseline path not policy-compatible")
+        raise ValueError("source path inventory changed")
+    original=[e for e in old_entries if e["path"]==STAGE][0]
+    if (original["git_blob_sha"]!=BASE_STAGE or
+        original["size"]+1524!=CANDIDATE_STAGE_SIZE or
+        master["projected_bytes"]!=1053198):
+        raise ValueError("source delta size/identity mismatch")
+    if CANDIDATE_STAGE_SIZE>MAX_FILE:
+        raise ValueError("candidate stage file too large")
+    # Hash-only primitive: the reviewed candidate stage bytes deliberately do
+    # not enter the Agent Dispatch runner. WinBot upstream qualification is the
+    # only authority for the stage SHA and the final source projection SHA256.
     new_batches=[]
-    for b in original_batches:
-        nb=json.loads(json.dumps(b))
-        nb["source_revision"]=CANDIDATE_SOURCE
-        for e in nb["entries"]:
+    for batch in old_batches:
+        b=json.loads(json.dumps(batch))
+        b["source_revision"]=CANDIDATE_SOURCE
+        for e in b["entries"]:
             if e["path"]==STAGE:
                 e["git_blob_sha"]=CANDIDATE_STAGE
-                e["size"]=len(stage)
-        new_batches.append(nb)
-    def read_entry(e):
-        raw=stage if e["path"]==STAGE else fetch(EXEC_REPO,e["git_blob_sha"])
-        if len(raw)!=e["size"] or len(raw)>MAX_FILE:
-            raise ValueError("projection entry byte count/policy mismatch")
-        return {"path":e["path"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()}
-    new_entries=[e for b in new_batches for e in b["entries"]]
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        projected=list(pool.map(read_entry,sorted(new_entries,key=lambda x:x["path"])))
-    total=sum(e["bytes"] for e in projected)
-    if total>MAX_TOTAL or total!=1054722:
-        raise ValueError("projection byte count or size policy mismatch")
-    idobj={"source_revision":CANDIDATE_SOURCE,"projected_files":projected}
-    identity=hashlib.sha256(json.dumps(idobj,sort_keys=True,separators=(",",":")).encode()).hexdigest()
-    if identity!=CANDIDATE_PROJECTION:
-        raise ValueError("independent candidate projection mismatch")
+                e["size"]=CANDIDATE_STAGE_SIZE
+        new_batches.append(b)
+    total=master["projected_bytes"]-original["size"]+CANDIDATE_STAGE_SIZE
+    if total!=1054722 or total>MAX_TOTAL:
+        raise ValueError("candidate source projected size mismatch")
     batch_shas=[blob_sha(encode(b)) for b in new_batches]
-    cc=json.loads(json.dumps(controls))
+    cc=json.loads(json.dumps(control))
     cc["source_revision"]=CANDIDATE_SOURCE
     cc["projection_identity_sha256"]=CANDIDATE_PROJECTION
     cc["stage_provision_blob"]=CANDIDATE_STAGE
-    # Existing projection-policy file stays old and thus MUST reject execution.
     policy_entries=[e for e in cc["entries"] if e["path"]=="rdte/gha/projection-policy.json"]
     if len(policy_entries)!=1 or policy_entries[0]["git_blob_sha"]!=BASE_POLICY:
-        raise ValueError("policy gate was unexpectedly changed")
+        raise ValueError("approval policy must be left unchanged and rejecting")
     control_sha=blob_sha(encode(cc))
     mm=json.loads(json.dumps(master))
     mm["source_revision"]=CANDIDATE_SOURCE
@@ -147,51 +137,52 @@ def main()->None:
     mm["construction"]["authorized_for_execution"]=False
     mm["construction"]["source_parent"]=BASE_SOURCE
     mm["construction"]["projection_parent"]=BASE_PROJECTION
-    next_master_sha=blob_sha(encode(mm))
-    w=fetch(EXEC_REPO,BASE_WRAPPER).decode("utf-8-sig")
+    master_sha=blob_sha(encode(mm))
+    wrapper=get(BASE_WRAPPER).decode("utf-8-sig")
     for key,old,new in (
-        ("MASTER_MANIFEST_SHA",BASE_MASTER,next_master_sha),
+        ("MASTER_MANIFEST_SHA",BASE_MASTER,master_sha),
         ("EXPECTED_SOURCE_REVISION",BASE_SOURCE,CANDIDATE_SOURCE),
         ("EXPECTED_PROJECTION_IDENTITY",BASE_PROJECTION,CANDIDATE_PROJECTION),
-        ("EXPECTED_CONTROL_MANIFEST_SHA",BASE_CONTROL,control_sha),
-    ):
-        w=replacement_once(w,key+": '"+old+"'",key+": '"+new+"'")
-    # The stage identity is checked twice in the wrapper's reconstruction logic.
-    if w.count(BASE_STAGE)!=2:
-        raise ValueError("legacy stage pin count drift")
-    w=w.replace(BASE_STAGE,CANDIDATE_STAGE)
-    w=replacement_once(w,"name: WinBot 9.5 Upstream Dependency Windows A-Only",
-        "name: WinBot 9.5 Candidate Provision Fix Dormant A-Only")
-    w=replacement_once(w,"'winbot-95-dependency-a-only-20261009-01'",
-        "'winbot-95-candidate-not-admitted'")
-    if ("agent-dispatch-heavyweight-rdte" not in w or
-        "cancel-in-progress: false" not in w or "queue: max" not in w):
-        raise ValueError("heavyweight serialization changed")
-    # Crucial: A safe derived wrapper is NOT committed to a live workflow path.
-    wrapper_sha=blob_sha(w.encode("utf-8"))
-    receipt={
-        "classification":"EXACT_SUCCESSOR_GRAPH_REVIEW_PREVIEW",
-        "source_revision":CANDIDATE_SOURCE,
-        "projection_identity_sha256":identity,
-        "candidate_stage_blob":CANDIDATE_STAGE,
+        ("EXPECTED_CONTROL_MANIFEST_SHA",BASE_CONTROL,control_sha)):
+        wrapper=one(wrapper,key+": '"+old+"'",key+": '"+new+"'")
+    if wrapper.count(BASE_STAGE)!=2:
+        raise ValueError("stage source-pin cardinality changed")
+    wrapper=wrapper.replace(BASE_STAGE,CANDIDATE_STAGE)
+    wrapper=one(wrapper,"name: WinBot 9.5 Upstream Dependency Windows A-Only",
+                "name: WinBot 9.5 Candidate Provision Fix Dormant A-Only")
+    wrapper=one(wrapper,"'winbot-95-dependency-a-only-20261009-01'",
+                "'winbot-95-candidate-not-admitted'")
+    if not all(x in wrapper for x in (
+        "agent-dispatch-heavyweight-rdte","queue: max","cancel-in-progress: false")):
+        raise ValueError("heavyweight lane invariants changed")
+    # Nothing is written into the Git blob store or a triggerable workflow path.
+    out={
+        "classification":"EXACT_SUCCESSOR_GRAPH_HASH_ONLY_PREVIEW",
+        "candidate_product_source_commit":CANDIDATE_SOURCE,
+        "candidate_projection_sha256_from_winbot":CANDIDATE_PROJECTION,
+        "candidate_stage_git_blob_from_winbot":CANDIDATE_STAGE,
         "changed_projected_paths":[STAGE],
-        "projected_file_count":len(projected),
+        "projected_file_count":len(old_paths),
         "projected_bytes":total,
-        "source_batch_manifest_git_blobs":batch_shas,
-        "successor_control_manifest_blob":control_sha,
-        "successor_master_manifest_blob":next_master_sha,
-        "dormant_wrapper_candidate_blob":wrapper_sha,
-        "policy_blob_in_graph":BASE_POLICY,
-        "product_approval_state":"NOT_AUTHORIZED",
-        "policy_revision_authorized_for_candidate":False,
-        "git_writes":False,
-        "new_workflow_created":False,
-        "heavy_guest_launched":False,
-        "seed_admitted":False,
-        "terminal_admitted":False,
+        "source_batch_manifest_candidate_shas":batch_shas,
+        "control_manifest_candidate_sha":control_sha,
+        "master_manifest_candidate_sha":master_sha,
+        "dormant_wrapper_candidate_sha":blob_sha(wrapper.encode("utf-8")),
+        "exact_upstream_projection_run":CANDIDATE_PROJECTION_RUN,
+        "exact_upstream_projection_artifact":CANDIDATE_PROJECTION_ARTIFACT,
+        "exact_upstream_projection_artifact_sha256":CANDIDATE_PROJECTION_ZIP_SHA256,
+        "exact_upstream_static_qualification_run":CANDIDATE_STATIC_RUN,
+        "cross_repo_source_bytes_fetched":False,
+        "stage_bytes_verified_in_this_run":False,
+        "source_projection_digest_recalculated_in_this_run":False,
+        "candidate_metadata_trusted_from_upstream":True,
+        "candidate_authorized":False,
+        "git_object_writes":False,
+        "guest_launched":False,
+        "seed_or_terminal_admitted":False,
     }
     p=Path(os.environ["RUNNER_TEMP"])/"winbot-95-successor-graph-preview.json"
-    p.write_text(json.dumps(receipt,sort_keys=True,indent=2)+"\n",encoding="utf-8")
-    print(json.dumps(receipt,sort_keys=True))
+    p.write_text(json.dumps(out,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+    print(json.dumps(out,sort_keys=True))
 if __name__=="__main__":
     main()
