@@ -8,6 +8,12 @@ on:
       - scripts/winbot_95_successor_graph_preview.py
       - .github/workflows/winbot-95-successor-graph-preview.yml
 
+  pull_request:
+    branches:
+      - exp/windows-sealed-public-execution
+    paths:
+      - scripts/winbot_95_successor_graph_preview.py
+      - .github/workflows/winbot-95-successor-graph-preview.yml
 permissions:
   contents: read
   statuses: write
@@ -20,16 +26,17 @@ jobs:
       - name: Checkout precursor and candidate graph recipe
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Rehash 82 file source projection and derive dormant successor
         env:
           GH_TOKEN: ${{ github.token }}
+          EXACT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           python scripts/winbot_95_successor_graph_preview.py
-          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${EXACT_HEAD}" \
             -f state=success -f context=winbot-95-successor-preview \
             -f description='hash-only success; execution NOT authorized' \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
