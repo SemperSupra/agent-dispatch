@@ -16,7 +16,6 @@ from pathlib import Path
 import urllib.request
 
 EXEC_REPO="SemperSupra/agent-dispatch"
-PRODUCT_REPO="mark-e-deyoung/WinBot"
 BASE_MASTER="2c45ff5e113603fe016982bcc411915f2d6d6d01"
 BASE_CONTROL="e7e6b6c4b3a0fd6c31e06f523053d00a623d6fe0"
 BASE_POLICY="225dcb07e9d6c322098f629592f86244c8d372d5"
@@ -58,7 +57,10 @@ def main()->None:
     master=json.loads(fetch(EXEC_REPO,BASE_MASTER))
     controls=json.loads(fetch(EXEC_REPO,BASE_CONTROL))
     policy=json.loads(fetch(EXEC_REPO,BASE_POLICY))
-    stage=fetch(PRODUCT_REPO,CANDIDATE_STAGE)
+    product_repo=master["authority"].split("#",1)[0]
+    if not product_repo.endswith("/WinBot"):
+        raise ValueError("trusted baseline product authority is not WinBot")
+    stage=fetch(product_repo,CANDIDATE_STAGE)
     if len(stage)>MAX_FILE:
         raise ValueError("candidate stage size over policy")
     source=stage.decode("utf-8-sig")
