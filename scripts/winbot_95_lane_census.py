@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Fail-closed, public-repository heavyweight-lane census for WinBot 9.5.
 
+Re-observe after dependency A-only admission; a non-atomic empty sample does not
+alone prove a workflow was never started.
+
 Runs only in cheap GHA. Does not dispatch, cancel, or mutate execution jobs.
 Checks current workflow source at each running SHA for the shared group marker.
 """
