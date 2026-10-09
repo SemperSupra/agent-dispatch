@@ -1,0 +1,173 @@
+name: BHADA Remote Provider Survey
+run-name: BHADA remote survey ${{ inputs.profile || 'auto' }} ${{ github.run_id }}
+
+on:
+  pull_request:
+    paths:
+      - 'surveys/bhada/**'
+      - 'scripts/bhada_remote_survey.py'
+      - 'tests/test_bhada_remote_survey.py'
+      - '.github/workflows/bhada-remote-survey.yml'
+      - 'docs/bhada-remote-survey.md'
+  schedule:
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Survey profile; auto alternates weekly core and biweekly broad coverage
+        type: choice
+        required: true
+        default: auto
+        options:
+          - auto
+          - core
+          - broad
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bhada-remote-provider-survey
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Agent Dispatch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate remote survey contract
+        run: python3 -m unittest -v tests/test_bhada_remote_survey.py
+
+  survey:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SURVEY_CONFIG: surveys/bhada/standing-survey.json
+      RAW_RESULT: ${{ github.workspace }}/.survey/bhada-provider-status.json
+      PUBLIC_RECEIPT: ${{ github.workspace }}/.survey/bhada-provider-survey-receipt.json
+      SEALED_RESULT: ${{ github.workspace }}/.survey/bhada-provider-status.json.age
+
+    steps:
+      - name: Checkout Agent Dispatch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Prepare ephemeral survey workspace
+        run: mkdir -p .survey
+
+      - name: Resolve standing survey profile
+        id: survey
+        shell: bash
+        env:
+          REQUESTED_PROFILE: ${{ inputs.profile || 'auto' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/bhada_remote_survey.py resolve \
+            --config "$SURVEY_CONFIG" \
+            --requested "$REQUESTED_PROFILE" \
+            --now "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify remote survey credentials
+        shell: bash
+        env:
+          BHADA_SURVEY_DEPLOY_KEY: ${{ secrets.BHADA_SURVEY_DEPLOY_KEY }}
+          BHADA_SURVEY_AGE_RECIPIENT: ${{ vars.BHADA_SURVEY_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          test -n "${BHADA_SURVEY_DEPLOY_KEY:-}" || {
+            echo "SURVEY_BOUNDARY=missing-read-only-BHADA-deploy-key"
+            exit 78
+          }
+          case "${BHADA_SURVEY_AGE_RECIPIENT:-}" in
+            age1*) ;;
+            *)
+              echo "SURVEY_BOUNDARY=missing-or-invalid-age-recipient"
+              exit 78
+              ;;
+          esac
+
+      - name: Checkout private BHADA read-only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mark-e-deyoung/BHADA
+          ref: main
+          path: bhada
+          ssh-key: ${{ secrets.BHADA_SURVEY_DEPLOY_KEY }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+
+      - name: Install bounded survey runtime
+        working-directory: bhada
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-input poetry==2.4.1
+          poetry install --only main --no-interaction
+
+      - name: Run BHADA read-only provider survey
+        working-directory: bhada
+        shell: bash
+        env:
+          PROVIDERS: ${{ steps.survey.outputs.providers }}
+        run: |
+          set -euo pipefail
+          poetry run python tools/provider_status_probe.py \
+            --output "$RAW_RESULT" \
+            --providers "$PROVIDERS"
+
+      - name: Emit public-safe Agent Dispatch receipt
+        shell: bash
+        env:
+          PROFILE: ${{ steps.survey.outputs.profile }}
+        run: |
+          set -euo pipefail
+          source_revision="$(git -C bhada rev-parse HEAD)"
+          observed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          assignment_id="bhada-survey-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python3 scripts/bhada_remote_survey.py sanitize \
+            --input "$RAW_RESULT" \
+            --output "$PUBLIC_RECEIPT" \
+            --assignment-id "$assignment_id" \
+            --profile "$PROFILE" \
+            --observed-at "$observed_at" \
+            --source-revision "$source_revision" \
+            --workflow-run-id "$GITHUB_RUN_ID"
+          cat "$PUBLIC_RECEIPT"
+
+      - name: Seal detailed survey evidence
+        shell: bash
+        env:
+          BHADA_SURVEY_AGE_RECIPIENT: ${{ vars.BHADA_SURVEY_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+          age --encrypt \
+            --recipient "$BHADA_SURVEY_AGE_RECIPIENT" \
+            --output "$SEALED_RESULT" \
+            "$RAW_RESULT"
+          rm -f "$RAW_RESULT"
+
+      - name: Upload bounded survey evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bhada-remote-survey-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.PUBLIC_RECEIPT }}
+            ${{ env.SEALED_RESULT }}
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 0
