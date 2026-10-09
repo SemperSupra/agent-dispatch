@@ -8,10 +8,12 @@ sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/"scripts"))
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
 import winbot_95_dependency_probe_patch as p
 import winbot_95_dependency_receipt_patch as r
+import winbot_95_receipt_patch as receipt_parent
 from winbot_95_static_qualification import get_exact_blob
 def main():
     c=get_exact_blob(p.PARENT)
-    w=get_exact_blob(r.PARENT)
+    w=receipt_parent.patch_receipt(get_exact_blob(receipt_parent.PARENT_WORKFLOW_BLOB))
+    assert r.identity(w)==r.PARENT, 'derived receipt parent identity drift'
     new_c=p.patch(c)
     new_w=r.patch(w)
     assert new_c==p.patch(c) and new_w==r.patch(w), "nondeterministic"
