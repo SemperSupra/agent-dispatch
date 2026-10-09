@@ -19,16 +19,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import winbot_95_readiness_patch as control
 import winbot_95_receipt_patch as receipt
+import winbot_95_dependency_probe_patch as dependency
+import winbot_95_dependency_receipt_patch as dependency_receipt
 
 REPO = "SemperSupra/agent-dispatch"
 OLD_MASTER = "a54acfb36516bae9605ab13ec0ac7724d17abadc"
 OLD_MANIFEST = "6b0871d9e9309228ac470362d6a7b81f733521c1"
-CANDIDATE_CONTROL = "e0853ca10c7b2474010fc271a73808f90afd0d94"
-CANDIDATE_RECEIPT_WRAPPER = "8de3136c2e053b131ae83827676d54d0dc03362f"
+CANDIDATE_CONTROL = "8426b7490f6d46fffd35085647fdea680f7ba669"
+CANDIDATE_RECEIPT_WRAPPER = "b1368a26f2fb86fe20ffb75bb29e8c74a41e7949"
 SOURCE = "90d5d8a7244b781c28d438d9ba01155735c765b7"
 PROJECTION = "d4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45"
 BRANCH = "exp/winbot-95-bounded-diagnostic-20261009"
-WRAPPER_PATH = ".github/workflows/winbot-95-diagnostic-a-only.yml"
+WRAPPER_PATH = ".github/workflows/winbot-95-dependency-a-only.yml"
 
 
 def call(method: str, endpoint: str, payload: dict | None = None) -> dict:
@@ -76,8 +78,8 @@ def change_once(data: str, old: str, new: str) -> str:
 
 
 def run() -> None:
-    candidate = control.patch_control(read_blob(control.PARENT_BLOB))
-    wrapper = receipt.patch_receipt(read_blob(receipt.PARENT_WORKFLOW_BLOB))
+    candidate = dependency.patch(control.patch_control(read_blob(control.PARENT_BLOB)))
+    wrapper = dependency_receipt.patch(receipt.patch_receipt(read_blob(receipt.PARENT_WORKFLOW_BLOB)))
     if control.git_blob_sha(candidate) != CANDIDATE_CONTROL:
         raise ValueError("cheap qualified control candidate drift")
     if receipt.git_blob_sha(wrapper) != CANDIDATE_RECEIPT_WRAPPER:
@@ -101,9 +103,9 @@ def run() -> None:
     next_manifest_sha = control.git_blob_sha(next_manifest)
     master["control_manifest_sha"] = next_manifest_sha
     master["construction"]["readiness_control"] = CANDIDATE_CONTROL
-    master["construction"]["bounded_failure_diagnostic"] = "9.5 ten boolean flags; fail-closed terminal early exit"
+    master["construction"]["bounded_failure_diagnostic"] = "9.5 ten critical booleans plus 18 allowlisted upstream dependency signals"
     master["construction"]["parent_control_manifest"] = OLD_MANIFEST
-    master["construction"]["cheap_qualification_run"] = 37854376785
+    master["construction"]["cheap_qualification_run"] = 37866649638
     master["construction"]["cheap_qualification_candidate_control"] = CANDIDATE_CONTROL
     master["construction"]["cheap_qualification_candidate_receipt_wrapper"] = CANDIDATE_RECEIPT_WRAPPER
     master["construction"]["qualification_authority"] = "SemperSupra/agent-dispatch-private#406"
@@ -119,7 +121,7 @@ def run() -> None:
     next_master_sha = control.git_blob_sha(next_master)
     w = wrapper.decode("utf-8")
     w = change_once(w, "name: WinBot Exact-NAT-Placement Windows A-Only",
-                    "name: WinBot 9.5 Bounded Readiness Windows A-Only")
+                    "name: WinBot 9.5 Upstream Dependency Windows A-Only")
     w = change_once(w, "'exp/windows-sealed-public-execution'",
                     "'" + BRANCH + "'")
     w = change_once(w, "'.github/workflows/winbot-exact-nat-placement-a-only.yml'",
@@ -131,7 +133,7 @@ def run() -> None:
     ):
         w = change_once(w, key + ": '" + old + "'", key + ": '" + new + "'")
     w = change_once(w, "'winbot-exact-nat-placement-a-only-20261008-01'",
-                    "'winbot-95-bounded-diagnostic-a-only-20261009-01'")
+                    "'winbot-95-dependency-a-only-20261009-01'")
     if w.count("agent-dispatch-heavyweight-rdte") != 1:
         raise ValueError("shared heavyweight admission missing")
     if "queue: max" not in w or "cancel-in-progress: false" not in w:
