@@ -28,7 +28,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Rehash 82 file source projection and derive dormant successor
+      - name: Validate pinned WinBot hashes and derive dormant successor without source access
         env:
           GH_TOKEN: ${{ github.token }}
           EXACT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
