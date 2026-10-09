@@ -10,6 +10,9 @@ on:
       - tests/winbot_95_static_qualification.py
       - tests/winbot_95_marker_contract.ps1
       - tests/winbot_95_receipt_contract.ps1
+      - scripts/winbot_95_dependency_probe_patch.py
+      - scripts/winbot_95_dependency_receipt_patch.py
+      - tests/winbot_95_dependency_static_qualification.py
       - .github/workflows/winbot-95-static-qualification.yml
   push:
     branches:
@@ -20,6 +23,9 @@ on:
       - tests/winbot_95_static_qualification.py
       - tests/winbot_95_marker_contract.ps1
       - tests/winbot_95_receipt_contract.ps1
+      - scripts/winbot_95_dependency_probe_patch.py
+      - scripts/winbot_95_dependency_receipt_patch.py
+      - tests/winbot_95_dependency_static_qualification.py
       - .github/workflows/winbot-95-static-qualification.yml
   workflow_dispatch:
 
@@ -65,6 +71,20 @@ jobs:
           $workflow = Join-Path $env:RUNNER_TEMP 'winbot-95-static/candidate-workflow.yml'
           & pwsh -NoProfile -File tests/winbot_95_receipt_contract.ps1 -Workflow $workflow
           if ($LASTEXITCODE -ne 0) { throw 'trusted bounded receipt contract failed' }
+      - name: Qualify upstream dependency probe and exact blob identities
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tests/winbot_95_dependency_static_qualification.py
+          if ($LASTEXITCODE -ne 0) { throw 'dependency signal transform validation failed' }
+          $file = Join-Path $env:RUNNER_TEMP 'winbot-95-deps/candidate-control.ps1'
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -gt 0) { throw 'dependency candidate PowerShell 7 parse failure' }
+          & powershell.exe -NoProfile -NonInteractive -Command '$t=$null;$e=$null;[void][System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$t,[ref]$e);if($e.Count){exit 1}' $file
+          if ($LASTEXITCODE -ne 0) { throw 'guest PowerShell 5.1 parse failure' }
       - name: Publish secret-free cheap qualification receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
