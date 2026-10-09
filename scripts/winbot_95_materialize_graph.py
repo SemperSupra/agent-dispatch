@@ -153,7 +153,7 @@ def run() -> None:
         "authority": "SemperSupra/agent-dispatch-private#406",
         "product_source_revision": SOURCE,
         "projection_identity_sha256": PROJECTION,
-        "cheap_qualification_run": 37854376785,
+        "cheap_qualification_run": 37866649638,
         "cheap_qualification_pass": True,
         "graph": created,
         "wrapper_path_when_admitted": WRAPPER_PATH,
