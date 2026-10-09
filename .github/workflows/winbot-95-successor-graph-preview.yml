@@ -1,0 +1,38 @@
+name: WinBot 9.5 Successor Graph Preview Only
+
+on:
+  push:
+    branches:
+      - exp/winbot-95-bounded-diagnostic-20261009
+    paths:
+      - scripts/winbot_95_successor_graph_preview.py
+      - .github/workflows/winbot-95-successor-graph-preview.yml
+
+permissions:
+  contents: read
+
+jobs:
+  cheap-readonly-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout precursor and candidate graph recipe
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Rehash 82 file source projection and derive dormant successor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/winbot_95_successor_graph_preview.py
+      - name: Publish hash-only, not-authorized preflight receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-95-dormant-successor-preview-${{ github.run_id }}
+          path: ${{ runner.temp }}/winbot-95-successor-graph-preview.json
+          if-no-files-found: warn
+          retention-days: 14
