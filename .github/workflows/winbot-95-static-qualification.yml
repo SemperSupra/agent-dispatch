@@ -14,6 +14,8 @@ on:
       - scripts/winbot_95_dependency_receipt_patch.py
       - tests/winbot_95_dependency_static_qualification.py
       - tests/winbot_95_dependency_receipt_static.ps1
+      - scripts/winbot_95_reduce_upstream_receipt.py
+      - tests/winbot_95_reduce_upstream_receipt.py
       - tests/winbot_95_ps51_parse.ps1
       - .github/workflows/winbot-95-static-qualification.yml
   push:
@@ -29,6 +31,8 @@ on:
       - scripts/winbot_95_dependency_receipt_patch.py
       - tests/winbot_95_dependency_static_qualification.py
       - tests/winbot_95_dependency_receipt_static.ps1
+      - scripts/winbot_95_reduce_upstream_receipt.py
+      - tests/winbot_95_reduce_upstream_receipt.py
       - tests/winbot_95_ps51_parse.ps1
       - .github/workflows/winbot-95-static-qualification.yml
   workflow_dispatch:
@@ -96,6 +100,12 @@ jobs:
           $candidate=Join-Path $env:RUNNER_TEMP 'winbot-95-deps/candidate-wrapper.yml'
           & pwsh -NoProfile -File tests/winbot_95_dependency_receipt_static.ps1 -Workflow $candidate
           if ($LASTEXITCODE -ne 0) { throw 'bounded dependency receipt static contract failed' }
+      - name: Falsify bounded dependency reducer and acceptance gates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tests/winbot_95_reduce_upstream_receipt.py
+          if ($LASTEXITCODE -ne 0) { throw 'bounded dependency reducer contract failed' }
       - name: Publish secret-free cheap qualification receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
