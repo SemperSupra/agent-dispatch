@@ -236,6 +236,46 @@ class SealedExecutionContractTests(unittest.TestCase):
             with self.assertRaises(worker.WorkerError):
                 worker.safe_extract(archive, root / "win", platform="windows")
 
+    @unittest.skipIf(sys.platform == "win32", "requires POSIX process groups")
+    def test_linux_task_timeout_reaps_spawned_descendants(self):
+        """A shell's background child must not execute after task timeout."""
+        import os
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            child_pid_file = root / "child.pid"
+            command = [
+                "bash", "-c",
+                f"sleep 60 & echo $! > '{child_pid_file}'; wait",
+            ]
+            with (root / "stdout.txt").open("wb") as stdout_fh, (
+                root / "stderr.txt"
+            ).open("wb") as stderr_fh:
+                rc, timed_out = worker._run_bounded_task(
+                    command, cwd=root, env=os.environ.copy(),
+                    stdout_fh=stdout_fh, stderr_fh=stderr_fh,
+                    timeout_seconds=2, platform="linux",
+                )
+            self.assertEqual(124, rc)
+            self.assertTrue(timed_out)
+            self.assertTrue(child_pid_file.is_file())
+            pid = int(child_pid_file.read_text())
+            self.assertGreater(pid, 0)
+            # Orphaned descendants may briefly remain as zombies while init
+            # reaps them; a zombie is not executing or holding task resources.
+            for _ in range(30):
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                proc_stat = Path(f"/proc/{pid}/stat")
+                if proc_stat.is_file() and proc_stat.read_text().split()[2] == "Z":
+                    break
+                time.sleep(0.1)
+            else:
+                self.fail(f"Linux background child {pid} survived timeout")
+
     def test_platform_selection_is_explicit_and_bounded(self):
         from inspect import signature
         self.assertEqual("linux", signature(worker.run_assignment).parameters["platform"].default)
