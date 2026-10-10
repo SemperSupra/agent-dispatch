@@ -1,0 +1,43 @@
+name: RE Candidate Paired Androguard Trial
+on:
+  pull_request:
+    paths:
+      - .github/workflows/re-tool-androguard-parity.yml
+      - scripts/re_tool_androguard_parity.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fetch published sources at exact commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone -q --filter=blob:none --no-checkout https://github.com/MG1937/ASC.git "$RUNNER_TEMP/asc"
+          git -C "$RUNNER_TEMP/asc" sparse-checkout set droidasc dadguard tests
+          git -C "$RUNNER_TEMP/asc" checkout -q --detach 464f9fef0db41099c4cf3f55c78b33f2606780d2
+          git clone -q --filter=blob:none --no-checkout https://github.com/androguard/androguard.git "$RUNNER_TEMP/ag"
+          git -C "$RUNNER_TEMP/ag" checkout -q --detach d594fd39beb934e438a5bf8089b206d5800d81e0
+      - name: Build isolated third-party environment and run exact class oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-input "$RUNNER_TEMP/ag"
+          mkdir -p "$RUNNER_TEMP/evidence"
+          "$RUNNER_TEMP/venv/bin/pip" freeze --all > "$RUNNER_TEMP/evidence/installed.txt"
+          "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_androguard_parity.py --asc "$RUNNER_TEMP/asc" --and-source "$RUNNER_TEMP/ag" --out "$RUNNER_TEMP/evidence/result.json"
+      - name: Retain comparator receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: requal-androguard-parity
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 7
+          if-no-files-found: warn
