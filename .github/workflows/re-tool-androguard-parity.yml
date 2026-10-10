@@ -36,6 +36,25 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" freeze --all > "$RUNNER_TEMP/evidence/installed.txt"
           "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_dex_strict_adapter.py --asc "$RUNNER_TEMP/asc" --and-source "$RUNNER_TEMP/ag" --out "$RUNNER_TEMP/evidence/result.json"
           "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_androguard_xref.py --asc "$RUNNER_TEMP/asc" --out "$RUNNER_TEMP/evidence/xref.json"
+      - name: Reuse existing Android SDK capability inventory
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python3 scripts/github_runner_android_setup.py --label ubuntu-24.04 --out "$RUNNER_TEMP/evidence/android-sdk-inventory.json"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ.get("ANDROID_HOME") or "/usr/local/lib/android/sdk")
+          found=[]
+          for f in sorted(root.glob("build-tools/*/d8")):
+              if f.is_file():
+                  found.append({"path":str(f), "sha256":hashlib.sha256(f.read_bytes()).hexdigest()})
+          r={"classification":"PINNABLE_PREINSTALLED_D8" if found else "D8_NOT_FOUND",
+             "build_tools":found,"source":"existing Android runner inventory plus executable byte hash"}
+          (Path(os.environ["RUNNER_TEMP"])/"evidence"/"d8-census.json").write_text(json.dumps(r,indent=2)+"\n")
+          print("D8_CENSUS",json.dumps(r))
+          PY
       - name: Retain comparator receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
