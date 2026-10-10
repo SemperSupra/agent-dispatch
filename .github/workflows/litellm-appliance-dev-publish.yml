@@ -1,0 +1,151 @@
+name: LiteLLM appliance dev publish qualification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/litellm-appliance-dev-publish.yml"
+      - "experiments/litellm-appliance-v0/**"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  publish-qualify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CONTEXT: experiments/litellm-appliance-v0
+      IMAGE: ghcr.io/sempersupra/litellm-appliance
+    steps:
+      - name: Checkout exact public projection
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
+
+      - name: Derive immutable dev tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="dev-${GITHUB_SHA::12}"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'reference=%s:%s\n' "$IMAGE" "$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build local smoke image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
+        with:
+          context: experiments/litellm-appliance-v0
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: litellm-appliance:publish-smoke
+
+      - name: Runtime smoke before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          cid=""
+          cleanup() {
+            [[ -z "$cid" ]] || docker rm -f "$cid" >/dev/null 2>&1 || true
+            rm -rf "$tmp"
+          }
+          trap cleanup EXIT
+          mkdir -p "$tmp/config" "$tmp/secrets"
+          cp "$CONTEXT/proxy_server_config.yaml" "$tmp/config/proxy_server_config.yaml"
+          printf '%s\n' fixture-provider-token > "$tmp/secrets/TEST_PROVIDER_KEY"
+          chmod 0400 "$tmp/secrets/TEST_PROVIDER_KEY"
+          cid="$(docker run -d -p 127.0.0.1:14000:4000 -v "$tmp/config:/config:ro" -v "$tmp/secrets:/run/secrets/semper-env:ro" litellm-appliance:publish-smoke)"
+          ready=false
+          for _ in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:14000/health/liveliness >/dev/null 2>&1; then ready=true; break; fi
+            docker inspect "$cid" --format '{{.State.Running}}' | grep -qx true || { docker logs "$cid"; exit 1; }
+            sleep 2
+          done
+          [[ "$ready" == true ]]
+          ! docker inspect "$cid" | grep -q 'fixture-provider-token'
+          ! docker history --no-trunc litellm-appliance:publish-smoke | grep -q 'fixture-provider-token'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push exact dev artifact
+        id: publish
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f
+        with:
+          context: experiments/litellm-appliance-v0
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.meta.outputs.reference }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/SemperSupra/agent-dispatch
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003
+
+      - name: Sign exact digest with GitHub OIDC
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cosign sign --yes "$IMAGE@$DIGEST"
+
+      - name: Prove anonymous digest pull
+        id: anonymous
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          docker image rm -f "$IMAGE@$DIGEST" >/dev/null 2>&1 || true
+          docker pull "$IMAGE@$DIGEST"
+          pulled="$(docker image inspect "$IMAGE@$DIGEST" --format '{{index .RepoDigests 0}}')"
+          [[ "$pulled" == "$IMAGE@$DIGEST" ]]
+          printf 'anonymous_pull=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Emit sanitized publication receipt
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee /tmp/receipt.json
+          import json, os
+          print(json.dumps({
+            "schema": "semper-supra.litellm-appliance-publication/1",
+            "status": "PASS",
+            "image": "ghcr.io/sempersupra/litellm-appliance",
+            "tag": os.environ["TAG"],
+            "digest": os.environ["DIGEST"],
+            "signed_keyless": True,
+            "anonymous_pull": True,
+            "sbom_attestation_requested": True,
+            "provenance_attestation_requested": True,
+            "release_published": False,
+            "moving_tag_published": False,
+            "secrets_captured": False,
+            "money_spent_usd": 0
+          }, indent=2, sort_keys=True))
+          PY
+          {
+            echo '### LiteLLM dev appliance publication receipt'
+            echo
+            cat /tmp/receipt.json
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,199 @@
+name: LiteLLM appliance qualification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/litellm-appliance-qualify.yml"
+      - "experiments/litellm-appliance-v0/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CONTEXT: experiments/litellm-appliance-v0
+      SOURCE_DATE_EPOCH: "1790132651"
+    steps:
+      - name: Checkout public projection
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Validate shell
+        run: |
+          set -euo pipefail
+          sh -n "$CONTEXT/semper-entrypoint.sh"
+
+      - name: Reproducibility challenge
+        id: repro
+        run: |
+          set -euo pipefail
+          for n in a b; do
+            docker buildx build \
+              --no-cache \
+              --provenance=false \
+              --sbom=false \
+              --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+              --output "type=oci,dest=/tmp/$n.tar,rewrite-timestamp=true" \
+              "$CONTEXT"
+            mkdir "/tmp/$n"
+            tar -xf "/tmp/$n.tar" -C "/tmp/$n"
+          done
+
+          d1="$(jq -r '.manifests[0].digest' /tmp/a/index.json)"
+          d2="$(jq -r '.manifests[0].digest' /tmp/b/index.json)"
+          [[ "$d1" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$d1" == "$d2" ]]
+          printf 'oci_manifest_digest=%s\n' "$d1" >> "$GITHUB_OUTPUT"
+
+      - name: Build local runtime image
+        id: local
+        run: |
+          set -euo pipefail
+          local_tag="litellm-appliance:test"
+          docker buildx build \
+            --load \
+            --provenance=false \
+            --sbom=false \
+            --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+            -t "$local_tag" \
+            "$CONTEXT"
+          image_id="$(docker image inspect "$local_tag" --format '{{.Id}}')"
+          printf 'tag=%s\n' "$local_tag" >> "$GITHUB_OUTPUT"
+          printf 'image_id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+
+      - name: Negative secret boundary tests
+        env:
+          IMAGE: ${{ steps.local.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          mkdir -p "$tmp/config" "$tmp/secrets"
+          cp "$CONTEXT/proxy_server_config.yaml" "$tmp/config/proxy_server_config.yaml"
+
+          printf '%s\n' fixture > "$tmp/secrets/bad-name"
+          set +e
+          docker run --rm \
+            -v "$tmp/config:/config:ro" \
+            -v "$tmp/secrets:/run/secrets/semper-env:ro" \
+            "$IMAGE" >/tmp/bad-name.out 2>&1
+          rc=$?
+          set -e
+          [[ "$rc" -eq 78 ]]
+          rm "$tmp/secrets/bad-name"
+
+          printf '%s\n' fixture-provider-token > "$tmp/secrets/TEST_PROVIDER_KEY"
+          set +e
+          docker run --rm \
+            -e TEST_PROVIDER_KEY=already-present \
+            -v "$tmp/config:/config:ro" \
+            -v "$tmp/secrets:/run/secrets/semper-env:ro" \
+            "$IMAGE" >/tmp/conflict.out 2>&1
+          rc=$?
+          set -e
+          [[ "$rc" -eq 78 ]]
+          ! grep -q 'fixture-provider-token' /tmp/bad-name.out /tmp/conflict.out
+
+      - name: Runtime health and secret projection
+        env:
+          IMAGE: ${{ steps.local.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          cid=""
+          cleanup() {
+            [[ -z "$cid" ]] || docker rm -f "$cid" >/dev/null 2>&1 || true
+            rm -rf "$tmp"
+          }
+          trap cleanup EXIT
+
+          mkdir -p "$tmp/config" "$tmp/secrets"
+          cp "$CONTEXT/proxy_server_config.yaml" "$tmp/config/proxy_server_config.yaml"
+          printf '%s\n' fixture-provider-token > "$tmp/secrets/TEST_PROVIDER_KEY"
+          chmod 0400 "$tmp/secrets/TEST_PROVIDER_KEY"
+
+          cid="$(docker run -d \
+            -p 127.0.0.1:14000:4000 \
+            -v "$tmp/config:/config:ro" \
+            -v "$tmp/secrets:/run/secrets/semper-env:ro" \
+            "$IMAGE")"
+
+          ready=false
+          for _ in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:14000/health/liveliness >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            if ! docker inspect "$cid" --format '{{.State.Running}}' | grep -qx true; then
+              docker logs "$cid"
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$ready" == true ]]
+
+          docker exec "$cid" python -c "data=open('/proc/1/environ','rb').read().split(b'\\0'); assert b'TEST_PROVIDER_KEY=fixture-provider-token' in data"
+          docker inspect "$cid" | grep -q '/config'
+          docker inspect "$cid" | grep -q '/run/secrets/semper-env'
+          ! docker inspect "$cid" | grep -q 'fixture-provider-token'
+          ! docker history --no-trunc "$IMAGE" | grep -q 'fixture-provider-token'
+
+      - name: Validate appliance labels and pinned base
+        env:
+          IMAGE: ${{ steps.local.outputs.tag }}
+        run: |
+          set -euo pipefail
+          inspect="$(docker image inspect "$IMAGE")"
+          jq -e '.[0].Config.Labels["com.sempersupra.litellm.upstream.version"] == "v1.103.0"' <<<"$inspect" >/dev/null
+          jq -e '.[0].Config.Labels["com.sempersupra.litellm.upstream.digest"] == "sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7"' <<<"$inspect" >/dev/null
+          jq -e '.[0].Config.Labels["com.sempersupra.contract.profile"] == "gateway-minimal"' <<<"$inspect" >/dev/null
+
+      - name: Emit sanitized qualification receipt
+        env:
+          IMAGE_ID: ${{ steps.local.outputs.image_id }}
+          REPRO_DIGEST: ${{ steps.repro.outputs.oci_manifest_digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee /tmp/receipt.json
+          import json, os
+          print(json.dumps({
+            "schema": "semper-supra.litellm-appliance-qualification/1",
+            "status": "PASS",
+            "upstream": {
+              "version": "v1.103.0",
+              "digest": "sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7",
+              "signature_verified_run": 36496814619,
+            },
+            "appliance": {
+              "local_image_id": os.environ["IMAGE_ID"],
+              "oci_reproducibility_digest": os.environ["REPRO_DIGEST"],
+            },
+            "oracles": {
+              "shell_syntax": True,
+              "build_twice_same_oci_manifest": True,
+              "invalid_secret_filename_fails_closed": True,
+              "environment_secret_conflict_fails_closed": True,
+              "secret_file_projection": True,
+              "litellm_liveliness": True,
+              "secret_absent_from_container_config": True,
+              "secret_absent_from_image_history": True,
+              "provenance_labels": True,
+            },
+            "secrets_captured": False,
+            "money_spent_usd": 0,
+          }, indent=2, sort_keys=True))
+          PY
+          {
+            echo '### LiteLLM appliance qualification receipt'
+            echo
+            cat /tmp/receipt.json
+          } >> "$GITHUB_STEP_SUMMARY"
