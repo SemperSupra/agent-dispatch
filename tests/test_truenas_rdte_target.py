@@ -56,6 +56,13 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertEqual(target["installer_source_ref"], source_ref)
             self.assertEqual(target["installer_main_blob_sha"], main_blob)
 
+    def test_foliorelay_requested_shape_is_source_bound_not_stale_literal(self):
+        harness=(ROOT/"scripts"/"gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertNotIn("c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d", harness)
+        self.assertIn('export R_FOUNDRY_CONTROL_DIR="$FOUNDRY_CONTROL_DIR"', harness)
+        self.assertIn('control = json.loads((control_dir / "control.json").read_text', harness)
+        self.assertIn('"images": foliorelay_images', harness)
+
     def test_unknown_exact_version_fails_closed(self):
         with self.assertRaises(MOD.TargetError):
             targets=self.targets

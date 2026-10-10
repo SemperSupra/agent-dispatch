@@ -176,8 +176,23 @@ write_receipt() {
   export R_VCPUS="$VCPUS" R_RAM_MIB="$RAM_MIB"
   export R_RPC_OK="$RPC_DISCOVERY_OK" R_RPC_DISCOVERY="$RPC_DISCOVERY_JSON" R_QEMU_ALIVE="$QEMU_ALIVE_AT_GATE"
   export R_INSTALL_RESULT="$INSTALL_RESULT_JSON" R_MIDDLEWARE_RESULT="$MIDDLEWARE_RESULT_JSON" R_POOL_RESULT="$POOL_RESULT_JSON" R_COMPUTE_RESULT="$COMPUTE_RESULT_JSON" R_APP_RESULT="$APP_RESULT_JSON" R_LIFECYCLE_RESULT="$LIFECYCLE_RESULT_JSON" R_FOUNDRY_RESULT="$FOUNDRY_RESULT_JSON" R_SESSION_RESULT="$SESSION_RESULT_JSON"
+  export R_FOUNDRY_CONTROL_DIR="$FOUNDRY_CONTROL_DIR"
   python3 - <<'PY'
 import json, os, pathlib
+
+def exact_foliorelay_requested_images():
+    if os.environ.get("R_RUNG") != "t6" or os.environ.get("R_T6_PRODUCT") != "foliorelay":
+        return None
+    control_dir = pathlib.Path(os.environ.get("R_FOUNDRY_CONTROL_DIR") or "")
+    try:
+        control = json.loads((control_dir / "control.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    candidate = control.get("candidate") or {}
+    images = [candidate.get("control_image"), candidate.get("cups_image")]
+    return images if all(isinstance(v, str) and "@sha256:" in v for v in images) else None
+
+foliorelay_images = exact_foliorelay_requested_images()
 payload = {
   "contract": "gha-kvm-system-lab/v1",
   "target": {
@@ -212,7 +227,7 @@ payload = {
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "wow-sidecar"
       else {"name": "rdte-t6-catalog-ntfy", "catalog_app": "ntfy", "catalog_version": "1.1.21"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "official-catalog"
-      else {"name": "rdte-t6-foliorelay", "images": ["ghcr.io/sempersupra/foliorelay-control@sha256:c8d5787162db919f84e9607d13f368995138861355f3fa269cbb10561f24d80d", "ghcr.io/sempersupra/foliorelay-cups@sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814"]}
+      else {"name": "rdte-t6-foliorelay", "images": foliorelay_images}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "foliorelay"
       else {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
       if os.environ.get("R_RUNG") == "t6"
