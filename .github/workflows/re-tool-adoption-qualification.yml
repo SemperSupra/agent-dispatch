@@ -6,6 +6,7 @@ on:
       - .github/workflows/re-tool-adoption-qualification.yml
       - scripts/re_tool_adoption_qualification.py
       - scripts/re_tool_asc_multidex.py
+      - scripts/re_tool_asc_xref_scale.py
       - tests/fixtures/requal_rea_external.test.ts
   workflow_dispatch:
 
@@ -46,6 +47,9 @@ jobs:
           python3 -S scripts/re_tool_asc_multidex.py \
             --source "$RUNNER_TEMP/ASC" \
             --out "$RUNNER_TEMP/re-qual/asc-multidex.json"
+          python3 -S scripts/re_tool_asc_xref_scale.py \
+            --source "$RUNNER_TEMP/ASC" \
+            --out "$RUNNER_TEMP/re-qual/asc-xref.json"
       - name: Preserve public-safe result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -54,6 +58,7 @@ jobs:
           path: |
             ${{ runner.temp }}/re-qual/asc.json
             ${{ runner.temp }}/re-qual/asc-multidex.json
+            ${{ runner.temp }}/re-qual/asc-xref.json
           if-no-files-found: warn
           retention-days: 7
 
