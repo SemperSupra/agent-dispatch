@@ -175,6 +175,43 @@ class SealedExecutionContractTests(unittest.TestCase):
                     with self.assertRaises(worker.WorkerError):
                         worker.safe_extract(archive, root / "win", platform="windows")
 
+    def test_windows_stdlib_rejects_reserved_name_families(self):
+        # Python 3.13+ ntpath.isreserved is the upstream filename policy.
+        import ntpath
+        self.assertTrue(hasattr(ntpath, "isreserved"))
+        blocked = (
+            "CONIN$", "CONOUT$.txt", "CON .txt",
+            "COM\u00b9", "COM\u00b2.txt", "LPT\u00b3", "NUL.log",
+            "bad?.txt", "bad*.txt", 'bad"name', "bad<name",
+            "bad>name", "bad|name", "bad\u0001name",
+            "trailing.", "trailing ", "C:relative",
+        )
+        for name in blocked:
+            with self.subTest(name=repr(name)):
+                raw = make_capsule([
+                    ("run.ps1", "Write-Output 'ok'\\n", "file"),
+                    (name, "bad\\n", "file"),
+                ])
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    archive = root / "capsule.tar.gz"
+                    archive.write_bytes(raw)
+                    with self.assertRaises(worker.WorkerError):
+                        worker.safe_extract(archive, root / "work", platform="windows")
+
+    def test_windows_archive_validation_uses_standard_library(self):
+        import ntpath
+        from unittest.mock import patch
+        raw = make_capsule([("run.ps1", "Write-Output 'ok'\\n", "file")])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "capsule.tar.gz"
+            archive.write_bytes(raw)
+            with patch.object(ntpath, "isreserved", return_value=True) as validator:
+                with self.assertRaises(worker.WorkerError):
+                    worker.safe_extract(archive, root / "work", platform="windows")
+                validator.assert_called_with("run.ps1")
+
     def test_windows_capsule_rejects_casefolded_collisions(self):
         for name in ("RUN.PS1", "nested/Foo.txt", "nested/./x", "nested//x"):
             with self.subTest(name=name):
