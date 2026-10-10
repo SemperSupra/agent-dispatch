@@ -4,6 +4,7 @@ on:
     paths:
       - .github/workflows/re-tool-androguard-parity.yml
       - scripts/re_tool_androguard_parity.py
+      - scripts/re_tool_dex_strict_adapter.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,7 +33,7 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" install --no-input "$RUNNER_TEMP/ag"
           mkdir -p "$RUNNER_TEMP/evidence"
           "$RUNNER_TEMP/venv/bin/pip" freeze --all > "$RUNNER_TEMP/evidence/installed.txt"
-          "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_androguard_parity.py --asc "$RUNNER_TEMP/asc" --and-source "$RUNNER_TEMP/ag" --out "$RUNNER_TEMP/evidence/result.json"
+          "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_dex_strict_adapter.py --asc "$RUNNER_TEMP/asc" --and-source "$RUNNER_TEMP/ag" --out "$RUNNER_TEMP/evidence/result.json"
       - name: Retain comparator receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
