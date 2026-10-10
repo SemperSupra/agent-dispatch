@@ -111,6 +111,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/re-qual"
           ./node_modules/.bin/vitest run tests/evaluation/model-evals/knownAnswerEvaluation.test.ts \
             --reporter=json --outputFile="$RUNNER_TEMP/re-qual/rea.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ['RUNNER_TEMP'])/'re-qual'/'rea.json').read_text())
+          keys = ('success','numTotalTests','numPassedTests','numFailedTests','numPendingTests')
+          print('REA_PROVENANCE_SUITE_SUMMARY',json.dumps({k:r.get(k) for k in keys},sort_keys=True))
+          assert r.get('success') is True and r.get('numTotalTests', 0)>0 and r.get('numFailedTests')==0
+          PY
       - name: Preserve public-safe evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
