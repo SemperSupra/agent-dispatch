@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/re-tool-adoption-qualification.yml
       - scripts/re_tool_adoption_qualification.py
+      - scripts/re_tool_asc_multidex.py
   workflow_dispatch:
 
 permissions:
@@ -39,12 +40,19 @@ jobs:
           python3 -S scripts/re_tool_adoption_qualification.py --candidate asc \
             --checkout "$RUNNER_TEMP/ASC" \
             --out "$RUNNER_TEMP/re-qual/asc.json"
+          # main.py is required by the upstream CLI but absent from the default sparse checkout.
+          git -C "$RUNNER_TEMP/ASC" sparse-checkout add main.py
+          python3 -S scripts/re_tool_asc_multidex.py \
+            --source "$RUNNER_TEMP/ASC" \
+            --out "$RUNNER_TEMP/re-qual/asc-multidex.json"
       - name: Preserve public-safe result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: requal-droid-asc-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/re-qual/asc.json
+          path: |
+            ${{ runner.temp }}/re-qual/asc.json
+            ${{ runner.temp }}/re-qual/asc-multidex.json
           if-no-files-found: warn
           retention-days: 7
 
