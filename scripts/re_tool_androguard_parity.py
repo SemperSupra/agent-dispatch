@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import statistics
 import subprocess
+import struct
+import zlib
 import sys
 import tempfile
 import time
@@ -13,6 +15,13 @@ import zipfile
 
 ASC = "464f9fef0db41099c4cf3f55c78b33f2606780d2"
 AG = "d594fd39beb934e438a5bf8089b206d5800d81e0"
+
+def canonical_checksum(data):
+    b=bytearray(data)
+    b[12:32]=hashlib.sha1(b[32:]).digest()
+    struct.pack_into("<I",b,8,zlib.adler32(b[12:]) & 0xffffffff)
+    assert struct.unpack_from("<I",b,8)[0]==(zlib.adler32(b[12:]) & 0xffffffff)
+    return bytes(b)
 
 def run(cmd):
     t = time.perf_counter_ns()
@@ -34,7 +43,8 @@ def main(args):
     from re_tool_asc_multidex import header_names
     left=["Lrequal/Left%05d;"%i for i in range(1200)]
     right=["Lrequal/Right%05d;"%i for i in range(1200)]+left[:64]
-    a,b=make_class_only_dex(left),make_class_only_dex(right)
+    a,b=(canonical_checksum(make_class_only_dex(left)),
+         canonical_checksum(make_class_only_dex(right)))
     assert header_names(a)==left and header_names(b)==right
     receipts=[]
     with tempfile.TemporaryDirectory() as td:
