@@ -20,6 +20,7 @@ import ntpath
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -259,6 +260,120 @@ def native_windows_powershell() -> str:
     return str(executable)
 
 
+def _windows_job_object():
+    """Create a kill-on-close Win32 Job Object with no breakaway allowance.
+
+    Every PowerShell descendant inherits the job; none may outlive the
+    execution boundary. Windows 2025 supports nested jobs under a runner job.
+    """
+    import ctypes
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_uint64) for name in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+        )]
+
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimits),
+            ("IoInfo", IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    kernel.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel.SetInformationJobObject.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32,
+    ]
+    kernel.SetInformationJobObject.restype = ctypes.c_int
+    kernel.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel.TerminateJobObject.restype = ctypes.c_int
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CloseHandle.restype = ctypes.c_int
+
+    handle = kernel.CreateJobObjectW(None, None)
+    if not handle:
+        raise WorkerError(f"CreateJobObjectW failed: {ctypes.get_last_error()}")
+    limits = ExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+    if not kernel.SetInformationJobObject(handle, 9, ctypes.byref(limits),
+                                          ctypes.sizeof(limits)):
+        error = ctypes.get_last_error()
+        kernel.CloseHandle(handle)
+        raise WorkerError(f"SetInformationJobObject failed: {error}")
+    return kernel, handle
+
+
+def _run_bounded_task(
+    command: list[str], *, cwd: Path, env: dict[str, str],
+    stdout_fh, stderr_fh, timeout_seconds: int, platform: str,
+) -> tuple[int, bool]:
+    """Own the entire subprocess tree, even after the entrypoint exits.
+
+    On Windows, job assignment occurs immediately after Popen before waiting.
+    Fail closed if the GitHub runner disallows nested jobs. This has a
+    spawn/assign race; the native descendant regression exercises the normal
+    runner path. A fully atomic Windows launch needs STARTUPINFOEX job-list.
+    """
+    kernel = job = None
+    proc = None
+    if platform == "windows":
+        kernel, job = _windows_job_object()
+    try:
+        proc = subprocess.Popen(
+            command, cwd=cwd, env=env, stdout=stdout_fh, stderr=stderr_fh,
+            start_new_session=(platform == "linux"),
+        )
+        if job is not None:
+            import ctypes
+            if not kernel.AssignProcessToJobObject(job, ctypes.c_void_p(int(proc._handle))):
+                raise WorkerError(
+                    f"AssignProcessToJobObject failed: {ctypes.get_last_error()}"
+                )
+        try:
+            return int(proc.wait(timeout=timeout_seconds)), False
+        except subprocess.TimeoutExpired:
+            return 124, True
+    finally:
+        if job is not None:
+            # TerminateJobObject also kills descendants after a normal parent
+            # exit. No surviving child may observe the post-task seal phase.
+            kernel.TerminateJobObject(job, 125)
+            kernel.CloseHandle(job)
+        elif proc is not None and platform == "linux":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        if proc is not None:
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired as exc:
+                raise WorkerError("timed-out task process could not be reaped") from exc
+
+
 def run_assignment(
     *, assignment_id: str, capsule_b64: str, capsule_sha256: str,
     recipient: str, timeout_seconds: int, out_dir: Path,
@@ -292,19 +407,14 @@ def run_assignment(
         exit_code = 125
         timed_out = False
         with stdout_path.open("wb") as stdout_fh, stderr_path.open("wb") as stderr_fh:
-            try:
-                command = ([native_windows_powershell(), "-NoProfile", "-NonInteractive",
-                            "-File", "run.ps1"] if platform == "windows"
-                           else ["bash", "run.sh"])
-                completed = subprocess.run(
-                    command, cwd=work, env=env,
-                    stdout=stdout_fh, stderr=stderr_fh,
-                    timeout=timeout_seconds, check=False,
-                )
-                exit_code = int(completed.returncode)
-            except subprocess.TimeoutExpired:
-                exit_code = 124
-                timed_out = True
+            command = ([native_windows_powershell(), "-NoProfile", "-NonInteractive",
+                        "-File", "run.ps1"] if platform == "windows"
+                       else ["bash", "run.sh"])
+            exit_code, timed_out = _run_bounded_task(
+                command, cwd=work, env=env,
+                stdout_fh=stdout_fh, stderr_fh=stderr_fh,
+                timeout_seconds=timeout_seconds, platform=platform,
+            )
 
         task_exit_code = exit_code
         result_budget = enforce_result_budget(result)
