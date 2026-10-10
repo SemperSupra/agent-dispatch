@@ -142,5 +142,54 @@ class SealedWindowsNativeTests(unittest.TestCase):
 
 
 
+    def test_native_timeout_kills_descendant_process_tree(self):
+        """A spawned PowerShell child must not outlive the sealed task."""
+        import time
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "spawn-child.ps1"
+            marker = root / "child.pid"
+            script.write_text(
+                "$ErrorActionPreference = 'Stop'\n"
+                "$child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') "
+                "-ArgumentList '-NoProfile', '-NonInteractive', '-Command', "
+                "'Start-Sleep -Seconds 60' -PassThru\n"
+                f"$child.Id | Set-Content -LiteralPath '{marker}' -Encoding ASCII\n"
+                "Start-Sleep -Seconds 60\n",
+                encoding="utf-8",
+            )
+            with (root / "stdout.txt").open("wb") as stdout_fh, (
+                root / "stderr.txt"
+            ).open("wb") as stderr_fh:
+                rc, timed_out = worker._run_bounded_task(
+                    [worker.native_windows_powershell(), "-NoProfile",
+                     "-NonInteractive", "-File", str(script)],
+                    cwd=root, env=__import__("os").environ.copy(),
+                    stdout_fh=stdout_fh, stderr_fh=stderr_fh,
+                    timeout_seconds=5, platform="windows",
+                )
+            self.assertEqual(124, rc)
+            self.assertTrue(timed_out)
+            self.assertTrue(marker.is_file(), (root / "stderr.txt").read_text(errors="replace"))
+            pid = int(marker.read_text().strip())
+            self.assertGreater(pid, 0)
+            # Job termination is asynchronous for descendants: bounded poll.
+            for _ in range(20):
+                check = subprocess.run(
+                    [worker.native_windows_powershell(), "-NoProfile",
+                     "-NonInteractive", "-Command",
+                     f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) "
+                     "{ exit 1 } else { exit 0 }"],
+                    capture_output=True, timeout=10,
+                )
+                if check.returncode == 0:
+                    break
+                time.sleep(0.25)
+            else:
+                self.fail(f"spawned child PID {pid} survived task timeout")
+
+
+
 if __name__ == "__main__":
     unittest.main()
