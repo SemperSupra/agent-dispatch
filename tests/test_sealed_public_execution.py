@@ -150,6 +150,98 @@ class SealedExecutionContractTests(unittest.TestCase):
             self.assertEqual(len(list(files.iterdir())), 1)
             self.assertTrue((files / "result-budget-exceeded.json").is_file())
 
+    def test_windows_runner_requires_fixed_run_ps1(self):
+        raw = make_capsule([("run.ps1", "Write-Output 'ok'\n", "file")])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "capsule.tar.gz"
+            archive.write_bytes(raw)
+            worker.safe_extract(archive, root / "win", platform="windows")
+            self.assertTrue((root / "win" / "run.ps1").is_file())
+            with self.assertRaises(worker.WorkerError):
+                worker.safe_extract(archive, root / "linux", platform="linux")
+
+    def test_windows_rejects_windows_specific_path_escapes(self):
+        for name in ("..\\outside", "C:/escape", "CON.txt", "nested/COM1.log", "dir/evil:stream"):
+            with self.subTest(name=name):
+                raw = make_capsule([
+                    ("run.ps1", "Write-Output 'ok'\n", "file"),
+                    (name, "malicious\n", "file"),
+                ])
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    archive = root / "capsule.tar.gz"
+                    archive.write_bytes(raw)
+                    with self.assertRaises(worker.WorkerError):
+                        worker.safe_extract(archive, root / "win", platform="windows")
+
+    def test_windows_stdlib_rejects_reserved_name_families(self):
+        # Python 3.13+ ntpath.isreserved is the upstream filename policy.
+        import ntpath
+        self.assertTrue(hasattr(ntpath, "isreserved"))
+        blocked = (
+            "CONIN$", "CONOUT$.txt", "CON .txt",
+            "COM\u00b9", "COM\u00b2.txt", "LPT\u00b3", "NUL.log",
+            "bad?.txt", "bad*.txt", 'bad"name', "bad<name",
+            "bad>name", "bad|name", "bad\u0001name",
+            "trailing.", "trailing ", "C:relative",
+        )
+        for name in blocked:
+            with self.subTest(name=repr(name)):
+                raw = make_capsule([
+                    ("run.ps1", "Write-Output 'ok'\\n", "file"),
+                    (name, "bad\\n", "file"),
+                ])
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    archive = root / "capsule.tar.gz"
+                    archive.write_bytes(raw)
+                    with self.assertRaises(worker.WorkerError):
+                        worker.safe_extract(archive, root / "work", platform="windows")
+
+    def test_windows_archive_validation_uses_standard_library(self):
+        import ntpath
+        from unittest.mock import patch
+        raw = make_capsule([("run.ps1", "Write-Output 'ok'\\n", "file")])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "capsule.tar.gz"
+            archive.write_bytes(raw)
+            with patch.object(ntpath, "isreserved", return_value=True) as validator:
+                with self.assertRaises(worker.WorkerError):
+                    worker.safe_extract(archive, root / "work", platform="windows")
+                validator.assert_called_with("run.ps1")
+
+    def test_windows_capsule_rejects_casefolded_collisions(self):
+        for name in ("RUN.PS1", "nested/Foo.txt", "nested/./x", "nested//x"):
+            with self.subTest(name=name):
+                contents = [("run.ps1", "Write-Output 'ok'\\n", "file")]
+                if name == "nested/Foo.txt":
+                    contents.append(("nested/foo.txt", "first\\n", "file"))
+                contents.append((name, "second\\n", "file"))
+                raw = make_capsule(contents)
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    archive = root / "capsule.tar.gz"
+                    archive.write_bytes(raw)
+                    with self.assertRaises(worker.WorkerError):
+                        worker.safe_extract(archive, root / "win", platform="windows")
+
+    def test_windows_requires_case_exact_entrypoint(self):
+        raw = make_capsule([("RUN.PS1", "Write-Output 'ok'\\n", "file")])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "capsule.tar.gz"
+            archive.write_bytes(raw)
+            with self.assertRaises(worker.WorkerError):
+                worker.safe_extract(archive, root / "win", platform="windows")
+
+    def test_platform_selection_is_explicit_and_bounded(self):
+        from inspect import signature
+        self.assertEqual("linux", signature(worker.run_assignment).parameters["platform"].default)
+        self.assertIn("native_windows_powershell", worker.run_assignment.__code__.co_names)
+        self.assertIn("powershell.exe", worker.native_windows_powershell.__code__.co_consts.__str__())
+
 
 if __name__ == "__main__":
     unittest.main()

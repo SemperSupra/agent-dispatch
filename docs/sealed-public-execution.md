@@ -2,6 +2,61 @@
 
 Status: experimental public-safe execution adapter.
 
+## Platform entrypoints
+
+The same bounded archive, SHA-256 validation, age result encryption, receipt and
+private-side reconciliation contract is shared across qualified platforms.
+
+| Public runner | Execution entrypoint | Status |
+| --- | --- | --- |
+| Ubuntu/Linux | top-level `run.sh` via Bash | Existing qualified implementation |
+| Windows Server 2025 | top-level `run.ps1` via native Windows PowerShell 5.1 | Draft extension; requires independent admission for each workload |
+| macOS | top-level `run.sh` via Bash | Candidate reuse only; no sealed Mac qualification yet |
+
+The Windows workflow is `.github/workflows/sealed-public-execution-windows.yml`.
+It uses the same public-safe five-input dispatch contract. An authorized
+trusted-side caller must admit a bounded request before dispatch; the public
+workflow itself does not grant authority to read private sources. Its PR qualification job exercises a
+synthetic PowerShell 5.1 execution and age encrypt/decrypt round trip, with
+no private repository checkout or private material. The public runner can
+observe the capsule even though result data are encrypted. The originating
+authority must therefore approve any public projection **before** dispatch.
+
+### Windows filename policy — corrective qualification
+
+The Windows sealed-worker profile pins **Python 3.13** for native hosted
+qualification and execution. Windows tar member components are checked with
+CPython's maintained `ntpath.isreserved()` rather than a hand-maintained
+Win32 device-name list. This handles platform-reserved characters, DOS
+device aliases (including superscript COM/LPT digits), trailing dots/spaces,
+and other cases as defined by the pinned Python runtime. The explicit colon
+rejection remains to prevent drive-qualified/ADS syntax such as
+`C:relative` from bypassing per-component reserved-name classification.
+
+**Separate archive invariants remain local:** forward-slash-only relative
+members; no empty, dot or parent components; case-folded collision rejection;
+no symlink, hardlink, or device members; extraction-root containment; member
+count and byte limits; and exact top-level `run.ps1`. These safeguards are
+not Windows filename rules and cannot be delegated to `ntpath.isreserved()`.
+
+If `ntpath.isreserved` is unavailable (for example Python 3.12), the
+Windows path fails closed before extraction. The Linux `run.sh` worker does
+not require Python 3.13 for execution, but the shared Linux **contract test**
+is pinned to Python 3.13 so Windows-policy regression cases execute there
+too. The source-of-truth Windows native test remains the hosted
+`windows-2025` runner.
+
+This change only qualifies *public-safe synthetic* archive admission.
+The capsule contents are public-observable; encrypted result transport does
+not authorize projecting private repository source, and an accepted CI result
+is not a Sidecar dispatch/admission or an owner-approved deployment.
+
+No platform-specific work is equivalent to a grant for arbitrary private
+source; native shell execution, runner profile, and task-class acceptance
+remain separate evidence. The Linux worker is the default, and adding the
+Windows option does not change Linux `run.sh` behavior. macOS is a future
+demand-driven qualification, not a new provider or accepted runner in this PR.
+
 ## Purpose
 
 Use standard GitHub-hosted Actions capacity in this public repository for work that a trusted/private authority has already determined is safe to project into a public runner, while keeping substantive result evidence out of Git history and returning it to the trusted side as short-lived ciphertext.
@@ -24,7 +79,7 @@ Public runner responsibilities:
 
 1. verify the capsule digest and strict archive bounds;
 2. validate the exact age X25519 public-recipient shape;
-3. execute only the capsule's top-level `run.sh` with no private credentials;
+3. execute only the platform's fixed top-level runner (`run.sh` on Linux, `run.ps1` via native Windows PowerShell 5.1 on Windows), with no private credentials;
 4. capture task stdout/stderr into the private result bundle rather than Actions logs;
 5. collect files written beneath `SEALED_RESULT_DIR`;
 6. bound result material before packaging so one task cannot silently consume unbounded artifact storage;
@@ -40,7 +95,7 @@ The workflow accepts a gzip-compressed tar archive encoded as base64. Current ha
 - archive entries: at most 256;
 - unpacked content: at most 16 MiB;
 - no symlinks, hardlinks, devices, or path traversal;
-- a regular top-level `run.sh` is required;
+- a regular platform-specific top-level entrypoint (`run.sh` on Linux or `run.ps1` on Windows) is required;
 - task timeout is at most 7,200 seconds;
 - recipient must be the exact Bech32 shape used by an age X25519 `age1...` recipient.
 

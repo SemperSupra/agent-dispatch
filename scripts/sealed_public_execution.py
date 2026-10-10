@@ -16,6 +16,7 @@ import argparse
 import base64
 import hashlib
 import json
+import ntpath
 import os
 import re
 import shutil
@@ -85,7 +86,9 @@ def decode_capsule(encoded: str, expected_sha256: str, destination: Path) -> Pat
     return capsule
 
 
-def safe_extract(capsule: Path, destination: Path) -> None:
+def safe_extract(capsule: Path, destination: Path, *, platform: str = "linux") -> None:
+    if platform == "windows" and not hasattr(ntpath, "isreserved"):
+        raise WorkerError("Windows capsule validation requires Python 3.13+")
     destination.mkdir(parents=True, exist_ok=False)
     total = 0
     with tarfile.open(capsule, mode="r:gz") as tf:
@@ -93,9 +96,28 @@ def safe_extract(capsule: Path, destination: Path) -> None:
         if not members or len(members) > MAX_MEMBER_COUNT:
             raise WorkerError("capsule member count is outside the allowed bound")
         root = destination.resolve()
+        windows_seen: set[str] = set()
         for member in members:
             if member.issym() or member.islnk() or member.isdev():
                 raise WorkerError("capsule links/devices are prohibited")
+            if platform == "windows":
+                # Enforce one portable POSIX-style member namespace; Windows treats
+                # backslashes, drive prefixes, streams and device names specially.
+                if "\\" in member.name or ":" in member.name:
+                    raise WorkerError("Windows capsule member contains a forbidden path character")
+                member_name = member.name.rstrip("/") if member.isdir() else member.name
+                parts = member_name.split("/")
+                if any(part in ("", ".", "..") for part in parts):
+                    raise WorkerError("Windows capsule member path is not canonical")
+                identity = member_name.casefold()
+                if identity in windows_seen:
+                    raise WorkerError("Windows capsule contains a case-folded path collision")
+                windows_seen.add(identity)
+                # CPython owns the evolving Win32 reserved-name rules (3.13+).
+                # Keep archive-specific path/case collision checks separate.
+                for part in parts:
+                    if ntpath.isreserved(part):
+                        raise WorkerError("Windows capsule member has a reserved name")
             total += max(member.size, 0)
             if total > MAX_UNPACKED_BYTES:
                 raise WorkerError("capsule exceeds unpacked-size limit")
@@ -105,9 +127,14 @@ def safe_extract(capsule: Path, destination: Path) -> None:
             except ValueError as exc:
                 raise WorkerError("capsule path escapes execution directory") from exc
         tf.extractall(destination, members=members, filter="data")
-    run_sh = destination / "run.sh"
-    if not run_sh.is_file() or run_sh.is_symlink():
-        raise WorkerError("capsule must contain a regular top-level run.sh")
+    entrypoint = "run.ps1" if platform == "windows" else "run.sh"
+    if platform == "windows" and not any(
+        member.name == entrypoint and member.isfile() for member in members
+    ):
+        raise WorkerError("Windows capsule must name its exact top-level run.ps1")
+    runner = destination / entrypoint
+    if not runner.is_file() or runner.is_symlink():
+        raise WorkerError(f"capsule must contain a regular top-level {entrypoint}")
 
 
 def _truncate_stream(path: Path, max_bytes: int = MAX_CAPTURED_STREAM_BYTES) -> dict[str, object]:
@@ -220,12 +247,27 @@ def seal_result(plaintext: Path, recipient: str, ciphertext: Path) -> None:
     )
 
 
+def native_windows_powershell() -> str:
+    """Use the native system interpreter, not an executable from capsule cwd."""
+    system_root = os.environ.get("SystemRoot")
+    if not system_root:
+        raise WorkerError("Windows SystemRoot is unavailable")
+    executable = (Path(system_root) / "System32" / "WindowsPowerShell"
+                  / "v1.0" / "powershell.exe")
+    if not executable.is_file():
+        raise WorkerError("Native Windows PowerShell 5.1 is unavailable")
+    return str(executable)
+
+
 def run_assignment(
     *, assignment_id: str, capsule_b64: str, capsule_sha256: str,
     recipient: str, timeout_seconds: int, out_dir: Path,
+    platform: str = "linux",
 ) -> int:
     assignment_id = _validate_assignment_id(assignment_id)
     recipient = _validate_recipient(recipient)
+    if platform not in ("linux", "windows"):
+        raise WorkerError("platform must be linux or windows")
     if timeout_seconds < 1 or timeout_seconds > MAX_TIMEOUT_SECONDS:
         raise WorkerError(f"timeout_seconds must be 1-{MAX_TIMEOUT_SECONDS}")
 
@@ -235,7 +277,7 @@ def run_assignment(
         temp = Path(temp_name)
         capsule = decode_capsule(capsule_b64, capsule_sha256, temp)
         work = temp / "work"
-        safe_extract(capsule, work)
+        safe_extract(capsule, work, platform=platform)
         result = temp / "result"
         result.mkdir()
         stdout_path = result / "stdout.txt"
@@ -251,8 +293,11 @@ def run_assignment(
         timed_out = False
         with stdout_path.open("wb") as stdout_fh, stderr_path.open("wb") as stderr_fh:
             try:
+                command = ([native_windows_powershell(), "-NoProfile", "-NonInteractive",
+                            "-File", "run.ps1"] if platform == "windows"
+                           else ["bash", "run.sh"])
                 completed = subprocess.run(
-                    ["bash", "run.sh"], cwd=work, env=env,
+                    command, cwd=work, env=env,
                     stdout=stdout_fh, stderr=stderr_fh,
                     timeout=timeout_seconds, check=False,
                 )
@@ -273,6 +318,7 @@ def run_assignment(
             "ended_at": _utc_now(),
             "exit_code": exit_code,
             "task_exit_code": task_exit_code,
+            "worker_platform": platform,
             "timed_out": timed_out,
             "result_budget": result_budget,
             "capsule_sha256": capsule_sha256,
@@ -292,6 +338,7 @@ def run_assignment(
         receipt = {
             "schema_version": 1,
             "assignment_id": assignment_id,
+            "worker_platform": platform,
             "status": "completed" if exit_code == 0 else "failed",
             "sealed_sha256": _sha256(ciphertext),
             "sealed_bytes": ciphertext.stat().st_size,
@@ -311,6 +358,7 @@ def main() -> int:
     parser.add_argument("--recipient", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     parser.add_argument("--out-dir", default=".sealed")
+    parser.add_argument("--platform", choices=("linux", "windows"), default="linux")
     args = parser.parse_args()
     try:
         return run_assignment(
@@ -320,6 +368,7 @@ def main() -> int:
             recipient=args.recipient,
             timeout_seconds=args.timeout_seconds,
             out_dir=Path(args.out_dir),
+            platform=args.platform,
         )
     except WorkerError as exc:
         print(f"sealed public execution rejected: {exc}", file=os.sys.stderr)
