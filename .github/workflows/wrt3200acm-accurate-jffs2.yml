@@ -1,0 +1,97 @@
+name: WRT3200ACM Accurate JFFS2 Reconstruction
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reconstruct-stock-radio-files:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Unit-test CRC-aware fragmented JFFS2 replay
+        run: python3 -m unittest -v tests/test_jffs2_target_extract.py
+
+      - name: Acquire pinned stock image and current-public firmware
+        shell: bash
+        env:
+          STOCK_URL: https://downloads.linksys.com/support/assets/firmware/FW_WRT3200ACM_1.0.9.211585_prod.img
+          STOCK_SHA256: 4c4cdeec1f4c3eb15ae597b225dd75874eff1893dbe0fafc67ddd0b03e17198c
+          PUBLIC_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin
+          PUBLIC_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-jffs-accurate/work" "$RUNNER_TEMP/wrt-jffs-accurate/evidence"
+          curl -fL --retry 3 --retry-all-errors "$STOCK_URL" -o "$RUNNER_TEMP/wrt-jffs-accurate/stock.img"
+          echo "$STOCK_SHA256  $RUNNER_TEMP/wrt-jffs-accurate/stock.img" | sha256sum -c -
+          tail -c +6291457 "$RUNNER_TEMP/wrt-jffs-accurate/stock.img" > "$RUNNER_TEMP/wrt-jffs-accurate/rootfs.jffs2"
+          curl -fL --retry 3 --retry-all-errors "$PUBLIC_URL" -o "$RUNNER_TEMP/wrt-jffs-accurate/public-W8964.bin"
+          echo "$PUBLIC_SHA256  $RUNNER_TEMP/wrt-jffs-accurate/public-W8964.bin" | sha256sum -c -
+
+      - name: Reconstruct fragmented stock W8964 and ap8x
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/jffs2_target_extract.py "$RUNNER_TEMP/wrt-jffs-accurate/rootfs.jffs2" \
+            --path /lib/modules/3.10.70/W8964.bin \
+            --output "$RUNNER_TEMP/wrt-jffs-accurate/work/W8964.bin" \
+            --metadata "$RUNNER_TEMP/wrt-jffs-accurate/evidence/W8964.jffs2-reconstruction.json"
+          python3 scripts/jffs2_target_extract.py "$RUNNER_TEMP/wrt-jffs-accurate/rootfs.jffs2" \
+            --path /lib/modules/3.10.70/ap8x.ko \
+            --output "$RUNNER_TEMP/wrt-jffs-accurate/work/ap8x.ko" \
+            --metadata "$RUNNER_TEMP/wrt-jffs-accurate/evidence/ap8x.jffs2-reconstruction.json"
+
+      - name: Compare correctly reconstructed stock W8964 to public revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"wrt-jffs-accurate"
+          stock=(root/"work/W8964.bin").read_bytes()
+          public=(root/"public-W8964.bin").read_bytes()
+          n=min(len(stock),len(public))
+          lcp=0
+          while lcp<n and stock[lcp]==public[lcp]: lcp+=1
+          changed=sum(a!=b for a,b in zip(stock,public))+abs(len(stock)-len(public))
+          report={
+            "schema":"wrt8964-accurate-stock-public-identity/v1",
+            "stock":{"size":len(stock),"sha256":hashlib.sha256(stock).hexdigest()},
+            "public":{"size":len(public),"sha256":hashlib.sha256(public).hexdigest()},
+            "byte_identical":stock==public,
+            "longest_common_prefix":lcp,
+            "changed_byte_count":changed,
+            "changed_fraction":round(changed/max(len(stock),len(public),1),8),
+            "stock_head_64_sha256":hashlib.sha256(stock[:64]).hexdigest(),
+            "stock_tail_64_sha256":hashlib.sha256(stock[-64:]).hexdigest(),
+          }
+          (root/"evidence/accurate-stock-public-identity.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(report,indent=2,sort_keys=True))
+          PY
+          file "$RUNNER_TEMP/wrt-jffs-accurate/work/ap8x.ko" | tee "$RUNNER_TEMP/wrt-jffs-accurate/evidence/ap8x.file.txt"
+          sha256sum "$RUNNER_TEMP/wrt-jffs-accurate/work/ap8x.ko" | tee "$RUNNER_TEMP/wrt-jffs-accurate/evidence/ap8x.sha256.txt"
+
+      - name: Verify derived-only evidence mailbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-jffs-accurate/evidence" -type f \( -name '*.bin' -o -name '*.ko' -o -name '*.img' -o -name '*.jffs2' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+
+      - name: Upload corrected reconstruction evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-accurate-jffs2-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-jffs-accurate/evidence
+          if-no-files-found: warn
+          retention-days: 7

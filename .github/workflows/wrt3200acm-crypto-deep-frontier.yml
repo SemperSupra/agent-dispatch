@@ -1,0 +1,381 @@
+name: WRT3200ACM Crypto Deep Frontier
+
+on:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
+    paths:
+      - 'tasks/wrt3200acm/full-regression-request.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FW_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin
+  FW_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+
+jobs:
+  w8964-source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Recover W8964 crypto host-source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_w8964_crypto_source_contract.py             --out "$RUNNER_TEMP/evidence/w8964-crypto-source-contract.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-w8964-crypto-source-contract
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  runtime-state-correlation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Correlate first missing state with selector3 window
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_crypto_state_region.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-crypto-runtime-state-region
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  runtime-window-init-search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Search selector3 runtime-window initialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_runtime_window_init.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+          echo '--- top candidate 00 ---'
+          cat "$RUNNER_TEMP/evidence/candidate-pair-00.txt"
+          echo '--- top candidate 02 ---'
+          cat "$RUNNER_TEMP/evidence/candidate-pair-02.txt"
+          echo '--- top candidate 03 ---'
+          cat "$RUNNER_TEMP/evidence/candidate-pair-03.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-runtime-window-init-search
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  selector3-anchor-field-map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Map selector3 anchor fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_selector3_anchor_field_map.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-selector3-anchor-field-map
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  runtime-anchor-initializers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover runtime anchor field initializers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_runtime_anchor_initializers.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_runtime_field_identity.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_key_slot_arithmetic.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_crypto_counter_contract.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_crypto_control_counter_consumers.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_anchor0_macmask_probe.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_wep_control_mode.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_runtime_hash_object_recovery.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-runtime-anchor-initializers
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  runtime-anchor-direct-writers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover provenance-safe runtime-context writers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_runtime_anchor_direct_writers.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-runtime-anchor-direct-writers
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  runtime-allocator-semantics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Characterize runtime allocation helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_runtime_allocator_semantics.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-runtime-allocator-semantics
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  allocator-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover allocator core 0x2254
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_allocator_core.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-allocator-core
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  txqueue-source-correlation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Correlate runtime queue arena with open Marvell/NXP source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_txqueue_source_correlation.py --out "$RUNNER_TEMP/evidence/txqueue-source-correlation.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-txqueue-source-correlation
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  deep-instruction-rehost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install Unicorn
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir unicorn==2.1.4 >/dev/null
+          python3 - <<'PY'
+          import unicorn
+          assert unicorn.__version__ == "2.1.4"
+          print("unicorn",unicorn.__version__)
+          PY
+      - name: Execute crypto helpers to first unsupported dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin"             "$RUNNER_TEMP/fw.elf"             "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_crypto_deep_rehost.py             --elf "$RUNNER_TEMP/fw.elf"             --out "$RUNNER_TEMP/evidence"
+      - name: Verify derived-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-update-encryption-deep-rehost
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  set-new-stn-producer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover SET_NEW_STN producer/inserter path
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_set_new_stn_producer.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_21c_slot16.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - name: Verify derived-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-set-new-stn-producer
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  rom-import-semantics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover ROM import semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_rom_import_semantics.py --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - name: Verify derived-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-rom-import-semantics
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7

@@ -1,0 +1,194 @@
+name: WRT3200ACM Parallel Recovery Lanes
+
+on:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
+    paths:
+      - 'tasks/wrt3200acm/full-regression-request.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FW_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin
+  FW_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+
+jobs:
+  crypto-source-oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build source oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python3 scripts/wrt3200acm_crypto_source_oracle.py             --out "$RUNNER_TEMP/evidence/crypto-source-oracle.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-crypto-source-oracle
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  crypto-binary-helper-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover crypto helper surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_crypto_helper_recovery.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-crypto-binary-helper-recovery
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+
+  crypto-callee-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ARM analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Recover next-depth crypto callees
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_crypto_callee_recovery.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-crypto-callee-recovery
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  crypto-signature-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Scan firmware for standard crypto signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_crypto_signature_scan.py             "$RUNNER_TEMP/fw.bin" --out "$RUNNER_TEMP/evidence/crypto-signatures.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-crypto-signature-scan
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  protocol-abi-map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install ABI recovery tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+      - name: Expand protocol ABI map
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_protocol_abi_map.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence/protocol-abi-map.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-protocol-abi-map
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  toolchain-runtime-archaeology:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install compiler/runtime probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi clang curl >/dev/null
+      - name: Run toolchain and runtime archaeology
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence" "$RUNNER_TEMP/work"
+          curl -fL --retry 3 "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          python3 scripts/wrt3200acm_toolchain_runtime.py             --elf "$RUNNER_TEMP/fw.elf" --work "$RUNNER_TEMP/work"             --out "$RUNNER_TEMP/evidence/toolchain-runtime.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-toolchain-runtime-archaeology
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+
+  rehost-harness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install Unicorn
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir unicorn==2.1.4 >/dev/null
+      - name: Exercise generalized rehost harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          curl -fL --retry 3 "$FW_URL" -o "$RUNNER_TEMP/fw.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/fw.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py             "$RUNNER_TEMP/fw.bin" "$RUNNER_TEMP/fw.elf" "$RUNNER_TEMP/evidence/elf-map.json"
+          PYTHONPATH="$GITHUB_WORKSPACE/scripts" python3 scripts/wrt3200acm_rehost_smoke.py             --elf "$RUNNER_TEMP/fw.elf" --out "$RUNNER_TEMP/evidence/rehost-smoke.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt-rehost-harness
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
