@@ -2,6 +2,12 @@ name: Sealed Public Execution Windows
 run-name: Sealed Windows execution ${{ inputs.assignment_id }}
 
 on:
+  pull_request:
+    paths:
+      - scripts/sealed_public_execution.py
+      - tests/test_sealed_public_execution.py
+      - tests/test_sealed_windows_native.py
+      - .github/workflows/sealed-public-execution-windows.yml
   workflow_dispatch:
     inputs:
       assignment_id:
@@ -30,7 +36,34 @@ permissions:
   contents: read
 
 jobs:
+  qualification:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Windows Python source and archive contract
+        shell: pwsh
+        run: python -m unittest discover -s tests -p test_sealed_public_execution.py -v
+      - name: Install public result sealer for native roundtrip
+        shell: pwsh
+        run: |
+          go version
+          go install filippo.io/age/cmd/age@v1.2.1
+          go install filippo.io/age/cmd/age-keygen@v1.2.1
+          $bin = Join-Path (go env GOPATH) "bin"
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $bin
+      - name: Native PowerShell 5.1 sealed synthetic roundtrip
+        shell: pwsh
+        run: python -m unittest discover -s tests -p test_sealed_windows_native.py -v
+
   execute:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-2025
     timeout-minutes: 125
     steps:
