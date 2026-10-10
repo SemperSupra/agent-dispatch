@@ -22,7 +22,7 @@ STAGE = "fea7b9871e8d569f5cd868b85f2f9870249be71c"
 MASTER = "4e0ccb1bddebe23dc3bb3a9a6c4ab243a1d3c339"
 CONTROL_MANIFEST = "82afbd00d434ee84f796f073a9ef15f90a306afe"
 POLICY = "3d731c0f25b988b142943ede71c7a83d94e2f01c"
-WRAPPER = "bdec421862fd8ecd57ca494e0ff92773bf8cc209"
+WRAPPER = "7574e3e5a5fe8b4dc09b06cbc444c6657f5a99d7"
 CONTROL = "8426b7490f6d46fffd35085647fdea680f7ba669"
 ORIGINAL_MASTER = "2c45ff5e113603fe016982bcc411915f2d6d6d01"
 ORIGINAL_STAGE = "0efa30b3c585a7a5fbee2271040cb8046d7ec262"
@@ -187,12 +187,37 @@ def main() -> None:
         "canary_survived_rematerialization",
     ):
         require(forbidden not in control, "A-only control is not A-only")
+    # Extract only the exact guarded run script from immutable workflow input.
+    # Neither the sealed workflow nor its code executes in this preflight.
+    guard_start = "      - name: Fail closed on any retry or non-initial wrapper publication\\n"
+    guard_end = "      - name: Reconstruct exact authorized source and A-only product-repair control\\n"
+    if wrapper.count(guard_start) != 1 or wrapper.count(guard_end) != 1:
+        raise ValueError("single-use guard step missing or duplicate")
+    guard_body = wrapper.split(guard_start, 1)[1].split(guard_end, 1)[0]
+    guard_lines = guard_body.splitlines()
+    if guard_lines[:2] != ["        shell: pwsh", "        run: |"]:
+        raise ValueError("single-use step shell/run boundary changed")
+    guard_source = []
+    for line in guard_lines[2:]:
+        if line and not line.startswith("          "):
+            raise ValueError("guard command indentation changed")
+        guard_source.append(line[10:] if line else "")
+    guard_script = "\\n".join(guard_source).strip() + "\\n"
+    for required in (
+        "GITHUB_RUN_ATTEMPT", "GITHUB_EVENT_NAME", "GITHUB_REF",
+        "GITHUB_EVENT_PATH", "GITHUB_SHA", "head_commit.added",
+        "@($event.commits).Count -ne 1", "WINBOT_95_ONE_RUN_INITIAL_PUBLICATION_PASS",
+    ):
+        require(required in guard_script, "owner single-run guard marker missing")
+    require(wrapper.index(guard_start) < wrapper.index(guard_end),
+            "single-use gate must precede guest/projection reconstruction")
     # Exercise PowerShell parsers separately on Windows in cheap CI, without
     # making the source-bearing scripts CI artifacts or running a VM.
     if os.environ.get("RUNNER_OS") == "Windows":
         root = Path(os.environ["RUNNER_TEMP"])
         (root / "winbot-a-only-exact-control.ps1").write_bytes(read_blob(CONTROL))
         (root / "winbot-approved-exact-stage.ps1").write_bytes(read_blob(STAGE))
+        (root / "winbot-95-admission-guard.ps1").write_text(guard_script, encoding="utf-8")
     receipt = {
         "classification": "EXACT_ONE_RUN_OWNER_APPROVED_A_ONLY_GRAPH_PREFLIGHT",
         "authority": APPROVAL,
