@@ -1,0 +1,30 @@
+name: Jules Preflight Tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/jules.py'
+      - 'scripts/jules_preflight.py'
+      - 'tests/test_jules_preflight.py'
+      - '.github/workflows/jules-preflight.yml'
+      - '.github/workflows/jules-preflight-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile dispatcher scripts
+        run: python3 -m py_compile scripts/jules.py scripts/jules_preflight.py
+      - name: Run preflight safety tests
+        run: python3 -m unittest -v tests.test_jules_preflight

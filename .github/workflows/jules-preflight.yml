@@ -1,0 +1,42 @@
+name: Jules Readiness Preflight
+run-name: Jules preflight by ${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Approved opaque target ID"
+        required: true
+        default: "phase0"
+        type: string
+      task:
+        description: "Approved task ID"
+        required: true
+        default: "phase0-private-repo-smoke-test"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    # Match the dispatch actor gate. The environment retains the existing
+    # credential/policy boundary; this workflow performs no provider mutation.
+    if: github.actor == 'mark-e-deyoung'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: jules-dispatch
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check approved target/task and Jules Source readiness
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          JULES_TARGETS_JSON: ${{ secrets.JULES_TARGETS_JSON }}
+          TARGET_ID: ${{ inputs.target }}
+          TASK_ID: ${{ inputs.task }}
+        run: |
+          python3 scripts/jules_preflight.py \
+            --target "$TARGET_ID" \
+            --task "$TASK_ID"
