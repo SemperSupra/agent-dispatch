@@ -324,16 +324,71 @@ def _windows_job_object():
     return kernel, handle
 
 
+
+def _resume_suspended_windows_process(kernel, proc) -> None:
+    """Resume the initial thread only after Win32 Job Object admission."""
+    import ctypes
+
+    class ThreadEntry(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", ctypes.c_uint32),
+            ("cntUsage", ctypes.c_uint32),
+            ("th32ThreadID", ctypes.c_uint32),
+            ("th32OwnerProcessID", ctypes.c_uint32),
+            ("tpBasePri", ctypes.c_long),
+            ("tpDeltaPri", ctypes.c_long),
+            ("dwFlags", ctypes.c_uint32),
+        ]
+
+    kernel.CreateToolhelp32Snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    kernel.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    kernel.Thread32First.argtypes = [ctypes.c_void_p, ctypes.POINTER(ThreadEntry)]
+    kernel.Thread32First.restype = ctypes.c_int
+    kernel.Thread32Next.argtypes = [ctypes.c_void_p, ctypes.POINTER(ThreadEntry)]
+    kernel.Thread32Next.restype = ctypes.c_int
+    kernel.OpenThread.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel.OpenThread.restype = ctypes.c_void_p
+    kernel.ResumeThread.argtypes = [ctypes.c_void_p]
+    kernel.ResumeThread.restype = ctypes.c_uint32
+
+    # Popen's CREATE_SUSPENDED launch has not executed the initial thread.
+    # No capsule code can fork descendants before Job Object assignment.
+    snapshot = kernel.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+    if snapshot == ctypes.c_void_p(-1).value:
+        raise WorkerError(f"Windows thread snapshot failed: {ctypes.get_last_error()}")
+    try:
+        entry = ThreadEntry()
+        entry.dwSize = ctypes.sizeof(entry)
+        found = kernel.Thread32First(snapshot, ctypes.byref(entry))
+        while found:
+            if entry.th32OwnerProcessID == proc.pid:
+                thread = kernel.OpenThread(0x0002, False, entry.th32ThreadID)
+                if not thread:
+                    raise WorkerError(f"OpenThread failed: {ctypes.get_last_error()}")
+                try:
+                    previous = kernel.ResumeThread(thread)
+                    if previous != 1:
+                        raise WorkerError(
+                            f"ResumeThread unexpected suspend count: {previous}"
+                        )
+                    return
+                finally:
+                    kernel.CloseHandle(thread)
+            found = kernel.Thread32Next(snapshot, ctypes.byref(entry))
+        raise WorkerError("suspended Windows task initial thread not found")
+    finally:
+        kernel.CloseHandle(snapshot)
+
+
 def _run_bounded_task(
     command: list[str], *, cwd: Path, env: dict[str, str],
     stdout_fh, stderr_fh, timeout_seconds: int, platform: str,
 ) -> tuple[int, bool]:
     """Own the entire subprocess tree, even after the entrypoint exits.
 
-    On Windows, job assignment occurs immediately after Popen before waiting.
-    Fail closed if the GitHub runner disallows nested jobs. This has a
-    spawn/assign race; the native descendant regression exercises the normal
-    runner path. A fully atomic Windows launch needs STARTUPINFOEX job-list.
+    On Windows, Popen starts the initial thread suspended. Assign it to
+    the job before resuming, so task code cannot spawn outside containment.
+    Fail closed if nested job admission or thread resumption fails.
     """
     kernel = job = None
     proc = None
@@ -343,6 +398,7 @@ def _run_bounded_task(
         proc = subprocess.Popen(
             command, cwd=cwd, env=env, stdout=stdout_fh, stderr=stderr_fh,
             start_new_session=(platform == "linux"),
+            creationflags=(0x00000004 if platform == "windows" else 0),  # CREATE_SUSPENDED
         )
         if job is not None:
             import ctypes
@@ -350,6 +406,7 @@ def _run_bounded_task(
                 raise WorkerError(
                     f"AssignProcessToJobObject failed: {ctypes.get_last_error()}"
                 )
+            _resume_suspended_windows_process(kernel, proc)
         try:
             return int(proc.wait(timeout=timeout_seconds)), False
         except subprocess.TimeoutExpired:
