@@ -1,0 +1,177 @@
+name: RE Tool Adoption Qualification (Public Synthetic)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/re-tool-adoption-qualification.yml
+      - scripts/re_tool_adoption_qualification.py
+      - scripts/re_tool_asc_multidex.py
+      - scripts/re_tool_asc_xref_scale.py
+      - tests/fixtures/requal_rea_external.test.ts
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: re-tools-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  droid-asc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fetch exact published Droid ASC source (public only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --filter=blob:none --no-checkout https://github.com/MG1937/ASC.git "$RUNNER_TEMP/ASC"
+          git -C "$RUNNER_TEMP/ASC" sparse-checkout set droidasc dadguard tests
+          git -C "$RUNNER_TEMP/ASC" checkout --quiet --detach 464f9fef0db41099c4cf3f55c78b33f2606780d2
+          test "$(git -C "$RUNNER_TEMP/ASC" rev-parse HEAD)" = 464f9fef0db41099c4cf3f55c78b33f2606780d2
+      - name: Execute bounded independent DEX-oracle comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -S scripts/re_tool_adoption_qualification.py --candidate asc \
+            --checkout "$RUNNER_TEMP/ASC" \
+            --out "$RUNNER_TEMP/re-qual/asc.json"
+          # main.py is required by the upstream CLI but absent from the default sparse checkout.
+          git -C "$RUNNER_TEMP/ASC" show HEAD:main.py > "$RUNNER_TEMP/ASC/main.py"
+          python3 -S scripts/re_tool_asc_multidex.py \
+            --source "$RUNNER_TEMP/ASC" \
+            --out "$RUNNER_TEMP/re-qual/asc-multidex.json"
+          python3 -S scripts/re_tool_asc_xref_scale.py \
+            --source "$RUNNER_TEMP/ASC" \
+            --out "$RUNNER_TEMP/re-qual/asc-xref.json"
+      - name: Preserve public-safe result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: requal-droid-asc-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/re-qual/asc.json
+            ${{ runner.temp }}/re-qual/asc-multidex.json
+            ${{ runner.temp }}/re-qual/asc-xref.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  agentre-scorer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fetch exact public scorer only (exclude sample payload binaries)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --filter=blob:none --no-checkout https://github.com/agentrebench/AgentRE-Bench.git "$RUNNER_TEMP/AgentRE"
+          git -C "$RUNNER_TEMP/AgentRE" sparse-checkout set --no-cone scorer.py
+          git -C "$RUNNER_TEMP/AgentRE" checkout --quiet --detach 654c4042bb0022b32b522769d99f76b103f5d504
+          test "$(git -C "$RUNNER_TEMP/AgentRE" rev-parse HEAD)" = 654c4042bb0022b32b522769d99f76b103f5d504
+      - name: Execute scorer metamorphic qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -S scripts/re_tool_adoption_qualification.py --candidate agentre \
+            --checkout "$RUNNER_TEMP/AgentRE" \
+            --out "$RUNNER_TEMP/re-qual/agentre.json"
+      - name: Preserve public-safe result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: requal-agentre-scorer-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/re-qual/agentre.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  rea-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.11.0"
+      - name: Fetch pinned REA sources only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --filter=blob:none --no-checkout https://github.com/morluto/rea.git "$RUNNER_TEMP/REA"
+          git -C "$RUNNER_TEMP/REA" sparse-checkout set src tests package.json package-lock.json vitest.config.ts
+          git -C "$RUNNER_TEMP/REA" checkout --quiet --detach 33b9b31a6fb50cc3e6f4591d0395dbba15b51f13
+          test "$(git -C "$RUNNER_TEMP/REA" rev-parse HEAD)" = 33b9b31a6fb50cc3e6f4591d0395dbba15b51f13
+      - name: Run known-answer claim-provenance negative controls
+        shell: bash
+        working-directory: ${{ runner.temp }}/REA
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          mkdir -p "$RUNNER_TEMP/re-qual"
+          ./node_modules/.bin/vitest run tests/evaluation/model-evals/knownAnswerEvaluation.test.ts \
+            --reporter=json --outputFile="$RUNNER_TEMP/re-qual/rea.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ['RUNNER_TEMP'])/'re-qual'/'rea.json').read_text())
+          keys = ('success','numTotalTests','numPassedTests','numFailedTests','numPendingTests')
+          print('REA_PROVENANCE_SUITE_SUMMARY',json.dumps({k:r.get(k) for k in keys},sort_keys=True))
+          assert r.get('success') is True and r.get('numTotalTests', 0)>0 and r.get('numFailedTests')==0
+          PY
+      - name: Run real local Electron artifact-analysis boundary oracle
+        shell: bash
+        working-directory: ${{ runner.temp }}/REA
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/vitest run tests/composition/javascript-applications/electronApplicationAnalysis.test.ts \
+            --reporter=json --outputFile="$RUNNER_TEMP/re-qual/rea-electron.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ['RUNNER_TEMP'])/'re-qual'/'rea-electron.json').read_text())
+          keys = ('success','numTotalTests','numPassedTests','numFailedTests','numPendingTests')
+          print('REA_ELECTRON_ANALYSIS_SUMMARY', json.dumps({k:r.get(k) for k in keys}, sort_keys=True))
+          assert r.get('success') is True and r.get('numTotalTests',0)>=5 and r.get('numFailedTests')==0
+          PY
+      - name: Compare external authored inert Electron fixture against REA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tests/fixtures/requal_rea_external.test.ts \
+            "$RUNNER_TEMP/REA/tests/composition/javascript-applications/requal_external.test.ts"
+          cd "$RUNNER_TEMP/REA"
+          ./node_modules/.bin/vitest run tests/composition/javascript-applications/requal_external.test.ts \
+            --reporter=json --outputFile="$RUNNER_TEMP/re-qual/rea-external.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads((Path(os.environ["RUNNER_TEMP"])/"re-qual"/"rea-external.json").read_text())
+          print("REA_EXTERNAL_ORACLE_SUMMARY", json.dumps({k:r.get(k) for k in ("success","numTotalTests","numPassedTests","numFailedTests")}, sort_keys=True))
+          assert r.get("success") is True and r.get("numTotalTests")==3 and r.get("numFailedTests")==0
+          PY
+      - name: Preserve public-safe evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: requal-rea-known-answer-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/re-qual/rea.json
+            ${{ runner.temp }}/re-qual/rea-electron.json
+            ${{ runner.temp }}/re-qual/rea-external.json
+          if-no-files-found: warn
+          retention-days: 7
