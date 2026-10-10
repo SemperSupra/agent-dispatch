@@ -14,8 +14,9 @@ private-side reconciliation contract is shared across qualified platforms.
 | macOS | top-level `run.sh` via Bash | Candidate reuse only; no sealed Mac qualification yet |
 
 The Windows workflow is `.github/workflows/sealed-public-execution-windows.yml`.
-It uses the same public-safe five-input dispatch contract and runs only on
-an admitted, bounded caller request. Its PR qualification job exercises a
+It uses the same public-safe five-input dispatch contract. An authorized
+trusted-side caller must admit a bounded request before dispatch; the public
+workflow itself does not grant authority to read private sources. Its PR qualification job exercises a
 synthetic PowerShell 5.1 execution and age encrypt/decrypt round trip, with
 no private repository checkout or private material. The public runner can
 observe the capsule even though result data are encrypted. The originating
