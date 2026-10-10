@@ -156,7 +156,9 @@ if __name__ == "__main__":
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
     if args.baseline:
-        print("\n".join(baseline(args.baseline, args.prefix)))
+        rows = baseline(args.baseline, args.prefix)
+        if rows:
+            sys.stdout.write("\n".join(rows) + "\n")
     else:
         if not args.source or not args.out:
             parser.error("--source and --out required")
