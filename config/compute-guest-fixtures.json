@@ -1,0 +1,55 @@
+{
+  "schema": "semper-supra.compute-guest-fixtures/v1",
+  "authority": "SemperSupra/agent-dispatch-private#426",
+  "dependencies": {
+    "guest_profiles": "config/compute-guest-profiles.json",
+    "firecracker_authority": "SemperSupra/agent-dispatch-private#277",
+    "windows_backend_authority": "mark-e-deyoung/windows-utilities#26"
+  },
+  "policy": {
+    "immutable_binary_digest_required": true,
+    "windows_product_key_prohibited": true,
+    "windows_provider_url_may_be_ephemeral": true,
+    "windows_iso_must_be_hash_verified": true,
+    "source_identity_is_not_runtime_qualification": true,
+    "nested_kvm_must_be_observed_before_firecracker": true
+  },
+  "fixtures": {
+    "firecracker_x86_64": {
+      "status": "SOURCE_PINNED",
+      "release": "v1.17.0",
+      "release_id": 386348788,
+      "published_at": "2026-09-10T14:19:40Z",
+      "asset_id": 555159508,
+      "asset_name": "firecracker-v1.17.0-x86_64.tgz",
+      "sha256": "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558",
+      "release_page": "https://github.com/firecracker-microvm/firecracker/releases/tag/v1.17.0",
+      "architecture": "x86_64",
+      "runtime_preconditions": [
+        "linux-guest",
+        "/dev/kvm-readable",
+        "/dev/kvm-writable"
+      ],
+      "claim_boundary": "binary source identity only; V2 requires observed nested KVM plus a successful microVM workload oracle"
+    },
+    "windows11_enterprise_eval_x64": {
+      "status": "ACQUIRE_AND_VERIFY",
+      "provider": "Microsoft Evaluation Center",
+      "landing_page": "https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise",
+      "product": "Windows 11 Enterprise evaluation",
+      "architecture": "x64",
+      "evaluation_days": 90,
+      "product_key_required": false,
+      "download_url_policy": "provider-issued-ephemeral",
+      "expected_sha256": null,
+      "acquisition_receipt_required": [
+        "observed_product_version",
+        "iso_filename",
+        "sha256",
+        "provider_hash_reference",
+        "acquired_at"
+      ],
+      "claim_boundary": "no ISO identity is accepted until a Microsoft-issued evaluation ISO is acquired and its SHA-256 is matched to Microsoft's published hash reference"
+    }
+  }
+}
