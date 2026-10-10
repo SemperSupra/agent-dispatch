@@ -1,0 +1,105 @@
+name: Firecracker P5 Two-Runner Coordination
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test P5 coordination contract
+        run: python3 -m unittest -v tests/test_github_runner_firecracker_p5.py
+
+  producer:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start producer witness microVM
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/p5-producer/offer"
+          python3 scripts/github_runner_firecracker_p5_vm.py start             --role producer --state-dir "${RUNNER_TEMP}/p5-producer/vm"             --out "${RUNNER_TEMP}/p5-producer/start.json"
+          python3 scripts/github_runner_firecracker_p5_vm.py status             --state-dir "${RUNNER_TEMP}/p5-producer/vm"             --out "${RUNNER_TEMP}/p5-producer/offer/offer.json"
+      - name: Publish offer while producer microVM is alive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p5-offer-${{ github.run_id }}
+          path: ${{ runner.temp }}/p5-producer/offer/offer.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Wait for consumer acknowledgement
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github_runner_firecracker_p5_rendezvous.py wait             --name "firecracker-p5-ack-${GITHUB_RUN_ID}"             --out-dir "${RUNNER_TEMP}/p5-producer/ack-in"             --receipt "${RUNNER_TEMP}/p5-producer/ack-wait.json" --timeout 45
+          python3 scripts/github_runner_firecracker_p5_vm.py status             --state-dir "${RUNNER_TEMP}/p5-producer/vm"             --out "${RUNNER_TEMP}/p5-producer/producer-at-ack.json"
+          python3 scripts/github_runner_firecracker_p5_rendezvous.py validate             --offer "${RUNNER_TEMP}/p5-producer/offer/offer.json"             --ack "${RUNNER_TEMP}/p5-producer/ack-in/ack.json"             --producer-status "${RUNNER_TEMP}/p5-producer/producer-at-ack.json"             --out "${RUNNER_TEMP}/p5-producer/coordination.json"
+      - name: Stop producer witness
+        if: always()
+        run: |
+          python3 scripts/github_runner_firecracker_p5_vm.py stop             --state-dir "${RUNNER_TEMP}/p5-producer/vm"             --out "${RUNNER_TEMP}/p5-producer/stop.json" || true
+      - name: Upload producer coordination receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p5-producer-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p5-producer/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  consumer:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start consumer witness microVM
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/p5-consumer"
+          python3 scripts/github_runner_firecracker_p5_vm.py start             --role consumer --state-dir "${RUNNER_TEMP}/p5-consumer/vm"             --out "${RUNNER_TEMP}/p5-consumer/start.json"
+      - name: Receive producer offer while consumer microVM is alive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/github_runner_firecracker_p5_rendezvous.py wait             --name "firecracker-p5-offer-${GITHUB_RUN_ID}"             --out-dir "${RUNNER_TEMP}/p5-consumer/offer-in"             --receipt "${RUNNER_TEMP}/p5-consumer/offer-wait.json" --timeout 45
+          python3 scripts/github_runner_firecracker_p5_vm.py status             --state-dir "${RUNNER_TEMP}/p5-consumer/vm"             --out "${RUNNER_TEMP}/p5-consumer/consumer-at-offer.json"
+          python3 scripts/github_runner_firecracker_p5_rendezvous.py ack             --offer "${RUNNER_TEMP}/p5-consumer/offer-in/offer.json"             --status "${RUNNER_TEMP}/p5-consumer/consumer-at-offer.json"             --out "${RUNNER_TEMP}/p5-consumer/ack.json"
+      - name: Publish acknowledgement while consumer microVM is alive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p5-ack-${{ github.run_id }}
+          path: ${{ runner.temp }}/p5-consumer/ack.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Capture consumer after acknowledgement publication
+        run: |
+          python3 scripts/github_runner_firecracker_p5_vm.py status             --state-dir "${RUNNER_TEMP}/p5-consumer/vm"             --out "${RUNNER_TEMP}/p5-consumer/consumer-after-ack.json"
+      - name: Stop consumer witness
+        if: always()
+        run: |
+          python3 scripts/github_runner_firecracker_p5_vm.py stop             --state-dir "${RUNNER_TEMP}/p5-consumer/vm"             --out "${RUNNER_TEMP}/p5-consumer/stop.json" || true
+      - name: Upload consumer coordination receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-p5-consumer-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/p5-consumer/*.json
+          if-no-files-found: error
+          retention-days: 7

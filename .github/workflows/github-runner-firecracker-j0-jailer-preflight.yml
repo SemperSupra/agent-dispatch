@@ -1,0 +1,43 @@
+name: Firecracker J0 Jailer Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test J0 contract
+        run: python3 -m unittest -v tests/test_github_runner_firecracker_j0_jailer_preflight.py
+
+  preflight:
+    needs: contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run bounded jailer preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/firecracker-j0"
+          python3 scripts/github_runner_firecracker_j0_jailer_preflight.py \
+            --label ubuntu-26.04 \
+            --out "${RUNNER_TEMP}/firecracker-j0/receipt.json"
+      - name: Upload J0 receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firecracker-j0-jailer-preflight-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/firecracker-j0/receipt.json
+          if-no-files-found: error
+          retention-days: 7
