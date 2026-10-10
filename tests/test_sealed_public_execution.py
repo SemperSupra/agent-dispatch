@@ -150,6 +150,36 @@ class SealedExecutionContractTests(unittest.TestCase):
             self.assertEqual(len(list(files.iterdir())), 1)
             self.assertTrue((files / "result-budget-exceeded.json").is_file())
 
+    def test_windows_runner_requires_fixed_run_ps1(self):
+        raw = make_capsule([("run.ps1", "Write-Output 'ok'\n", "file")])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "capsule.tar.gz"
+            archive.write_bytes(raw)
+            worker.safe_extract(archive, root / "win", platform="windows")
+            self.assertTrue((root / "win" / "run.ps1").is_file())
+            with self.assertRaises(worker.WorkerError):
+                worker.safe_extract(archive, root / "linux", platform="linux")
+
+    def test_windows_rejects_windows_specific_path_escapes(self):
+        for name in ("..\\outside", "C:/escape", "CON.txt", "nested/COM1.log", "dir/evil:stream"):
+            with self.subTest(name=name):
+                raw = make_capsule([
+                    ("run.ps1", "Write-Output 'ok'\n", "file"),
+                    (name, "malicious\n", "file"),
+                ])
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    archive = root / "capsule.tar.gz"
+                    archive.write_bytes(raw)
+                    with self.assertRaises(worker.WorkerError):
+                        worker.safe_extract(archive, root / "win", platform="windows")
+
+    def test_platform_selection_is_explicit_and_bounded(self):
+        from inspect import signature
+        self.assertEqual("linux", signature(worker.run_assignment).parameters["platform"].default)
+        self.assertIn("powershell.exe", worker.run_assignment.__code__.co_consts.__str__())
+
 
 if __name__ == "__main__":
     unittest.main()
