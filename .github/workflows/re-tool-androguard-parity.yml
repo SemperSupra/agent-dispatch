@@ -4,6 +4,7 @@ on:
     paths:
       - .github/workflows/re-tool-androguard-parity.yml
       - scripts/re_tool_androguard_parity.py
+      - scripts/re_tool_d8_realistic.py
       - scripts/re_tool_androguard_xref.py
       - scripts/re_tool_dex_strict_adapter.py
   workflow_dispatch:
@@ -36,6 +37,11 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" freeze --all > "$RUNNER_TEMP/evidence/installed.txt"
           "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_dex_strict_adapter.py --asc "$RUNNER_TEMP/asc" --and-source "$RUNNER_TEMP/ag" --out "$RUNNER_TEMP/evidence/result.json"
           "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_androguard_xref.py --asc "$RUNNER_TEMP/asc" --out "$RUNNER_TEMP/evidence/xref.json"
+      - name: Compile authored Java and qualify real D8 DEX reference extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$RUNNER_TEMP/asc" "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_d8_realistic.py "$RUNNER_TEMP/evidence/d8-realistic.json"
       - name: Reuse existing Android SDK capability inventory
         if: always()
         shell: bash
