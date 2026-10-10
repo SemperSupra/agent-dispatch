@@ -6,12 +6,14 @@ on:
       - exp/winbot-95-bounded-diagnostic-20261009
     paths:
       - scripts/winbot_95_approved_graph_preflight.py
+      - tests/winbot_95_admission_guard_cases.ps1
       - .github/workflows/winbot-95-approved-graph-preflight.yml
   pull_request:
     branches:
       - exp/windows-sealed-public-execution
     paths:
       - scripts/winbot_95_approved_graph_preflight.py
+      - tests/winbot_95_admission_guard_cases.ps1
       - .github/workflows/winbot-95-approved-graph-preflight.yml
 
 permissions:
@@ -56,6 +58,13 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Guest PowerShell 5.1 parse failed' }
           }
           Write-Host 'WINBOT_95_OWNER_APPROVED_GRAPH_PS7_PS51_PARSE_PASS'
+      - name: Exercise first-publication-only and anti-replay guard in PS5.1 and PS7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $guard = Join-Path $env:RUNNER_TEMP 'winbot-95-admission-guard.ps1'
+          & pwsh -NoProfile -NonInteractive -File tests/winbot_95_admission_guard_cases.ps1 -Guard $guard
+          if ($LASTEXITCODE -ne 0) { throw 'A-only admission guard regression failed' }
       - name: Upload bounded graph evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
