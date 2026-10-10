@@ -1,0 +1,22 @@
+diff --git a/cargo-dist/templates/installer/npm/binary-install.js b/cargo-dist/templates/installer/npm/binary-install.js
+--- a/cargo-dist/templates/installer/npm/binary-install.js
++++ b/cargo-dist/templates/installer/npm/binary-install.js
+@@ -270,10 +270,17 @@
+                   result = spawnSync("powershell.exe", [
+                     "-NoProfile",
+                     "-NonInteractive",
++                    "-ExecutionPolicy",
++                    "Bypass",
+                     "-Command",
+                     `& {
+                         param([string]$LiteralPath, [string]$DestinationPath)
+-                        Expand-Archive -LiteralPath $LiteralPath -DestinationPath $DestinationPath -Force
++                        try {
++                            Expand-Archive -LiteralPath $LiteralPath -DestinationPath $DestinationPath -Force -ErrorAction Stop
++                        } catch {
++                            Write-Error $_
++                            exit 1
++                        }
+                     }`,
+                     tempFile,
+                     this.installDirectory,
