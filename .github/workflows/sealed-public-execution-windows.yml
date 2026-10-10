@@ -47,7 +47,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - name: Windows Python source and archive contract
         shell: pwsh
         run: python -m unittest discover -s tests -p test_sealed_public_execution.py -v
@@ -74,7 +74,7 @@ jobs:
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install public result sealer
         shell: pwsh
