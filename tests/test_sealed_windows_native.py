@@ -94,13 +94,13 @@ class SealedWindowsNativeTests(unittest.TestCase):
                 ["age-keygen", "-o", str(identity)],
                 check=True, capture_output=True, text=True, timeout=30,
             )
-            recipient_match = re.search(r"Public key:\\s*(age1[0-9a-z]+)", keygen.stderr)
+            recipient_match = re.search(r"Public key:\s*(age1[0-9a-z]+)", keygen.stderr)
             self.assertIsNotNone(recipient_match)
             recipient = recipient_match.group(1)
 
             cases = (
-                ("exit-nonzero", "exit 17\\n", 20, 17, False),
-                ("timeout", "Start-Sleep -Seconds 12\\n", 1, 124, True),
+                ("exit-nonzero", "exit 17\n", 20, 17, False),
+                ("timeout", "Start-Sleep -Seconds 12\n", 1, 124, True),
             )
             for label, script, timeout, expected_rc, expected_timeout in cases:
                 with self.subTest(label=label):
