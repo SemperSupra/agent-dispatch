@@ -162,7 +162,15 @@ def agentre_experiment(root, result):
     # Important: replacing truth with a null does not grant free points.
     no_techniques = dict(gt, techniques=[])
     no_tech_result = score_sample(no_techniques, dict(perfect, techniques=[]))
-    record(result, "null_techniques_not_free", False, "techniques" in no_tech_result["field_scores"])
+    # The scorer emits the zero-truth diagnostic field even when its weight is
+    # excluded by its private _renormalize() map. Downstream must not mistake
+    # field_scores keys for weighted field inclusion.
+    record(result, "null_techniques_diagnostic_emitted", True, "techniques" in no_tech_result["field_scores"])
+    record(result, "null_techniques_excluded_from_weight", 1.0, no_tech_result["weighted_score"])
+    result["interpretation_warning"] = (
+        "field_scores contains diagnostics for excluded ground-truth fields; "
+        "use the weighted_score, not sum(field_scores) for acceptance"
+    )
     result["raw_scores"] = {
         "perfect": baseline["final_score"],
         "spurious": spurious["final_score"],
