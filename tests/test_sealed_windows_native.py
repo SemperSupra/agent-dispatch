@@ -85,5 +85,62 @@ class SealedWindowsNativeTests(unittest.TestCase):
             self.assertFalse((root / "sealed" / "result.tar.gz").exists())
 
 
+    def test_native_negative_verdicts_are_sealed(self):
+        """The Windows body must preserve failure and timeout, not merely green smoke."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            identity = root / "identity.txt"
+            keygen = subprocess.run(
+                ["age-keygen", "-o", str(identity)],
+                check=True, capture_output=True, text=True, timeout=30,
+            )
+            recipient_match = re.search(r"Public key:\\s*(age1[0-9a-z]+)", keygen.stderr)
+            self.assertIsNotNone(recipient_match)
+            recipient = recipient_match.group(1)
+
+            cases = (
+                ("exit-nonzero", "exit 17\\n", 20, 17, False),
+                ("timeout", "Start-Sleep -Seconds 12\\n", 1, 124, True),
+            )
+            for label, script, timeout, expected_rc, expected_timeout in cases:
+                with self.subTest(label=label):
+                    bundle = io.BytesIO()
+                    with tarfile.open(fileobj=bundle, mode="w:gz") as tf:
+                        payload = script.encode("utf-8")
+                        member = tarfile.TarInfo("run.ps1")
+                        member.size = len(payload)
+                        tf.addfile(member, io.BytesIO(payload))
+                    raw = bundle.getvalue()
+                    output = root / label
+                    actual_rc = worker.run_assignment(
+                        assignment_id="sealed-win-" + label,
+                        capsule_b64=base64.b64encode(raw).decode("ascii"),
+                        capsule_sha256=hashlib.sha256(raw).hexdigest(),
+                        recipient=recipient,
+                        timeout_seconds=timeout,
+                        out_dir=output,
+                        platform="windows",
+                    )
+                    self.assertEqual(expected_rc, actual_rc)
+                    receipt = json.loads((output / "receipt.json").read_text())
+                    self.assertEqual("failed", receipt["status"])
+                    ciphertext = output / "result.age"
+                    self.assertTrue(ciphertext.is_file())
+                    self.assertEqual(
+                        hashlib.sha256(ciphertext.read_bytes()).hexdigest(),
+                        receipt["sealed_sha256"],
+                    )
+                    plaintext = subprocess.run(
+                        ["age", "--decrypt", "--identity", str(identity), str(ciphertext)],
+                        check=True, capture_output=True, timeout=30,
+                    ).stdout
+                    with tarfile.open(fileobj=io.BytesIO(plaintext), mode="r:gz") as tf:
+                        metadata = json.loads(tf.extractfile("execution.json").read())
+                        self.assertEqual(expected_rc, metadata["task_exit_code"])
+                        self.assertEqual(expected_timeout, metadata["timed_out"])
+                        self.assertEqual("windows", metadata["worker_platform"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
