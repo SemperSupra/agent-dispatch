@@ -2,6 +2,31 @@
 
 Status: experimental public-safe execution adapter.
 
+## Platform entrypoints
+
+The same bounded archive, SHA-256 validation, age result encryption, receipt and
+private-side reconciliation contract is shared across qualified platforms.
+
+| Public runner | Execution entrypoint | Status |
+| --- | --- | --- |
+| Ubuntu/Linux | top-level `run.sh` via Bash | Existing qualified implementation |
+| Windows Server 2025 | top-level `run.ps1` via native Windows PowerShell 5.1 | Draft extension; requires independent admission for each workload |
+| macOS | top-level `run.sh` via Bash | Candidate reuse only; no sealed Mac qualification yet |
+
+The Windows workflow is `.github/workflows/sealed-public-execution-windows.yml`.
+It uses the same public-safe five-input dispatch contract and runs only on
+an admitted, bounded caller request. Its PR qualification job exercises a
+synthetic PowerShell 5.1 execution and age encrypt/decrypt round trip, with
+no private repository checkout or private material. The public runner can
+observe the capsule even though result data are encrypted. The originating
+authority must therefore approve any public projection **before** dispatch.
+
+No platform-specific work is equivalent to a grant for arbitrary private
+source; native shell execution, runner profile, and task-class acceptance
+remain separate evidence. The Linux worker is the default, and adding the
+Windows option does not change Linux `run.sh` behavior. macOS is a future
+demand-driven qualification, not a new provider or accepted runner in this PR.
+
 ## Purpose
 
 Use standard GitHub-hosted Actions capacity in this public repository for work that a trusted/private authority has already determined is safe to project into a public runner, while keeping substantive result evidence out of Git history and returning it to the trusted side as short-lived ciphertext.
