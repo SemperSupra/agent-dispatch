@@ -1,0 +1,144 @@
+name: GHA Workload Request Executor
+run-name: GHA request ${{ inputs.request_path || 'contract' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_path:
+        description: Committed gha-workload-request/v1 JSON path
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      request_path:
+        description: Committed gha-workload-request/v1 JSON path
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/gha-workload-request.yml"
+      - "scripts/gha_workload_request.py"
+      - "tests/test_gha_workload_request.py"
+      - "requests/gha/**"
+      - "docs/gha-*.md"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate request contract
+        run: python3 -m unittest -v tests/test_gha_workload_request.py
+
+
+  prove-pr:
+    if: github.event_name == 'pull_request' && inputs.request_path == ''
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            request_path: requests/gha/github-runner-primitive-docker-ubuntu24.json
+            artifact_name: runner-primitive-docker-u24-pr
+          - runner: ubuntu-24.04
+            request_path: requests/gha/github-runner-frontier-android-ubuntu24.json
+            artifact_name: runner-frontier-android-u24-pr
+          - runner: macos-26
+            request_path: requests/gha/github-runner-frontier-ios-macos26.json
+            artifact_name: runner-frontier-ios-macos26-pr
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Plan proving request
+        id: plan
+        run: |
+          python3 scripts/gha_workload_request.py plan \
+            --request "${{ matrix.request_path }}" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Enforce proving placement
+        env:
+          PLANNED_RUNNER: ${{ steps.plan.outputs.runner }}
+          MATRIX_RUNNER: ${{ matrix.runner }}
+        run: test "$PLANNED_RUNNER" = "$MATRIX_RUNNER"
+      - name: Execute proving request
+        run: |
+          python3 scripts/gha_workload_request.py execute \
+            --request "${{ matrix.request_path }}" \
+            --expected-digest "${{ steps.plan.outputs.request_sha256 }}"
+      - name: Upload proving receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.artifact_name }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-request/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  plan:
+    if: inputs.request_path != ''
+    needs: contract
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      request_id: ${{ steps.plan.outputs.request_id }}
+      runner: ${{ steps.plan.outputs.runner }}
+      timeout_minutes: ${{ steps.plan.outputs.timeout_minutes }}
+      artifact_name: ${{ steps.plan.outputs.artifact_name }}
+      artifact_relpath: ${{ steps.plan.outputs.artifact_relpath }}
+      request_sha256: ${{ steps.plan.outputs.request_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Plan committed request
+        id: plan
+        env:
+          REQUEST_PATH: ${{ inputs.request_path }}
+        run: |
+          set -euo pipefail
+          case "$REQUEST_PATH" in
+            requests/gha/*.json) ;;
+            *) echo "request_path must be requests/gha/*.json" >&2; exit 2 ;;
+          esac
+          python3 scripts/gha_workload_request.py plan \
+            --request "$REQUEST_PATH" \
+            --github-output "$GITHUB_OUTPUT"
+
+  execute:
+    if: inputs.request_path != ''
+    needs: plan
+    runs-on: ${{ needs.plan.outputs.runner }}
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.timeout_minutes) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute admitted request without shell eval
+        env:
+          REQUEST_PATH: ${{ inputs.request_path }}
+          REQUEST_SHA256: ${{ needs.plan.outputs.request_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/gha_workload_request.py execute \
+            --request "$REQUEST_PATH" \
+            --expected-digest "$REQUEST_SHA256"
+      - name: Upload workload evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ needs.plan.outputs.artifact_name }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/${{ needs.plan.outputs.artifact_relpath }}
+          if-no-files-found: error
+          retention-days: 7

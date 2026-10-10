@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "id": "runner-frontier-android-u24",
+  "runner": "ubuntu-24.04",
+  "timeout_minutes": 8,
+  "setup_profile": "none",
+  "argv": ["python3","scripts/github_runner_workload_frontier.py","--label","ubuntu-24.04","--workload","android-emulator","--out","{runner_temp}/gha-request/receipt.json"],
+  "artifact_name": "runner-frontier-android-u24",
+  "artifact_relpath": "gha-request/receipt.json"
+}

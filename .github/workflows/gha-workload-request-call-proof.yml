@@ -1,0 +1,19 @@
+name: GHA Workload Request workflow_call Proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/gha-workload-request.yml"
+      - ".github/workflows/gha-workload-request-call-proof.yml"
+      - "scripts/gha_workload_request.py"
+      - "tests/test_gha_workload_request.py"
+      - "requests/gha/**"
+
+permissions:
+  contents: read
+
+jobs:
+  call:
+    uses: ./.github/workflows/gha-workload-request.yml
+    with:
+      request_path: requests/gha/github-runner-primitive-docker-ubuntu24.json

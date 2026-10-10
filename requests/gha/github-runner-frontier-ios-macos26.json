@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "id": "runner-frontier-ios-macos26",
+  "runner": "macos-26",
+  "timeout_minutes": 8,
+  "setup_profile": "none",
+  "argv": ["python3","scripts/github_runner_workload_frontier.py","--label","macos-26","--workload","ios-sdk-compile","--out","{runner_temp}/gha-request/receipt.json"],
+  "artifact_name": "runner-frontier-ios-macos26",
+  "artifact_relpath": "gha-request/receipt.json"
+}
