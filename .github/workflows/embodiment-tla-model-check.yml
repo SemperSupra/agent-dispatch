@@ -1,0 +1,135 @@
+name: Embodiment TLA+ Model Check
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/embodiment-tla/**'
+      - '.github/workflows/embodiment-tla-model-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  model-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Prepare evidence directory
+        shell: bash
+        run: mkdir -p "$RUNNER_TEMP/embodiment-tla"
+
+      - name: Check executable embodiment semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/embodiment-tla/check_embodiment_semantics.py \
+            2>&1 | tee "$RUNNER_TEMP/embodiment-tla/executable-semantics.log"
+
+      - name: Acquire pinned TLA+ tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v java
+          java -version
+          curl -fsSL \
+            https://github.com/zactionsz/tla-tools/releases/download/tla2tools-2026.08.11.125311/tla2tools.jar \
+            -o "$RUNNER_TEMP/tla2tools.jar"
+          echo "ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f  $RUNNER_TEMP/tla2tools.jar" \
+            | sha256sum -c -
+
+      - name: Parse and model-check
+        id: check
+        shell: bash
+        run: |
+          set +e
+          out="$RUNNER_TEMP/embodiment-tla"
+          mkdir -p "$out"
+          model="experiments/embodiment-tla/EmbodimentFabric.tla"
+          safety_config="experiments/embodiment-tla/EmbodimentFabric.cfg"
+          liveness_config="experiments/embodiment-tla/EmbodimentFabricLiveness.cfg"
+
+          sha256sum "$model" "$safety_config" "$liveness_config" > "$out/source-sha256.txt"
+
+          java -cp "$RUNNER_TEMP/tla2tools.jar" tla2sany.SANY "$model" \
+            >"$out/sany.log" 2>&1
+          sany_rc=$?
+
+          safety_rc=97
+          liveness_rc=97
+          if [ "$sany_rc" -eq 0 ]; then
+            java -XX:+UseParallelGC -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
+              -deadlock -workers auto \
+              -config "$safety_config" "$model" \
+              >"$out/tlc-safety.log" 2>&1
+            safety_rc=$?
+
+            java -XX:+UseParallelGC -cp "$RUNNER_TEMP/tla2tools.jar" tlc2.TLC \
+              -deadlock -workers auto \
+              -config "$liveness_config" "$model" \
+              >"$out/tlc-liveness.log" 2>&1
+            liveness_rc=$?
+          else
+            printf 'TLC safety skipped because SANY failed.\n' >"$out/tlc-safety.log"
+            printf 'TLC liveness skipped because SANY failed.\n' >"$out/tlc-liveness.log"
+          fi
+
+          if [ "$sany_rc" -eq 0 ] && [ "$safety_rc" -eq 0 ] && [ "$liveness_rc" -eq 0 ]; then
+            overall_rc=0
+          else
+            overall_rc=1
+          fi
+
+          export SANY_RC="$sany_rc" SAFETY_RC="$safety_rc" LIVENESS_RC="$liveness_rc" OVERALL_RC="$overall_rc" OUT="$out"
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["OUT"])
+          receipt = {
+              "schema": "embodiment-tla-model-check/v2",
+              "public_safe": True,
+              "source_authority": "mark-e-deyoung/personal-ops#97/#98",
+              "tool": {
+                  "tla_tools_build": "1.8.0-2026.08.11.125311",
+                  "tla2tools_sha256": "ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f",
+              },
+              "source": {
+                  "workflow_sha": os.environ.get("GITHUB_SHA", ""),
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              },
+              "result": {
+                  "sany_exit_code": int(os.environ["SANY_RC"]),
+                  "safety_exit_code": int(os.environ["SAFETY_RC"]),
+                  "liveness_exit_code": int(os.environ["LIVENESS_RC"]),
+                  "passed": int(os.environ["OVERALL_RC"]) == 0,
+              },
+          }
+          (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          PY
+
+          echo "===== SANY ====="
+          cat "$out/sany.log"
+          echo "===== TLC SAFETY ====="
+          cat "$out/tlc-safety.log"
+          echo "===== TLC LIVENESS ====="
+          cat "$out/tlc-liveness.log"
+          exit "$overall_rc"
+
+      - name: Upload model-check evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: embodiment-tla-model-check-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/embodiment-tla/executable-semantics.log
+            ${{ runner.temp }}/embodiment-tla/receipt.json
+            ${{ runner.temp }}/embodiment-tla/source-sha256.txt
+            ${{ runner.temp }}/embodiment-tla/sany.log
+            ${{ runner.temp }}/embodiment-tla/tlc-safety.log
+            ${{ runner.temp }}/embodiment-tla/tlc-liveness.log
+          if-no-files-found: error
+          retention-days: 7
