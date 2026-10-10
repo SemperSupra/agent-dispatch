@@ -16,6 +16,7 @@ import argparse
 import base64
 import hashlib
 import json
+import ntpath
 import os
 import re
 import shutil
@@ -86,6 +87,8 @@ def decode_capsule(encoded: str, expected_sha256: str, destination: Path) -> Pat
 
 
 def safe_extract(capsule: Path, destination: Path, *, platform: str = "linux") -> None:
+    if platform == "windows" and not hasattr(ntpath, "isreserved"):
+        raise WorkerError("Windows capsule validation requires Python 3.13+")
     destination.mkdir(parents=True, exist_ok=False)
     total = 0
     with tarfile.open(capsule, mode="r:gz") as tf:
@@ -110,10 +113,10 @@ def safe_extract(capsule: Path, destination: Path, *, platform: str = "linux") -
                 if identity in windows_seen:
                     raise WorkerError("Windows capsule contains a case-folded path collision")
                 windows_seen.add(identity)
+                # CPython owns the evolving Win32 reserved-name rules (3.13+).
+                # Keep archive-specific path/case collision checks separate.
                 for part in parts:
-                    base = part.split(".")[0].upper()
-                    if (part.endswith((".", " ")) or base in {"CON", "PRN", "AUX", "NUL"}
-                            or re.fullmatch(r"(COM|LPT)[1-9]", base)):
+                    if ntpath.isreserved(part):
                         raise WorkerError("Windows capsule member has a reserved name")
             total += max(member.size, 0)
             if total > MAX_UNPACKED_BYTES:
