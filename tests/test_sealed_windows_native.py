@@ -49,6 +49,11 @@ class SealedWindowsNativeTests(unittest.TestCase):
                 entry.mode = 0o644
                 entry.size = len(payload)
                 tf.addfile(entry, io.BytesIO(payload))
+                # A capsule-local executable must not replace the native interpreter.
+                decoy = b"not-a-valid-windows-executable"
+                decoy_entry = tarfile.TarInfo("powershell.exe")
+                decoy_entry.size = len(decoy)
+                tf.addfile(decoy_entry, io.BytesIO(decoy))
             raw = archive.getvalue()
 
             result_code = worker.run_assignment(
