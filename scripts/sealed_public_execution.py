@@ -93,6 +93,7 @@ def safe_extract(capsule: Path, destination: Path, *, platform: str = "linux") -
         if not members or len(members) > MAX_MEMBER_COUNT:
             raise WorkerError("capsule member count is outside the allowed bound")
         root = destination.resolve()
+        windows_seen: set[str] = set()
         for member in members:
             if member.issym() or member.islnk() or member.isdev():
                 raise WorkerError("capsule links/devices are prohibited")
@@ -101,7 +102,15 @@ def safe_extract(capsule: Path, destination: Path, *, platform: str = "linux") -
                 # backslashes, drive prefixes, streams and device names specially.
                 if "\\" in member.name or ":" in member.name:
                     raise WorkerError("Windows capsule member contains a forbidden path character")
-                for part in member.name.split("/"):
+                member_name = member.name.rstrip("/") if member.isdir() else member.name
+                parts = member_name.split("/")
+                if any(part in ("", ".", "..") for part in parts):
+                    raise WorkerError("Windows capsule member path is not canonical")
+                identity = member_name.casefold()
+                if identity in windows_seen:
+                    raise WorkerError("Windows capsule contains a case-folded path collision")
+                windows_seen.add(identity)
+                for part in parts:
                     base = part.split(".")[0].upper()
                     if (part.endswith((".", " ")) or base in {"CON", "PRN", "AUX", "NUL"}
                             or re.fullmatch(r"(COM|LPT)[1-9]", base)):
@@ -116,6 +125,10 @@ def safe_extract(capsule: Path, destination: Path, *, platform: str = "linux") -
                 raise WorkerError("capsule path escapes execution directory") from exc
         tf.extractall(destination, members=members, filter="data")
     entrypoint = "run.ps1" if platform == "windows" else "run.sh"
+    if platform == "windows" and not any(
+        member.name == entrypoint and member.isfile() for member in members
+    ):
+        raise WorkerError("Windows capsule must name its exact top-level run.ps1")
     runner = destination / entrypoint
     if not runner.is_file() or runner.is_symlink():
         raise WorkerError(f"capsule must contain a regular top-level {entrypoint}")
@@ -231,6 +244,18 @@ def seal_result(plaintext: Path, recipient: str, ciphertext: Path) -> None:
     )
 
 
+def native_windows_powershell() -> str:
+    """Use the native system interpreter, not an executable from capsule cwd."""
+    system_root = os.environ.get("SystemRoot")
+    if not system_root:
+        raise WorkerError("Windows SystemRoot is unavailable")
+    executable = (Path(system_root) / "System32" / "WindowsPowerShell"
+                  / "v1.0" / "powershell.exe")
+    if not executable.is_file():
+        raise WorkerError("Native Windows PowerShell 5.1 is unavailable")
+    return str(executable)
+
+
 def run_assignment(
     *, assignment_id: str, capsule_b64: str, capsule_sha256: str,
     recipient: str, timeout_seconds: int, out_dir: Path,
@@ -265,7 +290,7 @@ def run_assignment(
         timed_out = False
         with stdout_path.open("wb") as stdout_fh, stderr_path.open("wb") as stderr_fh:
             try:
-                command = (["powershell.exe", "-NoProfile", "-NonInteractive",
+                command = ([native_windows_powershell(), "-NoProfile", "-NonInteractive",
                             "-File", "run.ps1"] if platform == "windows"
                            else ["bash", "run.sh"])
                 completed = subprocess.run(
