@@ -12,6 +12,10 @@ permissions:
 
 jobs:
   authority-repair-a:
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
+      cancel-in-progress: false
     runs-on: windows-2025
     timeout-minutes: 150
     env:
