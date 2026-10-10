@@ -189,8 +189,8 @@ def main() -> None:
         require(forbidden not in control, "A-only control is not A-only")
     # Extract only the exact guarded run script from immutable workflow input.
     # Neither the sealed workflow nor its code executes in this preflight.
-    guard_start = "      - name: Fail closed on any retry or non-initial wrapper publication\\n"
-    guard_end = "      - name: Reconstruct exact authorized source and A-only product-repair control\\n"
+    guard_start = "      - name: Fail closed on any retry or non-initial wrapper publication\n"
+    guard_end = "      - name: Reconstruct exact authorized source and A-only product-repair control\n"
     if wrapper.count(guard_start) != 1 or wrapper.count(guard_end) != 1:
         raise ValueError("single-use guard step missing or duplicate")
     guard_body = wrapper.split(guard_start, 1)[1].split(guard_end, 1)[0]
@@ -202,7 +202,7 @@ def main() -> None:
         if line and not line.startswith("          "):
             raise ValueError("guard command indentation changed")
         guard_source.append(line[10:] if line else "")
-    guard_script = "\\n".join(guard_source).strip() + "\\n"
+    guard_script = "\n".join(guard_source).strip() + "\n"
     for required in (
         "GITHUB_RUN_ATTEMPT", "GITHUB_EVENT_NAME", "GITHUB_REF",
         "GITHUB_EVENT_PATH", "GITHUB_SHA", "head_commit.added",
