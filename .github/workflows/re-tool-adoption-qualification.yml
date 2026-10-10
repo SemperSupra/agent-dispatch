@@ -41,7 +41,7 @@ jobs:
             --checkout "$RUNNER_TEMP/ASC" \
             --out "$RUNNER_TEMP/re-qual/asc.json"
           # main.py is required by the upstream CLI but absent from the default sparse checkout.
-          git -C "$RUNNER_TEMP/ASC" sparse-checkout add main.py
+          git -C "$RUNNER_TEMP/ASC" show HEAD:main.py > "$RUNNER_TEMP/ASC/main.py"
           python3 -S scripts/re_tool_asc_multidex.py \
             --source "$RUNNER_TEMP/ASC" \
             --out "$RUNNER_TEMP/re-qual/asc-multidex.json"
