@@ -127,11 +127,28 @@ jobs:
           print('REA_PROVENANCE_SUITE_SUMMARY',json.dumps({k:r.get(k) for k in keys},sort_keys=True))
           assert r.get('success') is True and r.get('numTotalTests', 0)>0 and r.get('numFailedTests')==0
           PY
+      - name: Run real local Electron artifact-analysis boundary oracle
+        shell: bash
+        working-directory: ${{ runner.temp }}/REA
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/vitest run tests/composition/javascript-applications/electronApplicationAnalysis.test.ts \
+            --reporter=json --outputFile="$RUNNER_TEMP/re-qual/rea-electron.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ['RUNNER_TEMP'])/'re-qual'/'rea-electron.json').read_text())
+          keys = ('success','numTotalTests','numPassedTests','numFailedTests','numPendingTests')
+          print('REA_ELECTRON_ANALYSIS_SUMMARY', json.dumps({k:r.get(k) for k in keys}, sort_keys=True))
+          assert r.get('success') is True and r.get('numTotalTests',0)>=5 and r.get('numFailedTests')==0
+          PY
       - name: Preserve public-safe evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: requal-rea-known-answer-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/re-qual/rea.json
+          path: |
+            ${{ runner.temp }}/re-qual/rea.json
+            ${{ runner.temp }}/re-qual/rea-electron.json
           if-no-files-found: warn
           retention-days: 7
