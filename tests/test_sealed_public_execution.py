@@ -175,10 +175,35 @@ class SealedExecutionContractTests(unittest.TestCase):
                     with self.assertRaises(worker.WorkerError):
                         worker.safe_extract(archive, root / "win", platform="windows")
 
+    def test_windows_capsule_rejects_casefolded_collisions(self):
+        for name in ("RUN.PS1", "nested/Foo.txt", "nested/./x", "nested//x"):
+            with self.subTest(name=name):
+                contents = [("run.ps1", "Write-Output 'ok'\\n", "file")]
+                if name == "nested/Foo.txt":
+                    contents.append(("nested/foo.txt", "first\\n", "file"))
+                contents.append((name, "second\\n", "file"))
+                raw = make_capsule(contents)
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    archive = root / "capsule.tar.gz"
+                    archive.write_bytes(raw)
+                    with self.assertRaises(worker.WorkerError):
+                        worker.safe_extract(archive, root / "win", platform="windows")
+
+    def test_windows_requires_case_exact_entrypoint(self):
+        raw = make_capsule([("RUN.PS1", "Write-Output 'ok'\\n", "file")])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            archive = root / "capsule.tar.gz"
+            archive.write_bytes(raw)
+            with self.assertRaises(worker.WorkerError):
+                worker.safe_extract(archive, root / "win", platform="windows")
+
     def test_platform_selection_is_explicit_and_bounded(self):
         from inspect import signature
         self.assertEqual("linux", signature(worker.run_assignment).parameters["platform"].default)
-        self.assertIn("powershell.exe", worker.run_assignment.__code__.co_consts.__str__())
+        self.assertIn("native_windows_powershell", worker.run_assignment.__code__.co_names)
+        self.assertIn("powershell.exe", worker.native_windows_powershell.__code__.co_consts.__str__())
 
 
 if __name__ == "__main__":
