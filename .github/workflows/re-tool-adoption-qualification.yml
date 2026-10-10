@@ -6,6 +6,7 @@ on:
       - .github/workflows/re-tool-adoption-qualification.yml
       - scripts/re_tool_adoption_qualification.py
       - scripts/re_tool_asc_multidex.py
+      - tests/fixtures/requal_rea_external.test.ts
   workflow_dispatch:
 
 permissions:
@@ -142,6 +143,22 @@ jobs:
           print('REA_ELECTRON_ANALYSIS_SUMMARY', json.dumps({k:r.get(k) for k in keys}, sort_keys=True))
           assert r.get('success') is True and r.get('numTotalTests',0)>=5 and r.get('numFailedTests')==0
           PY
+      - name: Compare external authored inert Electron fixture against REA
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tests/fixtures/requal_rea_external.test.ts \
+            "$RUNNER_TEMP/REA/tests/composition/javascript-applications/requal_external.test.ts"
+          cd "$RUNNER_TEMP/REA"
+          ./node_modules/.bin/vitest run tests/composition/javascript-applications/requal_external.test.ts \
+            --reporter=json --outputFile="$RUNNER_TEMP/re-qual/rea-external.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads((Path(os.environ["RUNNER_TEMP"])/"re-qual"/"rea-external.json").read_text())
+          print("REA_EXTERNAL_ORACLE_SUMMARY", json.dumps({k:r.get(k) for k in ("success","numTotalTests","numPassedTests","numFailedTests")}, sort_keys=True))
+          assert r.get("success") is True and r.get("numTotalTests")==3 and r.get("numFailedTests")==0
+          PY
       - name: Preserve public-safe evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -150,5 +167,6 @@ jobs:
           path: |
             ${{ runner.temp }}/re-qual/rea.json
             ${{ runner.temp }}/re-qual/rea-electron.json
+            ${{ runner.temp }}/re-qual/rea-external.json
           if-no-files-found: warn
           retention-days: 7
