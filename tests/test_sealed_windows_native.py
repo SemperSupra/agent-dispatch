@@ -159,16 +159,25 @@ class SealedWindowsNativeTests(unittest.TestCase):
                 "Start-Sleep -Seconds 60\n",
                 encoding="utf-8",
             )
-            with (root / "stdout.txt").open("wb") as stdout_fh, (
-                root / "stderr.txt"
-            ).open("wb") as stderr_fh:
-                rc, timed_out = worker._run_bounded_task(
-                    [worker.native_windows_powershell(), "-NoProfile",
-                     "-NonInteractive", "-File", str(script)],
-                    cwd=root, env=__import__("os").environ.copy(),
-                    stdout_fh=stdout_fh, stderr_fh=stderr_fh,
-                    timeout_seconds=5, platform="windows",
-                )
+            from unittest.mock import patch
+            resume = worker._resume_suspended_windows_process
+
+            def assert_not_executed_before_resume(kernel, proc):
+                self.assertFalse(marker.exists(), "PowerShell started before job admission")
+                return resume(kernel, proc)
+
+            with patch.object(worker, "_resume_suspended_windows_process",
+                              side_effect=assert_not_executed_before_resume):
+                with (root / "stdout.txt").open("wb") as stdout_fh, (
+                    root / "stderr.txt"
+                ).open("wb") as stderr_fh:
+                    rc, timed_out = worker._run_bounded_task(
+                        [worker.native_windows_powershell(), "-NoProfile",
+                         "-NonInteractive", "-File", str(script)],
+                        cwd=root, env=__import__("os").environ.copy(),
+                        stdout_fh=stdout_fh, stderr_fh=stderr_fh,
+                        timeout_seconds=5, platform="windows",
+                    )
             self.assertEqual(124, rc)
             self.assertTrue(timed_out)
             self.assertTrue(marker.is_file(), (root / "stderr.txt").read_text(errors="replace"))
