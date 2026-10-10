@@ -1,0 +1,38 @@
+name: macOS Memory and Privilege Envelope
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner:
+          - macos-26
+          - xcode-27
+          - macos-26-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Probe privilege and reclaimable memory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/macos-memory-privilege"
+          python3 scripts/macos_memory_privilege.py             --label "${{ matrix.runner }}"             --out "${RUNNER_TEMP}/macos-memory-privilege/receipt.json"
+      - name: Upload public-safe receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: macos-memory-privilege-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/macos-memory-privilege/receipt.json
+          if-no-files-found: error
+          retention-days: 7
