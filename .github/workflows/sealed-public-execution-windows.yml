@@ -7,6 +7,7 @@ on:
       - scripts/sealed_public_execution.py
       - tests/test_sealed_public_execution.py
       - tests/test_sealed_windows_native.py
+      - docs/sealed-public-execution.md
       - .github/workflows/sealed-public-execution-windows.yml
   workflow_dispatch:
     inputs:
