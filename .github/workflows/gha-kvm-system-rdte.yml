@@ -509,7 +509,7 @@ jobs:
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
         run: |
           test "$(git -C .deps/minecraft-product rev-parse HEAD)" = d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8
-          python3 -m unittest -v .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
+          python3 .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
