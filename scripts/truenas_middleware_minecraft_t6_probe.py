@@ -17,6 +17,7 @@ import sys
 import time
 
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
+from truenas_middleware_foliorelay_t6_probe import middleware_http_bytes, multipart_upload
 
 SCHEMA = "semper-supra.minecraft-paper-truenas-t6-control/1"
 EXPECTED_TARGET = "25.04.1"
@@ -28,6 +29,7 @@ DATASET = "rdtepool/minecraft-paper-t6-world"
 WORLD = "/mnt/rdtepool/minecraft-paper-t6-world"
 PORT = 25580
 WORLD_LEVEL = WORLD + "/level.dat"
+SENTINEL_PATH = WORLD + "/.supracraft-paper-t6-sentinel"
 REQUIRED_OWNER = {
     "SUPRACRAFT_COLLAGE_MANAGED": "true",
     "SUPRACRAFT_COLLAGE_SCHEMA": "1",
@@ -190,6 +192,7 @@ def main() -> int:
         if a.expected_system_version != "TrueNAS-" + EXPECTED_TARGET:
             raise MinecraftT6Error("requested exact system version drift")
         desired = runtime_values(control)
+        sentinel_bytes = ("SUPRACRAFT-PAPER-T6:" + control["control_sha256"] + "\n").encode("ascii")
         payload["foundry_ref"] = a.foundry_commit
         payload["control_sha256"] = control["control_sha256"]
         if not a.status_oracle.is_file():
@@ -237,6 +240,15 @@ def main() -> int:
                     raise MinecraftT6Error("Minecraft App reported terminal runtime failure")
                 time.sleep(3)
             raise MinecraftT6Error("Minecraft App never reached verified RUNNING")
+        def read_sentinel():
+            row = call("core.download", ["filesystem.get", [SENTINEL_PATH], "paper-t6-sentinel.txt", True])
+            if not isinstance(row, list) or len(row) != 2 or not isinstance(row[0], int):
+                raise MinecraftT6Error("sentinel download response invalid")
+            wait_job(row[0], "world sentinel download")
+            content = middleware_http_bytes(a.host, a.port, a.tls, row[1], timeout=a.timeout)
+            if content != sentinel_bytes:
+                raise MinecraftT6Error("world sentinel bytes changed or disappeared")
+            return hashlib.sha256(content).hexdigest()
         def stat_level():
             try:
                 item = call("filesystem.stat", [WORLD_LEVEL])
