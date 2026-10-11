@@ -23,6 +23,7 @@ SCHEMA = "semper-supra.minecraft-paper-truenas-t6-control/1"
 EXPECTED_TARGET = "25.04.1"
 EXPECTED_PROFILE = "800aca038ded29e6a91bfc4c1b1fe2d2199182e8"
 EXPECTED_APPS_COMMIT = "532236882212e8c5e51d5b49cfe2c6ce3dd5675e"
+EXPECTED_IMAGE_FRAGMENT = "ghcr.io/itzg/minecraft-server:2026.8.2-java21"
 EXPECTED_MIDDLEWARE = "74ab5a2d373be4097dece257d00e1086376333ba"
 APP = "rdte-t6-minecraft-paper"
 DATASET = "rdtepool/minecraft-paper-t6-world"
@@ -232,6 +233,11 @@ def main() -> int:
             while time.monotonic() < deadline:
                 app = getapp()
                 if isinstance(app, dict) and app.get("state") == "RUNNING":
+                    images = ((app.get("active_workloads") or {}).get("images") or [])
+                    if not isinstance(images, list) or not any(EXPECTED_IMAGE_FRAGMENT in str(i) for i in images):
+                        raise MinecraftT6Error("native Minecraft App runtime image differs from exact source candidate")
+                    payload["observed_image_reference"] = EXPECTED_IMAGE_FRAGMENT
+                    payload["image_digest_qualification"] = "NOT_YET_EARNED"
                     cfg = call("app.config", [APP])
                     if owned_config(cfg, desired):
                         return app
