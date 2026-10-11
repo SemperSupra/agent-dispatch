@@ -44,6 +44,14 @@
       "probe": "scripts/truenas_middleware_foliorelay_t6_probe.py",
       "control_artifact": "foliorelay-t6-control",
       "existing_selector": "foliorelay"
+    },
+    {
+      "id": "minecraft-paper-t6",
+      "kind": "foundry-product",
+      "product": "minecraft-paper",
+      "probe": "scripts/truenas_middleware_minecraft_t6_probe.py",
+      "control_artifact": "minecraft-paper-truenas-t6-control",
+      "existing_selector": "minecraft-paper"
     }
   ]
 }
