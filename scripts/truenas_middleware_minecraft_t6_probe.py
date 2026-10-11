@@ -311,6 +311,10 @@ def main() -> int:
         wait_job(call("filesystem.setperm", [{"path": WORLD, "uid": 568, "gid": 568,
             "mode": "775", "options": {"stripacl": True, "recursive": False, "traverse": False}}]),
             "world directory owner")
+        upload = multipart_upload(a.host, a.port, a.tls, "truenas_admin", password,
+                                  SENTINEL_PATH, sentinel_bytes, 0o644, a.timeout)
+        wait_job(upload, "world sentinel write")
+        payload["sentinel_sha256"] = read_sentinel()
         create_payload = {"app_name": APP, "catalog_app": "minecraft", "train": "community",
                           "version": control["runtime"]["catalog_version_candidate"],
                           "values": desired}
@@ -318,6 +322,7 @@ def main() -> int:
         wait_job(call("app.create", [create_payload]), "Minecraft first create")
         wait_app()
         wait_status("first")
+        read_sentinel()
         first_level = payload["readiness"]["first"]["level"]["size"]
 
         wait_job(call("app.stop", [APP]), "Minecraft stop")
@@ -332,17 +337,20 @@ def main() -> int:
             raise MinecraftT6Error("world dataset destroyed by App delete")
         if stat_level() is None:
             raise MinecraftT6Error("world level.dat absent after App deletion")
+        read_sentinel()
         payload["world_retained_on_delete"] = True
         app_created = True
         wait_job(call("app.create", [create_payload]), "Minecraft reinstall")
         wait_app()
         wait_status("reinstall")
+        read_sentinel()
         if first_level <= 0:
             raise MinecraftT6Error("world level.dat size invalid")
         payload["world_rebound_after_reinstall"] = True
         delete_app("Minecraft final delete")
         if stat_level() is None:
             raise MinecraftT6Error("world not retained before explicit owned cleanup")
+        read_sentinel()
         result = call("pool.dataset.delete", [DATASET, {"recursive": True, "force": False}])
         if result is not True:
             raise MinecraftT6Error("owned ZFS dataset delete was not confirmed")
