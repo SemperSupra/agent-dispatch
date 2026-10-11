@@ -180,6 +180,16 @@ def wrap_receipt(
         verdict = observed if observed in KNOWN_FAILURES else "HARNESS_FAILURE"
         cleanup_satisfied = False
         platform_healthy = False
+        # Minecraft T6 provides independent, post-failure read-only cleanup
+        # and platform witnesses. Do not promote the failed product oracle.
+        if provider["id"] == "minecraft-paper-t6" and provider_receipt:
+            evidence = provider_receipt.get("cleanup") or {}
+            cleanup_satisfied = (evidence.get("attempted") is True
+                and evidence.get("zero_residue") is True
+                and evidence.get("app_absent") is True
+                and evidence.get("owned_world_dataset_absent") is True)
+            platform_healthy = (cleanup_satisfied
+                and provider_receipt.get("post_failure_platform_healthy") is True)
         reason = (
             (provider_receipt or {}).get("detail")
             or stderr.strip()

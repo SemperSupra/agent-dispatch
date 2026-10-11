@@ -141,6 +141,31 @@ class ExistingProbeExecutorTests(unittest.TestCase):
         self.assertFalse(receipt["cleanup_satisfied"])
         self.assertFalse(receipt["platform_healthy"])
 
+    def test_minecraft_oracle_failure_with_verified_cleanup_is_not_contamination(self):
+        _, descriptor, _ = self.fixture("minecraft-paper-t6")
+        receipt = exe.wrap_receipt(descriptor, {
+            "classification": "ORACLE_FAILURE",
+            "oracleSatisfied": False,
+            "detail": "app.create job failed",
+            "post_failure_platform_healthy": True,
+            "cleanup": {"attempted": True, "zero_residue": True,
+                        "app_absent": True, "owned_world_dataset_absent": True}
+        }, 2, "")
+        self.assertEqual(receipt["verdict"], "ORACLE_FAILURE")
+        self.assertTrue(receipt["cleanup_satisfied"])
+        self.assertTrue(receipt["platform_healthy"])
+
+    def test_minecraft_partial_cleanup_still_stops_mutation(self):
+        _, descriptor, _ = self.fixture("minecraft-paper-t6")
+        receipt = exe.wrap_receipt(descriptor, {
+            "classification": "ORACLE_FAILURE", "oracleSatisfied": False,
+            "post_failure_platform_healthy": True,
+            "cleanup": {"attempted": True, "zero_residue": False,
+                        "app_absent": True, "owned_world_dataset_absent": False}
+        }, 2, "")
+        self.assertFalse(receipt["cleanup_satisfied"])
+        self.assertFalse(receipt["platform_healthy"])
+
     def test_missing_provider_receipt_is_harness_failure(self):
         _, descriptor, _ = self.fixture("official-catalog-t6")
         receipt = exe.wrap_receipt(descriptor, None, 7, "crashed")
