@@ -244,6 +244,8 @@ def main() -> int:
             row = call("core.download", ["filesystem.get", [SENTINEL_PATH], "paper-t6-sentinel.txt", True])
             if not isinstance(row, list) or len(row) != 2 or not isinstance(row[0], int):
                 raise MinecraftT6Error("sentinel download response invalid")
+            if not isinstance(row[1], str) or not row[1].startswith("/_download/") or ".." in row[1]:
+                raise MinecraftT6Error("sentinel download path is outside middleware")
             wait_job(row[0], "world sentinel download")
             content = middleware_http_bytes(a.host, a.port, a.tls, row[1], timeout=a.timeout)
             if content != sentinel_bytes:
@@ -308,9 +310,16 @@ def main() -> int:
         if not isinstance(dataset, dict) or dataset.get("id") != DATASET:
             raise MinecraftT6Error("created dataset identity mismatch")
         dataset_created = True
-        wait_job(call("filesystem.setperm", [{"path": WORLD, "uid": 568, "gid": 568,
-            "mode": "775", "options": {"stripacl": True, "recursive": False, "traverse": False}}]),
-            "world directory owner")
+        perms = call("filesystem.setperm", [{"path": WORLD, "uid": 568, "gid": 568,
+            "mode": "775", "options": {"stripacl": True, "recursive": False, "traverse": False}}])
+        if isinstance(perms, int) and not isinstance(perms, bool):
+            wait_job(perms, "world directory owner")
+        elif perms not in (None, True):
+            raise MinecraftT6Error("unexpected world permission result")
+        observed_perms = call("filesystem.stat", [WORLD])
+        if (not isinstance(observed_perms, dict) or observed_perms.get("uid") != 568
+                or observed_perms.get("gid") != 568):
+            raise MinecraftT6Error("writable world ownership readback mismatch")
         upload = multipart_upload(a.host, a.port, a.tls, "truenas_admin", password,
                                   SENTINEL_PATH, sentinel_bytes, 0o644, a.timeout)
         wait_job(upload, "world sentinel write")
