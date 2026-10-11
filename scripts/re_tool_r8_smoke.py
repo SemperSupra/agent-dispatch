@@ -50,11 +50,25 @@ def main(obfuscate=False):
         branch_ops=sum(inst.get_name().startswith('if-') or 'switch' in inst.get_name()
             for cls in parser.get_classes() for method in cls.get_methods()
             for inst in method.get_instructions())
+        dexdump=sdk/'build-tools/35.0.0/dexdump'
+        if dexdump.is_file():
+            p=subprocess.run([str(dexdump),'-d',str(output/'classes.dex')],
+                             capture_output=True,text=True,timeout=30)
+            import re
+            independent_branch_mentions=re.findall(r'\bif-[a-z]+\b',p.stdout)
+            independent_dexdump={
+                'available':True,'exit_code':p.returncode,
+                'binary_sha256':hashlib.sha256(dexdump.read_bytes()).hexdigest(),
+                'branch_mentions':len(independent_branch_mentions),
+                'stdout_sha256':hashlib.sha256(p.stdout.encode()).hexdigest()}
+        else:
+            independent_dexdump={'available':False,'status':'NOT_INSTALLED'}
         receipt={'schema':'r8-synthetic-optimizer/v1','r8_jar_sha256':PIN,'obfuscation_mode':obfuscate,
                  'source_sha256':hashlib.sha256(SOURCE.encode()).hexdigest(),
                  'dex_sha256':hashlib.sha256(dex).hexdigest(),
                  'jvm_truth':truth,'dex_classes':names,'asc_classes':asc_names,
-                 'xref_parity':parity,'conditional_opcodes':branch_ops,'mapping_exists':(root/'mapping.txt').is_file(),
+                 'xref_parity':parity,'conditional_opcodes':branch_ops,
+                 'independent_dexdump':independent_dexdump,'mapping_exists':(root/'mapping.txt').is_file(),
                  'pass':(names!=['LR8Fixture;'] if obfuscate else 'LR8Fixture;' in names) and names==asc_names and branch_ops>0
                     and all(x['match'] for x in parity.values())
                     and not parity['UNREACHABLE_ABSENT_TOKEN']['asc']
