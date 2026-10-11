@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import re
 import urllib.request
+import urllib.error
+import urllib.parse
 
 REPO = "SemperSupra/agent-dispatch"
 SOURCE = "33f047df21269d8556b47f3cda7122ca22ca88ad"
@@ -28,6 +30,8 @@ ORIGINAL_MASTER = "2c45ff5e113603fe016982bcc411915f2d6d6d01"
 ORIGINAL_STAGE = "0efa30b3c585a7a5fbee2271040cb8046d7ec262"
 ASSIGNMENT = "winbot-95-owner-approved-a-only-20261009-01"
 APPROVAL = "SemperSupra/agent-dispatch-private#406 comment 6076235901"
+WORKFLOW_PATH = ".github/workflows/winbot-95-owner-approved-a-only.yml"
+WORKFLOW_BRANCH = "exp/winbot-95-bounded-diagnostic-20261009"
 BATCHES = [
     "6bbefc02be214378b59857e5f6c6f568420cdd50",
     "0e21df5bd48a0963964b311b5c16c71400d10f25",
@@ -62,6 +66,30 @@ def read_blob(sha: str) -> bytes:
     if obj["size"] != len(raw) or git_hash(raw) != sha:
         raise ValueError("Git blob byte hash mismatch")
     return raw
+
+def read_publication_state() -> str:
+    """Observe exact workflow publication through GET only; never modify GitHub."""
+    url = ("https://api.github.com/repos/" + REPO + "/contents/" +
+           urllib.parse.quote(WORKFLOW_PATH, safe="/") + "?ref=" +
+           urllib.parse.quote(WORKFLOW_BRANCH, safe=""))
+    req = urllib.request.Request(url, headers={
+        "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            entry = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return "ABSENT_404"
+        raise
+    if entry.get("type") != "file" or entry.get("path") != WORKFLOW_PATH:
+        raise ValueError("published workflow is not the expected file")
+    if entry.get("sha") != WRAPPER:
+        raise ValueError("published workflow differs from qualified exact blob")
+    return "EXACT_PUBLISHED_UNTRIGGERED_STATUS_UNKNOWN"
+
 
 def require(cond: bool, reason: str) -> None:
     if not cond:
@@ -218,7 +246,14 @@ def main() -> None:
         (root / "winbot-a-only-exact-control.ps1").write_bytes(read_blob(CONTROL))
         (root / "winbot-approved-exact-stage.ps1").write_bytes(read_blob(STAGE))
         (root / "winbot-95-admission-guard.ps1").write_text(guard_script, encoding="utf-8")
+    publication = read_publication_state()
     receipt = {
+        "publication_state": publication,
+        "publication_read_method": "GitHub Contents API GET",
+        "published_workflow_path": WORKFLOW_PATH,
+        "publication_is_launch_proof": False,
+        "owner_single_use_consumed": "UNKNOWN_FROM_PREFLIGHT",
+        "workflow_write_attempted": False,
         "classification": "EXACT_ONE_RUN_OWNER_APPROVED_A_ONLY_GRAPH_PREFLIGHT",
         "authority": APPROVAL,
         "source_revision": SOURCE,
