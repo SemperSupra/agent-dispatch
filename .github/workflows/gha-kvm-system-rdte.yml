@@ -277,9 +277,9 @@ jobs:
   foundry-minecraft-paper-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-paper-t6-control.yml@db54c26a245b81952930819ef29ab8e2c6851f87
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-paper-t6-control.yml@2cc7e1fe3772f8c532e933b3d7832e6cf985db4e
     with:
-      foundry_ref: db54c26a245b81952930819ef29ab8e2c6851f87
+      foundry_ref: 2cc7e1fe3772f8c532e933b3d7832e6cf985db4e
       target_version: "25.04.1"
     permissions:
       contents: read
@@ -608,7 +608,7 @@ jobs:
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "foliorelay" ]]; then
                 foundry_commit="81deb97185760975fd8d3162df42056c77b3c0fd"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
-                foundry_commit="db54c26a245b81952930819ef29ab8e2c6851f87"
+                foundry_commit="2cc7e1fe3772f8c532e933b3d7832e6cf985db4e"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi
