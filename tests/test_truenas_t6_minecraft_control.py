@@ -53,13 +53,14 @@ def fixture() -> dict:
         "source": {
             "apps_commit": mc.EXPECTED_APPS_COMMIT,
             "app": "community/minecraft",
+            "image_reference": mc.EXPECTED_IMAGE_FRAGMENT,
             "library_version": "2.3.4",
             "source_compose_sha256": "1"*64,
             "values_raw_sha256": "2"*64,
         },
         "runtime": {
             "app_name": mc.APP, "catalog_app": "minecraft",
-            "train": "community", "catalog_version_candidate": "1.15.24",
+            "train": "community", "catalog_version_candidate": "1.15.29",
             "paper_version": "1.21.11", "required_owned_world_dataset": mc.DATASET,
             "status_oracle": "minecraft-java-status-oracle/v1",
             "values_template": values,
@@ -93,6 +94,8 @@ class TestNativeMinecraftControl(unittest.TestCase):
                          "/opt/tests/collage-world-only")
         self.assertEqual(initial["network"]["server_port"]["port_number"], 25565)
         self.assertEqual(mc.WORLD, "/mnt/rdtepool/minecraft-paper-t6-world")
+        self.assertIn("@sha256:", mc.EXPECTED_IMAGE_FRAGMENT)
+        self.assertEqual(control["source"]["apps_commit"], mc.EXPECTED_APPS_COMMIT)
         self.assertTrue(mc.owned_config(lowered, lowered))
 
     def test_wrong_producer_rejected(self):
@@ -115,6 +118,18 @@ class TestNativeMinecraftControl(unittest.TestCase):
         doc = fixture()
         doc["target"]["truenas_version"] = "25.10.7"
         with self.assertRaisesRegex(mc.MinecraftT6Error, "target/profile"):
+            admit(doc)
+
+    def test_digest_pinned_minecraft_image_required(self):
+        doc = fixture()
+        doc["source"]["image_reference"] = "ghcr.io/itzg/minecraft-server:latest"
+        with self.assertRaisesRegex(mc.MinecraftT6Error, "catalog source"):
+            admit(doc)
+
+    def test_live_catalog_version_mismatch_rejected(self):
+        doc = fixture()
+        doc["runtime"]["catalog_version_candidate"] = "1.15.24"
+        with self.assertRaisesRegex(mc.MinecraftT6Error, "product/source"):
             admit(doc)
 
     def test_wrong_upstream_source_rejected(self):
