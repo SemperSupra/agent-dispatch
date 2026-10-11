@@ -1,0 +1,41 @@
+name: Minecraft T6 consumer cheap qualification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/minecraft-t6-static.yml"
+      - "scripts/truenas_middleware_minecraft_t6_probe.py"
+      - "tests/test_truenas_t6_minecraft_control.py"
+      - "scripts/gha_kvm_truenas_rdte.sh"
+      - ".github/workflows/gha-kvm-system-rdte.yml"
+      - "config/truenas-capsule-providers.json"
+      - "config/truenas-session-minecraft-paper-25-04-1.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cheap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact feature revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Compile product and middleware consumer
+        run: |
+          python3 -m py_compile scripts/truenas_middleware_minecraft_t6_probe.py
+          python3 -m py_compile scripts/truenas_middleware_ddp_probe.py
+          bash -n scripts/gha_kvm_truenas_rdte.sh
+      - name: Execute source and fail-closed negatives
+        run: python3 -m unittest -v tests/test_truenas_t6_minecraft_control.py
+      - name: Verify session manifest exact contract
+        run: |
+          python3 scripts/truenas_session_manifest.py \
+            --manifest config/truenas-session-minecraft-paper-25-04-1.json \
+            --targets config/truenas-rdte-targets.json \
+            --providers config/truenas-capsule-providers.json
+          python3 scripts/truenas_single_capsule_adapter.py \
+            --manifest config/truenas-session-minecraft-paper-25-04-1.json \
+            --targets config/truenas-rdte-targets.json \
+            --providers config/truenas-capsule-providers.json
