@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """R8 optimizer availability and valid DEX proof from authored Java."""
-import hashlib,json,os,subprocess,tempfile,zipfile
+import hashlib,json,os,subprocess,sys,tempfile,zipfile
 from pathlib import Path
 from androguard.core.dex import DEX
 
@@ -10,7 +10,7 @@ def call(cmd):
     p=subprocess.run([str(x) for x in cmd],capture_output=True,text=True,timeout=90)
     if p.returncode:raise RuntimeError(str(cmd[0])+':'+p.stderr[-500:])
     return p.stdout.strip() or p.stderr.strip()
-def main():
+def main(obfuscate=False):
     sdk=Path(os.environ.get('ANDROID_HOME','/usr/local/lib/android/sdk'))
     jar=sdk/'build-tools/35.0.0/lib/d8.jar'
     assert hashlib.sha256(jar.read_bytes()).hexdigest()==PIN
@@ -21,7 +21,7 @@ def main():
         truth={k:call(['java','-cp',classes,'R8Fixture',k]) for k in ['-1','0','1']}
         assert truth=={'-1':'CAUGHT','0':'OTHER','1':'ONE'}
         rules=root/'rules.pro'
-        rules.write_text('-keep class R8Fixture { *; }\n-printmapping '+str(root/'mapping.txt')+'\n')
+        rules.write_text(('-keep,allowobfuscation' if obfuscate else '-keep')+' class R8Fixture { *; }\n-printmapping '+str(root/'mapping.txt')+'\n')
         output=root/'output';output.mkdir()
         call(['java','-cp',jar,'com.android.tools.r8.R8','--release','--min-api','26',
               '--lib',sdk/'platforms/android-35/android.jar','--pg-conf',rules,
@@ -50,18 +50,18 @@ def main():
         branch_ops=sum(inst.get_name().startswith('if-') or 'switch' in inst.get_name()
             for cls in parser.get_classes() for method in cls.get_methods()
             for inst in method.get_instructions())
-        receipt={'schema':'r8-synthetic-optimizer/v1','r8_jar_sha256':PIN,
+        receipt={'schema':'r8-synthetic-optimizer/v1','r8_jar_sha256':PIN,'obfuscation_mode':obfuscate,
                  'source_sha256':hashlib.sha256(SOURCE.encode()).hexdigest(),
                  'dex_sha256':hashlib.sha256(dex).hexdigest(),
                  'jvm_truth':truth,'dex_classes':names,'asc_classes':asc_names,
                  'xref_parity':parity,'conditional_opcodes':branch_ops,'mapping_exists':(root/'mapping.txt').is_file(),
-                 'pass':'LR8Fixture;' in names and names==asc_names and branch_ops>0
+                 'pass':(names!=['LR8Fixture;'] if obfuscate else 'LR8Fixture;' in names) and names==asc_names and branch_ops>0
                     and all(x['match'] for x in parity.values())
                     and not parity['UNREACHABLE_ABSENT_TOKEN']['asc']
                     and (root/'mapping.txt').is_file()}
-    out=Path(os.environ['RUNNER_TEMP'])/'evidence'/'r8-smoke.json'
+    out=Path(os.environ['RUNNER_TEMP'])/'evidence'/('r8-obfuscated.json' if obfuscate else 'r8-smoke.json')
     out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(receipt,indent=2)+'\n')
     print('R8_SMOKE',json.dumps(receipt))
     return 0 if receipt['pass'] else 1
-if __name__=='__main__':raise SystemExit(main())
+if __name__=='__main__':raise SystemExit(main('--obfuscate' in sys.argv))
