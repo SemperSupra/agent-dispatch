@@ -189,6 +189,19 @@ class TestNativeMinecraftControl(unittest.TestCase):
         app = {"active_workloads": {"images": ["ghcr.io/itzg/minecraft-server:latest"]}}
         self.assertIsNone(mc.qualified_native_image(app))
 
+    def test_job_error_receipt_redacts_secrets_and_bounds_detail(self):
+        state = {"state": "FAILED",
+                 "error": "AppValidation: host_path invalid; password=my-secret-123; "
+                          "TOKEN=supersecret0987; credential=abcd; literal=known-pass"}
+        cleaned = mc.safe_job_error(state, "known-pass")
+        self.assertEqual(cleaned["job_state"], "FAILED")
+        self.assertTrue(cleaned["error_present"])
+        for forbidden in ("my-secret-123", "supersecret0987", "abcd", "known-pass"):
+            self.assertNotIn(forbidden, cleaned["error_excerpt"])
+        self.assertIn("host_path invalid", cleaned["error_excerpt"])
+        large = mc.safe_job_error({"state": "FAILED", "error": "x" * 700}, "secret")
+        self.assertLessEqual(len(large["error_excerpt"]), 480)
+
     def test_status_script_must_be_exact_named(self):
         with tempfile.TemporaryDirectory() as td:
             other = pathlib.Path(td) / "anything.py"

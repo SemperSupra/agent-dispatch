@@ -58,6 +58,29 @@ def qualified_native_image(app: dict) -> str | None:
     return next((v for v in candidates if isinstance(v, str) and v in valid), None)
 
 
+def safe_job_error(state: dict, password: str) -> dict:
+    """Bounded public-safe error evidence. Never emit traceback or unredacted secrets."""
+    raw = state.get("error")
+    raw = raw if isinstance(raw, str) else ""
+    if password:
+        raw = raw.replace(password, "[redacted]")
+    raw = re.sub(
+        r"(?i)(password|passphrase|token|secret|authorization|credential|api[_-]?key)\s*[:=]\s*[^,;\s]+",
+        r"\1=[redacted]", raw,
+    )
+    raw = re.sub(r"[A-Za-z0-9_+/=-]{48,}", "[opaque]", raw)
+    raw = "".join(c if 32 <= ord(c) <= 126 else " " for c in raw)
+    info = state.get("exc_info") or {}
+    kind = info.get("type") if isinstance(info, dict) else None
+    return {
+        "job_state": state.get("state") if state.get("state") in ("FAILED", "ABORTED") else "UNKNOWN",
+        "error_excerpt": raw[:480],
+        "error_present": bool(raw),
+        "exception_kind": str(kind)[:100] if isinstance(kind, str) else None,
+        "truncated": len(raw) > 480,
+    }
+
+
 def canonical_sha256(doc: dict) -> str:
     return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -237,6 +260,9 @@ def main() -> int:
                 if isinstance(state, dict) and state.get("state") == "SUCCESS":
                     return
                 if isinstance(state, dict) and state.get("state") in {"FAILED", "ABORTED"}:
+                    payload["failed_job"] = {
+                        "phase": label, "job_id": job, **safe_job_error(state, password)
+                    }
                     raise MinecraftT6Error(label + " returned terminal failed job")
                 time.sleep(2)
             raise MinecraftT6Error(label + " job timeout")
@@ -420,6 +446,19 @@ def main() -> int:
             except Exception as cexc:
                 cleanup["cleanup_error_type"] = type(cexc).__name__
             payload["cleanup"] = cleanup
+        # A failed product oracle need not mean contaminated guest or failed cleanup.
+        # Prove the guest middleware is still coherent using read-only endpoints.
+        if ws is not None and payload["cleanup"].get("zero_residue") is True:
+            try:
+                system_ok = call("system.version", []) == a.expected_system_version
+                docker = call("docker.config", [])
+                payload["post_failure_platform_healthy"] = bool(
+                    system_ok and isinstance(docker, dict)
+                    and getapp() is None
+                    and one("pool.dataset.query", [["id", "=", DATASET]]) is None
+                )
+            except Exception:
+                payload["post_failure_platform_healthy"] = False
     finally:
         if ws is not None:
             ws.close()
