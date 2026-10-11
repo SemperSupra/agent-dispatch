@@ -65,8 +65,8 @@ def safe_job_error(state: dict, password: str) -> dict:
     if password:
         raw = raw.replace(password, "[redacted]")
     raw = re.sub(
-        r"(?i)(password|passphrase|token|secret|authorization|credential|api[_-]?key)\\s*[:=]\\s*[^,;\\s]+",
-        r"\\1=[redacted]", raw,
+        r"(?i)(password|passphrase|token|secret|authorization|credential|api[_-]?key)\s*[:=]\s*[^,;\s]+",
+        r"\1=[redacted]", raw,
     )
     raw = re.sub(r"[A-Za-z0-9_+/=-]{48,}", "[opaque]", raw)
     raw = "".join(c if 32 <= ord(c) <= 126 else " " for c in raw)
