@@ -29,11 +29,36 @@ def main():
         dex=(output/'classes.dex').read_bytes()
         parser=DEX(dex)
         names=[c.get_name() for c in parser.get_classes()]
+        from droidasc.asc_client.apk_handler import ApkHandler
+        archive=root/'optimized.apk'
+        with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
+            z.writestr('classes.dex',dex)
+        handler=ApkHandler(str(archive),max_workers=2)
+        asc_names=handler.list_classes(None)
+        parity={}
+        for token in ('ONE','OTHER','CAUGHT','UNREACHABLE_ABSENT_TOKEN'):
+            andro=set()
+            for cls in parser.get_classes():
+                for method in cls.get_methods():
+                    for inst in method.get_instructions():
+                        if inst.get_name() in ('const-string','const-string/jumbo') and token in inst.get_string():
+                            andro.add(cls.get_name()+'->'+method.get_name())
+            actual=set()
+            for _member,lines in handler.for_each_findrefs('string',{'string':token}):
+                actual.update(line.split(' | ')[1].split(' |')[0] for line in lines if '->' in line)
+            parity[token]={'androguard':sorted(andro),'asc':sorted(actual),'match':andro==actual}
+        branch_ops=sum(inst.get_name().startswith('if-') or 'switch' in inst.get_name()
+            for cls in parser.get_classes() for method in cls.get_methods()
+            for inst in method.get_instructions())
         receipt={'schema':'r8-synthetic-optimizer/v1','r8_jar_sha256':PIN,
                  'source_sha256':hashlib.sha256(SOURCE.encode()).hexdigest(),
                  'dex_sha256':hashlib.sha256(dex).hexdigest(),
-                 'jvm_truth':truth,'dex_classes':names,'mapping_exists':(root/'mapping.txt').is_file(),
-                 'pass':'LR8Fixture;' in names and (root/'mapping.txt').is_file()}
+                 'jvm_truth':truth,'dex_classes':names,'asc_classes':asc_names,
+                 'xref_parity':parity,'conditional_opcodes':branch_ops,'mapping_exists':(root/'mapping.txt').is_file(),
+                 'pass':'LR8Fixture;' in names and names==asc_names and branch_ops>0
+                    and all(x['match'] for x in parity.values())
+                    and not parity['UNREACHABLE_ABSENT_TOKEN']['asc']
+                    and (root/'mapping.txt').is_file()}
     out=Path(os.environ['RUNNER_TEMP'])/'evidence'/'r8-smoke.json'
     out.parent.mkdir(parents=True,exist_ok=True)
     out.write_text(json.dumps(receipt,indent=2)+'\n')
