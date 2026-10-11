@@ -63,6 +63,9 @@ def main(obfuscate=False):
                 'stdout_sha256':hashlib.sha256(p.stdout.encode()).hexdigest()}
         else:
             independent_dexdump={'available':False,'status':'NOT_INSTALLED'}
+        independent_dexdump['branch_agreement']=(
+            independent_dexdump.get('exit_code')==0 and
+            independent_dexdump.get('branch_mentions')==branch_ops)
         receipt={'schema':'r8-synthetic-optimizer/v1','r8_jar_sha256':PIN,'obfuscation_mode':obfuscate,
                  'source_sha256':hashlib.sha256(SOURCE.encode()).hexdigest(),
                  'dex_sha256':hashlib.sha256(dex).hexdigest(),
@@ -70,6 +73,7 @@ def main(obfuscate=False):
                  'xref_parity':parity,'conditional_opcodes':branch_ops,
                  'independent_dexdump':independent_dexdump,'mapping_exists':(root/'mapping.txt').is_file(),
                  'pass':(names!=['LR8Fixture;'] if obfuscate else 'LR8Fixture;' in names) and names==asc_names and branch_ops>0
+                    and independent_dexdump['branch_agreement']
                     and all(x['match'] for x in parity.values())
                     and not parity['UNREACHABLE_ABSENT_TOKEN']['asc']
                     and (root/'mapping.txt').is_file()}
