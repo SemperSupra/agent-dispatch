@@ -191,6 +191,32 @@ def safe_status_oracle(script: pathlib.Path, port: int, out: pathlib.Path,
     return verdict
 
 
+def native_server_port_matches(actual: object, desired: object) -> bool:
+    """Allow only the upstream 1.15.29 catalog's default empty host_ips addition."""
+    if not isinstance(actual, dict) or not isinstance(desired, dict):
+        return False
+    if actual == desired:
+        return True
+    if "host_ips" in desired or set(actual) != set(desired) | {"host_ips"}:
+        return False
+    return actual.get("host_ips") == [] and all(
+        actual.get(key) == value for key, value in desired.items()
+    )
+
+
+def port_readback_diagnostics(actual: object, desired: object) -> dict[str, bool]:
+    """Only boolean comparison; no site network data or secrets in public receipts."""
+    if not isinstance(actual, dict) or not isinstance(desired, dict):
+        return {"port_number": False, "bind_mode": False,
+                "host_ips_empty_or_absent": False, "only_expected_keys": False}
+    return {
+        "port_number": "port_number" in actual and actual.get("port_number") == desired.get("port_number"),
+        "bind_mode": "bind_mode" in actual and actual.get("bind_mode") == desired.get("bind_mode"),
+        "host_ips_empty_or_absent": "host_ips" not in actual or actual["host_ips"] == [],
+        "only_expected_keys": set(actual) <= set(desired) | {"host_ips"},
+    }
+
+
 def owner_readback_vector(config: dict, wanted: dict) -> dict[str, bool]:
     """Only boolean equality witnesses. Never emit app.config values or owner envs."""
     minecraft = (config.get("minecraft") or {}) if isinstance(config, dict) else {}
@@ -201,7 +227,7 @@ def owner_readback_vector(config: dict, wanted: dict) -> dict[str, bool]:
         "minecraft_version": minecraft.get("version") == "1.21.11" if isinstance(minecraft, dict) else False,
         "owner_environment": found_owner == REQUIRED_OWNER,
         "additional_storage": (config.get("storage") or {}).get("additional_storage") == wanted["storage"]["additional_storage"] if isinstance(config, dict) and isinstance(config.get("storage") or {}, dict) else False,
-        "server_port": (config.get("network") or {}).get("server_port") == wanted["network"]["server_port"] if isinstance(config, dict) and isinstance(config.get("network") or {}, dict) else False,
+        "server_port": native_server_port_matches((config.get("network") or {}).get("server_port"), wanted["network"]["server_port"]) if isinstance(config, dict) and isinstance(config.get("network") or {}, dict) else False,
     }
 
 
@@ -296,6 +322,11 @@ def main() -> int:
                     # Emit only field-level match booleans; no actual user values,
                     # storage paths, environment variables or credentials.
                     payload["owner_readback_match"] = match_vector
+                    network = (cfg.get("network") or {}) if isinstance(cfg, dict) else {}
+                    payload["server_port_readback_match"] = port_readback_diagnostics(
+                        network.get("server_port") if isinstance(network, dict) else None,
+                        desired["network"]["server_port"],
+                    )
                     raise MinecraftT6Error("RUNNING App read-back did not match owner")
                 if isinstance(app, dict) and app.get("state") in {"CRASHED", "ERROR"}:
                     raise MinecraftT6Error("Minecraft App reported terminal runtime failure")
