@@ -198,6 +198,45 @@ class TestNativeMinecraftControl(unittest.TestCase):
         bad["minecraft"]["additional_envs"] = []
         self.assertFalse(mc.owned_config(bad, values))
 
+    def test_native_server_port_exact_or_documented_default_only(self):
+        desired = {"bind_mode": "published", "port_number": mc.PORT}
+        self.assertTrue(mc.native_server_port_matches(dict(desired), desired))
+        self.assertTrue(mc.native_server_port_matches(dict(desired, host_ips=[]), desired))
+        for forbidden in [
+            dict(desired, host_ips=["127.0.0.1"]),
+            dict(desired, port_number=mc.PORT+1),
+            dict(desired, bind_mode="exposed"),
+            dict(desired, unknown="bad"),
+            {"port_number": mc.PORT, "host_ips": []},
+            None, {},
+        ]:
+            with self.subTest(value=str(forbidden)):
+                self.assertFalse(mc.native_server_port_matches(forbidden, desired))
+        self.assertFalse(mc.native_server_port_matches(dict(desired, host_ips=[]),
+                         dict(desired, host_ips=["0.0.0.0"])))
+
+    def test_native_port_default_preserves_full_ownership_gate(self):
+        desired = mc.runtime_values(admit(fixture()))
+        got = copy.deepcopy(desired)
+        got["network"]["server_port"]["host_ips"] = []
+        self.assertTrue(mc.owned_config(got, desired))
+        got["network"]["server_port"]["host_ips"] = ["0.0.0.0"]
+        self.assertFalse(mc.owned_config(got, desired))
+        got["network"]["server_port"]["host_ips"] = []
+        got["minecraft"]["additional_envs"].pop()
+        self.assertFalse(mc.owned_config(got, desired))
+
+    def test_port_readback_diagnostics_remain_boolean_and_private(self):
+        desired = {"bind_mode": "published", "port_number": mc.PORT}
+        diag = mc.port_readback_diagnostics(
+            dict(desired, host_ips=["192.0.2.8"], secret="redacted"), desired)
+        self.assertTrue(diag["port_number"])
+        self.assertTrue(diag["bind_mode"])
+        self.assertFalse(diag["host_ips_empty_or_absent"])
+        self.assertFalse(diag["only_expected_keys"])
+        self.assertTrue(all(type(v) is bool for v in diag.values()))
+        self.assertNotIn("192.0.2.8", json.dumps(diag))
+
     def test_live_owner_mismatch_report_contains_only_boolean_witnesses(self):
         wanted = mc.runtime_values(admit(fixture()))
         exact = mc.owner_readback_vector(copy.deepcopy(wanted), wanted)
