@@ -115,6 +115,11 @@ class TestNativeMinecraftControl(unittest.TestCase):
         self.assertIsNone(lowered["minecraft"]["motd"])
         self.assertNotIn("seed", lowered["minecraft"])
 
+    def test_root_requested_shape_uses_same_native_catalog_revision(self):
+        harness = (ROOT / "scripts/gha_kvm_truenas_rdte.sh").read_text(encoding="utf-8")
+        self.assertIn('"catalog_version_candidate": "1.15.29", "paper_version": "1.21.11"', harness)
+        self.assertNotIn('"catalog_version_candidate": "1.15.24"', harness)
+
     def test_wrong_producer_rejected(self):
         with self.assertRaisesRegex(mc.MinecraftT6Error, "producer identity"):
             admit(fixture(), expected="b"*40)
