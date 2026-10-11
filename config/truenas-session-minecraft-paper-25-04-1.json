@@ -1,0 +1,66 @@
+{
+  "schema": "truenas-session/v1",
+  "session_id": "tn-25-04-1-minecraft-paper-t6-001",
+  "version": "25.04.1",
+  "authority": {
+    "repository": "SemperSupra/agent-dispatch-private",
+    "issue": 480
+  },
+  "budget": {
+    "guest_memory_mib": 8192,
+    "download_mib": 2048,
+    "timeout_minutes": 48
+  },
+  "pool": {
+    "name": "rdtepool",
+    "data_disks": 2
+  },
+  "capsules": [
+    {
+      "schema": "truenas-capsule/v1",
+      "id": "minecraft-paper-world-retention-001",
+      "kind": "foundry-product",
+      "provider": "minecraft-paper-t6",
+      "authority": {
+        "repository": "SupraCraft/mc-server-images",
+        "issue": 53
+      },
+      "exact": {
+        "foundry_producer_ref": "db54c26a245b81952930819ef29ab8e2c6851f87",
+        "foundry_artifact_sha256": "cebe2f54dc87875ac276b1b6f46286372488db64b00c376b6ca7923f9430121a",
+        "minecraft_product_oracle_ref": "d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8",
+        "minecraft_version": "1.21.11",
+        "native_catalog_candidate": "1.15.24",
+        "truenas_target_profile_blob": "800aca038ded29e6a91bfc4c1b1fe2d2199182e8"
+      },
+      "namespace": "rdte-minecraft-paper-25-04-1",
+      "ports": [
+        25580
+      ],
+      "requirements": [
+        "apps",
+        "zfs-pool",
+        "native-catalog",
+        "minecraft-java-status"
+      ],
+      "resources": {
+        "memory_mib": 4096,
+        "download_mib": 1024,
+        "estimated_minutes": 35
+      },
+      "phases": {
+        "setup": true,
+        "apply": true,
+        "verify": true,
+        "cleanup": true
+      },
+      "oracle": "Minecraft Java status, level.dat world survival after App ixVolume delete and reinstall, zero owned residue",
+      "receipt_contract": "truenas-minecraft-paper-t6/v1",
+      "retry_policy": "read-only-reconcile",
+      "mutating": true,
+      "cleanup_required": true,
+      "dependencies": []
+    }
+  ],
+  "manifest_sha256": "735f2daa94877da895c08a8ad690df2ef57f0225317ff68d46228adca17cdaa6"
+}
