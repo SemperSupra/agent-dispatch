@@ -26,7 +26,7 @@ def fixture() -> dict:
         "resources": {"limits": {"cpus": 2, "memory": 4096}},
         "minecraft": {
             "type": "PAPER", "version": "1.21.11", "eula": True, "online_mode": True,
-            "enable_rcon": False, "additional_envs": [
+            "enable_rcon": False, "seed": None, "additional_envs": [
                 {"name": k, "value": v} for k, v in mc.REQUIRED_OWNER.items()
             ],
         },
@@ -84,10 +84,14 @@ def admit(doc, expected=SOURCE_SHA):
 
 
 class TestNativeMinecraftControl(unittest.TestCase):
-    def test_good_control_lowering_changes_only_world_and_port(self):
+    def test_good_control_lowering_changes_site_bindings_and_omits_null_optional_seed(self):
         control = admit(fixture())
         initial = copy.deepcopy(control["runtime"]["values_template"])
         lowered = mc.runtime_values(control)
+        self.assertIn("seed", initial["minecraft"])
+        self.assertIsNone(initial["minecraft"]["seed"])
+        self.assertNotIn("seed", lowered["minecraft"])
+        self.assertIsNone(control["runtime"]["values_template"]["minecraft"]["seed"])
         self.assertEqual(lowered["storage"]["additional_storage"][0]["host_path_config"]["path"], mc.WORLD)
         self.assertEqual(lowered["network"]["server_port"]["port_number"], mc.PORT)
         self.assertEqual(initial["storage"]["additional_storage"][0]["host_path_config"]["path"],
@@ -97,6 +101,19 @@ class TestNativeMinecraftControl(unittest.TestCase):
         self.assertIn("@sha256:", mc.EXPECTED_IMAGE_FRAGMENT)
         self.assertEqual(control["source"]["apps_commit"], mc.EXPECTED_APPS_COMMIT)
         self.assertTrue(mc.owned_config(lowered, lowered))
+
+    def test_explicit_non_null_seed_is_not_implicitly_changed(self):
+        doc = fixture()
+        doc["runtime"]["values_template"]["minecraft"]["seed"] = "43-meaningful-seed"
+        lowered = mc.runtime_values(admit(doc))
+        self.assertEqual(lowered["minecraft"]["seed"], "43-meaningful-seed")
+
+    def test_unrelated_optional_nulls_do_not_get_stripped(self):
+        doc = fixture()
+        doc["runtime"]["values_template"]["minecraft"]["motd"] = None
+        lowered = mc.runtime_values(admit(doc))
+        self.assertIsNone(lowered["minecraft"]["motd"])
+        self.assertNotIn("seed", lowered["minecraft"])
 
     def test_wrong_producer_rejected(self):
         with self.assertRaisesRegex(mc.MinecraftT6Error, "producer identity"):
