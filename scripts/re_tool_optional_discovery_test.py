@@ -51,6 +51,17 @@ def main(root, output):
         for name,args in controls:
             p=invoke(args)
             receipt["negative"].append({"id":name,"rejected":p.returncode!=0 and not dest.exists()})
+        # Independently reject a modified tracked upstream source tree.
+        tracked=root/"droidasc"/"__init__.py"
+        before=tracked.read_bytes()
+        try:
+            tracked.write_bytes(before+b"\n# synthetic qualification tamper\n")
+            attempt=invoke(base+["--prefix","example"])
+            receipt["negative"].append({
+                "id":"tracked_source_modified",
+                "rejected":attempt.returncode!=0 and not dest.exists()})
+        finally:
+            tracked.write_bytes(before)
         # A fake, oversize member count must fail before the upstream is run.
         flood=work/"flood.apk"
         with zipfile.ZipFile(flood,"w") as z:
