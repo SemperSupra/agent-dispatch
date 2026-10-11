@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_r8_smoke.py
+          PYTHONPATH="$RUNNER_TEMP/asc" "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_r8_smoke.py
       - name: Reuse existing Android SDK capability inventory
         if: always()
         shell: bash
