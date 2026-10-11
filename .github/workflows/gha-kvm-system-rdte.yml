@@ -55,6 +55,7 @@ on:
           - garm-provider-container-pre-b4
           - official-catalog
           - foliorelay
+          - minecraft-paper
       proxmox_compute_fixture:
         description: "Optional native PVE REST compute fixture"
         required: true
@@ -185,7 +186,7 @@ jobs:
             fi
             truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
             truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
-            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay")' "$RUN_REQUEST_PATH")"
+            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay" or . == "minecraft-paper")' "$RUN_REQUEST_PATH")"
             truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
             python3 scripts/truenas_rdte_target.py \
               --registry config/truenas-rdte-targets.json \
@@ -270,6 +271,16 @@ jobs:
     with:
       foundry_ref: 81deb97185760975fd8d3162df42056c77b3c0fd
       target_version: ${{ needs.changes.outputs.truenas_version }}
+    permissions:
+      contents: read
+
+  foundry-minecraft-paper-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-paper-t6-control.yml@db54c26a245b81952930819ef29ab8e2c6851f87
+    with:
+      foundry_ref: db54c26a245b81952930819ef29ab8e2c6851f87
+      target_version: "25.04.1"
     permissions:
       contents: read
 
@@ -417,7 +428,7 @@ jobs:
       group: agent-dispatch-heavyweight-rdte
       queue: max
       cancel-in-progress: false
-    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, foundry-minecraft-paper-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
     if: >-
       always() &&
       needs.contract.result == 'success' &&
@@ -431,6 +442,7 @@ jobs:
         (needs.changes.outputs.truenas_t6_product == 'garm-controller-f0f5' && needs['foundry-garm-f0-f5-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'official-catalog' && needs['foundry-official-catalog-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'foliorelay' && needs['foundry-foliorelay-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' && needs['foundry-minecraft-paper-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g2' && needs['provider-g2-fixtures'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g3' && needs['provider-g3-fixture'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g4' && needs['provider-g4-fixture'].result == 'success') ||
@@ -479,6 +491,25 @@ jobs:
         with:
           name: foliorelay-t6-control
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact Minecraft Paper Foundry control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: minecraft-paper-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Checkout exact Minecraft product status oracle
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8
+          path: .deps/minecraft-product
+          persist-credentials: false
+      - name: Prove exact Minecraft product source identity
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
+        run: |
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8
+          python3 -m unittest -v .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -576,6 +607,8 @@ jobs:
                 foundry_commit="60d56cc1752bc825cb232d72b397ff17fe6d47c4"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "foliorelay" ]]; then
                 foundry_commit="81deb97185760975fd8d3162df42056c77b3c0fd"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
+                foundry_commit="db54c26a245b81952930819ef29ab8e2c6851f87"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi
@@ -585,6 +618,9 @@ jobs:
                 --foundry-commit "$foundry_commit"
               )
             fi
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
+            args+=(--session-manifest config/truenas-session-minecraft-paper-25-04-1.json)
           fi
           bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
