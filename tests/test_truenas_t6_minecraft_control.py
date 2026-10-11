@@ -6,10 +6,12 @@ import copy
 import importlib.util
 import json
 import pathlib
+import sys
 import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location(
     "minecraft_t6", ROOT / "scripts/truenas_middleware_minecraft_t6_probe.py"
 )
