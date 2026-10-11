@@ -56,6 +56,7 @@ jobs:
           name="ad-v1-realized-$uuid"
           owned="/var/lib/libvirt/images/$name"
           domain_defined=0
+          owned_created=0
           qpid=''
           cleanup() {
             set +e
@@ -68,7 +69,7 @@ jobs:
               sudo virsh -c qemu:///system undefine "$uuid" --nvram >/dev/null 2>&1 \
                 || sudo virsh -c qemu:///system undefine "$uuid" >/dev/null 2>&1
             fi
-            if [[ -d "$owned" ]]; then sudo rm -rf -- "$owned"; fi
+            if [[ "$owned_created" == 1 && -d "$owned" ]]; then sudo rm -rf -- "$owned"; fi
             if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1; then
               echo '{"owned_domain_absent":false}' > cleanup.json
             elif sudo test -e "$owned"; then
@@ -81,6 +82,8 @@ jobs:
           if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1 || sudo test -e "$owned"; then
             echo 'Preexisting UUID/path, refusing to touch it' >&2; exit 4
           fi
+          # Only an absent, preflight-owned path is eligible for later deletion.
+          owned_created=1
           cp pristine.raw direct.raw
           cp "$vars" direct-vars.fd
           qemu-system-x86_64 -machine q35,accel=tcg -cpu qemu64 -smp 1 -m 512 \
