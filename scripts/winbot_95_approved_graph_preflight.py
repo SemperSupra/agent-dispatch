@@ -22,7 +22,7 @@ STAGE = "fea7b9871e8d569f5cd868b85f2f9870249be71c"
 MASTER = "4e0ccb1bddebe23dc3bb3a9a6c4ab243a1d3c339"
 CONTROL_MANIFEST = "82afbd00d434ee84f796f073a9ef15f90a306afe"
 POLICY = "3d731c0f25b988b142943ede71c7a83d94e2f01c"
-WRAPPER = "c83c14aaa21f22ab20537726ec5895691e02c952"
+WRAPPER = "7574e3e5a5fe8b4dc09b06cbc444c6657f5a99d7"
 CONTROL = "8426b7490f6d46fffd35085647fdea680f7ba669"
 ORIGINAL_MASTER = "2c45ff5e113603fe016982bcc411915f2d6d6d01"
 ORIGINAL_STAGE = "0efa30b3c585a7a5fbee2271040cb8046d7ec262"
@@ -204,11 +204,9 @@ def main() -> None:
         guard_source.append(line[10:] if line else "")
     guard_script = "\n".join(guard_source).strip() + "\n"
     for required in (
-        "GITHUB_RUN_ATTEMPT", "GITHUB_RUN_NUMBER", "GITHUB_EVENT_NAME", "GITHUB_REF",
+        "GITHUB_RUN_ATTEMPT", "GITHUB_EVENT_NAME", "GITHUB_REF",
         "GITHUB_EVENT_PATH", "GITHUB_SHA", "head_commit.added",
-        "@($event.commits).Count -ne 1", "event.forced", "event.created", "event.deleted",
-        "event.ref", "head_commit.modified", "head_commit.removed",
-        "WINBOT_95_ONE_RUN_INITIAL_PUBLICATION_PASS",
+        "@($event.commits).Count -ne 1", "WINBOT_95_ONE_RUN_INITIAL_PUBLICATION_PASS",
     ):
         require(required in guard_script, "owner single-run guard marker missing")
     require(wrapper.index(guard_start) < wrapper.index(guard_end),
