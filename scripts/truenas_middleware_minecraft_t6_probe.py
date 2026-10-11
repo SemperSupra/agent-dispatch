@@ -191,18 +191,22 @@ def safe_status_oracle(script: pathlib.Path, port: int, out: pathlib.Path,
     return verdict
 
 
+def owner_readback_vector(config: dict, wanted: dict) -> dict[str, bool]:
+    """Only boolean equality witnesses. Never emit app.config values or owner envs."""
+    minecraft = (config.get("minecraft") or {}) if isinstance(config, dict) else {}
+    env = minecraft.get("additional_envs") or [] if isinstance(minecraft, dict) else []
+    found_owner = {v.get("name"): v.get("value") for v in env if isinstance(v, dict)} if isinstance(env, list) else {}
+    return {
+        "minecraft_type": minecraft.get("type") == "PAPER" if isinstance(minecraft, dict) else False,
+        "minecraft_version": minecraft.get("version") == "1.21.11" if isinstance(minecraft, dict) else False,
+        "owner_environment": found_owner == REQUIRED_OWNER,
+        "additional_storage": (config.get("storage") or {}).get("additional_storage") == wanted["storage"]["additional_storage"] if isinstance(config, dict) and isinstance(config.get("storage") or {}, dict) else False,
+        "server_port": (config.get("network") or {}).get("server_port") == wanted["network"]["server_port"] if isinstance(config, dict) and isinstance(config.get("network") or {}, dict) else False,
+    }
+
+
 def owned_config(config: dict, wanted: dict) -> bool:
-    if not isinstance(config, dict):
-        return False
-    minecraft = config.get("minecraft") or {}
-    env = minecraft.get("additional_envs") or []
-    return (
-        minecraft.get("type") == "PAPER"
-        and minecraft.get("version") == "1.21.11"
-        and {v.get("name"): v.get("value") for v in env if isinstance(v, dict)} == REQUIRED_OWNER
-        and (config.get("storage") or {}).get("additional_storage") == wanted["storage"]["additional_storage"]
-        and (config.get("network") or {}).get("server_port") == wanted["network"]["server_port"]
-    )
+    return all(owner_readback_vector(config, wanted).values())
 
 
 def main() -> int:
@@ -286,8 +290,12 @@ def main() -> int:
                     payload["observed_image_reference"] = matching_image
                     payload["image_digest_qualification"] = "SOURCE_AND_GUEST_REF_MATCH"
                     cfg = call("app.config", [APP])
-                    if owned_config(cfg, desired):
+                    match_vector = owner_readback_vector(cfg, desired)
+                    if all(match_vector.values()):
                         return app
+                    # Emit only field-level match booleans; no actual user values,
+                    # storage paths, environment variables or credentials.
+                    payload["owner_readback_match"] = match_vector
                     raise MinecraftT6Error("RUNNING App read-back did not match owner")
                 if isinstance(app, dict) and app.get("state") in {"CRASHED", "ERROR"}:
                     raise MinecraftT6Error("Minecraft App reported terminal runtime failure")

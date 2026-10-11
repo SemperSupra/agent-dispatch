@@ -193,6 +193,26 @@ class TestNativeMinecraftControl(unittest.TestCase):
         bad["minecraft"]["additional_envs"] = []
         self.assertFalse(mc.owned_config(bad, values))
 
+    def test_live_owner_mismatch_report_contains_only_boolean_witnesses(self):
+        wanted = mc.runtime_values(admit(fixture()))
+        exact = mc.owner_readback_vector(copy.deepcopy(wanted), wanted)
+        self.assertEqual(set(exact), {"minecraft_type", "minecraft_version",
+                                       "owner_environment", "additional_storage", "server_port"})
+        self.assertTrue(all(exact.values()))
+        corrupted = copy.deepcopy(wanted)
+        corrupted["storage"]["additional_storage"][0]["host_path_config"]["path"] = "/private/secret-owner-path"
+        corrupted["network"]["server_port"]["port_number"] = 9999
+        result = mc.owner_readback_vector(corrupted, wanted)
+        self.assertFalse(result["additional_storage"])
+        self.assertFalse(result["server_port"])
+        self.assertTrue(result["minecraft_type"])
+        self.assertFalse(mc.owned_config(corrupted, wanted))
+        serialized = json.dumps(result)
+        self.assertNotIn("private", serialized)
+        self.assertNotIn("/mnt/", serialized)
+        self.assertTrue(all(isinstance(value, bool) for value in result.values()))
+        self.assertTrue(all(not isinstance(value, str) for value in result.values()))
+
     def test_runtime_image_matches_digest_with_or_without_tag(self):
         ref = mc.EXPECTED_IMAGE_FRAGMENT
         app = {"active_workloads": {"images": [ref]}}
