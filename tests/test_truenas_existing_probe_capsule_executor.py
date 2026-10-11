@@ -29,11 +29,14 @@ class ExistingProbeExecutorTests(unittest.TestCase):
         password.write_text("test\n", encoding="utf-8")
         control = root / "control"
         control.mkdir()
+        oracle = root / "minecraft_java_status_oracle.py"
+        oracle.write_text("# pinned synthetic oracle\n", encoding="utf-8")
         ports = {
             "litellm-t6": {"service": 18100},
             "wow-sidecar-t6": {},
             "garm-t6": {"service": 18101},
             "official-catalog-t6": {},
+            "minecraft-paper-t6": {"status": 18105},
             "foliorelay-t6": {"control": 18102, "ipp": 18103, "observer": 18104},
         }[provider_id]
         descriptor = {
@@ -61,6 +64,8 @@ class ExistingProbeExecutorTests(unittest.TestCase):
                     "control_dir": str(control),
                     "foundry_commit": "1" * 40,
                     "ports": ports,
+                    **({"status_oracle": str(oracle),
+                        "expected_system_version": "TrueNAS-25.04.1"} if provider_id == "minecraft-paper-t6" else {}),
                 }
             },
         }
@@ -72,6 +77,11 @@ class ExistingProbeExecutorTests(unittest.TestCase):
             "wow-sidecar-t6": ["--state-timeout", "240"],
             "garm-t6": ["--service-port", "18101", "--state-timeout", "240"],
             "official-catalog-t6": ["--state-timeout", "240"],
+            "minecraft-paper-t6": [
+                "--status-port", "18105", "--status-oracle",
+                "--expected-system-version", "TrueNAS-25.04.1",
+                "--job-timeout", "600", "--state-timeout", "480"
+            ],
             "foliorelay-t6": [
                 "--control-port", "18102",
                 "--ipp-port", "18103",
