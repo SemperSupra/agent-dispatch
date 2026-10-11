@@ -19,6 +19,7 @@ PROVIDER_PORT_ARGS = {
     "wow-sidecar-t6": {},
     "garm-t6": {"service": "--service-port"},
     "official-catalog-t6": {},
+    "minecraft-paper-t6": {"status": "--status-port"},
     "foliorelay-t6": {
         "control": "--control-port",
         "ipp": "--ipp-port",
@@ -31,6 +32,7 @@ STATE_TIMEOUT = {
     "wow-sidecar-t6": 240,
     "garm-t6": 240,
     "official-catalog-t6": 240,
+    "minecraft-paper-t6": 480,
     "foliorelay-t6": 300,
 }
 
@@ -134,11 +136,22 @@ def build_probe_command(
         raise SessionError(f"{provider_id}.ports must be an object")
     for name, flag in PROVIDER_PORT_ARGS[provider_id].items():
         command += [flag, str(positive_port(ports.get(name), f"{provider_id}.ports.{name}"))]
+    if provider_id == "minecraft-paper-t6":
+        status_oracle = pathlib.Path(nonempty(binding.get("status_oracle"), "minecraft.status_oracle"))
+        if not status_oracle.is_file() or status_oracle.name != "minecraft_java_status_oracle.py":
+            raise SessionError("pinned Minecraft product oracle file is absent")
+        expected_system_version = nonempty(binding.get("expected_system_version"), "minecraft.expected_system_version")
+        if expected_system_version != "TrueNAS-25.04.1":
+            raise SessionError("Minecraft native product target version drift")
+        command += [
+            "--status-oracle", str(status_oracle),
+            "--expected-system-version", expected_system_version,
+        ]
 
     command += [
         "--out", str(provider_receipt),
         "--timeout", "8",
-        "--job-timeout", "300",
+        "--job-timeout", "600" if provider_id == "minecraft-paper-t6" else "300",
         "--state-timeout", str(STATE_TIMEOUT[provider_id]),
     ]
     return command
