@@ -55,6 +55,10 @@ def source_pin(checkout):
     p=subprocess.run(["git","-C",str(checkout),"rev-parse","HEAD"],
                      capture_output=True,text=True,timeout=15)
     if p.returncode or p.stdout.strip()!=PIN: raise ValueError("upstream_source_revision_mismatch")
+    status=subprocess.run(["git","-C",str(checkout),"status","--porcelain","--untracked-files=no"],
+                          capture_output=True,text=True,timeout=15)
+    if status.returncode or status.stdout.strip():
+        raise ValueError("tracked_upstream_worktree_dirty")
     cli=checkout/"main.py"
     if not cli.is_file(): raise ValueError("upstream_cli_not_materialized")
     reference=subprocess.run(["git","-C",str(checkout),"show","HEAD:main.py"],
