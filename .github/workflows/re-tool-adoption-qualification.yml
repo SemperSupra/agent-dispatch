@@ -7,6 +7,8 @@ on:
       - scripts/re_tool_adoption_qualification.py
       - scripts/re_tool_asc_multidex.py
       - scripts/re_tool_asc_xref_scale.py
+      - scripts/re_tool_optional_discovery.py
+      - scripts/re_tool_optional_discovery_test.py
       - tests/fixtures/requal_rea_external.test.ts
   workflow_dispatch:
 
@@ -50,6 +52,7 @@ jobs:
           python3 -S scripts/re_tool_asc_xref_scale.py \
             --source "$RUNNER_TEMP/ASC" \
             --out "$RUNNER_TEMP/re-qual/asc-xref.json"
+          python3 -S scripts/re_tool_optional_discovery_test.py "$RUNNER_TEMP/ASC" "$RUNNER_TEMP/re-qual/optional-discovery.json"
       - name: Preserve public-safe result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -59,6 +62,7 @@ jobs:
             ${{ runner.temp }}/re-qual/asc.json
             ${{ runner.temp }}/re-qual/asc-multidex.json
             ${{ runner.temp }}/re-qual/asc-xref.json
+            ${{ runner.temp }}/re-qual/optional-discovery.json
           if-no-files-found: warn
           retention-days: 7
 
