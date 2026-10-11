@@ -162,6 +162,19 @@ class SessionRunnerTests(unittest.TestCase):
         self.assertEqual(verdicts["independent"], "SUPPORTED")
         self.assertEqual(result["classification"], "SESSION_CLEAN")
 
+    def test_nonexecutable_python_adapter_uses_interpreter(self):
+        doc = manifest([capsule("first", "official-catalog-t6", 18080)])
+        root = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+        executable = self.executor()
+        executable.chmod(0o644)
+        self.assertFalse(executable.stat().st_mode & stat.S_IXUSR)
+        result = runner.run_session(
+            self.temp_json(doc), TARGETS, PROVIDERS, executable,
+            self.temp_json({"first": {"verdict": "SUPPORTED"}}), root / "receipts"
+        )
+        self.assertEqual(result["capsules"][0]["verdict"], "SUPPORTED")
+
     def test_executor_without_receipt_fails_closed(self):
         doc = manifest([
             capsule("first", "official-catalog-t6", 18080),

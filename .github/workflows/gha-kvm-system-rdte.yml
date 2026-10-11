@@ -215,7 +215,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate public-safe contract
-        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_garm_provider_g2.py tests/test_truenas_garm_provider_g3.py tests/test_truenas_garm_provider_g4.py tests/test_truenas_garm_provider_g5.py tests/test_truenas_garm_container_pre_b4.py tests/test_truenas_garm_controller_f0_f5.py tests/test_truenas_t6_official_catalog_control.py tests/test_truenas_t6_foliorelay_control.py tests/test_truenas_rdte_target.py
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_garm_provider_g2.py tests/test_truenas_garm_provider_g3.py tests/test_truenas_garm_provider_g4.py tests/test_truenas_garm_provider_g5.py tests/test_truenas_garm_container_pre_b4.py tests/test_truenas_garm_controller_f0_f5.py tests/test_truenas_t6_official_catalog_control.py tests/test_truenas_t6_foliorelay_control.py tests/test_truenas_rdte_target.py tests/test_truenas_session_runner.py tests/test_minecraft_t6_receipt_gate.py
 
   foundry-t6-control:
     needs: [changes, contract]
@@ -624,6 +624,11 @@ jobs:
           fi
           bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          # A green job is not a Minecraft product pass without full guest evidence.
+          # Failure still uploads the receipt through always() below.
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
+            python3 scripts/assert_minecraft_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          fi
       - name: Preserve TrueNAS harness failure evidence
         if: always()
         env:

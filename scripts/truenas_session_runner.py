@@ -181,6 +181,7 @@ def execute_capsule(
     try:
         cp = subprocess.run(
             [
+                sys.executable,
                 str(executor),
                 "--capsule",
                 str(descriptor_path),
