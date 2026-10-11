@@ -229,7 +229,7 @@ payload = {
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "official-catalog"
       else {"name": "rdte-t6-foliorelay", "images": foliorelay_images}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "foliorelay"
-      else {"name": "rdte-t6-minecraft-paper", "catalog_app": "minecraft", "catalog_version_candidate": "1.15.24", "paper_version": "1.21.11"}
+      else {"name": "rdte-t6-minecraft-paper", "catalog_app": "minecraft", "catalog_version_candidate": "1.15.29", "paper_version": "1.21.11"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "minecraft-paper"
       else {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
       if os.environ.get("R_RUNG") == "t6"
