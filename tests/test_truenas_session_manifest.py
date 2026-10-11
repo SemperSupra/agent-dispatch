@@ -156,7 +156,8 @@ class SessionManifestTests(unittest.TestCase):
             "wow-sidecar-t6": "scripts/truenas_middleware_wow_sidecar_t6_probe.py",
             "garm-t6": "scripts/truenas_middleware_garm_t6_probe.py",
             "official-catalog-t6": "scripts/truenas_middleware_official_catalog_t6_probe.py",
-            "foliorelay-t6": "scripts/truenas_middleware_foliorelay_t6_probe.py"
+            "foliorelay-t6": "scripts/truenas_middleware_foliorelay_t6_probe.py",
+            "minecraft-paper-t6": "scripts/truenas_middleware_minecraft_t6_probe.py"
         }
         actual = {item["id"]: item["probe"] for item in registry["providers"]}
         self.assertEqual(actual, expected)
