@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import resource
 from pathlib import Path
 import statistics
 import subprocess
@@ -61,13 +62,16 @@ def main(args):
                 for name in backends:
                     p,ms=run([sys.executable,__file__,"--worker",name,
                               "--apk",str(apk),"--asc",str(args.asc)])
-                    try: observed=json.loads(p.stdout) if p.returncode==0 else []
-                    except json.JSONDecodeError: observed=[]
+                    try: worker=json.loads(p.stdout) if p.returncode==0 else {}
+                    except json.JSONDecodeError: worker={}
+                    observed=worker.get("classes",[])
+                    rss_kib=worker.get("rss_kib")
                     cases.append({"backend":name,"trial":trial,"ok":p.returncode==0 and observed==expected,
-                                  "count":len(observed),"error":p.stderr[-300:] if p.returncode else None})
+                                  "count":len(observed),"rss_kib":rss_kib,"error":p.stderr[-300:] if p.returncode else None})
                     timing[name].append(ms)
             receipts.append({"compression":compression,"expected":len(expected),"cases":cases,
-                             "median_ms":{k:statistics.median(v) for k,v in timing.items()}})
+                             "median_ms":{k:statistics.median(v) for k,v in timing.items()},
+                             "median_rss_kib":{k:statistics.median(row["rss_kib"] for row in cases if row["backend"]==k and row["rss_kib"] is not None) for k in timing}})
     verdict=all(row["ok"] for r in receipts for row in r["cases"])
     payload={"schema":"asc-androguard-4.1.4-class-parity/v1","status":"PASS" if verdict else "FAIL",
              "asc_git":ASC,"androguard_git":AG,"generated_sha256":[hashlib.sha256(x).hexdigest() for x in (a,b)],
@@ -75,7 +79,7 @@ def main(args):
     args.out.parent.mkdir(parents=True,exist_ok=True)
     args.out.write_text(json.dumps(payload,indent=2)+"\n")
     print(json.dumps({"status":payload["status"],"cases":sum(len(r["cases"]) for r in receipts),
-                      "results":[{"compression":r["compression"],"median_ms":r["median_ms"],
+                      "results":[{"compression":r["compression"],"median_ms":r["median_ms"],"median_rss_kib":r["median_rss_kib"],
                                   "matches":sum(x["ok"] for x in r["cases"])} for r in receipts]}))
     return 0 if verdict else 1
 
@@ -94,7 +98,7 @@ if __name__=="__main__":
             sys.path.insert(0,str(a.asc))
             from droidasc.asc_client.apk_handler import ApkHandler
             names=ApkHandler(str(a.apk),max_workers=2).list_classes(None)
-        print(json.dumps(names))
+        print(json.dumps({"classes":names,"rss_kib":resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}))
     else:
         if not a.and_source or not a.out: p.error("missing --and-source or --out")
         sys.exit(main(a))
