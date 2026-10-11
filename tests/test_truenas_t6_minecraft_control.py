@@ -176,6 +176,19 @@ class TestNativeMinecraftControl(unittest.TestCase):
         bad["minecraft"]["additional_envs"] = []
         self.assertFalse(mc.owned_config(bad, values))
 
+    def test_runtime_image_matches_digest_with_or_without_tag(self):
+        ref = mc.EXPECTED_IMAGE_FRAGMENT
+        app = {"active_workloads": {"images": [ref]}}
+        self.assertEqual(mc.qualified_native_image(app), ref)
+        repo, digest = ref.split("@sha256:", 1)
+        normalized = repo.rsplit(":", 1)[0] + "@sha256:" + digest
+        app = {"active_workloads": {"container_details": [{"image": normalized}]}}
+        self.assertEqual(mc.qualified_native_image(app), normalized)
+        app = {"active_workloads": {"images": [ref + ".evil"]}}
+        self.assertIsNone(mc.qualified_native_image(app))
+        app = {"active_workloads": {"images": ["ghcr.io/itzg/minecraft-server:latest"]}}
+        self.assertIsNone(mc.qualified_native_image(app))
+
     def test_status_script_must_be_exact_named(self):
         with tempfile.TemporaryDirectory() as td:
             other = pathlib.Path(td) / "anything.py"

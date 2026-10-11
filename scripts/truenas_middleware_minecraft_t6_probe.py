@@ -45,6 +45,19 @@ class MinecraftT6Error(RuntimeError):
     pass
 
 
+def qualified_native_image(app: dict) -> str | None:
+    """Accept only the digest-pinned OCI reference, with optional tag normalization."""
+    work = app.get("active_workloads") or {}
+    candidates = list(work.get("images") or [])
+    for item in work.get("container_details") or []:
+        if isinstance(item, dict) and isinstance(item.get("image"), str):
+            candidates.append(item["image"])
+    repository_tag, digest = EXPECTED_IMAGE_FRAGMENT.split("@sha256:", 1)
+    repository = repository_tag.rsplit(":", 1)[0]
+    valid = {EXPECTED_IMAGE_FRAGMENT, repository + "@sha256:" + digest}
+    return next((v for v in candidates if isinstance(v, str) and v in valid), None)
+
+
 def canonical_sha256(doc: dict) -> str:
     return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -234,9 +247,7 @@ def main() -> int:
             while time.monotonic() < deadline:
                 app = getapp()
                 if isinstance(app, dict) and app.get("state") == "RUNNING":
-                    images = ((app.get("active_workloads") or {}).get("images") or [])
-                    matching_image = next((str(i) for i in images if
-                        isinstance(i, str) and i == EXPECTED_IMAGE_FRAGMENT), None) if isinstance(images, list) else None
+                    matching_image = qualified_native_image(app)
                     if matching_image is None:
                         raise MinecraftT6Error("native Minecraft App runtime image differs from digest-pinned source")
                     payload["observed_image_reference"] = matching_image
