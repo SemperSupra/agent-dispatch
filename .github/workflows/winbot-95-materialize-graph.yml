@@ -1,0 +1,38 @@
+name: WinBot 9.5 Exact Graph Materialization Only
+
+on:
+  push:
+    branches:
+      - exp/winbot-95-bounded-diagnostic-20261009
+    paths:
+      - scripts/winbot_95_materialize_graph.py
+      - .github/workflows/winbot-95-materialize-graph.yml
+
+permissions:
+  contents: write
+  statuses: write
+
+jobs:
+  materialize-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout qualified candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Create verified dormant graph objects (no refs or launches)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python scripts/winbot_95_materialize_graph.py
+      - name: Publish bounded graph receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-95-graph-${{ github.run_id }}
+          path: ${{ runner.temp }}/winbot-95-graph.json
+          if-no-files-found: warn
+          retention-days: 14
