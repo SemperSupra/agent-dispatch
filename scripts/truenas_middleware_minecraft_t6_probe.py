@@ -157,10 +157,17 @@ def load_control(path: pathlib.Path, expected_commit: str) -> dict:
 
 
 def runtime_values(control: dict) -> dict:
-    """Lower ONLY the experiment's world dataset and published guest port."""
+    """Lower exact site bindings and remove only an absent optional native seed.
+
+    Foundry source-render accepts seed: null; middleware app.create on
+    TrueNAS 25.04.1 rejects that field with [EINVAL] ...seed: null not allowed.
+    Omission means catalog default, not a synthesized world seed.
+    """
     values = copy.deepcopy(control["runtime"]["values_template"])
     values["storage"]["additional_storage"][0]["host_path_config"]["path"] = WORLD
     values["network"]["server_port"]["port_number"] = PORT
+    if "seed" in values["minecraft"] and values["minecraft"]["seed"] is None:
+        del values["minecraft"]["seed"]
     return values
 
 
