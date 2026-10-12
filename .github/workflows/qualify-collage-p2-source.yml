@@ -12,6 +12,8 @@ on:
       - 'tests/test_collage_p2_native.py'
       - 'tests/test_collage_p2_roles.py'
       - 'tests/test_collage_p2_effective_roles.py'
+      - 'tests/test_collage_catalog_preflight.py'
+      - 'scripts/check_collage_catalog_preflight.py'
       - 'tests/test_truenas_t6_minecraft_control.py'
       - '.github/workflows/gha-kvm-system-rdte.yml'
       - '.github/workflows/qualify-collage-p2-source.yml'
@@ -38,11 +40,14 @@ jobs:
             scripts/assert_collage_p2_receipt.py \
             tests/test_collage_p2_native.py \
             tests/test_collage_p2_roles.py \
-            tests/test_collage_p2_effective_roles.py
+            tests/test_collage_p2_effective_roles.py \
+            tests/test_collage_catalog_preflight.py \
+            scripts/check_collage_catalog_preflight.py
           python3 -m unittest -v \
             tests.test_collage_p2_native \
             tests.test_collage_p2_roles \
             tests.test_collage_p2_effective_roles \
+            tests.test_collage_catalog_preflight \
             tests.test_truenas_t6_minecraft_control
       - name: Declare no live-system result
         run: |
