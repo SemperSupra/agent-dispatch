@@ -38,35 +38,35 @@ jobs:
             },
             "disable_custom_urls": True,
           }
-          pathlib.Path(sys.argv[1]).write_text(json.dumps(doc,sort_keys=True)+"\\n")
+          pathlib.Path(sys.argv[1]).write_text(json.dumps(doc,sort_keys=True)+"\n")
           PY
           chmod 644 "$config"
           docker pull --quiet "$image" >/dev/null
-          docker run -d --name "$cname" \\
-            --user '568:568' --cap-drop ALL \\
-            --security-opt no-new-privileges:true \\
-            --cpus 1 --memory 1g --pids-limit 128 \\
-            --tmpfs /etc/nginx/conf.d:rw,uid=568,gid=568 \\
-            -e ELEMENT_WEB_PORT=8080 \\
-            -p '127.0.0.1:18080:8080' \\
-            -v "$config:/app/config.json:ro" \\
+          docker run -d --name "$cname" \
+            --user '568:568' --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --cpus 1 --memory 1g --pids-limit 128 \
+            --tmpfs /etc/nginx/conf.d:rw,uid=568,gid=568 \
+            -e ELEMENT_WEB_PORT=8080 \
+            -p '127.0.0.1:18080:8080' \
+            -v "$config:/app/config.json:ro" \
             "$image" >/dev/null
-          python3 scripts/truenas_foundry_element_web_http_oracle.py \\
-            --port 18080 --expected-version 1.12.30 \\
+          python3 scripts/truenas_foundry_element_web_http_oracle.py \
+            --port 18080 --expected-version 1.12.30 \
             --expected-config "$config" > "$receipt"
           jq -e '.classification=="APP_HTTP_SEMANTIC_SUPPORTED_NOT_TRUE_NAS" and
                  .source_or_true_nas_f0_f5_qualified==false and
                  .physical_apply_authority=="HOLD"' "$receipt"
           # Live restart with same file-backed configuration, not a simulated response.
           docker restart "$cname" >/dev/null
-          python3 scripts/truenas_foundry_element_web_http_oracle.py \\
-            --port 18080 --expected-version 1.12.30 \\
+          python3 scripts/truenas_foundry_element_web_http_oracle.py \
+            --port 18080 --expected-version 1.12.30 \
             --expected-config "$config" > "$RUNNER_TEMP/rdte-element-web-http-restart.json"
           # Live adversarial check: actual server config vs mutated expected marker.
           jq '.brand="4RDTE-adversarial-wrong-marker"' "$config" > "$RUNNER_TEMP/wrong.json"
-          if python3 scripts/truenas_foundry_element_web_http_oracle.py \\
-               --port 18080 --expected-version 1.12.30 \\
-               --expected-config "$RUNNER_TEMP/wrong.json" --startup-timeout 1 \\
+          if python3 scripts/truenas_foundry_element_web_http_oracle.py \
+               --port 18080 --expected-version 1.12.30 \
+               --expected-config "$RUNNER_TEMP/wrong.json" --startup-timeout 1 \
                > "$RUNNER_TEMP/unexpected-acceptance.json" 2>/dev/null; then
             echo 'ORACLE FAILURE: mismatched semantic marker accepted' >&2
             exit 1
