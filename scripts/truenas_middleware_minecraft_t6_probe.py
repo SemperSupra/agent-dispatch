@@ -191,6 +191,44 @@ def safe_status_oracle(script: pathlib.Path, port: int, out: pathlib.Path,
     return verdict
 
 
+def classify_java_status_receipt(path: pathlib.Path) -> str:
+    """Map the trusted, bounded *local oracle result* to an allowlisted cause.
+
+    Do not propagate raw Minecraft status payloads, MOTD, IPs, user names,
+    private paths or arbitrary exception strings into public receipts.
+    """
+    try:
+        if not path.is_file() or path.stat().st_size > 4096:
+            return "missing_or_oversized_receipt"
+        row = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "unreadable_receipt"
+    if not isinstance(row, dict) or row.get("schema") != "minecraft-java-status-oracle/v1":
+        return "invalid_receipt"
+    if row.get("classification") == "SUPPORTED" and row.get("oracleSatisfied") is True:
+        return "status_supported"
+    if row.get("classification") != "ORACLE_FAILURE" or row.get("oracleSatisfied") is not False:
+        return "invalid_receipt"
+    reason = row.get("failure_reason")
+    if reason == "transport failure":
+        return "transport_failure"
+    if reason == "server version mismatch":
+        return "version_mismatch"
+    if reason == "server protocol is absent or invalid":
+        return "protocol_version_invalid"
+    if reason in {
+        "truncated VarInt", "VarInt overflow", "VarInt too long",
+        "packet exceeds bound", "outbound packet exceeds bound",
+        "truncated packet", "status frame length invalid",
+        "wrong status packet id", "status JSON length mismatch",
+        "malformed status JSON", "status payload not an object",
+        "players status absent", "players counters invalid",
+        "player counter bounds invalid",
+    }:
+        return "invalid_or_truncated_status"
+    return "other_oracle_failure"
+
+
 def native_server_port_matches(actual: object, desired: object) -> bool:
     """Allow only the upstream 1.15.29 catalog's default empty host_ips addition."""
     if not isinstance(actual, dict) or not isinstance(desired, dict):
@@ -354,18 +392,60 @@ def main() -> int:
         def wait_status(label):
             deadline = time.monotonic() + a.state_timeout
             last = None
+            attempts = 0
+            level_stat_attempted = False
+            level_ever_observed = False
+            status_ever_satisfied = False
+            status_cause = "not_probed"
             while time.monotonic() < deadline:
+                attempts += 1
                 receipt = a.out.with_name(a.out.stem + "-status-" + label + ".json")
                 try:
                     verdict = safe_status_oracle(a.status_oracle, a.status_port, receipt)
+                    status_ever_satisfied = True
+                    status_cause = "status_supported"
+                    level_stat_attempted = True
                     level = stat_level()
+                    level_ever_observed = level_ever_observed or (level is not None)
                     if level is not None:
                         payload.setdefault("readiness", {})[label] = {"protocol": verdict, "level": level}
                         return
                 except (OSError, ValueError, MinecraftT6Error, subprocess.TimeoutExpired) as exc:
                     last = type(exc).__name__
+                    # The oracle writes a bounded local failure receipt even on a
+                    # failed connection. Only copy an allowlisted category.
+                    status_cause = classify_java_status_receipt(receipt)
+                # Sample world independently of protocol success; a server may
+                # create level.dat while no TCP status listener is accessible.
+                # A negative stat is not a proof that the world is absent.
+                if attempts == 1 or attempts % 8 == 0:
+                    level_stat_attempted = True
+                    level_ever_observed = level_ever_observed or (stat_level() is not None)
                 time.sleep(4)
-            raise MinecraftT6Error("Minecraft runtime status+world did not converge: " + str(last))
+            snapshot = {
+                "attempts": attempts,
+                "status_oracle_ever_satisfied": status_ever_satisfied,
+                "level_stat_attempted": level_stat_attempted,
+                "level_dat_ever_observed": level_ever_observed,
+                "last_status_cause": status_cause,
+                "last_exception_kind": last if last in {
+                    "OSError", "ValueError", "MinecraftT6Error", "TimeoutExpired"
+                } else "none_or_other",
+            }
+            # Middleware reachability and App lifecycle state are separate
+            # evidence, never substitutes for the Java/status+level.dat oracle.
+            try:
+                app = getapp()
+                state = app.get("state") if isinstance(app, dict) else None
+                snapshot["middleware_app_query_succeeded"] = True
+                snapshot["app_state"] = state if state in {
+                    "RUNNING", "DEPLOYING", "CRASHED", "STOPPED", "UNKNOWN"
+                } else "other_or_absent"
+            except Exception:
+                snapshot["middleware_app_query_succeeded"] = False
+                snapshot["app_state"] = "query_failed"
+            payload.setdefault("readiness_diagnostics", {})[label] = snapshot
+            raise MinecraftT6Error("Minecraft runtime status+world did not converge")
         def delete_app(label):
             nonlocal app_created
             wait_job(call("app.delete", [APP, {
