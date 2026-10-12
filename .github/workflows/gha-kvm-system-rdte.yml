@@ -502,13 +502,13 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SupraCraft/mc-server-images
-          ref: d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8
+          ref: 1b2227847d56007cdf8b668c00845326827e5fd5
           path: .deps/minecraft-product
           persist-credentials: false
       - name: Prove exact Minecraft product source identity
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
         run: |
-          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 1b2227847d56007cdf8b668c00845326827e5fd5
           python3 .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'

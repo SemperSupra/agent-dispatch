@@ -283,6 +283,17 @@ class TestNativeMinecraftControl(unittest.TestCase):
         large = mc.safe_job_error({"state": "FAILED", "error": "x" * 700}, "secret")
         self.assertLessEqual(len(large["error_excerpt"]), 480)
 
+    def test_protocol_mismatch_is_an_allowlisted_status_cause(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = pathlib.Path(td) / "oracle.json"
+            p.write_text(json.dumps({
+                "schema": "minecraft-java-status-oracle/v1",
+                "classification": "ORACLE_FAILURE", "oracleSatisfied": False,
+                "failure_reason": "server protocol mismatch",
+                "raw_response": "do-not-copy-this-name"
+            }))
+            self.assertEqual(mc.classify_java_status_receipt(p), "protocol_mismatch")
+
     def test_status_diagnostic_receipt_only_emits_allowed_failure_category(self):
         with tempfile.TemporaryDirectory() as td:
             p = pathlib.Path(td) / "status.json"
@@ -326,6 +337,49 @@ class TestNativeMinecraftControl(unittest.TestCase):
         self.assertIn('"status_oracle_ever_satisfied": status_ever_satisfied', source)
         self.assertIn('snapshot["middleware_app_query_succeeded"] = True', source)
         self.assertNotIn('payload["raw_status_json"]', source)
+
+    def test_paper_status_invocation_and_receipt_gate_are_exact(self):
+        import unittest.mock as mock
+        control = mc.runtime_values(admit(fixture()))
+        with tempfile.TemporaryDirectory() as td:
+            script = pathlib.Path(td) / "minecraft_java_status_oracle.py"
+            script.write_text("# product oracle placeholder; subprocess instrumented")
+            out = pathlib.Path(td) / "status.json"
+            valid = {
+                "schema": "minecraft-java-status-oracle/v1",
+                "classification": "SUPPORTED", "oracleSatisfied": True,
+                "java_version": "1.21.11", "server_implementation": "paper",
+                "status_name_contract": "paper_brand_exact",
+                "server_protocol": 774, "status_packet_valid": True,
+            }
+            def mock_run(cmd, **_kwargs):
+                self.assertIn("--implementation", cmd)
+                self.assertEqual(cmd[cmd.index("--implementation") + 1], "paper")
+                self.assertEqual(cmd[cmd.index("--expected-protocol") + 1], "774")
+                out.write_text(json.dumps(valid))
+                return type("Process", (), {"returncode": 0})()
+            with mock.patch.object(mc.subprocess, "run", side_effect=mock_run):
+                got = mc.safe_status_oracle(script, mc.PORT, out)
+                self.assertEqual(got["server_protocol"], 774)
+                for key, value in (
+                    ("server_protocol", 773),
+                    ("server_implementation", "vanilla"),
+                    ("status_name_contract", "vanilla_exact"),
+                    ("java_version", "1.21.10"),
+                ):
+                    invalid = dict(valid, **{key: value})
+                    def mock_bad(cmd, **_kwargs):
+                        out.write_text(json.dumps(invalid))
+                        return type("Process", (), {"returncode": 0})()
+                    with mock.patch.object(mc.subprocess, "run", side_effect=mock_bad):
+                        with self.assertRaisesRegex(mc.MinecraftT6Error, "receipt invalid"):
+                            mc.safe_status_oracle(script, mc.PORT, out)
+
+    def test_source_pin_now_uses_approved_paper_oracle(self):
+        workflow = (ROOT / ".github/workflows/gha-kvm-system-rdte.yml").read_text()
+        pin = "1b2227847d56007cdf8b668c00845326827e5fd5"
+        self.assertEqual(workflow.count(pin), 2)
+        self.assertNotIn("d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8", workflow)
 
     def test_status_script_must_be_exact_named(self):
         with tempfile.TemporaryDirectory() as td:
