@@ -1,13 +1,15 @@
 """Cheap negative and isolation tests for new opt-in COLLAGE catalog product."""
 import pathlib
+import sys
 import unittest
 
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/"scripts"))
 from scripts.truenas_middleware_minecraft_t6_probe import (
     CATALOG_PROFILES, EXPECTED_APPS_COMMIT, EXPECTED_IMAGE_FRAGMENT,
     qualified_native_image,
 )
 
-ROOT=pathlib.Path(__file__).resolve().parents[1]
 NEW_COMMIT="559b9fe85212c800bc6770f152a65211df137a44"
 NEW_IMAGE=("ghcr.io/itzg/minecraft-server:2026.10.0-java21@sha256:"
            "d4057e7019e9b19f25e039d4a204cc502e1a112d1a2305966a534f3d7079e644")
