@@ -1163,6 +1163,7 @@ elif [[ "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-p
       --collage-source-dir "$REPO_ROOT/.deps/collage-source"
       --collage-https-port "$HTTPS_PORT"
       --collage-source-ref "fbda94f3fea0a216ddd9c35b38a09d325bed3640"
+      --native-catalog-profile "1.15.30"
     )
   fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
