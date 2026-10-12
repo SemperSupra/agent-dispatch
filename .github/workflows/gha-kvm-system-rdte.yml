@@ -382,13 +382,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Refuse floating upstream Minecraft catalog before heavyweight KVM
-        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
-        run: |
-          set -euo pipefail
-          python3 -m unittest -v tests.test_collage_catalog_preflight
-          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.29
-
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
@@ -578,6 +571,13 @@ jobs:
         with:
           name: garm-provider-truenas-container-pre-b4-fixture
           path: ${{ runner.temp }}/gha-kvm-system-rdte/container-pre-b4-fixture
+      - name: Refuse floating upstream Minecraft catalog before heavyweight KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_collage_catalog_preflight
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.29
+
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
