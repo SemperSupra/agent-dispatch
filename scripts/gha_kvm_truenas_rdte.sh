@@ -76,8 +76,12 @@ if [[ "$COMPUTE_FIXTURE" != "none" && "$RUNG" != "t3" ]]; then
   exit 2
 fi
 if [[ "$RUNG" == "t6" ]]; then
-  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "minecraft-paper" && "$T6_PRODUCT" != "collage-native-paper" && "$T6_PRODUCT" != "garm-controller-f0f5" ]]; then
-    [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
+  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "minecraft-paper" && "$T6_PRODUCT" != "garm-controller-f0f5" ]]; then
+    if [[ "$T6_PRODUCT" == "collage-native-paper" ]]; then
+      [[ "$VERSION" == "25.04.1" ]] || { echo "COLLAGE P2 admitted only on isolated TrueNAS 25.04.1" >&2; exit 2; }
+    else
+      [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
+    fi
   fi
   [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-controller-f0f5" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "garm-provider-container-pre-b4" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" || "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
