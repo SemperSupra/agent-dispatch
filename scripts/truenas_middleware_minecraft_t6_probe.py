@@ -176,8 +176,9 @@ def safe_status_oracle(script: pathlib.Path, port: int, out: pathlib.Path,
     if not script.is_file() or script.name != "minecraft_java_status_oracle.py":
         raise MinecraftT6Error("exact Minecraft product oracle file absent")
     cmd = [sys.executable, str(script), "--port", str(port),
-           "--expected-version", expected_version, "--timeout", "5",
-           "--out", str(out)]
+           "--expected-version", expected_version,
+           "--implementation", "paper", "--expected-protocol", "774",
+           "--timeout", "5", "--out", str(out)]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
     if result.returncode != 0 or not out.is_file():
         raise MinecraftT6Error("Minecraft Java status oracle did not pass")
@@ -186,6 +187,9 @@ def safe_status_oracle(script: pathlib.Path, port: int, out: pathlib.Path,
         verdict.get("classification") != "SUPPORTED" or
         verdict.get("oracleSatisfied") is not True or
         verdict.get("java_version") != expected_version or
+        verdict.get("server_implementation") != "paper" or
+        verdict.get("status_name_contract") != "paper_brand_exact" or
+        verdict.get("server_protocol") != 774 or
         verdict.get("status_packet_valid") is not True):
         raise MinecraftT6Error("Minecraft Java status receipt invalid")
     return verdict
@@ -216,6 +220,8 @@ def classify_java_status_receipt(path: pathlib.Path) -> str:
         return "version_mismatch"
     if reason == "server protocol is absent or invalid":
         return "protocol_version_invalid"
+    if reason == "server protocol mismatch":
+        return "protocol_mismatch"
     if reason in {
         "truncated VarInt", "VarInt overflow", "VarInt too long",
         "packet exceeds bound", "outbound packet exceeds bound",
