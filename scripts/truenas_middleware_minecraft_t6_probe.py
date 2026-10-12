@@ -290,6 +290,9 @@ def main() -> int:
     p.add_argument("--foundry-commit", required=True)
     p.add_argument("--expected-system-version", required=True)
     p.add_argument("--out", required=True, type=pathlib.Path)
+    p.add_argument("--collage-source-dir", type=pathlib.Path)
+    p.add_argument("--collage-https-port", type=int)
+    p.add_argument("--collage-source-ref")
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8)
     p.add_argument("--job-timeout", type=float, default=600)
@@ -520,6 +523,27 @@ def main() -> int:
         wait_app()
         wait_status("first")
         read_sentinel()
+        if a.collage_source_dir is not None:
+            if (a.collage_https_port is None or a.collage_source_ref is None
+                    or a.collage_https_port <= 0):
+                raise MinecraftT6Error("COLLAGE P2 readback admission incomplete")
+            from truenas_middleware_collage_readback_p2 import (
+                ObservationError, run_real_readback,
+            )
+            try:
+                payload["collage_readback"] = run_real_readback(
+                    call,
+                    collage=a.collage_source_dir,
+                    https_port=a.collage_https_port,
+                    state_dir=a.out.parent,
+                    expected_source_sha=a.collage_source_ref,
+                )
+            except ObservationError as err:
+                # The helper emits only a fixed reason code, no raw auth,
+                # certificate, network or client traces.
+                raise MinecraftT6Error("COLLAGE P2: " + str(err)) from None
+            read_sentinel()
+
         first_level = payload["readiness"]["first"]["level"]["size"]
 
         wait_job(call("app.stop", [APP]), "Minecraft stop")
