@@ -19,7 +19,7 @@ SCHEMA = "truenas-foundry-deployment-artifact/v1"
 TARGET = "truenas-scale-apps"
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-IMAGE = re.compile(r"^\\S+@sha256:[0-9a-f]{64}$")
+IMAGE = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
 NAME = re.compile(r"^[a-z]([-a-z0-9]*[a-z0-9])?$")
 METHODS = {"app.query", "app.config", "app.create", "app.update"}
 
