@@ -78,7 +78,11 @@ class TargetRegistryTests(unittest.TestCase):
         target=self.targets[request["version"]]
         self.assertEqual(request["authority_issue"], target["authority_issue"])
         if request["rung"] == "t6":
-            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-controller-f0f5","garm-provider-g2","garm-provider-g3","garm-provider-g4","garm-provider-g5","garm-provider-container-pre-b4","official-catalog","foliorelay","minecraft-paper"})
+            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-controller-f0f5","garm-provider-g2","garm-provider-g3","garm-provider-g4","garm-provider-g5","garm-provider-container-pre-b4","official-catalog","foliorelay","minecraft-paper","collage-native-paper"})
+        if request.get("product") == "collage-native-paper":
+            self.assertEqual(request["rung"], "t6")
+            self.assertEqual(request["version"], "25.04.1")
+            self.assertEqual(request["consumer_authority_issue"], 614)
         if request.get("product") == "wow-sidecar":
             self.assertEqual(request.get("consumer_authority_issue"), 276)
         if request.get("product") == "garm":
