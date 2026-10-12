@@ -1,5 +1,6 @@
 """Offline source tests: preflight must reject missing pins, not launch a VM."""
 import unittest
+import pathlib
 from scripts.check_collage_catalog_preflight import evaluate, version_inventory
 
 class CatalogPreflightTests(unittest.TestCase):
@@ -22,6 +23,17 @@ class CatalogPreflightTests(unittest.TestCase):
                       [{"name":"1.15.29","type":"dir"}]*2):
             with self.subTest(value=value),self.assertRaises(ValueError):
                 version_inventory(value)
+
+    def test_causal_preflight_is_in_truenas_job_not_proxmox(self):
+        root=pathlib.Path(__file__).resolve().parents[1]
+        yml=(root/".github/workflows/gha-kvm-system-rdte.yml").read_text()
+        prox=yml.split("  proxmox-9-2:",1)[1].split("  truenas-26-beta3:",1)[0]
+        guest=yml.split("  truenas-26-beta3:",1)[1]
+        guard="python3 scripts/check_collage_catalog_preflight.py --expected 1.15.29"
+        self.assertNotIn(guard,prox)
+        self.assertIn(guard,guest)
+        self.assertLess(guest.index(guard),
+                        guest.index("      - name: Ensure bounded QEMU/KVM prerequisites"))
 
     def test_no_float_latest_pin(self):
         rows=[{"name":"1.15.30","type":"dir"}]
