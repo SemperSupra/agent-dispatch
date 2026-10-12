@@ -34,6 +34,13 @@ class CollageP2SourceTests(unittest.TestCase):
                 "schema": "truenas-minecraft-paper-t6/v1",
                 "classification": "SUPPORTED", "oracleSatisfied": True,
                 "catalog_version_verified": True,
+                "foundry_ref": "403321031b6d4e66aa64a8299fd7621eee290b0d",
+                "catalog_discovery": {
+                    "requested_version": "1.15.30",
+                    "upstream_apps_commit": "559b9fe85212c800bc6770f152a65211df137a44",
+                },
+                "image_digest_qualification": "SOURCE_AND_GUEST_REF_MATCH",
+                "observed_image_reference": "ghcr.io/itzg/minecraft-server:2026.10.0-java21@sha256:d4057e7019e9b19f25e039d4a204cc502e1a112d1a2305966a534f3d7079e644",
                 "world_retained_on_delete": True,
                 "world_rebound_after_reinstall": True,
                 "cleanup": {"zero_residue": True, "app_absent": True,
@@ -70,6 +77,28 @@ class CollageP2SourceTests(unittest.TestCase):
         fake["foundry_materialization"]["collage_readback"]["observation_mutation_count"] = 1
         with self.assertRaisesRegex(ValueError, "observation missing"):
             check(fake)
+
+    def test_old_catalog_and_image_cannot_fake_new_collage_p2(self):
+        native = {
+            "contract": "gha-kvm-system-lab/v1",
+            "target": {"version": "25.04.1", "rung": "T6", "product": "truenas"},
+            "classification": "SUPPORTED", "oracleSatisfied": True,
+            "foundry_materialization": {
+                "schema": "truenas-minecraft-paper-t6/v1",
+                "classification": "SUPPORTED", "oracleSatisfied": True,
+                "catalog_version_verified": True,
+                "foundry_ref": "2cc7e1fe3772f8c532e933b3d7832e6cf985db4e",
+                "catalog_discovery": {"requested_version": "1.15.29",
+                                      "upstream_apps_commit":
+                                      "bb96ef6fd8c2708765012a4a3ca3739370a4f92c"},
+                "image_digest_qualification": "SOURCE_AND_GUEST_REF_MATCH",
+                "observed_image_reference": "ghcr.io/itzg/minecraft-server:2026.9.2-java21@sha256:edf50d431ddc6f73929368e82f4334a405796874f7b0ae11f1edcbb267d670aa",
+                "world_retained_on_delete": True,
+                "world_rebound_after_reinstall": True,
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "new immutable native catalog"):
+            check(native)
 
     def test_existing_paper_fixture_is_opt_in_unchanged(self):
         paper = (ROOT / "scripts/truenas_middleware_minecraft_t6_probe.py").read_text()

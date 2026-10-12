@@ -277,10 +277,20 @@ jobs:
 
   foundry-minecraft-paper-t6-control:
     needs: [changes, contract]
-    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' || needs.changes.outputs.truenas_t6_product == 'collage-native-paper')
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
     uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-paper-t6-control.yml@2cc7e1fe3772f8c532e933b3d7832e6cf985db4e
     with:
       foundry_ref: 2cc7e1fe3772f8c532e933b3d7832e6cf985db4e
+      target_version: "25.04.1"
+    permissions:
+      contents: read
+
+  foundry-collage-paper-11530-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-paper-11530-t6-control.yml@403321031b6d4e66aa64a8299fd7621eee290b0d
+    with:
+      foundry_ref: 403321031b6d4e66aa64a8299fd7621eee290b0d
       target_version: "25.04.1"
     permissions:
       contents: read
@@ -429,7 +439,7 @@ jobs:
       group: agent-dispatch-heavyweight-rdte
       queue: max
       cancel-in-progress: false
-    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, foundry-minecraft-paper-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, foundry-minecraft-paper-t6-control, foundry-collage-paper-11530-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
     if: >-
       always() &&
       needs.contract.result == 'success' &&
@@ -443,7 +453,8 @@ jobs:
         (needs.changes.outputs.truenas_t6_product == 'garm-controller-f0f5' && needs['foundry-garm-f0-f5-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'official-catalog' && needs['foundry-official-catalog-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'foliorelay' && needs['foundry-foliorelay-t6-control'].result == 'success') ||
-        ((needs.changes.outputs.truenas_t6_product == 'minecraft-paper' || needs.changes.outputs.truenas_t6_product == 'collage-native-paper') && needs['foundry-minecraft-paper-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' && needs['foundry-minecraft-paper-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'collage-native-paper' && needs['foundry-collage-paper-11530-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g2' && needs['provider-g2-fixtures'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g3' && needs['provider-g3-fixture'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g4' && needs['provider-g4-fixture'].result == 'success') ||
@@ -493,10 +504,16 @@ jobs:
           name: foliorelay-t6-control
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Download exact Minecraft Paper Foundry control
-        if: needs.changes.outputs.truenas_rung == 't6' && (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' || needs.changes.outputs.truenas_t6_product == 'collage-native-paper')
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: minecraft-paper-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact COLLAGE 1.15.30 native Paper Foundry control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: minecraft-paper-11530-truenas-t6-candidate
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Checkout exact Minecraft product status oracle
         if: needs.changes.outputs.truenas_rung == 't6' && (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' || needs.changes.outputs.truenas_t6_product == 'collage-native-paper')
@@ -576,7 +593,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest -v tests.test_collage_catalog_preflight
-          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.29
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30
 
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
@@ -639,8 +656,10 @@ jobs:
                 foundry_commit="60d56cc1752bc825cb232d72b397ff17fe6d47c4"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "foliorelay" ]]; then
                 foundry_commit="81deb97185760975fd8d3162df42056c77b3c0fd"
-              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" || "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
                 foundry_commit="2cc7e1fe3772f8c532e933b3d7832e6cf985db4e"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
+                foundry_commit="403321031b6d4e66aa64a8299fd7621eee290b0d"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi

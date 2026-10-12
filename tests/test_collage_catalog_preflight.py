@@ -29,7 +29,7 @@ class CatalogPreflightTests(unittest.TestCase):
         yml=(root/".github/workflows/gha-kvm-system-rdte.yml").read_text()
         prox=yml.split("  proxmox-9-2:",1)[1].split("  truenas-26-beta3:",1)[0]
         guest=yml.split("  truenas-26-beta3:",1)[1]
-        guard="python3 scripts/check_collage_catalog_preflight.py --expected 1.15.29"
+        guard="python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30"
         self.assertNotIn(guard,prox)
         self.assertIn(guard,guest)
         self.assertLess(guest.index(guard),

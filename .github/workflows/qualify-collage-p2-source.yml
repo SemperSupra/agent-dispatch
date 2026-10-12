@@ -10,6 +10,7 @@ on:
       - 'scripts/assert_collage_p2_receipt.py'
       - 'scripts/gha_kvm_truenas_rdte.sh'
       - 'tests/test_collage_p2_native.py'
+      - 'tests/test_collage_p2_new_native_version.py'
       - 'tests/test_collage_p2_roles.py'
       - 'tests/test_collage_p2_effective_roles.py'
       - 'tests/test_collage_catalog_preflight.py'
@@ -39,12 +40,14 @@ jobs:
             scripts/truenas_middleware_minecraft_t6_probe.py \
             scripts/assert_collage_p2_receipt.py \
             tests/test_collage_p2_native.py \
+            tests/test_collage_p2_new_native_version.py \
             tests/test_collage_p2_roles.py \
             tests/test_collage_p2_effective_roles.py \
             tests/test_collage_catalog_preflight.py \
             scripts/check_collage_catalog_preflight.py
           python3 -m unittest -v \
             tests.test_collage_p2_native \
+            tests.test_collage_p2_new_native_version \
             tests.test_collage_p2_roles \
             tests.test_collage_p2_effective_roles \
             tests.test_collage_catalog_preflight \
