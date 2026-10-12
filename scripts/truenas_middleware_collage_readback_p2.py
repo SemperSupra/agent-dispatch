@@ -38,6 +38,25 @@ def require(value: bool, code: str) -> None:
         raise ObservationError(code)
 
 
+def available_role_names(roles: object) -> set[str]:
+    """TrueNAS 25.04 privilege.roles -> list of role descriptors, not a map.
+
+    Reject malformed or ambiguous inventories before any guest mutation. Only
+    report whether the exact role is offered; never infer broader privilege.
+    """
+    require(isinstance(roles, list), "PRIVILEGE_ROLES_SHAPE_DRIFT")
+    names: set[str] = set()
+    for item in roles:
+        require(isinstance(item, dict) and isinstance(item.get("name"), str)
+                and isinstance(item.get("includes"), list)
+                and all(isinstance(x, str) for x in item["includes"]),
+                "PRIVILEGE_ROLES_SHAPE_DRIFT")
+        name = item["name"]
+        require(name not in names, "DUPLICATE_PRIVILEGE_ROLE")
+        names.add(name)
+    return names
+
+
 def provision_guest_readonly(call) -> str:
     """Called on *already isolated* disposable TrueNAS 25.04.1 via admin DDP.
 
@@ -48,9 +67,8 @@ def provision_guest_readonly(call) -> str:
             "PREEXISTING_READONLY_USER_REFUSED")
     require(call("privilege.query", [[["name", "=", ROLE_NAME]]]) == [],
             "PREEXISTING_PRIVILEGE_REFUSED")
-    roles = call("privilege.roles", [])
-    require(isinstance(roles, dict) and "APPS_READ" in roles,
-            "APPS_READ_ROLE_NOT_AVAILABLE")
+    roles = available_role_names(call("privilege.roles", []))
+    require("APPS_READ" in roles, "APPS_READ_ROLE_NOT_AVAILABLE")
     user = call("user.create", [{
         "username": NAME, "full_name": "Disposable COLLAGE P2 observer",
         "group_create": True, "password_disabled": True,
