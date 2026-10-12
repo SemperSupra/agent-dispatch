@@ -36,6 +36,17 @@ def check(row: dict) -> None:
          and p.get("world_retained_on_delete") is True
          and p.get("world_rebound_after_reinstall") is True,
          "native Paper lifecycle did not qualify")
+    catalog = p.get("catalog_discovery") or {}
+    need(p.get("foundry_ref") == "403321031b6d4e66aa64a8299fd7621eee290b0d"
+         and catalog.get("requested_version") == "1.15.30"
+         and catalog.get("upstream_apps_commit") ==
+             "559b9fe85212c800bc6770f152a65211df137a44"
+         and p.get("image_digest_qualification") == "SOURCE_AND_GUEST_REF_MATCH",
+         "new immutable native catalog/source qualification missing")
+    qualified_image = "ghcr.io/itzg/minecraft-server:2026.10.0-java21@sha256:d4057e7019e9b19f25e039d4a204cc502e1a112d1a2305966a534f3d7079e644"
+    digest_only = "ghcr.io/itzg/minecraft-server@sha256:d4057e7019e9b19f25e039d4a204cc502e1a112d1a2305966a534f3d7079e644"
+    need(p.get("observed_image_reference") in {qualified_image, digest_only},
+         "new native OCI image digest absent")
     stages = p.get("readiness") or {}
     for label in ("first", "restart", "redeploy", "reinstall"):
         stage = stages.get(label) or {}
