@@ -90,6 +90,80 @@ def derive_rootfs_mountpoint(fixture: dict, pool: str, name: str, dataset: str) 
     return mountpoint
 
 
+def staged_remote_path(mountpoint: str, relative: str) -> str:
+    if (not isinstance(relative, str) or not relative.startswith("/") or relative.startswith("//")
+            or relative == "/" or posixpath.normpath(relative) != relative
+            or any(ord(ch) < 32 for ch in relative)):
+        raise ProbeError("unsafe staged container file path")
+    remote = mountpoint.rstrip("/") + relative
+    if (posixpath.normpath(remote) != remote
+            or not remote.startswith(mountpoint.rstrip("/") + "/")):
+        raise ProbeError("staged file escaped container rootfs")
+    return remote
+
+
+def stage_bootstrap_files(fixture: dict, mountpoint: str, token: str, upload, wait_job, call) -> list[dict]:
+    # Validate every destination before the first write, so a later forged
+    # fixture entry cannot leave a partially staged container.
+    staged_specs = [(spec, staged_remote_path(mountpoint, spec["path"])) for spec in fixture["staged_files"]]
+    staged = []
+    for spec, remote in staged_specs:
+        rel = spec["path"]
+        contains_secret = bool(spec["contains_secret"])
+        content = token.encode() if contains_secret else spec["content"].encode()
+        if not contains_secret:
+            got_sha = hashlib.sha256(content).hexdigest()
+            if got_sha != spec["sha256"]:
+                raise ProbeError(f"fixture staged-file digest drift: {rel}")
+        job_id = upload(remote, content, int(spec["mode"]))
+        wait_job(job_id, f"filesystem.put {rel}")
+        stat = call("filesystem.stat", [remote])
+        if stat.get("size") != len(content) or (int(stat.get("mode", 0)) & 0o777) != int(spec["mode"]):
+            raise ProbeError(f"staged-file readback drift: {rel}")
+        staged.append({"path": rel, "mode": int(spec["mode"]), "contains_secret": contains_secret})
+    return staged
+
+
+def require_created_container(call, expected: dict, states: set[str]) -> dict:
+    rows = call("container.query", [[["id", "=", expected["id"]]]])
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ProbeError("created container identity cannot be read back exactly")
+    row = rows[0]
+    for field in ("id", "uuid", "name", "description", "dataset"):
+        if row.get(field) != expected[field]:
+            raise ProbeError(f"created container {field} changed before retirement")
+    if (row.get("status") or {}).get("state") not in states:
+        raise ProbeError("created container state is unsafe for retirement")
+    return row
+
+
+def require_container_absent(call, expected: dict) -> None:
+    by_id = call("container.query", [[["id", "=", expected["id"]]]])
+    by_name = call("container.query", [[["name", "=", expected["name"]]]])
+    if not isinstance(by_id, list) or not isinstance(by_name, list):
+        raise ProbeError("container absence query returned an ambiguous result")
+    if by_id or by_name:
+        raise ProbeError("created container ID or name remains after delete")
+
+
+def retire_created_container(call, expected: dict, stop_options: dict, wait_job, timeout: float) -> None:
+    row = require_created_container(call, expected, {"RUNNING", "STOPPED"})
+    if (row.get("status") or {}).get("state") == "RUNNING":
+        result = call("container.stop", [expected["id"], stop_options])
+        if isinstance(result, int) and not isinstance(result, bool):
+            wait_job(result, "container.stop")
+    require_created_container(call, expected, {"STOPPED"})
+    call("container.delete", [expected["id"]])
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            require_container_absent(call, expected)
+            return
+        except ProbeError:
+            time.sleep(1)
+    require_container_absent(call, expected)
+
+
 def multipart_upload(host: str, port: int, password: str, remote_path: str, content: bytes, mode: int) -> int:
     boundary = "----SemperSupra" + secrets.token_hex(12)
     data = json.dumps({
@@ -164,6 +238,7 @@ def main() -> int:
     ws = None
     container_id = None
     container_name = None
+    created_identity = None
     token = f"container-public-{secrets.token_hex(16)}"
 
     def emit(code: int) -> int:
@@ -271,8 +346,11 @@ def main() -> int:
             raise ProbeError("created container did not read back exactly once")
         row = rows[0]
         container_id = row.get("id")
-        if not isinstance(container_id, int):
+        if isinstance(container_id, bool) or not isinstance(container_id, int):
             raise ProbeError("created container has no integer id")
+        if (row.get("name") != container_name or row.get("description") != desired["description"]
+                or not isinstance(row.get("uuid"), str) or not row["uuid"]):
+            raise ProbeError("created container identity did not read back exactly")
         if (row.get("status") or {}).get("state") != "STOPPED":
             raise ProbeError("container was not STOPPED before staging")
         if row.get("init") != desired["init"] or row.get("initenv") != desired["initenv"]:
@@ -282,27 +360,16 @@ def main() -> int:
         if not isinstance(dataset, str) or not dataset:
             raise ProbeError("container dataset identity missing")
         mountpoint = derive_rootfs_mountpoint(fixture, a.pool, container_name, dataset)
+        created_identity = {key: row[key] for key in ("id", "uuid", "name", "description", "dataset")}
         receipt["dataset"] = dataset
         receipt["mountpoint"] = mountpoint
         receipt["rootfs_projection_source"] = fixture["rootfs_projection"]["source_path"]
 
-        staged = []
-        for spec in fixture["staged_files"]:
-            rel = spec["path"]
-            remote = mountpoint.rstrip("/") + rel
-            contains_secret = bool(spec["contains_secret"])
-            content = token.encode() if contains_secret else spec["content"].encode()
-            if not contains_secret:
-                got_sha = hashlib.sha256(content).hexdigest()
-                if got_sha != spec["sha256"]:
-                    raise ProbeError(f"fixture staged-file digest drift: {rel}")
-            job_id = multipart_upload(a.host, a.http_port, password, remote, content, int(spec["mode"]))
-            wait_job(job_id, f"filesystem.put {rel}")
-            stat = call("filesystem.stat", [remote])
-            if stat.get("size") != len(content) or (int(stat.get("mode", 0)) & 0o777) != int(spec["mode"]):
-                raise ProbeError(f"staged-file readback drift: {rel}")
-            staged.append({"path": rel, "mode": int(spec["mode"]), "contains_secret": contains_secret})
-        receipt["staged_files"] = staged
+        receipt["staged_files"] = stage_bootstrap_files(
+            fixture, mountpoint, token,
+            lambda remote, content, mode: multipart_upload(a.host, a.http_port, password, remote, content, mode),
+            wait_job, call,
+        )
 
         call("container.start", [container_id])
         deadline = time.monotonic() + a.state_timeout
@@ -316,7 +383,7 @@ def main() -> int:
 
         marker_stats = {}
         for marker in fixture["execution_markers"]:
-            remote = mountpoint.rstrip("/") + marker
+            remote = staged_remote_path(mountpoint, marker)
             deadline = time.monotonic() + 45
             stat = None
             while time.monotonic() < deadline:
@@ -353,19 +420,7 @@ def main() -> int:
             raise ProbeError("post-start desired-state scrub did not read back")
         receipt["desired_state_scrubbed"] = True
 
-        stop_job = call("container.stop", [container_id, {"force_after_timeout": True}])
-        if isinstance(stop_job, int) and not isinstance(stop_job, bool):
-            wait_job(stop_job, "container.stop")
-        call("container.delete", [container_id])
-        deadline = time.monotonic() + a.state_timeout
-        while time.monotonic() < deadline:
-            rows = call("container.query", [[["id", "=", container_id]]])
-            if not rows:
-                break
-            time.sleep(1)
-        rows = call("container.query", [[["name", "=", container_name]]])
-        if rows:
-            raise ProbeError("container remains after delete")
+        retire_created_container(call, created_identity, {"force_after_timeout": True}, wait_job, a.state_timeout)
         receipt["cleanup"] = {"attempted": True, "absent": True}
 
         receipt.update({
@@ -385,25 +440,26 @@ def main() -> int:
         if ws is not None and container_id is not None:
             receipt["cleanup"]["attempted"] = True
             try:
+                if created_identity is None:
+                    raise ProbeError("created container identity is unproven; cleanup left untouched")
                 request_id = locals().get("request_id", 1)
                 def cleanup_call(method: str, params: list):
                     nonlocal request_id
                     result = ddp_call(ws, str(request_id), method, params)
                     request_id += 1
                     return result
-                rows = cleanup_call("container.query", [[["id", "=", container_id]]])
-                if rows and (rows[0].get("status") or {}).get("state") == "RUNNING":
-                    result = cleanup_call("container.stop", [container_id, {"force": True}])
-                    if isinstance(result, int) and not isinstance(result, bool):
-                        deadline = time.monotonic() + 60
-                        while time.monotonic() < deadline:
-                            job = cleanup_call("core.get_jobs", [[["id", "=", result]], {"get": True}])
-                            if job and job.get("state") in {"SUCCESS", "FAILED", "ABORTED"}:
-                                break
-                            time.sleep(1)
-                cleanup_call("container.delete", [container_id])
-                rows = cleanup_call("container.query", [[["name", "=", container_name]]])
-                receipt["cleanup"]["absent"] = not rows
+                def wait_cleanup_job(job_id: int, label: str):
+                    deadline = time.monotonic() + 60
+                    while time.monotonic() < deadline:
+                        job = cleanup_call("core.get_jobs", [[["id", "=", job_id]], {"get": True}])
+                        if job and job.get("state") == "SUCCESS":
+                            return
+                        if job and job.get("state") in {"FAILED", "ABORTED"}:
+                            raise ProbeError(f"{label} did not succeed during cleanup")
+                        time.sleep(1)
+                    raise ProbeError(f"{label} timed out during cleanup")
+                retire_created_container(cleanup_call, created_identity, {"force": True}, wait_cleanup_job, a.state_timeout)
+                receipt["cleanup"]["absent"] = True
             except Exception as cleanup_exc:
                 receipt["cleanup"]["error"] = f"{type(cleanup_exc).__name__}: {cleanup_exc}"
         return emit(2)
