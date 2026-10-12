@@ -38,7 +38,8 @@ class CatalogProfilesTests(unittest.TestCase):
         self.assertIn("minecraft-paper-11530-truenas-t6-candidate", workflow)
         self.assertIn("--native-catalog-profile", shell)
         self.assertIn('"1.15.30"', shell)
-        self.assertIn("source control", workflow.lower() + " source control")
+        self.assertIn("python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30", workflow)
+        self.assertIn("needs['foundry-collage-paper-11530-t6-control'].result == 'success'", workflow)
 
 
 if __name__=="__main__":
