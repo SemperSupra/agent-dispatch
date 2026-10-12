@@ -324,7 +324,7 @@ class TestNativeMinecraftControl(unittest.TestCase):
         source = (ROOT / "scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
         self.assertIn("level_ever_observed = level_ever_observed or (stat_level() is not None)", source)
         self.assertIn('"status_oracle_ever_satisfied": status_ever_satisfied', source)
-        self.assertIn('"middleware_app_query_succeeded" ', source)
+        self.assertIn('snapshot["middleware_app_query_succeeded"] = True', source)
         self.assertNotIn('payload["raw_status_json"]', source)
 
     def test_status_script_must_be_exact_named(self):
