@@ -85,10 +85,28 @@ def provision_guest_readonly(call) -> str:
     }])
     require(isinstance(privilege, dict) and privilege.get("name") == ROLE_NAME,
             "APPS_READ_ASSIGNMENT_UNVERIFIED")
+    require(privilege.get("roles") == ["APPS_READ"],
+            "CREATED_PRIVILEGE_ROLES_NOT_EXACT")
+    # Distinguish role/primary-group propagation problems from extra authority,
+    # without emitting public role names, user metadata or sensitive API fields.
+    primary = call("group.query", [[["id", "=", group["id"]]], {"get": True}])
+    require(isinstance(primary, dict) and primary.get("id") == group["id"],
+            "OBSERVER_PRIMARY_GROUP_NOT_FOUND")
+    require(primary.get("roles") == ["APPS_READ"],
+            "OBSERVER_PRIMARY_GROUP_ROLE_NOT_EXACT")
     user_roles = call("user.query", [[["username", "=", NAME]], {"get": True}])
-    require(isinstance(user_roles, dict)
-            and user_roles.get("roles") == ["APPS_READ"],
-            "APPS_READ_EFFECTIVE_ROLE_NOT_EXACT")
+    require(isinstance(user_roles, dict) and user_roles.get("username") == NAME,
+            "OBSERVER_USER_READBACK_NOT_FOUND")
+    user_primary = user_roles.get("group")
+    require(isinstance(user_primary, dict)
+            and user_primary.get("id") == group["id"],
+            "OBSERVER_USER_PRIMARY_GROUP_DRIFT")
+    effective = user_roles.get("roles")
+    require(isinstance(effective, list)
+            and all(isinstance(role, str) for role in effective),
+            "OBSERVER_USER_ROLES_SHAPE_DRIFT")
+    require("APPS_READ" in effective, "OBSERVER_USER_REQUIRED_ROLE_ABSENT")
+    require(effective == ["APPS_READ"], "OBSERVER_USER_EXTRA_ROLES_REFUSED")
     expiry = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)).isoformat()
     key = call("api_key.create", [{
         "name": "disposable-collage-p2", "username": NAME,
