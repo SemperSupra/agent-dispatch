@@ -283,6 +283,50 @@ class TestNativeMinecraftControl(unittest.TestCase):
         large = mc.safe_job_error({"state": "FAILED", "error": "x" * 700}, "secret")
         self.assertLessEqual(len(large["error_excerpt"]), 480)
 
+    def test_status_diagnostic_receipt_only_emits_allowed_failure_category(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = pathlib.Path(td) / "status.json"
+            variants = [
+                ({"schema": "minecraft-java-status-oracle/v1",
+                  "classification": "ORACLE_FAILURE", "oracleSatisfied": False,
+                  "failure_type": "ConnectionRefusedError",
+                  "failure_reason": "transport failure",
+                  "sensitive": "192.0.2.20 aPrivateName"}, "transport_failure"),
+                ({"schema": "minecraft-java-status-oracle/v1",
+                  "classification": "ORACLE_FAILURE", "oracleSatisfied": False,
+                  "failure_type": "OracleFailure",
+                  "failure_reason": "server version mismatch"}, "version_mismatch"),
+                ({"schema": "minecraft-java-status-oracle/v1",
+                  "classification": "ORACLE_FAILURE", "oracleSatisfied": False,
+                  "failure_reason": "malformed status JSON"}, "invalid_or_truncated_status"),
+                ({"schema": "minecraft-java-status-oracle/v1",
+                  "classification": "ORACLE_FAILURE", "oracleSatisfied": False,
+                  "failure_reason": "ATTACKER_PASSWORD=supersecret"}, "other_oracle_failure"),
+                ({"schema": "minecraft-java-status-oracle/v1",
+                  "classification": "SUPPORTED", "oracleSatisfied": True}, "status_supported"),
+                ({"schema": "invalid", "failure_reason": "transport failure"}, "invalid_receipt"),
+            ]
+            for row, expected in variants:
+                with self.subTest(expected=expected):
+                    p.write_text(json.dumps(row))
+                    result = mc.classify_java_status_receipt(p)
+                    self.assertEqual(result, expected)
+                    self.assertNotIn("192.0.2.20", result)
+                    self.assertNotIn("supersecret", result)
+            p.write_bytes(b"x" * 5000)
+            self.assertEqual(mc.classify_java_status_receipt(p), "missing_or_oversized_receipt")
+            p.unlink()
+            self.assertEqual(mc.classify_java_status_receipt(p), "missing_or_oversized_receipt")
+            p.write_text("{broken")
+            self.assertEqual(mc.classify_java_status_receipt(p), "unreadable_receipt")
+
+    def test_readiness_source_probes_level_even_when_protocol_fails(self):
+        source = (ROOT / "scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        self.assertIn("level_ever_observed = level_ever_observed or (stat_level() is not None)", source)
+        self.assertIn('"status_oracle_ever_satisfied": status_ever_satisfied', source)
+        self.assertIn('snapshot["middleware_app_query_succeeded"] = True', source)
+        self.assertNotIn('payload["raw_status_json"]', source)
+
     def test_status_script_must_be_exact_named(self):
         with tempfile.TemporaryDirectory() as td:
             other = pathlib.Path(td) / "anything.py"
