@@ -24,6 +24,16 @@ EXPECTED_TARGET = "25.04.1"
 EXPECTED_PROFILE = "800aca038ded29e6a91bfc4c1b1fe2d2199182e8"
 EXPECTED_APPS_COMMIT = "bb96ef6fd8c2708765012a4a3ca3739370a4f92c"
 EXPECTED_IMAGE_FRAGMENT = "ghcr.io/itzg/minecraft-server:2026.9.2-java21@sha256:edf50d431ddc6f73929368e82f4334a405796874f7b0ae11f1edcbb267d670aa"
+CATALOG_PROFILES = {
+    "1.15.29": {
+        "apps_commit": EXPECTED_APPS_COMMIT,
+        "image": EXPECTED_IMAGE_FRAGMENT,
+    },
+    "1.15.30": {
+        "apps_commit": "559b9fe85212c800bc6770f152a65211df137a44",
+        "image": "ghcr.io/itzg/minecraft-server:2026.10.0-java21@sha256:d4057e7019e9b19f25e039d4a204cc502e1a112d1a2305966a534f3d7079e644",
+    },
+}
 EXPECTED_MIDDLEWARE = "74ab5a2d373be4097dece257d00e1086376333ba"
 APP = "rdte-t6-minecraft-paper"
 DATASET = "rdtepool/minecraft-paper-t6-world"
@@ -45,16 +55,16 @@ class MinecraftT6Error(RuntimeError):
     pass
 
 
-def qualified_native_image(app: dict) -> str | None:
+def qualified_native_image(app: dict, image_fragment: str = EXPECTED_IMAGE_FRAGMENT) -> str | None:
     """Accept only the digest-pinned OCI reference, with optional tag normalization."""
     work = app.get("active_workloads") or {}
     candidates = list(work.get("images") or [])
     for item in work.get("container_details") or []:
         if isinstance(item, dict) and isinstance(item.get("image"), str):
             candidates.append(item["image"])
-    repository_tag, digest = EXPECTED_IMAGE_FRAGMENT.split("@sha256:", 1)
+    repository_tag, digest = image_fragment.split("@sha256:", 1)
     repository = repository_tag.rsplit(":", 1)[0]
-    valid = {EXPECTED_IMAGE_FRAGMENT, repository + "@sha256:" + digest}
+    valid = {image_fragment, repository + "@sha256:" + digest}
     return next((v for v in candidates if isinstance(v, str) and v in valid), None)
 
 
@@ -85,7 +95,10 @@ def canonical_sha256(doc: dict) -> str:
     return hashlib.sha256(json.dumps(doc, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def load_control(path: pathlib.Path, expected_commit: str) -> dict:
+def load_control(path: pathlib.Path, expected_commit: str, catalog_version: str = "1.15.29") -> dict:
+    if catalog_version not in CATALOG_PROFILES:
+        raise MinecraftT6Error("unadmitted native catalog version profile")
+    profile = CATALOG_PROFILES[catalog_version]
     control = json.loads((path / "control.json").read_text(encoding="utf-8"))
     if not isinstance(control, dict) or control.get("schema") != SCHEMA:
         raise MinecraftT6Error("Minecraft Foundry control schema drift")
@@ -104,16 +117,16 @@ def load_control(path: pathlib.Path, expected_commit: str) -> dict:
         target.get("middleware_commit") != EXPECTED_MIDDLEWARE):
         raise MinecraftT6Error("exact TrueNAS target/profile drift")
     source = control.get("source") or {}
-    if (source.get("apps_commit") != EXPECTED_APPS_COMMIT or
+    if (source.get("apps_commit") != profile["apps_commit"] or
         source.get("app") != "community/minecraft" or
-        source.get("image_reference") != EXPECTED_IMAGE_FRAGMENT or
+        source.get("image_reference") != profile["image"] or
         source.get("library_version") != "2.3.4" or
         not re.fullmatch("[0-9a-f]{64}", str(source.get("source_compose_sha256", ""))) or
         not re.fullmatch("[0-9a-f]{64}", str(source.get("values_raw_sha256", "")))):
         raise MinecraftT6Error("pinned native Minecraft catalog source drift")
     runtime = control.get("runtime") or {}
     if (runtime.get("app_name") != APP or runtime.get("catalog_app") != "minecraft" or
-        runtime.get("train") != "community" or runtime.get("catalog_version_candidate") != "1.15.29" or
+        runtime.get("train") != "community" or runtime.get("catalog_version_candidate") != catalog_version or
         runtime.get("paper_version") != "1.21.11" or
         runtime.get("required_owned_world_dataset") != DATASET or
         runtime.get("status_oracle") != "minecraft-java-status-oracle/v1"):
@@ -293,6 +306,8 @@ def main() -> int:
     p.add_argument("--collage-source-dir", type=pathlib.Path)
     p.add_argument("--collage-https-port", type=int)
     p.add_argument("--collage-source-ref")
+    p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
+                   default="1.15.29")
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8)
     p.add_argument("--job-timeout", type=float, default=600)
@@ -310,7 +325,11 @@ def main() -> int:
     dataset_created = False
     app_created = False
     try:
-        control = load_control(a.control_dir, a.foundry_commit)
+        if (a.native_catalog_profile == "1.15.30" and
+                a.collage_source_dir is None):
+            raise MinecraftT6Error("1.15.30 catalog profile is COLLAGE P2 opt-in only")
+        control = load_control(a.control_dir, a.foundry_commit,
+                               catalog_version=a.native_catalog_profile)
         if a.expected_system_version != "TrueNAS-" + EXPECTED_TARGET:
             raise MinecraftT6Error("requested exact system version drift")
         desired = runtime_values(control)
@@ -357,7 +376,8 @@ def main() -> int:
             while time.monotonic() < deadline:
                 app = getapp()
                 if isinstance(app, dict) and app.get("state") == "RUNNING":
-                    matching_image = qualified_native_image(app)
+                    matching_image = qualified_native_image(app,
+                         image_fragment=CATALOG_PROFILES[a.native_catalog_profile]["image"])
                     if matching_image is None:
                         raise MinecraftT6Error("native Minecraft App runtime image differs from digest-pinned source")
                     payload["observed_image_reference"] = matching_image
@@ -490,7 +510,7 @@ def main() -> int:
             "healthy": (catalog or {}).get("healthy"),
             "visible_versions": sorted(str(v) for v in versions)[:32] if isinstance(versions, dict) else [],
             "requested_version": expected_catalog,
-            "upstream_apps_commit": EXPECTED_APPS_COMMIT,
+            "upstream_apps_commit": CATALOG_PROFILES[a.native_catalog_profile]["apps_commit"],
         }
         if not isinstance(versions, dict) or expected_catalog not in versions:
             raise MinecraftT6Error("exact native Minecraft catalog version unavailable")
