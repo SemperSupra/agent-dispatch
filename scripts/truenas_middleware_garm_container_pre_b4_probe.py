@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import pathlib
+import posixpath
 import secrets
 import time
 import urllib.request
@@ -67,7 +68,15 @@ def load_fixture(directory: pathlib.Path, producer: str) -> dict:
     return doc
 
 
+def validate_rootfs_component(label: str, component: str) -> None:
+    if (not component or component in (".", "..") or "/" in component
+            or component != component.strip() or any(ord(ch) < 32 for ch in component)):
+        raise ProbeError(f"unsafe {label} component for container rootfs projection")
+
+
 def derive_rootfs_mountpoint(fixture: dict, pool: str, name: str, dataset: str) -> str:
+    validate_rootfs_component("pool", pool)
+    validate_rootfs_component("container name", name)
     projection = fixture.get("rootfs_projection") or {}
     expected_dataset = projection["dataset_template"].replace("{pool}", pool).replace("{name}", name)
     if dataset != expected_dataset:
@@ -75,7 +84,8 @@ def derive_rootfs_mountpoint(fixture: dict, pool: str, name: str, dataset: str) 
             f"container dataset drifted from source projection: got {dataset!r}, expected {expected_dataset!r}"
         )
     mountpoint = projection["mountpoint_template"].replace("{pool}", pool).replace("{name}", name)
-    if not mountpoint.startswith("/mnt/.truenas_containers/"):
+    if (not mountpoint.startswith("/mnt/.truenas_containers/")
+            or posixpath.normpath(mountpoint) != mountpoint):
         raise ProbeError(f"unsafe source-derived container mountpoint: {mountpoint!r}")
     return mountpoint
 
@@ -169,6 +179,8 @@ def main() -> int:
         receipt["target"] = fixture["target"]
         receipt["profile"] = fixture["profile"]
         container_name = fixture["expected_name"]
+        validate_rootfs_component("pool", a.pool)
+        validate_rootfs_component("container name", container_name)
 
         password = a.password_file.read_text(encoding="utf-8").strip()
         if not password:
