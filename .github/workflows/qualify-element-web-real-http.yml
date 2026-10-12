@@ -1,0 +1,88 @@
+name: Qualify real Element Web HTTP semantic oracle
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qualify-element-web-real-http.yml'
+      - 'scripts/truenas_foundry_element_web_http_oracle.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-image-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exact Element Web image, HTTP semantic and owned config bind
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No nested VM, no TrueNAS, no production credentials.
+          image='ghcr.io/element-hq/element-web:v1.12.30@sha256:3e7dbd4424de9e11c812bc740acf2725b2abe66ea0d0802023b56fd85d3fa09a'
+          cname='foundry-element-web-http-semantic'
+          config="$RUNNER_TEMP/rdte-element-web-config.json"
+          receipt="$RUNNER_TEMP/rdte-element-web-http-oracle.json"
+          cleanup() {
+            docker rm -f "$cname" >/dev/null 2>&1 || true
+            rm -f -- "$config"
+          }
+          trap cleanup EXIT
+          python3 - "$config" <<'PY'
+          import json, pathlib, sys
+          doc = {
+            "brand": "4RDTE-semantic-public-ci",
+            "default_server_config": {
+              "m.homeserver": {"base_url": "https://matrix-client.matrix.org"}
+            },
+            "disable_custom_urls": True,
+          }
+          pathlib.Path(sys.argv[1]).write_text(json.dumps(doc,sort_keys=True)+"\n")
+          PY
+          chmod 644 "$config"
+          docker pull --quiet "$image" >/dev/null
+          docker run -d --name "$cname" \
+            --user '568:568' --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --cpus 1 --memory 1g --pids-limit 128 \
+            --tmpfs /etc/nginx/conf.d:rw,uid=568,gid=568 \
+            -e ELEMENT_WEB_PORT=8080 \
+            -p '127.0.0.1:18080:8080' \
+            -v "$config:/app/config.json:ro" \
+            "$image" >/dev/null
+          python3 scripts/truenas_foundry_element_web_http_oracle.py \
+            --port 18080 --expected-version 1.12.30 \
+            --expected-config "$config" > "$receipt"
+          jq -e '.classification=="APP_HTTP_SEMANTIC_SUPPORTED_NOT_TRUE_NAS" and
+                 .source_or_true_nas_f0_f5_qualified==false and
+                 .physical_apply_authority=="HOLD"' "$receipt"
+          # Live restart with same file-backed configuration, not a simulated response.
+          docker restart "$cname" >/dev/null
+          python3 scripts/truenas_foundry_element_web_http_oracle.py \
+            --port 18080 --expected-version 1.12.30 \
+            --expected-config "$config" > "$RUNNER_TEMP/rdte-element-web-http-restart.json"
+          # Live adversarial check: actual server config vs mutated expected marker.
+          jq '.brand="4RDTE-adversarial-wrong-marker"' "$config" > "$RUNNER_TEMP/wrong.json"
+          if python3 scripts/truenas_foundry_element_web_http_oracle.py \
+               --port 18080 --expected-version 1.12.30 \
+               --expected-config "$RUNNER_TEMP/wrong.json" --startup-timeout 1 \
+               > "$RUNNER_TEMP/unexpected-acceptance.json" 2>/dev/null; then
+            echo 'ORACLE FAILURE: mismatched semantic marker accepted' >&2
+            exit 1
+          fi
+          docker rm -f "$cname" >/dev/null
+          if docker inspect "$cname" >/dev/null 2>&1; then
+            echo 'CLEANUP FAILURE: real container still exists' >&2
+            exit 1
+          fi
+      - name: Upload real-container-only semantic receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: element-web-real-container-http-semantic
+          path: |
+            ${{ runner.temp }}/rdte-element-web-http-oracle.json
+            ${{ runner.temp }}/rdte-element-web-http-restart.json
+          retention-days: 7
+          if-no-files-found: warn

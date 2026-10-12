@@ -21,6 +21,7 @@ on:
       - 'scripts/truenas_session_state.py'
       - 'scripts/truenas_session_runner.py'
       - 'scripts/truenas_foundry_artifact_gate.py'
+      - 'scripts/truenas_foundry_element_web_live_preflight.py'
       - 'scripts/truenas_existing_probe_capsule_executor.py'
       - 'scripts/truenas_middleware_*.py'
       - 'tests/test_gha_kvm_system_rdte.py'
