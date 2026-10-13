@@ -75,6 +75,18 @@ class Tests(unittest.TestCase):
         self.assertEqual(receipt["native_version"],1)
         self.assertTrue(f.calls[0][1]["is_private"])
         self.assertFalse(f.calls[0][1]["enable_internet"])
+        self.assertEqual(f.calls[0][1]["machine_shape"],"NvidiaTeslaT4")
+        self.assertEqual(f.calls[0][1]["docker_image_pinning_type"],"latest")
+        self.assertNotIn("docker_image",f.calls[0][1])
+    def test_tpu_submission_is_unpinned(self):
+        f=Fake()
+        m.submit(f,self.plan(workload="tpu-jax-bridge-v1"))
+        meta=f.calls[0][1]
+        self.assertTrue(meta["enable_tpu"])
+        self.assertFalse(meta["enable_gpu"])
+        self.assertEqual(meta["machine_shape"],"TpuV5E8")
+        self.assertEqual(meta["docker_image_pinning_type"],"latest")
+        self.assertNotIn("docker_image",meta)
     def test_existing_blocks_no_mutation(self):
         f=Fake(owned=["publicresearcher/ad-rdte-test-rep-0001"])
         with self.assertRaises(m.Denied):
@@ -91,7 +103,7 @@ class Tests(unittest.TestCase):
             m.submit(f,self.plan())
     def test_gpu_positive_oracle(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
-           "status":"PASS","accelerator":"gpu","gpu_count":1,"checksum":8386560.0}
+           "status":"PASS","accelerator":"gpu","gpu_count":2,"checksum":8386560.0}
         self.assertIsNone(m.verify(d,"gpu-cuda-smoke-v1"))
     def test_gpu_false_claim(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
@@ -108,7 +120,7 @@ class Tests(unittest.TestCase):
             m.verify(d,"tpu-jax-bridge-v1")
     def test_observe_version_exact_and_receipt(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1","status":"PASS",
-           "accelerator":"gpu","gpu_count":1,"checksum":8386560.0}
+           "accelerator":"gpu","gpu_count":2,"checksum":8386560.0}
         f=Fake(output=d)
         with tempfile.TemporaryDirectory() as td:
             receipt=m.observe(f,self.plan("observe",version=3),Path(td))
@@ -119,7 +131,23 @@ class Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             r=m.observe(f,self.plan("observe",version=3),Path(td))
         self.assertEqual(r["state"],"TERMINAL_FAILED")
-        self.assertEqual(len(f.calls),1)
+        self.assertEqual(len(f.calls),2)
+    def test_error_carries_missing_hardware_fail_receipt(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
+           "status":"FAIL","failure_class":"CUDA_BUILD_UNAVAILABLE",
+           "observed_cuda":False,"observed_gpu_count":0}
+        f=Fake(status="KernelWorkerStatus.ERROR",output=d)
+        with tempfile.TemporaryDirectory() as td:
+            r=m.observe(f,self.plan("observe",version=3),Path(td))
+        self.assertEqual(r["classification"],"FAIL_HARDWARE")
+        self.assertEqual(r["failure_class"],"CUDA_BUILD_UNAVAILABLE")
+        self.assertEqual(r["native_version"],3)
+        self.assertEqual(len(r["result_digest"]),64)
+    def test_one_gpu_is_not_t4x2(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
+           "status":"PASS","accelerator":"gpu","gpu_count":1,"checksum":8386560.0}
+        with self.assertRaises(m.Denied):
+            m.verify(d,"gpu-cuda-smoke-v1")
     def test_nonterminal_no_download(self):
         f=Fake(status="KernelWorkerStatus.RUNNING")
         with tempfile.TemporaryDirectory() as td:
