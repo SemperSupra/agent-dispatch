@@ -57,7 +57,7 @@ class SafetyOracleTests(unittest.TestCase):
             safe_transition(self.state, "unrecognized")
 
     def test_first_hop_scope_and_mutants(self):
-        hop = FirstHop("198.51.100.7", 51820, 0x701)
+        hop = FirstHop("198.51.100.7", 51820, 0x701, 11, 5, True)
         pkt = OuterPacket("udp", "198.51.100.7", 51820, "privileged-tunnel-worker", 0x701)
         self.assertTrue(allow_plain_wan(self.state, pkt, hop))
         for attr, value in [
@@ -66,14 +66,26 @@ class SafetyOracleTests(unittest.TestCase):
             with self.subTest(mutation=attr):
                 self.assertFalse(allow_plain_wan(self.state, dataclasses.replace(pkt, **{attr: value}), hop))
         self.assertFalse(allow_plain_wan(self.state, pkt, None))
-        self.assertFalse(allow_plain_wan(dataclasses.replace(self.state, admitted=False), pkt, hop))
+        # Bootstrapping the first hop must work before *user traffic* is admitted.
+        connecting = dataclasses.replace(self.state, phase="connecting", admitted=False)
+        self.assertTrue(allow_plain_wan(connecting, pkt, hop))
+        self.assertFalse(eligible_for_user_egress(connecting, self.receipt))
+        # Denying user egress does not implicitly revoke the narrowly scoped relay.
+        self.assertTrue(allow_plain_wan(dataclasses.replace(self.state, admitted=False), pkt, hop))
+        # But a policy/control epoch change or revocation immediately invalidates it.
+        for attr, val in [("policy_epoch", 10), ("control_epoch", 4), ("authorized", False)]:
+            with self.subTest(permit_mutant=attr):
+                self.assertFalse(allow_plain_wan(self.state, pkt, dataclasses.replace(hop, **{attr: val})))
+        transitioned = safe_transition(self.state, "connecting")
+        self.assertFalse(allow_plain_wan(transitioned, pkt, hop))
+        self.assertFalse(allow_plain_wan(dataclasses.replace(self.state, policy_epoch=12), pkt, hop))
         for phase in ("boot", "switching", "error", "recovery", "revoked"):
             self.assertFalse(allow_plain_wan(dataclasses.replace(self.state, phase=phase), pkt, hop))
 
     def test_zero_epoch_or_mark_not_trusted(self):
         for attr in ("policy_epoch", "tunnel_epoch", "route_epoch", "admission_epoch"):
             self.assertFalse(eligible_for_user_egress(dataclasses.replace(self.state, **{attr: 0}), self.receipt))
-        hop = FirstHop("198.51.100.7", 51820, 0)
+        hop = FirstHop("198.51.100.7", 51820, 0, 11, 5, True)
         pkt = OuterPacket("udp", hop.host, hop.port, "privileged-tunnel-worker", 0)
         self.assertFalse(allow_plain_wan(self.state, pkt, hop))
 
