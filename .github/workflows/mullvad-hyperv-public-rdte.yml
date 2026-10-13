@@ -78,7 +78,9 @@ jobs:
             'Add-VMNetworkAdapterExtendedAcl', 'Get-VMNetworkAdapterExtendedAcl',
             'Add-VMNetworkAdapterAcl', 'Set-VMNetworkAdapterIsolation',
             'Set-VMProcessor', 'Set-VMMemory', 'Set-VMFirmware',
-            'Get-VMHostSupportedVersion'
+            'Get-VMHostSupportedVersion',
+            'Get-NetFirewallHyperVProfile', 'Get-NetFirewallHyperVRule',
+            'New-NetFirewallHyperVRule'
           )
           $commandInventory = [ordered]@{}
           foreach ($candidate in $candidateCommands) {
