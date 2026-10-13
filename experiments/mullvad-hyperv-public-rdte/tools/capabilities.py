@@ -29,8 +29,26 @@ def module_listed(name):
         return False
 
 
+def parse_current_channels(output):
+    """Read ethtool -l *current* counts, not pre-set maxima."""
+    if "Current hardware settings:" not in output:
+        return None
+    result = {}
+    section = output.split("Current hardware settings:", 1)[1]
+    for line in section.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.strip().split(":", 1)
+        if key in ("RX", "TX", "Combined") and value.strip().isdigit():
+            parsed = int(value.strip())
+            if 0 <= parsed <= 4096:
+                result[key.lower()] = parsed
+    return result if result else None
+
+
 def netvsc_summary():
     counts = {"active_netvsc_interfaces": 0, "offload_readback_success": 0,
+              "channel_readback_success": 0, "current_combined_channels_total": 0,
               "feature_enabled_counts": {name: 0 for name in sorted(INTERESTING_FEATURES)}}
     if platform.system() != "Linux" or not shutil.which("ethtool"):
         return counts
@@ -44,6 +62,15 @@ def netvsc_summary():
         if driver != "hv_netvsc":
             continue
         counts["active_netvsc_interfaces"] += 1
+        try:
+            channels = subprocess.run(["ethtool", "-l", iface.name], check=True,
+                                      capture_output=True, text=True, timeout=4)
+            current = parse_current_channels(channels.stdout)
+            if current is not None:
+                counts["channel_readback_success"] += 1
+                counts["current_combined_channels_total"] += current.get("combined", 0)
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass
         try:
             out = subprocess.run(["ethtool", "-k", iface.name], check=True,
                                  capture_output=True, text=True, timeout=4)
