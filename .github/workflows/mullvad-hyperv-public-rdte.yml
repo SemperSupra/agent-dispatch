@@ -104,6 +104,30 @@ jobs:
           $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -ne 0) { throw 'Fixed H1 source parse failed' }
           & $scriptPath -Mode Preflight
+      - name: Red-team refusal of unadmitted H1 execution (no VM created)
+        shell: pwsh
+        run: |
+          $scriptPath = 'experiments/mullvad-hyperv-public-rdte/tools/h1_alpine_nested_hyperv.ps1'
+          if ($env:GITHUB_EVENT_NAME -ne 'pull_request') { throw 'refusal test requires PR-only execution' }
+          $vm = 'rdte-h1-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT
+          $sw = 'rdte-private-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT
+          if ((Get-VM -Name $vm -ErrorAction SilentlyContinue) -or
+              (Get-VMSwitch -Name $sw -ErrorAction SilentlyContinue)) {
+            throw 'pre-existing resource means refusal test is invalid'
+          }
+          $response = & pwsh -NoProfile -NonInteractive -File $scriptPath -Mode Execute
+          $rc = $LASTEXITCODE
+          if ($rc -ne 1) { throw 'unadmitted H1 execution did not fail closed' }
+          $result = $response | Select-Object -Last 1 | ConvertFrom-Json
+          if ($result.FailureClass -ne 'ADMISSION_DENIED' -or
+              $result.GuestBoot -ne 'NOT_RUN' -or $result.Cleanup -ne 'PASS') {
+            throw 'unadmitted H1 refusal classification invalid'
+          }
+          if ((Get-VM -Name $vm -ErrorAction SilentlyContinue) -or
+              (Get-VMSwitch -Name $sw -ErrorAction SilentlyContinue)) {
+            throw 'unadmitted H1 created a VM or switch'
+          }
+          Write-Output 'PUBLIC_H1_UNADMITTED_REFUSAL=PASS;GUEST_BOOT=NOT_RUN'
       - name: Read-only Windows feature probe
         shell: pwsh
         run: |
