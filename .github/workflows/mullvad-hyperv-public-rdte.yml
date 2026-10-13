@@ -59,6 +59,19 @@ jobs:
       - name: Read-only feature survey (not a nested Alpine guest proof)
         run: python3 experiments/mullvad-hyperv-public-rdte/tools/capabilities.py
 
+  linux-native-nft-packet-witness:
+    name: Isolated Linux kernel nftables dual-stack packet witnesses
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Static shell syntax preflight
+        run: bash -n experiments/mullvad-hyperv-public-rdte/tools/netns_packet_witness.sh
+      - name: Run read-only host / isolated namespace nft kernel observations
+        run: bash experiments/mullvad-hyperv-public-rdte/tools/netns_packet_witness.sh
+
   alpine-virt-manifest:
     name: Public Alpine virt image SHA256 manifest
     runs-on: ubuntu-latest
