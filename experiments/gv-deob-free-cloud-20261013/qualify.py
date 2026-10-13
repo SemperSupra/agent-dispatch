@@ -125,7 +125,91 @@ def rosal():
         record("rosal", "BLOCKED_RUNTIME", version=ver, exit_code=p.returncode)
     else:
         record("rosal", "PASS_CLI_PREFLIGHT_ONLY", version=ver,
-               wall_seconds=elapsed, matching_semantics="NOT_RUN_NO_ANDROIDX_FIXTURE")
+           wall_seconds=elapsed, matching_semantics="NOT_RUN_NO_ANDROIDX_FIXTURE")
+    # Isolated source-only challenge: public AndroidX AAR -> D8 -> descriptor rename.
+    # This is NOT a sample of Google Voice or an APK downloaded from a private source.
+    try:
+        import io
+        import re
+        import struct
+        import zlib
+        import zipfile
+        sdk = Path(os.environ.get("ANDROID_HOME", "/usr/local/lib/android/sdk"))
+        candidates = sorted((sdk / "build-tools").glob("*/d8"), reverse=True)
+        if not candidates:
+            record("rosal", "BLOCKED_D8_FOR_MATCHER", version=ver)
+            return
+        sdkroot = Path.home() / "Android"
+        sdkroot.mkdir(exist_ok=True)
+        link = sdkroot / "Sdk"
+        if not link.exists():
+            link.symlink_to(sdk, target_is_directory=True)
+        aar = ROOT / "androidx-activity-1.8.1.aar"
+        url = "https://dl.google.com/dl/android/maven2/androidx/activity/activity/1.8.1/activity-1.8.1.aar"
+        p, _ = exec_(["curl", "--retry", "1", "--max-time", "65", "-fsSL",
+                       "-o", str(aar), url], timeout=78)
+        if p.returncode or not aar.exists():
+            record("rosal", "BLOCKED_PUBLIC_AAR_FETCH", version=ver)
+            return
+        with zipfile.ZipFile(aar) as archive:
+            jar = archive.read("classes.jar")
+        libjar = ROOT / "activity-classes.jar"
+        libjar.write_bytes(jar)
+        dexdir = ROOT / "rosal_dex"
+        dexdir.mkdir(exist_ok=True)
+        p, build_wall = exec_([str(candidates[0]), "--min-api", "21",
+                               "--output", str(dexdir), str(libjar)], timeout=85)
+        dexfile = dexdir / "classes.dex"
+        if p.returncode or not dexfile.exists():
+            record("rosal", "BLOCKED_SYNTHETIC_D8", version=ver, exit_code=p.returncode)
+            return
+        data = bytearray(dexfile.read_bytes())
+        matches = list(re.finditer(rb"Landroidx/activity/[A-Za-z0-9_$\/]{5,60};", data))
+        if not matches:
+            record("rosal", "BLOCKED_NO_DESCRIPTOR_FIXTURE", version=ver)
+            return
+        chosen = next((m for m in matches if b"Api34Impl;" in m.group()), matches[0])
+        original = chosen.group()
+        prefix, sep, name = original.rpartition(b"/")
+        alternate = prefix + sep + b"z" * len(name[:-1]) + b";"
+        if alternate == original or len(alternate) != len(original) or alternate in data:
+            raise ValueError("known_name_mutation_invalid")
+        data[chosen.start():chosen.end()] = alternate
+        data[12:32] = hashlib.sha1(data[32:]).digest()
+        data[8:12] = struct.pack("<I", zlib.adler32(data[12:]) & 0xffffffff)
+        sample = ROOT / "authored-androidx-rename.apk"
+        with zipfile.ZipFile(sample, "w", zipfile.ZIP_DEFLATED) as out:
+            out.writestr("AndroidManifest.xml",
+                         '<?xml version="1.0" encoding="utf-8"?>'
+                         '<manifest xmlns:android="http://schemas.android.com/apk/res/android" '
+                         'package="org.example.authored"><application/></manifest>')
+            out.writestr("classes.dex", data)
+            out.writestr("META-INF/androidx.activity_activity.version", "1.8.1")
+        work = ROOT / "rosal_work"
+        p, seconds = exec_([str(ROOT / "venv" / "bin" / "rosal"),
+                            "--apk", str(sample), "--work-dir", str(work)], timeout=155)
+        results = work / "matches.json"
+        if p.returncode or not results.exists():
+            record("rosal", "BLOCKED_MATCHER_EXECUTION", version=ver,
+                   exit_code=p.returncode, has_result=results.exists(),
+                   wall_seconds=seconds)
+            return
+        result = json.loads(results.read_text(encoding="utf-8"))
+        items = result.get("matches", []) if isinstance(result, dict) else []
+        hits = [x for x in items if x.get("library_class") == original.decode()
+                and x.get("target_class") == alternate.decode()]
+        record("rosal", "PASS_KNOWN_ALIAS" if hits else "NO_CORRECT_ALIAS",
+               version=ver, inferred_match_count=len(items),
+               correct_alias_count=len(hits), wall_seconds=seconds,
+               aar_sha256=hashlib.sha256(aar.read_bytes()).hexdigest(),
+               synthetic_apk_sha256=hashlib.sha256(sample.read_bytes()).hexdigest(),
+               original_descriptor=original.decode(),
+               synthetic_alias=alternate.decode(), source="public_androidx_1.8.1")
+    except subprocess.TimeoutExpired:
+        record("rosal", "BLOCKED_MATCHER_TIMEOUT", version=ver)
+    except Exception as exc:
+        record("rosal", "BLOCKED_OR_FAIL_MATCHER", version=ver,
+               error_type=type(exc).__name__, reason=str(exc)[:100])
 
 try:
     # Admission: public-only code and fixture, no GitHub write credential.
