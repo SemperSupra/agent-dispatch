@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Public synthetic CUDA GPU T4x2 hardware qualification; no credential/network."""
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -10,6 +11,18 @@ def main():
     result = {"schema":SCHEMA,"workload":"gpu-cuda-smoke-v1","status":"FAIL",
               "requested_accelerator":"NvidiaTeslaT4",
               "observed_cuda":False,"observed_gpu_count":0}
+    # Distinguish actual missing GPU hardware from an incompatible CPU-only
+    # PyTorch wheel. CUDA availability alone cannot discriminate those cases.
+    result["nvidia_device_node_present"] = Path("/dev/nvidia0").exists()
+    try:
+        probe = subprocess.run(["nvidia-smi", "-L"], capture_output=True,
+                               text=True, timeout=10, check=False)
+        result["nvidia_smi_available"] = probe.returncode == 0
+        result["nvidia_smi_device_count"] = sum(
+            1 for line in probe.stdout.splitlines() if line.startswith("GPU "))
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        result["nvidia_smi_available"] = False
+        result["nvidia_smi_device_count"] = 0
     try:
         import torch
         result["torch_version"] = str(torch.__version__)
