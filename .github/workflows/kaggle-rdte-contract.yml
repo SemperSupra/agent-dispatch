@@ -25,6 +25,20 @@ jobs:
           python3 -m py_compile scripts/kaggle_rdte.py experiments/kaggle_rdte/gpu_smoke.py experiments/kaggle_rdte/tpu_device.py experiments/kaggle_rdte/tpu_bridge.py experiments/kaggle_rdte/cpu_reasoning_controls.py
       - name: Negative/positive protocol tests (no Kaggle auth)
         run: python3 -m unittest -v tests/test_kaggle_rdte.py
+      - name: Pinned Kaggle 2.2.4 SDK contract (no credentials)
+        run: |
+          python3 -m venv .venv-kaggle-check
+          .venv-kaggle-check/bin/python -m pip install --disable-pip-version-check --quiet kaggle==2.2.4
+          .venv-kaggle-check/bin/python - <<'PY'
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          from importlib.metadata import version
+          assert version("kaggle") == "2.2.4"
+          for name in ("authenticate", "quota_view", "kernels_push",
+                       "kernels_list_with_response", "kernels_status",
+                       "kernels_output", "get_config_value"):
+              assert callable(getattr(KaggleApi,name,None)), name
+          print("KAGGLE_PINNED_SDK_CONTRACT_PASS")
+          PY
       - name: Typed dry-run (no Kaggle auth)
         run: |
           python3 scripts/kaggle_rdte.py --action plan --assignment test-rep-0001 --workload gpu-cuda-smoke-v1
