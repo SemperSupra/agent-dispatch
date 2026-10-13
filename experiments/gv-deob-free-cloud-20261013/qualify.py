@@ -5,11 +5,9 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import time
-import traceback
 
 ROOT = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "gv-deob-qual"
 ROOT.mkdir(parents=True, exist_ok=True)
@@ -195,13 +193,12 @@ def rosal():
     p, elapsed = exec_([str(ROOT / "venv" / "bin" / "rosal"), "--help"], timeout=35)
     if p.returncode:
         record("rosal", "BLOCKED_RUNTIME", version=ver, exit_code=p.returncode)
-    else:
-        record("rosal", "PASS_CLI_PREFLIGHT_ONLY", version=ver,
+        return
+    record("rosal", "PASS_CLI_PREFLIGHT_ONLY", version=ver,
            wall_seconds=elapsed, matching_semantics="NOT_RUN_NO_ANDROIDX_FIXTURE")
     # Isolated source-only challenge: public AndroidX AAR -> D8 -> descriptor rename.
     # This is NOT a sample of Google Voice or an APK downloaded from a private source.
     try:
-        import io
         import re
         import struct
         import zlib
@@ -223,6 +220,10 @@ def rosal():
         if p.returncode or not aar.exists():
             record("rosal", "BLOCKED_PUBLIC_AAR_FETCH", version=ver)
             return
+        actual_aar_sha = hashlib.sha256(aar.read_bytes()).hexdigest()
+        if actual_aar_sha != "66bc2c13bd91fb8ea09e445b21f784d3e5d3a9ec9b180cd07e0e9208c2f939c6":
+            record("rosal", "BLOCKED_PUBLIC_AAR_SHA_MISMATCH", version=ver)
+            return
         with zipfile.ZipFile(aar) as archive:
             jar = archive.read("classes.jar")
         libjar = ROOT / "activity-classes.jar"
@@ -240,7 +241,10 @@ def rosal():
         if not matches:
             record("rosal", "BLOCKED_NO_DESCRIPTOR_FIXTURE", version=ver)
             return
-        chosen = next((m for m in matches if b"Api34Impl;" in m.group()), matches[0])
+        chosen = next((m for m in matches if m.group() == b"Landroidx/activity/Api34Impl;"), None)
+        if chosen is None:
+            record("rosal", "BLOCKED_KNOWN_DESCRIPTOR_ABSENT", version=ver)
+            return
         original = chosen.group()
         prefix, sep, name = original.rpartition(b"/")
         alternate = prefix + sep + b"z" * len(name[:-1]) + b";"
@@ -274,10 +278,11 @@ def rosal():
         items = result.get("matches", []) if isinstance(result, dict) else []
         hits = [x for x in items if x.get("library_class") == original.decode()
                 and x.get("target_class") == alternate.decode()]
-        record("rosal", "PASS_KNOWN_ALIAS" if hits else "NO_CORRECT_ALIAS",
+        record("rosal", "PASS_KNOWN_ALIAS" if len(hits) == 1 and len(items) == 1
+               else "FAIL_ALIAS_AMBIGUOUS_OR_WRONG",
                version=ver, inferred_match_count=len(items),
                correct_alias_count=len(hits), wall_seconds=seconds,
-               aar_sha256=hashlib.sha256(aar.read_bytes()).hexdigest(),
+               aar_sha256=actual_aar_sha,
                synthetic_apk_sha256=hashlib.sha256(sample.read_bytes()).hexdigest(),
                original_descriptor=original.decode(),
                synthetic_alias=alternate.decode(), source="public_androidx_1.8.1")
