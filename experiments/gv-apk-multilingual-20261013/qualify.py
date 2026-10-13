@@ -148,28 +148,16 @@ def reproto_compiler_generated():
                       "com.example.Sample", output, "--log-dir",
                       base / "logs"], timeout=75)
     files = list(output.rglob("*.proto"))
-    needed_adapter = False
-    if (p.returncode != 0 or not files) and "return newMessageInfo(" in code:
-        # Generated code invokes an inherited method, while the candidate
-        # Java parser requires an explicitly qualified static call.
-        # Normalize ONLY an authored, disposable Java copy; never change upstream.
-        normalized = code.replace("return newMessageInfo(",
-                                  "return GeneratedMessageLite.newMessageInfo(", 1)
-        java.write_text(normalized, encoding="utf-8")
-        needed_adapter = True
-        output = base / "normalized_recovered"
-        output.mkdir(exist_ok=True)
-        p, elapsed = run([sys.executable, source / "main.py", source_tree,
-                          "com.example.Sample", output, "--log-dir",
-                          base / "normalized_logs"], timeout=75)
-        files = list(output.rglob("*.proto"))
+    # Intentionally do not mutate/retry a known incompatible candidate.
+    # The previous compatibility shim crashed (exit -11) without decoding.
     if p.returncode != 0 or not files:
         index = code.find("newMessageInfo")
-        report("reproto_lite", "FAIL_OR_UNSUPPORTED_GENERATED_LITE",
+        report("reproto_lite", "UNQUALIFIED_KNOWN_CALL_SHAPE_MISMATCH",
                exit_code=p.returncode, outputs=len(files), generated_java=True,
-               normalized_attempted=needed_adapter,
-               generated_call_shape=code[max(0,index-70):index+140],
-               stdout_tail=p.stdout[-350:])
+               normalized_attempted=False,
+               compiler_call_uses_variable="newMessageInfo(DEFAULT_INSTANCE, info, objects)" in code,
+               generated_call_shape=code[max(0,index-45):index+135],
+               stdout_tail=p.stdout[-180:])
         return
     txt = "\n".join(f.read_text(errors="replace") for f in files)
     import re
@@ -222,6 +210,132 @@ def reproto_compiler_generated():
            original_proto_sha256=hashlib.sha256(original.read_bytes()).hexdigest(),
            original_generated_java_sha256=hashlib.sha256(code.encode()).hexdigest(),
            elapsed_seconds=elapsed, protoc_compile_seconds=compile_s)
+
+
+def lite_rawmessageinfo_oracle():
+    """Independently decode a constrained actual protoc Java Lite info string.
+
+    Uses the documented protobuf Java RawMessageInfo UTF-16 integer encoding and
+    verifies recovered numbered field types/labels against protoc descriptor.
+    Unsupported shapes must abstain; this does not claim full schema restoration.
+    """
+    import codecs
+    import re
+    from google.protobuf.descriptor_pb2 import FileDescriptorSet
+
+    case = ROOT / "protoc_lite_case"
+    java = case / "java" / "com" / "example" / "Sample.java"
+    original = case / "sample.proto"
+    protoc = __import__("shutil").which("protoc")
+    if not java.exists() or not original.exists() or not protoc:
+        report("lite_rawmessageinfo", "BLOCKED_NO_GENUINE_COMPILED_FIXTURE")
+        return
+    source = java.read_text(encoding="utf-8")
+    # Consume only a direct, syntactically bounded String info assignment.
+    pattern = r'\bString\s+info\s*=\s*((?:"(?:\\.|[^"\\])*"\s*(?:\+\s*)?)+);'
+    match = re.search(pattern, source, re.S)
+    if not match or not re.search(r'newMessageInfo\(\s*DEFAULT_INSTANCE\s*,\s*info\s*,', source):
+        report("lite_rawmessageinfo", "BLOCKED_UNSUPPORTED_STRING_INFO_SHAPE")
+        return
+    chunks = re.findall(r'"((?:\\.|[^"\\])*)"', match.group(1))
+    if not chunks or len(chunks) > 64:
+        report("lite_rawmessageinfo", "FAIL_UNBOUNDED_STRING_CHUNKS")
+        return
+    chars = "".join(codecs.decode(chunk, "unicode_escape") for chunk in chunks)
+    if not chars or len(chars) > 4096:
+        report("lite_rawmessageinfo", "FAIL_UNBOUNDED_INFO")
+        return
+
+    def unpack(text):
+        # RawMessageInfo.java: continuation characters >= 0xD800,
+        # 13 information bits per continuation, then terminating char.
+        ints, value, shift = [], 0, 0
+        for char in text:
+            unit = ord(char)
+            if 0xD800 <= unit <= 0xDFFF:
+                raise ValueError("surrogate_codepoint_disallowed")
+            if unit >= 0xE000:
+                value |= (unit & 0x1FFF) << shift
+                shift += 13
+                if shift > 39:
+                    raise ValueError("continuation_too_long")
+            else:
+                ints.append(value | (unit << shift))
+                value, shift = 0, 0
+        if shift:
+            raise ValueError("truncated_UTF16_integer")
+        return ints
+
+    def decode_fields(text):
+        data = unpack(text)
+        if len(data) < 10:
+            raise ValueError("missing_header")
+        flags, count, oneofs, hasbits, minimum, maximum, allocated, maps, repeated, check = data[:10]
+        if flags & 0x1 or oneofs or hasbits or maps:
+            raise ValueError("unsupported_proto2_oneof_map_hasbits")
+        if count < 1 or count > 64 or len(data) != 10 + 2 * count:
+            raise ValueError("field_count_or_variable_layout")
+        pairs = [(data[i], data[i + 1]) for i in range(10, len(data), 2)]
+        if not all(minimum <= num <= maximum for num, _ in pairs):
+            raise ValueError("bad_field_range")
+        if len({num for num, _ in pairs}) != count:
+            raise ValueError("duplicate_field_number")
+        table = {
+            4: (5, 1),    # int32 singular (FieldDescriptorProto TYPE_INT32, LABEL_OPTIONAL)
+            8: (9, 1),    # string singular
+            26: (9, 3),   # string list
+        }
+        fields = []
+        for num, encoded in pairs:
+            typ = encoded & 0xff
+            if typ not in table or encoded & ~0x2ff:
+                raise ValueError("unknown_field_type_or_flags")
+            fields.append((num, *table[typ]))
+        return sorted(fields)
+
+    try:
+        found = decode_fields(chars)
+        # Synthetic regression negatives: invalid continuation and invalid field type.
+        truncated_rejected = False
+        unknown_type_rejected = False
+        try:
+            decode_fields(chars + "\ue000")
+        except ValueError:
+            truncated_rejected = True
+        mutated = chars[:-1] + chr(120)  # last field type unknown
+        try:
+            decode_fields(mutated)
+        except ValueError:
+            unknown_type_rejected = True
+        desc_path = case / "rawmessage-oracle.pb"
+        p, _ = run([protoc, f"--proto_path={case}",
+                    f"--descriptor_set_out={desc_path}", original], timeout=40)
+        if p.returncode != 0:
+            raise ValueError("independent_protoc_descriptor_failed")
+        descriptors = FileDescriptorSet()
+        descriptors.ParseFromString(desc_path.read_bytes())
+        expected = sorted((field.number, field.type, field.label)
+                          for fd in descriptors.file
+                          for message in fd.message_type
+                          for field in message.field)
+        if found != expected or not truncated_rejected or not unknown_type_rejected:
+            report("lite_rawmessageinfo", "FAIL_INDEPENDENT_DESCRIPTOR_PARITY",
+                   field_count=len(found), expected_count=len(expected),
+                   malformed_rejected=truncated_rejected,
+                   unknown_type_rejected=unknown_type_rejected)
+            return
+        report("lite_rawmessageinfo", "PASS_COMPILER_GENERATED_3_FIELDS_AND_NEGATIVES",
+               numbered_types_and_labels_verified=len(found),
+               field_names_from_info="UNKNOWN",
+               protoc_source_sha256=hashlib.sha256(original.read_bytes()).hexdigest(),
+               java_info_sha256=hashlib.sha256(chars.encode("utf-16le")).hexdigest(),
+               malformed_rejected=truncated_rejected,
+               unknown_type_rejected=unknown_type_rejected,
+               unsupported_oneof_map_proto2="ABSTAIN")
+    except (UnicodeError, ValueError) as error:
+        report("lite_rawmessageinfo", "FAIL_OR_UNSUPPORTED_INFO_DECODER",
+               reason=str(error)[:130])
+
 
 def apk():
     src = ROOT / "ApkProbe.java"
@@ -299,17 +413,19 @@ def main():
     lane = argparse.ArgumentParser()
     lane.add_argument("--lane", choices=["protocol", "apk"], required=True)
     args = lane.parse_args()
-    functions = [protorev, reproto, reproto_compiler_generated] if args.lane == "protocol" else [apk, androguard, apkid]
+    functions = [protorev, reproto, reproto_compiler_generated, lite_rawmessageinfo_oracle] if args.lane == "protocol" else [apk, androguard, apkid]
     for fn in functions:
         try:
             fn()
         except Exception as error:
             report(fn.__name__, "FAIL_EXCEPTION",
                    error_type=type(error).__name__, explanation=str(error)[:150])
-    mandatory = ["protorev"] if args.lane == "protocol" else ["apk_fixture", "androguard"]
+    mandatory = ["protorev", "lite_rawmessageinfo"] if args.lane == "protocol" else ["apk_fixture", "androguard"]
     states = {x: y["status"] for x, y in state["results"].items()}
     qualified = all(states.get(x, "").startswith("PASS") for x in mandatory)
-    state["overall"] = "PASS_REQUIRED_WITH_CANDIDATE_LIMITS" if qualified else "FAIL_REQUIRED"
+    state["overall"] = "PASS_REQUIRED_WITH_REPROTO_UNQUALIFIED" if qualified and args.lane == "protocol" else ("PASS_REQUIRED_WITH_CANDIDATE_LIMITS" if qualified else "FAIL_REQUIRED")
+    state["mandatory"] = mandatory
+    state["unqualified_candidates"] = [name for name, item in state["results"].items() if not item["status"].startswith("PASS")]
     (ROOT / "receipt.json").write_text(json.dumps(state, sort_keys=True, indent=2) + "\n")
     print(json.dumps({"lane": args.lane, "overall": state["overall"],
                       "results": states}, sort_keys=True))
