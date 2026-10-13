@@ -59,6 +59,19 @@ jobs:
       - name: Read-only feature survey (not a nested Alpine guest proof)
         run: python3 experiments/mullvad-hyperv-public-rdte/tools/capabilities.py
 
+  alpine-virt-manifest:
+    name: Public Alpine virt image SHA256 manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Validate manifest substitution and injection negatives
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_alpine_manifest.py' -v
+      - name: Read official checksum manifest only, no ISO or VM
+        run: python3 experiments/mullvad-hyperv-public-rdte/tools/alpine_manifest.py --fetch
+
   windows-hyperv-census:
     name: Windows 2025 Hyper-V read-only census
     runs-on: windows-2025
