@@ -21,3 +21,19 @@ Authoritative DLE specifies exact source revision, approved input/output manifes
 **Internet-enabled later, separately qualified:** Hugging Face Hub, public GitHub releases, Cloudflare R2 via time-limited object-scoped signed requests, Google Cloud Storage/Drive and Microsoft Azure Blob/OneDrive via provider APIs. Network access in Kaggle API-submitted notebooks is **not guaranteed**: internet setting may be ignored by provider; verify a real egress probe. No credentials or signed URLs in public notebooks/receipts/logs. Colab is a separate compute environment: exchange artifact manifests through the DLE, not direct interactive Colab runtime coupling.
 
 Stop on unresolved first T4 Windows-origin run `ERROR` (private DLE has FAIL receipt, root cause UNKNOWN), ambiguous native version/ownership, failed hardware probe, missing quota, restricted data, or absent authorization. No Cloudflare Tunnel, open inference server, new scheduler or automatic quota-draining retries is part of this candidate.
+
+## 2026-10-13 GPU/TPU qualification continuation
+
+The first private Kaggle T4 notebook reported `torch.cuda.is_available()==False` even though submitted and persisted metadata requested `NvidiaTeslaT4` with `enable_gpu=true`. This **does not distinguish an absent device from a CPU-only PyTorch build**; the original notebook did not check `nvidia-smi`. Preserve its receipt and do not overwrite the notebook. Source: private DLE #638 comment 6153986973.
+
+Upstream `Kaggle/kaggle-cli#1196` confirms `NvidiaTeslaT4` is the public **2×T4** pool. `#1197` confirms `TpuV5E8` API batch sessions work when `docker_image` and stale notebook image pins are absent. The TPU batch limit is one active/queued session per user. These sources describe the request path and one known TPU failure, not a guarantee of allocation.
+
+The public RDTE proposal now has two independently staged TPU steps:
+- `tpu-v5e8-device-v1`: short JAX/device attestation with requested TPU VM, eight TPU devices and on-device sum-of-squares arithmetic; no training.
+- `tpu-jax-bridge-v1`: 160-step synthetic paired representation training, conditioned on the prior device attestation PASS. This is **not** real-model Neuralese evidence.
+
+GPU `gpu-cuda-smoke-v1` records device-file presence, `nvidia-smi` count, PyTorch CUDA build and actual arithmetic. It distinguishes CPU-only PyTorch on a visible GPU, driver/framework mismatch, device-unattested sessions and model/count mismatches. Successful push alone does not promote `gpu` or `tpu` capability. No automatic retry of an ambiguous or existing native notebook version.
+
+**Public GHA contract evidence:** run https://github.com/SemperSupra/agent-dispatch/actions/runs/38462417344 completed 24 independent offline protocol, hardware-failure taxonomy and negative-control tests PASS. This run used no Kaggle credential or accelerator.
+
+**Operational deployment gate:** the protected `kaggle-rdte` environment and `KAGGLE_API_TOKEN` are already owner-verified. The reviewed, privileged static GHA executor still has not been installed, so no real GHA→Kaggle GPU/TPU rep is claimed. An authorized repository actor must install/review the dedicated default-branch typed workflow; do not reuse a generic user-supplied command action with the token. First execute one fresh uniquely named GPU hardware rep, retrieve exact native version/device oracle; then one TPU device rep; only after PASS, the TPU training rep, and eventually DLE-bound model work. Stop on quota/one-TPU queue, unknown state, failed receipt or absent owner authority.
