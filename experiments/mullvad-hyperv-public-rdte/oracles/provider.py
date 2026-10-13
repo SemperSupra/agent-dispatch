@@ -61,6 +61,27 @@ def authorize_device_change(devices: tuple[Device, ...], selected_id: str,
 
 
 def public_safe_diagnostic(fields: dict) -> dict:
-    """Default-deny public telemetry: reveal only enumerated nonsecret classifications."""
-    permitted = {"phase", "result", "error_class", "test_case", "oracle"}
-    return {key: str(value) for key, value in fields.items() if key in permitted}
+    """Default-deny public telemetry: validate *values*, not just field names.
+
+    Never reflect arbitrary caller-controlled message text into public output.
+    Only fixed enums and short synthetic case IDs are allowed.
+    """
+    import re
+
+    enums = {
+        "phase": frozenset(("boot", "connecting", "connected", "switching",
+                            "error", "recovery", "revoked", "synthetic")),
+        "result": frozenset(("PASS", "FAIL", "BLOCKED", "NOT_RUN")),
+        "error_class": frozenset(("NONE", "ADMISSION", "ENVIRONMENT",
+                                 "HARNESS", "ORACLE", "UNKNOWN")),
+        "oracle": frozenset(("policy", "provider", "linux", "windows")),
+    }
+    safe = {}
+    for key, choices in enums.items():
+        value = fields.get(key)
+        if isinstance(value, str) and value in choices:
+            safe[key] = value
+    case = fields.get("test_case")
+    if isinstance(case, str) and re.fullmatch(r"T[0-9]{1,4}", case):
+        safe["test_case"] = case
+    return safe
