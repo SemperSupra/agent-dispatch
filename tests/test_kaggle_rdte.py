@@ -134,6 +134,39 @@ class Tests(unittest.TestCase):
         d["metrics"]["tpu_count"]=0
         with self.assertRaises(m.Denied):
             m.verify(d,"tpu-jax-bridge-v1")
+    def test_cuda_readiness_is_not_equivalent_to_device_allocation(self):
+        source = ROOT/"experiments"/"kaggle_rdte"/"gpu_smoke.py"
+        spec = importlib.util.spec_from_file_location("gpu_readiness_probe",source)
+        module=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cases = [
+            ((None,False,0,2,True),"CPU_ONLY_TORCH_ON_GPU"),
+            ((None,False,0,0,False),"CUDA_BUILD_UNAVAILABLE_DEVICE_UNKNOWN"),
+            (("12.1",False,0,2,True),"CUDA_RUNTIME_MISMATCH_ON_VISIBLE_GPU"),
+            (("12.1",False,0,0,False),"CUDA_DEVICE_UNAVAILABLE"),
+            (("12.1",True,2,2,True),None),
+        ]
+        for parameters,expected in cases:
+            with self.subTest(case=parameters):
+                self.assertEqual(module.classify_cuda_readiness(*parameters),expected)
+
+    def test_terminal_failed_receipt_preserves_runtime_category(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
+           "status":"FAIL","failure_class":"CPU_ONLY_TORCH_ON_GPU"}
+        f=Fake(status="KernelWorkerStatus.ERROR",output=d)
+        with tempfile.TemporaryDirectory() as td:
+            r=m.observe(f,self.plan("observe",version=5),Path(td))
+        self.assertEqual(r["classification"],"FAIL_RUNTIME_SOFTWARE")
+        self.assertEqual(r["native_version"],5)
+
+    def test_terminal_failed_receipt_keeps_unattested_device_unknown(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"tpu-v5e8-device-v1",
+           "status":"FAIL","failure_class":"TPU_DEVICE_UNAVAILABLE"}
+        f=Fake(status="KernelWorkerStatus.ERROR",output=d)
+        with tempfile.TemporaryDirectory() as td:
+            r=m.observe(f,self.plan("observe",version=4,workload="tpu-v5e8-device-v1"),Path(td))
+        self.assertEqual(r["classification"],"FAIL_DEVICE_NOT_ATTESTED")
+
     def test_tpu_device_positive_oracle(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"tpu-v5e8-device-v1",
            "status":"PASS",
@@ -180,7 +213,7 @@ class Tests(unittest.TestCase):
         f=Fake(status="KernelWorkerStatus.ERROR",output=d)
         with tempfile.TemporaryDirectory() as td:
             r=m.observe(f,self.plan("observe",version=3),Path(td))
-        self.assertEqual(r["classification"],"FAIL_HARDWARE")
+        self.assertEqual(r["classification"],"FAIL_WORKLOAD")
         self.assertEqual(r["failure_class"],"CUDA_BUILD_UNAVAILABLE")
         self.assertEqual(r["native_version"],3)
         self.assertEqual(len(r["result_digest"]),64)
