@@ -69,8 +69,8 @@ jobs:
           persist-credentials: false
       - name: Validate manifest substitution and injection negatives
         run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_alpine_manifest.py' -v
-      - name: Read official checksum manifest only, no ISO or VM
-        run: python3 experiments/mullvad-hyperv-public-rdte/tools/alpine_manifest.py --fetch
+      - name: Stream-hash pinned official Alpine ISO, no VM or disk artifact
+        run: python3 experiments/mullvad-hyperv-public-rdte/tools/alpine_manifest.py --verify-iso
 
   windows-hyperv-census:
     name: Windows 2025 Hyper-V read-only census
