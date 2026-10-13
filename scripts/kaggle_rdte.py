@@ -16,6 +16,7 @@ import tempfile
 
 WORKLOADS = {
     "gpu-cuda-smoke-v1": ("gpu_smoke.py", "NvidiaTeslaT4", "GPU", 600),
+    "tpu-v5e8-device-v1": ("tpu_device.py", "TpuV5E8", "TPU", 600),
     "tpu-jax-bridge-v1": ("tpu_bridge.py", "TpuV5E8", "TPU", 1200),
 }
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{3,33}$")
@@ -150,12 +151,16 @@ def observe(api, plan, path: Path):
         failure = str(data.get("failure_class","")) if isinstance(data,dict) else ""
         allowed = {"CUDA_DEVICE_UNAVAILABLE","CUDA_BUILD_UNAVAILABLE",
                    "TPU_DEVICE_UNAVAILABLE","SYNTHETIC_BRIDGE_CONTROL_FAILED",
-                   "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH","RuntimeError","AssertionError","UNKNOWN"}
+                   "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH",
+                   "TPU_JAX_RUNTIME_MISSING","TPU_COUNT_MISMATCH",
+                   "TPU_RUNTIME_EXECUTION_ERROR","TPU_MATH_ORACLE_FAILED","RuntimeError","AssertionError","UNKNOWN"}
         klass = failure if failure in allowed else "UNCLASSIFIED"
         return {"state":state,"is_terminal":True,
                 "classification":"FAIL_HARDWARE" if klass in
                   {"CUDA_DEVICE_UNAVAILABLE","CUDA_BUILD_UNAVAILABLE","TPU_DEVICE_UNAVAILABLE",
-                   "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH"} else "FAIL_WORKLOAD",
+                   "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH",
+                   "TPU_JAX_RUNTIME_MISSING","TPU_COUNT_MISMATCH",
+                   "TPU_RUNTIME_EXECUTION_ERROR","TPU_MATH_ORACLE_FAILED"} else "FAIL_WORKLOAD",
                 "failure_class":klass,"result_digest":digest(receipt.read_bytes()),
                 "native_version":plan["version"]}
     verify(data,plan["workload"])
@@ -170,6 +175,14 @@ def verify(data, workload):
     if workload=="gpu-cuda-smoke-v1":
         if data.get("accelerator")!="gpu" or data.get("gpu_count")!=2 or data.get("checksum")!=8386560.0:
             raise Denied("CUDA_ORACLE_FAILED")
+    elif workload=="tpu-v5e8-device-v1":
+        m=data.get("metrics",{})
+        if (not isinstance(m,dict)
+            or m.get("requested_accelerator")!="TpuV5E8"
+            or m.get("tpu_count")!=8
+            or m.get("jax_backend_tpu") is not True
+            or m.get("tpu_arithmetic") is not True):
+            raise Denied("TPU_HARDWARE_ATTESTATION_FAILED")
     else:
         m=data.get("metrics",{})
         if (not isinstance(m,dict) or m.get("accelerator")!="tpu"
