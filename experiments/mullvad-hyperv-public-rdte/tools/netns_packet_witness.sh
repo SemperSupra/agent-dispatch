@@ -113,6 +113,10 @@ sudo -n ip netns exec "$gw_ns" sysctl -qw net.ipv4.ip_forward=1
 sudo -n ip netns exec "$gw_ns" sysctl -qw net.ipv6.conf.all.forwarding=1
 sudo -n ip -n "$lan_ns" route add default via 192.0.2.1
 sudo -n ip -n "$lan_ns" -6 route add default via 2001:db8:1::1
+# The synthetic WAN observer is a separate network namespace and needs an
+# explicit return route to LAN. This never touches the runner host routes.
+sudo -n ip -n "$wan_ns" route add 192.0.2.0/24 via 198.51.100.1
+sudo -n ip -n "$wan_ns" -6 route add 2001:db8:1::/64 via 2001:db8:2::1
 
 # IPv6 address can initially be tentative. Wait for DAD before binding server.
 dad_ready=false
