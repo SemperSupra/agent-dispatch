@@ -108,6 +108,34 @@ class Tests(unittest.TestCase):
         with self.assertRaises(m.Denied):
             m.submit(f,self.plan())
         self.assertEqual(f.pushed,0)
+    def test_other_queued_agent_dispatch_job_blocks(self):
+        f=Fake(owned=["publicresearcher/ad-rdte-earlier-0001"],
+               status="KernelWorkerStatus.QUEUED")
+        with self.assertRaisesRegex(m.Denied,"ANOTHER_AGENT_DISPATCH_KAGGLE_JOB_ACTIVE"):
+            m.submit(f,self.plan())
+        self.assertEqual(f.pushed,0)
+
+    def test_other_running_agent_dispatch_job_blocks(self):
+        f=Fake(owned=["publicresearcher/ad-rdte-earlier-0001"],
+               status="KernelWorkerStatus.RUNNING")
+        with self.assertRaisesRegex(m.Denied,"ANOTHER_AGENT_DISPATCH_KAGGLE_JOB_ACTIVE"):
+            m.submit(f,self.plan())
+        self.assertEqual(f.pushed,0)
+
+    def test_other_terminal_job_does_not_block(self):
+        f=Fake(owned=["publicresearcher/ad-rdte-earlier-0001"],
+               status="KernelWorkerStatus.COMPLETE")
+        receipt=m.submit(f,self.plan())
+        self.assertEqual(receipt["native_version"],1)
+        self.assertEqual(f.pushed,1)
+
+    def test_unknown_owned_state_fails_closed(self):
+        f=Fake(owned=["publicresearcher/ad-rdte-earlier-0001"],
+               status="KernelWorkerStatus.MYSTERY")
+        with self.assertRaisesRegex(m.Denied,"EXISTING_KAGGLE_JOB_STATE_UNKNOWN"):
+            m.submit(f,self.plan())
+        self.assertEqual(f.pushed,0)
+
     def test_provider_semantic_error(self):
         f=Fake(error="provider-rejected")
         with self.assertRaises(m.Denied):
