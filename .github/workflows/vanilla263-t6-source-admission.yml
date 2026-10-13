@@ -1,0 +1,79 @@
+name: Vanilla 26.3 TrueNAS 25.04.2.6 signed-source guest-admission gate
+on:
+  pull_request:
+    paths:
+      - 'scripts/admit_vanilla263_native_t6_control.py'
+      - 'tests/test_vanilla263_t6_source_admission.py'
+      - '.github/workflows/vanilla263-t6-source-admission.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-source:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact Agent Dispatch candidate without mutating request edge
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Checkout immutable accepted Foundry producer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/truenas-app-foundry
+          ref: 29ec6cba7df51e316b0329926aa85807805dd07b
+          path: .deps/vanilla-foundry
+          persist-credentials: false
+      - name: Validate source and test fixtures before render
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/vanilla-foundry rev-parse HEAD)" = 29ec6cba7df51e316b0329926aa85807805dd07b
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 -m py_compile scripts/admit_vanilla263_native_t6_control.py tests/test_vanilla263_t6_source_admission.py
+      - name: Independently source render exact native community catalog
+        run: |
+          set -euo pipefail
+          python3 .deps/vanilla-foundry/tools/validate_minecraft_world_control.py \
+            --product vanilla-263 --catalog-profile 1.15.30 \
+            --target-version 25.04.2.6 > "$RUNNER_TEMP/vanilla-source.json"
+      - name: Produce signed source control at accepted merged Foundry ref
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/vanilla-control"
+          python3 .deps/vanilla-foundry/tools/export_minecraft_vanilla_263_t6_control.py \
+            --foundry-ref 29ec6cba7df51e316b0329926aa85807805dd07b \
+            --target-version 25.04.2.6 \
+            --source-evidence "$RUNNER_TEMP/vanilla-source.json" \
+            --out "$RUNNER_TEMP/vanilla-control/control.json"
+          echo "VANILLA263_SOURCE_CONTROL=$RUNNER_TEMP/vanilla-control/control.json" >> "$GITHUB_ENV"
+      - name: Independent Agent Dispatch consumer and exhaustive cheap red-blue
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_vanilla263_t6_source_admission.py
+          python3 scripts/admit_vanilla263_native_t6_control.py \
+            --control "$VANILLA263_SOURCE_CONTROL" \
+            --out "$RUNNER_TEMP/vanilla-control/consumer-receipt.json"
+          python3 - "$RUNNER_TEMP/vanilla-control/consumer-receipt.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1]))
+          assert r["schema"]=="semper-supra.minecraft-vanilla263-t6-consumer-admission/1"
+          assert r["classification"]=="SOURCE_CONTROL_READY_GUEST_NOT_DISPATCHED"
+          assert r["control_sha256"]=="c1d6d9bd6306de55b12072ea9d0d6411fa7d7f106a6a87bdbe1913c0d82c0615"
+          assert r["minecraft_version"]=="26.3" and r["minecraft_protocol"]==777
+          assert r["java_version"]==25 and r["truenas_version"]=="25.04.2.6"
+          assert r["native_guest_created"] is False and r["native_guest_qualified"] is False
+          assert r["physical_truenas_apply"]=="HOLD"
+          PY
+      - name: Publish bounded safe control admission receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vanilla263-native-control-consumer-receipt
+          path: ${{ runner.temp }}/vanilla-control/consumer-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Honest guest gate
+        if: always()
+        run: |
+          echo 'This job never dispatches a KVM guest, creates a TrueNAS App, tests Java in a guest or authorizes physical TrueNAS APPLY. Selector and guest observer require separate implementation before a new request edge.' >> "$GITHUB_STEP_SUMMARY"
