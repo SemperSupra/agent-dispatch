@@ -65,8 +65,13 @@ def quota_ok(api, kind, seconds):
     return int(remaining)
 
 def existing(api, ref):
+    # Protect Kaggle's remote-session quota across short-lived GHA invocations.
+    # A workflow-level concurrency group ceases protecting after 'submit' exits,
+    # while Kaggle may still be QUEUED or RUNNING for minutes.
     token = None
     seen = set()
+    other_owned = []
+    expected_owner = ref.split("/", 1)[0].lower()
     for _ in range(20):
         kw = {"mine":True,"page_size":100}
         if token: kw["page_token"] = token
@@ -75,13 +80,30 @@ def existing(api, ref):
             raise Denied("PROVIDER_LIST_UNAVAILABLE")
         for entry in (response.kernels or []):
             row = getattr(entry,"ref",None)
-            if not isinstance(row,str): raise Denied("PROVIDER_LIST_UNTRUSTED")
-            if row.lower() == ref.lower(): return True
+            if not isinstance(row,str) or "/" not in row:
+                raise Denied("PROVIDER_LIST_UNTRUSTED")
+            if row.lower() == ref.lower():
+                return True
+            owner, slug = row.split("/",1)
+            if owner.lower() == expected_owner and slug.lower().startswith("ad-rdte-"):
+                other_owned.append(row)
+                if len(other_owned)>32:
+                    raise Denied("OWNED_EXPERIMENT_SCAN_BOUND_EXCEEDED")
         token = getattr(response,"next_page_token",None)
-        if not token: return False
-        if not isinstance(token,str) or token in seen: raise Denied("PROVIDER_PAGING_UNKNOWN")
+        if not token:
+            break
+        if not isinstance(token,str) or token in seen:
+            raise Denied("PROVIDER_PAGING_UNKNOWN")
         seen.add(token)
-    raise Denied("PROVIDER_LIST_BOUND_EXCEEDED")
+    else:
+        raise Denied("PROVIDER_LIST_BOUND_EXCEEDED")
+    for other in other_owned:
+        state = str(getattr(api.kernels_status(other),"status","UNKNOWN")).upper()
+        if any(x in state for x in ("QUEUED","RUNNING","PENDING","STARTING")):
+            raise Denied("ANOTHER_AGENT_DISPATCH_KAGGLE_JOB_ACTIVE")
+        if not any(x in state for x in ("COMPLETE","ERROR","FAIL","CANCEL","SUCCESS")):
+            raise Denied("EXISTING_KAGGLE_JOB_STATE_UNKNOWN")
+    return False
 
 def submit(api, plan):
     user = account(api)
