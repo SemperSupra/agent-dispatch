@@ -3,7 +3,8 @@
 import importlib.util
 import json
 from pathlib import Path
-from types import SimpleNamespace
+from types import SimpleNamespace, ModuleType
+from unittest.mock import patch
 import tempfile
 import unittest
 
@@ -14,9 +15,32 @@ m = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = m
 SPEC.loader.exec_module(m)
 
+class FakeKernelRequest:
+    def __init__(self):
+        self.user_name = None
+        self.kernel_slug = None
+
+# The offline protocol tests inject just the Kaggle SDK request class;
+# the real package and network are validated separately by pinned SDK CI.
+_fake_sdk = ModuleType("kagglesdk")
+_fake_sdk.__path__ = []
+_fake_kernels = ModuleType("kagglesdk.kernels")
+_fake_kernels.__path__ = []
+_fake_types = ModuleType("kagglesdk.kernels.types")
+_fake_types.__path__ = []
+_fake_service = ModuleType("kagglesdk.kernels.types.kernels_api_service")
+_fake_service.ApiGetKernelRequest = FakeKernelRequest
+_sdk_modules = {
+    "kagglesdk":_fake_sdk,
+    "kagglesdk.kernels":_fake_kernels,
+    "kagglesdk.kernels.types":_fake_types,
+    "kagglesdk.kernels.types.kernels_api_service":_fake_service,
+}
+
 class Fake:
     CONFIG_NAME_USER = "username"
-    def __init__(self, owned=(), version=1, error=None, status="KernelWorkerStatus.COMPLETE", output=None):
+    def __init__(self, owned=(), version=1, error=None, status="KernelWorkerStatus.COMPLETE", output=None,
+                 current_version=3, observed_versions=None):
         self.owned=list(owned)
         self.version=version
         self.error=error
@@ -24,6 +48,22 @@ class Fake:
         self.output=output
         self.pushed=0
         self.calls=[]
+        self.current_version = current_version
+        self.observed_versions = list(observed_versions or [])
+    def build_kaggle_client(self):
+        parent = self
+        class Client:
+            def __enter__(self): return self
+            def __exit__(self, exc_type, exc_value, traceback): return False
+            @property
+            def kernels(self):
+                def get_kernel(request):
+                    parent.calls.append(("get_kernel",request.kernel_slug))
+                    version=(parent.observed_versions.pop(0)
+                             if parent.observed_versions else parent.current_version)
+                    return SimpleNamespace(metadata=SimpleNamespace(current_version_number=version))
+                return SimpleNamespace(kernels_api_client=SimpleNamespace(get_kernel=get_kernel))
+        return Client()
     def authenticate(self): pass
     def get_config_value(self,k):
         return "publicresearcher"
@@ -49,6 +89,13 @@ class Fake:
         return ([], "")
 
 class Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._sdk_patch = patch.dict(sys.modules,_sdk_modules)
+        cls._sdk_patch.start()
+    @classmethod
+    def tearDownClass(cls):
+        cls._sdk_patch.stop()
     def plan(self,action="submit",assignment="test-rep-0001",workload="gpu-cuda-smoke-v1",version=0):
         return m.validate(action,assignment,workload,version)
     def test_cpu_reasoning_controls_real_work_fixture(self):
@@ -198,7 +245,7 @@ class Tests(unittest.TestCase):
     def test_terminal_failed_receipt_preserves_runtime_category(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
            "status":"FAIL","failure_class":"CPU_ONLY_TORCH_ON_GPU"}
-        f=Fake(status="KernelWorkerStatus.ERROR",output=d)
+        f=Fake(status="KernelWorkerStatus.ERROR",output=d,current_version=5)
         with tempfile.TemporaryDirectory() as td:
             r=m.observe(f,self.plan("observe",version=5),Path(td))
         self.assertEqual(r["classification"],"FAIL_RUNTIME_SOFTWARE")
@@ -207,7 +254,7 @@ class Tests(unittest.TestCase):
     def test_terminal_failed_receipt_keeps_unattested_device_unknown(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"tpu-v5e8-device-v1",
            "status":"FAIL","failure_class":"TPU_DEVICE_UNAVAILABLE"}
-        f=Fake(status="KernelWorkerStatus.ERROR",output=d)
+        f=Fake(status="KernelWorkerStatus.ERROR",output=d,current_version=4)
         with tempfile.TemporaryDirectory() as td:
             r=m.observe(f,self.plan("observe",version=4,workload="tpu-v5e8-device-v1"),Path(td))
         self.assertEqual(r["classification"],"FAIL_DEVICE_NOT_ATTESTED")
@@ -244,13 +291,13 @@ class Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             receipt=m.observe(f,self.plan("observe",version=3),Path(td))
             self.assertEqual(receipt["state"],"TERMINAL_VERIFIED")
-        self.assertEqual(f.calls[0][1],"publicresearcher/ad-rdte-test-rep-0001/3")
+        self.assertEqual(f.calls[1][1],"publicresearcher/ad-rdte-test-rep-0001/3")
     def test_provider_error_no_download(self):
         f=Fake(status="KernelWorkerStatus.ERROR")
         with tempfile.TemporaryDirectory() as td:
             r=m.observe(f,self.plan("observe",version=3),Path(td))
         self.assertEqual(r["state"],"TERMINAL_FAILED")
-        self.assertEqual(len(f.calls),2)
+        self.assertEqual(len(f.calls),4)
     def test_error_carries_missing_hardware_fail_receipt(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
            "status":"FAIL","failure_class":"CUDA_BUILD_UNAVAILABLE",
@@ -272,7 +319,20 @@ class Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             r=m.observe(f,self.plan("observe",version=3),Path(td))
         self.assertFalse(r["is_terminal"])
+        self.assertEqual(len(f.calls),2)
+
+    def test_observe_refuses_mismatched_native_version(self):
+        f=Fake(current_version=4)
+        with tempfile.TemporaryDirectory() as td, self.assertRaisesRegex(m.Denied,"PROVIDER_VERSION_CHANGED_RECONCILE"):
+            m.observe(f,self.plan("observe",version=3),Path(td))
         self.assertEqual(len(f.calls),1)
+
+    def test_observe_refuses_version_change_during_retrieval(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
+           "status":"PASS","accelerator":"gpu","gpu_count":2,"checksum":8386560.0}
+        f=Fake(output=d,observed_versions=[3,4])
+        with tempfile.TemporaryDirectory() as td, self.assertRaisesRegex(m.Denied,"PROVIDER_VERSION_CHANGED_RECONCILE"):
+            m.observe(f,self.plan("observe",version=3),Path(td))
 
 if __name__=="__main__":
     unittest.main(verbosity=2)
