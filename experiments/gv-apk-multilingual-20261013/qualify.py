@@ -84,7 +84,7 @@ public final class SampleMessage extends GeneratedMessageLite {
   private String title_ = "";
   private int count_;
   protected Object dynamicMethod(Object type, Object unused1, Object unused2) {
-    return newMessageInfo(null, "\\\\u0000", new Object[]{"title_", "count_"});
+    return GeneratedMessageLite.newMessageInfo(DEFAULT_INSTANCE, "\\\\u0000\\\\u0002\\\\u0000\\\\u0000\\\\u0001\\\\u0002\\\\u0002\\\\u0000\\\\u0000\\\\u0000\\\\u0001\\\\u0208\\\\u0002\\\\u0004", new Object[]{"title_", "count_"});
   }
 }
 """)
@@ -96,7 +96,8 @@ public final class SampleMessage extends GeneratedMessageLite {
     generated = list(output.rglob("*.proto"))
     if trial.returncode != 0:
         report("reproto", "FAIL_SYNTHETIC_JAVA_INPUT", exit_code=trial.returncode,
-               reason="Candidate cannot process authored generated-like source; not a real Lite compiler oracle")
+               reason="Generated-like Java parser failed; not tested against compiler-generated Lite",
+               stderr_excerpt=trial.stderr[-180:], stdout_excerpt=trial.stdout[-180:])
         return
     txt = "\n".join(p.read_text(errors="replace") for p in generated)
     if not generated or (" = 1;" not in txt and " = 2;" not in txt):
