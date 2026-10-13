@@ -148,12 +148,28 @@ def reproto_compiler_generated():
                       "com.example.Sample", output, "--log-dir",
                       base / "logs"], timeout=75)
     files = list(output.rglob("*.proto"))
+    needed_adapter = False
+    if (p.returncode != 0 or not files) and "return newMessageInfo(" in code:
+        # Generated code invokes an inherited method, while the candidate
+        # Java parser requires an explicitly qualified static call.
+        # Normalize ONLY an authored, disposable Java copy; never change upstream.
+        normalized = code.replace("return newMessageInfo(",
+                                  "return GeneratedMessageLite.newMessageInfo(", 1)
+        java.write_text(normalized, encoding="utf-8")
+        needed_adapter = True
+        output = base / "normalized_recovered"
+        output.mkdir(exist_ok=True)
+        p, elapsed = run([sys.executable, source / "main.py", source_tree,
+                          "com.example.Sample", output, "--log-dir",
+                          base / "normalized_logs"], timeout=75)
+        files = list(output.rglob("*.proto"))
     if p.returncode != 0 or not files:
+        index = code.find("newMessageInfo")
         report("reproto_lite", "FAIL_OR_UNSUPPORTED_GENERATED_LITE",
                exit_code=p.returncode, outputs=len(files), generated_java=True,
-               stderr_tail=p.stderr[-200:], stdout_tail=p.stdout[-800:],
-               info_call_detected="GeneratedMessageLite.newMessageInfo" in code,
-               source_length=len(code))
+               normalized_attempted=needed_adapter,
+               generated_call_shape=code[max(0,index-70):index+140],
+               stdout_tail=p.stdout[-350:])
         return
     txt = "\n".join(f.read_text(errors="replace") for f in files)
     import re
@@ -175,11 +191,36 @@ def reproto_compiler_generated():
         report("reproto_lite", "FAIL_RECONSTRUCTED_PROTO_INVALID",
                field_numbers_correct=3)
         return
-    report("reproto_lite", "PASS_COMPILER_GENERATED_LITE_3_FIELDS",
+    from google.protobuf.descriptor_pb2 import FileDescriptorSet
+    original_desc = base / "original.pb"
+    p, _ = run([tool, f"--proto_path={base}",
+                f"--descriptor_set_out={original_desc}", original], timeout=40)
+    if p.returncode:
+        report("reproto_lite", "FAIL_ORIGINAL_DESCRIPTOR_COMPILE")
+        return
+    expected = FileDescriptorSet()
+    recovered = FileDescriptorSet()
+    expected.ParseFromString(original_desc.read_bytes())
+    recovered.ParseFromString(descriptor.read_bytes())
+    def fields(descriptor_set):
+        return sorted((f.name, f.number, f.type, f.label)
+                      for file in descriptor_set.file
+                      for message in file.message_type
+                      for f in message.field)
+    field_parity = fields(expected) == fields(recovered)
+    if not field_parity:
+        report("reproto_lite", "FAIL_DESCRIPTOR_TYPE_OR_LABEL_PARITY",
+               expected_field_count=len(fields(expected)),
+               recovered_field_count=len(fields(recovered)),
+               needed_adapter=needed_adapter)
+        return
+    report("reproto_lite", "PASS_COMPILER_LITE_WITH_NORMALIZATION" if needed_adapter
+           else "PASS_COMPILER_LITE_DIRECT",
            field_numbers_correct=3, reconstructed_files=len(files),
-           recovered_proto_compilable=True,
+           field_type_label_parity=True, recovered_proto_compilable=True,
+           needed_adapter=needed_adapter,
            original_proto_sha256=hashlib.sha256(original.read_bytes()).hexdigest(),
-           generated_java_sha256=hashlib.sha256(java.read_bytes()).hexdigest(),
+           original_generated_java_sha256=hashlib.sha256(code.encode()).hexdigest(),
            elapsed_seconds=elapsed, protoc_compile_seconds=compile_s)
 
 def apk():
