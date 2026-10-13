@@ -51,6 +51,19 @@ class Fake:
 class Tests(unittest.TestCase):
     def plan(self,action="submit",assignment="test-rep-0001",workload="gpu-cuda-smoke-v1",version=0):
         return m.validate(action,assignment,workload,version)
+    def test_cpu_reasoning_controls_real_work_fixture(self):
+        source = ROOT/"experiments"/"kaggle_rdte"/"cpu_reasoning_controls.py"
+        spec = importlib.util.spec_from_file_location("cpu_reasoning_controls",source)
+        module=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        first=module.evaluate(module.tasks())
+        second=module.evaluate(module.tasks())
+        self.assertEqual(first,second)
+        self.assertEqual(first["tasks"],256)
+        self.assertEqual(first["wrong_answer_rejected"],256)
+        self.assertEqual(first["corrupted_trace_rejected"],256)
+        self.assertFalse(first["model_inference_performed"])
+
     def test_allowlist_and_ids(self):
         for kw in ({"workload":"arbitrary-command"},{"assignment":"../bad"},
                    {"assignment":"x"}, {"action":"shell"}):
