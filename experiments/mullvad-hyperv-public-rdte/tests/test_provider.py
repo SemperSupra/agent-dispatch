@@ -72,6 +72,19 @@ class ProviderTests(unittest.TestCase):
         for sentinel in ("SECRET_FAKE_ACCOUNT", "SECRET_FAKE_BEARER", "SECRET_FAKE_KEY", "PRIVATE_FAKE_IP"):
             self.assertNotIn(sentinel, str(result))
 
+    def test_secret_in_approved_field_is_not_echoed(self):
+        fake_secret = "FAKE_BEARER_SHOULD_NOT_APPEAR"
+        hostile = {"phase": fake_secret, "result": fake_secret,
+                   "error_class": fake_secret, "oracle": fake_secret,
+                   "test_case": fake_secret, "unexpected": fake_secret}
+        self.assertEqual(public_safe_diagnostic(hostile), {})
+        self.assertNotIn(fake_secret, str(public_safe_diagnostic(hostile)))
+        self.assertEqual(public_safe_diagnostic({
+            "phase": "connecting", "result": "BLOCKED", "error_class": "ORACLE",
+            "oracle": "provider", "test_case": "T99"
+        }), {"phase": "connecting", "result": "BLOCKED",
+             "error_class": "ORACLE", "oracle": "provider", "test_case": "T99"})
+
 
 if __name__ == "__main__":
     unittest.main()
