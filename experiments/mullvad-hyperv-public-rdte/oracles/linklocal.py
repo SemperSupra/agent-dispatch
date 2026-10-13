@@ -59,7 +59,7 @@ def allow_control(p: Packet, policy: Policy) -> bool:
     if p.family == 6 and p.proto == "udp":
         if p.side == "wan" and policy.wan_dhcp_client:
             return ((p.direction == "out" and p.sport == 546 and p.dport == 547
-                     and p.src.lower().startswith("fe80:")
+                     and ip_address(p.src) in ip_network("fe80::/10")
                      and ip_address(p.dst) in ip_network("ff02::1:2/128"))
                     or (p.direction == "in" and p.sport == 547 and p.dport == 546
                         and ip_address(p.src) in ip_network("fe80::/10")))
