@@ -1,0 +1,98 @@
+name: Vanilla 26.3 native guest control producer-consumer admission (public read-only)
+on:
+  pull_request:
+    branches: [experiment/gha-kvm-system-rdte]
+    paths:
+      - '.github/workflows/qualify-vanilla263-native-control-consumer.yml'
+      - 'scripts/qualify_vanilla263_native_admission.py'
+      - 'config/truenas-vanilla263-native-admission-request.json'
+      - 'tests/test_vanilla263_native_admission.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vanilla263-native-control-consumer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  exact-source-guest-admission:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact Agent Dispatch consumer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Checkout accepted exact merged Foundry producer, never floating main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/truenas-app-foundry
+          ref: 29ec6cba7df51e316b0329926aa85807805dd07b
+          path: .deps/vanilla263-foundry
+          persist-credentials: false
+      - name: Source admission and exact producer-head negative gates
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/vanilla263-foundry rev-parse HEAD)" = 29ec6cba7df51e316b0329926aa85807805dd07b
+          python3 -m unittest discover -s tests -p 'test_vanilla263_native_admission.py' -v
+          python3 -m unittest discover -s .deps/vanilla263-foundry/tests \
+            -p 'test_export_minecraft_vanilla_263_t6_control.py' -v
+          python3 -m unittest discover -s .deps/vanilla263-foundry/tests \
+            -p 'test_vanilla_263_native_source.py' -v
+          docker compose version
+      - name: Real upstream native source render from exact merged commit
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/vanilla263"
+          python3 .deps/vanilla263-foundry/tools/validate_minecraft_world_control.py \
+            --product vanilla-263 --catalog-profile 1.15.30 \
+            --target-version 25.04.2.6 \
+            > "$RUNNER_TEMP/vanilla263/merged-source.json"
+      - name: Produce new signed-by-digest merged-commit control
+        run: |
+          set -euo pipefail
+          python3 .deps/vanilla263-foundry/tools/export_minecraft_vanilla_263_t6_control.py \
+            --foundry-ref 29ec6cba7df51e316b0329926aa85807805dd07b \
+            --target-version 25.04.2.6 \
+            --source-evidence "$RUNNER_TEMP/vanilla263/merged-source.json" \
+            --out "$RUNNER_TEMP/vanilla263/control.json"
+      - name: Independently enforce Agent Dispatch exact tuple admission, no KVM
+        run: |
+          set -euo pipefail
+          python3 scripts/qualify_vanilla263_native_admission.py \
+            --request config/truenas-vanilla263-native-admission-request.json \
+            --control "$RUNNER_TEMP/vanilla263/control.json" \
+            --registry config/truenas-rdte-targets.json \
+            --out "$RUNNER_TEMP/vanilla263/admission.json"
+          python3 - "$RUNNER_TEMP/vanilla263/control.json" "$RUNNER_TEMP/vanilla263/admission.json" <<'PY'
+          import hashlib,json,sys
+          c=json.load(open(sys.argv[1]))
+          a=json.load(open(sys.argv[2]))
+          raw=dict(c)
+          claimed=raw.pop("control_sha256")
+          assert claimed == hashlib.sha256(json.dumps(raw,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+          assert c["foundry_ref"] == "29ec6cba7df51e316b0329926aa85807805dd07b"
+          assert a["classification"] == "SOURCE_CONTROL_READY_GUEST_NOT_DISPATCHED"
+          assert a["control_sha256"] == claimed
+          assert a["foundry_ref"] == c["foundry_ref"]
+          assert a["request_id"] == "tn-25-04-2-6-t6-vanilla-263-op4b-001"
+          assert a["target_version"] == "25.04.2.6"
+          assert a["guest_run_requested"] is False
+          assert a["native_app_created"] is False
+          assert a["provider_observed"] is False
+          assert a["physical_truenas_apply"] == "HOLD"
+          PY
+      - name: Retain signed merged-source control and guest admission receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vanilla263-native-current-source-consumer-admission
+          path: |
+            ${{ runner.temp }}/vanilla263/control.json
+            ${{ runner.temp }}/vanilla263/admission.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Exact limits
+        if: always()
+        run: |
+          echo 'Actual merged Foundry producer source rerendered; new SHA-bound control verified by independent Agent Dispatch guest admission from distinct request. This is source-only, no KVM, no native App, no live provider observation, no authenticated user, no physical TrueNAS APPLY.' >> "$GITHUB_STEP_SUMMARY"
