@@ -1,0 +1,67 @@
+name: GV Deob Public Synthetic Tool Qualification
+
+on:
+  push:
+    branches:
+      - experiment/gv-deob-free-cloud-20261013
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gv-deob-free-cloud-20261013
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout synthetic-only branch without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare disposable Python and pinned pbtk source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gv-deob-qual"
+          python3 -m venv "$RUNNER_TEMP/gv-deob-qual/venv"
+          "$RUNNER_TEMP/gv-deob-qual/venv/bin/pip" install --disable-pip-version-check --timeout 30 "protobuf==6.32.1"
+          git clone -q https://github.com/marin-m/pbtk.git "$RUNNER_TEMP/gv-deob-qual/pbtk"
+          git -C "$RUNNER_TEMP/gv-deob-qual/pbtk" checkout -q 7ea37a44c0a277c5ffcd5308b2ab4cf1575d45ca
+          test "$(git -C "$RUNNER_TEMP/gv-deob-qual/pbtk" rev-parse HEAD)" = 7ea37a44c0a277c5ffcd5308b2ab4cf1575d45ca
+      - name: Install official checksum-verified JADX 1.5.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/gv-deob-qual"
+          curl --retry 2 --connect-timeout 25 --max-time 200 -fsSL \
+            https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip -o jadx.zip
+          printf '%s  %s\n' 545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974 jadx.zip | sha256sum -c -
+          mkdir jadx
+          unzip -q jadx.zip -d jadx
+          chmod +x jadx/bin/jadx
+      - name: ROSAL 0.1.0 ephemeral installation preflight
+        shell: bash
+        run: |
+          set +e
+          timeout 150 "$RUNNER_TEMP/gv-deob-qual/venv/bin/pip" install \
+            --disable-pip-version-check --timeout 25 "rosal==0.1.0" \
+            > "$RUNNER_TEMP/gv-deob-qual/rosal-install.log" 2>&1
+          echo "ROSAL_INSTALL_EXIT=$?" >> "$GITHUB_ENV"
+      - name: Run independent synthetic work samples
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/gv-deob-qual/venv/bin/python" \
+            experiments/gv-deob-free-cloud-20261013/qualify.py
+      - name: Publish sanitized short-lived receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gv-deob-synthetic-qual
+          path: ${{ runner.temp }}/gv-deob-qual/receipt.json
+          if-no-files-found: warn
+          retention-days: 7
