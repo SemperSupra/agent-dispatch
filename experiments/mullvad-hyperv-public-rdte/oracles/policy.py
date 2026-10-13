@@ -73,18 +73,28 @@ class FirstHop:
     host: str
     port: int
     mark: int
+    policy_epoch: int
+    control_epoch: int
+    authorized: bool
 
 
 def allow_plain_wan(state: State, packet: OuterPacket, permitted: FirstHop | None) -> bool:
-    """Only the exact WireGuard first-hop envelope is allowed; no broad WAN.
+    """Allow *only* explicit current-generation WireGuard first-hop transport.
 
-    This does not establish that origin/mark cannot be spoofed: that is a
-    separate Linux permission/isolation hypothesis to test in native kernels.
+    User-egress admission is intentionally NOT required for this path: the
+    handshake must work while the gateway is still connecting. This separate
+    minimal control permission is bound to both the policy and control epochs,
+    and is invalidated on a transition/revocation. Source/origin/mark identity
+    requires independently tested real-kernel enforcement.
     """
     return bool(
         state.phase in ("connecting", "connected")
-        and state.admitted
-        and permitted
+        and permitted is not None
+        and permitted.authorized
+        and state.policy_epoch > 0
+        and state.admission_epoch > 0
+        and permitted.policy_epoch == state.policy_epoch
+        and permitted.control_epoch == state.admission_epoch
         and packet.proto == "udp"
         and packet.host == permitted.host
         and packet.port == permitted.port
