@@ -43,12 +43,14 @@ done
 created_lan=false; created_gw=false; created_wan=false
 server_pid=""
 cleanup() {
-  result=$?
+  work_rc=$?
+  cleanup_rc=0
   trap - EXIT INT TERM
   if [[ -n "$server_pid" ]]; then
     kill "$server_pid" >/dev/null 2>&1 || true
     wait "$server_pid" >/dev/null 2>&1 || true
   fi
+  [[ -n "${server_log:-}" ]] && rm -f -- "$server_log"
   # Only processes in *this run's* namespace are terminated, if any.
   if [[ "$created_wan" == true ]]; then
     while read -r pid; do
@@ -58,23 +60,24 @@ cleanup() {
   for pair in "$lan_ns:$created_lan" "$gw_ns:$created_gw" "$wan_ns:$created_wan"; do
     ns="${pair%%:*}"; created="${pair##*:}"
     if [[ "$created" == true ]]; then
-      sudo -n ip netns delete "$ns" >/dev/null 2>&1 || result=1
+      sudo -n ip netns delete "$ns" >/dev/null 2>&1 || cleanup_rc=1
     fi
   done
   for nic in "$a" "$b" "$c" "$d"; do
     # Only remove a veth if it was created in this run; after namespace teardown
     # no veth should remain in the host namespace. Never touch pre-existing NICs.
     if ip link show dev "$nic" >/dev/null 2>&1; then
-      echo "unexpected residual test NIC $nic"; result=1
+      echo "unexpected residual test NIC $nic"; cleanup_rc=1
     fi
   done
   for ns in "$lan_ns" "$gw_ns" "$wan_ns"; do
     if sudo -n ip netns list | grep -Fq "$ns "; then
-      echo "run-owned namespace cleanup failed"; result=1
+      echo "run-owned namespace cleanup failed"; cleanup_rc=1
     fi
   done
-  [[ "$result" -eq 0 ]] && echo "CLEANUP=PASS" || echo "CLEANUP=FAIL"
-  exit "$result"
+  [[ "$cleanup_rc" -eq 0 ]] && echo "CLEANUP=PASS" || echo "CLEANUP=FAIL"
+  [[ "$work_rc" -eq 0 && "$cleanup_rc" -ne 0 ]] && work_rc=1
+  exit "$work_rc"
 }
 trap cleanup EXIT INT TERM
 
@@ -111,8 +114,28 @@ sudo -n ip netns exec "$gw_ns" sysctl -qw net.ipv6.conf.all.forwarding=1
 sudo -n ip -n "$lan_ns" route add default via 192.0.2.1
 sudo -n ip -n "$lan_ns" -6 route add default via 2001:db8:1::1
 
-sudo -n ip netns exec "$wan_ns" python3 -B "$witness" server >/dev/null 2>&1 &
+# IPv6 address can initially be tentative. Wait for DAD before binding server.
+dad_ready=false
+for cycle in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if ! sudo -n ip -n "$wan_ns" -6 addr show dev wan0 | grep -q tentative; then
+    dad_ready=true
+    break
+  fi
+  sleep 0.15
+done
+[[ "$dad_ready" == true ]] || { echo "WAN IPv6 DAD not ready"; exit 1; }
+
+server_log="$RUNNER_TEMP/rdte-witness-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log"
+# Logs are limited to errors from the public synthetic witness, no real traffic.
+: > "$server_log"
+sudo -n ip netns exec "$wan_ns" python3 -B "$witness" server >"$server_log" 2>&1 &
 server_pid=$!
+sleep 0.35
+if ! kill -0 "$server_pid" >/dev/null 2>&1; then
+  echo "synthetic observer exited before baseline"
+  head -n 10 "$server_log"
+  exit 1
+fi
 
 probe() { sudo -n ip netns exec "$lan_ns" python3 -B "$witness" probe --family "$1" --port "$2"; }
 expect_accepted() {
@@ -132,12 +155,21 @@ expect_blocked() {
 }
 
 # Before a guard exists, independently show real packets can cross both families.
-baseline=false
+baseline4=false
+baseline6=false
 for n in 1 2 3 4 5 6 7 8 9 10; do
-  if probe 4 42001 && probe 6 42001; then baseline=true; break; fi
-  sleep 0.2
+  probe 4 42001 && baseline4=true || true
+  probe 6 42001 && baseline6=true || true
+  [[ "$baseline4" == true && "$baseline6" == true ]] && break
+  sleep 0.15
 done
-[[ "$baseline" == true ]] || { echo "positive control failed: native packet path unavailable"; exit 1; }
+if [[ "$baseline4" != true || "$baseline6" != true ]]; then
+  echo "positive control failed: ipv4=${baseline4} ipv6=${baseline6}"
+  if [[ -s "$server_log" ]]; then head -n 10 "$server_log"; fi
+  sudo -n ip -n "$lan_ns" route get 198.51.100.2 2>/dev/null || true
+  sudo -n ip -n "$lan_ns" -6 route get 2001:db8:2::2 2>/dev/null || true
+  exit 1
+fi
 echo "POSITIVE_CONTROL_IPV4=PASS"
 echo "POSITIVE_CONTROL_IPV6=PASS"
 
