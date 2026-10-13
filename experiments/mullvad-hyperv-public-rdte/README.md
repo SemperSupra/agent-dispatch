@@ -17,9 +17,10 @@ Sources are for design comparison. This package contains **no copied Mullvad pro
 | S: policy and state | Dual-stack policy-epoch gating, fail-closed boot/change/revoke, relay exception scope, stale receipt mutants | Pure Python property/negative tests | **No**, model contract only |
 | P: provider and privacy | Strict geographical selection, explicit fallback, precise destructive device authorization, transport privacy requirements | Synthetic in-memory responses | **No**, no provider API calls |
 | N: Linux capabilities | Read-only network/kernel feature inventory and classified unavailable capabilities | Public Ubuntu hosted runner | **No**, generic Ubuntu isn't a Hyper-V guest |
+| K: Actual Linux kernel datapath | Run-owned namespace LAN → gateway → WAN; real nftables default-DROP, scoped-allow, revoke, IPv4/IPv6 outside-observer positive controls; teardown | Public Ubuntu hosted runner, `sudo` restricted to ephemeral test-owned namespaces/veth | **Only native synthetic kernel forwarding**, no VPN tunnel or Windows host protection |
 | H: Windows/Hyper-V | Read-only Hyper-V command/feature census on public Windows runner | Windows 2025 runner only | **No**, until separately admitted guest boot and packet-path fixture |
 
-Public GHA workflow (if admitted) uses isolated jobs, `contents: read`, pinned checkout, timeouts, no secrets, no privileged host/network mutation, no provider API. No `pull_request_target`; do not run untrusted code with secrets. A failing negative control must make that lane FAIL.
+Public GHA workflow uses isolated jobs, `contents: read`, pinned checkout, timeouts, no secrets or provider API. The **Linux synthetic-kernel** lane deliberately uses `sudo` to create and delete only its own disposable `ip netns` and `veth` resources, mutate networking **inside** those namespaces, and observe in-namespace packet replies. It never modifies the host firewall, DNS, default/physical NIC, or host routes. This scoped native privilege is **not** authorization to create a Hyper-V VM, modify a Windows vSwitch, import a private image, or launch a real product. The latter requires an admitted fixed H1 mission. No `pull_request_target`; do not run untrusted code with secrets. A failing negative control or cleanup makes its job FAIL.
 
 ## Public-to-private requirements (not implementation instructions or disclosures)
 
