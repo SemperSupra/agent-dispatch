@@ -82,7 +82,10 @@ class TargetRegistryTests(unittest.TestCase):
         if request.get("product") == "collage-native-paper":
             self.assertEqual(request["rung"], "t6")
             self.assertEqual(request["version"], "25.04.1")
-            self.assertEqual(request["consumer_authority_issue"], 614)
+            # #614 owns the P2 read-only join; #625 is its independently
+            # source-locked Minecraft 1.15.30 qualification successor.
+            # This is a constrained allowlist, not arbitrary issue authority.
+            self.assertIn(request["consumer_authority_issue"], {614, 625})
         if request.get("product") == "wow-sidecar":
             self.assertEqual(request.get("consumer_authority_issue"), 276)
         if request.get("product") == "garm":
