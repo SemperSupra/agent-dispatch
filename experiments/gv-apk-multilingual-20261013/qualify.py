@@ -151,7 +151,9 @@ def reproto_compiler_generated():
     if p.returncode != 0 or not files:
         report("reproto_lite", "FAIL_OR_UNSUPPORTED_GENERATED_LITE",
                exit_code=p.returncode, outputs=len(files), generated_java=True,
-               stderr_tail=p.stderr[-200:], stdout_tail=p.stdout[-800:],\n               info_call_detected="GeneratedMessageLite.newMessageInfo" in code,\n               source_length=len(code))
+               stderr_tail=p.stderr[-200:], stdout_tail=p.stdout[-800:],
+               info_call_detected="GeneratedMessageLite.newMessageInfo" in code,
+               source_length=len(code))
         return
     txt = "\n".join(f.read_text(errors="replace") for f in files)
     import re
