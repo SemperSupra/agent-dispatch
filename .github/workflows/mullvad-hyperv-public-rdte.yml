@@ -5,7 +5,10 @@ name: Public Mullvad-Linux synthetic RDTE
 on:
   pull_request:
     paths:
-      - 'experiments/mullvad-hyperv-public-rdte/**'
+      # Documentation-only updates must not consume public Windows/ISO jobs.
+      - 'experiments/mullvad-hyperv-public-rdte/oracles/**'
+      - 'experiments/mullvad-hyperv-public-rdte/tests/**'
+      - 'experiments/mullvad-hyperv-public-rdte/tools/**'
       - '.github/workflows/mullvad-hyperv-public-rdte.yml'
   workflow_dispatch:
 
