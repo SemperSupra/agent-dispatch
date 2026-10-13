@@ -1,0 +1,31 @@
+name: Kaggle RDT&E Contract (no secrets)
+on:
+  pull_request:
+    paths:
+      - 'scripts/kaggle_rdte.py'
+      - 'experiments/kaggle_rdte/**'
+      - 'tests/test_kaggle_rdte.py'
+      - '.github/workflows/kaggle-rdte-contract.yml'
+      - '.github/workflows/kaggle-rdte-executor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Python syntax validation
+        run: |
+          python3 -m py_compile scripts/kaggle_rdte.py experiments/kaggle_rdte/gpu_smoke.py experiments/kaggle_rdte/tpu_bridge.py
+      - name: Negative/positive protocol tests (no Kaggle auth)
+        run: python3 -m unittest -v tests/test_kaggle_rdte.py
+      - name: Typed dry-run (no Kaggle auth)
+        run: |
+          python3 scripts/kaggle_rdte.py --action plan --assignment test-rep-0001 --workload gpu-cuda-smoke-v1
+          python3 scripts/kaggle_rdte.py --action plan --assignment test-rep-0002 --workload tpu-jax-bridge-v1
