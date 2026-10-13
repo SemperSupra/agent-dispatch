@@ -7,6 +7,19 @@ from pathlib import Path
 
 SCHEMA = "kaggle-rdte-result/v1"
 
+def classify_cuda_readiness(cuda_build, cuda_available, cuda_count,
+                            nvidia_smi_count, nvidia_device_present):
+    """Distinguish GPU provisioning from ML-framework availability.
+
+    No negative observation alone proves that Kaggle didn't allocate a GPU.
+    """
+    visible = nvidia_smi_count > 0 or bool(nvidia_device_present)
+    if not cuda_build:
+        return "CPU_ONLY_TORCH_ON_GPU" if visible else "CUDA_BUILD_UNAVAILABLE_DEVICE_UNKNOWN"
+    if not cuda_available or cuda_count < 1:
+        return "CUDA_RUNTIME_MISMATCH_ON_VISIBLE_GPU" if visible else "CUDA_DEVICE_UNAVAILABLE"
+    return None
+
 def main():
     result = {"schema":SCHEMA,"workload":"gpu-cuda-smoke-v1","status":"FAIL",
               "requested_accelerator":"NvidiaTeslaT4",
@@ -27,16 +40,14 @@ def main():
         import torch
         result["torch_version"] = str(torch.__version__)
         result["torch_cuda_build"] = str(torch.version.cuda) if torch.version.cuda else None
-        if not torch.version.cuda:
-            if result["nvidia_smi_device_count"] > 0 or result["nvidia_device_node_present"]:
-                raise RuntimeError("CPU_ONLY_TORCH_ON_GPU")
-            raise RuntimeError("CUDA_BUILD_UNAVAILABLE_DEVICE_UNKNOWN")
         result["observed_cuda"] = bool(torch.cuda.is_available())
         result["observed_gpu_count"] = int(torch.cuda.device_count())
-        if not result["observed_cuda"] or result["observed_gpu_count"] == 0:
-            if result["nvidia_smi_device_count"] > 0 or result["nvidia_device_node_present"]:
-                raise RuntimeError("CUDA_RUNTIME_MISMATCH_ON_VISIBLE_GPU")
-            raise RuntimeError("CUDA_DEVICE_UNAVAILABLE")
+        failure = classify_cuda_readiness(
+            torch.version.cuda, result["observed_cuda"],
+            result["observed_gpu_count"], result["nvidia_smi_device_count"],
+            result["nvidia_device_node_present"])
+        if failure:
+            raise RuntimeError(failure)
         if result["observed_gpu_count"] != 2:
             raise RuntimeError("GPU_COUNT_MISMATCH")
         devices = [torch.cuda.get_device_properties(i).name
