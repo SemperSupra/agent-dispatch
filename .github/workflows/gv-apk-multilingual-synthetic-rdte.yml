@@ -19,6 +19,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Compile-check Python harness before environment setup
+        shell: bash
+        run: python3 -m py_compile experiments/gv-apk-multilingual-20261013/qualify.py
       - name: Prepare pinned Protobuf tools
         shell: bash
         run: |
@@ -67,6 +70,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Compile-check Python harness before environment setup
+        shell: bash
+        run: python3 -m py_compile experiments/gv-apk-multilingual-20261013/qualify.py
       - name: Prepare independent Android analysis tools
         shell: bash
         run: |
