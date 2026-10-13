@@ -69,12 +69,29 @@ jobs:
           $cmd = Get-Command Get-VM -ErrorAction SilentlyContinue
           $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Microsoft-Hyper-V-Hypervisor' -ErrorAction SilentlyContinue
           $vmHost = Get-VMHost -ErrorAction SilentlyContinue
+          # Command *presence* only, no VM/switch enumeration or mutation.
+          $candidateCommands = @(
+            'New-VM', 'New-VMSwitch', 'Get-VMSwitch',
+            'Set-VMNetworkAdapter', 'Set-VMNetworkAdapterVlan',
+            'Add-VMNetworkAdapterExtendedAcl', 'Get-VMNetworkAdapterExtendedAcl',
+            'Add-VMNetworkAdapterAcl', 'Set-VMNetworkAdapterIsolation',
+            'Set-VMProcessor', 'Set-VMMemory', 'Set-VMFirmware',
+            'Get-VMHostSupportedVersion'
+          )
+          $commandInventory = [ordered]@{}
+          foreach ($candidate in $candidateCommands) {
+            $commandInventory[$candidate] = [bool](Get-Command $candidate -ErrorAction SilentlyContinue)
+          }
+          $capacity = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
           [pscustomobject]@{
             EvidenceClass = 'PUBLIC_WINDOWS_READONLY'
             HyperVCmdletsPresent = [bool]$cmd
             HypervisorFeatureState = if ($feature) { [string]$feature.State } else { 'UNAVAILABLE' }
             HyperVHostQuerySucceeded = [bool]$vmHost
+            AvailableCommands = $commandInventory
+            LogicalProcessors = if ($capacity) { [int]$capacity.NumberOfLogicalProcessors } else { 0 }
+            TotalRAMMiB = if ($capacity) { [int][math]::Floor($capacity.TotalPhysicalMemory / 1MB) } else { 0 }
             GuestBoot = 'NOT_RUN'
             VSwitchPacketPath = 'NOT_RUN'
             ProductSafety = 'NOT_RUN'
-          } | ConvertTo-Json -Compress | Write-Output
+          } | ConvertTo-Json -Depth 5 -Compress | Write-Output
