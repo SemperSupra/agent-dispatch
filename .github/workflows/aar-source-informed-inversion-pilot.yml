@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - name: Compile-check pilot before setup
         shell: bash
-        run: python3 -m py_compile experiments/aar-compiler-inversion-20261013/pilot.py
+        run: python3 -m py_compile experiments/aar-compiler-inversion-20261013/pilot.py experiments/aar-compiler-inversion-20261013/dex_static_oracle.py
       - name: Download and independently verify JADX 1.5.6
         shell: bash
         run: |
@@ -38,11 +38,18 @@ jobs:
           mkdir "$root/jadx"
           unzip -q "$root/jadx.zip" -d "$root/jadx"
           chmod +x "$root/jadx/bin/jadx"
+      - name: Install independent DEX-native structural oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aar-inversion/venv"
+          "$RUNNER_TEMP/aar-inversion/venv/bin/python" -m pip install             --disable-pip-version-check --timeout 30 "androguard==4.1.4"
+          "$RUNNER_TEMP/aar-inversion/venv/bin/python" -c             'import importlib.metadata; assert importlib.metadata.version("androguard") == "4.1.4"'
       - name: Execute three compiler/decompiler transformation comparisons
         shell: bash
         run: |
           set -euo pipefail
-          python3 experiments/aar-compiler-inversion-20261013/pilot.py
+          "$RUNNER_TEMP/aar-inversion/venv/bin/python"             experiments/aar-compiler-inversion-20261013/pilot.py
       - name: Publish public aggregate receipt even on failure
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
