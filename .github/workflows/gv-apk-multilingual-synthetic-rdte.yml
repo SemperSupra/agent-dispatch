@@ -1,0 +1,90 @@
+name: GV APK Multilingual Public Synthetic RDTE
+on:
+  push:
+    branches:
+      - experiment/gv-apk-multilingual-20261013
+permissions:
+  contents: read
+concurrency:
+  group: gv-apk-multilingual-20261013
+  cancel-in-progress: false
+jobs:
+  protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Stable local Git branch
+        run: git config --global init.defaultBranch main
+      - name: Checkout public synthetic harness without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prepare pinned Protobuf tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gv-apk-multilingual"
+          mkdir -p "$root"
+          python3 -m venv "$root/venv"
+          "$root/venv/bin/pip" install --disable-pip-version-check --timeout 30 \
+            "protobuf==6.32.1" "loguru==0.7.3" "packaging==25.0"
+          curl --retry 2 --connect-timeout 20 --max-time 90 -fsSL \
+            https://github.com/patrickomatic/protorev/releases/download/v0.1.0/protorev-x86_64-unknown-linux-gnu.tar.xz \
+            -o "$root/protorev.tar.xz"
+          printf '%s  %s\n' 462053ee7a8db7c70486e0324cd671a9f356a860cafe61b62e589a617dd32600 "$root/protorev.tar.xz" | sha256sum -c -
+          mkdir -p "$root/protorev-release"
+          tar -xJf "$root/protorev.tar.xz" -C "$root/protorev-release"
+          found="$(find "$root/protorev-release" -type f -name protorev -print -quit)"
+          test -n "$found"
+          cp "$found" "$root/protorev"
+          chmod +x "$root/protorev"
+          git clone -q https://github.com/ys1231/reproto.git "$root/reproto"
+          git -C "$root/reproto" checkout -q 906efc5f44ffa9bffa31e056a9de55c7107bdab8
+          test "$(git -C "$root/reproto" rev-parse HEAD)" = 906efc5f44ffa9bffa31e056a9de55c7107bdab8
+      - name: Execute protocol recovery interview
+        if: always()
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/gv-apk-multilingual/venv/bin/python" \
+            experiments/gv-apk-multilingual-20261013/qualify.py --lane protocol
+      - name: Upload public-safe protocol receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gv-apk-multilingual-protocol
+          path: ${{ runner.temp }}/gv-apk-multilingual/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+  apk_analysis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Stable local Git branch
+        run: git config --global init.defaultBranch main
+      - name: Checkout public synthetic harness without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prepare independent Android analysis tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/gv-apk-multilingual"
+          mkdir -p "$root"
+          python3 -m venv "$root/venv"
+          "$root/venv/bin/pip" install --disable-pip-version-check --timeout 40 \
+            "androguard==4.1.4" "apkid==3.1.0"
+      - name: Execute DEX and fingerprint interviews
+        if: always()
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/gv-apk-multilingual/venv/bin/python" \
+            experiments/gv-apk-multilingual-20261013/qualify.py --lane apk
+      - name: Upload public-safe APK analysis receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gv-apk-multilingual-analysis
+          path: ${{ runner.temp }}/gv-apk-multilingual/receipt.json
+          if-no-files-found: error
+          retention-days: 7
