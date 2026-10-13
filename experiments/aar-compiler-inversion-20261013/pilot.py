@@ -71,6 +71,9 @@ class Helper {
 }
 class Decoy {
   static int evaluate(int x) { return x + 1000; }
+  public static void main(String[] args) {
+    System.out.print(evaluate(Integer.parseInt(args[0])));
+  }
 }
 """,encoding="utf-8")
     c,_=exec_(["javac","-g:none","-d",cls,java],30)
@@ -81,10 +84,16 @@ class Decoy {
         require(p.returncode==0,"java_reference_execution_failed")
         expected[value]=p.stdout
     require(expected["-3"]=="ERR","negative_exception_oracle_drift")
-    require(expected["2"]!=str(1002),"decoy_oracle_not_discriminating")
+    decoy,_=exec_(["java","-cp",cls,"Decoy","2"],20)
+    require(decoy.returncode==0 and decoy.stdout=="1002","decoy_execution_failed")
+    helper_result=expected["2"].split(":",1)[0]
+    require(helper_result!=decoy.stdout,"decoy_collision_false_accept")
     result["source_sha256"]=sha(java)
     result["oracle"]={"inputs":list(SAMPLES),"expected_outputs":expected,
-                      "decoy_same_signature_different_behavior":True}
+                      "decoy_same_signature_different_behavior":True,
+                      "decoy_executed":True,
+                      "decoy_value":decoy.stdout,
+                      "helper_value":helper_result}
     rules=ROOT/"rules.pro"
     rules.write_text("-keep class Probe { public static void main(java.lang.String[]); }\n"
                      "-dontwarn **\n",encoding="utf-8")
