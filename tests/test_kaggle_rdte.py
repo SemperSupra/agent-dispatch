@@ -78,9 +78,12 @@ class Tests(unittest.TestCase):
         self.assertEqual(len(a["source_sha256"]),64)
         self.assertEqual(a["notebook_slug"],"ad-rdte-test-rep-0001")
     def test_tpu_plan(self):
-        a=self.plan(workload="tpu-jax-bridge-v1")
+        a=self.plan(workload="tpu-v5e8-device-v1")
         self.assertEqual(a["accelerator"],"TpuV5E8")
         self.assertEqual(a["quota_kind"],"TPU")
+        self.assertEqual(a["limit_seconds"],600)
+        b=self.plan(workload="tpu-jax-bridge-v1")
+        self.assertEqual(b["limit_seconds"],1200)
     def test_submit_once_positive(self):
         f=Fake()
         receipt=m.submit(f,self.plan())
@@ -131,6 +134,31 @@ class Tests(unittest.TestCase):
         d["metrics"]["tpu_count"]=0
         with self.assertRaises(m.Denied):
             m.verify(d,"tpu-jax-bridge-v1")
+    def test_tpu_device_positive_oracle(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"tpu-v5e8-device-v1",
+           "status":"PASS",
+           "metrics":{"requested_accelerator":"TpuV5E8","tpu_count":8,
+                      "jax_backend_tpu":True,"tpu_arithmetic":True}}
+        self.assertIsNone(m.verify(d,"tpu-v5e8-device-v1"))
+
+    def test_tpu_device_cpu_fallback_negative(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"tpu-v5e8-device-v1",
+           "status":"PASS",
+           "metrics":{"requested_accelerator":"TpuV5E8","tpu_count":0,
+                      "jax_backend_tpu":False,"tpu_arithmetic":False}}
+        with self.assertRaises(m.Denied):
+            m.verify(d,"tpu-v5e8-device-v1")
+        d["metrics"]["tpu_count"]=8
+        d["metrics"]["jax_backend_tpu"]=True
+        with self.assertRaises(m.Denied):
+            m.verify(d,"tpu-v5e8-device-v1")
+
+    def test_tpu_probe_missing_libs_is_failed_receipt(self):
+        import ast
+        source=ROOT/"experiments"/"kaggle_rdte"/"tpu_device.py"
+        ast.parse(source.read_text(encoding="utf-8"))
+        self.assertIn("TPU_JAX_RUNTIME_MISSING",source.read_text(encoding="utf-8"))
+
     def test_observe_version_exact_and_receipt(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1","status":"PASS",
            "accelerator":"gpu","gpu_count":2,"checksum":8386560.0}
