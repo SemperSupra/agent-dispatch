@@ -75,9 +75,13 @@ class TestNativeVanilla263SourceAdmission(unittest.TestCase):
 
     def test_signed_digest_forgery_fails_closed(self):
         c=source_document()
+        original_digest=c["control_sha256"]
         c["source"]["image_reference"]="ghcr.io/example:latest"
-        with self.assertRaisesRegex(consumer.Refused,"CANONICAL_CONTROL_SHA_DRIFT"):
-            readmit_local_fixture(c)
+        # Exercise the production signature check, not the fixture helper's
+        # self-consistency assertion. Semantic checks come only after signing.
+        with patch.object(consumer,"CONTROL_SHA",original_digest):
+            with self.assertRaisesRegex(consumer.Refused,"CANONICAL_CONTROL_SHA_DRIFT"):
+                consumer.verify(c,expected_digest=original_digest)
         with self.assertRaisesRegex(consumer.Refused,"CANONICAL_CONTROL_SHA_DRIFT"):
             consumer.verify(c)
 
