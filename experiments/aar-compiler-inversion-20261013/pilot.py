@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic compiler/decompiler inversion probe. Private APKs never enter this job.
 
-Measure optimizer-induced loss and semantic preservation using known-source fixtures.
+Measure R8 loss, JVM classfile behavior and separately DEX static structures.
 A green process is not a recovered-original-source claim. The evaluator owns the oracle.
 """
 from __future__ import annotations
@@ -14,13 +14,15 @@ import subprocess
 import sys
 import time
 
+from dex_static_oracle import inspect_dex
+
 ROOT=Path(os.environ.get("RUNNER_TEMP","/tmp"))/"aar-inversion"
 ROOT.mkdir(parents=True,exist_ok=True)
 RECEIPT=ROOT/"receipt.json"
 JADX_SHA="545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974"
 R8_JAR_SHA="a26ee56252adcff6752c379ae255a0ad538ebec60189e078ec6855487107637d"
 SAMPLES=("-3","0","1","2","7","13")
-result={"schema":"aar-source-informed-inversion/v1","fixture":"AUTHORED_PUBLIC_ONLY",
+result={"schema":"aar-source-informed-inversion/v2","fixture":"AUTHORED_PUBLIC_ONLY",
         "tools":{"jadx_zip_sha256":JADX_SHA,"r8_jar_sha256":R8_JAR_SHA},
         "experiments":{},"overall":"NOT_RUN"}
 
@@ -147,9 +149,12 @@ class Decoy {
             found=re.search(r"(?m)^Helper -> ([^:]+):$",mapping.read_text())
             helper_mapping=found.group(1) if found else "REMOVED_OR_MERGED"
             renamed=helper_mapping not in ("UNKNOWN","Helper","REMOVED_OR_MERGED")
+        dex_structure=inspect_dex(dex,mode,helper_mapping)
         result["experiments"][mode]={
-            "status":"PASS_ORACLE" if semantic_parity and main_seen and p.returncode==0 else "FAIL_ORACLE",
-            "runtime_semantic_parity":semantic_parity,
+            "status":"PASS_JVM_AND_DEX_STATIC" if semantic_parity and main_seen and p.returncode==0 else "FAIL_ORACLE",
+            "jvm_classfile_behavior_matches_source":semantic_parity,
+            "dex_runtime_equivalence":"NOT_RUN_NO_ART_RUNTIME",
+            "dex_structure":dex_structure,
             "java_main_decompiled":main_seen,
             "jadx_exit_code":p.returncode,
             "decompiled_java_files":len(decompiled),
@@ -160,15 +165,33 @@ class Decoy {
             "mapping_sha256":sha(mapping) if mapping.exists() else None,
             "timings":timing}
         persist()
-    require(result["experiments"]["d8_only"]["status"]=="PASS_ORACLE","baseline_failed")
-    require(result["experiments"]["r8_rename"]["status"]=="PASS_ORACLE","rename_failed")
-    require(result["experiments"]["r8_optimize"]["status"]=="PASS_ORACLE","optimize_failed")
+    require(result["experiments"]["d8_only"]["status"]=="PASS_JVM_AND_DEX_STATIC","baseline_failed")
+    require(result["experiments"]["r8_rename"]["status"]=="PASS_JVM_AND_DEX_STATIC","rename_failed")
+    require(result["experiments"]["r8_optimize"]["status"]=="PASS_JVM_AND_DEX_STATIC","optimize_failed")
     require(result["experiments"]["r8_rename"]["helper_renamed_by_compiler"],
             "did_not_observe_compiler_renaming")
-    result["overall"]="PASS_THREE_SYNTHETIC_ORACLE_TREATMENTS"
+    # Independent negative controls: malformed bytecode and false mapping
+    bad=ROOT/"invalid.dex"
+    bad.write_bytes(b"not-a-dex")
+    try:
+        inspect_dex(bad,"d8_only","UNKNOWN")
+    except ValueError:
+        bad_rejected=True
+    else:
+        bad_rejected=False
+    try:
+        inspect_dex(ROOT/"r8_rename"/"dex"/"classes.dex","r8_rename","FAKE_MISATTRIBUTION")
+    except AssertionError:
+        false_alias_rejected=True
+    else:
+        false_alias_rejected=False
+    require(bad_rejected and false_alias_rejected,"dex_negative_controls_failed")
+    result["negative_controls"]={"invalid_dex_rejected":bad_rejected,"false_helper_alias_rejected":false_alias_rejected}
+    result["overall"]="PASS_JVM_AND_DEX_STATIC_WITH_NEGATIVES"
     persist()
     print(json.dumps({"overall":result["overall"],"modes":{
-        m:{"status":v["status"],"semantic_parity":v["runtime_semantic_parity"],
+        m:{"status":v["status"],"jvm_classfile_parity":v["jvm_classfile_behavior_matches_source"],
+           "dex_runtime":"NOT_RUN",
            "mapping":v["helper_mapping"]} for m,v in result["experiments"].items()}},
         sort_keys=True))
     return 0
