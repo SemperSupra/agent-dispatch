@@ -1,0 +1,69 @@
+name: Public Mullvad-Linux synthetic RDTE
+
+# Public synthetic-only tests: no secrets, private checkouts, provider mutations,
+# arbitrary inputs, privileged network operations or operational traffic.
+on:
+  pull_request:
+    paths:
+      - 'experiments/mullvad-hyperv-public-rdte/**'
+      - '.github/workflows/mullvad-hyperv-public-rdte.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-policy:
+    name: Policy/epoch red-blue model
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Execute policy mutation/negative-control tests
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_policy.py' -v
+
+  provider-mock:
+    name: Geography/device/telemetry mock
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Execute provider negative controls
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_provider.py' -v
+
+  linux-census:
+    name: Read-only Linux feature census
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Read-only feature survey (not a Hyper-V guest proof)
+        run: python3 experiments/mullvad-hyperv-public-rdte/tools/capabilities.py
+
+  windows-hyperv-census:
+    name: Windows 2025 Hyper-V read-only census
+    runs-on: windows-2025
+    timeout-minutes: 7
+    steps:
+      - name: Read-only Windows feature probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $cmd = Get-Command Get-VM -ErrorAction SilentlyContinue
+          $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Microsoft-Hyper-V-Hypervisor' -ErrorAction SilentlyContinue
+          $vmHost = Get-VMHost -ErrorAction SilentlyContinue
+          [pscustomobject]@{
+            EvidenceClass = 'PUBLIC_WINDOWS_READONLY'
+            HyperVCmdletsPresent = [bool]$cmd
+            HypervisorFeatureState = if ($feature) { [string]$feature.State } else { 'UNAVAILABLE' }
+            HyperVHostQuerySucceeded = [bool]$vmHost
+            GuestBoot = 'NOT_RUN'
+            VSwitchPacketPath = 'NOT_RUN'
+            ProductSafety = 'NOT_RUN'
+          } | ConvertTo-Json -Compress | Write-Output
