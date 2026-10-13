@@ -64,6 +64,23 @@ class Tests(unittest.TestCase):
         self.assertEqual(first["corrupted_trace_rejected"],256)
         self.assertFalse(first["model_inference_performed"])
 
+    def test_privileged_launcher_is_main_only_with_no_pr_secrets(self):
+        workflow=(ROOT/".github"/"workflows"/"kaggle-rdte-executor.yml").read_text()
+        self.assertIn("workflow_dispatch:",workflow)
+        self.assertNotIn("pull_request:",workflow)
+        self.assertNotIn("pull_request_target:",workflow)
+        self.assertIn("github.ref == 'refs/heads/main'",workflow)
+        self.assertIn("environment: kaggle-rdte",workflow)
+        self.assertIn("KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}",workflow)
+        self.assertIn("persist-credentials: false",workflow)
+        self.assertIn("permissions:\\n  contents: read".replace("\\n","\n"),workflow)
+        self.assertIn("timeout-minutes: 10",workflow)
+        # Provider secrets are confined to the exact actuator step, not checkout,
+        # dependency installation, artifact upload or PR contract tests.
+        self.assertEqual(workflow.count("secrets.KAGGLE_API_TOKEN"),1)
+        self.assertIn("cancel-in-progress: false",workflow)
+        self.assertIn("inputs.action != 'plan' && github.ref == 'refs/heads/main'",workflow)
+
     def test_allowlist_and_ids(self):
         for kw in ({"workload":"arbitrary-command"},{"assignment":"../bad"},
                    {"assignment":"x"}, {"action":"shell"}):
