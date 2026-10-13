@@ -114,6 +114,78 @@ def jadx():
            dex_sha256=hashlib.sha256(dex_path.read_bytes()).hexdigest(),
            wall_seconds=elapsed, javac_wall_seconds=javac_s, d8_wall_seconds=d8_s)
 
+
+def r8():
+    """Independently verify a real R8 name rewrite and mapping oracle."""
+    sdk = Path(os.environ.get("ANDROID_HOME", "/usr/local/lib/android/sdk"))
+    jars = sorted((sdk / "build-tools").glob("*/lib/d8.jar"), reverse=True)
+    libs = sorted((sdk / "platforms").glob("android-*/android.jar"), reverse=True)
+    if not jars or not libs:
+        record("r8", "BLOCKED_SDK_R8_OR_LIB_MISSING")
+        return
+    p, _ = exec_(["java", "-cp", str(jars[0]), "com.android.tools.r8.R8",
+                   "--version"], timeout=20)
+    if p.returncode:
+        record("r8", "BLOCKED_R8_MAIN_CLASS", exit_code=p.returncode)
+        return
+    version = (p.stdout + p.stderr).strip()[:100]
+    cls = ROOT / "r8-classes"
+    cls.mkdir(exist_ok=True)
+    java = ROOT / "QualEntry.java"
+    java.write_text("public class QualEntry {"
+                    " public static int entry(int x) { return QualHelper.plusFive(x); }"
+                    "}\n"
+                    "class QualHelper {"
+                    " static int plusFive(int x) { return x + 5; }"
+                    "}\n")
+    p, _ = exec_(["javac", "-g:none", "-d", str(cls), str(java)], timeout=45)
+    if p.returncode:
+        record("r8", "BLOCKED_FIXTURE_JAVAC")
+        return
+    rules = ROOT / "r8-proguard-rules.pro"
+    rules.write_text("-keep class QualEntry { public static int entry(int); }\n"
+                     "-dontoptimize\n")
+    out = ROOT / "r8-dex"
+    out.mkdir(exist_ok=True)
+    mapping = ROOT / "r8-mapping.txt"
+    argv = ["java", "-cp", str(jars[0]), "com.android.tools.r8.R8",
+            "--release", "--min-api", "21", "--output", str(out),
+            "--lib", str(libs[0]), "--pg-conf", str(rules),
+            "--pg-map-output", str(mapping),
+            str(cls / "QualEntry.class"), str(cls / "QualHelper.class")]
+    p, wall = exec_(argv, timeout=105)
+    dex = out / "classes.dex"
+    if p.returncode or not mapping.exists() or not dex.exists():
+        record("r8", "BLOCKED_R8_COMPILATION", exit_code=p.returncode,
+               mapping_found=mapping.exists(), dex_found=dex.exists())
+        return
+    import re
+    match = re.search(r"(?m)^QualHelper -> ([^:]+):$", mapping.read_text())
+    if not match:
+        record("r8", "FAIL_NO_RENAMING_MAPPING", version=version)
+        return
+    obfuscated_name = match.group(1)
+    if obfuscated_name == "QualHelper":
+        record("r8", "FAIL_NOT_OBFUSCATED", version=version)
+        return
+    # Mapping file is held out from JADX; only independent evaluator sees it.
+    jadx_out = ROOT / "r8-jadx"
+    p, jadx_wall = exec_([str(ROOT / "jadx" / "bin" / "jadx"),
+                          "-d", str(jadx_out), str(dex)], timeout=100)
+    sources = "\n".join(x.read_text(errors="replace")
+                        for x in jadx_out.rglob("*.java"))
+    if p.returncode or "entry(" not in sources:
+        record("r8", "FAIL_JADX_METHOD_ORACLE", exit_code=p.returncode)
+        return
+    record("r8", "PASS_REAL_R8_MAPPING", version=version,
+           input_classes=2, renamed_class_observed=True,
+           obfuscated_name=obfuscated_name, original_name="QualHelper",
+           mapping_sha256=hashlib.sha256(mapping.read_bytes()).hexdigest(),
+           d8_jar_sha256=hashlib.sha256(jars[0].read_bytes()).hexdigest(),
+           dex_sha256=hashlib.sha256(dex.read_bytes()).hexdigest(),
+           jadx_without_mapping_recovered_entry=True,
+           compile_wall_seconds=wall, jadx_wall_seconds=jadx_wall)
+
 def rosal():
     try:
         ver = importlib.metadata.version("rosal")
@@ -223,6 +295,10 @@ try:
 except Exception as exc:
     record("jadx", "FAIL", error_type=type(exc).__name__,
            reason=str(exc)[:160])
+try:
+    r8()
+except Exception as exc:
+    record("r8", "FAIL", error_type=type(exc).__name__, reason=str(exc)[:160])
 try:
     rosal()
 except Exception as exc:
