@@ -127,6 +127,9 @@ jobs:
               (Get-VMSwitch -Name $sw -ErrorAction SilentlyContinue)) {
             throw 'unadmitted H1 created a VM or switch'
           }
+          # The child exit 1 is the EXPECTED refusal; clear inherited status
+          # only after verifying the refusal code and absence of resources.
+          $global:LASTEXITCODE = 0
           Write-Output 'PUBLIC_H1_UNADMITTED_REFUSAL=PASS;GUEST_BOOT=NOT_RUN'
       - name: Read-only Windows feature probe
         shell: pwsh
