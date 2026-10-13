@@ -22,10 +22,11 @@ jobs:
           persist-credentials: false
       - name: Python syntax validation
         run: |
-          python3 -m py_compile scripts/kaggle_rdte.py experiments/kaggle_rdte/gpu_smoke.py experiments/kaggle_rdte/tpu_bridge.py
+          python3 -m py_compile scripts/kaggle_rdte.py experiments/kaggle_rdte/gpu_smoke.py experiments/kaggle_rdte/tpu_device.py experiments/kaggle_rdte/tpu_bridge.py experiments/kaggle_rdte/cpu_reasoning_controls.py
       - name: Negative/positive protocol tests (no Kaggle auth)
         run: python3 -m unittest -v tests/test_kaggle_rdte.py
       - name: Typed dry-run (no Kaggle auth)
         run: |
           python3 scripts/kaggle_rdte.py --action plan --assignment test-rep-0001 --workload gpu-cuda-smoke-v1
-          python3 scripts/kaggle_rdte.py --action plan --assignment test-rep-0002 --workload tpu-jax-bridge-v1
+          python3 scripts/kaggle_rdte.py --action plan --assignment test-rep-0002 --workload tpu-v5e8-device-v1
+          python3 scripts/kaggle_rdte.py --action plan --assignment test-rep-0003 --workload tpu-jax-bridge-v1
