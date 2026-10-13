@@ -39,6 +39,12 @@ APP = "rdte-t6-minecraft-paper"
 DATASET = "rdtepool/minecraft-paper-t6-world"
 WORLD = "/mnt/rdtepool/minecraft-paper-t6-world"
 PORT = 25580
+MC_TYPE = "PAPER"
+MC_VERSION = "1.21.11"
+MC_PROTOCOL = 774
+MC_IMPLEMENTATION = "paper"
+MC_STATUS_NAME_CONTRACT = "paper_brand_exact"
+VANILLA263 = False
 WORLD_LEVEL = WORLD + "/level.dat"
 SENTINEL_PATH = WORLD + "/.supracraft-paper-t6-sentinel"
 REQUIRED_OWNER = {
@@ -49,6 +55,42 @@ REQUIRED_OWNER = {
     "SUPRACRAFT_COLLAGE_SERVICE_ID": "11111111-1111-4111-8111-111111111111",
     "SUPRACRAFT_COLLAGE_WORLD_ID": "world-rdte-001",
 }
+
+
+def configure_exact_vanilla263() -> None:
+    """Explicit per-process T6 product profile, not a Paper acceptance alias.
+
+    The old Paper behavior remains the default and all targets are exact.
+    This process handles exactly one guest/product. The new source consumer
+    independently checks the signed merged Foundry control before mutation.
+    """
+    global SCHEMA, EXPECTED_TARGET, EXPECTED_PROFILE, EXPECTED_APPS_COMMIT
+    global EXPECTED_IMAGE_FRAGMENT, EXPECTED_MIDDLEWARE, APP, DATASET
+    global WORLD, PORT, WORLD_LEVEL, SENTINEL_PATH, REQUIRED_OWNER
+    global MC_TYPE, MC_VERSION, MC_PROTOCOL, MC_IMPLEMENTATION
+    global MC_STATUS_NAME_CONTRACT, VANILLA263, CATALOG_PROFILES
+    from admit_vanilla263_native_t6_control import (
+        APP as NATIVE_APP, APPS_REF, OCI, OWNER, TARGET,
+        MIDDLEWARE, PROFILE_BLOB, WORLD as NATIVE_DATASET,
+    )
+    SCHEMA = "semper-supra.minecraft-vanilla-263-truenas-t6-control/1"
+    EXPECTED_TARGET = TARGET
+    EXPECTED_PROFILE = PROFILE_BLOB
+    EXPECTED_APPS_COMMIT = APPS_REF
+    EXPECTED_IMAGE_FRAGMENT = OCI
+    EXPECTED_MIDDLEWARE = MIDDLEWARE
+    APP = NATIVE_APP
+    DATASET = NATIVE_DATASET
+    WORLD = "/mnt/" + NATIVE_DATASET
+    PORT = 25580
+    WORLD_LEVEL = WORLD + "/level.dat"
+    SENTINEL_PATH = WORLD + "/.supracraft-vanilla263-t6-sentinel"
+    REQUIRED_OWNER = OWNER
+    MC_TYPE, MC_VERSION, MC_PROTOCOL = "VANILLA", "26.3", 777
+    MC_IMPLEMENTATION, MC_STATUS_NAME_CONTRACT = "vanilla", "vanilla_exact"
+    VANILLA263 = True
+    CATALOG_PROFILES = dict(CATALOG_PROFILES)
+    CATALOG_PROFILES["1.15.30"] = {"apps_commit": APPS_REF, "image": OCI}
 
 
 class MinecraftT6Error(RuntimeError):
@@ -96,6 +138,16 @@ def canonical_sha256(doc: dict) -> str:
 
 
 def load_control(path: pathlib.Path, expected_commit: str, catalog_version: str = "1.15.29") -> dict:
+    if VANILLA263:
+        from admit_vanilla263_native_t6_control import verify
+        if catalog_version != "1.15.30":
+            raise MinecraftT6Error("vanilla263 exact native catalog version refused")
+        try:
+            control = json.loads((path / "control.json").read_text(encoding="utf-8"))
+            verify(control, expected_producer=expected_commit)
+            return control
+        except (OSError, ValueError, TypeError) as exc:
+            raise MinecraftT6Error("exact vanilla263 signed source control refused") from None
     if catalog_version not in CATALOG_PROFILES:
         raise MinecraftT6Error("unadmitted native catalog version profile")
     profile = CATALOG_PROFILES[catalog_version]
@@ -185,12 +237,18 @@ def runtime_values(control: dict) -> dict:
 
 
 def safe_status_oracle(script: pathlib.Path, port: int, out: pathlib.Path,
-                       expected_version: str = "1.21.11") -> dict:
+                       expected_version: str = "1.21.11", *,
+                       implementation: str = "paper",
+                       expected_protocol: int = 774) -> dict:
+    if implementation not in {"paper", "vanilla"} or (
+            implementation == "paper" and expected_protocol != 774) or (
+            implementation == "vanilla" and expected_protocol != 777):
+        raise MinecraftT6Error("exact product protocol/implementation profile refused")
     if not script.is_file() or script.name != "minecraft_java_status_oracle.py":
         raise MinecraftT6Error("exact Minecraft product oracle file absent")
     cmd = [sys.executable, str(script), "--port", str(port),
            "--expected-version", expected_version,
-           "--implementation", "paper", "--expected-protocol", "774",
+           "--implementation", implementation, "--expected-protocol", str(expected_protocol),
            "--timeout", "5", "--out", str(out)]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
     if result.returncode != 0 or not out.is_file():
@@ -200,9 +258,10 @@ def safe_status_oracle(script: pathlib.Path, port: int, out: pathlib.Path,
         verdict.get("classification") != "SUPPORTED" or
         verdict.get("oracleSatisfied") is not True or
         verdict.get("java_version") != expected_version or
-        verdict.get("server_implementation") != "paper" or
-        verdict.get("status_name_contract") != "paper_brand_exact" or
-        verdict.get("server_protocol") != 774 or
+        verdict.get("server_implementation") != implementation or
+        verdict.get("status_name_contract") != (
+            "paper_brand_exact" if implementation == "paper" else "vanilla_exact") or
+        verdict.get("server_protocol") != expected_protocol or
         verdict.get("status_packet_valid") is not True):
         raise MinecraftT6Error("Minecraft Java status receipt invalid")
     return verdict
@@ -280,8 +339,8 @@ def owner_readback_vector(config: dict, wanted: dict) -> dict[str, bool]:
     env = minecraft.get("additional_envs") or [] if isinstance(minecraft, dict) else []
     found_owner = {v.get("name"): v.get("value") for v in env if isinstance(v, dict)} if isinstance(env, list) else {}
     return {
-        "minecraft_type": minecraft.get("type") == "PAPER" if isinstance(minecraft, dict) else False,
-        "minecraft_version": minecraft.get("version") == "1.21.11" if isinstance(minecraft, dict) else False,
+        "minecraft_type": minecraft.get("type") == MC_TYPE if isinstance(minecraft, dict) else False,
+        "minecraft_version": minecraft.get("version") == MC_VERSION if isinstance(minecraft, dict) else False,
         "owner_environment": found_owner == REQUIRED_OWNER,
         "additional_storage": (config.get("storage") or {}).get("additional_storage") == wanted["storage"]["additional_storage"] if isinstance(config, dict) and isinstance(config.get("storage") or {}, dict) else False,
         "server_port": native_server_port_matches((config.get("network") or {}).get("server_port"), wanted["network"]["server_port"]) if isinstance(config, dict) and isinstance(config.get("network") or {}, dict) else False,
@@ -308,16 +367,20 @@ def main() -> int:
     p.add_argument("--collage-source-ref")
     p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
                    default="1.15.29")
+    p.add_argument("--product-profile", choices=("legacy-paper", "vanilla263"),
+                   default="legacy-paper")
     p.add_argument("--tls", action="store_true")
     p.add_argument("--timeout", type=float, default=8)
     p.add_argument("--job-timeout", type=float, default=600)
     p.add_argument("--state-timeout", type=float, default=480)
     a = p.parse_args()
+    if a.product_profile == "vanilla263":
+        configure_exact_vanilla263()
     started = time.monotonic()
     payload = {
-        "schema": "truenas-minecraft-paper-t6/v1",
+        "schema": "truenas-minecraft-vanilla263-t6/v1" if VANILLA263 else "truenas-minecraft-paper-t6/v1",
         "classification": "ORACLE_FAILURE", "oracleSatisfied": False,
-        "product": "paper-upstream-1.21.11", "target": EXPECTED_TARGET,
+        "product": "vanilla-26.3" if VANILLA263 else "paper-upstream-1.21.11", "target": EXPECTED_TARGET,
         "cleanup": {"attempted": False, "zero_residue": False},
         "secret_values_captured": False,
     }
@@ -325,7 +388,7 @@ def main() -> int:
     dataset_created = False
     app_created = False
     try:
-        if (a.native_catalog_profile == "1.15.30" and
+        if (not VANILLA263 and a.native_catalog_profile == "1.15.30" and
                 a.collage_source_dir is None):
             raise MinecraftT6Error("1.15.30 catalog profile is COLLAGE P2 opt-in only")
         control = load_control(a.control_dir, a.foundry_commit,
@@ -333,7 +396,7 @@ def main() -> int:
         if a.expected_system_version != "TrueNAS-" + EXPECTED_TARGET:
             raise MinecraftT6Error("requested exact system version drift")
         desired = runtime_values(control)
-        sentinel_bytes = ("SUPRACRAFT-PAPER-T6:" + control["control_sha256"] + "\n").encode("ascii")
+        sentinel_bytes = (("SUPRACRAFT-VANILLA263-T6:" if VANILLA263 else "SUPRACRAFT-PAPER-T6:") + control["control_sha256"] + "\n").encode("ascii")
         payload["foundry_ref"] = a.foundry_commit
         payload["control_sha256"] = control["control_sha256"]
         if not a.status_oracle.is_file():
@@ -430,7 +493,10 @@ def main() -> int:
                 attempts += 1
                 receipt = a.out.with_name(a.out.stem + "-status-" + label + ".json")
                 try:
-                    verdict = safe_status_oracle(a.status_oracle, a.status_port, receipt)
+                    verdict = safe_status_oracle(a.status_oracle, a.status_port, receipt,
+                                                 expected_version=MC_VERSION,
+                                                 implementation=MC_IMPLEMENTATION,
+                                                 expected_protocol=MC_PROTOCOL)
                     status_ever_satisfied = True
                     status_cause = "status_supported"
                     level_stat_attempted = True
@@ -602,7 +668,7 @@ def main() -> int:
                               "owned_world_dataset_absent": True}
         payload["classification"] = "SUPPORTED"
         payload["oracleSatisfied"] = True
-        payload["detail"] = "native Paper Minecraft status/world lifecycle verified in disposable TrueNAS; not vanilla 26.3 or physical site"
+        payload["detail"] = ("native vanilla 26.3 status/world lifecycle verified in disposable TrueNAS; not physical site or managed COLLAGE" if VANILLA263 else "native Paper Minecraft status/world lifecycle verified in disposable TrueNAS; not vanilla 26.3 or physical site")
     except Exception as exc:
         payload["failure_type"] = type(exc).__name__
         payload["detail"] = str(exc) if isinstance(exc, MinecraftT6Error) else "runtime exception; inspect bounded guest diagnostics"
