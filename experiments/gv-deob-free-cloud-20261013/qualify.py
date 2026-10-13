@@ -120,7 +120,7 @@ def rosal():
     except importlib.metadata.PackageNotFoundError:
         record("rosal", "BLOCKED_INSTALL")
         return
-    p, elapsed = exec_(["rosal", "--help"], timeout=35)
+    p, elapsed = exec_([str(ROOT / "venv" / "bin" / "rosal"), "--help"], timeout=35)
     if p.returncode:
         record("rosal", "BLOCKED_RUNTIME", version=ver, exit_code=p.returncode)
     else:
