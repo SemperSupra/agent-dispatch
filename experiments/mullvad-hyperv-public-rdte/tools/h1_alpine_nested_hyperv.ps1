@@ -74,6 +74,9 @@ $switchName = $null
 $createdRoot = $false
 $createdSwitch = $false
 $createdVm = $false
+$attemptedRoot = $false
+$attemptedSwitch = $false
+$attemptedVm = $false
 $failed = $false
 
 try {
@@ -101,6 +104,7 @@ try {
             (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
             throw 'ADMISSION_DENIED: run-resource identity collision'
         }
+        $attemptedRoot = $true
         New-Item -ItemType Directory -Path $runRoot -ErrorAction Stop | Out-Null
         $createdRoot = $true
 
@@ -118,11 +122,13 @@ try {
         $receipt.GuestIsoBytesVerified = $size
 
         # Private vSwitch has no host-management or external physical uplink.
+        $attemptedSwitch = $true
         $sw = New-VMSwitch -Name $switchName -SwitchType Private -ErrorAction Stop
         $createdSwitch = $true
         if ($sw.SwitchType.ToString() -ne 'Private') {
             throw 'ORACLE_FAILURE: unexpected vSwitch attachment class'
         }
+        $attemptedVm = $true
         $null = New-VM -Name $vmName -Generation 2 -MemoryStartupBytes $StartupRamBytes -NoVHD -Path $runRoot -SwitchName $switchName -ErrorAction Stop
         $createdVm = $true
         Set-VMMemory -VMName $vmName -DynamicMemoryEnabled:$false
@@ -180,19 +186,19 @@ finally {
     if ($Mode -eq 'Execute') {
         $cleanupOk = $true
         # Exact run-owned identities only. No wildcards or existing resource mutation.
-        if ($createdVm) {
+        if ($attemptedVm -and (Get-VM -Name $vmName -ErrorAction SilentlyContinue)) {
             try { Stop-VM -Name $vmName -TurnOff -Force -ErrorAction SilentlyContinue } catch {}
             try { Remove-VM -Name $vmName -Force -ErrorAction Stop } catch { $cleanupOk = $false }
         }
-        if ($createdSwitch) {
+        if ($attemptedSwitch -and (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
             try { Remove-VMSwitch -Name $switchName -Force -ErrorAction Stop } catch { $cleanupOk = $false }
         }
-        if ($createdRoot) {
+        if ($attemptedRoot -and (Test-Path -LiteralPath $runRoot)) {
             try { Remove-Item -LiteralPath $runRoot -Recurse -Force -ErrorAction Stop } catch { $cleanupOk = $false }
         }
-        if (($createdVm -and (Get-VM -Name $vmName -ErrorAction SilentlyContinue)) -or
-            ($createdSwitch -and (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) -or
-            ($createdRoot -and (Test-Path -LiteralPath $runRoot))) {
+        if (($attemptedVm -and (Get-VM -Name $vmName -ErrorAction SilentlyContinue)) -or
+            ($attemptedSwitch -and (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) -or
+            ($attemptedRoot -and (Test-Path -LiteralPath $runRoot))) {
             $cleanupOk = $false
         }
         $receipt.Cleanup = if ($cleanupOk) { 'PASS' } else { 'FAIL' }
