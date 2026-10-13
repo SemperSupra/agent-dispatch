@@ -110,6 +110,76 @@ public final class SampleMessage extends GeneratedMessageLite {
            generated_file_count=len(generated), elapsed=elapsed,
            true_generated_lite_roundtrip="NOT_RUN")
 
+
+def reproto_compiler_generated():
+    """Independent oracle: actual protoc Java Lite output, not authored Java."""
+    source = ROOT / "reproto"
+    tool = __import__("shutil").which("protoc")
+    if not tool:
+        report("reproto_lite", "BLOCKED_PROTOC_NOT_AVAILABLE")
+        return
+    base = ROOT / "protoc_lite_case"
+    base.mkdir(exist_ok=True)
+    original = base / "sample.proto"
+    original.write_text('syntax = "proto3";\n'
+                        'package com.example;\n'
+                        'option java_multiple_files = true;\n'
+                        'message Sample {\n'
+                        ' string title = 1;\n'
+                        ' int32 count = 2;\n'
+                        ' repeated string tags = 3;\n'
+                        '}\n')
+    source_tree = base / "java"
+    source_tree.mkdir(exist_ok=True)
+    p, compile_s = run([tool, f"--proto_path={base}",
+                        f"--java_out=lite:{source_tree}", original], timeout=50)
+    java = source_tree / "com" / "example" / "Sample.java"
+    if p.returncode != 0 or not java.is_file():
+        report("reproto_lite", "BLOCKED_PROTOC_JAVA_LITE",
+               exit_code=p.returncode, generated_java_found=java.exists())
+        return
+    code = java.read_text(encoding="utf-8")
+    if "newMessageInfo" not in code:
+        report("reproto_lite", "BLOCKED_LITE_SHAPE_MISMATCH")
+        return
+    output = base / "recovered"
+    output.mkdir(exist_ok=True)
+    p, elapsed = run([sys.executable, source / "main.py", source_tree,
+                      "com.example.Sample", output, "--log-dir",
+                      base / "logs"], timeout=75)
+    files = list(output.rglob("*.proto"))
+    if p.returncode != 0 or not files:
+        report("reproto_lite", "FAIL_OR_UNSUPPORTED_GENERATED_LITE",
+               exit_code=p.returncode, outputs=len(files), generated_java=True,
+               stderr_tail=p.stderr[-130:])
+        return
+    txt = "\n".join(f.read_text(errors="replace") for f in files)
+    import re
+    matches = {
+        n: bool(re.search(rf"\b{field}\s*=\s*{n}\s*;", txt))
+        for n, field in ((1, "title"), (2, "count"), (3, "tags"))
+    }
+    if not all(matches.values()):
+        report("reproto_lite", "FAIL_FIELD_NUMBER_FIDELITY",
+               field_numbers_correct=sum(matches.values()),
+               expected_field_numbers=3)
+        return
+    # Compile recovered declarations as a further independent syntax check.
+    descriptor = base / "recovered.pb"
+    generated_protos = [str(x) for x in files]
+    p, _ = run([tool, f"--proto_path={output}",
+                f"--descriptor_set_out={descriptor}", *generated_protos], timeout=45)
+    if p.returncode:
+        report("reproto_lite", "FAIL_RECONSTRUCTED_PROTO_INVALID",
+               field_numbers_correct=3)
+        return
+    report("reproto_lite", "PASS_COMPILER_GENERATED_LITE_3_FIELDS",
+           field_numbers_correct=3, reconstructed_files=len(files),
+           recovered_proto_compilable=True,
+           original_proto_sha256=hashlib.sha256(original.read_bytes()).hexdigest(),
+           generated_java_sha256=hashlib.sha256(java.read_bytes()).hexdigest(),
+           elapsed_seconds=elapsed, protoc_compile_seconds=compile_s)
+
 def apk():
     src = ROOT / "ApkProbe.java"
     cls = ROOT / "classes"
@@ -186,7 +256,7 @@ def main():
     lane = argparse.ArgumentParser()
     lane.add_argument("--lane", choices=["protocol", "apk"], required=True)
     args = lane.parse_args()
-    functions = [protorev, reproto] if args.lane == "protocol" else [apk, androguard, apkid]
+    functions = [protorev, reproto, reproto_compiler_generated] if args.lane == "protocol" else [apk, androguard, apkid]
     for fn in functions:
         try:
             fn()
