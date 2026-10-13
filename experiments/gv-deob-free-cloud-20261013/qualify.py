@@ -251,12 +251,16 @@ def rosal():
         data[8:12] = struct.pack("<I", zlib.adler32(data[12:]) & 0xffffffff)
         sample = ROOT / "authored-androidx-rename.apk"
         with zipfile.ZipFile(sample, "w", zipfile.ZIP_DEFLATED) as out:
-            out.writestr("AndroidManifest.xml",
-                         '<?xml version="1.0" encoding="utf-8"?>'
-                         '<manifest xmlns:android="http://schemas.android.com/apk/res/android" '
-                         'package="org.example.authored"><application/></manifest>')
-            out.writestr("classes.dex", data)
-            out.writestr("META-INF/androidx.activity_activity.version", "1.8.1")
+            def fixed(name, payload):
+                entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                out.writestr(entry, payload)
+            fixed("AndroidManifest.xml",
+                  '<?xml version="1.0" encoding="utf-8"?>'
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android" '
+                  'package="org.example.authored"><application/></manifest>')
+            fixed("classes.dex", data)
+            fixed("META-INF/androidx.activity_activity.version", "1.8.1")
         work = ROOT / "rosal_work"
         p, seconds = exec_([str(ROOT / "venv" / "bin" / "rosal"),
                             "--apk", str(sample), "--work-dir", str(work)], timeout=155)
@@ -305,8 +309,10 @@ except Exception as exc:
     record("rosal", "FAIL", error_type=type(exc).__name__,
            reason=str(exc)[:160])
 required = (status["runs"]["pbtk_from_binary"]["state"] == "PASS" and
-            status["runs"]["jadx"]["state"] == "PASS")
-status["overall"] = "PASS_BOUNDED_SYNTHETIC" if required else "BLOCKED_OR_FAIL"
+            status["runs"]["jadx"]["state"] == "PASS" and
+            status["runs"]["r8"]["state"] == "PASS_REAL_R8_MAPPING" and
+            status["runs"]["rosal"]["state"] == "PASS_KNOWN_ALIAS")
+status["overall"] = "PASS_FOUR_SYNTHETIC_TOOL_GATES" if required else "BLOCKED_OR_FAIL"
 RECEIPT.write_text(json.dumps(status, indent=2, sort_keys=True) + "\n")
 print(json.dumps(status, sort_keys=True))
 sys.exit(0 if required else 1)
