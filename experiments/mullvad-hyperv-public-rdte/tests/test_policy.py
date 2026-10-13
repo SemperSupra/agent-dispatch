@@ -82,6 +82,28 @@ class SafetyOracleTests(unittest.TestCase):
         for phase in ("boot", "switching", "error", "recovery", "revoked"):
             self.assertFalse(allow_plain_wan(dataclasses.replace(self.state, phase=phase), pkt, hop))
 
+    def test_peer_ip_literal_and_port_validation(self):
+        hop = FirstHop("198.51.100.7", 51820, 0x701, 11, 5, True)
+        pkt = OuterPacket("udp", hop.host, 51820, "privileged-tunnel-worker", 0x701)
+        self.assertTrue(allow_plain_wan(self.state, pkt, hop))
+        for ip in ("example.org", "127.0.0.1", "::1", "ff02::1",
+                   "fe80::1", "0.0.0.0", "::", "not-an-ip"):
+            with self.subTest(invalid_endpoint=ip):
+                mutant_hop = dataclasses.replace(hop, host=ip)
+                mutant_pkt = dataclasses.replace(pkt, host=ip)
+                self.assertFalse(allow_plain_wan(self.state, mutant_pkt, mutant_hop))
+        for port in (0, 65536, -1):
+            with self.subTest(invalid_port=port):
+                h = dataclasses.replace(hop, port=port)
+                self.assertFalse(allow_plain_wan(self.state, dataclasses.replace(pkt, port=port), h))
+        self.assertFalse(allow_plain_wan(self.state, pkt, dataclasses.replace(hop, mark=(1 << 32))))
+        self.assertFalse(allow_plain_wan(self.state, dataclasses.replace(pkt, host="example.org"), hop))
+        v6 = FirstHop("2001:db8::7", 51820, 0x701, 11, 5, True)
+        self.assertTrue(allow_plain_wan(
+            self.state, dataclasses.replace(pkt, host="2001:0db8::7"), v6))
+        self.assertFalse(allow_plain_wan(
+            self.state, dataclasses.replace(pkt, host="2001:db8::8"), v6))
+
     def test_zero_epoch_or_mark_not_trusted(self):
         for attr in ("policy_epoch", "tunnel_epoch", "route_epoch", "admission_epoch"):
             self.assertFalse(eligible_for_user_egress(dataclasses.replace(self.state, **{attr: 0}), self.receipt))
