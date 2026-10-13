@@ -35,6 +35,17 @@ jobs:
       - name: Execute provider negative controls
         run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_provider.py' -v
 
+  linklocal-dns:
+    name: DHCP/NDP/DNS role and egress red-blue model
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Execute gateway role-scope and DNS confinement negatives
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_linklocal.py' -v
+
   linux-census:
     name: Read-only Linux feature census
     runs-on: ubuntu-latest
