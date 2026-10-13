@@ -1,0 +1,80 @@
+name: Kaggle RDT&E protected executor
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Typed operation
+        required: true
+        type: choice
+        options: [plan, submit, observe]
+      assignment_id:
+        description: Approved unique public-safe assignment identifier
+        required: true
+        type: string
+      workload:
+        description: Fixed reviewed workload
+        required: true
+        type: choice
+        options: [gpu-cuda-smoke-v1, tpu-v5e8-device-v1, tpu-jax-bridge-v1]
+      version:
+        description: Exact native kernel version for observe only
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kaggle-rdte-protected-executor
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: ${{ inputs.action == 'plan' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Typed immutable source plan (no credentials)
+        env:
+          ASSIGNMENT: ${{ inputs.assignment_id }}
+          WORKLOAD: ${{ inputs.workload }}
+        run: python3 scripts/kaggle_rdte.py --action plan --assignment "$ASSIGNMENT" --workload "$WORKLOAD"
+
+  execute:
+    if: ${{ inputs.action != 'plan' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: kaggle-rdte
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install tested Kaggle API SDK before injecting a secret
+        run: |
+          python3 -m venv .venv-kaggle
+          .venv-kaggle/bin/python -m pip install --disable-pip-version-check kaggle==2.2.4
+      - name: Actuate exactly one approved Kaggle operation
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          OPERATION: ${{ inputs.action }}
+          ASSIGNMENT: ${{ inputs.assignment_id }}
+          WORKLOAD: ${{ inputs.workload }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KAGGLE_API_TOKEN" ]]; then echo 'KAGGLE_RDTE_BLOCKED=NO_ENVIRONMENT_TOKEN'; exit 2; fi
+          .venv-kaggle/bin/python scripts/kaggle_rdte.py --action "$OPERATION" \
+            --assignment "$ASSIGNMENT" --workload "$WORKLOAD" \
+            --version "$VERSION" --out-dir .kaggle-rdte
+      - name: Retain allowlisted control-plane evidence (no raw logs)
+        if: ${{ always() && hashFiles('.kaggle-rdte/control-receipt.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaggle-rdte-control-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .kaggle-rdte/control-receipt.json
+          if-no-files-found: error
+          retention-days: 7
