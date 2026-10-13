@@ -5,6 +5,7 @@ nor writes firewall/network state. All receipt booleans are *untrusted* unless
 issued by an independently qualified observer in a real implementation.
 """
 from dataclasses import dataclass
+from ipaddress import ip_address
 
 STATES = frozenset({"boot", "connecting", "connected", "switching", "error", "recovery", "revoked"})
 
@@ -87,20 +88,31 @@ def allow_plain_wan(state: State, packet: OuterPacket, permitted: FirstHop | Non
     and is invalidated on a transition/revocation. Source/origin/mark identity
     requires independently tested real-kernel enforcement.
     """
+    if permitted is None:
+        return False
+    try:
+        relay = ip_address(permitted.host)
+        candidate = ip_address(packet.host)
+    except (ValueError, TypeError):
+        return False  # no hostnames, unknown or malformed peer IPs
+    if relay.is_unspecified or relay.is_loopback or relay.is_multicast or relay.is_link_local:
+        return False
+    if not (type(permitted.port) is int and 1 <= permitted.port <= 65535):
+        return False
+    if not (type(permitted.mark) is int and 1 <= permitted.mark < (1 << 32)):
+        return False
     return bool(
         state.phase in ("connecting", "connected")
-        and permitted is not None
         and permitted.authorized
         and state.policy_epoch > 0
         and state.admission_epoch > 0
         and permitted.policy_epoch == state.policy_epoch
         and permitted.control_epoch == state.admission_epoch
         and packet.proto == "udp"
-        and packet.host == permitted.host
+        and candidate == relay
         and packet.port == permitted.port
         and packet.origin == "privileged-tunnel-worker"
         and packet.mark == permitted.mark
-        and permitted.mark != 0
     )
 
 
