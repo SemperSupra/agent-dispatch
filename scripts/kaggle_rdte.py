@@ -153,14 +153,25 @@ def observe(api, plan, path: Path):
                    "TPU_DEVICE_UNAVAILABLE","SYNTHETIC_BRIDGE_CONTROL_FAILED",
                    "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH",
                    "TPU_JAX_RUNTIME_MISSING","TPU_COUNT_MISMATCH",
-                   "TPU_RUNTIME_EXECUTION_ERROR","TPU_MATH_ORACLE_FAILED","RuntimeError","AssertionError","UNKNOWN"}
+                   "TPU_RUNTIME_EXECUTION_ERROR","TPU_MATH_ORACLE_FAILED",
+                   "CUDA_BUILD_UNAVAILABLE_DEVICE_UNKNOWN","CPU_ONLY_TORCH_ON_GPU",
+                   "CUDA_RUNTIME_MISMATCH_ON_VISIBLE_GPU","RuntimeError","AssertionError","UNKNOWN"}
         klass = failure if failure in allowed else "UNCLASSIFIED"
+        hardware = {"GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH","TPU_COUNT_MISMATCH"}
+        software = {"CPU_ONLY_TORCH_ON_GPU","CUDA_RUNTIME_MISMATCH_ON_VISIBLE_GPU",
+                    "TPU_JAX_RUNTIME_MISSING"}
+        allocation_unknown = {"CUDA_DEVICE_UNAVAILABLE","TPU_DEVICE_UNAVAILABLE",
+                              "CUDA_BUILD_UNAVAILABLE_DEVICE_UNKNOWN"}
+        if klass in hardware:
+            category = "FAIL_HARDWARE_MISMATCH"
+        elif klass in software:
+            category = "FAIL_RUNTIME_SOFTWARE"
+        elif klass in allocation_unknown:
+            category = "FAIL_DEVICE_NOT_ATTESTED"
+        else:
+            category = "FAIL_WORKLOAD"
         return {"state":state,"is_terminal":True,
-                "classification":"FAIL_HARDWARE" if klass in
-                  {"CUDA_DEVICE_UNAVAILABLE","CUDA_BUILD_UNAVAILABLE","TPU_DEVICE_UNAVAILABLE",
-                   "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH",
-                   "TPU_JAX_RUNTIME_MISSING","TPU_COUNT_MISMATCH",
-                   "TPU_RUNTIME_EXECUTION_ERROR","TPU_MATH_ORACLE_FAILED"} else "FAIL_WORKLOAD",
+                "classification":category,
                 "failure_class":klass,"result_digest":digest(receipt.read_bytes()),
                 "native_version":plan["version"]}
     verify(data,plan["workload"])
