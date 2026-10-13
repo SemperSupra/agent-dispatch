@@ -58,3 +58,50 @@ Read-only Azure-hosted Ubuntu runner has reported an actual NetVSC-driven NIC wi
 - Verify transport first-hop scope with an outside-WAN witness intentionally capable of detecting a deliberate cleartext packet before and after guard installation.
 - Independently verify DNS, DHCP/NDP, MTU and route constraints across epoch changes and restarts, not only the currently modelled packet-field predicates.
 - Adopt only changes satisfying both performance objectives and independent packet-safety evidence; keep the public/private source separation.
+
+
+## Native public RDTE and fixed H1 preflight (2026-10-13)
+
+**Native kernel packet witness ADOPT_CONCEPT; product qualification NOT_RUN.**
+The `tools/netns_packet_witness.sh` fixed test on free public Ubuntu cloud exercised
+an actual `nftables` `inet` forward hook in an isolated gateway netns with
+separate LAN and outside-WAN observer netns, synthetic UDP IPv4+IPv6 packet
+replies, and no physical/default host network modification. At commit
+`d71aafeb3bd6a14157539152034f92ef0f857f57`,
+[run 38406399602](https://github.com/SemperSupra/agent-dispatch/actions/runs/38406399602)
+returned positive control, default-DROP, scoped-allow, revocation and cleanup
+PASS for both families. It is a real kernel packet-path witness, but is not a
+WireGuard tunnel, Hyper-V guest vSwitch or private product datapath.
+
+**Red-team diagnosis retained.** First run #38405958533 lacked valid positive
+controls. #38406267793 found the synthetic WAN responder could receive packets
+but lacked reverse routes to the test LAN (`ENETUNREACH`). Repaired the
+run-owned return routes and cleanup-result classification, then qualified the
+fixed test. Thus the observer can tell actual packet blocking apart from a
+misconfigured test network.
+
+**H1 source-stage EXPERIMENT; privileged run BLOCKED_ADMISSION.** New
+`tools/h1_alpine_nested_hyperv.ps1` holds the fixed published Alpine 3.24.2
+x64 ISO identity/sha, single private switch, bounded Gen2 VM, 512 MiB startup
+RAM, 2 vCPUs, run-owned dynamic 1 GiB blank VHDX, and exact teardown. It has
+a separate read-only Preflight and default refusal of unadmitted Execute.
+Windows-hosted native preflight + intentional PR-context Execute rejection
+were observed on [run 38407946078](https://github.com/SemperSupra/agent-dispatch/actions/runs/38407946078);
+no VM or vSwitch was created. The refusal test caught/cleared an expected
+nonzero child exit; run #38407753987 had been falsely marked FAILED due
+PowerShell `LASTEXITCODE` persistence even though refusal itself passed.
+Partial-creation cleanup flags were then hardened. See
+[`H1_ADMISSION.md`](H1_ADMISSION.md) for the smallest typed mission and
+required separate authority, budget and cleanup/identity checks.
+
+**Current distinctions:** Actual Linux netns outside observer PASS; real
+Alpine ISO bytes + detached GPG PASS; Windows Hyper-V preflight and denial
+PASS; **nested Alpine boot, guest OS identity, Windows-host path containment,
+multi-zone policy, tunneled DNS, Mullvad account, real WireGuard and
+private Hyper-VPN product remain NOT_RUN/NOT_QUALIFIED**. A Hyper-V VM
+`Running` status alone is not a boot/identity oracle.
+
+**Next highest-return admission:** Connect an authorized H1 fixed source and
+reviewed immutable SHA to a fresh Agent Dispatch typed assignment for the
+existing free public Windows runner, without general workflow or private-code
+authority. Source alone must never trigger a privileged Hyper-V launch.
