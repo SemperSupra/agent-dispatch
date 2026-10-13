@@ -100,7 +100,7 @@ public final class SampleMessage extends GeneratedMessageLite {
                stderr_excerpt=trial.stderr[-180:], stdout_excerpt=trial.stdout[-180:])
         return
     txt = "\n".join(p.read_text(errors="replace") for p in generated)
-    if not generated or (" = 1;" not in txt and " = 2;" not in txt):
+    if not generated or not (" = 1;" in txt and " = 2;" in txt):
         report("reproto", "NOT_QUALIFIED_NO_FIELD_EVIDENCE",
                generated_count=len(generated))
         return
@@ -142,75 +142,18 @@ def reproto_compiler_generated():
     if "newMessageInfo" not in code:
         report("reproto_lite", "BLOCKED_LITE_SHAPE_MISMATCH")
         return
-    output = base / "recovered"
-    output.mkdir(exist_ok=True)
-    p, elapsed = run([sys.executable, source / "main.py", source_tree,
-                      "com.example.Sample", output, "--log-dir",
-                      base / "logs"], timeout=75)
-    files = list(output.rglob("*.proto"))
-    # Intentionally do not mutate/retry a known incompatible candidate.
-    # The previous compatibility shim crashed (exit -11) without decoding.
-    if p.returncode != 0 or not files:
-        index = code.find("newMessageInfo")
-        report("reproto_lite", "UNQUALIFIED_KNOWN_CALL_SHAPE_MISMATCH",
-               exit_code=p.returncode, outputs=len(files), generated_java=True,
-               normalized_attempted=False,
-               compiler_call_uses_variable="newMessageInfo(DEFAULT_INSTANCE, info, objects)" in code,
-               generated_call_shape=code[max(0,index-45):index+135],
-               stdout_tail=p.stdout[-180:])
-        return
-    txt = "\n".join(f.read_text(errors="replace") for f in files)
-    import re
-    matches = {
-        n: bool(re.search(rf"\b{field}\s*=\s*{n}\s*;", txt))
-        for n, field in ((1, "title"), (2, "count"), (3, "tags"))
-    }
-    if not all(matches.values()):
-        report("reproto_lite", "FAIL_FIELD_NUMBER_FIDELITY",
-               field_numbers_correct=sum(matches.values()),
-               expected_field_numbers=3)
-        return
-    # Compile recovered declarations as a further independent syntax check.
-    descriptor = base / "recovered.pb"
-    generated_protos = [str(x) for x in files]
-    p, _ = run([tool, f"--proto_path={output}",
-                f"--descriptor_set_out={descriptor}", *generated_protos], timeout=45)
-    if p.returncode:
-        report("reproto_lite", "FAIL_RECONSTRUCTED_PROTO_INVALID",
-               field_numbers_correct=3)
-        return
-    from google.protobuf.descriptor_pb2 import FileDescriptorSet
-    original_desc = base / "original.pb"
-    p, _ = run([tool, f"--proto_path={base}",
-                f"--descriptor_set_out={original_desc}", original], timeout=40)
-    if p.returncode:
-        report("reproto_lite", "FAIL_ORIGINAL_DESCRIPTOR_COMPILE")
-        return
-    expected = FileDescriptorSet()
-    recovered = FileDescriptorSet()
-    expected.ParseFromString(original_desc.read_bytes())
-    recovered.ParseFromString(descriptor.read_bytes())
-    def fields(descriptor_set):
-        return sorted((f.name, f.number, f.type, f.label)
-                      for file in descriptor_set.file
-                      for message in file.message_type
-                      for f in message.field)
-    field_parity = fields(expected) == fields(recovered)
-    if not field_parity:
-        report("reproto_lite", "FAIL_DESCRIPTOR_TYPE_OR_LABEL_PARITY",
-               expected_field_count=len(fields(expected)),
-               recovered_field_count=len(fields(recovered)),
-               needed_adapter=needed_adapter)
-        return
-    report("reproto_lite", "PASS_COMPILER_LITE_WITH_NORMALIZATION" if needed_adapter
-           else "PASS_COMPILER_LITE_DIRECT",
-           field_numbers_correct=3, reconstructed_files=len(files),
-           field_type_label_parity=True, recovered_proto_compilable=True,
-           needed_adapter=needed_adapter,
-           original_proto_sha256=hashlib.sha256(original.read_bytes()).hexdigest(),
-           original_generated_java_sha256=hashlib.sha256(code.encode()).hexdigest(),
-           elapsed_seconds=elapsed, protoc_compile_seconds=compile_s)
-
+    # A direct invocation of this exact upstream commit on genuine protoc
+    # Java Lite returned exit -11 on the qualified free Ubuntu workcell.
+    # This is already verified in PR #411 run 38399549361. Do not execute a
+    # known crashing tool repeatedly; retain negative evidence and quarantine.
+    report("reproto_lite", "QUARANTINED_KNOWN_COMPILER_INCOMPATIBILITY",
+           upstream_pin=PINS["reproto"],
+           evidence_run=38399549361, observed_exit_code=-11,
+           generated_java=True,
+           compiler_call_uses_variable="newMessageInfo(DEFAULT_INSTANCE, info, objects)" in code,
+           synthetic_generated_java_sha256=hashlib.sha256(code.encode()).hexdigest(),
+           upstream_source_modified=False,
+           independent_replacement="lite_rawmessageinfo")
 
 def lite_rawmessageinfo_oracle():
     """Independently decode a constrained actual protoc Java Lite info string.
@@ -420,9 +363,14 @@ def main():
         except Exception as error:
             report(fn.__name__, "FAIL_EXCEPTION",
                    error_type=type(error).__name__, explanation=str(error)[:150])
-    mandatory = ["protorev", "lite_rawmessageinfo"] if args.lane == "protocol" else ["apk_fixture", "androguard"]
+    required_states = ({"protorev": "PASS_WIRE_FIELDS_AND_NEGATIVE",
+                        "lite_rawmessageinfo": "PASS_COMPILER_GENERATED_3_FIELDS_AND_NEGATIVES"}
+                       if args.lane == "protocol" else
+                       {"apk_fixture": "PASS_DEX_AUTHORED",
+                        "androguard": "PASS_DEX_CLASS_AND_NEGATIVE"})
+    mandatory = list(required_states)
     states = {x: y["status"] for x, y in state["results"].items()}
-    qualified = all(states.get(x, "").startswith("PASS") for x in mandatory)
+    qualified = all(states.get(name) == exact for name, exact in required_states.items())
     state["overall"] = "PASS_REQUIRED_WITH_REPROTO_UNQUALIFIED" if qualified and args.lane == "protocol" else ("PASS_REQUIRED_WITH_CANDIDATE_LIMITS" if qualified else "FAIL_REQUIRED")
     state["mandatory"] = mandatory
     state["unqualified_candidates"] = [name for name, item in state["results"].items() if not item["status"].startswith("PASS")]
