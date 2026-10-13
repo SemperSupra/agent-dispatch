@@ -150,12 +150,12 @@ def observe(api, plan, path: Path):
         failure = str(data.get("failure_class","")) if isinstance(data,dict) else ""
         allowed = {"CUDA_DEVICE_UNAVAILABLE","CUDA_BUILD_UNAVAILABLE",
                    "TPU_DEVICE_UNAVAILABLE","SYNTHETIC_BRIDGE_CONTROL_FAILED",
-                   "NO_ACCELERATOR","RuntimeError","AssertionError","UNKNOWN"}
+                   "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH","RuntimeError","AssertionError","UNKNOWN"}
         klass = failure if failure in allowed else "UNCLASSIFIED"
         return {"state":state,"is_terminal":True,
                 "classification":"FAIL_HARDWARE" if klass in
                   {"CUDA_DEVICE_UNAVAILABLE","CUDA_BUILD_UNAVAILABLE","TPU_DEVICE_UNAVAILABLE",
-                   "NO_ACCELERATOR"} else "FAIL_WORKLOAD",
+                   "NO_ACCELERATOR","GPU_COUNT_MISMATCH","GPU_MODEL_MISMATCH"} else "FAIL_WORKLOAD",
                 "failure_class":klass,"result_digest":digest(receipt.read_bytes()),
                 "native_version":plan["version"]}
     verify(data,plan["workload"])
