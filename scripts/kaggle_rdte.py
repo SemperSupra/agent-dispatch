@@ -138,9 +138,34 @@ def submit(api, plan):
         raise Denied("PROVIDER_SUBMITTED_BUT_VERSION_UNKNOWN_RECONCILE")
     return {"native_version":version,"state":"SUBMITTED","is_terminal":False}
 
+def require_current_native_version(api, owner, slug, required):
+    """Refuse observations when Kaggle's latest is not the requested version.
+
+    Kaggle CLI 2.2.4 parses a /version suffix in kernels_status/output but
+    DOES NOT forward it to the underlying status/output request. Check actual
+    current version through the native get_kernel metadata before AND after
+    output retrieval, avoiding a stale/wrong-version PASS.
+    """
+    from kagglesdk.kernels.types.kernels_api_service import ApiGetKernelRequest
+    request = ApiGetKernelRequest()
+    request.user_name = owner
+    request.kernel_slug = slug
+    with api.build_kaggle_client() as kaggle:
+        response = kaggle.kernels.kernels_api_client.get_kernel(request)
+    metadata = getattr(response, "metadata", None)
+    current = getattr(metadata, "current_version_number", None)
+    if not isinstance(current, int) or current < 1:
+        raise Denied("PROVIDER_NATIVE_VERSION_NOT_ATTESTED")
+    if current != required:
+        raise Denied("PROVIDER_VERSION_CHANGED_RECONCILE")
+    return current
+
+
 def observe(api, plan, path: Path):
     user = account(api)
-    ref = f'{user}/{plan["notebook_slug"]}/{plan["version"]}'
+    slug = plan["notebook_slug"]
+    ref = f'{user}/{slug}/{plan["version"]}'
+    require_current_native_version(api, user, slug, plan["version"])
     status = api.kernels_status(ref)
     value = str(getattr(status,"status","UNKNOWN")).upper()
     if "COMPLETE" in value or "SUCCESS" in value:
@@ -159,6 +184,7 @@ def observe(api, plan, path: Path):
         if state == "TERMINAL_FAILED":
             return {"state":state,"is_terminal":True,"classification":"FAIL_PROVIDER_NO_RECEIPT"}
         raise Denied("PROVIDER_OUTPUT_UNAVAILABLE")
+    require_current_native_version(api, user, slug, plan["version"])
     receipt = path/"kaggle_rdte_result.json"
     if not receipt.is_file() or receipt.stat().st_size > 65536:
         if state == "TERMINAL_FAILED":
