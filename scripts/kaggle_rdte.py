@@ -98,6 +98,9 @@ def submit(api, plan):
             "enable_gpu":plan["quota_kind"]=="GPU",
             "enable_tpu":plan["quota_kind"]=="TPU",
             "enable_internet":False, "machine_shape":plan["accelerator"],
+            # Kaggle backend investigation #1197: CPU/GPU docker_image SHA can
+            # override TPU VM allocation. Use unpinned latest runtime only.
+            "docker_image_pinning_type":"latest",
             "dataset_sources":[],"competition_sources":[],"kernel_sources":[],
             "model_sources":[]
         }
@@ -123,19 +126,38 @@ def observe(api, plan, path: Path):
         state = "TERMINAL_FAILED"
     else:
         return {"state":"NONTERMINAL_OR_UNKNOWN","is_terminal":False}
-    if state != "TERMINAL_COMPLETE":
-        return {"state":state,"is_terminal":True,"classification":"FAIL_PROVIDER"}
-    # Read only fixed named artifact. No raw logs or provider failure bodies in public.
+    # Retrieve even from ERROR: device-provisioning failures are evidence, not
+    # reasons to discard the notebook's fail-closed diagnostic receipt.
     path.mkdir(parents=True,exist_ok=True)
-    api.kernels_output(ref,str(path),file_pattern=r"^kaggle_rdte_result[.]json$",
-                       force=False,quiet=True)
+    try:
+        api.kernels_output(ref,str(path),file_pattern=r"^kaggle_rdte_result[.]json$",
+                           force=False,quiet=True)
+    except Exception:
+        if state == "TERMINAL_FAILED":
+            return {"state":state,"is_terminal":True,"classification":"FAIL_PROVIDER_NO_RECEIPT"}
+        raise Denied("PROVIDER_OUTPUT_UNAVAILABLE")
     receipt = path/"kaggle_rdte_result.json"
     if not receipt.is_file() or receipt.stat().st_size > 65536:
+        if state == "TERMINAL_FAILED":
+            return {"state":state,"is_terminal":True,"classification":"FAIL_PROVIDER_NO_RECEIPT"}
         raise Denied("MISSING_OR_OVERSIZED_RECEIPT")
     try:
         data = json.loads(receipt.read_text(encoding="utf-8"))
     except (OSError,UnicodeError,ValueError):
         raise Denied("INVALID_RECEIPT")
+    if state == "TERMINAL_FAILED":
+        # Allowlist rather than projecting provider log bodies/private values.
+        failure = str(data.get("failure_class","")) if isinstance(data,dict) else ""
+        allowed = {"CUDA_DEVICE_UNAVAILABLE","CUDA_BUILD_UNAVAILABLE",
+                   "TPU_DEVICE_UNAVAILABLE","SYNTHETIC_BRIDGE_CONTROL_FAILED",
+                   "NO_ACCELERATOR","RuntimeError","AssertionError","UNKNOWN"}
+        klass = failure if failure in allowed else "UNCLASSIFIED"
+        return {"state":state,"is_terminal":True,
+                "classification":"FAIL_HARDWARE" if klass in
+                  {"CUDA_DEVICE_UNAVAILABLE","CUDA_BUILD_UNAVAILABLE","TPU_DEVICE_UNAVAILABLE",
+                   "NO_ACCELERATOR"} else "FAIL_WORKLOAD",
+                "failure_class":klass,"result_digest":digest(receipt.read_bytes()),
+                "native_version":plan["version"]}
     verify(data,plan["workload"])
     return {"state":"TERMINAL_VERIFIED","is_terminal":True,"classification":"PASS",
             "native_version":plan["version"],"result_digest":digest(receipt.read_bytes())}
@@ -146,7 +168,7 @@ def verify(data, workload):
     if data.get("workload")!=workload or data.get("status")!="PASS":
         raise Denied("RECEIPT_WORKLOAD_OR_VERDICT_MISMATCH")
     if workload=="gpu-cuda-smoke-v1":
-        if data.get("accelerator")!="gpu" or data.get("gpu_count",0)<1 or data.get("checksum")!=8386560.0:
+        if data.get("accelerator")!="gpu" or data.get("gpu_count")!=2 or data.get("checksum")!=8386560.0:
             raise Denied("CUDA_ORACLE_FAILED")
     else:
         m=data.get("metrics",{})
