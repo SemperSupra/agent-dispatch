@@ -54,7 +54,9 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           persist-credentials: false
-      - name: Read-only feature survey (not a Hyper-V guest proof)
+      - name: Verify NetVSC channel/readback parser negatives
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_capabilities.py' -v
+      - name: Read-only feature survey (not a nested Alpine guest proof)
         run: python3 experiments/mullvad-hyperv-public-rdte/tools/capabilities.py
 
   windows-hyperv-census:
