@@ -26,6 +26,8 @@ jobs:
           root="$RUNNER_TEMP/gv-apk-multilingual"
           mkdir -p "$root"
           python3 -m venv "$root/venv"
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y protobuf-compiler
           "$root/venv/bin/pip" install --disable-pip-version-check --timeout 30 \
             "protobuf==6.32.1" "loguru==0.7.3" "packaging==25.0"
           curl --retry 2 --connect-timeout 20 --max-time 90 -fsSL \
