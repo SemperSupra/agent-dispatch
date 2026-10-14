@@ -608,6 +608,14 @@ jobs:
         with:
           go-version-file: .deps/collage-source/tools/truenas-readonly-probe/go.mod
           cache: false
+      - name: Checkout immutable original real Lantern datapack producer
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-vanilla263'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: 7f888b5829f4e5576d5ce512d86327348c43f01e
+          path: .deps/lantern-producer
+          persist-credentials: false
       - name: Prequalify exact COLLAGE real artifact source and TLS Go probe before native guest
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-vanilla263'
         run: |
@@ -619,8 +627,9 @@ jobs:
             go mod download && go mod verify &&
             go test ./... && go build -o /dev/null .)
           test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
+          test "$(git -C .deps/lantern-producer rev-parse HEAD)" = 7f888b5829f4e5576d5ce512d86327348c43f01e
           mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact"
-          python3 .deps/minecraft-product/tools/export_core_restoration_datapack_26_3.py \
+          python3 .deps/lantern-producer/tools/export_core_restoration_datapack_26_3.py \
             --out "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact/lantern-restoration-26.3.zip" \
             --manifest "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact/lantern-restoration-26.3.json" \
             --world-id lantern-rdte --release-id lantern-core-restore-26-3 \
