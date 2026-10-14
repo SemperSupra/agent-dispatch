@@ -47,8 +47,8 @@ class RoleLinkageTests(unittest.TestCase):
                 self.assertNotEqual(params[0]["local_groups"], [GROUP_ID])
                 self.assertEqual(params[0]["roles"], ["APPS_READ"])
             if method == "group.query":
-                self.assertEqual(params[0][0][0][0], "id")
-                self.assertEqual(params[0][0][0][2], GROUP_ID)
+                self.assertEqual(params[0][0][0], "id")
+                self.assertEqual(params[0][0][2], GROUP_ID)
             called.append(method)
             return result
         return call, called
