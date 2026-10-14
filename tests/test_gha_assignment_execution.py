@@ -113,6 +113,51 @@ class AssignmentExecutionTests(unittest.TestCase):
                 trusted_runner=p["runner"],
                 trusted_receipt_sha256=hashlib.sha256(encoded).hexdigest())
 
+
+    def test_historical_oracle_remains_replayable_after_assignment_expiry(self):
+        raw, p, receipt, encoded = built()
+        recorded = json.loads(raw)
+        trusted_created = recorded["issued_at"]
+        expired_clock = datetime.strptime(
+            recorded["expires_at"], "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=timezone.utc) + timedelta(days=7)
+        with self.assertRaisesRegex(contract.Denied, "ASSIGNMENT_EXPIRED_OR_FUTURE"):
+            check(raw, encoded, p["runner"], now=expired_clock)
+        verified = check(
+            raw, encoded, p["runner"], trusted_native_created_at=trusted_created)
+        self.assertEqual(verified["classification"], "PASS")
+        self.assertEqual(verified["admission_time_basis"], "provider-native-run-created-at")
+        self.assertEqual(verified["trusted_native_created_at"], trusted_created)
+
+    def test_historical_run_cannot_precede_issue_or_follow_expiry(self):
+        raw, p, receipt, encoded = built()
+        recorded = json.loads(raw)
+        start = datetime.strptime(
+            recorded["issued_at"], "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=timezone.utc)
+        for native_time in (
+            (start - timedelta(minutes=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            recorded["expires_at"],
+        ):
+            with self.subTest(native_time=native_time), self.assertRaisesRegex(
+                contract.Denied, "ASSIGNMENT_EXPIRED_OR_FUTURE"
+            ):
+                check(raw, encoded, p["runner"],
+                      trusted_native_created_at=native_time)
+
+    def test_malformed_or_conflicting_native_time_fails_closed(self):
+        raw, p, receipt, encoded = built()
+        for value in ("yesterday", "2026-10-14T16:00:00+00:00", "2026-13-14T16:00:00Z"):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                verifier.base.VerdictError, "NATIVE_CREATED_AT_INVALID"
+            ):
+                check(raw, encoded, p["runner"], trusted_native_created_at=value)
+        with self.assertRaisesRegex(
+            verifier.base.VerdictError, "AMBIGUOUS_TRUSTED_TIME"
+        ):
+            check(raw, encoded, p["runner"], now=datetime.now(timezone.utc),
+                  trusted_native_created_at=json.loads(raw)["issued_at"])
+
     def test_legacy_v1_stays_valid(self):
         self.assertEqual(profile.plan("requests/gha/cpu-x64-arithmetic-v1.json")["runner"], "ubuntu-24.04")
         self.assertEqual(profile.plan("requests/gha/cpu-arm64-contract-v1.json")["runner"], "ubuntu-24.04-arm")

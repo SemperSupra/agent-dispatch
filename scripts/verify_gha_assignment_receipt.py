@@ -8,7 +8,7 @@ separately mandatory for reconciliation; a green workflow is not authorization.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -29,15 +29,28 @@ FIELDS = base.RECEIPT_FIELDS | ADDITIONAL
 def evaluate(*, assignment_json: str, receipt_bytes: bytes,
              trusted_source_sha: str, trusted_run_id: str,
              trusted_runner: str, trusted_receipt_sha256: str,
-             now: datetime | None = None) -> dict:
+             now: datetime | None = None,
+             trusted_native_created_at: str | None = None) -> dict:
     if not base.HEX64.fullmatch(trusted_receipt_sha256):
         raise base.VerdictError("TRUSTED_ARTIFACT_SHA_INVALID")
     if not (50 <= len(receipt_bytes) <= base.MAX_RECEIPT):
         raise base.VerdictError("RECEIPT_SIZE_OUT_OF_BOUNDS")
     if hashlib.sha256(receipt_bytes).hexdigest() != trusted_receipt_sha256:
         raise base.VerdictError("RECEIPT_ARTIFACT_HASH_MISMATCH")
+    # Live runner verification uses the current clock. Durable independent
+    # reconciliation may instead use the provider's *native* run creation
+    # timestamp. Never derive this from a self-reported worker receipt.
+    if trusted_native_created_at is not None:
+        if now is not None:
+            raise base.VerdictError("AMBIGUOUS_TRUSTED_TIME")
+        try:
+            witness = assignment._timestamp(trusted_native_created_at)
+        except assignment.Denied as exc:
+            raise base.VerdictError("NATIVE_CREATED_AT_INVALID") from exc
+    else:
+        witness = now
     p = assignment.admit(
-        assignment_json, trusted_source_sha=trusted_source_sha, now=now)
+        assignment_json, trusted_source_sha=trusted_source_sha, now=witness)
     doc = base.strict_json(receipt_bytes)
     if not isinstance(doc, dict) or set(doc) != FIELDS:
         raise base.VerdictError("V2_RECEIPT_FIELDS_DENIED")
@@ -74,6 +87,11 @@ def evaluate(*, assignment_json: str, receipt_bytes: bytes,
         "profile_id": p["profile_id"],
         "profile_sha256": p["profile_sha256"],
         "native_run_id": trusted_run_id,
+        "admission_time_basis": (
+            "provider-native-run-created-at"
+            if trusted_native_created_at is not None else "live-verification-clock"
+        ),
+        "trusted_native_created_at": trusted_native_created_at,
         "native_runner": trusted_runner,
         "source_sha": trusted_source_sha,
         "receipt_sha256": trusted_receipt_sha256,
@@ -91,12 +109,15 @@ def main() -> int:
     ap.add_argument("--runner", required=True)
     ap.add_argument("--sha256", required=True)
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--native-created-at",
+                    help="UTC timestamp from independently authenticated GitHub Actions run metadata, not a worker field")
     args = ap.parse_args()
     try:
         result = evaluate(
             assignment_json=args.assignment_json, receipt_bytes=args.receipt.read_bytes(),
             trusted_source_sha=args.source_sha, trusted_run_id=args.run_id,
-            trusted_runner=args.runner, trusted_receipt_sha256=args.sha256)
+            trusted_runner=args.runner, trusted_receipt_sha256=args.sha256,
+            trusted_native_created_at=args.native_created_at)
         if args.out:
             args.out.parent.mkdir(parents=True, exist_ok=True)
             args.out.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
