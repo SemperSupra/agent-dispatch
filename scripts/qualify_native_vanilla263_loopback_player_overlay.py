@@ -31,7 +31,7 @@ def runner_owned_loopback_forward(value: object) -> int:
     """
     require(type(value) is str and len(value) < 64,
             "PLAYER_FORWARD_NOT_ISOLATED_LOOPBACK")
-    match = re.fullmatch(r"tcp:127[.]0[.]0[.]1:([0-9]{4,5})-:25580", value)
+    match = re.fullmatch(r"tcp:127[.]0[.]0[.]1:([1-9][0-9]{3,4})-:25580", value)
     require(match is not None, "PLAYER_FORWARD_NOT_ISOLATED_LOOPBACK")
     port = int(match.group(1))
     require(1024 < port < 65536 and port not in {25565, 443, 80},
