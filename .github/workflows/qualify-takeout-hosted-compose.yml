@@ -1,0 +1,172 @@
+name: Takeout official Foundry Compose hosted integration (no TrueNAS)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/qualify_takeout_foundry_hosted_compose.py'
+      - 'scripts/truenas_takeout_terminal_diagnostic.py'
+      - 'tests/test_truenas_takeout_terminal_diagnostic.py'
+      - '.github/workflows/qualify-takeout-hosted-compose.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  hosted-official-compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FOUNDRY_REF: 70cd8dc02d32dfba1943ff196a4df405945a88d3
+      ARTIFACT_ZIP_SHA256: sha256:eb485e980c480649c3de88708df165094d77df47211002eaceea5aed79022306
+      IMAGE_MANIFEST_SHA256: sha256:40a3b5b98939a2ae7d37099b1996a91e92a0877db1a1d91d09f403f88bd97fb5
+      IMAGE_CONFIG_SHA256: sha256:86de81f4401811f145c0569a210482a559746aa337f28554bb751ece08f77b7c
+      IMAGE_SOURCE_SHA: 144aa93eb93fe1fab4a08f780506a1d77f0d5d09
+      COMPOSE_PROJECT: ix-rdte-takeout
+    steps:
+      - name: Checkout exact public Agent Dispatch source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install only YAML dependency
+        run: python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+      - name: Load frozen public Foundry source (not a deployable product release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init --quiet "$RUNNER_TEMP/foundry"
+          git -C "$RUNNER_TEMP/foundry" remote add origin https://github.com/SemperSupra/truenas-app-foundry.git
+          git -C "$RUNNER_TEMP/foundry" fetch --quiet --depth 1 origin "$FOUNDRY_REF"
+          git -C "$RUNNER_TEMP/foundry" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/foundry" rev-parse HEAD)" = "$FOUNDRY_REF"
+      - name: Download only exact already-qualified public synthetic image transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET -H "Accept: application/vnd.github+json" \
+            "repos/SemperSupra/agent-dispatch/actions/artifacts/11912326284/zip" \
+            > "$RUNNER_TEMP/takeout-synthetic-transport.zip"
+          test -s "$RUNNER_TEMP/takeout-synthetic-transport.zip"
+          python3 scripts/verify_takeout_synthetic_oci_artifact.py \
+            "$RUNNER_TEMP/takeout-synthetic-transport.zip" \
+            --artifact-digest "$ARTIFACT_ZIP_SHA256" \
+            --image-digest "$IMAGE_MANIFEST_SHA256" \
+            --source-sha "$IMAGE_SOURCE_SHA"
+      - name: Render external-host-path official app source and exact one-field local image plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qualify_takeout_foundry_hosted_compose.py \
+            --foundry-root "$RUNNER_TEMP/foundry" \
+            --output "$RUNNER_TEMP/takeout-hosted-official-compose.json"
+      - name: Import Docker load transport with exact config identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,zipfile
+          from pathlib import Path
+          src=Path(os.environ['RUNNER_TEMP'])/'takeout-synthetic-transport.zip'
+          dest=Path(os.environ['RUNNER_TEMP'])/'takeout-verified-docker-save.tar.gz'
+          with zipfile.ZipFile(src) as z, z.open('fixture.docker.tar.gz') as stream, dest.open('wb') as out:
+              while data:=stream.read(4*1024*1024):out.write(data)
+          dest.chmod(0o600)
+          PY
+          test -z "$(docker image ls -q takeout-synthetic:local)"
+          docker load --input "$RUNNER_TEMP/takeout-verified-docker-save.tar.gz" >/dev/null
+          test "$(docker image inspect takeout-synthetic:local --format '{{.Id}}')" = "$IMAGE_CONFIG_SHA256"
+      - name: Exercise official Compose in ephemeral public runner and preserve bytes after app removal
+        shell: bash
+        run: |
+          set -euo pipefail
+          compose="$RUNNER_TEMP/takeout-hosted-official-compose.json"
+          root=/mnt/rdtepool/takeout-synthetic
+          test ! -e "$root"
+          sudo install -d -m 0700 -o 10001 -g 10001 "$root" "$root/archives" "$root/state"
+          docker events --filter type=container \
+             --filter "label=com.docker.compose.project=$COMPOSE_PROJECT" \
+             --format '{{json .}}' > "$RUNNER_TEMP/takeout-hosted-docker-events.jsonl" &
+          watcher=$!
+          cleanup() {
+            kill "$watcher" 2>/dev/null || true
+            wait "$watcher" 2>/dev/null || true
+            docker compose -p "$COMPOSE_PROJECT" -f "$compose" down --remove-orphans >/dev/null 2>&1 || true
+            sudo rm -rf -- "$root"
+          }
+          trap cleanup EXIT
+          sleep 2
+          opened_ns="$(python3 -c 'import time;print(time.time_ns())')"
+          # Watcher is ready before apply. Lower bound is later than watcher.
+          before_ns="$(python3 -c 'import time;print(time.time_ns())')"
+          docker compose -p "$COMPOSE_PROJECT" -f "$compose" up -d --no-build
+          cid="$(docker compose -p "$COMPOSE_PROJECT" -f "$compose" ps -a -q takeoutsynthetic)"
+          test -n "$cid"
+          for attempt in $(seq 1 25); do
+            state="$(docker inspect "$cid" --format '{{.State.Status}}:{{.State.ExitCode}}')"
+            if [ "$state" = 'exited:0' ]; then break; fi
+            if [ "$state" = 'exited:1' ] || [ "$state" = 'dead:1' ]; then exit 3; fi
+            sleep 1
+          done
+          test "$(docker inspect "$cid" --format '{{.State.Status}}:{{.State.ExitCode}}')" = 'exited:0'
+          docker inspect "$cid" > "$RUNNER_TEMP/takeout-hosted-inspect.json"
+          docker compose -p "$COMPOSE_PROJECT" -f "$compose" down --remove-orphans
+          sleep 2
+          closed_ns="$(python3 -c 'import time;print(time.time_ns())')"
+          kill "$watcher" 2>/dev/null || true
+          wait "$watcher" 2>/dev/null || true
+          python3 - "$cid" "$opened_ns" "$before_ns" "$closed_ns" <<'PY'
+          import json,os,pathlib,sys
+          sys.path.insert(0,'scripts')
+          from truenas_takeout_terminal_diagnostic import verify as inspect_verify
+          from truenas_takeout_docker_event_oracle import event_witness
+          cid,opened,before,closed=sys.argv[1:]
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])
+          inspect=json.loads((p/'takeout-hosted-inspect.json').read_text())
+          assert len(inspect)==1 and inspect[0]['Id']==cid
+          kw={'app_name':'rdte-takeout','project':'ix-rdte-takeout',
+              'service':'takeoutsynthetic',
+              'config_sha':os.environ['IMAGE_CONFIG_SHA256'],
+              'archive_host':'/mnt/rdtepool/takeout-synthetic/archives',
+              'state_host':'/mnt/rdtepool/takeout-synthetic/state',
+              'not_before':'2026-10-14T00:00:00Z'}
+          result=inspect_verify({'name':'rdte-takeout','state':'STOPPED'},inspect,**kw)
+          assert result['classification']=='DISPOSABLE_GUEST_DIAGNOSTIC_ONLY'
+          raw=[json.loads(line) for line in (p/'takeout-hosted-docker-events.jsonl').read_text().splitlines() if line.strip()]
+          events=[{'id':'ix-rdte-takeout','fields':v} for v in raw if v.get('Type')=='container']
+          outcome=event_witness(events,{'name':'rdte-takeout','state':'STOPPED'},
+              {'stream':'docker.events','permission':'DOCKER_READ','ready_before_apply':True,
+               'disconnect_count':0,'opened_ns':int(opened),'closed_ns':int(closed)},
+              app_name='rdte-takeout',project='ix-rdte-takeout',service='takeoutsynthetic',
+              expected_container_id=cid,not_before_ns=int(before))
+          assert outcome['status']=='EVENT_SEQUENCE_EXIT_ZERO_OBSERVED'
+          assert outcome['site_role_admission_verified'] is False
+          print(json.dumps({'status':'PASS',
+                            'classification':'HOSTED_OFFICIAL_FOUNDRY_COMPOSE_ONLY',
+                            'actual_docker_event_actions':[v['fields']['Action'] for v in events],
+                            'image_config_sha256':os.environ['IMAGE_CONFIG_SHA256'],
+                            'synthetic_app_state':'SIMULATED_STOPPED',
+                            'truenas_api':'NOT_RUN','truenas_guest':'NOT_RUN',
+                            'physical_apply':'HOLD'},sort_keys=True))
+          PY
+          sudo python3 - <<'PY'
+          import json,sys
+          from pathlib import Path
+          sys.path.insert(0,'scripts')
+          from takeout_synthetic_fixture import FILES,SENTINEL
+          root=Path('/mnt/rdtepool/takeout-synthetic')
+          actual={p.name:p.read_bytes() for p in (root/'archives').iterdir()}
+          expected={**FILES,'retained-sentinel.txt':SENTINEL}
+          assert actual==expected,'ARCHIVE_CONTENT_OR_RETENTION_FAILURE'
+          assert (root/'state'/'state.json').is_file()
+          assert not list((root/'archives').glob('*.part'))
+          print(json.dumps({'status':'PASS',
+                            'classification':'HOSTED_ARCHIVE_SURVIVES_COMPOSE_DOWN',
+                            'retained_synthetic_files':len(actual),
+                            'state_file':'PRESENT_UNTIL_CLEANUP',
+                            'real_export':'NOT_RUN',
+                            'truenas_guest':'NOT_RUN',
+                            'physical_apply':'HOLD'},sort_keys=True))
+          PY
