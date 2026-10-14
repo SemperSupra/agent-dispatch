@@ -219,6 +219,33 @@ RBAC_CALL_SEQUENCE = (
 )
 
 
+def classify_scoped_key_ddp_failure(exc: Exception) -> str:
+    """Return only a tiny allowlisted numeric DDP errno, never raw API error.
+
+    ddp_call formats RuntimeError as 'api_key.create: {JSON error object}'.
+    No remotely supplied reason, message, params, principal or secret values
+    can leave this guest. Absent/unrecognized codes remain unspecific.
+    """
+    if type(exc) is not RuntimeError or not exc.args or type(exc.args[0]) is not str:
+        return ""
+    data = exc.args[0]
+    prefix = "api_key.create: "
+    if len(data) > 8192 or not data.startswith(prefix):
+        return ""
+    try:
+        obj = json.loads(data[len(prefix):])
+    except ValueError:
+        return ""
+    if type(obj) is not dict:
+        return ""
+    code = obj.get("error")
+    if type(code) is int and code in {1, 2, 5, 11, 13, 17, 22, 38, 400, 401, 403, 404, 409, 422, 500, 503}:
+        return "_E" + str(code)
+    if type(code) is str and code in {"EINVAL","EPERM","EACCES","VALIDATION_ERRORS","METHOD_NOT_FOUND"}:
+        return "_" + code
+    return ""
+
+
 def bounded_rbac_call(call):
     position = 0
 
@@ -231,9 +258,11 @@ def bounded_rbac_call(call):
         position += 1
         try:
             return call(method, params)
-        except Exception:
+        except Exception as exc:
+            suffix = (classify_scoped_key_ddp_failure(exc)
+                      if operation == "issue_scoped_key" else "")
             raise ObservationError("GUEST_RBAC_" + operation.upper() +
-                                   "_API_FAILED") from None
+                                   "_API_FAILED" + suffix) from None
     return invoke
 
 
