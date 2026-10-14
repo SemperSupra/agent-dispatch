@@ -18,7 +18,7 @@ import sys
 
 import yaml
 
-PUBLIC_FOUNDRY_HEAD = "b5005f1c354ea994d04baf45bfb559506b2ae309"
+PUBLIC_FOUNDRY_HEAD = "70cd8dc02d32dfba1943ff196a4df405945a88d3"
 SOURCE = "candidates/takeout-synthetic-app/ix-dev/community/takeoutsynthetic"
 ARCHIVE = "/mnt/rdtepool/takeout-synthetic/archives"
 STATE = "/mnt/rdtepool/takeout-synthetic/state"
@@ -101,6 +101,7 @@ def qualify(root: Path, output: Path) -> dict:
     worker = services["takeoutsynthetic"]
     checked(worker["image"] == ORIGINAL_IMAGE, "UNEXPECTED_ORIGINAL_SOURCE_IMAGE")
     checked(worker.get("restart") == "no", "ONE_SHOT_RESTART_UNSAFE")
+    checked(worker.get("network_mode") == "none", "SYNTHETIC_WORKER_HAS_EGRESS")
     checked(worker.get("read_only") is True, "WORKER_ROOTFS_NOT_READ_ONLY")
     checked(str(worker.get("user")) in ("10001", "10001:10001"), "WORKER_NOT_ROOTLESS")
     checked(not worker.get("ports") and not worker.get("privileged"), "PUBLIC_PORT_OR_PRIVILEGE")
