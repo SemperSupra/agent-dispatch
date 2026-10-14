@@ -1,9 +1,10 @@
 """Pure request/response policy checks; never claims a running TrueNAS guest."""
 import unittest
+import json
 
 from scripts.truenas_middleware_collage_readback_p2 import (
     ObservationError, provision_guest_readonly, bounded_rbac_call, RBAC_CALL_SEQUENCE,
-    classify_scoped_key_ddp_failure,
+    classify_scoped_key_ddp_failure, scoped_key_record_count_suffix,
 )
 
 ROLE = "APPS_READ"
@@ -126,8 +127,98 @@ class RoleLinkageTests(unittest.TestCase):
             with self.assertRaises(ObservationError) as caught:
                 provision_guest_readonly(bounded_rbac_call(failure))
             self.assertEqual(str(caught.exception),
-                             "GUEST_RBAC_ISSUE_SCOPED_KEY_API_FAILED"+category)
+                             "GUEST_RBAC_ISSUE_SCOPED_KEY_API_FAILED"+category+
+                             ("_KEY_COUNT_UNAVAILABLE" if category ==
+                              "_TRANSPORT_TIMEOUT_INDETERMINATE" else ""))
             self.assertNotIn("DO-NOT-EMIT",str(caught.exception))
+
+    def test_validation_error_field_allowlist_and_no_provider_data_leakage(self):
+        # Frozen TrueNAS 25.04 websocket_app turns ValidationErrors into
+        # errno EAGAIN (11) with extra [field, message, errno] tuples.
+        cases = (
+            ("api_key_create", "_E11_VALIDATION_GENERAL"),
+            ("api_key_create.name", "_E11_VALIDATION_NAME"),
+            ("api_key_create.username", "_E11_VALIDATION_USERNAME"),
+            ("api_key_create.expires_at", "_E11_VALIDATION_EXPIRES_AT"),
+            ("api_key_create.username.extra", "_E11_VALIDATION_FIELD_UNKNOWN"),
+            ("api_key_create.password", "_E11_VALIDATION_FIELD_UNKNOWN"),
+            ("evil.api_key_create.username", "_E11_VALIDATION_FIELD_UNKNOWN"),
+        )
+        for field, expected in cases:
+            payload = {"error": 11, "type": "VALIDATION",
+                       "extra": [[field, "SENSITIVE-KEY-DO-NOT-EMIT", 22]],
+                       "reason": "SENSITIVE-USER-DO-NOT-EMIT",
+                       "trace": {"formatted": "SENSITIVE-TRACE-DO-NOT-EMIT"}}
+            value = classify_scoped_key_ddp_failure(
+                RuntimeError("api_key.create: " + json.dumps(payload)))
+            with self.subTest(field=field):
+                self.assertEqual(value, expected)
+                self.assertNotIn("SENSITIVE", value)
+                self.assertNotIn(field, value)
+        extra_cases = (
+            ([], "_E11_VALIDATION_FIELD_UNKNOWN"),
+            (["api_key_create.username"], "_E11_VALIDATION_FIELD_UNKNOWN"),
+            ([["api_key_create.username", "secret"]], "_E11_VALIDATION_FIELD_UNKNOWN"),
+            ([[True, "secret", 22]], "_E11_VALIDATION_FIELD_UNKNOWN"),
+            ([[["api_key_create.username"], "secret", 22]], "_E11_VALIDATION_FIELD_UNKNOWN"),
+            ([[ "api_key_create.username", "secret", 22]]*13,
+             "_E11_VALIDATION_FIELD_UNKNOWN"),
+            ([["api_key_create.username", "secret", 22],
+              ["api_key_create.name", "secret", 22]], "_E11_VALIDATION_MULTI"),
+        )
+        for extra, expected in extra_cases:
+            payload = {"error": 11, "type": "VALIDATION", "extra": extra,
+                       "trace": "DO-NOT-EMIT"*1000}
+            self.assertEqual(classify_scoped_key_ddp_failure(
+                RuntimeError("api_key.create: " + json.dumps(payload))), expected)
+        for bad_type in (None, False, "VALIDATION_WRONG", [], {}):
+            payload = {"error": 11, "type": bad_type,
+                       "extra": [["api_key_create.name", "secret", 22]]}
+            self.assertEqual(classify_scoped_key_ddp_failure(
+                RuntimeError("api_key.create: " + json.dumps(payload))), "_E11")
+
+    def test_failed_nonidempotent_key_creation_performs_only_one_exact_readonly_count(self):
+        for count, expected in ((0, "_KEY_COUNT0"), (1, "_KEY_COUNT1"),
+                                (2, "_KEY_COUNT_MULTIPLE"), (False, "_KEY_COUNT_INVALID"),
+                                (-1, "_KEY_COUNT_INVALID"), ([], "_KEY_COUNT_INVALID")):
+            calls = []
+            def read_only(method, params):
+                calls.append((method, params))
+                self.assertEqual(method, "api_key.query")
+                self.assertEqual(params, [
+                    [["username", "=", USER], ["name", "=", "disposable-collage-p2"]],
+                    {"count": True},
+                ])
+                return count
+            with self.subTest(count=count):
+                self.assertEqual(scoped_key_record_count_suffix(read_only), expected)
+                self.assertEqual(len(calls), 1)
+        def fail_query(method, params):
+            raise RuntimeError("SECRET-NEVER-PUBLISH")
+        self.assertEqual(scoped_key_record_count_suffix(fail_query),
+                         "_KEY_COUNT_UNAVAILABLE")
+
+        responses = authority_responses()
+        called = []
+        def failed_key(method, params):
+            called.append(method)
+            if method == "api_key.create":
+                raise RuntimeError("api_key.create: " + json.dumps({
+                    "error": 11, "type": "VALIDATION",
+                    "extra": [["api_key_create.username", "SECRET", 22]],
+                    "trace": "SECRET-NEVER-PUBLISH"}))
+            if method == "api_key.query":
+                self.assertEqual(params[1], {"count": True})
+                return 0
+            return responses[len(called)-1][1]
+        with self.assertRaises(ObservationError) as raised:
+            provision_guest_readonly(bounded_rbac_call(failed_key))
+        self.assertEqual(str(raised.exception),
+                         "GUEST_RBAC_ISSUE_SCOPED_KEY_API_FAILED"
+                         "_E11_VALIDATION_USERNAME_KEY_COUNT0")
+        self.assertEqual(called[-2:], ["api_key.create", "api_key.query"])
+        self.assertEqual(called.count("api_key.create"), 1)
+        self.assertNotIn("SECRET", str(raised.exception))
 
     def test_source_contract_allows_only_exact_role_linkage(self):
         fn, methods = self.call_with(authority_responses())
