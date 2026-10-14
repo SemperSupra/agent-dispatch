@@ -1,22 +1,42 @@
 name: Agent Dispatch typed public CPU executor
-run-name: Typed CPU ${{ inputs.request || 'contract reps' }}
+run-name: Typed CPU ${{ inputs.assignment_id || inputs.request || 'contract reps' }}
 
 on:
   workflow_dispatch:
     inputs:
       request:
-        description: Reviewed committed CPU workload manifest
-        required: true
+        description: Legacy reviewed committed CPU workload manifest
+        required: false
+        type: string
+      assignment_id:
+        description: Public synthetic DLE assignment identity for native correlation
+        required: false
+        type: string
+      assignment:
+        description: Bounded public-synthetic DLE assignment JSON; no secrets
+        required: false
         type: string
   workflow_call:
     inputs:
       request:
-        description: Reviewed committed CPU workload manifest
-        required: true
+        description: Legacy reviewed committed CPU workload manifest
+        required: false
+        type: string
+      assignment_id:
+        description: Public synthetic DLE assignment identity for native correlation
+        required: false
+        type: string
+      assignment:
+        description: Bounded public-synthetic DLE assignment JSON; no secrets
+        required: false
         type: string
   pull_request:
     paths:
       - 'scripts/gha_workload_request.py'
+      - 'scripts/gha_assignment_contract.py'
+      - 'scripts/gha_assignment_execute.py'
+      - 'scripts/verify_gha_assignment_receipt.py'
+      - 'tests/test_gha_assignment_execution.py'
       - 'tests/test_gha_workload_request.py'
       - 'tests/test_verify_gha_typed_receipt.py'
       - 'scripts/verify_gha_typed_receipt.py'
@@ -38,6 +58,7 @@ jobs:
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
           python3 tests/test_verify_gha_typed_receipt.py -v
+          python3 tests/test_gha_assignment_execution.py -v
 
   cpu-native-proofs:
     if: github.event_name == 'pull_request'
@@ -100,15 +121,31 @@ jobs:
     outputs:
       runner: ${{ steps.plan.outputs.runner }}
       request_sha256: ${{ steps.plan.outputs.request_sha256 }}
+      assignment_sha256: ${{ steps.plan.outputs.assignment_sha256 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Admit exactly one reviewed request
+      - name: Admit exactly one reviewed static profile and optional DLE assignment
         id: plan
         env:
           REQUEST: ${{ inputs.request }}
-        run: python3 scripts/gha_workload_request.py --action plan --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
+          ASSIGNMENT: ${{ inputs.assignment }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$ASSIGNMENT" ]; then
+            test -z "$REQUEST"
+            test -n "$ASSIGNMENT_ID"
+            python3 scripts/gha_assignment_execute.py --action plan \
+              --assignment "$ASSIGNMENT" --correlation-id "$ASSIGNMENT_ID" \
+              --source-sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+          else
+            test -z "$ASSIGNMENT_ID"
+            test -n "$REQUEST"
+            python3 scripts/gha_workload_request.py --action plan --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
+          fi
 
   execute:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -122,22 +159,42 @@ jobs:
       - name: Execute one previously admitted fixed CPU workload
         env:
           REQUEST: ${{ inputs.request }}
-          DIGEST: ${{ needs.plan.outputs.request_sha256 }}
+          ASSIGNMENT: ${{ inputs.assignment }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          PROFILE_DIGEST: ${{ needs.plan.outputs.request_sha256 }}
+          ASSIGNMENT_DIGEST: ${{ needs.plan.outputs.assignment_sha256 }}
+        shell: bash
         run: |
-          python3 scripts/gha_workload_request.py --action run --request "$REQUEST" \
-            --digest "$DIGEST" --receipt ".gha-typed/receipt.json"
+          set -euo pipefail
+          if [ -n "$ASSIGNMENT" ]; then
+            python3 scripts/gha_assignment_execute.py --action run \
+              --assignment "$ASSIGNMENT" --correlation-id "$ASSIGNMENT_ID" \
+              --source-sha "$GITHUB_SHA" --digest "$ASSIGNMENT_DIGEST" \
+              --receipt ".gha-typed/receipt.json"
+          else
+            python3 scripts/gha_workload_request.py --action run --request "$REQUEST" \
+              --digest "$PROFILE_DIGEST" --receipt ".gha-typed/receipt.json"
+          fi
       - name: Independently verify provider-bound CPU receipt
         env:
           REQUEST: ${{ inputs.request }}
+          ASSIGNMENT: ${{ inputs.assignment }}
           RUNNER_LABEL: ${{ needs.plan.outputs.runner }}
         shell: bash
         run: |
           set -euo pipefail
           sha=$(sha256sum .gha-typed/receipt.json | cut -d' ' -f1)
-          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
-            --receipt .gha-typed/receipt.json --source-sha "$GITHUB_SHA" \
-            --run-id "$GITHUB_RUN_ID" --runner "$RUNNER_LABEL" \
-            --sha256 "$sha" --out .gha-typed/verified.json
+          if [ -n "$ASSIGNMENT" ]; then
+            python3 scripts/verify_gha_assignment_receipt.py --assignment-json "$ASSIGNMENT" \
+              --receipt .gha-typed/receipt.json --source-sha "$GITHUB_SHA" \
+              --run-id "$GITHUB_RUN_ID" --runner "$RUNNER_LABEL" \
+              --sha256 "$sha" --out .gha-typed/verified.json
+          else
+            python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+              --receipt .gha-typed/receipt.json --source-sha "$GITHUB_SHA" \
+              --run-id "$GITHUB_RUN_ID" --runner "$RUNNER_LABEL" \
+              --sha256 "$sha" --out .gha-typed/verified.json
+          fi
       - name: Retain independently checked receipt
         if: always() && hashFiles('.gha-typed/receipt.json') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
