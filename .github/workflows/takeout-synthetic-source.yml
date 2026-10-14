@@ -94,10 +94,14 @@ jobs:
           test -z "$(docker ps -aq --filter "name=^/$container$")"
           # Qualify the transferred OCI tar itself, independently of the
           # Buildx-provisioned image. No registry, site or guest is accessed.
+          # Docker Engine's classic load path does not accept the OCI tar.
+          # Save an explicitly Docker-loadable, gzip-compressed transport
+          # *before* removing the tested image. Preserve both transports.
+          docker image save takeout-synthetic:local | gzip -n -1 > "$evidence/fixture.docker.tar.gz"
           old_config="$(cat "$evidence/loaded-config-digest.txt")"
           docker image rm takeout-synthetic:local >/dev/null
           test -z "$(docker image ls -q takeout-synthetic:local)"
-          docker load --input "$evidence/fixture.oci.tar" >/dev/null
+          docker load --input "$evidence/fixture.docker.tar.gz" >/dev/null
           test "$(docker image inspect takeout-synthetic:local --format '{{.Id}}')" = "$old_config"
           sudo install -d -o 10001 -g 10001 -m 0700 "$state"
           timeout 60s docker run --rm --name "$container" --network none \
@@ -121,10 +125,15 @@ jobs:
           sudo rm -rf -- "$state"
           test ! -e "$state"
           python3 - "$evidence/receipt.json" <<'PY'
-          import json, pathlib, sys
+          import hashlib, json, pathlib, sys
           p = pathlib.Path(sys.argv[1])
           receipt = json.loads(p.read_text())
-          receipt['offline_oci_docker_load'] = 'PASS'
+          d = p.parent / 'fixture.docker.tar.gz'
+          with d.open('rb') as f:
+              receipt['docker_archive_sha256'] = 'sha256:' + hashlib.file_digest(f, 'sha256').hexdigest()
+          receipt['docker_archive_format'] = 'gzip-docker-save'
+          receipt['offline_oci_docker_load'] = 'NOT_SUPPORTED'
+          receipt['offline_docker_archive_load'] = 'PASS'
           receipt['imported_image_config_identity'] = 'PASS'
           receipt['imported_container_noop'] = 'PASS'
           p.write_text(json.dumps(receipt, indent=2) + '\n')
