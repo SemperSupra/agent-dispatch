@@ -190,9 +190,9 @@ def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
                 "VANILLA_REAL_ARTIFACT_MISSING")
         # Reuse COLLAGE's independent real-ZIP verifier and request generator;
         # test fixtures, raw client claims and foreign producers are refused.
-        import importlib.util
         consumer_path = collage / "tools" / "consume_vanilla_datapack_source.py"
         require(consumer_path.is_file(), "VANILLA_CONSUMER_UNAVAILABLE")
+        sys.path.insert(0, str(collage / "tools"))
         from collage_deploy_plan import Refused as _Refused
         from consume_vanilla_datapack_source import (
             audience_requests, consume, verify_candidate,
