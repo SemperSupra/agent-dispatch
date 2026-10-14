@@ -35,7 +35,7 @@ def run(raw: str, source_sha: str, digest: str) -> dict:
         "assignment_sha256": p["assignment_sha256"],
         "authority_sha256": p["authority_sha256"],
         "profile_id": p["profile_id"],
-        "nonce": p["nonce"],
+        "nonce_sha256": hashlib.sha256(p["nonce"].encode("ascii")).hexdigest(),
         "expires_at": p["expires_at"],
     })
     return native
