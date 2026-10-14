@@ -52,7 +52,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertEqual(current["rung"],"t6")
         self.assertEqual(current["authority_issue"],423)
         self.assertEqual(current["consumer_authority_issue"],627)
-        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-002-native-guest")
+        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-003-master-catalog-qualified")
         self.assertEqual(proposal["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-001")
         self.assertEqual(proposal["consumer_authority_issue"],627)
         self.assertIn("NOT wired",proposal["purpose"])
