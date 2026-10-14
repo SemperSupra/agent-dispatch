@@ -1,11 +1,12 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4c-005-group-gid-verified",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4d-006-real-lantern-stage",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "One NEW serialized free/public TrueNAS25.04.2.6 vanilla26.3 Java25 T6 disposable guest + actual scoped TLS verified Go read-only COLLAGE ownership query. Prior unique 004 failed guest-local credential user.create.primary-group GID expectation (NOT native App failure), zero residue; test POSIX group.query exact ID/GID fix merged #433, original #427 and Go raw TrueNAS version #432. Exact Foundry control/image/guest source unchanged; keep APPS_READ only, never FULL_ADMIN. Native App lifecycle+Go readback independently must PASS including zero observation mutations. This request does not deploy a Lantern/Two Rivers world artifact. Cleanup in ephemeral guest; physical APPLY HOLD.",
-  "collage_readback": true
+  "purpose": "One uniquely authorized serialized public/free disposable native TrueNAS 25.04.2.6 / catalog Minecraft 1.15.30 Java25 vanilla26.3 protocol777 OP4D-006: preserve signed Foundry and OCI pin; inspect exact real Lantern 26.3 ZIP SHA da25005e8729e6f013f7108ac5b8869dd46323befc78efdae18221b26cafe5f8, three COLLAGE human/automation/agent equal-intent source plans, stage only under quiesced real native App into owned world /datapacks and independently hash readback after restart and reinstall. Run scoped APPS_READ Go TLS provider observer with full six owner fields and zero observation mutations only after byte-level stage, and require guest native lifecycle/cleanup receipts. Native offline gameplay semantic qualification remains separate: canonical Foundry has online_mode=true and RCON=false. Original OP4C-005 reported observer RBAC RuntimeError with zero residue; bounded nonsecret RPC ordinal diagnostic #435 is now merged. No replay of 005, no increased observer privilege, no physical TrueNAS APPLY, no private GHA minutes.",
+  "collage_readback": true,
+  "lantern_stage": true
 }
