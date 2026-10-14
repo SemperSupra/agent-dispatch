@@ -12,9 +12,16 @@ import json
 import re
 from typing import Any
 
-from admit_vanilla263_native_t6_control import (
-    APP, CONTROL_SHA, OWNER, Refused, TARGET, verify,
-)
+# Native guest imports from the scripts directory as top-level modules;
+# repo-root cheap tests may also import the same module as scripts.*.
+try:
+    from .admit_vanilla263_native_t6_control import (
+        APP, CONTROL_SHA, OWNER, Refused, TARGET, verify,
+    )
+except ImportError:
+    from admit_vanilla263_native_t6_control import (
+        APP, CONTROL_SHA, OWNER, Refused, TARGET, verify,
+    )
 
 PROFILE = "minecraft-vanilla263-disposable-loopback-player/1"
 BOT_NAME = "SupraCraftProbe"

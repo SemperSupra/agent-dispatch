@@ -4,6 +4,9 @@ on:
     paths:
       - 'scripts/qualify_native_vanilla263_loopback_player_overlay.py'
       - 'tests/test_native_vanilla263_loopback_player_overlay.py'
+      - 'scripts/qualify_native_vanilla263_mineflayer_causal.py'
+      - 'scripts/qualify_native_vanilla263_mineflayer_causal.js'
+      - 'tests/test_native_vanilla263_mineflayer_causal.py'
       - '.github/workflows/qualify-native-loopback-gameplay-overlay.yml'
   workflow_dispatch:
 permissions:
@@ -22,8 +25,12 @@ jobs:
           set -euo pipefail
           python3 -m py_compile \
             scripts/qualify_native_vanilla263_loopback_player_overlay.py \
-            tests/test_native_vanilla263_loopback_player_overlay.py
+            scripts/qualify_native_vanilla263_mineflayer_causal.py \
+            tests/test_native_vanilla263_loopback_player_overlay.py \
+            tests/test_native_vanilla263_mineflayer_causal.py
           python3 -m unittest -v tests.test_native_vanilla263_loopback_player_overlay
+          python3 -m unittest -v tests.test_native_vanilla263_mineflayer_causal
+          node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
           bash -n scripts/gha_kvm_truenas_rdte.sh
       - name: Preserve operational auth and physical TrueNAS hold
         run: echo 'Source-only variant; immutable operational online_mode=true, RCON disabled; no QEMU guest, player, world mutation, or physical TrueNAS APPLY.' >> "$GITHUB_STEP_SUMMARY"
