@@ -624,27 +624,34 @@ def main() -> int:
         wait_app()
         wait_status("first")
         read_sentinel()
-        if a.collage_source_dir is not None:
-            if (a.collage_https_port is None or a.collage_source_ref is None
-                    or a.collage_https_port <= 0):
-                raise MinecraftT6Error("COLLAGE P2 readback admission incomplete")
-            from truenas_middleware_collage_readback_p2 import (
-                ObservationError, run_real_readback,
+        def observe_collage_after_native_readiness():
+        if (a.collage_https_port is None or a.collage_source_ref is None
+                or a.collage_https_port <= 0):
+            raise MinecraftT6Error("COLLAGE P2 readback admission incomplete")
+        from truenas_middleware_collage_readback_p2 import (
+            ObservationError, run_real_readback,
+        )
+        try:
+            payload["collage_readback"] = run_real_readback(
+                call,
+                collage=a.collage_source_dir,
+                https_port=a.collage_https_port,
+                state_dir=a.out.parent,
+                expected_source_sha=a.collage_source_ref,
+                profile="vanilla263" if VANILLA263 else "paper",
             )
-            try:
-                payload["collage_readback"] = run_real_readback(
-                    call,
-                    collage=a.collage_source_dir,
-                    https_port=a.collage_https_port,
-                    state_dir=a.out.parent,
-                    expected_source_sha=a.collage_source_ref,
-                    profile="vanilla263" if VANILLA263 else "paper",
-                )
-            except ObservationError as err:
-                # The helper emits only a fixed reason code, no raw auth,
-                # certificate, network or client traces.
-                raise MinecraftT6Error("COLLAGE P2: " + str(err)) from None
-            read_sentinel()
+        except ObservationError as err:
+            # The helper emits only a fixed reason code, no raw auth,
+            # certificate, network or client traces.
+            raise MinecraftT6Error("COLLAGE P2: " + str(err)) from None
+        read_sentinel()
+
+        # The original native-only/Paper P2 observer order is unchanged.
+        # When actual native artifact stage is admitted, run the provider
+        # read-only observer AFTER world stage/restart/reinstall so a failed
+        # RBAC observer cannot mask independent byte-level integration results.
+        if a.collage_source_dir is not None and lantern_blob is None:
+            observe_collage_after_native_readiness()
 
         first_level = payload["readiness"]["first"]["level"]["size"]
 
@@ -695,6 +702,7 @@ def main() -> int:
             if actual != SHA:
                 raise MinecraftT6Error("native Lantern staged file lost across reinstall")
             payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True
+            observe_collage_after_native_readiness()
         read_sentinel()
         if first_level <= 0:
             raise MinecraftT6Error("world level.dat size invalid")
