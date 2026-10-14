@@ -62,7 +62,8 @@ class OverlaySourceTests(unittest.TestCase):
         self.assertEqual(result["immutable_base_control_sha256"],overlay.CONTROL_SHA)
         minecraft=result["values"]["minecraft"]
         self.assertIs(minecraft["online_mode"],False)
-        self.assertEqual(minecraft["ops"],["SupraCraftProbe"])
+        self.assertEqual(minecraft["ops"],[overlay.BOT_OFFLINE_UUID])
+        self.assertNotIn(overlay.BOT_NAME,minecraft["ops"])
         self.assertFalse(minecraft["enable_rcon"])
         self.assertEqual(minecraft["rcon_password"],"")
         self.assertFalse(minecraft["whitelist"])
@@ -76,6 +77,17 @@ class OverlaySourceTests(unittest.TestCase):
             self.assertIs(result[field],False)
         self.assertEqual(result["physical_truenas_apply"],"HOLD")
         self.assertEqual(len(result["derived_runtime_values_sha256"]),64)
+
+    def test_offline_uuid_v3_operator_is_not_an_unresolvable_mojang_name(self):
+        import hashlib, uuid
+        expected=str(uuid.UUID(bytes=hashlib.md5(
+            ("OfflinePlayer:" + overlay.BOT_NAME).encode()).digest(), version=3))
+        self.assertEqual(expected,"f4469b77-cc14-3c07-95f3-0b0c3f151bd2")
+        self.assertEqual(expected,overlay.BOT_OFFLINE_UUID)
+        self.assertEqual(derive()["values"]["minecraft"]["ops"],[expected])
+        self.assertEqual(derive()["bot"],overlay.BOT_NAME)
+        self.assertFalse(derive()["values"]["minecraft"]["online_mode"])
+        self.assertFalse(derive()["values"]["minecraft"]["enable_rcon"])
 
     def test_runner_owned_ephemeral_forward_matches_native_harness(self):
         req=admission()
