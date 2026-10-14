@@ -1,9 +1,18 @@
 """Offline source tests: preflight must reject missing pins, not launch a VM."""
 import unittest
 import pathlib
-from scripts.check_collage_catalog_preflight import evaluate, version_inventory
+from scripts.check_collage_catalog_preflight import evaluate, version_inventory, URI
 
 class CatalogPreflightTests(unittest.TestCase):
+    def test_public_vendor_catalog_uses_real_master_not_nonexistent_main(self):
+        # 2026-10-14 causal failure of guest run 38488438084:
+        # official truenas/apps default branch = master; ?ref=main HTTP 404.
+        self.assertEqual(
+            URI,
+            "https://api.github.com/repos/truenas/apps/contents/trains/community/minecraft?ref=master",
+        )
+        self.assertNotIn("?ref=main", URI)
+
     def test_available_exact_pin(self):
         rows=[{"name":"1.15.29","type":"dir"},{"name":"item.yaml","type":"file"}]
         v=evaluate(rows,"1.15.29")

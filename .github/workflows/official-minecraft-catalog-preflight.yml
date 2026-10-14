@@ -1,0 +1,42 @@
+name: Read-only official Minecraft native catalog preflight
+on:
+  pull_request:
+    paths:
+      - 'scripts/check_collage_catalog_preflight.py'
+      - 'tests/test_collage_catalog_preflight.py'
+      - '.github/workflows/official-minecraft-catalog-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-official-catalog:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Cheap catalog guard and 404 regression tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/check_collage_catalog_preflight.py
+          python3 -m unittest -v tests.test_collage_catalog_preflight
+      - name: Verify upstream live official master with exact immutable 1.15.30 admission
+        run: |
+          set -euo pipefail
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30 \
+            > "$RUNNER_TEMP/official-catalog-result.json"
+          python3 - "$RUNNER_TEMP/official-catalog-result.json" <<'PY'
+          import json,sys
+          v=json.load(open(sys.argv[1]))
+          assert v["classification"] == "PRE_KVM_CATALOG_VERSION_AVAILABLE"
+          assert v["expected_version"] == "1.15.30"
+          assert "1.15.30" in v["visible_versions"]
+          assert v["guest_catalog_observed"] is False
+          assert v["live_minecraft_qualified"] is False
+          assert v["world_mutated"] is False
+          PY
+      - name: Report exact read-only external preflight boundary
+        if: always()
+        run: echo 'Only official source catalog read; no KVM, native TrueNAS App, game-world mutation or physical APPLY.' >> "$GITHUB_STEP_SUMMARY"
