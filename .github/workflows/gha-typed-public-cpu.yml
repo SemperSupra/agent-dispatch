@@ -18,6 +18,8 @@ on:
     paths:
       - 'scripts/gha_workload_request.py'
       - 'tests/test_gha_workload_request.py'
+      - 'tests/test_verify_gha_typed_receipt.py'
+      - 'scripts/verify_gha_typed_receipt.py'
       - 'requests/gha/**'
       - '.github/workflows/gha-typed-public-cpu.yml'
 
@@ -33,7 +35,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate public request and authority contracts
-        run: python3 -m unittest -v tests/test_gha_workload_request.py
+        run: |
+          python3 -m unittest -v tests/test_gha_workload_request.py
+          python3 tests/test_verify_gha_typed_receipt.py -v
 
   cpu-native-proofs:
     if: github.event_name == 'pull_request'
@@ -65,12 +69,26 @@ jobs:
         run: |
           python3 scripts/gha_workload_request.py --action run --request "$REQUEST" \
             --digest "$DIGEST" --receipt ".gha-typed/receipt.json"
+      - name: Independently verify provider-bound CPU receipt
+        env:
+          REQUEST: ${{ matrix.request }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum .gha-typed/receipt.json | cut -d' ' -f1)
+          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+            --receipt .gha-typed/receipt.json --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --runner "$RUNNER_LABEL" \
+            --sha256 "$sha" --out .gha-typed/verified.json
       - name: Upload public-safe typed receipt
         if: always() && hashFiles('.gha-typed/receipt.json') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: gha-typed-${{ matrix.runner }}-${{ github.run_attempt }}
-          path: .gha-typed/receipt.json
+          path: |
+            .gha-typed/receipt.json
+            .gha-typed/verified.json
           if-no-files-found: error
           retention-days: 7
 
@@ -108,11 +126,25 @@ jobs:
         run: |
           python3 scripts/gha_workload_request.py --action run --request "$REQUEST" \
             --digest "$DIGEST" --receipt ".gha-typed/receipt.json"
+      - name: Independently verify provider-bound CPU receipt
+        env:
+          REQUEST: ${{ inputs.request }}
+          RUNNER_LABEL: ${{ needs.plan.outputs.runner }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum .gha-typed/receipt.json | cut -d' ' -f1)
+          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+            --receipt .gha-typed/receipt.json --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --runner "$RUNNER_LABEL" \
+            --sha256 "$sha" --out .gha-typed/verified.json
       - name: Retain independently checked receipt
         if: always() && hashFiles('.gha-typed/receipt.json') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: gha-typed-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .gha-typed/receipt.json
+          path: |
+            .gha-typed/receipt.json
+            .gha-typed/verified.json
           if-no-files-found: error
           retention-days: 7
