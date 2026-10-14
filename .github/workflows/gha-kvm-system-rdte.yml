@@ -443,19 +443,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Set up immutable 26.3 experimental client toolchain for native G4
-        if: needs.changes.outputs.truenas_native_offline_player == 'true'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22'
-      - name: Build pre-qualified 26.3 Mineflayer client on public runner only
-        if: needs.changes.outputs.truenas_native_offline_player == 'true'
-        run: |
-          set -euo pipefail
-          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
-          bash .deps/minecraft-product/tools/install_experimental_prismarine_26_3.sh "$RUNNER_TEMP/native-prismarine"
-          test -d "$RUNNER_TEMP/native-prismarine/runtime/node_modules/mineflayer"
-          node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
@@ -756,6 +743,19 @@ jobs:
           python3 -m unittest -v tests.test_collage_catalog_preflight
           python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30
 
+      - name: Set up immutable 26.3 experimental client toolchain for native G4
+        if: needs.changes.outputs.truenas_native_offline_player == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Build pre-qualified 26.3 Mineflayer client on public runner only
+        if: needs.changes.outputs.truenas_native_offline_player == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
+          bash .deps/minecraft-product/tools/install_experimental_prismarine_26_3.sh "$RUNNER_TEMP/native-prismarine"
+          test -d "$RUNNER_TEMP/native-prismarine/runtime/node_modules/mineflayer"
+          node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
