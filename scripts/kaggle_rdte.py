@@ -251,6 +251,21 @@ def verify(data, workload):
             or m.get("heldout_cosine",0)-m.get("shuffled_control_cosine",0)<0.45):
             raise Denied("TPU_OR_SYNTHETIC_BRIDGE_ORACLE_FAILED")
 
+def write_control_receipt(out: Path, record):
+    """Publish only a fixed allowlist, never raw SDK/provider exception text."""
+    allowed = {"schema","action","assignment_id","workload","accelerator",
+               "source_sha256","limit_seconds","state","is_terminal",
+               "classification","failure_class","native_version","result_digest"}
+    if not isinstance(record,dict) or record.get("schema")!=SCHEMA:
+        raise Denied("CONTROL_RECEIPT_SCHEMA_INVALID")
+    filtered = {k:record[k] for k in allowed if k in record}
+    encoded = (json.dumps(filtered,sort_keys=True,indent=2)+"\n").encode("utf-8")
+    if len(encoded)>16384:
+        raise Denied("CONTROL_RECEIPT_TOO_LARGE")
+    out.mkdir(parents=True,exist_ok=True)
+    (out/"control-receipt.json").write_bytes(encoded)
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--action",required=True,choices=("plan","submit","observe"))
@@ -260,6 +275,7 @@ def main():
     p.add_argument("--out-dir",default=".kaggle-rdte")
     a=p.parse_args()
     out=Path(a.out_dir)
+    public=None
     try:
         plan=validate(a.action,a.assignment,a.workload,a.version)
         public={k:plan[k] for k in ("action","assignment_id","workload","accelerator","source_sha256","limit_seconds")}
@@ -270,15 +286,26 @@ def main():
             result=submit(api,plan) if a.action=="submit" else observe(api,plan,out)
         record={"schema":SCHEMA,**public,**result}
         if a.action!="plan":
-            out.mkdir(parents=True,exist_ok=True)
-            (out/"control-receipt.json").write_text(json.dumps(record,sort_keys=True,indent=2)+"\n")
+            write_control_receipt(out,record)
         print("KAGGLE_RDTE_STATE="+str(record["state"]))
-        return 0
+        # Terminal failed is durable evidence, not a qualifying operation.
+        return 2 if result.get("state")=="TERMINAL_FAILED" else 0
     except Denied as error:
-        # No provider exception/body/identity emitted in public GHA logs.
-        print("KAGGLE_RDTE_BLOCKED="+str(error),file=sys.stderr)
+        reason=str(error)
+        # Only stable all-uppercase local failure classes cross this boundary.
+        if not re.fullmatch(r"[A-Z0-9_]{4,96}",reason):
+            reason="UNCLASSIFIED_ADMISSION_DENIAL"
     except Exception:
-        print("KAGGLE_RDTE_BLOCKED=PROVIDER_RUNTIME_UNKNOWN_RECONCILE",file=sys.stderr)
+        reason="PROVIDER_RUNTIME_UNKNOWN_RECONCILE"
+    if a.action!="plan":
+        record={"schema":SCHEMA,**(public or {}),
+                "state":"BLOCKED","is_terminal":False,
+                "classification":"FAIL_CLOSED","failure_class":reason}
+        try:
+            write_control_receipt(out,record)
+        except (OSError,Denied):
+            pass
+    print("KAGGLE_RDTE_BLOCKED="+reason,file=sys.stderr)
     return 2
 
 if __name__=="__main__":
