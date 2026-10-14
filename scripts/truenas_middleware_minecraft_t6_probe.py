@@ -365,6 +365,7 @@ def main() -> int:
     p.add_argument("--collage-source-dir", type=pathlib.Path)
     p.add_argument("--collage-https-port", type=int)
     p.add_argument("--collage-source-ref")
+    p.add_argument("--collage-real-artifact-dir", type=pathlib.Path)
     p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
                    default="1.15.29")
     p.add_argument("--product-profile", choices=("legacy-paper", "vanilla263"),
@@ -611,7 +612,8 @@ def main() -> int:
         read_sentinel()
         if a.collage_source_dir is not None:
             if (a.collage_https_port is None or a.collage_source_ref is None
-                    or a.collage_https_port <= 0):
+                    or a.collage_https_port <= 0 or
+                    (VANILLA263 and a.collage_real_artifact_dir is None)):
                 raise MinecraftT6Error("COLLAGE P2 readback admission incomplete")
             from truenas_middleware_collage_readback_p2 import (
                 ObservationError, run_real_readback,
@@ -623,6 +625,8 @@ def main() -> int:
                     https_port=a.collage_https_port,
                     state_dir=a.out.parent,
                     expected_source_sha=a.collage_source_ref,
+                    native_vanilla263=VANILLA263,
+                    real_artifact_dir=a.collage_real_artifact_dir,
                 )
             except ObservationError as err:
                 # The helper emits only a fixed reason code, no raw auth,
