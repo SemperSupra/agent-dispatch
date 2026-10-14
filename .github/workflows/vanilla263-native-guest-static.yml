@@ -6,6 +6,9 @@ on:
       - 'scripts/assert_vanilla263_native_t6_receipt.py'
       - 'tests/test_truenas_t6_vanilla263_guest.py'
       - '.github/workflows/vanilla263-native-guest-static.yml'
+      - 'tests/test_vanilla263_t6_guest_routing.py'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,6 +33,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest -v tests/test_truenas_t6_vanilla263_guest.py
+          bash -n scripts/gha_kvm_truenas_rdte.sh
+          python3 -m unittest -v tests/test_vanilla263_t6_guest_routing.py
       - name: Preserve legacy Paper 25.04.1 T6 regression
         run: |
           set -euo pipefail
