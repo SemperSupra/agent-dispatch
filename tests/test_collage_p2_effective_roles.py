@@ -87,7 +87,15 @@ class RoleLinkageTests(unittest.TestCase):
              "_DDP_VALIDATION_LIST"),
             ('api_key.create: bad-json', "_DDP_MALFORMED_ERROR"),
             ('other.method: {"error": 403}', "_DDP_UNSTRUCTURED_ERROR"),
-            ("api_key.create: "+("secret"*2000), "_DDP_OVERSIZE_ERROR"),
+            ("api_key.create: "+("secret"*2000), "_DDP_MALFORMED_ERROR"),
+            ('api_key.create: {"error": 403, "reason": "' + ("SENSITIVE"*3000) + '"}',
+             "_E403"),
+            ('api_key.create: {"error": {"errno": 422, "reason": "PRIVATE"}}',
+             "_E422"),
+            ('api_key.create: {"error": {"errno": 99999, "reason": "PRIVATE"}}',
+             "_DDP_NESTED_ERROR"),
+            ('api_key.create: {"error": 500, "reason": "' + ("PRIVATE"*40000) + '"}',
+             "_DDP_OVERSIZE_ERROR"),
         )
         for msg, category in malformed:
             with self.subTest(category=category):
