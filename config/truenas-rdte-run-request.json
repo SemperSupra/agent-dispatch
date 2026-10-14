@@ -1,11 +1,11 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4c-004-scoped-tls-readback",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4c-005-group-gid-verified",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "OP-4C unique one-time public/free-tier disposable TrueNAS25.04.2.6 T6 native vanilla26.3/Java25/protocol777 guest plus optional COLLAGE live Go TLS-verified read-only APPS_READ observer. Current native source, OCI, Foundry SHA/canonical digest, App/world/service identity unchanged. Bounded guest-only provision of one ephemeral APPS_READ key AFTER exact GID/primary/effective-role checks; do not use FULL_ADMIN, bypass TLS, leak secrets, grant caller mutation, or transfer guest credentials to operations. Reuse merged COLLAGE read-only source 17dfacc4351053fa06f8bdbaed7d931c97c1707e and accepted native App lifecycle. Observer may only attest live provider readback with zero observation mutations; checked-in source-only artifact fixture not a world/datapack deployment. Native guest invariant and independent scoped TLS/ownership receipt both mandatory; on any failure retain bounded causal receipt, no request replay. Physical TrueNAS APPLY HOLD; no private hosted minutes. Native-only OP4B-003 already passed run 38489327594; this is a distinct scoped guest observation test.",
+  "purpose": "One NEW serialized free/public TrueNAS25.04.2.6 vanilla26.3 Java25 T6 disposable guest + actual scoped TLS verified Go read-only COLLAGE ownership query. Prior unique 004 failed guest-local credential user.create.primary-group GID expectation (NOT native App failure), zero residue; test POSIX group.query exact ID/GID fix merged #433, original #427 and Go raw TrueNAS version #432. Exact Foundry control/image/guest source unchanged; keep APPS_READ only, never FULL_ADMIN. Native App lifecycle+Go readback independently must PASS including zero observation mutations. This request does not deploy a Lantern/Two Rivers world artifact. Cleanup in ephemeral guest; physical APPLY HOLD.",
   "collage_readback": true
 }

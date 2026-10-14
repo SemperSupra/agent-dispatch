@@ -92,7 +92,7 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertEqual(request["authority_issue"], 423)
             self.assertEqual(request["consumer_authority_issue"], 627)
             self.assertEqual(request["request_id"],
-                             "tn-25-04-2-6-t6-vanilla-263-op4c-004-scoped-tls-readback")
+                             "tn-25-04-2-6-t6-vanilla-263-op4c-005-group-gid-verified")
             self.assertIs(request.get("collage_readback"), True)
             self.assertEqual(set(request), {"schema", "request_id", "version", "rung", "product",
                                             "authority_issue", "consumer_authority_issue",
