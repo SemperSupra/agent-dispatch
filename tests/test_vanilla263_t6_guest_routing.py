@@ -61,6 +61,30 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("config/truenas-rdte-run-request.json)",WORKFLOW)
         self.assertIn('"$current_request_id" == "$previous_request_id"',WORKFLOW)
 
+    def test_scoped_native_collage_readback_explicit_only_not_default_guest(self):
+        self.assertIn('truenas_collage_readback=false',WORKFLOW)
+        self.assertIn('(.collage_readback // false)',WORKFLOW)
+        self.assertIn('truenas_collage_readback=$truenas_collage_readback',WORKFLOW)
+        self.assertIn('--vanilla-collage-readback',WORKFLOW)
+        self.assertIn('needs.changes.outputs.truenas_collage_readback',WORKFLOW)
+        self.assertIn('--require-collage-readback',WORKFLOW)
+        self.assertIn('ref: 17dfacc4351053fa06f8bdbaed7d931c97c1707e',WORKFLOW)
+        self.assertIn('[[ "$truenas_collage_readback" == "true" ]]',WORKFLOW)
+        self.assertIn('"$T6_PRODUCT" == "minecraft-vanilla-263"',HARNESS)
+        self.assertIn('VANILLA_COLLAGE_READBACK=false',HARNESS)
+        self.assertIn('--collage-source-ref "17dfacc4351053fa06f8bdbaed7d931c97c1707e"',HARNESS)
+        self.assertIn('NATIVE_READBACK_ARGS=()',HARNESS)
+        self.assertIn('"${NATIVE_READBACK_ARGS[@]}"',HARNESS)
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertNotIn("collage_readback",request)
+        self.assertNotIn("--vanilla-collage-readback",
+                         str(request))
+        # Synthetic source tests cannot count as a live TLS/Go observation.
+        probe=(ROOT/"scripts/truenas_middleware_collage_readback_p2.py").read_text()
+        self.assertIn('VANILLA263_SOURCE_SHA',probe)
+        self.assertIn('profile="vanilla263" if VANILLA263 else "paper"',
+                      (ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text())
+
     def test_no_fallback_guest_or_physical_promotion(self):
         self.assertNotIn('product == "minecraft-vanilla-263" && needs[\'foundry-minecraft-paper',WORKFLOW)
         self.assertIn("agent-dispatch-heavyweight-rdte",WORKFLOW)

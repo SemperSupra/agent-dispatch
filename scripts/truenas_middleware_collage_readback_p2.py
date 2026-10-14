@@ -26,6 +26,9 @@ NAME = "collage_p2_observer"
 ROLE_NAME = "collage-p2-apps-read"
 OWNER = "rdte-t6-minecraft-paper"
 WORLD_ID = "world-rdte-001"
+VANILLA263_OWNER = "rdte-t6-minecraft-vanilla-263"
+VANILLA263_WORLD = "lantern-rdte"
+VANILLA263_SOURCE_SHA = "17dfacc4351053fa06f8bdbaed7d931c97c1707e"
 DEFAULT_SOURCE_SHA = "fbda94f3fea0a216ddd9c35b38a09d325bed3640"
 
 
@@ -162,9 +165,38 @@ def discover_tls_anchor(port: int, out: pathlib.Path) -> tuple[str, str]:
     return hostname, hashlib.sha256(der).hexdigest()
 
 
+def exact_source_readback_request(plan: dict, *, profile: str) -> tuple[dict, str, str]:
+    """Build only a read-only source intent; never establish artifact format.
+
+    Use the already admitted COLLAGE source-only fixture for the provider
+    ownership probe. This fixture is NOT a playable datapack and is never
+    unpacked, applied or counted as real-world artifact deployment.
+    """
+    require(profile in {"paper", "vanilla263"}, "COLLAGE_READBACK_PROFILE_UNSUPPORTED")
+    request = json.loads(json.dumps(plan))
+    native = profile == "vanilla263"
+    owner = VANILLA263_OWNER if native else OWNER
+    world = VANILLA263_WORLD if native else WORLD_ID
+    request["request_id"] = "collage-native-vanilla263-readonly" if native else "collage-p2-native-paper"
+    request["target"].update({
+        "deployment_id": owner, "service_id": SERVICE_UUID,
+        "world_id": world, "minecraft_version": "26.3" if native else "1.21.11",
+        "backend": "vanilla" if native else "paper", "purpose": "generic",
+    })
+    request["artifact"].update({
+        "world_id": world, "minecraft_version": "26.3" if native else "1.21.11",
+    })
+    if native:
+        # The source artifact remains an intentionally unplayable fixture.
+        # This is permissible only for read-only provider observation, where
+        # artifact_format_verified must remain false; not actual deployment.
+        request["artifact"]["kind"] = "datapack"
+    return request, owner, world
+
+
 def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
                       state_dir: pathlib.Path, expected_source_sha: str
-                      = DEFAULT_SOURCE_SHA) -> dict:
+                      = DEFAULT_SOURCE_SHA, profile: str = "paper") -> dict:
     """Return ONLY allowlisted, non-secret independent readback evidence."""
     require(collage.is_dir(), "PINNED_COLLAGE_CHECKOUT_MISSING")
     git = subprocess.run(["git", "-C", str(collage), "rev-parse", "HEAD"],
@@ -175,16 +207,11 @@ def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
     fixture = collage / "examples" / "contract-only-world.fixture"
     require(source_plan.is_file() and fixture.is_file(),
             "SOURCE_ONLY_FIXTURE_UNAVAILABLE")
-    request = json.loads(source_plan.read_text(encoding="utf-8"))
-    request["request_id"] = "collage-p2-native-paper"
-    request["target"].update({
-        "deployment_id": OWNER, "service_id": SERVICE_UUID,
-        "world_id": WORLD_ID, "minecraft_version": "1.21.11",
-        "backend": "paper", "purpose": "generic",
-    })
-    request["artifact"].update({
-        "world_id": WORLD_ID, "minecraft_version": "1.21.11",
-    })
+    request, expected_owner, expected_world = exact_source_readback_request(
+        json.loads(source_plan.read_text(encoding="utf-8")), profile=profile)
+    if profile == "vanilla263":
+        require(expected_source_sha == VANILLA263_SOURCE_SHA,
+                "VANILLA263_COLLAGE_SOURCE_REF_DRIFT")
     source = state_dir / "collage-p2-request.json"
     source.write_text(json.dumps(request, indent=2, sort_keys=True) + "\n")
     key = provision_guest_readonly(call)
@@ -214,21 +241,23 @@ def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
             and verdict.get("mutation_authorized") is False
             and verdict.get("ownership_fields_matched") == 6
             and verdict.get("service_id") == SERVICE_UUID
-            and verdict.get("native_app") == OWNER,
+            and verdict.get("native_app") == expected_owner
+            and verdict.get("world_id") == expected_world,
             "NATIVE_READONLY_GUEST_JOIN_FAILED")
     return {
         "schema": SCHEMA,
         "classification": "PROVIDER_READBACK_MATCH",
         "source_sha": expected_source_sha,
         "source_plan_sha256": verdict["source_plan_sha256"],
-        "native_app": OWNER,
+        "native_app": expected_owner,
         "truenas_version": verdict["truenas_version"],
         "service_id": SERVICE_UUID,
-        "world_id": WORLD_ID,
+        "world_id": expected_world,
         "ownership_fields_matched": 6,
         "tls_cert_sha256": cert_sha,
         "transport": "isolated_guest_tls_verified",
         "credential_scope": "APPS_READ",
+        "source_profile": profile,
         "credential_mutation_phase": "disposable_guest_setup_before_observation",
         "observation_mutation_count": 0,
         "world_artifact_format_verified": False,

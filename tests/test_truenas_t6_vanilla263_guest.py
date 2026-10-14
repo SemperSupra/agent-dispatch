@@ -60,6 +60,52 @@ class TestNativeVanilla263Guest(unittest.TestCase):
     def test_full_independent_guest_oracle_fixture(self):
         check_guest(guest_fixture())
 
+    def test_optional_native_collage_readback_requires_independent_tls_and_apps_read(self):
+        root=guest_fixture()
+        with self.assertRaisesRegex(ValueError,"independent scoped native vanilla readback"):
+            check_guest(root,require_collage=True)
+        proof={
+            "schema":"semper-supra.collage-native-readback-p2/1",
+            "classification":"PROVIDER_READBACK_MATCH",
+            "source_profile":"vanilla263",
+            "source_sha":"17dfacc4351053fa06f8bdbaed7d931c97c1707e",
+            "native_app":native.APP, "truenas_version":"25.04.2.6",
+            "world_id":"lantern-rdte",
+            "service_id":"11111111-1111-4111-8111-111111111111",
+            "ownership_fields_matched":6,
+            "transport":"isolated_guest_tls_verified",
+            "tls_cert_sha256":"a"*64,
+            "credential_scope":"APPS_READ",
+            "credential_mutation_phase":"disposable_guest_setup_before_observation",
+            "observation_mutation_count":0,
+            "world_artifact_format_verified":False,
+            "world_activated":False,
+            "cloudnet_adoption_executed":False,
+            "physical_true_nas_mutated":False,
+        }
+        root["foundry_materialization"]["collage_readback"]=proof
+        check_guest(root,require_collage=True)
+        for field,bad in (
+            ("classification","SOURCE_VALIDATED"),
+            ("source_profile","paper"),("source_sha","f"*40),
+            ("native_app","rdte-t6-minecraft-paper"),
+            ("truenas_version","25.04.1"),
+            ("world_id","world-rdte-001"),
+            ("ownership_fields_matched",5),
+            ("transport","unverified-tls"),
+            ("credential_scope","FULL_ADMIN"),
+            ("observation_mutation_count",1),
+            ("world_activated",True),
+            ("tls_cert_sha256","invalid"),
+        ):
+            with self.subTest(field=field):
+                changed=copy.deepcopy(root)
+                changed["foundry_materialization"]["collage_readback"][field]=bad
+                with self.assertRaises(ValueError):
+                    check_guest(changed,require_collage=True)
+        # Legacy native guest acceptance remains unchanged by absent readback.
+        check_guest(guest_fixture(),require_collage=False)
+
     def test_never_promote_paper_legacy_or_source_only(self):
         for change in ("legacy_version","legacy_paper","source_only","wrong_phase"):
             r=guest_fixture()

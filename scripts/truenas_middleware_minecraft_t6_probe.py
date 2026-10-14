@@ -623,6 +623,7 @@ def main() -> int:
                     https_port=a.collage_https_port,
                     state_dir=a.out.parent,
                     expected_source_sha=a.collage_source_ref,
+                    profile="vanilla263" if VANILLA263 else "paper",
                 )
             except ObservationError as err:
                 # The helper emits only a fixed reason code, no raw auth,
