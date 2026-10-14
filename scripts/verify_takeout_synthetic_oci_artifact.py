@@ -133,6 +133,68 @@ def stream_oci(stream, image_digest: str, loaded_config: str) -> dict:
             "os": "linux", "arch": "amd64", "uid": "10001:10001"}
 
 
+def verify_docker_archive(stream, loaded_config: str) -> dict:
+    """Cross-check Docker-loadable layers and image config, not only gzip bytes."""
+    small, sizes, seen = {}, {}, set()
+    count = 0
+    with tarfile.open(fileobj=stream, mode="r|gz") as archive:
+        for member in archive:
+            require(member.name not in seen, "DUPLICATE_DOCKER_MEMBER")
+            seen.add(member.name)
+            require(member.isdir() or member.isfile(), "UNSAFE_DOCKER_MEMBER")
+            if member.isdir():
+                require(member.name in {"blobs", "blobs/sha256"}, "FOREIGN_DOCKER_DIRECTORY")
+                continue
+            require(member.name in {"index.json", "oci-layout", "manifest.json", "repositories"} or
+                    re.fullmatch(r"blobs/sha256/[0-9a-f]{64}", member.name) is not None,
+                    "FOREIGN_DOCKER_MEMBER")
+            count += member.size
+            require(count <= MAX_TAR, "DOCKER_TAR_TOO_LARGE")
+            h = hashlib.sha256()
+            body = archive.extractfile(member)
+            require(body is not None, "DOCKER_MEMBER_MISSING")
+            capture = bytearray()
+            remaining = member.size
+            while remaining:
+                data = body.read(min(1024 * 1024, remaining))
+                require(bool(data), "TRUNCATED_DOCKER_MEMBER")
+                h.update(data)
+                if member.size <= MAX_SMALL:
+                    capture.extend(data)
+                remaining -= len(data)
+            if member.name.startswith("blobs/sha256/"):
+                require(h.hexdigest() == member.name.split("/")[-1],
+                        "TAMPERED_DOCKER_LAYER")
+            sizes[member.name] = member.size
+            if member.size <= MAX_SMALL:
+                small[member.name] = bytes(capture)
+    try:
+        images = json.loads(small.get("manifest.json", b""))
+    except (ValueError, UnicodeError) as exc:
+        raise Blocked("DOCKER_MANIFEST_MISSING") from exc
+    require(isinstance(images, list) and len(images) == 1 and isinstance(images[0], dict),
+            "DOCKER_MANIFEST_AMBIGUOUS")
+    info = images[0]
+    require(info.get("Config") == "blobs/sha256/" + digest_hex(loaded_config),
+            "DOCKER_CONFIG_MISMATCH")
+    require(info.get("RepoTags") == ["takeout-synthetic:local"],
+            "DOCKER_TAG_MISMATCH")
+    layers = info.get("Layers")
+    require(isinstance(layers, list) and len(layers) == 5 and
+            len(set(layers)) == 5 and all(isinstance(x, str) and x in sizes for x in layers),
+            "DOCKER_LAYER_INVENTORY")
+    config = json_obj(small.get(info["Config"], b""), "DOCKER_CONFIG")
+    runtime = config.get("config") or {}
+    require(config.get("os") == "linux" and config.get("architecture") == "amd64" and
+            runtime.get("User") == "10001:10001" and
+            runtime.get("Entrypoint") == ["python3", "/app/fixture.py"],
+            "DOCKER_RUNTIME_MISMATCH")
+    require(not runtime.get("ExposedPorts"), "DOCKER_PUBLIC_PORT")
+    return {"docker_archive_layers": len(layers),
+            "docker_archive_members": len(sizes),
+            "docker_config_digest": loaded_config}
+
+
 def verify(path: Path, artifact_digest: str, image_digest: str, source_sha: str) -> dict:
     digest_hex(artifact_digest)
     digest_hex(image_digest)
@@ -176,6 +238,9 @@ def verify(path: Path, artifact_digest: str, image_digest: str, source_sha: str)
         digest_hex(loaded)
         with z.open("fixture.oci.tar") as f:
             result = stream_oci(f, image_digest, loaded)
+        if docker_transport:
+            with z.open(DOCKER_TRANSPORT) as f:
+                result.update(verify_docker_archive(f, loaded))
     return {"status": "PASS", "classification": "OCI_ARTIFACT_INTEGRITY_ONLY",
             "artifact_digest": artifact_digest, "source_sha": source_sha,
             **result, "docker_archive_transferred": docker_transport,
