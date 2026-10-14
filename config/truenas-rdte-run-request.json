@@ -1,12 +1,12 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4d-006-real-lantern-stage",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4d-007-key-errno-observer",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "One uniquely authorized serialized public/free disposable native TrueNAS 25.04.2.6 / catalog Minecraft 1.15.30 Java25 vanilla26.3 protocol777 OP4D-006: preserve signed Foundry and OCI pin; inspect exact real Lantern 26.3 ZIP SHA da25005e8729e6f013f7108ac5b8869dd46323befc78efdae18221b26cafe5f8, three COLLAGE human/automation/agent equal-intent source plans, stage only under quiesced real native App into owned world /datapacks and independently hash readback after restart and reinstall. Run scoped APPS_READ Go TLS provider observer with full six owner fields and zero observation mutations only after byte-level stage, and require guest native lifecycle/cleanup receipts. Native offline gameplay semantic qualification remains separate: canonical Foundry has online_mode=true and RCON=false. Original OP4C-005 reported observer RBAC RuntimeError with zero residue; bounded nonsecret RPC ordinal diagnostic #435 is now merged. No replay of 005, no increased observer privilege, no physical TrueNAS APPLY, no private GHA minutes.",
+  "purpose": "One distinct public/free serialized 25.04.2.6 T6 native vanilla26.3/Java25 scoped COLLAGE readback diagnostic with actual pinned Lantern ZIP stage/restart/reinstall. 006 native ZIP staging and persistence PASSED independent byte proof and clean rollback; overall 006 FAILED only GUEST_RBAC_ISSUE_SCOPED_KEY_API_FAILED at final api_key.create, following all preceding account/group/role gates. Newly accepted #441 permits only allowlisted numeric DDP error code suffix, never raw remote message/secret. This request 007 is a diagnostic rep for safe key issuance and exact APPS_READ/TLS ownership; do not claim world-player causal proof. No role expansion, API bypass or unspecified retry. Restore exact owned App/world zero residue and preserve failed native receipt. Physical APPLY HOLD, no private GHA minutes.",
   "collage_readback": true,
   "lantern_stage": true
 }
