@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 import re
 
-HEX_ID = re.compile(r'[0-9a-f]{64}\\Z')
+HEX_ID = re.compile(r'[0-9a-f]{64}\Z')
 
 
 class Blocked(ValueError):
