@@ -625,26 +625,26 @@ def main() -> int:
         wait_status("first")
         read_sentinel()
         def observe_collage_after_native_readiness():
-        if (a.collage_https_port is None or a.collage_source_ref is None
-                or a.collage_https_port <= 0):
-            raise MinecraftT6Error("COLLAGE P2 readback admission incomplete")
-        from truenas_middleware_collage_readback_p2 import (
-            ObservationError, run_real_readback,
-        )
-        try:
-            payload["collage_readback"] = run_real_readback(
-                call,
-                collage=a.collage_source_dir,
-                https_port=a.collage_https_port,
-                state_dir=a.out.parent,
-                expected_source_sha=a.collage_source_ref,
-                profile="vanilla263" if VANILLA263 else "paper",
+            if (a.collage_https_port is None or a.collage_source_ref is None
+                    or a.collage_https_port <= 0):
+                raise MinecraftT6Error("COLLAGE P2 readback admission incomplete")
+            from truenas_middleware_collage_readback_p2 import (
+                ObservationError, run_real_readback,
             )
-        except ObservationError as err:
-            # The helper emits only a fixed reason code, no raw auth,
-            # certificate, network or client traces.
-            raise MinecraftT6Error("COLLAGE P2: " + str(err)) from None
-        read_sentinel()
+            try:
+                payload["collage_readback"] = run_real_readback(
+                    call,
+                    collage=a.collage_source_dir,
+                    https_port=a.collage_https_port,
+                    state_dir=a.out.parent,
+                    expected_source_sha=a.collage_source_ref,
+                    profile="vanilla263" if VANILLA263 else "paper",
+                )
+            except ObservationError as err:
+                # The helper emits only a fixed reason code, no raw auth,
+                # certificate, network or client traces.
+                raise MinecraftT6Error("COLLAGE P2: " + str(err)) from None
+            read_sentinel()
 
         # The original native-only/Paper P2 observer order is unchanged.
         # When actual native artifact stage is admitted, run the provider
