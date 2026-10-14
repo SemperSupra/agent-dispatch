@@ -20,6 +20,7 @@ ARTIFACT_FILES = frozenset({
     "loaded-config-digest.txt", "image.json", "fixture.oci.tar",
 })
 MAX_TAR = 512 * 1024 * 1024
+DOCKER_TRANSPORT = "fixture.docker.tar.gz"
 MAX_SMALL = 256 * 1024
 
 
@@ -141,7 +142,9 @@ def verify(path: Path, artifact_digest: str, image_digest: str, source_sha: str)
     require(file_hash(path) == artifact_digest, "ARTIFACT_DIGEST_MISMATCH")
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
-        require(len(names) == len(ARTIFACT_FILES) and set(names) == ARTIFACT_FILES,
+        docker_transport = DOCKER_TRANSPORT in names
+        expected = ARTIFACT_FILES | ({DOCKER_TRANSPORT} if docker_transport else set())
+        require(len(names) == len(expected) and set(names) == expected,
                 "ARTIFACT_MEMBER_INVENTORY")
         require(all(not z.getinfo(name).is_dir() and not z.getinfo(name).flag_bits & 1 for name in names),
                 "UNSAFE_ARTIFACT_MEMBER")
@@ -153,13 +156,32 @@ def verify(path: Path, artifact_digest: str, image_digest: str, source_sha: str)
                 receipt.get("image_digest") == image_digest, "RECEIPT_IDENTITY_MISMATCH")
         require(receipt.get("guest") == "NOT_RUN" and receipt.get("admission") == "HOLD" and
                 receipt.get("guest_attempt_budget") == 0, "INVALID_QUALIFICATION_CLAIM")
+        if docker_transport:
+            require(z.getinfo(DOCKER_TRANSPORT).file_size <= MAX_TAR,
+                    "DOCKER_ARCHIVE_TOO_LARGE")
+            require(receipt.get("docker_archive_format") == "gzip-docker-save" and
+                    receipt.get("offline_docker_archive_load") == "PASS" and
+                    receipt.get("imported_image_config_identity") == "PASS" and
+                    receipt.get("imported_container_noop") == "PASS",
+                    "DOCKER_IMPORT_NOT_QUALIFIED")
+            h = hashlib.sha256()
+            with z.open(DOCKER_TRANSPORT) as f:
+                require(f.read(2) == b"\x1f\x8b", "DOCKER_ARCHIVE_FORMAT")
+                f.seek(0) if f.seekable() else None
+            with z.open(DOCKER_TRANSPORT) as f:
+                for chunk in iter(lambda: f.read(4 * 1024 * 1024), b""):
+                    h.update(chunk)
+            require(receipt.get("docker_archive_sha256") == "sha256:" + h.hexdigest(),
+                    "DOCKER_ARCHIVE_DIGEST_MISMATCH")
         loaded = z.read("loaded-config-digest.txt").decode("ascii").strip()
         digest_hex(loaded)
         with z.open("fixture.oci.tar") as f:
             result = stream_oci(f, image_digest, loaded)
     return {"status": "PASS", "classification": "OCI_ARTIFACT_INTEGRITY_ONLY",
             "artifact_digest": artifact_digest, "source_sha": source_sha,
-            **result, "truenas_guest": "NOT_RUN", "physical_apply": "HOLD"}
+            **result, "docker_archive_transferred": docker_transport,
+            "docker_archive_import_receipt": "PASS" if docker_transport else "NOT_RUN",
+            "truenas_guest": "NOT_RUN", "physical_apply": "HOLD"}
 
 
 def main() -> int:
