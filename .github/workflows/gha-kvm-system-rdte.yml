@@ -92,6 +92,7 @@ jobs:
       truenas_version: ${{ steps.scope.outputs.truenas_version }}
       truenas_rung: ${{ steps.scope.outputs.truenas_rung }}
       truenas_t6_product: ${{ steps.scope.outputs.truenas_t6_product }}
+      truenas_collage_readback: ${{ steps.scope.outputs.truenas_collage_readback }}
       truenas_compute_fixture: ${{ steps.scope.outputs.truenas_compute_fixture }}
       proxmox_compute_fixture: ${{ steps.scope.outputs.proxmox_compute_fixture }}
     steps:
@@ -120,6 +121,7 @@ jobs:
           truenas_version="${DISPATCH_TRUENAS_VERSION:-26.0.0-BETA.3}"
           truenas_rung="${DISPATCH_TRUENAS_RUNG:-t6}"
           truenas_t6_product="${DISPATCH_TRUENAS_T6_PRODUCT:-litellm}"
+          truenas_collage_readback=false
           truenas_compute_fixture="${DISPATCH_TRUENAS_COMPUTE_FIXTURE:-none}"
           proxmox_compute_fixture="${DISPATCH_PROXMOX_COMPUTE_FIXTURE:-none}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
@@ -190,6 +192,12 @@ jobs:
             truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
             truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay" or . == "minecraft-paper" or . == "collage-native-paper" or . == "minecraft-vanilla-263")' "$RUN_REQUEST_PATH")"
             truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
+            truenas_collage_readback="$(jq -er '(.collage_readback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            if [[ "$truenas_collage_readback" == "true" ]]; then
+              [[ "$truenas_t6_product" == "minecraft-vanilla-263" && "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
+                echo "read-only COLLAGE observer requires exact native vanilla263/25.04.2.6/T6" >&2; exit 2;
+              }
+            fi
             python3 scripts/truenas_rdte_target.py \
               --registry config/truenas-rdte-targets.json \
               --version "$truenas_version" >/dev/null
@@ -205,6 +213,7 @@ jobs:
           echo "truenas_version=$truenas_version" >>"$GITHUB_OUTPUT"
           echo "truenas_rung=$truenas_rung" >>"$GITHUB_OUTPUT"
           echo "truenas_t6_product=$truenas_t6_product" >>"$GITHUB_OUTPUT"
+          echo "truenas_collage_readback=$truenas_collage_readback" >>"$GITHUB_OUTPUT"
           echo "truenas_compute_fixture=$truenas_compute_fixture" >>"$GITHUB_OUTPUT"
           echo "proxmox_compute_fixture=$proxmox_compute_fixture" >>"$GITHUB_OUTPUT"
           printf 'target scope: proxmox=%s proxmox_compute_fixture=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s t6_product=%s truenas_compute_fixture=%s\n' "$proxmox" "$proxmox_compute_fixture" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung" "$truenas_t6_product" "$truenas_compute_fixture"
@@ -593,6 +602,31 @@ jobs:
           (cd .deps/collage-source/tools/truenas-readonly-probe &&
             go mod download && go mod verify &&
             go test ./... && go build -o /dev/null .)
+      - name: Checkout pinned COLLAGE 25.04.2.6 vanilla read-only observer
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/collage
+          ref: 17dfacc4351053fa06f8bdbaed7d931c97c1707e
+          path: .deps/collage-source
+          persist-credentials: false
+      - name: Prepare pinned scoped native vanilla COLLAGE Go read-only observer
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .deps/collage-source/tools/truenas-readonly-probe/go.mod
+          cache: false
+      - name: Verify actual COLLAGE read-only Go source and negative semantics before KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/collage-source rev-parse HEAD)" = 17dfacc4351053fa06f8bdbaed7d931c97c1707e
+          (cd .deps/collage-source &&
+            python3 -m unittest -v tests.test_collage_native_readback tests.test_consume_vanilla_datapack_source)
+          (cd .deps/collage-source/tools/truenas-readonly-probe &&
+            go mod download && go mod verify &&
+            go test ./... && go build -o /dev/null .)
+
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -716,6 +750,9 @@ jobs:
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
             args+=(--session-manifest config/truenas-session-minecraft-paper-25-04-1.json)
           fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" && "${{ needs.changes.outputs.truenas_collage_readback }}" == "true" ]]; then
+            args+=(--vanilla-collage-readback)
+          fi
           bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           # A green job is not a Minecraft product pass without full guest evidence.
@@ -724,7 +761,11 @@ jobs:
             python3 scripts/assert_minecraft_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           fi
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
-            python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+            additional=()
+            if [[ "${{ needs.changes.outputs.truenas_collage_readback }}" == "true" ]]; then
+              additional+=(--require-collage-readback)
+            fi
+            python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json" "${additional[@]}"
           fi
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
             python3 scripts/assert_collage_p2_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
