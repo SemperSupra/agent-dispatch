@@ -93,6 +93,7 @@ jobs:
       truenas_rung: ${{ steps.scope.outputs.truenas_rung }}
       truenas_t6_product: ${{ steps.scope.outputs.truenas_t6_product }}
       truenas_collage_readback: ${{ steps.scope.outputs.truenas_collage_readback }}
+      truenas_lantern_stage: ${{ steps.scope.outputs.truenas_lantern_stage }}
       truenas_compute_fixture: ${{ steps.scope.outputs.truenas_compute_fixture }}
       proxmox_compute_fixture: ${{ steps.scope.outputs.proxmox_compute_fixture }}
     steps:
@@ -122,6 +123,7 @@ jobs:
           truenas_rung="${DISPATCH_TRUENAS_RUNG:-t6}"
           truenas_t6_product="${DISPATCH_TRUENAS_T6_PRODUCT:-litellm}"
           truenas_collage_readback=false
+          truenas_lantern_stage=false
           truenas_compute_fixture="${DISPATCH_TRUENAS_COMPUTE_FIXTURE:-none}"
           proxmox_compute_fixture="${DISPATCH_PROXMOX_COMPUTE_FIXTURE:-none}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
@@ -193,6 +195,13 @@ jobs:
             truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay" or . == "minecraft-paper" or . == "collage-native-paper" or . == "minecraft-vanilla-263")' "$RUN_REQUEST_PATH")"
             truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
             truenas_collage_readback="$(jq -er '(.collage_readback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            truenas_lantern_stage="$(jq -er '(.lantern_stage // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            if [[ "$truenas_lantern_stage" == "true" ]]; then
+              [[ "$truenas_collage_readback" == "true" && "$truenas_t6_product" == "minecraft-vanilla-263" &&
+                 "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
+                echo "native Lantern stage requires exact one disposable vanilla263 T6 + read-only COLLAGE" >&2; exit 2;
+              }
+            fi
             if [[ "$truenas_collage_readback" == "true" ]]; then
               [[ "$truenas_t6_product" == "minecraft-vanilla-263" && "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
                 echo "read-only COLLAGE observer requires exact native vanilla263/25.04.2.6/T6" >&2; exit 2;
@@ -214,6 +223,7 @@ jobs:
           echo "truenas_rung=$truenas_rung" >>"$GITHUB_OUTPUT"
           echo "truenas_t6_product=$truenas_t6_product" >>"$GITHUB_OUTPUT"
           echo "truenas_collage_readback=$truenas_collage_readback" >>"$GITHUB_OUTPUT"
+          echo "truenas_lantern_stage=$truenas_lantern_stage" >>"$GITHUB_OUTPUT"
           echo "truenas_compute_fixture=$truenas_compute_fixture" >>"$GITHUB_OUTPUT"
           echo "proxmox_compute_fixture=$proxmox_compute_fixture" >>"$GITHUB_OUTPUT"
           printf 'target scope: proxmox=%s proxmox_compute_fixture=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s t6_product=%s truenas_compute_fixture=%s\n' "$proxmox" "$proxmox_compute_fixture" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung" "$truenas_t6_product" "$truenas_compute_fixture"
@@ -627,6 +637,48 @@ jobs:
             go mod download && go mod verify &&
             go test ./... && go build -o /dev/null .)
 
+      - name: Checkout immutable real vanilla 26.3 Lantern datapack producer
+        if: needs.changes.outputs.truenas_lantern_stage == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: 7f888b5829f4e5576d5ce512d86327348c43f01e
+          path: .deps/lantern-producer
+          persist-credentials: false
+      - name: Verify exact real Lantern ZIP and native-target COLLAGE source plan before guest mutation
+        if: needs.changes.outputs.truenas_lantern_stage == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/lantern-producer rev-parse HEAD)" = 7f888b5829f4e5576d5ce512d86327348c43f01e
+          mkdir -p "$RUNNER_TEMP/lantern-native"
+          python3 .deps/lantern-producer/tools/export_core_restoration_datapack_26_3.py \
+            --out "$RUNNER_TEMP/lantern-native/lantern-restoration-26.3.zip" \
+            --manifest "$RUNNER_TEMP/lantern-native/manifest.json" \
+            --world-id lantern-rdte --release-id lantern-core-restore-26-3 \
+            > /dev/null
+          python3 - "$RUNNER_TEMP/lantern-native" <<'PY'
+          from pathlib import Path
+          import sys
+          from scripts.qualify_vanilla263_native_lantern_stage import verify_exact_candidate,SHA
+          root=Path(sys.argv[1])
+          content,proof=verify_exact_candidate(root/"lantern-restoration-26.3.zip",root/"manifest.json")
+          assert proof["sha256"]==SHA and proof["size"]==len(content)
+          PY
+          python3 .deps/collage-source/tools/consume_vanilla_datapack_source.py \
+            --manifest "$RUNNER_TEMP/lantern-native/manifest.json" \
+            --artifact "$RUNNER_TEMP/lantern-native/lantern-restoration-26.3.zip" \
+            --artifact-root "$RUNNER_TEMP/lantern-native" \
+            --native-target-profile vanilla263-250426 \
+            > "$RUNNER_TEMP/lantern-native/collage-source-intent.json"
+          python3 - "$RUNNER_TEMP/lantern-native/collage-source-intent.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d["classification"]=="SOURCE_ARTIFACT_AND_INTENT_PARITY_VALIDATED"
+          assert d["expected_native_app"]=="rdte-t6-minecraft-vanilla-263"
+          assert set(d["audience_receipts"])=={"human","automation","agent"}
+          assert d["native_guest_with_this_artifact_qualified"] is False
+          assert d["mutation_authorized"] is False
+          PY
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -753,6 +805,10 @@ jobs:
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" && "${{ needs.changes.outputs.truenas_collage_readback }}" == "true" ]]; then
             args+=(--vanilla-collage-readback)
           fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_lantern_stage }}" == "true" ]]; then
+            args+=(--vanilla-lantern-zip "$RUNNER_TEMP/lantern-native/lantern-restoration-26.3.zip"
+                   --vanilla-lantern-manifest "$RUNNER_TEMP/lantern-native/manifest.json")
+          fi
           bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           # A green job is not a Minecraft product pass without full guest evidence.
@@ -764,6 +820,9 @@ jobs:
             additional=()
             if [[ "${{ needs.changes.outputs.truenas_collage_readback }}" == "true" ]]; then
               additional+=(--require-collage-readback)
+            fi
+            if [[ "${{ needs.changes.outputs.truenas_lantern_stage }}" == "true" ]]; then
+              additional+=(--require-lantern-staged)
             fi
             python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json" "${additional[@]}"
           fi

@@ -18,7 +18,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-controller-f0f5|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|garm-provider-container-pre-b4|official-catalog|foliorelay|minecraft-paper|collage-native-paper|minecraft-vanilla-263] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--container-fixture-dir DIR] [--container-fixture-producer SHA] [--session-manifest FILE] [--vanilla-collage-readback]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-controller-f0f5|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|garm-provider-container-pre-b4|official-catalog|foliorelay|minecraft-paper|collage-native-paper|minecraft-vanilla-263] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--container-fixture-dir DIR] [--container-fixture-producer SHA] [--session-manifest FILE] [--vanilla-collage-readback] [--vanilla-lantern-zip FILE --vanilla-lantern-manifest FILE]"
 }
 
 OUT=""
@@ -40,6 +40,8 @@ CONTAINER_FIXTURE_DIR=""
 CONTAINER_FIXTURE_PRODUCER=""
 SESSION_MANIFEST=""
 VANILLA_COLLAGE_READBACK=false
+VANILLA_LANTERN_ZIP=""
+VANILLA_LANTERN_MANIFEST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -62,6 +64,8 @@ while [[ $# -gt 0 ]]; do
     --container-fixture-producer) CONTAINER_FIXTURE_PRODUCER="$2"; shift 2 ;;
     --session-manifest) SESSION_MANIFEST="$2"; shift 2 ;;
     --vanilla-collage-readback) VANILLA_COLLAGE_READBACK=true; shift ;;
+    --vanilla-lantern-zip) VANILLA_LANTERN_ZIP="$2"; shift 2 ;;
+    --vanilla-lantern-manifest) VANILLA_LANTERN_MANIFEST="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -76,6 +80,12 @@ eval "$TARGET_ENV"
 if [[ "$COMPUTE_FIXTURE" != "none" && "$RUNG" != "t3" ]]; then
   echo "compute fixture $COMPUTE_FIXTURE requires rung t3" >&2
   exit 2
+fi
+if [[ -n "$VANILLA_LANTERN_ZIP" || -n "$VANILLA_LANTERN_MANIFEST" ]]; then
+  [[ -f "$VANILLA_LANTERN_ZIP" && -f "$VANILLA_LANTERN_MANIFEST" &&
+     "$VANILLA_COLLAGE_READBACK" == "true" &&
+     "$T6_PRODUCT" == "minecraft-vanilla-263" && "$VERSION" == "25.04.2.6" ]] ||
+    { echo "native Lantern ZIP stage requires exact disposable vanilla263 and scoped COLLAGE readback" >&2; exit 2; }
 fi
 if [[ "$VANILLA_COLLAGE_READBACK" == "true" ]]; then
   [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "minecraft-vanilla-263" && "$VERSION" == "25.04.2.6" ]] ||
@@ -1198,6 +1208,13 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
       --collage-source-ref "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8"
     )
   fi
+  NATIVE_LANTERN_ARGS=()
+  if [[ -n "$VANILLA_LANTERN_ZIP" ]]; then
+    NATIVE_LANTERN_ARGS=(
+      --lantern-zip "$VANILLA_LANTERN_ZIP"
+      --lantern-manifest "$VANILLA_LANTERN_MANIFEST"
+    )
+  fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
     --product-profile vanilla263 --native-catalog-profile 1.15.30 \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
@@ -1207,6 +1224,7 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
     --password-file "$PASSWORD_FILE" --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" --expected-system-version "$EXPECTED_SYSTEM_VERSION" \
     "${NATIVE_READBACK_ARGS[@]}" \
+    "${NATIVE_LANTERN_ARGS[@]}" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 600 --state-timeout 480 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_foliorelay_t6_probe.py" \

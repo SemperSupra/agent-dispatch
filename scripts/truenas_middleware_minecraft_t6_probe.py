@@ -365,6 +365,8 @@ def main() -> int:
     p.add_argument("--collage-source-dir", type=pathlib.Path)
     p.add_argument("--collage-https-port", type=int)
     p.add_argument("--collage-source-ref")
+    p.add_argument("--lantern-zip", type=pathlib.Path)
+    p.add_argument("--lantern-manifest", type=pathlib.Path)
     p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
                    default="1.15.29")
     p.add_argument("--product-profile", choices=("legacy-paper", "vanilla263"),
@@ -391,6 +393,19 @@ def main() -> int:
         if (not VANILLA263 and a.native_catalog_profile == "1.15.30" and
                 a.collage_source_dir is None):
             raise MinecraftT6Error("1.15.30 catalog profile is COLLAGE P2 opt-in only")
+        if (a.lantern_zip is None) != (a.lantern_manifest is None):
+            raise MinecraftT6Error("native Lantern source ZIP and manifest required as pair")
+        if a.lantern_zip is not None and (not VANILLA263 or
+                                           a.collage_source_dir is None):
+            raise MinecraftT6Error("native Lantern staging needs exact vanilla263 and read-only COLLAGE source")
+        lantern_blob = None
+        lantern_evidence = None
+        if a.lantern_zip is not None:
+            from qualify_vanilla263_native_lantern_stage import (
+                verify_exact_candidate,
+            )
+            lantern_blob, lantern_evidence = verify_exact_candidate(
+                a.lantern_zip, a.lantern_manifest)
         control = load_control(a.control_dir, a.foundry_commit,
                                catalog_version=a.native_catalog_profile)
         if a.expected_system_version != "TrueNAS-" + EXPECTED_TARGET:
@@ -609,7 +624,7 @@ def main() -> int:
         wait_app()
         wait_status("first")
         read_sentinel()
-        if a.collage_source_dir is not None:
+        def observe_collage_after_native_readiness():
             if (a.collage_https_port is None or a.collage_source_ref is None
                     or a.collage_https_port <= 0):
                 raise MinecraftT6Error("COLLAGE P2 readback admission incomplete")
@@ -631,12 +646,42 @@ def main() -> int:
                 raise MinecraftT6Error("COLLAGE P2: " + str(err)) from None
             read_sentinel()
 
+        # The original native-only/Paper P2 observer order is unchanged.
+        # When actual native artifact stage is admitted, run the provider
+        # read-only observer AFTER world stage/restart/reinstall so a failed
+        # RBAC observer cannot mask independent byte-level integration results.
+        if a.collage_source_dir is not None:
+            if lantern_blob is None:
+                observe_collage_after_native_readiness()
+
         first_level = payload["readiness"]["first"]["level"]["size"]
 
         wait_job(call("app.stop", [APP]), "Minecraft stop")
+        if lantern_blob is not None:
+            from qualify_vanilla263_native_lantern_stage import stage
+            try:
+                payload["lantern_artifact_stage"] = stage(
+                    call, wait_job, multipart_upload, middleware_http_bytes,
+                    host=a.host, port=a.port, tls=a.tls,
+                    username="truenas_admin", password=password,
+                    timeout=a.timeout, blob=lantern_blob, evidence=lantern_evidence)
+            except Exception as exc:
+                # Report only the bounded code. Never emit credentials,
+                # middleware errors or raw artifacts into public GHA logs.
+                from qualify_vanilla263_native_lantern_stage import Refused
+                if isinstance(exc, Refused):
+                    raise MinecraftT6Error("native Lantern stage: " + str(exc)) from None
+                raise MinecraftT6Error("native Lantern stage: GUEST_STAGE_UNAVAILABLE") from None
         wait_job(call("app.start", [APP]), "Minecraft start")
         wait_app()
         wait_status("restart")
+        if lantern_blob is not None:
+            from qualify_vanilla263_native_lantern_stage import readback, SHA
+            require_stage = readback(call,wait_job,middleware_http_bytes,
+                         host=a.host,port=a.port,tls=a.tls,timeout=a.timeout)
+            if require_stage != SHA:
+                raise MinecraftT6Error("native Lantern staged file lost during restart")
+            payload["lantern_artifact_stage"]["persisted_on_restart"] = True
         wait_job(call("app.redeploy", [APP]), "Minecraft redeploy")
         wait_app()
         wait_status("redeploy")
@@ -651,6 +696,14 @@ def main() -> int:
         wait_job(call("app.create", [create_payload]), "Minecraft reinstall")
         wait_app()
         wait_status("reinstall")
+        if lantern_blob is not None:
+            from qualify_vanilla263_native_lantern_stage import readback, SHA
+            actual = readback(call,wait_job,middleware_http_bytes,
+                     host=a.host,port=a.port,tls=a.tls,timeout=a.timeout)
+            if actual != SHA:
+                raise MinecraftT6Error("native Lantern staged file lost across reinstall")
+            payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True
+            observe_collage_after_native_readiness()
         read_sentinel()
         if first_level <= 0:
             raise MinecraftT6Error("world level.dat size invalid")
