@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "assignment_id": "cpu-x64-arithmetic-v1",
+  "runner": "ubuntu-24.04",
+  "workload": "arithmetic-oracle",
+  "timeout_seconds": 30,
+  "data_class": "public-synthetic",
+  "max_attempts": 1,
+  "max_cost_usd": 0
+}
