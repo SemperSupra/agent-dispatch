@@ -3,7 +3,9 @@
 
 Do not confuse this remote branch preflight with in-guest native catalog proof.
 The official TrueNAS Apps catalog is independently updated and may retire old
-versions despite a pinned Foundry source render. No credentials or mutation.
+versions despite a pinned Foundry source render. Query the vendor's published
+master branch (not the nonexistent main branch); caller still requires exact
+pinned catalog version in the response. No credentials or mutation.
 """
 from __future__ import annotations
 
@@ -14,7 +16,7 @@ import sys
 import urllib.error
 import urllib.request
 
-URI = "https://api.github.com/repos/truenas/apps/contents/trains/community/minecraft?ref=main"
+URI = "https://api.github.com/repos/truenas/apps/contents/trains/community/minecraft?ref=master"
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
