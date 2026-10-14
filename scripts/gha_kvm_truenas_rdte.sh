@@ -76,15 +76,15 @@ if [[ "$COMPUTE_FIXTURE" != "none" && "$RUNG" != "t3" ]]; then
   exit 2
 fi
 if [[ "$RUNG" == "t6" ]]; then
-  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "minecraft-paper" && "$T6_PRODUCT" != "garm-controller-f0f5" && "$T6_PRODUCT" != "minecraft-vanilla-263" ]]; then
+  if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "minecraft-paper" && "$T6_PRODUCT" != "garm-controller-f0f5" && "$T6_PRODUCT" != "minecraft-vanilla-263" && "$T6_PRODUCT" != "collage-native-vanilla263" ]]; then
     if [[ "$T6_PRODUCT" == "collage-native-paper" ]]; then
       [[ "$VERSION" == "25.04.1" ]] || { echo "COLLAGE P2 admitted only on isolated TrueNAS 25.04.1" >&2; exit 2; }
     else
       [[ "$VERSION" == "26.0.0-BETA.3" ]] || { echo "product-specific T6 controls remain admitted only for exact TrueNAS 26.0.0-BETA.3" >&2; exit 2; }
     fi
   fi
-  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-controller-f0f5" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "garm-provider-container-pre-b4" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" || "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" || "$T6_PRODUCT" == "minecraft-vanilla-263" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
-  if [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
+  [[ "$T6_PRODUCT" == "litellm" || "$T6_PRODUCT" == "wow-sidecar" || "$T6_PRODUCT" == "garm" || "$T6_PRODUCT" == "garm-controller-f0f5" || "$T6_PRODUCT" == "garm-provider-g2" || "$T6_PRODUCT" == "garm-provider-g3" || "$T6_PRODUCT" == "garm-provider-g4" || "$T6_PRODUCT" == "garm-provider-g5" || "$T6_PRODUCT" == "garm-provider-container-pre-b4" || "$T6_PRODUCT" == "official-catalog" || "$T6_PRODUCT" == "foliorelay" || "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" || "$T6_PRODUCT" == "minecraft-vanilla-263" || "$T6_PRODUCT" == "collage-native-vanilla263" ]] || { echo "unsupported T6 product: $T6_PRODUCT" >&2; exit 2; }
+  if [[ "$T6_PRODUCT" == "minecraft-vanilla-263" || "$T6_PRODUCT" == "collage-native-vanilla263" ]]; then
     [[ "$VERSION" == "25.04.2.6" ]] || { echo "vanilla26.3 native product requires exact TrueNAS25.04.2.6" >&2; exit 2; }
   fi
   if [[ "$T6_PRODUCT" == "garm-provider-g2" ]]; then
@@ -237,7 +237,7 @@ payload = {
       else {"name": "rdte-t6-foliorelay", "images": foliorelay_images}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "foliorelay"
       else {"name": "rdte-t6-minecraft-vanilla-263", "catalog_app": "minecraft", "catalog_version_candidate": "1.15.30", "minecraft_version": "26.3", "minecraft_protocol": 777}
-      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "minecraft-vanilla-263"
+      if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") in {"minecraft-vanilla-263", "collage-native-vanilla263"}
       else {"name": "rdte-t6-minecraft-paper", "catalog_app": "minecraft", "catalog_version_candidate": "1.15.29", "paper_version": "1.21.11"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") in {"minecraft-paper", "collage-native-paper"}
       else {"name": "rdte-t6-litellm", "image": "ghcr.io/sempersupra/litellm-appliance@sha256:225c899db85865929f6099d3e1fe27097cafaed5af823fa397e75e1eb6ec51ac"}
@@ -388,7 +388,7 @@ if [[ "$RUNG" == "t2" || "$RUNG" == "t3" || "$RUNG" == "t4" || "$RUNG" == "t5" |
     elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_wow_sidecar_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing TrueNAS T6 WOW Sidecar control client"
-    elif [[ "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" || "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
+    elif [[ "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" || "$T6_PRODUCT" == "minecraft-vanilla-263" || "$T6_PRODUCT" == "collage-native-vanilla263" ]]; then
       [[ -f "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" ]] ||
         fail_evidence HARNESS_FAILURE preflight "missing Minecraft T6 product probe"
       [[ -f "$REPO_ROOT/.deps/minecraft-product/tools/minecraft_java_status_oracle.py" ]] ||
@@ -667,7 +667,7 @@ FOLIORELAY_OBSERVER_HOST_PORT=""
 FOLIORELAY_HOSTFWD=""
 MINECRAFT_HOST_PORT=""
 MINECRAFT_HOSTFWD=""
-if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" || "$T6_PRODUCT" == "minecraft-vanilla-263" ) ]]; then
+if [[ "$RUNG" == "t6" && ( "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" || "$T6_PRODUCT" == "minecraft-vanilla-263" || "$T6_PRODUCT" == "collage-native-vanilla263" ) ]]; then
   MINECRAFT_HOST_PORT="$(python3 - <<'PY'
 import socket
 s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
@@ -1180,19 +1180,25 @@ elif [[ "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-p
     --foundry-commit "$FOUNDRY_COMMIT" --expected-system-version "$EXPECTED_SYSTEM_VERSION" \
     "${COLLAGE_P2_ARGS[@]}" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 600 --state-timeout 480 >/dev/null 2>&1 || true
-elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
+elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" || "$T6_PRODUCT" == "collage-native-vanilla263" ]]; then
   [[ "$VERSION" == "25.04.2.6" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "native vanilla guest exact version drift"
-  [[ -d "$REPO_ROOT/.deps/collage-source" ]] ||
-    fail_evidence HARNESS_FAILURE foundry-materialization "qualified COLLAGE live observer checkout missing"
-  [[ -f "$STATE_DIR/lantern-artifact/lantern-restoration-26.3.json" ]] &&
-    [[ -f "$STATE_DIR/lantern-artifact/lantern-restoration-26.3.zip" ]] ||
-    fail_evidence HARNESS_FAILURE foundry-materialization "real source datapack guest receipt inputs missing"
+  COLLAGE_VANILLA_ARGS=()
+  if [[ "$T6_PRODUCT" == "collage-native-vanilla263" ]]; then
+    [[ -d "$REPO_ROOT/.deps/collage-source" ]] ||
+      fail_evidence HARNESS_FAILURE foundry-materialization "qualified COLLAGE live observer checkout missing"
+    [[ -f "$STATE_DIR/lantern-artifact/lantern-restoration-26.3.json" ]] &&
+      [[ -f "$STATE_DIR/lantern-artifact/lantern-restoration-26.3.zip" ]] ||
+      fail_evidence HARNESS_FAILURE foundry-materialization "real source datapack guest receipt inputs missing"
+    COLLAGE_VANILLA_ARGS=(
+      --collage-source-dir "$REPO_ROOT/.deps/collage-source"
+      --collage-source-ref "17dfacc4351053fa06f8bdbaed7d931c97c1707e"
+      --collage-https-port "$HTTPS_PORT"
+      --collage-real-artifact-dir "$STATE_DIR/lantern-artifact"
+    )
+  fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
     --product-profile vanilla263 --native-catalog-profile 1.15.30 \
-    --collage-source-dir "$REPO_ROOT/.deps/collage-source" \
-    --collage-source-ref "17dfacc4351053fa06f8bdbaed7d931c97c1707e" \
-    --collage-https-port "$HTTPS_PORT" \
-    --collage-real-artifact-dir "$STATE_DIR/lantern-artifact" \
+    "${COLLAGE_VANILLA_ARGS[@]}" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
     --status-port "$MINECRAFT_HOST_PORT" \
     --status-oracle "$REPO_ROOT/.deps/minecraft-product/tools/minecraft_java_status_oracle.py" \
@@ -1253,7 +1259,7 @@ elif [[ "$T6_PRODUCT" == "garm" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported GARM controller control passed exact appliance and secret-normalized config read-back, persistent state, external HTTPS, restart persistence, and zero-residue cleanup; GitHub/JIT registration intentionally not exercised"
 elif [[ "$T6_PRODUCT" == "wow-sidecar" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact Foundry-exported WOW Sidecar control passed immutable image/config read-back, permissions/seed metadata, public-fixture worker runtime, restart persistence, and zero-residue cleanup"
-elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
+elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" || "$T6_PRODUCT" == "collage-native-vanilla263" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact TrueNAS25.04.2.6 native vanilla26.3 Java25/protocol777, independent owned world across native App lifecycle, status and zero residue; source signer/control bound, no physical APPLY"
 elif [[ "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-paper" ]]; then
   write_receipt SUPPORTED true foundry-materialization "exact native TrueNAS Minecraft Paper server passed protocol status + world level.dat persistence across App stop/start, redeploy, retain-world delete/reinstall and owned cleanup; no vanilla 26.3 or physical TrueNAS claim"
