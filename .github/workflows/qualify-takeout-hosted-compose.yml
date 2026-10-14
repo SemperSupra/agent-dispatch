@@ -126,12 +126,14 @@ jobs:
           p=pathlib.Path(os.environ['RUNNER_TEMP'])
           inspect=json.loads((p/'takeout-hosted-inspect.json').read_text())
           assert len(inspect)==1 and inspect[0]['Id']==cid
+          from datetime import datetime,timezone
+          operation_lower_bound=datetime.fromtimestamp(int(before)/1e9,timezone.utc).isoformat()
           kw={'app_name':'rdte-takeout','project':'ix-rdte-takeout',
               'service':'takeoutsynthetic',
               'config_sha':os.environ['IMAGE_CONFIG_SHA256'],
               'archive_host':'/mnt/rdtepool/takeout-synthetic/archives',
               'state_host':'/mnt/rdtepool/takeout-synthetic/state',
-              'not_before':'2026-10-14T00:00:00Z'}
+              'not_before':operation_lower_bound}
           result=inspect_verify({'name':'rdte-takeout','state':'STOPPED'},inspect,**kw)
           assert result['classification']=='DISPOSABLE_GUEST_DIAGNOSTIC_ONLY'
           raw=[json.loads(line) for line in (p/'takeout-hosted-docker-events.jsonl').read_text().splitlines() if line.strip()]
