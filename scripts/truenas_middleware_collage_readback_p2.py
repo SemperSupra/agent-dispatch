@@ -219,6 +219,54 @@ RBAC_CALL_SEQUENCE = (
 )
 
 
+
+# Fixed allowlist only: TrueNAS 25.04 serializes ValidationErrors as
+# errno 11 with type=VALIDATION and extra [attribute, message, errno] tuples.
+# Attribute strings not explicitly listed here may never appear in receipts.
+_VALIDATION_FIELDS = {
+    "api_key_create": "GENERAL",
+    "api_key_create.name": "NAME",
+    "api_key_create.username": "USERNAME",
+    "api_key_create.expires_at": "EXPIRES_AT",
+}
+
+
+def scoped_validation_field_suffix(obj: dict) -> str:
+    """Classify only a recognized validation field, never its message/value."""
+    if obj.get("type") != "VALIDATION":
+        return ""
+    extra = obj.get("extra")
+    if type(extra) is not list or not (1 <= len(extra) <= 12):
+        return "_VALIDATION_FIELD_UNKNOWN"
+    categories = set()
+    for item in extra:
+        if type(item) is not list or len(item) != 3:
+            return "_VALIDATION_FIELD_UNKNOWN"
+        field = item[0]
+        if type(field) is not str or field not in _VALIDATION_FIELDS:
+            return "_VALIDATION_FIELD_UNKNOWN"
+        categories.add(_VALIDATION_FIELDS[field])
+    return ("_VALIDATION_" + next(iter(categories))) if len(categories) == 1 else "_VALIDATION_MULTI"
+
+
+def scoped_key_record_count_suffix(call) -> str:
+    """Read-only exact owned key count once; no listing, retries or disclosure."""
+    try:
+        count = call("api_key.query", [
+            [["username", "=", NAME], ["name", "=", "disposable-collage-p2"]],
+            {"count": True},
+        ])
+    except Exception:
+        return "_KEY_COUNT_UNAVAILABLE"
+    if type(count) is not int or count < 0:
+        return "_KEY_COUNT_INVALID"
+    if count == 0:
+        return "_KEY_COUNT0"
+    if count == 1:
+        return "_KEY_COUNT1"
+    return "_KEY_COUNT_MULTIPLE"
+
+
 def classify_scoped_key_ddp_failure(exc: Exception) -> str:
     """Only fixed failure categories or allowlisted DDP codes leave the guest.
 
@@ -254,7 +302,7 @@ def classify_scoped_key_ddp_failure(exc: Exception) -> str:
         return "_DDP_NONOBJECT_ERROR"
     code = obj.get("error")
     if type(code) is int and code in {1, 2, 5, 11, 13, 17, 22, 38, 400, 401, 403, 404, 409, 422, 500, 503}:
-        return "_E" + str(code)
+        return "_E" + str(code) + scoped_validation_field_suffix(obj)
     if type(code) is str and code in {"EINVAL","EPERM","EACCES","VALIDATION_ERRORS","METHOD_NOT_FOUND"}:
         return "_" + code
     if type(code) is dict:
@@ -288,6 +336,12 @@ def bounded_rbac_call(call):
         except Exception as exc:
             suffix = (classify_scoped_key_ddp_failure(exc)
                       if operation == "issue_scoped_key" else "")
+            if operation == "issue_scoped_key" and (
+                    suffix.startswith("_E11") or
+                    suffix == "_TRANSPORT_TIMEOUT_INDETERMINATE"):
+                # A failed issuance may be indeterminate. One exact, read-only
+                # count only; never retry api_key.create or fetch key records.
+                suffix += scoped_key_record_count_suffix(call)
             raise ObservationError("GUEST_RBAC_" + operation.upper() +
                                    "_API_FAILED" + suffix) from None
     return invoke
