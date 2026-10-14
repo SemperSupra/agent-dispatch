@@ -88,6 +88,27 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('profile="vanilla263" if VANILLA263 else "paper"',
                       (ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text())
 
+    def test_real_lantern_native_zfs_stage_never_autoruns_or_promotes_gameplay(self):
+        self.assertIn('truenas_lantern_stage=false', WORKFLOW)
+        self.assertIn('(.lantern_stage // false)', WORKFLOW)
+        self.assertIn('truenas_lantern_stage=$truenas_lantern_stage', WORKFLOW)
+        self.assertIn('--vanilla-lantern-zip',WORKFLOW)
+        self.assertIn('--vanilla-lantern-manifest',WORKFLOW)
+        self.assertIn('--require-lantern-staged',WORKFLOW)
+        self.assertIn('ref: 7f888b5829f4e5576d5ce512d86327348c43f01e',WORKFLOW)
+        self.assertIn('verify_exact_candidate',WORKFLOW)
+        self.assertIn('native-target-profile vanilla263-250426',WORKFLOW)
+        self.assertIn('VANILLA_LANTERN_ZIP=""',HARNESS)
+        self.assertIn('"$VANILLA_COLLAGE_READBACK" == "true"',HARNESS)
+        self.assertIn('NATIVE_LANTERN_ARGS=()',HARNESS)
+        current=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertNotIn("lantern_stage",current)
+        source=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        self.assertIn('wait_job(call("app.stop", [APP])',source)
+        self.assertIn('stage(',source)
+        self.assertIn('persisted_on_reinstall',source)
+        self.assertIn('persisted_on_restart',source)
+
     def test_no_fallback_guest_or_physical_promotion(self):
         self.assertNotIn('product == "minecraft-vanilla-263" && needs[\'foundry-minecraft-paper',WORKFLOW)
         self.assertIn("agent-dispatch-heavyweight-rdte",WORKFLOW)
