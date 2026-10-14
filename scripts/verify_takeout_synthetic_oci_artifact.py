@@ -167,7 +167,6 @@ def verify(path: Path, artifact_digest: str, image_digest: str, source_sha: str)
             h = hashlib.sha256()
             with z.open(DOCKER_TRANSPORT) as f:
                 require(f.read(2) == b"\x1f\x8b", "DOCKER_ARCHIVE_FORMAT")
-                f.seek(0) if f.seekable() else None
             with z.open(DOCKER_TRANSPORT) as f:
                 for chunk in iter(lambda: f.read(4 * 1024 * 1024), b""):
                     h.update(chunk)
