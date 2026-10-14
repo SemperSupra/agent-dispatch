@@ -774,6 +774,9 @@ jobs:
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
             python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-vanilla263" ]]; then
+            python3 scripts/assert_collage_vanilla263_readonly_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          fi
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
             python3 scripts/assert_collage_p2_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           fi
