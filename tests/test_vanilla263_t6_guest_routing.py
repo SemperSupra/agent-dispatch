@@ -128,6 +128,30 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('take_owned_pre_stage_snapshot(call)',probe)
         self.assertIn('restore_owned_baseline_after_injected_fault(',probe)
 
+    def test_native_synthetic_client_is_opt_in_and_bound_to_g3_owned_qemu_forward(self):
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        # 012 is consumed; source qualification of G4 cannot replay it.
+        self.assertEqual(request["request_id"],
+                         "tn-25-04-2-6-t6-vanilla-263-op4g-012-owned-snapshot-rollback")
+        self.assertFalse(request.get("native_offline_player",False))
+        self.assertIn("truenas_native_offline_player=false",WORKFLOW)
+        self.assertIn("(.native_offline_player // false)",WORKFLOW)
+        self.assertIn("truenas_native_offline_player=$truenas_native_offline_player",WORKFLOW)
+        self.assertIn("--vanilla-native-player",WORKFLOW)
+        self.assertIn("--vanilla-player-node-path",WORKFLOW)
+        self.assertIn("--require-native-client-visibility",WORKFLOW)
+        self.assertIn("VANILLA_NATIVE_PLAYER=false",HARNESS)
+        self.assertIn("MINECRAFT_HOSTFWD",HARNESS)
+        self.assertIn('"${MINECRAFT_HOSTFWD#,hostfwd=}"',HARNESS)
+        probe=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        self.assertIn("--native-offline-player",probe)
+        self.assertIn("overlay = derive(control, admission)",probe)
+        self.assertIn('stage="candidate"',probe)
+        self.assertIn('stage="rollback"',probe)
+        self.assertIn("if a.native_offline_player",probe)
+        assert_path=(ROOT/"scripts/assert_vanilla263_native_t6_receipt.py").read_text()
+        self.assertIn("native_guest_backend_independent_oracle_qualified",assert_path)
+
     def test_no_fallback_guest_or_physical_promotion(self):
         self.assertNotIn('product == "minecraft-vanilla-263" && needs[\'foundry-minecraft-paper',WORKFLOW)
         self.assertIn("agent-dispatch-heavyweight-rdte",WORKFLOW)
