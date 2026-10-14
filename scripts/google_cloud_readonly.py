@@ -49,6 +49,7 @@ def validate_receipt(receipt: object, env: dict[str, str]) -> bool:
         and receipt["status"] == "verified"
         and receipt["source_sha"] == env["GITHUB_SHA"]
         and receipt["run_id"] == env["GITHUB_RUN_ID"]
+        and type(receipt["run_attempt"]) is int
         and receipt["run_attempt"] == 1
         and receipt["repository_id"] == EXPECTED["GITHUB_REPOSITORY_ID"]
         and receipt["event_name"] == "workflow_dispatch"
@@ -95,12 +96,21 @@ def probe(env: dict[str, str], destination: Path) -> int:
     return 0
 
 
+def _unique_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON property")
+        result[key] = value
+    return result
+
+
 def verify(path: Path, env: dict[str, str]) -> int:
     try:
         raw = path.read_text(encoding="utf-8")
         if len(raw) > 4096:
             return 4
-        receipt = json.loads(raw)
+        receipt = json.loads(raw, object_pairs_hook=_unique_object)
     except (OSError, ValueError, UnicodeError):
         return 4
     return 0 if validate_receipt(receipt, env) else 4
