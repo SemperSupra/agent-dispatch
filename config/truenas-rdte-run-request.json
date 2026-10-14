@@ -1,13 +1,14 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4g-012-owned-snapshot-rollback",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4h-013-native-mineflayer-loopback",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "OP4G-012 one-use public/free serialized native TrueNAS 25.04.2.6 vanilla26.3 Java25/777 disposable ZFS snapshot + injected-fault restore mechanics. Original signed Foundry OCI, scoped APPS_READ TLS Go COLLAGE readback six-marker G2, exact 739-byte Lantern real ZIP stage/hash/restart/reinstall required first. Existing native App STOPPED, candidate absent, exact owned snapshot absent, then snapshot only rdtepool/minecraft-vanilla-263-t6-world@op4g-pre-lantern; after proven stage/reinstall inject release fault, stop App, roll back only that ZFS snapshot with recursive/force disabled, verify original artifact absent, restart and independent Java26.3 status/world health, clean only owned App/ZFS, zero residue. Explicit disposable mechanics ONLY: no COLLAGE-authorized APPLY, native gameplay or Microsoft/VIP identity acceptance, no private Actions minutes, no physical TrueNAS APPLY. Consumed 011 not replayed; no repeat of 012.",
+  "purpose": "OP4H-013 unique serialized public/free QEMU TrueNAS25.04.2.6 native Minecraft Java25/vanilla26.3/protocol777 synthetic Mineflayer client-causal positive/negative rep. Same immutable signed Foundry and exact 739-byte Lantern ZIP, TLS verified read-only Go COLLAGE six marker G2, actual native owned ZFS snapshot/injected rollback G3. ONLY for disposable isolated QEMU user-net runner-local 127.0.0.1 ephemeral forwarding to guest :25580; derived online_mode=false one offline operator SupraCraftProbe; no RCON; only same native App. Real Mineflayer protocol777 logs in, places core, observes sea lantern/access opening with pack; rollback exact owned ZFS snapshot; in same native App bot repeats core placement and sees no datapack effect. Independent receipts must still report backend world oracle=false, COLLAGE managed deployment=false, Mojang online identity=false and physical TrueNAS APPLY HOLD. One-use 013; do not replay 006-012 or 013, no broad privilege or external ingress, no private GHA minutes.",
   "collage_readback": true,
   "lantern_stage": true,
-  "native_world_rollback": true
+  "native_world_rollback": true,
+  "native_offline_player": true
 }
