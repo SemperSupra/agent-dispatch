@@ -54,14 +54,23 @@ def main():
                    for i in range(result["observed_gpu_count"])]
         if not all("T4" in name for name in devices):
             raise RuntimeError("GPU_MODEL_MISMATCH")
-        x = torch.arange(4096, device="cuda:0", dtype=torch.float32).reshape(64,64)
-        y = x @ torch.eye(64, device="cuda:0")
-        torch.cuda.synchronize()
-        checksum = float(y.sum().item())
-        if not torch.equal(x,y) or checksum != 8386560.0:
-            raise RuntimeError("CHECKSUM_MISMATCH")
+        # A 2xT4 request earns qualification only when BOTH actual CUDA
+        # devices complete on-device arithmetic. Device-name enumeration alone
+        # cannot attest the second CUDA device or its usable compute runtime.
+        checksums = []
+        for gpu_id in range(2):
+            device = f"cuda:{gpu_id}"
+            with torch.cuda.device(gpu_id):
+                x = torch.arange(4096, device=device, dtype=torch.float32).reshape(64,64)
+                y = x @ torch.eye(64, device=device)
+                torch.cuda.synchronize(gpu_id)
+                checksum = float(y.sum().item())
+                if not torch.equal(x,y) or checksum != 8386560.0:
+                    raise RuntimeError("CHECKSUM_MISMATCH")
+                checksums.append(checksum)
         result.update(status="PASS", accelerator="gpu", gpu_count=len(devices),
-                      device_models=devices, checksum=checksum)
+                      device_models=devices, device_arithmetic_checksums=checksums,
+                      checksum=checksums[0])
     except Exception as exc:
         result["failure_class"] = str(exc) if str(exc) in {
             "CUDA_BUILD_UNAVAILABLE_DEVICE_UNKNOWN","CPU_ONLY_TORCH_ON_GPU",
