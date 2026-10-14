@@ -68,15 +68,27 @@ def verify(app: dict, inspect: list, *, app_name: str, project: str,
             any(str(v).startswith('no-new-privileges') for v in host['SecurityOpt']),
             'PRIVILEGE_ESCALATION_NOT_BLOCKED')
     mounts = x.get('Mounts')
-    require(isinstance(mounts, list) and len(mounts) == 2, 'MOUNT_INVENTORY')
+    # iX one-shot template binds two retained roles plus a bounded /tmp
+    # tmpfs. Docker versions differ in whether tmpfs appears in Mounts.
+    require(isinstance(mounts, list) and len(mounts) in (2, 3),
+            'MOUNT_INVENTORY')
     expected = {'/archive': archive_host, '/state': state_host}
     require(all(isinstance(v, str) and v.startswith('/mnt/') and
                 not v.endswith('/.') and '/..' not in v for v in expected.values()) and
             len(set(expected.values())) == 2, 'EXPECTED_MOUNT_SCOPE')
     observed = {}
+    tmpfs_seen = False
     for m in mounts:
-        require(isinstance(m, dict) and m.get('Type') == 'bind' and
-                m.get('RW') is True and isinstance(m.get('Destination'), str) and
+        require(isinstance(m, dict) and
+                isinstance(m.get('Destination'), str), 'MOUNT_ATTRIBUTES')
+        if m.get('Type') == 'tmpfs':
+            require(m['Destination'] == '/tmp' and
+                    m.get('RW') is True and not tmpfs_seen,
+                    'UNEXPECTED_TMPFS_MOUNT')
+            tmpfs_seen = True
+            continue
+        require(m.get('Type') == 'bind' and
+                m.get('RW') is True and
                 isinstance(m.get('Source'), str), 'MOUNT_ATTRIBUTES')
         require(m['Destination'] not in observed, 'DUPLICATE_MOUNT')
         observed[m['Destination']] = m['Source']
