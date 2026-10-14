@@ -57,6 +57,26 @@ def guest_fixture():
 
 
 class TestNativeVanilla263Guest(unittest.TestCase):
+    def test_scoped_tls_go_readback_precedes_redundant_zip_lifecycle(self):
+        # Actual 006/007/008 native ZIP staging was independently qualified.
+        # Fail early on still-unqualified scoped key instead of repaying
+        # stop/restart/redeploy/reinstall just to encounter the same blocker.
+        import inspect
+        body=inspect.getsource(mc.main)
+        guard=body.index('if a.collage_source_dir is not None:')
+        callback=body.index('            observe_collage_after_native_readiness()',guard)
+        first=body.index('wait_status("first")')
+        stage=body.index('payload["lantern_artifact_stage"] = stage(')
+        final=body.index('payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True')
+        self.assertLess(first,guard)
+        self.assertLess(guard,stage)
+        self.assertLess(guard,callback)
+        self.assertLess(callback,stage)
+        self.assertLess(stage,final)
+        self.assertEqual(body.count('            observe_collage_after_native_readiness()'),1)
+        self.assertIn('if lantern_blob is not None:',body)
+        self.assertIn('if a.collage_source_dir is not None:',body)
+
     def test_api_key_create_has_bounded_longer_deadline_and_restores_socket(self):
         class Socket:
             def __init__(self): self.value=8.0
