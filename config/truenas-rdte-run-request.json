@@ -1,12 +1,12 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4f-010-validation-field-count",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4f-011-ejson-utc-expiry",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "OP4F-010 one-use serialized public/free disposable TrueNAS25.04.2.6 native vanilla26.3/Java25/777 scoped COLLAGE G2 evidence rep after real 009 E11 ValidationErrors refusal. Exact accepted signed Foundry and 739-byte Lantern ZIP, APPS_READ-only short-lived observer, strict TLS. Diagnose E11 by fixed allowlisted validation-field category and one exact postfailure read-only api_key.query count, no error text or returned rows; no retry of api_key.create. Run independent native owner/first readiness, scoped TLS Go observer BEFORE costly world ZIP stage; if G2 fails, classify, clean own App/ZFS and stop. If G2 passes, qualify unchanged real ZIP native stage/persistence. No operational identity or in-guest gameplay claim, no role escalation, no TLS disable, no private GHA minutes, no physical TrueNAS APPLY. 009 and earlier request IDs consumed, do not replay 010.",
+  "purpose": "OP4F-011 single serialized public/free disposable TrueNAS25.04.2.6 native vanilla26.3/Java25/protocol777 scoped COLLAGE G2 EJSON expiry qualification. Following consumed 010 real E11_VALIDATION_EXPIRES_AT_KEY_COUNT0 and signed strict Pydantic/native 25.04 legacy EJSON source repair, issue one scoped short-lived APPS_READ guest-only observer key using 1h UTC {'$date': epoch_ms}, no retry after ambiguity and only allowlisted field/count failure categories. Verify first native App readiness and TLS-pinned Go read-only six-marker owner observation with observation_mutation_count=0 BEFORE real 739-byte Lantern ZIP stage/stop-restart/reinstall. If observation fails, preserve bounded receipt, independently clean owned App/ZFS and STOP; if passes, complete existing exact artifact stage/readback/retain/cleanup without managed COLLAGE APPLY claims. Current 011 is one-use; no replay 006-010, no role escalation, TLS bypass, secrets or raw DDP trace, private GHA minutes, native player auth claim or physical TrueNAS APPLY.",
   "collage_readback": true,
   "lantern_stage": true
 }
