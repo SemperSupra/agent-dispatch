@@ -66,9 +66,17 @@ class NativeEventTests(unittest.TestCase):
             a,b,c,d=self.fixture();a[0]['fields']['timeNano']=val
             with self.assertRaises(Blocked):event_witness(a,b,c,**d)
     def test_fatal_oom_or_kill_or_restart(self):
-        for action in ('oom','kill','restart','destroy'):
+        for action in ('oom','kill','restart'):
             a,b,c,d=self.fixture();a.append(e(action,1_760_461_804_500_000_000))
             with self.assertRaises(Blocked):event_witness(a,b,c,**d)
+    def test_normal_cleanup_destroy_after_die_is_not_a_failure(self):
+        a,b,c,d=self.fixture();a.append(e('destroy',1_760_461_805_000_000_000))
+        self.assertEqual(event_witness(a,b,c,**d)['status'],'EVENT_SEQUENCE_EXIT_ZERO_OBSERVED')
+
+    def test_destroy_before_die_blocks(self):
+        a,b,c,d=self.fixture();a.insert(2,e('destroy',1_760_461_803_500_000_000))
+        with self.assertRaises(Blocked):event_witness(a,b,c,**d)
+
     def test_reject_second_worker(self):
         a,b,c,d=self.fixture();a.append(e('create',1_760_461_801_800_000_000,id='c'*64))
         with self.assertRaises(Blocked):event_witness(a,b,c,**d)
