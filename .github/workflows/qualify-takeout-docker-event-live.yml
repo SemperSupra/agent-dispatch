@@ -50,6 +50,9 @@ jobs:
             --security-opt no-new-privileges "$image")"
           docker start -a "$cid" >/dev/null
           test "$(docker inspect "$cid" --format '{{.State.ExitCode}}')" = 0
+          # Destroy after a successful exit is normal cleanup and must not
+          # erase the previously observed native Docker die event.
+          docker rm "$cid" >/dev/null
           sleep 2
           closed_ns="$(python3 -c 'import time;print(time.time_ns())')"
           kill "$watcher" 2>/dev/null || true
@@ -75,6 +78,7 @@ jobs:
           assert result['foundry_ensure_completed_qualified'] is False
           assert result['subscription_provenance_verified'] is False
           assert result['site_role_admission_verified'] is False
+          assert 'destroy' in [v['fields']['Action'] for v in events]
           print(json.dumps({'classification':'HOSTED_DOCKER_EVENT_SHAPE_ONLY',
                             'actual_docker_container_event_actions':[e['fields']['Action'] for e in events],
                             'actual_exitCode_attr_observed':'0',
@@ -84,5 +88,5 @@ jobs:
                             'physical_apply':'HOLD'},sort_keys=True))
           PY
           test -n "$cid"
-          docker rm -f "$cid" >/dev/null
+          test -z "$(docker ps -aq --filter "id=$cid")"
           cid=''
