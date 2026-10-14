@@ -128,6 +128,67 @@ class Tests(unittest.TestCase):
         self.assertIn("cancel-in-progress: false",workflow)
         self.assertIn("inputs.action != 'plan' && github.ref == 'refs/heads/main'",workflow)
 
+    def test_main_blocked_submit_persists_sanitized_receipt(self):
+        import io
+        from contextlib import redirect_stderr
+        mock_kaggle=ModuleType("kaggle")
+        mock_kaggle.api=object()
+        with tempfile.TemporaryDirectory() as td:
+            argv=["kaggle_rdte.py","--action","submit","--assignment",
+                  "test-rep-0001","--workload","gpu-cuda-smoke-v1",
+                  "--out-dir",td]
+            with patch.object(sys,"argv",argv), patch.dict(sys.modules,{"kaggle":mock_kaggle}), \
+                 patch.object(m,"submit",side_effect=m.Denied("PROVIDER_QUOTA_INSUFFICIENT")):
+                stderr=io.StringIO()
+                with redirect_stderr(stderr):
+                    rc=m.main()
+            self.assertEqual(rc,2)
+            self.assertIn("PROVIDER_QUOTA_INSUFFICIENT",stderr.getvalue())
+            evidence=json.loads((Path(td)/"control-receipt.json").read_text())
+            self.assertEqual(evidence["state"],"BLOCKED")
+            self.assertEqual(evidence["failure_class"],"PROVIDER_QUOTA_INSUFFICIENT")
+            self.assertEqual(evidence["classification"],"FAIL_CLOSED")
+            self.assertEqual(evidence["workload"],"gpu-cuda-smoke-v1")
+            self.assertNotIn("provider_ref",evidence)
+
+    def test_main_unknown_provider_failure_redacts_secret_and_writes_receipt(self):
+        import io
+        from contextlib import redirect_stderr
+        fake=ModuleType("kaggle")
+        fake.api=object()
+        with tempfile.TemporaryDirectory() as td:
+            argv=["kaggle_rdte.py","--action","submit","--assignment",
+                  "test-rep-0001","--workload","gpu-cuda-smoke-v1",
+                  "--out-dir",td]
+            with patch.object(sys,"argv",argv), patch.dict(sys.modules,{"kaggle":fake}), \
+                 patch.object(m,"submit",side_effect=RuntimeError("SUPERSECRET_token_should_never_show")):
+                stderr=io.StringIO()
+                with redirect_stderr(stderr):
+                    rc=m.main()
+            raw=(Path(td)/"control-receipt.json").read_text()
+            self.assertEqual(rc,2)
+            self.assertIn("PROVIDER_RUNTIME_UNKNOWN_RECONCILE",raw)
+            self.assertNotIn("SUPERSECRET",raw)
+            self.assertNotIn("SUPERSECRET",stderr.getvalue())
+
+    def test_main_terminal_provider_failure_is_nonzero_and_durable(self):
+        fake=ModuleType("kaggle")
+        fake.api=object()
+        with tempfile.TemporaryDirectory() as td:
+            argv=["kaggle_rdte.py","--action","observe","--assignment",
+                  "test-rep-0001","--workload","gpu-cuda-smoke-v1",
+                  "--version","3","--out-dir",td]
+            with patch.object(sys,"argv",argv), patch.dict(sys.modules,{"kaggle":fake}), \
+                 patch.object(m,"observe",return_value={"state":"TERMINAL_FAILED",
+                      "is_terminal":True,"classification":"FAIL_DEVICE_NOT_ATTESTED",
+                      "failure_class":"CUDA_DEVICE_UNAVAILABLE","native_version":3}):
+                rc=m.main()
+            self.assertEqual(rc,2)
+            evidence=json.loads((Path(td)/"control-receipt.json").read_text())
+            self.assertEqual(evidence["state"],"TERMINAL_FAILED")
+            self.assertEqual(evidence["classification"],"FAIL_DEVICE_NOT_ATTESTED")
+            self.assertTrue(evidence["is_terminal"])
+
     def test_allowlist_and_ids(self):
         for kw in ({"workload":"arbitrary-command"},{"assignment":"../bad"},
                    {"assignment":"x"}, {"action":"shell"}):
