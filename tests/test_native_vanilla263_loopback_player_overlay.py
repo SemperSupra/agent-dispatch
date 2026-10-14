@@ -77,6 +77,31 @@ class OverlaySourceTests(unittest.TestCase):
         self.assertEqual(result["physical_truenas_apply"],"HOLD")
         self.assertEqual(len(result["derived_runtime_values_sha256"]),64)
 
+    def test_runner_owned_ephemeral_forward_matches_native_harness(self):
+        req=admission()
+        req["host_forward"]="tcp:127.0.0.1:45451-:25580"
+        result=derive(baseline(),req)
+        self.assertEqual(result["host_forward"],req["host_forward"])
+        self.assertEqual(result["host_port"],45451)
+        self.assertEqual(result["network"],"QEMU_USER_LOOPBACK_ONLY_SOURCE_REQUIREMENT")
+        self.assertFalse(result["in_guest_bot_connected"])
+        # A source parser does not prove QEMU listener ownership or a guest player.
+        for forbidden in (
+            "tcp:0.0.0.0:45451-:25580",
+            "tcp:192.168.1.1:45451-:25580",
+            "tcp:[::1]:45451-:25580",
+            "tcp:127.0.0.1:45451-:25565",
+            "tcp:127.0.0.1:22-:25580",
+            "tcp:127.0.0.1:01025-:25580",
+            "tcp:127.0.0.1:65536-:25580",
+            "tcp:127.0.0.1:45451-:25580,hostfwd=other",
+            "tcp:127.0.0.1:45451-:25580\\nINJECT",
+        ):
+            bad=admission()
+            bad["host_forward"]=forbidden
+            with self.subTest(forbidden=forbidden),self.assertRaises(overlay.Refused):
+                derive(baseline(),bad)
+
     def test_all_unadmitted_exposure_and_target_variants_refused(self):
         for key,bad in (
             ("rdte_disposable",False),

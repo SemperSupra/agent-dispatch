@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from typing import Any
 
 from admit_vanilla263_native_t6_control import (
@@ -19,6 +20,23 @@ PROFILE = "minecraft-vanilla263-disposable-loopback-player/1"
 BOT_NAME = "SupraCraftProbe"
 WORLD = "/mnt/rdtepool/minecraft-vanilla-263-t6-world"
 HOST_FORWARD = "tcp:127.0.0.1:25580-:25580"
+
+def runner_owned_loopback_forward(value: object) -> int:
+    """Accept QEMU's allocated ephemeral host port, never broad guest ingress.
+
+    The existing native T6 harness independently allocates an unused host port,
+    forwarded to the *guest* :25580 on QEMU user networking. This parser
+    checks only source shape; the live harness must still verify the actual
+    localhost listener belongs to the newly spawned disposable guest.
+    """
+    require(type(value) is str and len(value) < 64,
+            "PLAYER_FORWARD_NOT_ISOLATED_LOOPBACK")
+    match = re.fullmatch(r"tcp:127[.]0[.]0[.]1:([1-9][0-9]{3,4})-:25580", value)
+    require(match is not None, "PLAYER_FORWARD_NOT_ISOLATED_LOOPBACK")
+    port = int(match.group(1))
+    require(1024 < port < 65536 and port not in {25565, 443, 80},
+            "PLAYER_FORWARD_NOT_ISOLATED_LOOPBACK")
+    return port
 
 def require(cond: bool, code: str) -> None:
     if not cond:
@@ -35,7 +53,7 @@ def derive(control: dict, admission: dict) -> dict[str, Any]:
             admission.get("operational_selection") is False and
             admission.get("external_ingress") is False and
             admission.get("qemu_network") == "user" and
-            admission.get("host_forward") == HOST_FORWARD and
+            runner_owned_loopback_forward(admission.get("host_forward")) > 0 and
             admission.get("guest_target") == "TrueNAS-" + TARGET and
             admission.get("authorized_bot") == BOT_NAME and
             set(admission) == {
@@ -83,6 +101,8 @@ def derive(control: dict, admission: dict) -> dict[str, Any]:
         "minecraft_version": "26.3",
         "protocol": 777,
         "network": "QEMU_USER_LOOPBACK_ONLY_SOURCE_REQUIREMENT",
+        "host_forward": admission["host_forward"],
+        "host_port": runner_owned_loopback_forward(admission["host_forward"]),
         "bot": BOT_NAME,
         "derived_runtime_values_sha256": digest,
         "values": values,
