@@ -57,6 +57,7 @@ on:
           - foliorelay
           - minecraft-paper
           - collage-native-paper
+          - minecraft-vanilla-263
       proxmox_compute_fixture:
         description: "Optional native PVE REST compute fixture"
         required: true
@@ -187,7 +188,7 @@ jobs:
             fi
             truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
             truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
-            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay" or . == "minecraft-paper" or . == "collage-native-paper")' "$RUN_REQUEST_PATH")"
+            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay" or . == "minecraft-paper" or . == "collage-native-paper" or . == "minecraft-vanilla-263")' "$RUN_REQUEST_PATH")"
             truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
             python3 scripts/truenas_rdte_target.py \
               --registry config/truenas-rdte-targets.json \
@@ -282,6 +283,16 @@ jobs:
     with:
       foundry_ref: 2cc7e1fe3772f8c532e933b3d7832e6cf985db4e
       target_version: "25.04.1"
+    permissions:
+      contents: read
+
+  foundry-minecraft-vanilla263-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_version == '25.04.2.6'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-vanilla-263-t6-control.yml@29ec6cba7df51e316b0329926aa85807805dd07b
+    with:
+      foundry_ref: 29ec6cba7df51e316b0329926aa85807805dd07b
+      target_version: "25.04.2.6"
     permissions:
       contents: read
 
@@ -439,7 +450,7 @@ jobs:
       group: agent-dispatch-heavyweight-rdte
       queue: max
       cancel-in-progress: false
-    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, foundry-minecraft-paper-t6-control, foundry-collage-paper-11530-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, foundry-minecraft-paper-t6-control, foundry-collage-paper-11530-t6-control, foundry-minecraft-vanilla263-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
     if: >-
       always() &&
       needs.contract.result == 'success' &&
@@ -455,6 +466,7 @@ jobs:
         (needs.changes.outputs.truenas_t6_product == 'foliorelay' && needs['foundry-foliorelay-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' && needs['foundry-minecraft-paper-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'collage-native-paper' && needs['foundry-collage-paper-11530-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_version == '25.04.2.6' && needs['foundry-minecraft-vanilla263-t6-control'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g2' && needs['provider-g2-fixtures'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g3' && needs['provider-g3-fixture'].result == 'success') ||
         (needs.changes.outputs.truenas_t6_product == 'garm-provider-g4' && needs['provider-g4-fixture'].result == 'success') ||
@@ -515,6 +527,20 @@ jobs:
         with:
           name: minecraft-paper-11530-truenas-t6-candidate
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact vanilla26.3 25.04.2.6 merged-source native control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: minecraft-vanilla263-java25-truenas-250426-t6-source-candidate
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Independently verify immutable native vanilla control pre-KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        run: |
+          set -euo pipefail
+          python3 scripts/admit_vanilla263_native_t6_control.py \
+            --control "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control/control.json" \
+            --out "$RUNNER_TEMP/vanilla263-pre-kvm-control.json"
+
       - name: Checkout exact Minecraft product status oracle
         if: needs.changes.outputs.truenas_rung == 't6' && (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' || needs.changes.outputs.truenas_t6_product == 'collage-native-paper')
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -528,6 +554,21 @@ jobs:
         run: |
           test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 1b2227847d56007cdf8b668c00845326827e5fd5
           python3 .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
+      - name: Checkout independently qualified vanilla26.3 protocol777 status oracle
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: 4df9fbbfea0ae0e824719db367bd551349a86378
+          path: .deps/minecraft-product
+          persist-credentials: false
+      - name: Verify exact independent vanilla status oracle source
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
+          python3 .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
+
       - name: Checkout exact accepted COLLAGE read-only source
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -589,7 +630,7 @@ jobs:
           name: garm-provider-truenas-container-pre-b4-fixture
           path: ${{ runner.temp }}/gha-kvm-system-rdte/container-pre-b4-fixture
       - name: Refuse floating upstream Minecraft catalog before heavyweight KVM
-        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper' || needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
         run: |
           set -euo pipefail
           python3 -m unittest -v tests.test_collage_catalog_preflight
@@ -660,6 +701,8 @@ jobs:
                 foundry_commit="2cc7e1fe3772f8c532e933b3d7832e6cf985db4e"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
                 foundry_commit="403321031b6d4e66aa64a8299fd7621eee290b0d"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
+                foundry_commit="29ec6cba7df51e316b0329926aa85807805dd07b"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi
@@ -679,6 +722,9 @@ jobs:
           # Failure still uploads the receipt through always() below.
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" || "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
             python3 scripts/assert_minecraft_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
+            python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           fi
           if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
             python3 scripts/assert_collage_p2_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
