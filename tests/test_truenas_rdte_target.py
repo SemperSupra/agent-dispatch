@@ -92,14 +92,15 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertEqual(request["authority_issue"], 423)
             self.assertEqual(request["consumer_authority_issue"], 627)
             self.assertEqual(request["request_id"],
-                             "tn-25-04-2-6-t6-vanilla-263-op4g-012-owned-snapshot-rollback")
+                             "tn-25-04-2-6-t6-vanilla-263-op4h-013-native-mineflayer-loopback")
             self.assertIs(request.get("collage_readback"), True)
             self.assertIs(request.get("lantern_stage"), True)
+            self.assertIs(request.get("native_offline_player"), True)
             self.assertIs(request.get("native_world_rollback"), True)
             self.assertEqual(set(request), {"schema", "request_id", "version", "rung", "product",
                                             "authority_issue", "consumer_authority_issue",
                                             "purpose", "collage_readback", "lantern_stage",
-                                            "native_world_rollback"})
+                                            "native_world_rollback", "native_offline_player"})
         if request.get("product") == "wow-sidecar":
             self.assertEqual(request.get("consumer_authority_issue"), 276)
         if request.get("product") == "garm":
