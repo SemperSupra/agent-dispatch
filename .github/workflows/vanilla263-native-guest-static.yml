@@ -1,0 +1,39 @@
+name: Vanilla 26.3 native guest observer and exact receipt cheap gates
+on:
+  pull_request:
+    paths:
+      - 'scripts/truenas_middleware_minecraft_t6_probe.py'
+      - 'scripts/assert_vanilla263_native_t6_receipt.py'
+      - 'tests/test_truenas_t6_vanilla263_guest.py'
+      - '.github/workflows/vanilla263-native-guest-static.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  adversarial-source:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile exact native observer and independent acceptance oracle
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            scripts/truenas_middleware_minecraft_t6_probe.py \
+            scripts/admit_vanilla263_native_t6_control.py \
+            scripts/assert_vanilla263_native_t6_receipt.py
+          python3 -m py_compile tests/test_truenas_t6_vanilla263_guest.py
+      - name: Native vanilla real guest boundary source and red-blue negatives
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_truenas_t6_vanilla263_guest.py
+      - name: Preserve legacy Paper 25.04.1 T6 regression
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_truenas_t6_minecraft_control.py
+          python3 -m unittest -v tests/test_minecraft_t6_receipt_gate.py
+      - name: No guest or physical promotion
+        run: echo 'Cheap exact vanilla26.3 native observer contract only. No KVM guest, no native App and physical TrueNAS APPLY HOLD.' >> "$GITHUB_STEP_SUMMARY"
