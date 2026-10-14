@@ -1,0 +1,68 @@
+name: AAR Source-Informed R8 Inversion Pilot
+on:
+  push:
+    branches:
+      - experiment/aar-compiler-inversion-20261013
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aar-source-inversion-public-20261013
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Checkout synthetic-only pilot without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Compile-check pilot before setup
+        shell: bash
+        run: python3 -m py_compile experiments/aar-compiler-inversion-20261013/pilot.py experiments/aar-compiler-inversion-20261013/dex_static_oracle.py experiments/aar-compiler-inversion-20261013/avd_runtime_oracle.py
+      - name: Download and independently verify JADX 1.5.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/aar-inversion"
+          mkdir -p "$root"
+          curl --retry 2 --connect-timeout 20 --max-time 150 -fsSL \
+            https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip \
+            -o "$root/jadx.zip"
+          printf '%s  %s\n' \
+            545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974 \
+            "$root/jadx.zip" | sha256sum -c -
+          mkdir "$root/jadx"
+          unzip -q "$root/jadx.zip" -d "$root/jadx"
+          chmod +x "$root/jadx/bin/jadx"
+      - name: Install independent DEX-native structural oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aar-inversion/venv"
+          "$RUNNER_TEMP/aar-inversion/venv/bin/python" -m pip install             --disable-pip-version-check --timeout 30 "androguard==4.1.4"
+          "$RUNNER_TEMP/aar-inversion/venv/bin/python" -c             'import importlib.metadata; assert importlib.metadata.version("androguard") == "4.1.4"'
+      - name: Execute three compiler/decompiler transformation comparisons
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/aar-inversion/venv/bin/python"             experiments/aar-compiler-inversion-20261013/pilot.py
+      - name: Exercise compiled DEX on disposable Android API35 ART AVD
+        shell: bash
+        timeout-minutes: 9
+        run: |
+          set -euo pipefail
+          python3 experiments/aar-compiler-inversion-20261013/avd_runtime_oracle.py
+      - name: Publish public aggregate receipt even on failure
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: aar-source-inversion-public
+          path: |
+            ${{ runner.temp }}/aar-inversion/receipt.json
+            ${{ runner.temp }}/aar-inversion/avd-runtime-receipt.json
+          retention-days: 7
+          if-no-files-found: error
