@@ -92,7 +92,7 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertEqual(request["authority_issue"], 423)
             self.assertEqual(request["consumer_authority_issue"], 627)
             self.assertEqual(request["request_id"],
-                             "tn-25-04-2-6-t6-vanilla-263-op4b-003-master-catalog-qualified")
+                             "tn-25-04-2-6-t6-collage-p2-op4c-004-scoped-live-readback")
         if request.get("product") == "wow-sidecar":
             self.assertEqual(request.get("consumer_authority_issue"), 276)
         if request.get("product") == "garm":
