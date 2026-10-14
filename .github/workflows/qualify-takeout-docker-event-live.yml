@@ -1,0 +1,92 @@
+name: Docker daemon Takeout exit-event shape (public synthetic only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/truenas_takeout_docker_event_oracle.py'
+      - 'tests/test_truenas_takeout_docker_event_oracle.py'
+      - '.github/workflows/qualify-takeout-docker-event-live.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-docker-event:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Listen before one synthetic Docker create/start/die
+        shell: bash
+        run: |
+          set -euo pipefail
+          project="ix-rdte-takeout"
+          name="takeout-event-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image="docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8"
+          docker pull "$image" >/dev/null
+          opened_ns="$(python3 -c 'import time;print(time.time_ns())')"
+          docker events --filter type=container \
+            --filter "label=com.docker.compose.project=$project" \
+            --format '{{json .}}' > "$RUNNER_TEMP/takeout-raw-events.jsonl" &
+          watcher=$!
+          cleanup() {
+            kill "$watcher" 2>/dev/null || true
+            wait "$watcher" 2>/dev/null || true
+            if [ -n "${cid:-}" ]; then docker rm -f "$cid" >/dev/null 2>&1 || true; fi
+          }
+          trap cleanup EXIT
+          sleep 2
+          before_ns="$(python3 -c 'import time;print(time.time_ns())')"
+          cid="$(docker create --name "$name" \
+            --label "com.docker.compose.project=$project" \
+            --label "com.docker.compose.service=takeoutsynthetic" \
+            --label "com.docker.compose.container-number=1" \
+            --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges "$image")"
+          docker start -a "$cid" >/dev/null
+          test "$(docker inspect "$cid" --format '{{.State.ExitCode}}')" = 0
+          # Destroy after a successful exit is normal cleanup and must not
+          # erase the previously observed native Docker die event.
+          docker rm "$cid" >/dev/null
+          sleep 2
+          closed_ns="$(python3 -c 'import time;print(time.time_ns())')"
+          kill "$watcher" 2>/dev/null || true
+          wait "$watcher" 2>/dev/null || true
+          python3 - "$cid" "$opened_ns" "$before_ns" "$closed_ns" "$RUNNER_TEMP/takeout-raw-events.jsonl" <<'PY'
+          import json,pathlib,sys
+          sys.path.insert(0,'scripts')
+          from truenas_takeout_docker_event_oracle import event_witness
+          cid,opened,before,closed,p = sys.argv[1:]
+          project='ix-rdte-takeout'
+          raw=[json.loads(line) for line in pathlib.Path(p).read_text().splitlines() if line.strip()]
+          relevant=[v for v in raw if v.get('Type')=='container']
+          assert all(v.get('Actor',{}).get('ID')==cid for v in relevant), 'Unexpected container actor'
+          events=[{'id':project,'fields':event} for event in relevant]
+          app={'name':'rdte-takeout','state':'STOPPED'}  # SIMULATED; not a TrueNAS API result
+          subscription={'stream':'docker.events','permission':'DOCKER_READ',
+                        'ready_before_apply':True, 'disconnect_count':0,
+                        'opened_ns':int(opened),'closed_ns':int(closed)}
+          result=event_witness(events,app,subscription,app_name='rdte-takeout',
+                               project=project,service='takeoutsynthetic',
+                               expected_container_id=cid,not_before_ns=int(before))
+          assert result['classification']=='NATIVE_EVENT_SHAPE_ONLY'
+          assert result['foundry_ensure_completed_qualified'] is False
+          assert result['subscription_provenance_verified'] is False
+          assert result['site_role_admission_verified'] is False
+          assert 'destroy' in [v['fields']['Action'] for v in events]
+          print(json.dumps({'classification':'HOSTED_DOCKER_EVENT_SHAPE_ONLY',
+                            'actual_docker_container_event_actions':[e['fields']['Action'] for e in events],
+                            'actual_exitCode_attr_observed':'0',
+                            'truenas_api_state':'SIMULATED',
+                            'truenas_role_authorization':'NOT_RUN',
+                            'truenas_guest':'NOT_RUN',
+                            'physical_apply':'HOLD'},sort_keys=True))
+          PY
+          test -n "$cid"
+          test -z "$(docker ps -aq --filter "id=$cid")"
+          cid=''

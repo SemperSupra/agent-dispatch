@@ -1,0 +1,47 @@
+name: Takeout disposable guest terminal diagnostic contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/truenas_takeout_terminal_diagnostic.py'
+      - 'tests/test_truenas_takeout_terminal_diagnostic.py'
+      - 'scripts/truenas_takeout_docker_event_oracle.py'
+      - 'tests/test_truenas_takeout_docker_event_oracle.py'
+      - '.github/workflows/qualify-takeout-terminal-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-observer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run fail-closed guest diagnostic oracles (no guest)
+        run: PYTHONPATH=scripts python3 -m unittest discover -s tests -p 'test_truenas_takeout_*.py' -v
+      - name: Enforce observational and authority boundary
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          src=Path('scripts/truenas_takeout_terminal_diagnostic.py').read_text()
+          event_src=Path('scripts/truenas_takeout_docker_event_oracle.py').read_text()
+          tree=ast.parse(src+'\n'+event_src)
+          forbidden={'subprocess','docker','requests','urllib','socket','http','os'}
+          imports={a.name.split('.')[0] for n in ast.walk(tree) if isinstance(n,ast.Import) for a in n.names}
+          imports|={n.module.split('.')[0] for n in ast.walk(tree) if isinstance(n,ast.ImportFrom) and n.module}
+          assert not imports.intersection(forbidden), imports & forbidden
+          assert 'DISPOSABLE_GUEST_DIAGNOSTIC_ONLY' in src
+          assert 'NATIVE_EVENT_SHAPE_ONLY' in event_src
+          assert "'required_stream_role': 'DOCKER_READ'" in event_src
+          assert "'foundry_ensure_completed_qualified': False" in event_src
+          assert "'foundry_ensure_completed_qualified': False" in src
+          assert "'physical_apply': 'HOLD'" in src
+          print('PASS_GUEST_DIAGNOSTIC_ONLY_NO_ACTUATOR')
+          PY
