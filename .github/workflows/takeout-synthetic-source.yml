@@ -1,0 +1,95 @@
+name: Takeout synthetic source and OCI gate
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/takeout_synthetic_fixture.py'
+      - 'tests/test_takeout_synthetic_fixture.py'
+      - 'fixtures/takeout-synthetic/**'
+      - '.github/workflows/takeout-synthetic-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Native synthetic positive and negative tests
+        run: python3 -m unittest discover -s tests -p test_takeout_synthetic_fixture.py -v
+      - name: Build immutable OCI archive and exercise nonroot read-only job
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/takeout-evidence"
+          evidence="$RUNNER_TEMP/takeout-evidence"
+          archive="$RUNNER_TEMP/takeout-archive"
+          sudo install -d -o 10001 -g 10001 -m 0700 "$archive"
+          builder="takeout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          container="takeout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
+          docker buildx create --name "$builder" --driver docker-container \
+            --driver-opt image=moby/buildkit@sha256:98cc6a3fc46220d00f8224ae483f3274fc874e9be8d7dd1e2e2c5481209228b5
+          docker buildx build --builder "$builder" --platform linux/amd64 \
+            --provenance=false --sbom=false --tag takeout-synthetic:local \
+            --file fixtures/takeout-synthetic/Dockerfile \
+            --output "type=oci,dest=$evidence/fixture.oci.tar" \
+            --output type=docker --metadata-file "$evidence/image.json" .
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          docker image inspect takeout-synthetic:local --format '{{.Id}}' > "$evidence/loaded-config-digest.txt"
+          for attempt in first restart; do
+            timeout 60s docker run --rm --name "$container" --network none \
+              --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --mount "type=bind,src=$archive,dst=/archive" \
+              takeout-synthetic:local > "$evidence/$attempt.json"
+          done
+          # Independent post-exit byte oracle; neither file nor app self-report suffices.
+          sudo python3 - "$archive" "$evidence" <<'PY'
+          import hashlib, json, pathlib, sys, tarfile
+          from scripts.takeout_synthetic_fixture import FILES, SENTINEL
+          archive, evidence = map(pathlib.Path, sys.argv[1:])
+          expected = {**FILES, 'retained-sentinel.txt': SENTINEL}
+          assert {p.name for p in archive.iterdir()} == set(expected)
+          assert all((archive / name).read_bytes() == data for name, data in expected.items())
+          first = json.loads((evidence / 'first.json').read_text())
+          restart = json.loads((evidence / 'restart.json').read_text())
+          assert first['uid'] == restart['uid'] == 10001
+          assert first['outcomes']['range_resume'] is True
+          assert set(restart['outcomes'].values()) == {'NOOP'}
+          assert first['halt_403'] and first['halt_429'] and first['fixture_server_closed']
+          with tarfile.open(evidence / 'fixture.oci.tar') as bundle:
+              index = json.load(bundle.extractfile('index.json'))
+              manifest_digest = index['manifests'][0]['digest']
+              blob = bundle.extractfile('blobs/sha256/' + manifest_digest.split(':')[1]).read()
+              assert 'sha256:' + hashlib.sha256(blob).hexdigest() == manifest_digest
+              manifest = json.loads(blob)
+              assert manifest['config']['digest'] == (evidence / 'loaded-config-digest.txt').read_text().strip()
+          metadata = json.loads((evidence / 'image.json').read_text())
+          assert metadata['containerimage.digest'] == manifest_digest
+          result = {'source_sha': (evidence / 'source-sha.txt').read_text().strip(),
+                    'image_digest': manifest_digest, 'oci_build': 'PASS',
+                    'container_oracle': 'PASS', 'nonroot_readonly_no_ingress': 'PASS',
+                    'retained_bytes_after_container_removal': 'PASS',
+                    'guest': 'NOT_RUN', 'foundry_materialization': 'NOT_RUN',
+                    'admission': 'HOLD', 'guest_attempt_budget': 0}
+          (evidence / 'receipt.json').write_text(json.dumps(result, indent=2) + '\n')
+          PY
+          test -z "$(docker ps -aq --filter "name=^/${container}$")"
+          docker buildx rm "$builder"
+          # The bounded archive directory was created above solely for this job.
+          sudo rm -rf -- "$archive"
+          test ! -e "$archive"
+          trap - EXIT
+      - name: Upload synthetic OCI and source receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: takeout-synthetic-source-oci
+          path: ${{ runner.temp }}/takeout-evidence/
+          if-no-files-found: error
+          retention-days: 7
