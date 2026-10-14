@@ -80,7 +80,7 @@ def admit(raw: str | bytes, *, trusted_source_sha: str,
         raise Denied("ASSIGNMENT_ID_DENIED")
     if not isinstance(doc["nonce"], str) or not NONCE.fullmatch(doc["nonce"]):
         raise Denied("ASSIGNMENT_NONCE_DENIED")
-    if doc["profile_id"] not in PROFILES:
+    if not isinstance(doc["profile_id"], str) or doc["profile_id"] not in PROFILES:
         raise Denied("PROFILE_ID_DENIED")
     if not isinstance(doc["source_sha"], str) or not HEX40.fullmatch(doc["source_sha"]):
         raise Denied("SOURCE_SHA_INVALID")
