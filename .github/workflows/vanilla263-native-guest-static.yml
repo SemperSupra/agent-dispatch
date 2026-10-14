@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'scripts/truenas_middleware_minecraft_t6_probe.py'
+      - 'scripts/truenas_middleware_collage_readback_p2.py'
+      - 'tests/test_collage_p2_effective_roles.py'
       - 'scripts/qualify_vanilla263_native_lantern_stage.py'
       - 'tests/test_vanilla263_native_lantern_stage.py'
       - 'scripts/assert_vanilla263_native_t6_receipt.py'
@@ -67,6 +69,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile \
             scripts/truenas_middleware_minecraft_t6_probe.py \
+            scripts/truenas_middleware_collage_readback_p2.py \
             scripts/qualify_vanilla263_native_lantern_stage.py \
             scripts/admit_vanilla263_native_t6_control.py \
             scripts/assert_vanilla263_native_t6_receipt.py
@@ -76,6 +79,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest -v tests/test_vanilla263_native_lantern_stage.py
           python3 -m unittest -v tests/test_truenas_t6_vanilla263_guest.py
+          python3 -m unittest -v tests/test_collage_p2_effective_roles.py
           bash -n scripts/gha_kvm_truenas_rdte.sh
           python3 -m unittest -v tests/test_vanilla263_t6_guest_routing.py
       - name: Preserve legacy Paper 25.04.1 T6 regression
