@@ -232,7 +232,11 @@ def verify(data, workload):
     if data.get("workload")!=workload or data.get("status")!="PASS":
         raise Denied("RECEIPT_WORKLOAD_OR_VERDICT_MISMATCH")
     if workload=="gpu-cuda-smoke-v1":
-        if data.get("accelerator")!="gpu" or data.get("gpu_count")!=2 or data.get("checksum")!=8386560.0:
+        checksums=data.get("device_arithmetic_checksums")
+        if (data.get("accelerator")!="gpu" or data.get("gpu_count")!=2
+            or not isinstance(checksums,list) or len(checksums)!=2
+            or any(type(x) is not float or x!=8386560.0 for x in checksums)
+            or data.get("checksum")!=checksums[0]):
             raise Denied("CUDA_ORACLE_FAILED")
     elif workload=="tpu-v5e8-device-v1":
         m=data.get("metrics",{})
