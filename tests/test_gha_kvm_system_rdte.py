@@ -338,7 +338,7 @@ class SystemRdteContractTests(unittest.TestCase):
         self.assertIn("truenas_middleware_garm_provider_g5_probe.py", text)
         self.assertIn('G5_MATRIX_PRODUCER', text)
         self.assertIn(
-            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "minecraft-paper" && "$T6_PRODUCT" != "garm-controller-f0f5" && "$T6_PRODUCT" != "minecraft-vanilla-263" ]]; then',
+            'if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "minecraft-paper" && "$T6_PRODUCT" != "garm-controller-f0f5" && "$T6_PRODUCT" != "minecraft-vanilla-263" && "$T6_PRODUCT" != "collage-native-vanilla263" ]]; then',
             text,
         )
         g5_probe = (ROOT / "scripts" / "truenas_middleware_garm_provider_g5_probe.py").read_text(
