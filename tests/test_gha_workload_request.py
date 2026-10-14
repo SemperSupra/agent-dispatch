@@ -112,5 +112,121 @@ class TypedWorkRequestTests(unittest.TestCase):
                     m.plan("requests/gha/cpu-test.json")
 
 
+
+# V2 assignment profile separation: tested against the same reviewed on-disk
+# profiles, with zero GitHub credentials, Sidecar authority, or runner budget.
+spec2 = importlib.util.spec_from_file_location(
+    "gha_assignment_contract", ROOT / "scripts" / "gha_assignment_contract.py")
+a = importlib.util.module_from_spec(spec2)
+sys.modules[spec2.name] = a
+spec2.loader.exec_module(a)
+from datetime import datetime, timezone, timedelta
+
+NOW = datetime(2026, 10, 14, 16, 0, tzinfo=timezone.utc)
+SOURCE = "a" * 40
+
+
+def sample(profile_id="cpu-x64-arithmetic-v1"):
+    p = m.plan(a.PROFILES[profile_id])
+    return {
+        "schema": "gha-typed-assignment/v1",
+        "assignment_id": "test-delegated-cpu-001",
+        "nonce": "1" * 32,
+        "profile_id": profile_id,
+        "profile_sha256": p["request_sha256"],
+        "source_sha": SOURCE,
+        "authority_sha256": "b" * 64,
+        "issued_at": "2026-10-14T15:59:00Z",
+        "expires_at": "2026-10-14T16:09:00Z",
+        "data_class": "public-synthetic",
+        "max_attempts": 1,
+        "max_cost_usd": 0,
+    }
+
+
+def admit_sample(data, **kwargs):
+    return a.admit(json.dumps(data), trusted_source_sha=SOURCE, now=NOW, **kwargs)
+
+
+class DynamicAssignmentContractTests(unittest.TestCase):
+    def test_both_reviewed_profiles_and_canonical_identity(self):
+        for profile_id, runner in (("cpu-x64-arithmetic-v1", "ubuntu-24.04"),
+                                   ("cpu-arm64-contract-v1", "ubuntu-24.04-arm")):
+            with self.subTest(profile=profile_id):
+                doc = sample(profile_id)
+                accepted = admit_sample(doc)
+                self.assertEqual(accepted["runner"], runner)
+                self.assertEqual(accepted["data_class"], "public-synthetic")
+                self.assertEqual(accepted["max_attempts"], 1)
+                self.assertEqual(accepted["max_cost_usd"], 0)
+                other = a.admit(json.dumps(doc, indent=2), trusted_source_sha=SOURCE, now=NOW)
+                self.assertEqual(accepted["assignment_sha256"], other["assignment_sha256"])
+
+    def test_extra_fields_and_privilege_smuggling_denied(self):
+        for field, val in (("command", "echo secret"), ("script", "curl example.org"),
+                           ("runner", "self-hosted"), ("workflow", "other.yml"),
+                           ("url", "https://example.org"), ("secret", "credential"),
+                           ("scope", "admin"), ("ref", "feature-branch")):
+            with self.subTest(field=field):
+                doc = sample()
+                doc[field] = val
+                with self.assertRaisesRegex(a.Denied, "ASSIGNMENT_FIELDS_DENIED"):
+                    admit_sample(doc)
+
+    def test_wrong_id_profile_digest_and_privacy_denied(self):
+        cases = [
+            ({"assignment_id": "../escape"}, "ASSIGNMENT_ID_DENIED"),
+            ({"nonce": "x"*32}, "ASSIGNMENT_NONCE_DENIED"),
+            ({"profile_id": "cpu-win-shell"}, "PROFILE_ID_DENIED"),
+            ({"profile_id": []}, "PROFILE_ID_DENIED"),
+            ({"profile_id": {}}, "PROFILE_ID_DENIED"),
+            ({"profile_sha256": "f"*64}, "PROFILE_DIGEST_DRIFT"),
+            ({"source_sha": "c"*40}, "SOURCE_DRIFT"),
+            ({"data_class": "private"}, "PRIVATE_DATA_DENIED"),
+            ({"max_attempts": 2}, "ATTEMPT_LIMIT_DENIED"),
+            ({"max_attempts": True}, "ATTEMPT_LIMIT_DENIED"),
+            ({"max_cost_usd": 0.01}, "COST_LIMIT_DENIED"),
+            ({"max_cost_usd": True}, "COST_LIMIT_DENIED"),
+            ({"authority_sha256": "bogus"}, "ASSIGNMENT_DIGEST_INVALID"),
+        ]
+        for mutation, reason in cases:
+            with self.subTest(case=mutation), self.assertRaisesRegex(a.Denied, reason):
+                admit_sample(dict(sample(), **mutation))
+
+    def test_stale_future_and_long_lifetime_denied(self):
+        for mutation, reason in (
+            ({"expires_at": "2026-10-14T15:59:59Z"}, "ASSIGNMENT_EXPIRED_OR_FUTURE"),
+            ({"issued_at": "2026-10-14T16:02:00Z"}, "ASSIGNMENT_EXPIRED_OR_FUTURE"),
+            ({"expires_at": "2026-10-14T17:00:00Z"}, "ASSIGNMENT_TTL_DENIED"),
+            ({"expires_at": "2026-10-14T15:00:00Z"}, "ASSIGNMENT_TTL_DENIED"),
+            ({"issued_at": "2026-10-14 15:59:00"}, "ASSIGNMENT_TIMESTAMP_INVALID"),
+        ):
+            with self.subTest(case=mutation), self.assertRaisesRegex(a.Denied, reason):
+                admit_sample(dict(sample(), **mutation))
+
+    def test_independent_replay_identity_required(self):
+        doc = sample()
+        for prior in ([("test-delegated-cpu-001", "f"*32)],
+                      [("another-assignment", "1"*32)]):
+            with self.subTest(prior=prior), self.assertRaisesRegex(a.Denied, "REPLAY_OR_DUPLICATE"):
+                admit_sample(doc, prior_identities=prior)
+        with self.assertRaisesRegex(a.Denied, "REPLAY_EVIDENCE_INVALID"):
+            admit_sample(doc, prior_identities=[None])
+
+    def test_duplicate_json_and_bounded_untrusted_input(self):
+        raw = json.dumps(sample())
+        forged = raw.replace('"max_attempts": 1', '"max_attempts": 1, "max_attempts": 1')
+        with self.assertRaisesRegex(a.Denied, "DUPLICATE_ASSIGNMENT_FIELD"):
+            a.admit(forged, trusted_source_sha=SOURCE, now=NOW)
+        with self.assertRaisesRegex(a.Denied, "ASSIGNMENT_BYTES_INVALID"):
+            a.admit(raw + " " * 5000, trusted_source_sha=SOURCE, now=NOW)
+
+    def test_zero_new_scheduler_or_shell_authority(self):
+        source = (ROOT / "scripts" / "gha_assignment_contract.py").read_text()
+        self.assertNotIn("shell=True", source)
+        self.assertNotIn("subprocess.run", source)
+        self.assertNotIn("workflow_dispatch(", source)
+
+
 if __name__=="__main__":
     unittest.main()
