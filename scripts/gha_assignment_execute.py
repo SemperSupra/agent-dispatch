@@ -46,12 +46,15 @@ def main() -> int:
     ap.add_argument("--action", choices=["plan", "run"], required=True)
     ap.add_argument("--assignment", required=True)
     ap.add_argument("--source-sha", required=True)
+    ap.add_argument("--correlation-id", required=True)
     ap.add_argument("--digest", default="")
     ap.add_argument("--github-output", default="")
     ap.add_argument("--receipt", default="")
     args = ap.parse_args()
     try:
         p = plan(args.assignment, args.source_sha)
+        if p["assignment_id"] != args.correlation_id:
+            raise contract.Denied("NATIVE_CORRELATION_ID_MISMATCH")
         if args.action == "plan":
             if not args.github_output:
                 raise contract.Denied("OUTPUT_PATH_REQUIRED")
