@@ -42,6 +42,18 @@ def scoped_ddp_call(ws, request_id, method, params, *, transport=ddp_call):
         ws.sock.settimeout(prior)
 
 
+def sequenced_guest_ddp_call(ws, *, transport=scoped_ddp_call):
+    """Unique DDP correlation IDs, including after indeterminate timeouts."""
+    next_id = 0
+
+    def call(method, params):
+        nonlocal next_id
+        next_id += 1
+        return transport(ws, str(next_id), method, params)
+
+    return call
+
+
 SCHEMA = "semper-supra.minecraft-paper-truenas-t6-control/1"
 EXPECTED_TARGET = "25.04.1"
 EXPECTED_PROFILE = "800aca038ded29e6a91bfc4c1b1fe2d2199182e8"
@@ -444,15 +456,7 @@ def main() -> int:
         ws.send_json({"msg": "connect", "version": "1", "support": ["1"]})
         if wait_for(ws, lambda m: m.get("msg") in {"connected", "failed"}).get("msg") != "connected":
             raise MinecraftT6Error("DDP connection failed")
-        ident = 1
-        def call(method, params):
-            nonlocal ident
-            # Allocate before the RPC. A timed-out, non-idempotent key create
-            # may finish in the guest after the caller fails: never reuse its
-            # request identifier for subsequent cleanup or observations.
-            request_id = str(ident)
-            ident += 1
-            return scoped_ddp_call(ws, request_id, method, params)
+        call = sequenced_guest_ddp_call(ws)
         def one(method, filters):
             rows = call(method, [filters])
             if not isinstance(rows, list) or len(rows) > 1:
