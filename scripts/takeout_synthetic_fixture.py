@@ -25,6 +25,7 @@ def zip_bytes(name, payload):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as archive:
         entry = zipfile.ZipInfo(name, date_time=(2000, 1, 1, 0, 0, 0))
+        entry.create_system = 3  # Freeze UNIX metadata across Windows/Linux builders.
         entry.external_attr = 0o100644 << 16
         archive.writestr(entry, payload)
     return stream.getvalue()
@@ -159,10 +160,21 @@ def halt_oracle(base, server, status):
         raise ValueError("halt did not stop admission")
 
 
-def run(output):
+def run(output, state_dir=None):
     if output.is_symlink():
         raise ValueError("unowned output")
     output.mkdir(parents=True, exist_ok=True)
+    state = {"schema": "takeout-synthetic-state/v1", "files": inventory()}
+    state_path = None
+    if state_dir is not None:
+        if state_dir.is_symlink() or state_dir.resolve() == output.resolve():
+            raise ValueError("state must be separate and owned")
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state_path = state_dir / "state.json"
+        if state_path.is_symlink():
+            raise ValueError("unowned state")
+        if state_path.exists() and json.loads(state_path.read_text()) != state:
+            raise ValueError("state identity mismatch")
     sentinel = output / "retained-sentinel.txt"
     if sentinel.is_symlink():
         raise ValueError("unowned sentinel")
@@ -191,6 +203,9 @@ def run(output):
         halt_oracle(base, server, 429)
     if any(output.glob("*.part")):
         raise ValueError("partial residue")
+    if state_path is not None and not state_path.exists():
+        with state_path.open("x", encoding="utf-8") as stream:
+            json.dump(state, stream, sort_keys=True)
     return {"schema": "takeout-synthetic-fixture/v1", "classification": "SUPPORTED",
             "scope": "synthetic-local-http-only", "files": inventory(),
             "outcomes": outcomes, "noop": True, "halt_403": True, "halt_429": True,
@@ -202,9 +217,10 @@ def run(output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--state", type=Path, help="separate owned temporary state directory")
     args = parser.parse_args()
     try:
-        print(json.dumps(run(args.output), sort_keys=True))
+        print(json.dumps(run(args.output, args.state), sort_keys=True))
         return 0
     except Exception:
         print(json.dumps({"classification": "ORACLE_FAILURE", "guest_qualified": False}))

@@ -3,4 +3,4 @@ COPY scripts/takeout_synthetic_fixture.py /app/fixture.py
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 USER 10001:10001
 ENTRYPOINT ["python3", "/app/fixture.py"]
-CMD ["--output", "/archive"]
+CMD ["--output", "/archive", "--state", "/state"]

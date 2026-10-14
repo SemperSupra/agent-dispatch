@@ -30,10 +30,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/takeout-evidence"
           evidence="$RUNNER_TEMP/takeout-evidence"
           archive="$RUNNER_TEMP/takeout-archive"
-          sudo install -d -o 10001 -g 10001 -m 0700 "$archive"
+          state="$RUNNER_TEMP/takeout-state"
+          sudo install -d -o 10001 -g 10001 -m 0700 "$archive" "$state"
           builder="takeout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           container="takeout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker buildx rm "$builder" >/dev/null 2>&1 || true; sudo rm -rf -- "$archive" "$state"' EXIT
           docker buildx create --name "$builder" --driver docker-container \
             --driver-opt image=moby/buildkit@sha256:98cc6a3fc46220d00f8224ae483f3274fc874e9be8d7dd1e2e2c5481209228b5
           docker buildx build --builder "$builder" --platform linux/amd64 \
@@ -47,8 +48,17 @@ jobs:
             timeout 60s docker run --rm --name "$container" --network none \
               --read-only --cap-drop ALL --security-opt no-new-privileges \
               --mount "type=bind,src=$archive,dst=/archive" \
+              --mount "type=bind,src=$state,dst=/state" \
               takeout-synthetic:local > "$evidence/$attempt.json"
           done
+          sudo python3 - "$state/state.json" <<'PY'
+          import json, pathlib, sys
+          from scripts.takeout_synthetic_fixture import inventory
+          state = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          assert state == {'schema': 'takeout-synthetic-state/v1', 'files': inventory()}
+          PY
+          sudo rm -rf -- "$state"
+          test ! -e "$state"
           # Independent post-exit byte oracle; neither file nor app self-report suffices.
           sudo python3 - "$archive" "$evidence" <<'PY'
           import hashlib, json, pathlib, sys, tarfile
@@ -76,6 +86,7 @@ jobs:
                     'image_digest': manifest_digest, 'oci_build': 'PASS',
                     'container_oracle': 'PASS', 'nonroot_readonly_no_ingress': 'PASS',
                     'retained_bytes_after_container_removal': 'PASS',
+                    'temporary_state_removed': 'PASS',
                     'guest': 'NOT_RUN', 'foundry_materialization': 'NOT_RUN',
                     'admission': 'HOLD', 'guest_attempt_budget': 0}
           (evidence / 'receipt.json').write_text(json.dumps(result, indent=2) + '\n')

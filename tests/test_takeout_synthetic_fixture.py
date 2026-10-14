@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import json
 import unittest
 
 SPEC = importlib.util.spec_from_file_location(
@@ -26,9 +27,9 @@ class SyntheticFixtureTests(unittest.TestCase):
 
     def test_bytes_are_deterministic_and_tamper_is_not_noop(self):
         self.assertEqual({name: item["sha256"] for name, item in fixture.inventory().items()}, {
-            "part-001.zip": "d995a1a20da62e99f8b34aa03e6f20ce6abebceae5d01e0a31ce3b831a149c09",
+            "part-001.zip": "0672ad5284db40d900ae07238fe3954eb3652aa31a1fdca9ac704b4d41d41d8c",
             "part-002.bin": "b9003892787a29135a21a43f382711802b1a63c3262eb8fe30809530dbee43a1",
-            "part-003.zip": "8f24c7e002afa9e3e3acfe9c5b2d11c8ef2a0895aa341c8dd6adb1aedde8f8e2",
+            "part-003.zip": "c7450ea93a3b5f8bd145efc93d7116f82204bf9206a94a3b8e3279596e8b08dc",
         })
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -52,6 +53,23 @@ class SyntheticFixtureTests(unittest.TestCase):
                            ("http://127.0.0.1:80", "../escape")):
             with self.assertRaisesRegex(ValueError, "synthetic input only"):
                 fixture.download(base, name, Path("unused"))
+
+    def test_state_identity_and_retention_after_temporary_state_removal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive, state = root / "archive", root / "state"
+            fixture.run(archive, state)
+            receipt = json.loads((state / "state.json").read_text())
+            self.assertEqual(receipt["files"], fixture.inventory())
+            (state / "state.json").write_text('{}')
+            with self.assertRaisesRegex(ValueError, "state identity mismatch"):
+                fixture.run(archive, state)
+            (state / "state.json").unlink()
+            state.rmdir()
+            self.assertFalse(state.exists())
+            for name, data in fixture.FILES.items():
+                self.assertEqual((archive / name).read_bytes(), data)
+            self.assertEqual((archive / "retained-sentinel.txt").read_bytes(), fixture.SENTINEL)
 
 
 if __name__ == "__main__":

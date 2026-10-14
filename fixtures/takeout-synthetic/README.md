@@ -11,7 +11,10 @@ for HTTP 200/206, interrupted resume, ZIP CRC, 403/429 halt, retained bytes,
 restart NOOP and tamper tests. Run the fixture with `--output <owned-directory>`
 to obtain a JSON receipt; nonzero exit means ORACLE_FAILURE. The job opens only
 loopback while executing, then closes its server. Output includes exactly three
-files and a retention sentinel. No cleanup should remove retained data until
+files and a retention sentinel. Optional `--state <separate-owned-directory>`
+persists an identity-bound state record; the image requires `/state` as a
+separate writable mount. CI removes that temporary state before checking that
+the archive and sentinel remain intact. No cleanup should remove retained data until
 its independent post-container oracle has passed.
 
 The source workflow builds from pinned amd64 Python and BuildKit digests,
