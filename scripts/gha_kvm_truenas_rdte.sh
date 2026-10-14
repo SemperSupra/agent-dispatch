@@ -18,7 +18,7 @@ MIN_HOST_MEM_KIB=$((11 * 1024 * 1024))
 MIN_HOST_FREE_KIB=$((28 * 1024 * 1024))
 
 usage() {
-  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-controller-f0f5|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|garm-provider-container-pre-b4|official-catalog|foliorelay|minecraft-paper|collage-native-paper|minecraft-vanilla-263] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--container-fixture-dir DIR] [--container-fixture-producer SHA] [--session-manifest FILE]"
+  echo "Usage: gha_kvm_truenas_rdte.sh --out RECEIPT [--state-dir DIR] [--target-version VERSION] [--rung t0|t1|t2|t3|t4|t5|t6] [--compute-fixture none|container-c0|vm-v0|vm-v1] [--t6-product litellm|wow-sidecar|garm|garm-controller-f0f5|garm-provider-g2|garm-provider-g3|garm-provider-g4|garm-provider-g5|garm-provider-container-pre-b4|official-catalog|foliorelay|minecraft-paper|collage-native-paper|minecraft-vanilla-263] [--foundry-control-dir DIR] [--foundry-commit SHA] [--g2-fixture-dir DIR] [--g2-fixture-producer SHA] [--g3-fixture-dir DIR] [--g3-fixture-producer SHA] [--g4-fixture-dir DIR] [--g4-fixture-producer SHA] [--g5-matrix-dir DIR] [--g5-matrix-producer SHA] [--container-fixture-dir DIR] [--container-fixture-producer SHA] [--session-manifest FILE] [--vanilla-collage-readback]"
 }
 
 OUT=""
@@ -39,6 +39,7 @@ G5_MATRIX_PRODUCER=""
 CONTAINER_FIXTURE_DIR=""
 CONTAINER_FIXTURE_PRODUCER=""
 SESSION_MANIFEST=""
+VANILLA_COLLAGE_READBACK=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -60,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --container-fixture-dir) CONTAINER_FIXTURE_DIR="$2"; shift 2 ;;
     --container-fixture-producer) CONTAINER_FIXTURE_PRODUCER="$2"; shift 2 ;;
     --session-manifest) SESSION_MANIFEST="$2"; shift 2 ;;
+    --vanilla-collage-readback) VANILLA_COLLAGE_READBACK=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -74,6 +76,10 @@ eval "$TARGET_ENV"
 if [[ "$COMPUTE_FIXTURE" != "none" && "$RUNG" != "t3" ]]; then
   echo "compute fixture $COMPUTE_FIXTURE requires rung t3" >&2
   exit 2
+fi
+if [[ "$VANILLA_COLLAGE_READBACK" == "true" ]]; then
+  [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "minecraft-vanilla-263" && "$VERSION" == "25.04.2.6" ]] ||
+    { echo "vanilla scoped readback only admitted on exact 25.04.2.6/T6/vanilla263" >&2; exit 2; }
 fi
 if [[ "$RUNG" == "t6" ]]; then
   if [[ "$T6_PRODUCT" != "official-catalog" && "$T6_PRODUCT" != "garm-provider-g5" && "$T6_PRODUCT" != "foliorelay" && "$T6_PRODUCT" != "minecraft-paper" && "$T6_PRODUCT" != "garm-controller-f0f5" && "$T6_PRODUCT" != "minecraft-vanilla-263" ]]; then
@@ -1182,6 +1188,16 @@ elif [[ "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-p
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 600 --state-timeout 480 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
   [[ "$VERSION" == "25.04.2.6" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "native vanilla guest exact version drift"
+  NATIVE_READBACK_ARGS=()
+  if [[ "$VANILLA_COLLAGE_READBACK" == "true" ]]; then
+    [[ -d "$REPO_ROOT/.deps/collage-source" ]] ||
+      fail_evidence HARNESS_FAILURE foundry-materialization "exact current COLLAGE read-only checkout absent"
+    NATIVE_READBACK_ARGS=(
+      --collage-source-dir "$REPO_ROOT/.deps/collage-source"
+      --collage-https-port "$HTTPS_PORT"
+      --collage-source-ref "17dfacc4351053fa06f8bdbaed7d931c97c1707e"
+    )
+  fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
     --product-profile vanilla263 --native-catalog-profile 1.15.30 \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
@@ -1190,6 +1206,7 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
     "${MIDDLEWARE_TLS_ARG[@]}" \
     --password-file "$PASSWORD_FILE" --control-dir "$FOUNDRY_CONTROL_DIR" \
     --foundry-commit "$FOUNDRY_COMMIT" --expected-system-version "$EXPECTED_SYSTEM_VERSION" \
+    "${NATIVE_READBACK_ARGS[@]}" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 600 --state-timeout 480 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_foliorelay_t6_probe.py" \
