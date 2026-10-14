@@ -528,6 +528,19 @@ def main() -> int:
                     payload["observed_image_reference"] = matching_image
                     payload["image_digest_qualification"] = "SOURCE_AND_GUEST_REF_MATCH"
                     cfg = call("app.config", [APP])
+                    if a.native_offline_player:
+                        # Never grant OP or disable online account auth in an
+                        # unconfirmed App. Read exact isolated source overlay,
+                        # no raw config/provider fields in public receipts.
+                        cm = cfg.get("minecraft") if isinstance(cfg, dict) else None
+                        if (not isinstance(cm, dict) or
+                            cm.get("online_mode") is not False or
+                            cm.get("ops") != ["SupraCraftProbe"] or
+                            cm.get("enable_rcon") is not False or
+                            cm.get("rcon_password") != "" or
+                            cm.get("whitelist") != []):
+                            raise MinecraftT6Error(
+                                "disposable native player auth/OP profile mismatch")
                     match_vector = owner_readback_vector(cfg, desired)
                     if all(match_vector.values()):
                         return app
