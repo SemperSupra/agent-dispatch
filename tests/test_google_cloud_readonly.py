@@ -104,6 +104,25 @@ class GoogleReadonlyTests(unittest.TestCase):
                 self.assertFalse(mod.validate_receipt(bad, self.env))
             self.assertTrue(mod.validate_receipt(receipt, self.env))
 
+    def test_duplicate_key_receipt_denied(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "r.json"
+            path.write_text('{"run_id":"999","run_id":"998"}')
+            self.assertEqual(mod.verify(path, self.env), 4)
+
+    def test_bool_attempt_denied(self):
+        receipt = {
+            "schema_version": 1,
+            "status": "verified",
+            "source_sha": self.env["GITHUB_SHA"],
+            "run_id": self.env["GITHUB_RUN_ID"],
+            "run_attempt": True,
+            "repository_id": self.env["GITHUB_REPOSITORY_ID"],
+            "event_name": "workflow_dispatch",
+            "project_metadata_verified": True,
+        }
+        self.assertFalse(mod.validate_receipt(receipt, self.env))
+
     def test_invalid_receipt_fails(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "r.json"
