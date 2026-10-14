@@ -84,6 +84,22 @@ class DiagnosticTests(unittest.TestCase):
             a,i,kw=self.good();i[0]['Mounts'][0][patch[0]]=patch[1]
             with self.assertRaises(Blocked):verify(a,i,**kw)
 
+    def test_allow_bounded_tmpfs_with_two_exact_bind_mounts(self):
+        a,i,kw=self.good()
+        i[0]['Mounts'].append({'Type':'tmpfs','Destination':'/tmp','RW':True,
+                                'Source':''})
+        self.assertEqual(verify(a,i,**kw)['status'],'PROCESS_EXIT_ZERO_OBSERVED')
+
+    def test_reject_foreign_tmpfs_or_third_bind(self):
+        for path in ('/run', '/state'):
+            a,i,kw=self.good()
+            i[0]['Mounts'].append({'Type':'tmpfs','Destination':path,'RW':True})
+            with self.assertRaises(Blocked):verify(a,i,**kw)
+        a,i,kw=self.good()
+        i[0]['Mounts'].append({'Type':'bind','Source':'/mnt/rdtepool/foreign',
+                                'Destination':'/private','RW':True})
+        with self.assertRaises(Blocked):verify(a,i,**kw)
+
     def test_old_or_incoherent_exit_timestamps(self):
         for field,value in [('StartedAt','2026-10-14T15:09:59Z'),
                             ('FinishedAt','2026-10-14T15:09:59Z'),
