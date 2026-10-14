@@ -109,6 +109,25 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('persisted_on_reinstall',source)
         self.assertIn('persisted_on_restart',source)
 
+    def test_native_rollback_requires_exact_unique_disposable_request_and_g2(self):
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertEqual(request["request_id"],
+                         "tn-25-04-2-6-t6-vanilla-263-op4g-012-owned-snapshot-rollback")
+        self.assertIs(request.get("native_world_rollback"),True)
+        self.assertIs(request.get("collage_readback"),True)
+        self.assertIs(request.get("lantern_stage"),True)
+        self.assertIn("truenas_world_rollback=false",WORKFLOW)
+        self.assertIn("(.native_world_rollback // false)",WORKFLOW)
+        self.assertIn('truenas_world_rollback=$truenas_world_rollback',WORKFLOW)
+        self.assertIn("--vanilla-world-rollback",WORKFLOW)
+        self.assertIn("--require-native-rollback",WORKFLOW)
+        self.assertIn("VANILLA_WORLD_ROLLBACK=false",HARNESS)
+        self.assertIn('"$VANILLA_COLLAGE_READBACK" == "true"',HARNESS)
+        probe=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        self.assertIn('--native-world-rollback',probe)
+        self.assertIn('take_owned_pre_stage_snapshot(call)',probe)
+        self.assertIn('restore_owned_baseline_after_injected_fault(',probe)
+
     def test_no_fallback_guest_or_physical_promotion(self):
         self.assertNotIn('product == "minecraft-vanilla-263" && needs[\'foundry-minecraft-paper',WORKFLOW)
         self.assertIn("agent-dispatch-heavyweight-rdte",WORKFLOW)
