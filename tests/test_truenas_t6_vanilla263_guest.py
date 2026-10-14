@@ -57,6 +57,51 @@ def guest_fixture():
 
 
 class TestNativeVanilla263Guest(unittest.TestCase):
+    def test_api_key_create_has_bounded_longer_deadline_and_restores_socket(self):
+        class Socket:
+            def __init__(self): self.value=8.0
+            def gettimeout(self): return self.value
+            def settimeout(self, value): self.value=value
+        class WS:
+            def __init__(self): self.sock=Socket()
+        ws=WS()
+        seen=[]
+        def transport(sock, ident, method, params):
+            seen.append((ident,method,sock.sock.gettimeout()))
+            if method=="api_key.create":
+                raise TimeoutError("synthetic secret MUST NOT surface")
+            return "ok"
+        call=mc.sequenced_guest_ddp_call(
+            ws, transport=lambda w, i, m, p:
+                mc.scoped_ddp_call(w, i, m, p, transport=transport))
+        self.assertEqual(call("app.query", []),"ok")
+        with self.assertRaises(TimeoutError):
+            call("api_key.create", [{"name":"synthetic-only"}])
+        self.assertEqual(ws.sock.gettimeout(),8.0)
+        self.assertEqual(call("app.query", []),"ok")
+        self.assertEqual([item[0] for item in seen],["1","2","3"])
+        self.assertEqual([item[2] for item in seen],
+                         [8.0, mc.SCOPED_KEY_CREATE_TIMEOUT_SECONDS, 8.0])
+        self.assertEqual(mc.SCOPED_KEY_CREATE_TIMEOUT_SECONDS,60.0)
+
+    def test_scoped_key_success_also_restores_prior_socket_deadline(self):
+        class Socket:
+            value=11.0
+            def gettimeout(self): return self.value
+            def settimeout(self,value): self.value=value
+        class WS:
+            sock=Socket()
+        ws=WS()
+        observed=[]
+        def transport(w, ident, method, params):
+            observed.append(w.sock.gettimeout())
+            return {"key":"synthetic-test-only"}
+        result=mc.scoped_ddp_call(ws,"7","api_key.create",[],
+                                  transport=transport)
+        self.assertEqual(result,{"key":"synthetic-test-only"})
+        self.assertEqual(observed,[60.0])
+        self.assertEqual(ws.sock.gettimeout(),11.0)
+
     def test_full_independent_guest_oracle_fixture(self):
         check_guest(guest_fixture())
 

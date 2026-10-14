@@ -19,6 +19,41 @@ import time
 from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 from truenas_middleware_foliorelay_t6_probe import middleware_http_bytes, multipart_upload
 
+# Only the disposable scoped credential-issuance RPC gets a longer DDP
+# response deadline. The TrueNAS nested CPU/PAM workload may exceed the
+# ordinary 8-second socket deadline. A timeout is NOT proof the RPC failed or
+# that the key was not created: never retry this non-idempotent operation.
+SCOPED_KEY_CREATE_TIMEOUT_SECONDS = 60.0
+
+
+def scoped_ddp_call(ws, request_id, method, params, *, transport=ddp_call):
+    """One bounded scoped exception to ordinary DDP transport timeouts.
+
+    No role changes, TLS downgrades, credential retries or raw error logging.
+    Existing request IDs must be unique before this function is called.
+    """
+    if method != "api_key.create":
+        return transport(ws, request_id, method, params)
+    prior = ws.sock.gettimeout()
+    try:
+        ws.sock.settimeout(max(prior or 0.0, SCOPED_KEY_CREATE_TIMEOUT_SECONDS))
+        return transport(ws, request_id, method, params)
+    finally:
+        ws.sock.settimeout(prior)
+
+
+def sequenced_guest_ddp_call(ws, *, transport=scoped_ddp_call):
+    """Unique DDP correlation IDs, including after indeterminate timeouts."""
+    next_id = 0
+
+    def call(method, params):
+        nonlocal next_id
+        next_id += 1
+        return transport(ws, str(next_id), method, params)
+
+    return call
+
+
 SCHEMA = "semper-supra.minecraft-paper-truenas-t6-control/1"
 EXPECTED_TARGET = "25.04.1"
 EXPECTED_PROFILE = "800aca038ded29e6a91bfc4c1b1fe2d2199182e8"
@@ -421,12 +456,7 @@ def main() -> int:
         ws.send_json({"msg": "connect", "version": "1", "support": ["1"]})
         if wait_for(ws, lambda m: m.get("msg") in {"connected", "failed"}).get("msg") != "connected":
             raise MinecraftT6Error("DDP connection failed")
-        ident = 1
-        def call(method, params):
-            nonlocal ident
-            result = ddp_call(ws, str(ident), method, params)
-            ident += 1
-            return result
+        call = sequenced_guest_ddp_call(ws)
         def one(method, filters):
             rows = call(method, [filters])
             if not isinstance(rows, list) or len(rows) > 1:

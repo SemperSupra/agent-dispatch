@@ -76,12 +76,50 @@ class RoleLinkageTests(unittest.TestCase):
             self.assertEqual(str(caught.exception),
                              "GUEST_RBAC_ISSUE_SCOPED_KEY_API_FAILED_E"+str(code))
             self.assertNotIn("API-SECRET",str(caught.exception))
-        for msg in ('api_key.create: {"error": 987654,"reason":"SECRET"}',
-                    'api_key.create: {"error":"CUSTOM_PRIVATE"}',
-                    'api_key.create: bad-json',
-                    'other.method: {"error": 403}',
-                    "api_key.create: "+("secret"*2000)):
-            self.assertEqual(classify_scoped_key_ddp_failure(RuntimeError(msg)),"")
+        malformed = (
+            ('api_key.create: {"error": 987654,"reason":"SECRET"}',
+             "_DDP_UNRECOGNIZED_CODE"),
+            ('api_key.create: {"error":"CUSTOM_PRIVATE"}',
+             "_DDP_UNRECOGNIZED_CODE"),
+            ('api_key.create: {"error": {"error":403},"reason":"SECRET"}',
+             "_DDP_NESTED_ERROR"),
+            ('api_key.create: {"error":[{"field":"PRIVATE"}]}',
+             "_DDP_VALIDATION_LIST"),
+            ('api_key.create: bad-json', "_DDP_MALFORMED_ERROR"),
+            ('other.method: {"error": 403}', "_DDP_UNSTRUCTURED_ERROR"),
+            ("api_key.create: "+("secret"*2000), "_DDP_OVERSIZE_ERROR"),
+        )
+        for msg, category in malformed:
+            with self.subTest(category=category):
+                self.assertEqual(classify_scoped_key_ddp_failure(RuntimeError(msg)),category)
+        for exc, category in (
+            (TimeoutError("PRIVATE-KEY-NEVER-LOG"), "_TRANSPORT_TIMEOUT_INDETERMINATE"),
+            (ConnectionError("PRIVATE-USER-NEVER-LOG"), "_TRANSPORT_DISCONNECTED"),
+            (OSError("PRIVATE-ENDPOINT-NEVER-LOG"), "_TRANSPORT_IO_FAILURE"),
+            (ValueError("PRIVATE-ROLE-NEVER-LOG"), "_LOCAL_UNEXPECTED_FAILURE"),
+        ):
+            self.assertEqual(classify_scoped_key_ddp_failure(exc),category)
+            self.assertNotIn("PRIVATE",classify_scoped_key_ddp_failure(exc))
+        # Failures propagate through the actual nine-operation RBAC wrapper,
+        # but the caller sees neither raw DDP text nor a spurious success.
+        for exc,category in (
+            (TimeoutError("DO-NOT-EMIT"),"_TRANSPORT_TIMEOUT_INDETERMINATE"),
+            (RuntimeError('api_key.create: {"error":[{"secret":"DO-NOT-EMIT"}]}'),
+             "_DDP_VALIDATION_LIST"),
+        ):
+            responses=authority_responses()
+            called=[]
+            def failure(method,params):
+                ordinal=len(called)
+                called.append(method)
+                if method=="api_key.create":
+                    raise exc
+                return responses[ordinal][1]
+            with self.assertRaises(ObservationError) as caught:
+                provision_guest_readonly(bounded_rbac_call(failure))
+            self.assertEqual(str(caught.exception),
+                             "GUEST_RBAC_ISSUE_SCOPED_KEY_API_FAILED"+category)
+            self.assertNotIn("DO-NOT-EMIT",str(caught.exception))
 
     def test_source_contract_allows_only_exact_role_linkage(self):
         fn, methods = self.call_with(authority_responses())
@@ -108,8 +146,9 @@ class RoleLinkageTests(unittest.TestCase):
                 label=RBAC_CALL_SEQUENCE[failing][1].upper()
                 with self.assertRaises(ObservationError) as caught:
                     provision_guest_readonly(bounded_rbac_call(remote))
+                suffix = "_DDP_UNSTRUCTURED_ERROR" if failing == 8 else ""
                 self.assertEqual(str(caught.exception),
-                                 "GUEST_RBAC_"+label+"_API_FAILED")
+                                 "GUEST_RBAC_"+label+"_API_FAILED"+suffix)
                 self.assertNotIn("API-SECRET",str(caught.exception))
                 self.assertEqual(len(seen),failing+1)
                 if failing<8:

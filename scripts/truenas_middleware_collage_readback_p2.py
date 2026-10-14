@@ -220,30 +220,44 @@ RBAC_CALL_SEQUENCE = (
 
 
 def classify_scoped_key_ddp_failure(exc: Exception) -> str:
-    """Return only a tiny allowlisted numeric DDP errno, never raw API error.
+    """Only fixed failure categories or allowlisted DDP codes leave the guest.
 
-    ddp_call formats RuntimeError as 'api_key.create: {JSON error object}'.
-    No remotely supplied reason, message, params, principal or secret values
-    can leave this guest. Absent/unrecognized codes remain unspecific.
+    In addition to provider rejection, this RPC can time out while TrueNAS
+    performs password hash/PAM generation. Timeouts are indeterminate: the
+    key might already exist, so the caller must never retry issuance blindly.
+    Error messages, principal metadata and secret values remain private.
     """
+    if isinstance(exc, TimeoutError):
+        return "_TRANSPORT_TIMEOUT_INDETERMINATE"
+    if isinstance(exc, (ConnectionError, EOFError)):
+        return "_TRANSPORT_DISCONNECTED"
+    if isinstance(exc, OSError):
+        return "_TRANSPORT_IO_FAILURE"
     if type(exc) is not RuntimeError or not exc.args or type(exc.args[0]) is not str:
-        return ""
+        return "_LOCAL_UNEXPECTED_FAILURE"
     data = exc.args[0]
     prefix = "api_key.create: "
-    if len(data) > 8192 or not data.startswith(prefix):
-        return ""
+    if len(data) > 8192:
+        return "_DDP_OVERSIZE_ERROR"
+    if not data.startswith(prefix):
+        return "_DDP_UNSTRUCTURED_ERROR"
     try:
         obj = json.loads(data[len(prefix):])
     except ValueError:
-        return ""
+        return "_DDP_MALFORMED_ERROR"
     if type(obj) is not dict:
-        return ""
+        return "_DDP_NONOBJECT_ERROR"
     code = obj.get("error")
     if type(code) is int and code in {1, 2, 5, 11, 13, 17, 22, 38, 400, 401, 403, 404, 409, 422, 500, 503}:
         return "_E" + str(code)
     if type(code) is str and code in {"EINVAL","EPERM","EACCES","VALIDATION_ERRORS","METHOD_NOT_FOUND"}:
         return "_" + code
-    return ""
+    if type(code) is dict:
+        return "_DDP_NESTED_ERROR"
+    if type(code) is list:
+        return "_DDP_VALIDATION_LIST"
+    return "_DDP_UNRECOGNIZED_CODE"
+
 
 
 def bounded_rbac_call(call):
