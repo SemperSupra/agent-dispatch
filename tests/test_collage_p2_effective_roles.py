@@ -1,10 +1,12 @@
 """Pure request/response policy checks; never claims a running TrueNAS guest."""
 import unittest
 import json
+import datetime as dt
 
 from scripts.truenas_middleware_collage_readback_p2 import (
     ObservationError, provision_guest_readonly, bounded_rbac_call, RBAC_CALL_SEQUENCE,
     classify_scoped_key_ddp_failure, scoped_key_record_count_suffix,
+    scoped_key_expiry_ejson,
 )
 
 ROLE = "APPS_READ"
@@ -46,6 +48,16 @@ class RoleLinkageTests(unittest.TestCase):
             self.assertLess(len(called), len(responses), "unexpected API call")
             want, result = responses[len(called)]
             self.assertEqual(method, want, f"wrong operation at position {len(called)}")
+            if method == "api_key.create":
+                # Assert the exact 25.04.2.6 legacy DDP EJSON datetime shape,
+                # NOT the previously E11-refused ISO string or nonexpiring key.
+                expires = params[0]["expires_at"]
+                self.assertEqual(set(expires), {"$date"})
+                self.assertIs(type(expires["$date"]), int)
+                seconds_ahead = expires["$date"] / 1000 - dt.datetime.now(
+                    dt.timezone.utc).timestamp()
+                self.assertLess(seconds_ahead, 3605)
+                self.assertGreater(seconds_ahead, 3550)
             if method == "privilege.create":
                 # Caller must send UNIX GID, not middleware group datastore id.
                 self.assertEqual(params[0]["local_groups"], [GROUP_GID])
@@ -131,6 +143,32 @@ class RoleLinkageTests(unittest.TestCase):
                              ("_KEY_COUNT_UNAVAILABLE" if category ==
                               "_TRANSPORT_TIMEOUT_INDETERMINATE" else ""))
             self.assertNotIn("DO-NOT-EMIT",str(caught.exception))
+
+    def test_scoped_expiry_is_timezone_aware_pinned_ejson_datetime_not_string(self):
+        # Frozen trueNAS_api_client release/25.04.2.6 ejson.JSONEncoder
+        # emits UTC milliseconds; object_hook restores timezone-aware datetime.
+        original = dt.datetime(2026, 10, 14, 15, 0, 0, 456000,
+                               tzinfo=dt.timezone.utc)
+        value = scoped_key_expiry_ejson(original)
+        self.assertEqual(value, {"$date": 1791993600000})
+        restored = dt.datetime.fromtimestamp(value["$date"] / 1000,
+                                            tz=dt.timezone.utc)
+        self.assertIs(type(restored), dt.datetime)
+        self.assertEqual(restored, dt.datetime(2026, 10, 14, 16, 0,
+                                               tzinfo=dt.timezone.utc))
+        self.assertNotIsInstance(value, str)
+        different_zone = original.astimezone(dt.timezone(dt.timedelta(hours=7)))
+        self.assertEqual(scoped_key_expiry_ejson(different_zone), value)
+        with self.assertRaisesRegex(ObservationError, "AWARE_DATETIME"):
+            scoped_key_expiry_ejson(dt.datetime(2026, 10, 14, 15))
+        for invalid in (None, "2026-10-14T16:00:00Z", 1791990000, {}):
+            # None uses the live clock by documented default; malformed
+            # non-null inputs must fail closed.
+            if invalid is None:
+                assert set(scoped_key_expiry_ejson()) == {"$date"}
+            else:
+                with self.assertRaises(ObservationError):
+                    scoped_key_expiry_ejson(invalid)
 
     def test_validation_error_field_allowlist_and_no_provider_data_leakage(self):
         # Frozen TrueNAS 25.04 websocket_app turns ValidationErrors into
