@@ -47,12 +47,17 @@ class TestVanilla263GuestRouting(unittest.TestCase):
     def test_existing_request_edge_untouched_during_source_qualification(self):
         current=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         proposal=json.loads((ROOT/"config/truenas-vanilla263-native-admission-request.json").read_text())
-        self.assertNotEqual(current.get("product"),"minecraft-vanilla-263")
+        self.assertEqual(current.get("product"),"minecraft-vanilla-263")
+        self.assertEqual(current["version"],"25.04.2.6")
+        self.assertEqual(current["rung"],"t6")
+        self.assertEqual(current["authority_issue"],423)
+        self.assertEqual(current["consumer_authority_issue"],627)
+        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-002-native-guest")
         self.assertEqual(proposal["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-001")
         self.assertEqual(proposal["consumer_authority_issue"],627)
         self.assertIn("NOT wired",proposal["purpose"])
-        # Triggering branch merely edits source/probe/workflow. Heavy runs
-        # are ONLY driven by a separate unique request-file transition.
+        # Exactly one bounded heavyweight request edge is admitted in this PR.
+        # A replay of this request_id without a new distinct edge is forbidden.
         self.assertIn("config/truenas-rdte-run-request.json)",WORKFLOW)
         self.assertIn('"$current_request_id" == "$previous_request_id"',WORKFLOW)
 
