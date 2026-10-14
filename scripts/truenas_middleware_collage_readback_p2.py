@@ -60,6 +60,26 @@ def available_role_names(roles: object) -> set[str]:
     return names
 
 
+
+def scoped_key_expiry_ejson(now: dt.datetime | None = None) -> dict[str, int]:
+    """One-hour UTC expiry in pinned TrueNAS legacy WebSocket EJSON format.
+
+    TrueNAS api_client release/25.04.2.6/ejson.py serializes datetime as
+    {"$date": UTC milliseconds}. The pinned middleware BaseModel has
+    strict=True: a plain datetime.isoformat() string is rejected as type
+    datetime by the 25.04.2.6 api_key.create input validator. Do not bypass
+    expiration or change role/transport to avoid this type mismatch.
+    """
+    if now is None:
+        now = dt.datetime.now(dt.timezone.utc)
+    require(type(now) is dt.datetime and now.tzinfo is not None and
+            now.utcoffset() is not None,
+            "SCOPED_KEY_EXPIRY_REQUIRES_AWARE_DATETIME")
+    future = now.astimezone(dt.timezone.utc) + dt.timedelta(hours=1)
+    # Exactly the UTC-second canonicalization in the frozen EJSON encoder.
+    return {"$date": int(future.timestamp()) * 1000}
+
+
 def provision_guest_readonly(call) -> str:
     """Called on *already isolated* disposable TrueNAS 25.04.1 via admin DDP.
 
@@ -128,7 +148,11 @@ def provision_guest_readonly(call) -> str:
             "OBSERVER_USER_ROLES_SHAPE_DRIFT")
     require("APPS_READ" in effective, "OBSERVER_USER_REQUIRED_ROLE_ABSENT")
     require(effective == ["APPS_READ"], "OBSERVER_USER_EXTRA_ROLES_REFUSED")
-    expiry = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)).isoformat()
+    # The 25.04.2.6 BaseModel is strict: a bare ISO string is NOT a
+    # datetime in Python-mode validation. Legacy DDP uses extended JSON
+    # {"$date": epoch_ms}; the pinned TrueNAS decoder turns it into a
+    # timezone-aware datetime before API validation. Keep the one-hour TTL.
+    expiry = scoped_key_expiry_ejson()
     key = call("api_key.create", [{
         "name": "disposable-collage-p2", "username": NAME,
         "expires_at": expiry,
