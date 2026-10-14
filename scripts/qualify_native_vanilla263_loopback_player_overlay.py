@@ -54,6 +54,33 @@ def require(cond: bool, code: str) -> None:
     if not cond:
         raise Refused(code)
 
+def redacted_native_startup_census(app: object) -> dict[str, Any]:
+    """Bounded state/count only; never copy App metadata, paths, ports or logs.
+
+    Frozen TrueNAS25.04.2.6 app.query reports container state through
+    active_workloads.container_details. An unhealthy App can remain DEPLOYING
+    (healthcheck STARTING) without ever raising a terminal job failure.
+    """
+    allowed = {"RUNNING", "DEPLOYING", "STOPPED", "STOPPING", "CRASHED"}
+    container_states = {"created", "starting", "running", "exited", "crashed"}
+    state = app.get("state") if type(app) is dict else None
+    state = state if type(state) is str and state in allowed else "UNKNOWN"
+    active = app.get("active_workloads") if type(app) is dict else None
+    details = active.get("container_details") if type(active) is dict else None
+    if type(details) is not list:
+        details = []
+    totals = {k: 0 for k in sorted(container_states)}
+    for item in details[:16]:
+        value = item.get("state") if type(item) is dict else None
+        if type(value) is str and value in totals:
+            totals[value] += 1
+    return {
+        "native_app_state": state,
+        "container_states": totals,
+        "container_census_truncated": len(details) > 16,
+    }
+
+
 def derive(control: dict, admission: dict) -> dict[str, Any]:
     """Prepare a synthetic-world profile only; no RPC, filesystem, or guest."""
     verify(control)
