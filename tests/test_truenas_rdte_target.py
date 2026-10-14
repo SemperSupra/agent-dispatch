@@ -92,7 +92,7 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertEqual(request["authority_issue"], 423)
             self.assertEqual(request["consumer_authority_issue"], 627)
             self.assertEqual(request["request_id"],
-                             "tn-25-04-2-6-t6-vanilla-263-op4d-007-key-errno-observer")
+                             "tn-25-04-2-6-t6-vanilla-263-op4f-008-bounded-key-tls-observer")
             self.assertIs(request.get("collage_readback"), True)
             self.assertIs(request.get("lantern_stage"), True)
             self.assertEqual(set(request), {"schema", "request_id", "version", "rung", "product",
