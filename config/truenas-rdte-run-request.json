@@ -1,10 +1,10 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4b-002-native-guest",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4b-003-master-catalog-qualified",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "One uniquely identified public/free-tier disposable TrueNAS 25.04.2.6 KVM T6 native minecraft-vanilla-263 Java25/protocol777 guest. Preserve exact accepted merged Foundry producer 29ec6cba7df51e316b0329926aa85807805dd07b and canonical source-control digest c1d6d9bd6306de55b12072ea9d0d6411fa7d7f106a6a87bdbe1913c0d82c0615, pinned upstream 1.15.30 Java25 OCI SHA5a2ab..., independent rdtepool/minecraft-vanilla-263-t6-world, product-specific provider readback and status/oracle across create/restart/redeploy/reinstall/delete with zero residue. New request edge after independent signed-source PR #417, native guest adapter PR #418, selector PR #419 and cheap gates PASS. Do not inherit Paper 1.21.11/25.04.1 evidence. Never mutate physical TrueNAS, never consume private GHA minutes, never replay unchanged request_id. On failure retain sanitized evidence and hold subsequent heavyweight jobs until diagnosis."
+  "purpose": "One uniquely identified public/free-tier disposable TrueNAS 25.04.2.6 KVM T6 native minecraft-vanilla-263 Java25/protocol777 guest. Preserve exact accepted merged Foundry producer 29ec6cba7df51e316b0329926aa85807805dd07b and canonical source-control digest c1d6d9bd6306de55b12072ea9d0d6411fa7d7f106a6a87bdbe1913c0d82c0615, pinned upstream 1.15.30 Java25 OCI SHA5a2ab..., independent rdtepool/minecraft-vanilla-263-t6-world, product-specific provider readback and status/oracle across create/restart/redeploy/reinstall/delete with zero residue. Fresh one-time request after native signed-source PR #417, guest observer PR #418, selector PR #419, original request PR #421, and official catalog preflight 404 correction PR #422 with public real master-branch preflight SUCCESS (38488860714). Prior OP4B-002 request failed PRE-KVM at hard-coded ref=main; this is not a guest retry of existing request ID. Do not inherit Paper 1.21.11/25.04.1 evidence. Never mutate physical TrueNAS, never consume private GHA minutes, never replay unchanged request_id. On failure retain sanitized evidence and hold subsequent heavyweight jobs until diagnosis."
 }
