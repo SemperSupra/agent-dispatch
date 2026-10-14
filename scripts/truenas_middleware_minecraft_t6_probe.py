@@ -676,13 +676,14 @@ def main() -> int:
                 raise MinecraftT6Error("COLLAGE P2: " + str(err)) from None
             read_sentinel()
 
-        # The original native-only/Paper P2 observer order is unchanged.
-        # When actual native artifact stage is admitted, run the provider
-        # read-only observer AFTER world stage/restart/reinstall so a failed
-        # RBAC observer cannot mask independent byte-level integration results.
+        # The exact Lantern ZIP stage/persistence was independently accepted
+        # in 006/007/008 despite terminal scoped-key failures. Do not repay
+        # three App restarts before attempting the still-unqualified G1/G2
+        # read-only Go observer. Observe the verified first native App here;
+        # on success, retain this same App/world for real ZIP stage/reinstall.
+        # Legacy native-only and Paper P2 default paths remain unchanged.
         if a.collage_source_dir is not None:
-            if lantern_blob is None:
-                observe_collage_after_native_readiness()
+            observe_collage_after_native_readiness()
 
         first_level = payload["readiness"]["first"]["level"]["size"]
 
@@ -733,7 +734,8 @@ def main() -> int:
             if actual != SHA:
                 raise MinecraftT6Error("native Lantern staged file lost across reinstall")
             payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True
-            observe_collage_after_native_readiness()
+            # The same exact App owner is rechecked by wait_app() above;
+            # pre-stage TLS Go observation remains a separate G2 receipt.
         read_sentinel()
         if first_level <= 0:
             raise MinecraftT6Error("world level.dat size invalid")
