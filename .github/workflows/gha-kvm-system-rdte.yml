@@ -593,6 +593,53 @@ jobs:
           (cd .deps/collage-source/tools/truenas-readonly-probe &&
             go mod download && go mod verify &&
             go test ./... && go build -o /dev/null .)
+      - name: Checkout exact accepted native vanilla COLLAGE source observer
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/collage
+          ref: 17dfacc4351053fa06f8bdbaed7d931c97c1707e
+          path: .deps/collage-source
+          persist-credentials: false
+      - name: Set up qualified Go toolchain for native vanilla read-only App probe
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: .deps/collage-source/tools/truenas-readonly-probe/go.mod
+          cache: false
+      - name: Prequalify exact COLLAGE real artifact source and TLS Go probe before native guest
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/collage-source rev-parse HEAD)" = 17dfacc4351053fa06f8bdbaed7d931c97c1707e
+          (cd .deps/collage-source &&
+            python3 -m unittest -v tests.test_collage_deploy_plan tests.test_collage_native_readback tests.test_consume_vanilla_datapack_source)
+          (cd .deps/collage-source/tools/truenas-readonly-probe &&
+            go mod download && go mod verify &&
+            go test ./... && go build -o /dev/null .)
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact"
+          python3 .deps/minecraft-product/tools/export_core_restoration_datapack_26_3.py \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact/lantern-restoration-26.3.zip" \
+            --manifest "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact/lantern-restoration-26.3.json" \
+            --world-id lantern-rdte --release-id lantern-core-restore-26-3 \
+            > "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact-producer-receipt.json"
+          python3 .deps/collage-source/tools/consume_vanilla_datapack_source.py \
+            --manifest "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact/lantern-restoration-26.3.json" \
+            --artifact "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact/lantern-restoration-26.3.zip" \
+            --artifact-root "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-artifact" \
+            --native-target-profile vanilla263-250426 \
+            > "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-source-plan.json"
+          python3 - "$RUNNER_TEMP/gha-kvm-system-rdte/lantern-source-plan.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["classification"]=="SOURCE_ARTIFACT_AND_INTENT_PARITY_VALIDATED"
+          assert r["candidate"]["sha256"]=="da25005e8729e6f013f7108ac5b8869dd46323befc78efdae18221b26cafe5f8"
+          assert r["expected_native_app"]=="rdte-t6-minecraft-vanilla-263"
+          assert r["expected_truenas_version"]=="25.04.2.6"
+          assert set(r["audience_receipts"])=={"human","automation","agent"}
+          assert r["real_provider_readback"] is False and r["mutation_authorized"] is False
+          PY
       - name: Download exact GARM provider G2 fixtures
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
