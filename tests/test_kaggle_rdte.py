@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline GitHub/Kaggle protocol tests. No credential, provider call, or GPU allocation."""
 import importlib.util
+import subprocess
 import json
 from pathlib import Path
 from types import SimpleNamespace, ModuleType
@@ -98,6 +99,28 @@ class Tests(unittest.TestCase):
         cls._sdk_patch.stop()
     def plan(self,action="submit",assignment="test-rep-0001",workload="gpu-cuda-smoke-v1",version=0):
         return m.validate(action,assignment,workload,version)
+    def test_actual_host_cpu_negative_device_probes(self):
+        # Actual public GHA ubuntu-24.04 host: execute the GPU and TPU
+        # notebooks unchanged, and demand a fail-closed JSON receipt on CPU.
+        # This does not qualify a Kaggle accelerator or call any provider.
+        for file,workload in (
+            ("gpu_smoke.py","gpu-cuda-smoke-v1"),
+            ("tpu_device.py","tpu-v5e8-device-v1"),
+        ):
+            with self.subTest(probe=file), tempfile.TemporaryDirectory() as td:
+                p=subprocess.run(
+                    [sys.executable,str(ROOT/"experiments"/"kaggle_rdte"/file)],
+                    cwd=td,stdin=subprocess.DEVNULL,capture_output=True,
+                    text=True,timeout=90,check=False)
+                data=json.loads((Path(td)/"kaggle_rdte_result.json").read_text())
+                self.assertEqual(data["schema"],"kaggle-rdte-result/v1")
+                self.assertEqual(data["workload"],workload)
+                self.assertEqual(data["status"],"FAIL")
+                self.assertEqual(p.returncode,2)
+                self.assertIn("failure_class",data)
+                self.assertNotIn("KAGGLE_API_TOKEN",json.dumps(data))
+                self.assertNotIn("PASS",p.stdout)
+
     def test_cpu_reasoning_controls_real_work_fixture(self):
         source = ROOT/"experiments"/"kaggle_rdte"/"cpu_reasoning_controls.py"
         spec = importlib.util.spec_from_file_location("cpu_reasoning_controls",source)
