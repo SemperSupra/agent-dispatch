@@ -75,8 +75,14 @@ def event_witness(events: list, app: dict, subscription: dict, *,
         stamp = data.get('timeNano')
         require(type(stamp) is int and opened <= stamp <= closed,
                 'EVENT_TIME_OUTSIDE_SUBSCRIPTION')
-        if action in ('oom', 'kill', 'restart', 'destroy'):
+        if action in ('oom', 'kill', 'restart'):
             raise Blocked('FATAL_OR_AMBIGUOUS_EVENT')
+        if action == 'destroy':
+            # --rm and Compose cleanup may destroy an already-successful
+            # exited container. A *premature* destroy still invalidates proof.
+            require('die' in timeline and stamp >= timeline['die'][0],
+                    'PREMATURE_CONTAINER_DESTROY')
+            continue
         if action in ('create', 'start', 'die'):
             require(action not in timeline, 'DUPLICATE_OPERATION_EVENT')
             timeline[action] = (stamp, attrs)
