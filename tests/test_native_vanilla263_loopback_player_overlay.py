@@ -89,6 +89,37 @@ class OverlaySourceTests(unittest.TestCase):
         self.assertFalse(derive()["values"]["minecraft"]["online_mode"])
         self.assertFalse(derive()["values"]["minecraft"]["enable_rcon"])
 
+    def test_read_only_native_startup_census_never_rediscloses_metadata(self):
+        sample={
+            "state":"DEPLOYING",
+            "name":"private-site",
+            "active_workloads":{"container_details":[
+                {"state":"starting","id":"opaque-secret-container",
+                 "image":"private.registry/password"},
+                {"state":"created","port_config":[{"host_ip":"192.0.2.10"}]},
+                {"state":"exited","volume_mounts":[{"source":"/secret/path"}]},
+            ]},
+        }
+        report=overlay.redacted_native_startup_census(sample)
+        self.assertEqual(report["native_app_state"],"DEPLOYING")
+        self.assertEqual(report["container_states"]["starting"],1)
+        self.assertEqual(report["container_states"]["created"],1)
+        self.assertEqual(report["container_states"]["exited"],1)
+        self.assertFalse(report["container_census_truncated"])
+        self.assertNotIn("opaque-secret",str(report))
+        self.assertNotIn("password",str(report))
+        self.assertNotIn("192.0.2.10",str(report))
+        self.assertNotIn("/secret",str(report))
+        self.assertEqual(overlay.redacted_native_startup_census(None)["native_app_state"],
+                         "UNKNOWN")
+        self.assertEqual(overlay.redacted_native_startup_census(
+            {"state":"UNKNOWN", "active_workloads":{"container_details":[]}}
+        )["native_app_state"],"UNKNOWN")
+        self.assertTrue(overlay.redacted_native_startup_census(
+            {"state":"STOPPED", "active_workloads":{"container_details":[
+                {"state":"running"}]*17}}
+        )["container_census_truncated"])
+
     def test_runner_owned_ephemeral_forward_matches_native_harness(self):
         req=admission()
         req["host_forward"]="tcp:127.0.0.1:45451-:25580"
