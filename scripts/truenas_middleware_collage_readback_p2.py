@@ -80,14 +80,23 @@ def provision_guest_readonly(call) -> str:
     require(isinstance(user, dict) and user.get("username") == NAME,
             "READONLY_ACCOUNT_CREATION_REFUSED")
     group = user.get("group")
-    require(isinstance(group, dict) and type(group.get("id")) is int
-            and type(group.get("gid")) is int,
-            "READONLY_ACCOUNT_GROUP_UNAVAILABLE")
+    # TrueNAS user.create returns a populated group reference (datastore ID)
+    # but does not guarantee that it includes the Unix GID. Fetch the exact
+    # group by its immutable internal ID before creating a privilege. Never
+    # fall back to treating the database ID as POSIX GID.
+    require(isinstance(group, dict) and type(group.get("id")) is int,
+            "READONLY_ACCOUNT_PRIMARY_GROUP_ID_UNAVAILABLE")
+    gid_record = call("group.query", [[["id", "=", group["id"]]], {"get": True}])
+    require(type(gid_record) is dict and gid_record.get("id") == group["id"]
+            and type(gid_record.get("gid")) is int and gid_record["gid"] >= 0
+            and gid_record.get("local") is True,
+            "READONLY_ACCOUNT_PRIMARY_GROUP_GID_UNAVAILABLE")
+    group_gid = gid_record["gid"]
     # Exact TrueNAS 25.04.2.6 middleware privilege.create.local_groups
     # requires POSIX GIDs, NOT middleware account.group datastore IDs.
     # group.query(id=...) and user.query(group.id) still use datastore IDs.
     privilege = call("privilege.create", [{
-        "name": ROLE_NAME, "local_groups": [group["gid"]],
+        "name": ROLE_NAME, "local_groups": [group_gid],
         "roles": ["APPS_READ"], "web_shell": False,
     }])
     require(isinstance(privilege, dict) and privilege.get("name") == ROLE_NAME,
@@ -97,7 +106,7 @@ def provision_guest_readonly(call) -> str:
     members = privilege.get("local_groups")
     require(type(members) is list and len(members) == 1
             and type(members[0]) is dict
-            and members[0].get("gid") == group["gid"],
+            and members[0].get("gid") == group_gid,
             "CREATED_PRIVILEGE_GID_LINK_NOT_EXACT")
     # Distinguish role/primary-group propagation problems from extra authority,
     # without emitting public role names, user metadata or sensitive API fields.
