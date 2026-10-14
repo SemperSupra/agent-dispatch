@@ -272,8 +272,29 @@ class Tests(unittest.TestCase):
             m.submit(f,self.plan())
     def test_gpu_positive_oracle(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
-           "status":"PASS","accelerator":"gpu","gpu_count":2,"checksum":8386560.0}
+           "status":"PASS","accelerator":"gpu","gpu_count":2,"checksum":8386560.0,
+           "device_arithmetic_checksums":[8386560.0,8386560.0]}
         self.assertIsNone(m.verify(d,"gpu-cuda-smoke-v1"))
+    def test_second_gpu_without_arithmetic_is_not_qualified(self):
+        d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
+           "status":"PASS","accelerator":"gpu","gpu_count":2,
+           "checksum":8386560.0,"device_arithmetic_checksums":[8386560.0,8386560.0]}
+        self.assertIsNone(m.verify(d,"gpu-cuda-smoke-v1"))
+        for invalid in ([8386560.0], [8386560.0,0.0],
+                        [8386560.0,8386560.0,8386560.0], None):
+            d["device_arithmetic_checksums"]=invalid
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(m.Denied,"CUDA_ORACLE_FAILED"):
+                m.verify(d,"gpu-cuda-smoke-v1")
+
+    def test_gpu_probe_source_targets_both_devices(self):
+        source=(ROOT/"experiments"/"kaggle_rdte"/"gpu_smoke.py").read_text()
+        import ast
+        tree=ast.parse(source)
+        self.assertIn('for gpu_id in range(2):',source)
+        self.assertIn('torch.cuda.synchronize(gpu_id)',source)
+        self.assertIn('torch.cuda.device(gpu_id)',source)
+        self.assertIn('device_arithmetic_checksums',source)
+
     def test_gpu_false_claim(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
            "status":"PASS","accelerator":"cpu","gpu_count":0,"checksum":8386560.0}
@@ -347,7 +368,8 @@ class Tests(unittest.TestCase):
 
     def test_observe_version_exact_and_receipt(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1","status":"PASS",
-           "accelerator":"gpu","gpu_count":2,"checksum":8386560.0}
+           "accelerator":"gpu","gpu_count":2,"checksum":8386560.0,
+           "device_arithmetic_checksums":[8386560.0,8386560.0]}
         f=Fake(output=d)
         with tempfile.TemporaryDirectory() as td:
             receipt=m.observe(f,self.plan("observe",version=3),Path(td))
@@ -390,7 +412,8 @@ class Tests(unittest.TestCase):
 
     def test_observe_refuses_version_change_during_retrieval(self):
         d={"schema":"kaggle-rdte-result/v1","workload":"gpu-cuda-smoke-v1",
-           "status":"PASS","accelerator":"gpu","gpu_count":2,"checksum":8386560.0}
+           "status":"PASS","accelerator":"gpu","gpu_count":2,"checksum":8386560.0,
+           "device_arithmetic_checksums":[8386560.0,8386560.0]}
         f=Fake(output=d,observed_versions=[3,4])
         with tempfile.TemporaryDirectory() as td, self.assertRaisesRegex(m.Denied,"PROVIDER_VERSION_CHANGED_RECONCILE"):
             m.observe(f,self.plan("observe",version=3),Path(td))
