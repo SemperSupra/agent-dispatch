@@ -9,10 +9,12 @@ ROLE = "APPS_READ"
 USER = "collage_p2_observer"
 PRIVILEGE = "collage-p2-apps-read"
 GROUP_ID = 1013
+GROUP_GID = 32013  # POSIX GID, deliberately not middleware group datastore id
 
 
 def authority_responses(*, primary_roles=None, user_roles=None,
-                        user_group_id=GROUP_ID, privilege_roles=None):
+                        user_group_id=GROUP_ID, privilege_roles=None,
+                        group_gid=GROUP_GID, privilege_group_gid=GROUP_GID):
     primary_roles = [ROLE] if primary_roles is None else primary_roles
     user_roles = [ROLE] if user_roles is None else user_roles
     privilege_roles = [ROLE] if privilege_roles is None else privilege_roles
@@ -20,8 +22,9 @@ def authority_responses(*, primary_roles=None, user_roles=None,
         ("user.query", []),
         ("privilege.query", []),
         ("privilege.roles", [{"name": ROLE, "includes": []}]),
-        ("user.create", {"username": USER, "group": {"id": GROUP_ID}}),
-        ("privilege.create", {"name": PRIVILEGE, "roles": privilege_roles}),
+        ("user.create", {"username": USER, "group": {"id": GROUP_ID, "gid": group_gid}}),
+        ("privilege.create", {"name": PRIVILEGE, "roles": privilege_roles,
+                               "local_groups": [{"gid": privilege_group_gid}]}),
         ("group.query", {"id": GROUP_ID, "roles": primary_roles}),
         ("user.query", {"username": USER, "group": {"id": user_group_id},
                         "roles": user_roles}),
@@ -38,6 +41,14 @@ class RoleLinkageTests(unittest.TestCase):
             self.assertLess(len(called), len(responses), "unexpected API call")
             want, result = responses[len(called)]
             self.assertEqual(method, want, f"wrong operation at position {len(called)}")
+            if method == "privilege.create":
+                # Caller must send UNIX GID, not middleware group datastore id.
+                self.assertEqual(params[0]["local_groups"], [GROUP_GID])
+                self.assertNotEqual(params[0]["local_groups"], [GROUP_ID])
+                self.assertEqual(params[0]["roles"], ["APPS_READ"])
+            if method == "group.query":
+                self.assertEqual(params[0][0][0], "id")
+                self.assertEqual(params[0][0][2], GROUP_ID)
             called.append(method)
             return result
         return call, called
@@ -61,6 +72,8 @@ class RoleLinkageTests(unittest.TestCase):
              "OBSERVER_PRIMARY_GROUP_ROLE_NOT_EXACT"),
             ({"privilege_roles": ["APPS_READ", "FULL_ADMIN"]},
              "CREATED_PRIVILEGE_ROLES_NOT_EXACT"),
+            ({"privilege_group_gid": GROUP_GID + 1},
+             "CREATED_PRIVILEGE_GID_LINK_NOT_EXACT"),
         ]
         for opts, reason in cases:
             with self.subTest(opts=opts):

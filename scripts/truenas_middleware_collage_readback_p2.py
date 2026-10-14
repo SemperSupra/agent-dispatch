@@ -77,16 +77,25 @@ def provision_guest_readonly(call) -> str:
     require(isinstance(user, dict) and user.get("username") == NAME,
             "READONLY_ACCOUNT_CREATION_REFUSED")
     group = user.get("group")
-    require(isinstance(group, dict) and type(group.get("id")) is int,
+    require(isinstance(group, dict) and type(group.get("id")) is int
+            and type(group.get("gid")) is int,
             "READONLY_ACCOUNT_GROUP_UNAVAILABLE")
+    # Exact TrueNAS 25.04.2.6 middleware privilege.create.local_groups
+    # requires POSIX GIDs, NOT middleware account.group datastore IDs.
+    # group.query(id=...) and user.query(group.id) still use datastore IDs.
     privilege = call("privilege.create", [{
-        "name": ROLE_NAME, "local_groups": [group["id"]],
+        "name": ROLE_NAME, "local_groups": [group["gid"]],
         "roles": ["APPS_READ"], "web_shell": False,
     }])
     require(isinstance(privilege, dict) and privilege.get("name") == ROLE_NAME,
             "APPS_READ_ASSIGNMENT_UNVERIFIED")
     require(privilege.get("roles") == ["APPS_READ"],
             "CREATED_PRIVILEGE_ROLES_NOT_EXACT")
+    members = privilege.get("local_groups")
+    require(type(members) is list and len(members) == 1
+            and type(members[0]) is dict
+            and members[0].get("gid") == group["gid"],
+            "CREATED_PRIVILEGE_GID_LINK_NOT_EXACT")
     # Distinguish role/primary-group propagation problems from extra authority,
     # without emitting public role names, user metadata or sensitive API fields.
     primary = call("group.query", [[["id", "=", group["id"]]], {"get": True}])
