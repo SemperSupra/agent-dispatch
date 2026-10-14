@@ -54,7 +54,6 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         # Triggering branch merely edits source/probe/workflow. Heavy runs
         # are ONLY driven by a separate unique request-file transition.
         self.assertIn("config/truenas-rdte-run-request.json)",WORKFLOW)
-        self.assertIn('[[ "$current_request_id" == "$previous_request_id" ]]',WORKFLOW) if False else None
         self.assertIn('"$current_request_id" == "$previous_request_id"',WORKFLOW)
 
     def test_no_fallback_guest_or_physical_promotion(self):
