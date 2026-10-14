@@ -106,6 +106,44 @@ class TestNativeVanilla263Guest(unittest.TestCase):
         # Legacy native guest acceptance remains unchanged by absent readback.
         check_guest(guest_fixture(),require_collage=False)
 
+    def test_optional_real_native_lantern_file_stage_does_not_inherit_gameplay(self):
+        root=guest_fixture()
+        with self.assertRaisesRegex(ValueError,"actual native Lantern ZIP byte stage"):
+            check_guest(root,require_lantern_staged=True)
+        hashid="da25005e8729e6f013f7108ac5b8869dd46323befc78efdae18221b26cafe5f8"
+        stage={
+            "schema":"supracraft.native-vanilla263-lantern-artifact-stage/1",
+            "classification":"REAL_NATIVE_GUEST_ARTIFACT_BYTES_STAGED",
+            "artifact_sha256":hashid,"download_readback_sha256":hashid,
+            "world_id":"lantern-rdte", "native_app":native.APP,
+            "native_truenas_version":"25.04.2.6",
+            "zfs_world_owned":True,"app_quiesced_before_write":True,
+            "persisted_on_restart":True,"persisted_on_reinstall":True,
+            "artifact_gameplay_effect_verified":False,
+            "collage_managed_deployment":False,
+            "principal_authorized_to_apply":False,
+            "physical_truenas_apply":"HOLD",
+        }
+        root["foundry_materialization"]["lantern_artifact_stage"]=stage
+        check_guest(root,require_lantern_staged=True)
+        for field,bad in (
+            ("classification","SOURCE_VALIDATED"),
+            ("artifact_sha256","f"*64),
+            ("download_readback_sha256","f"*64),
+            ("native_app","foreign"),
+            ("app_quiesced_before_write",False),
+            ("persisted_on_restart",False),
+            ("persisted_on_reinstall",False),
+            ("artifact_gameplay_effect_verified",True),
+            ("collage_managed_deployment",True),
+            ("physical_truenas_apply","APPLY"),
+        ):
+            wrong=copy.deepcopy(root)
+            wrong["foundry_materialization"]["lantern_artifact_stage"][field]=bad
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                check_guest(wrong,require_lantern_staged=True)
+        check_guest(guest_fixture(),require_lantern_staged=False)
+
     def test_never_promote_paper_legacy_or_source_only(self):
         for change in ("legacy_version","legacy_paper","source_only","wrong_phase"):
             r=guest_fixture()
