@@ -75,9 +75,9 @@ def validate(receipt: object, stage: str) -> dict:
 def run(*, stage: str, forward: str, state_dir: Path, node_path: Path) -> dict:
     require(stage in STAGES, "UNSUPPORTED_CLIENT_STAGE")
     host_port = runner_owned_loopback_forward(forward)
-    require(type(state_dir) is Path and state_dir.is_dir() and not state_dir.is_symlink(),
+    require(isinstance(state_dir, Path) and state_dir.is_dir() and not state_dir.is_symlink(),
             "PLAYER_STATE_OWNER_MISSING")
-    require(type(node_path) is Path and node_path.is_dir() and
+    require(isinstance(node_path, Path) and node_path.is_dir() and
             not node_path.is_symlink(), "PINNED_CLIENT_DEPENDENCIES_MISSING")
     require(WORKER.is_file() and not WORKER.is_symlink(),
             "PINNED_CLIENT_WORKER_MISSING")
