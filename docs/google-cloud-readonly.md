@@ -23,6 +23,8 @@ Google provider policy must admit **all** of these verified GitHub OIDC claims:
 | `ref` | `refs/heads/main` |
 | `workflow_ref` | `SemperSupra/agent-dispatch/.github/workflows/google-cloud-readonly.yml@refs/heads/main` |
 | `event_name` | `workflow_dispatch` |
+| `environment` | `google-cloud-readonly` |
+| `ref_type` | `branch` |
 
 The script additionally rejects rerun attempts, missing/wrong run identity and source revision. Authentication requires a Google OIDC provider and `roles/iam.workloadIdentityUser` on a resource-scoped service account. The first service account receives only `roles/browser` for one approved project. That permission is read-only but can still expose metadata; keep provider IDs and service-account identifiers private.
 
