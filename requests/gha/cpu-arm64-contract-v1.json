@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "assignment_id": "cpu-arm64-contract-v1",
+  "runner": "ubuntu-24.04-arm",
+  "workload": "sealed-contract-native",
+  "timeout_seconds": 180,
+  "data_class": "public-synthetic",
+  "max_attempts": 1,
+  "max_cost_usd": 0
+}
