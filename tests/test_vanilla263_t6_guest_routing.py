@@ -52,7 +52,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertEqual(current["rung"],"t6")
         self.assertEqual(current["authority_issue"],423)
         self.assertEqual(current["consumer_authority_issue"],627)
-        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4d-006-real-lantern-stage")
+        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4d-007-key-errno-observer")
         self.assertEqual(proposal["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-001")
         self.assertEqual(proposal["consumer_authority_issue"],627)
         self.assertIn("NOT wired",proposal["purpose"])
@@ -77,7 +77,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('"${NATIVE_READBACK_ARGS[@]}"',HARNESS)
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         self.assertIs(request.get("collage_readback"),True)
-        self.assertEqual(request["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4d-006-real-lantern-stage")
+        self.assertEqual(request["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4d-007-key-errno-observer")
         self.assertEqual(request["product"],"minecraft-vanilla-263")
         self.assertEqual(request["version"],"25.04.2.6")
         self.assertNotIn("--vanilla-collage-readback",
