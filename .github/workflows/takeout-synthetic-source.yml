@@ -91,7 +91,45 @@ jobs:
                     'admission': 'HOLD', 'guest_attempt_budget': 0}
           (evidence / 'receipt.json').write_text(json.dumps(result, indent=2) + '\n')
           PY
-          test -z "$(docker ps -aq --filter "name=^/${container}$")"
+          test -z "$(docker ps -aq --filter "name=^/$container$")"
+          # Qualify the transferred OCI tar itself, independently of the
+          # Buildx-provisioned image. No registry, site or guest is accessed.
+          old_config="$(cat "$evidence/loaded-config-digest.txt")"
+          docker image rm takeout-synthetic:local >/dev/null
+          test -z "$(docker image ls -q takeout-synthetic:local)"
+          docker load --input "$evidence/fixture.oci.tar" >/dev/null
+          test "$(docker image inspect takeout-synthetic:local --format '{{.Id}}')" = "$old_config"
+          sudo install -d -o 10001 -g 10001 -m 0700 "$state"
+          timeout 60s docker run --rm --name "$container" --network none \
+            --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$archive,dst=/archive" \
+            --mount "type=bind,src=$state,dst=/state" \
+            takeout-synthetic:local > "$RUNNER_TEMP/takeout-imported.json"
+          sudo python3 - "$archive" "$RUNNER_TEMP/takeout-imported.json" <<'PY'
+          import json, pathlib, sys
+          from scripts.takeout_synthetic_fixture import FILES, SENTINEL
+          archive, imported_path = map(pathlib.Path, sys.argv[1:])
+          imported = json.loads(imported_path.read_text())
+          assert imported['uid'] == 10001
+          assert set(imported['outcomes'].values()) == {'NOOP'}
+          assert imported['fixture_server_closed'] is True
+          expected = {**FILES, 'retained-sentinel.txt': SENTINEL}
+          assert {p.name for p in archive.iterdir()} == set(expected)
+          assert all((archive / k).read_bytes() == v for k, v in expected.items())
+          assert not list(archive.glob('*.part'))
+          PY
+          sudo rm -rf -- "$state"
+          test ! -e "$state"
+          python3 - "$evidence/receipt.json" <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          receipt = json.loads(p.read_text())
+          receipt['offline_oci_docker_load'] = 'PASS'
+          receipt['imported_image_config_identity'] = 'PASS'
+          receipt['imported_container_noop'] = 'PASS'
+          p.write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+          test -z "$(docker ps -aq --filter "name=^/$container$")"
           docker buildx rm "$builder"
           # The bounded archive directory was created above solely for this job.
           sudo rm -rf -- "$archive"
