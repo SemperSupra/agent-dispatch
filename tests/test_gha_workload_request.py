@@ -178,6 +178,8 @@ class DynamicAssignmentContractTests(unittest.TestCase):
             ({"assignment_id": "../escape"}, "ASSIGNMENT_ID_DENIED"),
             ({"nonce": "x"*32}, "ASSIGNMENT_NONCE_DENIED"),
             ({"profile_id": "cpu-win-shell"}, "PROFILE_ID_DENIED"),
+            ({"profile_id": []}, "PROFILE_ID_DENIED"),
+            ({"profile_id": {}}, "PROFILE_ID_DENIED"),
             ({"profile_sha256": "f"*64}, "PROFILE_DIGEST_DRIFT"),
             ({"source_sha": "c"*40}, "SOURCE_DRIFT"),
             ({"data_class": "private"}, "PRIVATE_DATA_DENIED"),
