@@ -16,9 +16,11 @@ import argparse
 import base64
 import hashlib
 import json
+import ntpath
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -85,7 +87,9 @@ def decode_capsule(encoded: str, expected_sha256: str, destination: Path) -> Pat
     return capsule
 
 
-def safe_extract(capsule: Path, destination: Path) -> None:
+def safe_extract(capsule: Path, destination: Path, *, platform: str = "linux") -> None:
+    if platform == "windows" and not hasattr(ntpath, "isreserved"):
+        raise WorkerError("Windows capsule validation requires Python 3.13+")
     destination.mkdir(parents=True, exist_ok=False)
     total = 0
     with tarfile.open(capsule, mode="r:gz") as tf:
@@ -93,9 +97,28 @@ def safe_extract(capsule: Path, destination: Path) -> None:
         if not members or len(members) > MAX_MEMBER_COUNT:
             raise WorkerError("capsule member count is outside the allowed bound")
         root = destination.resolve()
+        windows_seen: set[str] = set()
         for member in members:
             if member.issym() or member.islnk() or member.isdev():
                 raise WorkerError("capsule links/devices are prohibited")
+            if platform == "windows":
+                # Enforce one portable POSIX-style member namespace; Windows treats
+                # backslashes, drive prefixes, streams and device names specially.
+                if "\\" in member.name or ":" in member.name:
+                    raise WorkerError("Windows capsule member contains a forbidden path character")
+                member_name = member.name.rstrip("/") if member.isdir() else member.name
+                parts = member_name.split("/")
+                if any(part in ("", ".", "..") for part in parts):
+                    raise WorkerError("Windows capsule member path is not canonical")
+                identity = member_name.casefold()
+                if identity in windows_seen:
+                    raise WorkerError("Windows capsule contains a case-folded path collision")
+                windows_seen.add(identity)
+                # CPython owns the evolving Win32 reserved-name rules (3.13+).
+                # Keep archive-specific path/case collision checks separate.
+                for part in parts:
+                    if ntpath.isreserved(part):
+                        raise WorkerError("Windows capsule member has a reserved name")
             total += max(member.size, 0)
             if total > MAX_UNPACKED_BYTES:
                 raise WorkerError("capsule exceeds unpacked-size limit")
@@ -105,9 +128,14 @@ def safe_extract(capsule: Path, destination: Path) -> None:
             except ValueError as exc:
                 raise WorkerError("capsule path escapes execution directory") from exc
         tf.extractall(destination, members=members, filter="data")
-    run_sh = destination / "run.sh"
-    if not run_sh.is_file() or run_sh.is_symlink():
-        raise WorkerError("capsule must contain a regular top-level run.sh")
+    entrypoint = "run.ps1" if platform == "windows" else "run.sh"
+    if platform == "windows" and not any(
+        member.name == entrypoint and member.isfile() for member in members
+    ):
+        raise WorkerError("Windows capsule must name its exact top-level run.ps1")
+    runner = destination / entrypoint
+    if not runner.is_file() or runner.is_symlink():
+        raise WorkerError(f"capsule must contain a regular top-level {entrypoint}")
 
 
 def _truncate_stream(path: Path, max_bytes: int = MAX_CAPTURED_STREAM_BYTES) -> dict[str, object]:
@@ -220,12 +248,198 @@ def seal_result(plaintext: Path, recipient: str, ciphertext: Path) -> None:
     )
 
 
+def native_windows_powershell() -> str:
+    """Use the native system interpreter, not an executable from capsule cwd."""
+    system_root = os.environ.get("SystemRoot")
+    if not system_root:
+        raise WorkerError("Windows SystemRoot is unavailable")
+    executable = (Path(system_root) / "System32" / "WindowsPowerShell"
+                  / "v1.0" / "powershell.exe")
+    if not executable.is_file():
+        raise WorkerError("Native Windows PowerShell 5.1 is unavailable")
+    return str(executable)
+
+
+def _windows_job_object():
+    """Create a kill-on-close Win32 Job Object with no breakaway allowance.
+
+    Every PowerShell descendant inherits the job; none may outlive the
+    execution boundary. Windows 2025 supports nested jobs under a runner job.
+    """
+    import ctypes
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_uint64) for name in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+        )]
+
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimits),
+            ("IoInfo", IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    kernel.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel.SetInformationJobObject.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32,
+    ]
+    kernel.SetInformationJobObject.restype = ctypes.c_int
+    kernel.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel.TerminateJobObject.restype = ctypes.c_int
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CloseHandle.restype = ctypes.c_int
+
+    handle = kernel.CreateJobObjectW(None, None)
+    if not handle:
+        raise WorkerError(f"CreateJobObjectW failed: {ctypes.get_last_error()}")
+    limits = ExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+    if not kernel.SetInformationJobObject(handle, 9, ctypes.byref(limits),
+                                          ctypes.sizeof(limits)):
+        error = ctypes.get_last_error()
+        kernel.CloseHandle(handle)
+        raise WorkerError(f"SetInformationJobObject failed: {error}")
+    return kernel, handle
+
+
+
+def _resume_suspended_windows_process(kernel, proc) -> None:
+    """Resume the initial thread only after Win32 Job Object admission."""
+    import ctypes
+
+    class ThreadEntry(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", ctypes.c_uint32),
+            ("cntUsage", ctypes.c_uint32),
+            ("th32ThreadID", ctypes.c_uint32),
+            ("th32OwnerProcessID", ctypes.c_uint32),
+            ("tpBasePri", ctypes.c_long),
+            ("tpDeltaPri", ctypes.c_long),
+            ("dwFlags", ctypes.c_uint32),
+        ]
+
+    kernel.CreateToolhelp32Snapshot.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    kernel.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    kernel.Thread32First.argtypes = [ctypes.c_void_p, ctypes.POINTER(ThreadEntry)]
+    kernel.Thread32First.restype = ctypes.c_int
+    kernel.Thread32Next.argtypes = [ctypes.c_void_p, ctypes.POINTER(ThreadEntry)]
+    kernel.Thread32Next.restype = ctypes.c_int
+    kernel.OpenThread.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel.OpenThread.restype = ctypes.c_void_p
+    kernel.ResumeThread.argtypes = [ctypes.c_void_p]
+    kernel.ResumeThread.restype = ctypes.c_uint32
+
+    # Popen's CREATE_SUSPENDED launch has not executed the initial thread.
+    # No capsule code can fork descendants before Job Object assignment.
+    snapshot = kernel.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+    if snapshot == ctypes.c_void_p(-1).value:
+        raise WorkerError(f"Windows thread snapshot failed: {ctypes.get_last_error()}")
+    try:
+        entry = ThreadEntry()
+        entry.dwSize = ctypes.sizeof(entry)
+        found = kernel.Thread32First(snapshot, ctypes.byref(entry))
+        while found:
+            if entry.th32OwnerProcessID == proc.pid:
+                thread = kernel.OpenThread(0x0002, False, entry.th32ThreadID)
+                if not thread:
+                    raise WorkerError(f"OpenThread failed: {ctypes.get_last_error()}")
+                try:
+                    previous = kernel.ResumeThread(thread)
+                    if previous != 1:
+                        raise WorkerError(
+                            f"ResumeThread unexpected suspend count: {previous}"
+                        )
+                    return
+                finally:
+                    kernel.CloseHandle(thread)
+            found = kernel.Thread32Next(snapshot, ctypes.byref(entry))
+        raise WorkerError("suspended Windows task initial thread not found")
+    finally:
+        kernel.CloseHandle(snapshot)
+
+
+def _run_bounded_task(
+    command: list[str], *, cwd: Path, env: dict[str, str],
+    stdout_fh, stderr_fh, timeout_seconds: int, platform: str,
+) -> tuple[int, bool]:
+    """Own the entire subprocess tree, even after the entrypoint exits.
+
+    On Windows, Popen starts the initial thread suspended. Assign it to
+    the job before resuming, so task code cannot spawn outside containment.
+    Fail closed if nested job admission or thread resumption fails.
+    """
+    kernel = job = None
+    proc = None
+    if platform == "windows":
+        kernel, job = _windows_job_object()
+    try:
+        proc = subprocess.Popen(
+            command, cwd=cwd, env=env, stdout=stdout_fh, stderr=stderr_fh,
+            start_new_session=(platform == "linux"),
+            creationflags=(0x00000004 if platform == "windows" else 0),  # CREATE_SUSPENDED
+        )
+        if job is not None:
+            import ctypes
+            if not kernel.AssignProcessToJobObject(job, ctypes.c_void_p(int(proc._handle))):
+                raise WorkerError(
+                    f"AssignProcessToJobObject failed: {ctypes.get_last_error()}"
+                )
+            _resume_suspended_windows_process(kernel, proc)
+        try:
+            return int(proc.wait(timeout=timeout_seconds)), False
+        except subprocess.TimeoutExpired:
+            return 124, True
+    finally:
+        if job is not None:
+            # TerminateJobObject also kills descendants after a normal parent
+            # exit. No surviving child may observe the post-task seal phase.
+            kernel.TerminateJobObject(job, 125)
+            kernel.CloseHandle(job)
+        elif proc is not None and platform == "linux":
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        if proc is not None:
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired as exc:
+                raise WorkerError("timed-out task process could not be reaped") from exc
+
+
 def run_assignment(
     *, assignment_id: str, capsule_b64: str, capsule_sha256: str,
     recipient: str, timeout_seconds: int, out_dir: Path,
+    platform: str = "linux",
 ) -> int:
     assignment_id = _validate_assignment_id(assignment_id)
     recipient = _validate_recipient(recipient)
+    if platform not in ("linux", "windows"):
+        raise WorkerError("platform must be linux or windows")
     if timeout_seconds < 1 or timeout_seconds > MAX_TIMEOUT_SECONDS:
         raise WorkerError(f"timeout_seconds must be 1-{MAX_TIMEOUT_SECONDS}")
 
@@ -235,7 +449,7 @@ def run_assignment(
         temp = Path(temp_name)
         capsule = decode_capsule(capsule_b64, capsule_sha256, temp)
         work = temp / "work"
-        safe_extract(capsule, work)
+        safe_extract(capsule, work, platform=platform)
         result = temp / "result"
         result.mkdir()
         stdout_path = result / "stdout.txt"
@@ -250,16 +464,14 @@ def run_assignment(
         exit_code = 125
         timed_out = False
         with stdout_path.open("wb") as stdout_fh, stderr_path.open("wb") as stderr_fh:
-            try:
-                completed = subprocess.run(
-                    ["bash", "run.sh"], cwd=work, env=env,
-                    stdout=stdout_fh, stderr=stderr_fh,
-                    timeout=timeout_seconds, check=False,
-                )
-                exit_code = int(completed.returncode)
-            except subprocess.TimeoutExpired:
-                exit_code = 124
-                timed_out = True
+            command = ([native_windows_powershell(), "-NoProfile", "-NonInteractive",
+                        "-File", "run.ps1"] if platform == "windows"
+                       else ["bash", "run.sh"])
+            exit_code, timed_out = _run_bounded_task(
+                command, cwd=work, env=env,
+                stdout_fh=stdout_fh, stderr_fh=stderr_fh,
+                timeout_seconds=timeout_seconds, platform=platform,
+            )
 
         task_exit_code = exit_code
         result_budget = enforce_result_budget(result)
@@ -273,6 +485,7 @@ def run_assignment(
             "ended_at": _utc_now(),
             "exit_code": exit_code,
             "task_exit_code": task_exit_code,
+            "worker_platform": platform,
             "timed_out": timed_out,
             "result_budget": result_budget,
             "capsule_sha256": capsule_sha256,
@@ -292,6 +505,7 @@ def run_assignment(
         receipt = {
             "schema_version": 1,
             "assignment_id": assignment_id,
+            "worker_platform": platform,
             "status": "completed" if exit_code == 0 else "failed",
             "sealed_sha256": _sha256(ciphertext),
             "sealed_bytes": ciphertext.stat().st_size,
@@ -311,6 +525,7 @@ def main() -> int:
     parser.add_argument("--recipient", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     parser.add_argument("--out-dir", default=".sealed")
+    parser.add_argument("--platform", choices=("linux", "windows"), default="linux")
     args = parser.parse_args()
     try:
         return run_assignment(
@@ -320,6 +535,7 @@ def main() -> int:
             recipient=args.recipient,
             timeout_seconds=args.timeout_seconds,
             out_dir=Path(args.out_dir),
+            platform=args.platform,
         )
     except WorkerError as exc:
         print(f"sealed public execution rejected: {exc}", file=os.sys.stderr)
