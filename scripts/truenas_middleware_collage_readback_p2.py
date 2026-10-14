@@ -237,13 +237,18 @@ def classify_scoped_key_ddp_failure(exc: Exception) -> str:
         return "_LOCAL_UNEXPECTED_FAILURE"
     data = exc.args[0]
     prefix = "api_key.create: "
-    if len(data) > 8192:
-        return "_DDP_OVERSIZE_ERROR"
     if not data.startswith(prefix):
         return "_DDP_UNSTRUCTURED_ERROR"
+    # Native 008 returned an oversized *structured* error after 119 s
+    # overall successful world staging. Keep the parser size-bounded, but
+    # inspect an error object of realistic traceback size in memory so the
+    # fixed allowlist can classify the DDP numeric code. Never publish the
+    # remote reason/trace/details, even when malicious or unusually long.
+    if len(data) > 262144:
+        return "_DDP_OVERSIZE_ERROR"
     try:
         obj = json.loads(data[len(prefix):])
-    except ValueError:
+    except (ValueError, RecursionError):
         return "_DDP_MALFORMED_ERROR"
     if type(obj) is not dict:
         return "_DDP_NONOBJECT_ERROR"
@@ -253,6 +258,14 @@ def classify_scoped_key_ddp_failure(exc: Exception) -> str:
     if type(code) is str and code in {"EINVAL","EPERM","EACCES","VALIDATION_ERRORS","METHOD_NOT_FOUND"}:
         return "_" + code
     if type(code) is dict:
+        # Middleware may nest its code/error/errno fields beneath error.
+        # At most one level, with a hardcoded numeric-only allowlist; never
+        # derive a public string from untrusted remote metadata.
+        nested = code.get("errno")
+        if type(nested) is not int:
+            nested = code.get("error")
+        if type(nested) is int and nested in {1, 2, 5, 11, 13, 17, 22, 38, 400, 401, 403, 404, 409, 422, 500, 503}:
+            return "_E" + str(nested)
         return "_DDP_NESTED_ERROR"
     if type(code) is list:
         return "_DDP_VALIDATION_LIST"
