@@ -124,7 +124,8 @@ jobs:
           PY
           sudo rm -rf -- "$state"
           test ! -e "$state"
-          python3 - "$evidence/receipt.json" <<'PY'
+          # Original receipt was written by sudo: preserve ownership on update.
+          sudo python3 - "$evidence/receipt.json" <<'PY'
           import hashlib, json, pathlib, sys
           p = pathlib.Path(sys.argv[1])
           receipt = json.loads(p.read_text())
