@@ -94,6 +94,7 @@ jobs:
       truenas_t6_product: ${{ steps.scope.outputs.truenas_t6_product }}
       truenas_collage_readback: ${{ steps.scope.outputs.truenas_collage_readback }}
       truenas_lantern_stage: ${{ steps.scope.outputs.truenas_lantern_stage }}
+      truenas_world_rollback: ${{ steps.scope.outputs.truenas_world_rollback }}
       truenas_compute_fixture: ${{ steps.scope.outputs.truenas_compute_fixture }}
       proxmox_compute_fixture: ${{ steps.scope.outputs.proxmox_compute_fixture }}
     steps:
@@ -124,6 +125,7 @@ jobs:
           truenas_t6_product="${DISPATCH_TRUENAS_T6_PRODUCT:-litellm}"
           truenas_collage_readback=false
           truenas_lantern_stage=false
+          truenas_world_rollback=false
           truenas_compute_fixture="${DISPATCH_TRUENAS_COMPUTE_FIXTURE:-none}"
           proxmox_compute_fixture="${DISPATCH_PROXMOX_COMPUTE_FIXTURE:-none}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
@@ -196,6 +198,13 @@ jobs:
             truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
             truenas_collage_readback="$(jq -er '(.collage_readback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
             truenas_lantern_stage="$(jq -er '(.lantern_stage // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            truenas_world_rollback="$(jq -er '(.native_world_rollback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            if [[ "$truenas_world_rollback" == "true" ]]; then
+              [[ "$truenas_lantern_stage" == "true" && "$truenas_collage_readback" == "true" &&
+                 "$truenas_t6_product" == "minecraft-vanilla-263" && "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
+                echo "native rollback only allowed in one exact G2+Lantern disposable fixture" >&2; exit 2;
+              }
+            fi
             if [[ "$truenas_lantern_stage" == "true" ]]; then
               [[ "$truenas_collage_readback" == "true" && "$truenas_t6_product" == "minecraft-vanilla-263" &&
                  "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
@@ -224,6 +233,7 @@ jobs:
           echo "truenas_t6_product=$truenas_t6_product" >>"$GITHUB_OUTPUT"
           echo "truenas_collage_readback=$truenas_collage_readback" >>"$GITHUB_OUTPUT"
           echo "truenas_lantern_stage=$truenas_lantern_stage" >>"$GITHUB_OUTPUT"
+          echo "truenas_world_rollback=$truenas_world_rollback" >>"$GITHUB_OUTPUT"
           echo "truenas_compute_fixture=$truenas_compute_fixture" >>"$GITHUB_OUTPUT"
           echo "proxmox_compute_fixture=$proxmox_compute_fixture" >>"$GITHUB_OUTPUT"
           printf 'target scope: proxmox=%s proxmox_compute_fixture=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s t6_product=%s truenas_compute_fixture=%s\n' "$proxmox" "$proxmox_compute_fixture" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung" "$truenas_t6_product" "$truenas_compute_fixture"
@@ -809,6 +819,9 @@ jobs:
             args+=(--vanilla-lantern-zip "$RUNNER_TEMP/lantern-native/lantern-restoration-26.3.zip"
                    --vanilla-lantern-manifest "$RUNNER_TEMP/lantern-native/manifest.json")
           fi
+          if [[ "${{ needs.changes.outputs.truenas_world_rollback }}" == "true" ]]; then
+            args+=(--vanilla-world-rollback)
+          fi
           bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           # A green job is not a Minecraft product pass without full guest evidence.
@@ -823,6 +836,9 @@ jobs:
             fi
             if [[ "${{ needs.changes.outputs.truenas_lantern_stage }}" == "true" ]]; then
               additional+=(--require-lantern-staged)
+            fi
+            if [[ "${{ needs.changes.outputs.truenas_world_rollback }}" == "true" ]]; then
+              additional+=(--require-native-rollback)
             fi
             python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json" "${additional[@]}"
           fi

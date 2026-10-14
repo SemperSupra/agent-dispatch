@@ -42,6 +42,7 @@ SESSION_MANIFEST=""
 VANILLA_COLLAGE_READBACK=false
 VANILLA_LANTERN_ZIP=""
 VANILLA_LANTERN_MANIFEST=""
+VANILLA_WORLD_ROLLBACK=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -66,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --vanilla-collage-readback) VANILLA_COLLAGE_READBACK=true; shift ;;
     --vanilla-lantern-zip) VANILLA_LANTERN_ZIP="$2"; shift 2 ;;
     --vanilla-lantern-manifest) VANILLA_LANTERN_MANIFEST="$2"; shift 2 ;;
+    --vanilla-world-rollback) VANILLA_WORLD_ROLLBACK=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -86,6 +88,12 @@ if [[ -n "$VANILLA_LANTERN_ZIP" || -n "$VANILLA_LANTERN_MANIFEST" ]]; then
      "$VANILLA_COLLAGE_READBACK" == "true" &&
      "$T6_PRODUCT" == "minecraft-vanilla-263" && "$VERSION" == "25.04.2.6" ]] ||
     { echo "native Lantern ZIP stage requires exact disposable vanilla263 and scoped COLLAGE readback" >&2; exit 2; }
+fi
+if [[ "$VANILLA_WORLD_ROLLBACK" == "true" ]]; then
+  [[ "$VANILLA_COLLAGE_READBACK" == "true" && "$RUNG" == "t6" &&
+     "$T6_PRODUCT" == "minecraft-vanilla-263" && "$VERSION" == "25.04.2.6" &&
+     -f "$VANILLA_LANTERN_ZIP" && -f "$VANILLA_LANTERN_MANIFEST" ]] ||
+    { echo "native world rollback requires disposable vanilla263 G2 and exact Lantern ZIP" >&2; exit 2; }
 fi
 if [[ "$VANILLA_COLLAGE_READBACK" == "true" ]]; then
   [[ "$RUNG" == "t6" && "$T6_PRODUCT" == "minecraft-vanilla-263" && "$VERSION" == "25.04.2.6" ]] ||
@@ -1215,6 +1223,10 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
       --lantern-manifest "$VANILLA_LANTERN_MANIFEST"
     )
   fi
+  NATIVE_ROLLBACK_ARGS=()
+  if [[ "$VANILLA_WORLD_ROLLBACK" == "true" ]]; then
+    NATIVE_ROLLBACK_ARGS=(--native-world-rollback)
+  fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
     --product-profile vanilla263 --native-catalog-profile 1.15.30 \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
@@ -1225,6 +1237,7 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
     --foundry-commit "$FOUNDRY_COMMIT" --expected-system-version "$EXPECTED_SYSTEM_VERSION" \
     "${NATIVE_READBACK_ARGS[@]}" \
     "${NATIVE_LANTERN_ARGS[@]}" \
+    "${NATIVE_ROLLBACK_ARGS[@]}" \
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 600 --state-timeout 480 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "foliorelay" ]]; then
   python3 "$SCRIPT_DIR/truenas_middleware_foliorelay_t6_probe.py" \

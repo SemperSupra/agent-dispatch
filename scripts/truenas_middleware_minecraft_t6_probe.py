@@ -402,6 +402,7 @@ def main() -> int:
     p.add_argument("--collage-source-ref")
     p.add_argument("--lantern-zip", type=pathlib.Path)
     p.add_argument("--lantern-manifest", type=pathlib.Path)
+    p.add_argument("--native-world-rollback", action="store_true")
     p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
                    default="1.15.29")
     p.add_argument("--product-profile", choices=("legacy-paper", "vanilla263"),
@@ -433,6 +434,9 @@ def main() -> int:
         if a.lantern_zip is not None and (not VANILLA263 or
                                            a.collage_source_dir is None):
             raise MinecraftT6Error("native Lantern staging needs exact vanilla263 and read-only COLLAGE source")
+        if a.native_world_rollback and (not VANILLA263 or
+            a.lantern_zip is None or a.collage_source_dir is None):
+            raise MinecraftT6Error("G3 native rollback requires exact vanilla263 G2 and signed Lantern ZIP")
         lantern_blob = None
         lantern_evidence = None
         if a.lantern_zip is not None:
@@ -607,6 +611,9 @@ def main() -> int:
         required = {"app.query", "app.config", "app.create", "app.delete", "app.start",
                     "app.stop", "app.redeploy", "pool.dataset.query", "pool.dataset.create",
                     "pool.dataset.delete", "filesystem.stat", "filesystem.setperm"}
+        if a.native_world_rollback:
+            required.update({"zfs.snapshot.create", "zfs.snapshot.query",
+                             "zfs.snapshot.rollback", "filesystem.listdir"})
         if not isinstance(methods, dict) or not required.issubset(methods):
             raise MinecraftT6Error("required native TrueNAS methods missing")
         if getapp() is not None or one("pool.dataset.query", [["id", "=", DATASET]]) is not None:
@@ -688,6 +695,15 @@ def main() -> int:
         first_level = payload["readiness"]["first"]["level"]["size"]
 
         wait_job(call("app.stop", [APP]), "Minecraft stop")
+        if a.native_world_rollback:
+            from qualify_vanilla263_native_world_rollback import take_owned_pre_stage_snapshot
+            try:
+                payload["native_world_rollback"] = take_owned_pre_stage_snapshot(call)
+            except Exception as exc:
+                from qualify_vanilla263_native_world_rollback import Refused
+                if isinstance(exc, Refused):
+                    raise MinecraftT6Error("G3 snapshot: " + str(exc)) from None
+                raise MinecraftT6Error("G3 snapshot: FIXED_NATIVE_SNAPSHOT_UNAVAILABLE") from None
         if lantern_blob is not None:
             from qualify_vanilla263_native_lantern_stage import stage
             try:
@@ -736,6 +752,17 @@ def main() -> int:
             payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True
             # The same exact App owner is rechecked by wait_app() above;
             # pre-stage TLS Go observation remains a separate G2 receipt.
+        if a.native_world_rollback:
+            from qualify_vanilla263_native_world_rollback import restore_owned_baseline_after_injected_fault
+            try:
+                restored = restore_owned_baseline_after_injected_fault(
+                    call, wait_job, wait_app, wait_status)
+            except Exception as exc:
+                from qualify_vanilla263_native_world_rollback import Refused
+                if isinstance(exc, Refused):
+                    raise MinecraftT6Error("G3 rollback: " + str(exc)) from None
+                raise MinecraftT6Error("G3 rollback: FIXED_NATIVE_RESTORE_UNAVAILABLE") from None
+            payload["native_world_rollback"].update(restored)
         read_sentinel()
         if first_level <= 0:
             raise MinecraftT6Error("world level.dat size invalid")
