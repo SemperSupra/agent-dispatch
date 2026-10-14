@@ -1,0 +1,118 @@
+name: Agent Dispatch typed public CPU executor
+run-name: Typed CPU ${{ inputs.request || 'contract reps' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request:
+        description: Reviewed committed CPU workload manifest
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      request:
+        description: Reviewed committed CPU workload manifest
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'scripts/gha_workload_request.py'
+      - 'tests/test_gha_workload_request.py'
+      - 'requests/gha/**'
+      - '.github/workflows/gha-typed-public-cpu.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate public request and authority contracts
+        run: python3 -m unittest -v tests/test_gha_workload_request.py
+
+  cpu-native-proofs:
+    if: github.event_name == 'pull_request'
+    needs: contract
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            request: requests/gha/cpu-x64-arithmetic-v1.json
+          - runner: ubuntu-24.04-arm
+            request: requests/gha/cpu-arm64-contract-v1.json
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify immutable request and admitted CPU shape
+        id: planned
+        env:
+          REQUEST: ${{ matrix.request }}
+        run: python3 scripts/gha_workload_request.py --action plan --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
+      - name: Execute typed CPU workload with independent verdict
+        env:
+          REQUEST: ${{ matrix.request }}
+          DIGEST: ${{ steps.planned.outputs.request_sha256 }}
+        run: |
+          python3 scripts/gha_workload_request.py --action run --request "$REQUEST" \
+            --digest "$DIGEST" --receipt ".gha-typed/receipt.json"
+      - name: Upload public-safe typed receipt
+        if: always() && hashFiles('.gha-typed/receipt.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-typed-${{ matrix.runner }}-${{ github.run_attempt }}
+          path: .gha-typed/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  plan:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.plan.outputs.runner }}
+      request_sha256: ${{ steps.plan.outputs.request_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Admit exactly one reviewed request
+        id: plan
+        env:
+          REQUEST: ${{ inputs.request }}
+        run: python3 scripts/gha_workload_request.py --action plan --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
+
+  execute:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: plan
+    runs-on: ${{ needs.plan.outputs.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute one previously admitted fixed CPU workload
+        env:
+          REQUEST: ${{ inputs.request }}
+          DIGEST: ${{ needs.plan.outputs.request_sha256 }}
+        run: |
+          python3 scripts/gha_workload_request.py --action run --request "$REQUEST" \
+            --digest "$DIGEST" --receipt ".gha-typed/receipt.json"
+      - name: Retain independently checked receipt
+        if: always() && hashFiles('.gha-typed/receipt.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-typed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .gha-typed/receipt.json
+          if-no-files-found: error
+          retention-days: 7
