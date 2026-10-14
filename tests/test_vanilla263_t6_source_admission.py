@@ -136,15 +136,21 @@ class TestNativeVanilla263SourceAdmission(unittest.TestCase):
                     readmit_local_fixture(doc)
 
     def test_source_only_control_does_not_dispatch_heavy_guest(self):
-        current=(ROOT/"config/truenas-rdte-run-request.json").read_text()
-        self.assertNotIn('"product": "minecraft-vanilla-263"',current)
+        # Source qualification has no actuator, even once an independently
+        # admitted request-edge legitimately selects vanilla263 for a guest.
         proposed=json.loads((ROOT/"config/truenas-vanilla263-native-admission-request.json").read_text())
         self.assertEqual(proposed["version"],"25.04.2.6")
         self.assertEqual(proposed["product"],"minecraft-vanilla-263")
         self.assertEqual(proposed["consumer_authority_issue"],627)
         self.assertIn("NOT wired",proposed["purpose"])
-        workflow=(ROOT/".github/workflows/gha-kvm-system-rdte.yml").read_text()
-        self.assertNotIn("minecraft-vanilla-263",workflow)
+        workflow=(ROOT/".github/workflows/vanilla263-t6-source-admission.yml").read_text()
+        self.assertIn("scripts/admit_vanilla263_native_t6_control.py",workflow)
+        self.assertIn("SOURCE_CONTROL_READY_GUEST_NOT_DISPATCHED",workflow)
+        self.assertNotIn("gha_kvm_truenas_rdte.sh",workflow)
+        self.assertNotIn("--t6-product",workflow)
+        self.assertNotIn("config/truenas-rdte-run-request.json",workflow)
+        self.assertNotIn("native_guest_qualified\"] is True",workflow)
+
 
 if __name__=="__main__":
     unittest.main()
