@@ -1,12 +1,12 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4f-009-early-key-code-observer",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4f-010-validation-field-count",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "OP4F unique one-time 009 public/free serialized disposable native TrueNAS 25.04.2.6/vanilla 26.3/Java25 source+TLS Go observer. First verify App RUNNING/owner/world readback; attempt APPS_READ-only scoped api_key.create before expensive ZIP staging/restart/reinstall, read only allowlisted numeric/shape class from <=262144-character structured DDP errors and retain zero raw trace/user/key. On observer PASS proceed to exact 739-byte Lantern ZIP staging and owned world lifecycle; on credential refusal emit sanitized category, cleanup owned App/ZFS and stop. 008 is consumed FAIL; no 008/009 retry, no FULL_ADMIN/disabled TLS, no stock online auth claim, no private GHA minutes, no physical TrueNAS APPLY.",
+  "purpose": "OP4F-010 one-use serialized public/free disposable TrueNAS25.04.2.6 native vanilla26.3/Java25/777 scoped COLLAGE G2 evidence rep after real 009 E11 ValidationErrors refusal. Exact accepted signed Foundry and 739-byte Lantern ZIP, APPS_READ-only short-lived observer, strict TLS. Diagnose E11 by fixed allowlisted validation-field category and one exact postfailure read-only api_key.query count, no error text or returned rows; no retry of api_key.create. Run independent native owner/first readiness, scoped TLS Go observer BEFORE costly world ZIP stage; if G2 fails, classify, clean own App/ZFS and stop. If G2 passes, qualify unchanged real ZIP native stage/persistence. No operational identity or in-guest gameplay claim, no role escalation, no TLS disable, no private GHA minutes, no physical TrueNAS APPLY. 009 and earlier request IDs consumed, do not replay 010.",
   "collage_readback": true,
   "lantern_stage": true
 }
