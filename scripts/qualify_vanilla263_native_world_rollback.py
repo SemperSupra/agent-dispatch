@@ -9,9 +9,12 @@ This module supplies only fixed identity/snapshot/rollback preconditions.
 """
 from __future__ import annotations
 
-from qualify_vanilla263_native_lantern_stage import (
-    WORLD, TARGET, SHA, NAME,
-)
+# Native guest executes scripts as top-level modules; public unit tests import
+# them through the scripts package. Share the same pinned artifact constants.
+try:
+    from .qualify_vanilla263_native_lantern_stage import WORLD, TARGET, SHA, NAME
+except ImportError:
+    from qualify_vanilla263_native_lantern_stage import WORLD, TARGET, SHA, NAME
 
 APP = "rdte-t6-minecraft-vanilla-263"
 DATASET = "rdtepool/minecraft-vanilla-263-t6-world"
