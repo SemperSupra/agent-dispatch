@@ -3,6 +3,7 @@ import unittest
 
 from scripts.truenas_middleware_collage_readback_p2 import (
     ObservationError, provision_guest_readonly, bounded_rbac_call, RBAC_CALL_SEQUENCE,
+    classify_scoped_key_ddp_failure,
 )
 
 ROLE = "APPS_READ"
@@ -55,6 +56,32 @@ class RoleLinkageTests(unittest.TestCase):
             called.append(method)
             return result
         return call, called
+
+    def test_api_key_create_ddp_rejection_only_emits_allowlisted_error_number(self):
+        for code in (13,22,400,403,422,500):
+            err=RuntimeError('api_key.create: {"error": '+str(code)+
+                             ', "reason": "API-SECRET-NEVER-LOG-THIS"}')
+            self.assertEqual(classify_scoped_key_ddp_failure(err),"_E"+str(code))
+            def remote(method, params):
+                if method=="api_key.create":
+                    raise err
+                return next(x[1] for x in authority_responses() if x[0]==method)
+            # The actual guest call order is exercised separately below.
+            fn,seq=self.call_with(authority_responses())
+            def failing(method,params):
+                if method=="api_key.create": raise err
+                return fn(method,params)
+            with self.assertRaises(ObservationError) as caught:
+                provision_guest_readonly(bounded_rbac_call(failing))
+            self.assertEqual(str(caught.exception),
+                             "GUEST_RBAC_ISSUE_SCOPED_KEY_API_FAILED_E"+str(code))
+            self.assertNotIn("API-SECRET",str(caught.exception))
+        for msg in ('api_key.create: {"error": 987654,"reason":"SECRET"}',
+                    'api_key.create: {"error":"CUSTOM_PRIVATE"}',
+                    'api_key.create: bad-json',
+                    'other.method: {"error": 403}',
+                    "api_key.create: "+("secret"*2000)):
+            self.assertEqual(classify_scoped_key_ddp_failure(RuntimeError(msg)),"")
 
     def test_source_contract_allows_only_exact_role_linkage(self):
         fn, methods = self.call_with(authority_responses())
