@@ -82,7 +82,7 @@ class RoleLinkageTests(unittest.TestCase):
             ('api_key.create: {"error":"CUSTOM_PRIVATE"}',
              "_DDP_UNRECOGNIZED_CODE"),
             ('api_key.create: {"error": {"error":403},"reason":"SECRET"}',
-             "_DDP_NESTED_ERROR"),
+             "_E403"),
             ('api_key.create: {"error":[{"field":"PRIVATE"}]}',
              "_DDP_VALIDATION_LIST"),
             ('api_key.create: bad-json', "_DDP_MALFORMED_ERROR"),
