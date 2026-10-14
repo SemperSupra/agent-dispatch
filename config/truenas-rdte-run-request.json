@@ -1,12 +1,12 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4f-008-bounded-key-tls-observer",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4f-009-early-key-code-observer",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "OP4F one-time public/free serialized native TrueNAS 25.04.2.6 T6 vanilla 26.3/Java25 with previously accepted exact Lantern ZIP staging and independent cleanup; challenge last guest OP4D-007 api_key.create failure by separately bounded 60-second DDP issuance deadline, monotonic non-replayed RPC IDs and codes-only transport/DDP failure categories, without any role expansion or raw error publication. Require actual APPS_READ-scoped TLS-verified Go COLLAGE native owner read-only receipt and zero observation mutations for overall acceptance. Guest may still REFUSE: preserve causal category and independent stage/cleanup proof. No automatic retries or replay 007/008, no full-admin COLLAGE probe, operational online authentication/RCON defaults untouched, no in-guest player/gameplay or managed activation claim, physical TrueNAS APPLY HOLD.",
+  "purpose": "OP4F unique one-time 009 public/free serialized disposable native TrueNAS 25.04.2.6/vanilla 26.3/Java25 source+TLS Go observer. First verify App RUNNING/owner/world readback; attempt APPS_READ-only scoped api_key.create before expensive ZIP staging/restart/reinstall, read only allowlisted numeric/shape class from <=262144-character structured DDP errors and retain zero raw trace/user/key. On observer PASS proceed to exact 739-byte Lantern ZIP staging and owned world lifecycle; on credential refusal emit sanitized category, cleanup owned App/ZFS and stop. 008 is consumed FAIL; no 008/009 retry, no FULL_ADMIN/disabled TLS, no stock online auth claim, no private GHA minutes, no physical TrueNAS APPLY.",
   "collage_readback": true,
   "lantern_stage": true
 }
