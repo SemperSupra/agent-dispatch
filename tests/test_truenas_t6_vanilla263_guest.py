@@ -63,12 +63,15 @@ class TestNativeVanilla263Guest(unittest.TestCase):
         # stop/restart/redeploy/reinstall just to encounter the same blocker.
         import inspect
         body=inspect.getsource(mc.main)
-        guard=body.index('if a.collage_source_dir is not None:\\n            observe_collage_after_native_readiness()')
+        guard=body.index('if a.collage_source_dir is not None:')
+        callback=body.index('            observe_collage_after_native_readiness()',guard)
         first=body.index('wait_status("first")')
         stage=body.index('payload["lantern_artifact_stage"] = stage(')
         final=body.index('payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True')
         self.assertLess(first,guard)
         self.assertLess(guard,stage)
+        self.assertLess(guard,callback)
+        self.assertLess(callback,stage)
         self.assertLess(stage,final)
         self.assertEqual(body.count('            observe_collage_after_native_readiness()'),1)
         self.assertIn('if lantern_blob is not None:',body)
