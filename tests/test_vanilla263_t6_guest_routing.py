@@ -52,7 +52,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertEqual(current["rung"],"t6")
         self.assertEqual(current["authority_issue"],423)
         self.assertEqual(current["consumer_authority_issue"],627)
-        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-003-master-catalog-qualified")
+        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-collage-p2-op4c-004-scoped-live-readback")
         self.assertEqual(proposal["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-001")
         self.assertEqual(proposal["consumer_authority_issue"],627)
         self.assertIn("NOT wired",proposal["purpose"])
@@ -76,7 +76,9 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('NATIVE_READBACK_ARGS=()',HARNESS)
         self.assertIn('"${NATIVE_READBACK_ARGS[@]}"',HARNESS)
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
-        self.assertNotIn("collage_readback",request)
+        self.assertIs(request["collage_readback"],True)
+        self.assertEqual(request["version"],"25.04.2.6")
+        self.assertEqual(request["product"],"minecraft-vanilla-263")
         self.assertNotIn("--vanilla-collage-readback",
                          str(request))
         # Synthetic source tests cannot count as a live TLS/Go observation.
