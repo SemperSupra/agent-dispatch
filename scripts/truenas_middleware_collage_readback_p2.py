@@ -203,6 +203,40 @@ def exact_source_readback_request(plan: dict, *, profile: str) -> tuple[dict, st
     return request, owner, world
 
 
+# Fixed, non-secret RPC names and call order. No untrusted exception message
+# or credential ever crosses into public job evidence. The prior real 005 guest
+# failed with generic RuntimeError, masking WHICH guest RBAC API rejected.
+RBAC_CALL_SEQUENCE = (
+    ("user.query", "precheck_user"),
+    ("privilege.query", "precheck_privilege"),
+    ("privilege.roles", "discover_roles"),
+    ("user.create", "create_user"),
+    ("group.query", "resolve_group_gid"),
+    ("privilege.create", "grant_apps_read"),
+    ("group.query", "check_group_roles"),
+    ("user.query", "check_user_roles"),
+    ("api_key.create", "issue_scoped_key"),
+)
+
+
+def bounded_rbac_call(call):
+    position = 0
+
+    def invoke(method, params):
+        nonlocal position
+        require(position < len(RBAC_CALL_SEQUENCE) and
+                method == RBAC_CALL_SEQUENCE[position][0],
+                "GUEST_RBAC_API_SEQUENCE_DRIFT")
+        operation = RBAC_CALL_SEQUENCE[position][1]
+        position += 1
+        try:
+            return call(method, params)
+        except Exception:
+            raise ObservationError("GUEST_RBAC_" + operation.upper() +
+                                   "_API_FAILED") from None
+    return invoke
+
+
 def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
                       state_dir: pathlib.Path, expected_source_sha: str
                       = DEFAULT_SOURCE_SHA, profile: str = "paper") -> dict:
@@ -223,7 +257,7 @@ def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
                 "VANILLA263_COLLAGE_SOURCE_REF_DRIFT")
     source = state_dir / "collage-p2-request.json"
     source.write_text(json.dumps(request, indent=2, sort_keys=True) + "\n")
-    key = provision_guest_readonly(call)
+    key = provision_guest_readonly(bounded_rbac_call(call))
     trust = state_dir / "collage-p2-guest-cert.pem"
     hostname, cert_sha = discover_tls_anchor(https_port, trust)
     env = os.environ.copy()

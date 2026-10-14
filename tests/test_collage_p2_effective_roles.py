@@ -2,7 +2,7 @@
 import unittest
 
 from scripts.truenas_middleware_collage_readback_p2 import (
-    ObservationError, provision_guest_readonly,
+    ObservationError, provision_guest_readonly, bounded_rbac_call, RBAC_CALL_SEQUENCE,
 )
 
 ROLE = "APPS_READ"
@@ -63,6 +63,38 @@ class RoleLinkageTests(unittest.TestCase):
         self.assertEqual(methods[-1], "api_key.create")
         self.assertEqual(methods.count("group.query"),2)
         self.assertLess(methods.index("group.query"),methods.index("privilege.create"))
+
+    def test_all_nine_real_guest_rbac_rpc_failure_phases_are_bounded_and_private(self):
+        sequence=authority_responses()
+        self.assertEqual([item[0] for item in sequence],
+                         [item[0] for item in RBAC_CALL_SEQUENCE])
+        for failing in range(len(RBAC_CALL_SEQUENCE)):
+            seen=[]
+            def remote(method, params):
+                number=len(seen)
+                seen.append(method)
+                self.assertEqual(method,sequence[number][0])
+                if number==failing:
+                    raise RuntimeError("API-SECRET-EXAMPLE MUST NEVER APPEAR")
+                return sequence[number][1]
+            with self.subTest(failing=failing):
+                label=RBAC_CALL_SEQUENCE[failing][1].upper()
+                with self.assertRaises(ObservationError) as caught:
+                    provision_guest_readonly(bounded_rbac_call(remote))
+                self.assertEqual(str(caught.exception),
+                                 "GUEST_RBAC_"+label+"_API_FAILED")
+                self.assertNotIn("API-SECRET",str(caught.exception))
+                self.assertEqual(len(seen),failing+1)
+                if failing<8:
+                    self.assertNotIn("api_key.create",seen)
+        fn,_=self.call_with(authority_responses())
+        self.assertTrue(provision_guest_readonly(bounded_rbac_call(fn)).startswith(
+            "disposable-test-only-key-value"))
+
+    def test_bounded_rbac_method_sequence_prevents_out_of_contract_rpc(self):
+        cb=bounded_rbac_call(lambda method,params: [])
+        with self.assertRaisesRegex(ObservationError,"GUEST_RBAC_API_SEQUENCE_DRIFT"):
+            cb("app.delete",[])
 
     def test_unauthorized_roles_never_receive_api_key(self):
         cases = [
