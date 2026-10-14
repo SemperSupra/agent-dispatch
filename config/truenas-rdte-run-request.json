@@ -1,12 +1,13 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4f-011-ejson-utc-expiry",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4g-012-owned-snapshot-rollback",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "OP4F-011 single serialized public/free disposable TrueNAS25.04.2.6 native vanilla26.3/Java25/protocol777 scoped COLLAGE G2 EJSON expiry qualification. Following consumed 010 real E11_VALIDATION_EXPIRES_AT_KEY_COUNT0 and signed strict Pydantic/native 25.04 legacy EJSON source repair, issue one scoped short-lived APPS_READ guest-only observer key using 1h UTC {'$date': epoch_ms}, no retry after ambiguity and only allowlisted field/count failure categories. Verify first native App readiness and TLS-pinned Go read-only six-marker owner observation with observation_mutation_count=0 BEFORE real 739-byte Lantern ZIP stage/stop-restart/reinstall. If observation fails, preserve bounded receipt, independently clean owned App/ZFS and STOP; if passes, complete existing exact artifact stage/readback/retain/cleanup without managed COLLAGE APPLY claims. Current 011 is one-use; no replay 006-010, no role escalation, TLS bypass, secrets or raw DDP trace, private GHA minutes, native player auth claim or physical TrueNAS APPLY.",
+  "purpose": "OP4G-012 one-use public/free serialized native TrueNAS 25.04.2.6 vanilla26.3 Java25/777 disposable ZFS snapshot + injected-fault restore mechanics. Original signed Foundry OCI, scoped APPS_READ TLS Go COLLAGE readback six-marker G2, exact 739-byte Lantern real ZIP stage/hash/restart/reinstall required first. Existing native App STOPPED, candidate absent, exact owned snapshot absent, then snapshot only rdtepool/minecraft-vanilla-263-t6-world@op4g-pre-lantern; after proven stage/reinstall inject release fault, stop App, roll back only that ZFS snapshot with recursive/force disabled, verify original artifact absent, restart and independent Java26.3 status/world health, clean only owned App/ZFS, zero residue. Explicit disposable mechanics ONLY: no COLLAGE-authorized APPLY, native gameplay or Microsoft/VIP identity acceptance, no private Actions minutes, no physical TrueNAS APPLY. Consumed 011 not replayed; no repeat of 012.",
   "collage_readback": true,
-  "lantern_stage": true
+  "lantern_stage": true,
+  "native_world_rollback": true
 }
