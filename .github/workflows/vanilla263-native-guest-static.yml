@@ -9,6 +9,9 @@ on:
       - 'scripts/qualify_vanilla263_native_world_rollback.py'
       - 'tests/test_vanilla263_native_world_rollback.py'
       - 'tests/test_vanilla263_native_rollback_receipt.py'
+      - 'scripts/qualify_native_vanilla263_mineflayer_causal.py'
+      - 'scripts/qualify_native_vanilla263_mineflayer_causal.js'
+      - 'tests/test_native_vanilla263_player_guest_receipt.py'
       - 'tests/test_vanilla263_native_lantern_stage.py'
       - 'scripts/assert_vanilla263_native_t6_receipt.py'
       - 'tests/test_truenas_t6_vanilla263_guest.py'
@@ -84,6 +87,8 @@ jobs:
           python3 -m unittest -v tests/test_vanilla263_native_lantern_stage.py
           python3 -m unittest -v tests/test_vanilla263_native_world_rollback.py
           python3 -m unittest -v tests/test_vanilla263_native_rollback_receipt.py
+          python3 -m unittest -v tests/test_native_vanilla263_player_guest_receipt.py
+          node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
           python3 -m unittest -v tests/test_truenas_t6_vanilla263_guest.py
           python3 -m unittest -v tests/test_collage_p2_effective_roles.py
           bash -n scripts/gha_kvm_truenas_rdte.sh

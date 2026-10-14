@@ -403,6 +403,9 @@ def main() -> int:
     p.add_argument("--lantern-zip", type=pathlib.Path)
     p.add_argument("--lantern-manifest", type=pathlib.Path)
     p.add_argument("--native-world-rollback", action="store_true")
+    p.add_argument("--native-offline-player", action="store_true")
+    p.add_argument("--native-player-forward")
+    p.add_argument("--native-player-node-path", type=pathlib.Path)
     p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
                    default="1.15.29")
     p.add_argument("--product-profile", choices=("legacy-paper", "vanilla263"),
@@ -437,6 +440,12 @@ def main() -> int:
         if a.native_world_rollback and (not VANILLA263 or
             a.lantern_zip is None or a.collage_source_dir is None):
             raise MinecraftT6Error("G3 native rollback requires exact vanilla263 G2 and signed Lantern ZIP")
+        if a.native_offline_player and (not a.native_world_rollback or
+            not a.native_player_forward or a.native_player_node_path is None):
+            raise MinecraftT6Error("G4 client requires exact G3 rollback and owned loopback")
+        if not a.native_offline_player and (a.native_player_forward or
+            a.native_player_node_path is not None):
+            raise MinecraftT6Error("G4 client arguments without explicit admission")
         lantern_blob = None
         lantern_evidence = None
         if a.lantern_zip is not None:
@@ -450,6 +459,30 @@ def main() -> int:
         if a.expected_system_version != "TrueNAS-" + EXPECTED_TARGET:
             raise MinecraftT6Error("requested exact system version drift")
         desired = runtime_values(control)
+        if a.native_offline_player:
+            from qualify_native_vanilla263_loopback_player_overlay import (
+                BOT_NAME, PROFILE, derive,
+            )
+            admission = {
+                "schema": PROFILE, "rdte_disposable": True,
+                "experiment": "offline-mineflayer-player-causal",
+                "physical_truenas_apply": "HOLD",
+                "operational_selection": False, "external_ingress": False,
+                "qemu_network": "user", "host_forward": a.native_player_forward,
+                "guest_target": "TrueNAS-" + EXPECTED_TARGET,
+                "authorized_bot": BOT_NAME,
+            }
+            overlay = derive(control, admission)
+            if overlay["host_port"] != a.status_port:
+                raise MinecraftT6Error("G4 client and actual native QEMU port differ")
+            desired = overlay["values"]
+            payload["native_player_profile"] = {
+                "schema": PROFILE, "classification": "DISPOSABLE_OVERLAY_BOUND",
+                "operational_selection": False,
+                "physical_truenas_apply": "HOLD",
+                "client_online_account_qualified": False,
+                "rcon_enabled": False,
+            }
         sentinel_bytes = (("SUPRACRAFT-VANILLA263-T6:" if VANILLA263 else "SUPRACRAFT-PAPER-T6:") + control["control_sha256"] + "\n").encode("ascii")
         payload["foundry_ref"] = a.foundry_commit
         payload["control_sha256"] = control["control_sha256"]
@@ -495,6 +528,19 @@ def main() -> int:
                     payload["observed_image_reference"] = matching_image
                     payload["image_digest_qualification"] = "SOURCE_AND_GUEST_REF_MATCH"
                     cfg = call("app.config", [APP])
+                    if a.native_offline_player:
+                        # Never grant OP or disable online account auth in an
+                        # unconfirmed App. Read exact isolated source overlay,
+                        # no raw config/provider fields in public receipts.
+                        cm = cfg.get("minecraft") if isinstance(cfg, dict) else None
+                        if (not isinstance(cm, dict) or
+                            cm.get("online_mode") is not False or
+                            cm.get("ops") != ["SupraCraftProbe"] or
+                            cm.get("enable_rcon") is not False or
+                            cm.get("rcon_password") != "" or
+                            cm.get("whitelist") != []):
+                            raise MinecraftT6Error(
+                                "disposable native player auth/OP profile mismatch")
                     match_vector = owner_readback_vector(cfg, desired)
                     if all(match_vector.values()):
                         return app
@@ -752,6 +798,17 @@ def main() -> int:
             payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True
             # The same exact App owner is rechecked by wait_app() above;
             # pre-stage TLS Go observation remains a separate G2 receipt.
+        if a.native_offline_player:
+            from qualify_native_vanilla263_mineflayer_causal import run as run_player
+            payload["native_player_gameplay"] = {
+                "candidate": run_player(stage="candidate",
+                    forward=a.native_player_forward, state_dir=a.out.parent,
+                    node_path=a.native_player_node_path),
+                "same_native_guest_client_causal_visibility": False,
+                "backend_independent_world_oracle_pass": False,
+                "collage_managed_deployment": False,
+                "physical_true_nas_apply": "HOLD",
+            }
         if a.native_world_rollback:
             from qualify_vanilla263_native_world_rollback import restore_owned_baseline_after_injected_fault
             try:
@@ -763,6 +820,12 @@ def main() -> int:
                     raise MinecraftT6Error("G3 rollback: " + str(exc)) from None
                 raise MinecraftT6Error("G3 rollback: FIXED_NATIVE_RESTORE_UNAVAILABLE") from None
             payload["native_world_rollback"].update(restored)
+        if a.native_offline_player:
+            from qualify_native_vanilla263_mineflayer_causal import run as run_player
+            payload["native_player_gameplay"]["rollback"] = run_player(
+                stage="rollback", forward=a.native_player_forward,
+                state_dir=a.out.parent, node_path=a.native_player_node_path)
+            payload["native_player_gameplay"]["same_native_guest_client_causal_visibility"] = True
         read_sentinel()
         if first_level <= 0:
             raise MinecraftT6Error("world level.dat size invalid")
