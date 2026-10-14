@@ -152,6 +152,20 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         assert_path=(ROOT/"scripts/assert_vanilla263_native_t6_receipt.py").read_text()
         self.assertIn("native_guest_backend_independent_oracle_qualified",assert_path)
 
+    def test_player_dependencies_are_installed_in_native_guest_job(self):
+        top, native = WORKFLOW.split("  truenas-26-beta3:", 1)
+        setup = "Set up immutable 26.3 experimental client toolchain for native G4"
+        install = "Build pre-qualified 26.3 Mineflayer client on public runner only"
+        for name in (setup, install):
+            self.assertEqual(WORKFLOW.count(name), 1)
+            self.assertNotIn(name, top)
+            self.assertIn(name, native)
+        self.assertLess(native.index(install),
+                        native.index("Ensure bounded QEMU/KVM prerequisites"))
+        self.assertLess(native.index("Ensure bounded QEMU/KVM prerequisites"),
+                        native.index("Exercise pinned TrueNAS installer target"))
+        self.assertIn("--require-native-client-visibility", native)
+
     def test_no_fallback_guest_or_physical_promotion(self):
         self.assertNotIn('product == "minecraft-vanilla-263" && needs[\'foundry-minecraft-paper',WORKFLOW)
         self.assertIn("agent-dispatch-heavyweight-rdte",WORKFLOW)
