@@ -74,6 +74,8 @@ def probe(env: dict[str, str], destination: Path) -> int:
         if result.returncode != 0 or len(result.stdout) > 4096:
             return 3
         response = json.loads(result.stdout)
+        if not isinstance(response, dict):
+            return 3
         number = response.get("projectNumber")
         if not isinstance(number, (str, int)) or not str(number).isdigit():
             return 3
