@@ -14,7 +14,8 @@ GROUP_GID = 32013  # POSIX GID, deliberately not middleware group datastore id
 
 def authority_responses(*, primary_roles=None, user_roles=None,
                         user_group_id=GROUP_ID, privilege_roles=None,
-                        group_gid=GROUP_GID, privilege_group_gid=GROUP_GID):
+                        group_gid=GROUP_GID, privilege_group_gid=GROUP_GID,
+                        group_local=True, group_found=True):
     primary_roles = [ROLE] if primary_roles is None else primary_roles
     user_roles = [ROLE] if user_roles is None else user_roles
     privilege_roles = [ROLE] if privilege_roles is None else privilege_roles
@@ -22,7 +23,9 @@ def authority_responses(*, primary_roles=None, user_roles=None,
         ("user.query", []),
         ("privilege.query", []),
         ("privilege.roles", [{"name": ROLE, "includes": []}]),
-        ("user.create", {"username": USER, "group": {"id": GROUP_ID, "gid": group_gid}}),
+        ("user.create", {"username": USER, "group": {"id": GROUP_ID}}),
+        ("group.query", {"id": GROUP_ID, "gid": group_gid, "local": group_local}
+         if group_found else None),
         ("privilege.create", {"name": PRIVILEGE, "roles": privilege_roles,
                                "local_groups": [{"gid": privilege_group_gid}]}),
         ("group.query", {"id": GROUP_ID, "roles": primary_roles}),
@@ -58,6 +61,8 @@ class RoleLinkageTests(unittest.TestCase):
         self.assertEqual(provision_guest_readonly(fn),
                          "disposable-test-only-key-value-not-real")
         self.assertEqual(methods[-1], "api_key.create")
+        self.assertEqual(methods.count("group.query"),2)
+        self.assertLess(methods.index("group.query"),methods.index("privilege.create"))
 
     def test_unauthorized_roles_never_receive_api_key(self):
         cases = [
@@ -74,6 +79,11 @@ class RoleLinkageTests(unittest.TestCase):
              "CREATED_PRIVILEGE_ROLES_NOT_EXACT"),
             ({"privilege_group_gid": GROUP_GID + 1},
              "CREATED_PRIVILEGE_GID_LINK_NOT_EXACT"),
+        ]
+        cases += [
+            ({"group_gid": None}, "READONLY_ACCOUNT_PRIMARY_GROUP_GID_UNAVAILABLE"),
+            ({"group_local": False}, "READONLY_ACCOUNT_PRIMARY_GROUP_GID_UNAVAILABLE"),
+            ({"group_found": False}, "READONLY_ACCOUNT_PRIMARY_GROUP_GID_UNAVAILABLE"),
         ]
         for opts, reason in cases:
             with self.subTest(opts=opts):
