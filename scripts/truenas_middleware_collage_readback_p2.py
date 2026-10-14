@@ -28,7 +28,7 @@ OWNER = "rdte-t6-minecraft-paper"
 WORLD_ID = "world-rdte-001"
 VANILLA263_OWNER = "rdte-t6-minecraft-vanilla-263"
 VANILLA263_WORLD = "lantern-rdte"
-VANILLA263_SOURCE_SHA = "17dfacc4351053fa06f8bdbaed7d931c97c1707e"
+VANILLA263_SOURCE_SHA = "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8"
 DEFAULT_SOURCE_SHA = "fbda94f3fea0a216ddd9c35b38a09d325bed3640"
 
 

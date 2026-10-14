@@ -106,7 +106,7 @@ def check(root: dict, *, require_collage: bool = False) -> None:
              observer.get("schema") == "semper-supra.collage-native-readback-p2/1" and
              observer.get("classification") == "PROVIDER_READBACK_MATCH" and
              observer.get("source_profile") == "vanilla263" and
-             observer.get("source_sha") == "17dfacc4351053fa06f8bdbaed7d931c97c1707e" and
+             observer.get("source_sha") == "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8" and
              observer.get("native_app") == APP and
              observer.get("truenas_version") == TARGET and
              observer.get("world_id") == "lantern-rdte" and
