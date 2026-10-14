@@ -1182,8 +1182,17 @@ elif [[ "$T6_PRODUCT" == "minecraft-paper" || "$T6_PRODUCT" == "collage-native-p
     --out "$FOUNDRY_OUT" --timeout 8 --job-timeout 600 --state-timeout 480 >/dev/null 2>&1 || true
 elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
   [[ "$VERSION" == "25.04.2.6" ]] || fail_evidence HARNESS_FAILURE foundry-materialization "native vanilla guest exact version drift"
+  [[ -d "$REPO_ROOT/.deps/collage-source" ]] ||
+    fail_evidence HARNESS_FAILURE foundry-materialization "qualified COLLAGE live observer checkout missing"
+  [[ -f "$STATE_DIR/lantern-artifact/lantern-restoration-26.3.json" ]] &&
+    [[ -f "$STATE_DIR/lantern-artifact/lantern-restoration-26.3.zip" ]] ||
+    fail_evidence HARNESS_FAILURE foundry-materialization "real source datapack guest receipt inputs missing"
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
     --product-profile vanilla263 --native-catalog-profile 1.15.30 \
+    --collage-source-dir "$REPO_ROOT/.deps/collage-source" \
+    --collage-source-ref "17dfacc4351053fa06f8bdbaed7d931c97c1707e" \
+    --collage-https-port "$HTTPS_PORT" \
+    --collage-real-artifact-dir "$STATE_DIR/lantern-artifact" \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
     --status-port "$MINECRAFT_HOST_PORT" \
     --status-oracle "$REPO_ROOT/.deps/minecraft-product/tools/minecraft_java_status_oracle.py" \
