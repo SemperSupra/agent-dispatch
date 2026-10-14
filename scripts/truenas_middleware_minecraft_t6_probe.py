@@ -650,8 +650,9 @@ def main() -> int:
         # When actual native artifact stage is admitted, run the provider
         # read-only observer AFTER world stage/restart/reinstall so a failed
         # RBAC observer cannot mask independent byte-level integration results.
-        if a.collage_source_dir is not None and lantern_blob is None:
-            observe_collage_after_native_readiness()
+        if a.collage_source_dir is not None:
+            if lantern_blob is None:
+                observe_collage_after_native_readiness()
 
         first_level = payload["readiness"]["first"]["level"]["size"]
 
