@@ -123,6 +123,30 @@ class GoogleReadonlyTests(unittest.TestCase):
         }
         self.assertFalse(mod.validate_receipt(receipt, self.env))
 
+    def test_privileged_workflow_is_dispatch_only_and_environment_bound(self):
+        root = Path(__file__).resolve().parents[1]
+        live = (root / ".github/workflows/google-cloud-readonly.yml").read_text()
+        untrusted = (root / ".github/workflows/google-cloud-source-check.yml").read_text()
+        self.assertIn("  workflow_dispatch:", live)
+        self.assertNotIn("  pull_request:", live)
+        self.assertIn("    environment: google-cloud-readonly", live)
+        self.assertIn("      id-token: write", live)
+        self.assertIn("github.ref == 'refs/heads/main'", live)
+        self.assertIn("google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093", live)
+        self.assertIn("  pull_request:", untrusted)
+        self.assertNotIn("id-token: write", untrusted)
+        self.assertNotIn("secrets.GOOGLE_RO_", untrusted)
+
+    def test_invalid_provider_metadata_fails_closed(self):
+        class Result:
+            returncode = 0
+            stdout = '["not a project object"]'
+            stderr = ""
+        with tempfile.TemporaryDirectory() as td, patch.object(mod.subprocess, "run", return_value=Result()):
+            path = Path(td) / "receipt.json"
+            self.assertEqual(mod.probe(self.env, path), 3)
+            self.assertFalse(path.exists())
+
     def test_invalid_receipt_fails(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "r.json"
