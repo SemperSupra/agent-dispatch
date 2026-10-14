@@ -69,7 +69,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('needs.changes.outputs.truenas_collage_readback',WORKFLOW)
         self.assertIn('--require-collage-readback',WORKFLOW)
         self.assertIn('ref: 17dfacc4351053fa06f8bdbaed7d931c97c1707e',WORKFLOW)
-        self.assertIn('truenas_collage_readback" == "true"',WORKFLOW)
+        self.assertIn('[[ "$truenas_collage_readback" == "true" ]]',WORKFLOW)
         self.assertIn('"$T6_PRODUCT" == "minecraft-vanilla-263"',HARNESS)
         self.assertIn('VANILLA_COLLAGE_READBACK=false',HARNESS)
         self.assertIn('--collage-source-ref "17dfacc4351053fa06f8bdbaed7d931c97c1707e"',HARNESS)
