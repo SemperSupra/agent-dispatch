@@ -50,9 +50,9 @@ def read_request(name: str) -> tuple[dict, str]:
         raise Denied("REQUEST_SCHEMA_NOT_ALLOWED")
     if not isinstance(obj["assignment_id"], str) or not SAFE_ID.fullmatch(obj["assignment_id"]):
         raise Denied("ASSIGNMENT_ID_INVALID")
-    if obj["runner"] not in SHAPES:
+    if not isinstance(obj["runner"], str) or obj["runner"] not in SHAPES:
         raise Denied("RUNNER_SHAPE_NOT_ALLOWED")
-    if obj["workload"] not in WORKLOADS:
+    if not isinstance(obj["workload"], str) or obj["workload"] not in WORKLOADS:
         raise Denied("WORKLOAD_NOT_ALLOWED")
     if type(obj["timeout_seconds"]) is not int or not 1 <= obj["timeout_seconds"] <= 240:
         raise Denied("RUNTIME_BUDGET_OUT_OF_BOUNDS")
