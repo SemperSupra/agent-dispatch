@@ -95,6 +95,7 @@ jobs:
       truenas_collage_readback: ${{ steps.scope.outputs.truenas_collage_readback }}
       truenas_lantern_stage: ${{ steps.scope.outputs.truenas_lantern_stage }}
       truenas_world_rollback: ${{ steps.scope.outputs.truenas_world_rollback }}
+      truenas_native_offline_player: ${{ steps.scope.outputs.truenas_native_offline_player }}
       truenas_compute_fixture: ${{ steps.scope.outputs.truenas_compute_fixture }}
       proxmox_compute_fixture: ${{ steps.scope.outputs.proxmox_compute_fixture }}
     steps:
@@ -126,6 +127,7 @@ jobs:
           truenas_collage_readback=false
           truenas_lantern_stage=false
           truenas_world_rollback=false
+          truenas_native_offline_player=false
           truenas_compute_fixture="${DISPATCH_TRUENAS_COMPUTE_FIXTURE:-none}"
           proxmox_compute_fixture="${DISPATCH_PROXMOX_COMPUTE_FIXTURE:-none}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
@@ -199,6 +201,14 @@ jobs:
             truenas_collage_readback="$(jq -er '(.collage_readback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
             truenas_lantern_stage="$(jq -er '(.lantern_stage // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
             truenas_world_rollback="$(jq -er '(.native_world_rollback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            truenas_native_offline_player="$(jq -er '(.native_offline_player // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            if [[ "$truenas_native_offline_player" == "true" ]]; then
+              [[ "$truenas_world_rollback" == "true" && "$truenas_lantern_stage" == "true" &&
+                 "$truenas_collage_readback" == "true" && "$truenas_version" == "25.04.2.6" &&
+                 "$truenas_rung" == "t6" && "$truenas_t6_product" == "minecraft-vanilla-263" ]] || {
+                echo "G4 only admitted in exact disposable native G2+G3 player profile" >&2; exit 2;
+              }
+            fi
             if [[ "$truenas_world_rollback" == "true" ]]; then
               [[ "$truenas_lantern_stage" == "true" && "$truenas_collage_readback" == "true" &&
                  "$truenas_t6_product" == "minecraft-vanilla-263" && "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
@@ -234,6 +244,7 @@ jobs:
           echo "truenas_collage_readback=$truenas_collage_readback" >>"$GITHUB_OUTPUT"
           echo "truenas_lantern_stage=$truenas_lantern_stage" >>"$GITHUB_OUTPUT"
           echo "truenas_world_rollback=$truenas_world_rollback" >>"$GITHUB_OUTPUT"
+          echo "truenas_native_offline_player=$truenas_native_offline_player" >>"$GITHUB_OUTPUT"
           echo "truenas_compute_fixture=$truenas_compute_fixture" >>"$GITHUB_OUTPUT"
           echo "proxmox_compute_fixture=$proxmox_compute_fixture" >>"$GITHUB_OUTPUT"
           printf 'target scope: proxmox=%s proxmox_compute_fixture=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s t6_product=%s truenas_compute_fixture=%s\n' "$proxmox" "$proxmox_compute_fixture" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung" "$truenas_t6_product" "$truenas_compute_fixture"
@@ -432,6 +443,19 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Set up immutable 26.3 experimental client toolchain for native G4
+        if: needs.changes.outputs.truenas_native_offline_player == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Build pre-qualified 26.3 Mineflayer client on public runner only
+        if: needs.changes.outputs.truenas_native_offline_player == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
+          bash .deps/minecraft-product/tools/install_experimental_prismarine_26_3.sh "$RUNNER_TEMP/native-prismarine"
+          test -d "$RUNNER_TEMP/native-prismarine/runtime/node_modules/mineflayer"
+          node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
       - name: Ensure bounded QEMU/KVM prerequisites
         run: |
           set -euo pipefail
@@ -822,6 +846,10 @@ jobs:
           if [[ "${{ needs.changes.outputs.truenas_world_rollback }}" == "true" ]]; then
             args+=(--vanilla-world-rollback)
           fi
+          if [[ "${{ needs.changes.outputs.truenas_native_offline_player }}" == "true" ]]; then
+            args+=(--vanilla-native-player
+                   --vanilla-player-node-path "$RUNNER_TEMP/native-prismarine/runtime/node_modules")
+          fi
           bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
           python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
           # A green job is not a Minecraft product pass without full guest evidence.
@@ -839,6 +867,9 @@ jobs:
             fi
             if [[ "${{ needs.changes.outputs.truenas_world_rollback }}" == "true" ]]; then
               additional+=(--require-native-rollback)
+            fi
+            if [[ "${{ needs.changes.outputs.truenas_native_offline_player }}" == "true" ]]; then
+              additional+=(--require-native-client-visibility)
             fi
             python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json" "${additional[@]}"
           fi
