@@ -62,7 +62,8 @@ class OverlaySourceTests(unittest.TestCase):
         self.assertEqual(result["immutable_base_control_sha256"],overlay.CONTROL_SHA)
         minecraft=result["values"]["minecraft"]
         self.assertIs(minecraft["online_mode"],False)
-        self.assertEqual(minecraft["ops"],["SupraCraftProbe"])
+        self.assertEqual(minecraft["ops"],[overlay.BOT_OFFLINE_UUID])
+        self.assertNotIn(overlay.BOT_NAME,minecraft["ops"])
         self.assertFalse(minecraft["enable_rcon"])
         self.assertEqual(minecraft["rcon_password"],"")
         self.assertFalse(minecraft["whitelist"])
@@ -76,6 +77,48 @@ class OverlaySourceTests(unittest.TestCase):
             self.assertIs(result[field],False)
         self.assertEqual(result["physical_truenas_apply"],"HOLD")
         self.assertEqual(len(result["derived_runtime_values_sha256"]),64)
+
+    def test_offline_uuid_v3_operator_is_not_an_unresolvable_mojang_name(self):
+        import hashlib, uuid
+        expected=str(uuid.UUID(bytes=hashlib.md5(
+            ("OfflinePlayer:" + overlay.BOT_NAME).encode()).digest(), version=3))
+        self.assertEqual(expected,"f4469b77-cc14-3c07-95f3-0b0c3f151bd2")
+        self.assertEqual(expected,overlay.BOT_OFFLINE_UUID)
+        self.assertEqual(derive()["values"]["minecraft"]["ops"],[expected])
+        self.assertEqual(derive()["bot"],overlay.BOT_NAME)
+        self.assertFalse(derive()["values"]["minecraft"]["online_mode"])
+        self.assertFalse(derive()["values"]["minecraft"]["enable_rcon"])
+
+    def test_read_only_native_startup_census_never_rediscloses_metadata(self):
+        sample={
+            "state":"DEPLOYING",
+            "name":"private-site",
+            "active_workloads":{"container_details":[
+                {"state":"starting","id":"opaque-secret-container",
+                 "image":"private.registry/password"},
+                {"state":"created","port_config":[{"host_ip":"192.0.2.10"}]},
+                {"state":"exited","volume_mounts":[{"source":"/secret/path"}]},
+            ]},
+        }
+        report=overlay.redacted_native_startup_census(sample)
+        self.assertEqual(report["native_app_state"],"DEPLOYING")
+        self.assertEqual(report["container_states"]["starting"],1)
+        self.assertEqual(report["container_states"]["created"],1)
+        self.assertEqual(report["container_states"]["exited"],1)
+        self.assertFalse(report["container_census_truncated"])
+        self.assertNotIn("opaque-secret",str(report))
+        self.assertNotIn("password",str(report))
+        self.assertNotIn("192.0.2.10",str(report))
+        self.assertNotIn("/secret",str(report))
+        self.assertEqual(overlay.redacted_native_startup_census(None)["native_app_state"],
+                         "UNKNOWN")
+        self.assertEqual(overlay.redacted_native_startup_census(
+            {"state":"UNKNOWN", "active_workloads":{"container_details":[]}}
+        )["native_app_state"],"UNKNOWN")
+        self.assertTrue(overlay.redacted_native_startup_census(
+            {"state":"STOPPED", "active_workloads":{"container_details":[
+                {"state":"running"}]*17}}
+        )["container_census_truncated"])
 
     def test_runner_owned_ephemeral_forward_matches_native_harness(self):
         req=admission()

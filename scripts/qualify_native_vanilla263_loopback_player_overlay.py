@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import re
+import uuid
 from typing import Any
 
 # Native guest imports from the scripts directory as top-level modules;
@@ -25,6 +26,10 @@ except ImportError:
 
 PROFILE = "minecraft-vanilla263-disposable-loopback-player/1"
 BOT_NAME = "SupraCraftProbe"
+# Minecraft offline UUIDv3 from MD5("OfflinePlayer:" + synthetic name).
+# itzg/minecraft-server:2026.10.0 runs `mc-image-helper manage-users`
+# before JVM boot; offline-mode OPS must be a UUID, not a non-Mojang name.
+BOT_OFFLINE_UUID = "f4469b77-cc14-3c07-95f3-0b0c3f151bd2"
 WORLD = "/mnt/rdtepool/minecraft-vanilla-263-t6-world"
 HOST_FORWARD = "tcp:127.0.0.1:25580-:25580"
 
@@ -48,6 +53,33 @@ def runner_owned_loopback_forward(value: object) -> int:
 def require(cond: bool, code: str) -> None:
     if not cond:
         raise Refused(code)
+
+def redacted_native_startup_census(app: object) -> dict[str, Any]:
+    """Bounded state/count only; never copy App metadata, paths, ports or logs.
+
+    Frozen TrueNAS25.04.2.6 app.query reports container state through
+    active_workloads.container_details. An unhealthy App can remain DEPLOYING
+    (healthcheck STARTING) without ever raising a terminal job failure.
+    """
+    allowed = {"RUNNING", "DEPLOYING", "STOPPED", "STOPPING", "CRASHED"}
+    container_states = {"created", "starting", "running", "exited", "crashed"}
+    state = app.get("state") if type(app) is dict else None
+    state = state if type(state) is str and state in allowed else "UNKNOWN"
+    active = app.get("active_workloads") if type(app) is dict else None
+    details = active.get("container_details") if type(active) is dict else None
+    if type(details) is not list:
+        details = []
+    totals = {k: 0 for k in sorted(container_states)}
+    for item in details[:16]:
+        value = item.get("state") if type(item) is dict else None
+        if type(value) is str and value in totals:
+            totals[value] += 1
+    return {
+        "native_app_state": state,
+        "container_states": totals,
+        "container_census_truncated": len(details) > 16,
+    }
+
 
 def derive(control: dict, admission: dict) -> dict[str, Any]:
     """Prepare a synthetic-world profile only; no RPC, filesystem, or guest."""
@@ -86,14 +118,17 @@ def derive(control: dict, admission: dict) -> dict[str, Any]:
     # synthetic client identity and granting that bot in-game commands.
     # No RCON or remote management listener introduced, and all six
     # COLLAGE owner labels remain exact.
+    require(str(uuid.UUID(bytes=hashlib.md5(
+        ("OfflinePlayer:" + BOT_NAME).encode("utf-8")).digest(), version=3))
+        == BOT_OFFLINE_UUID, "DISPOSABLE_PLAYER_OFFLINE_UUID_DRIFT")
     mc["online_mode"] = False
-    mc["ops"] = [BOT_NAME]
+    mc["ops"] = [BOT_OFFLINE_UUID]
     # Identical site bindings as accepted guest native app probe.
     values["storage"]["additional_storage"][0]["host_path_config"]["path"] = WORLD
     values["network"]["server_port"]["port_number"] = 25580
     mc.pop("seed", None) if mc.get("seed") is None else None
     require(mc["enable_rcon"] is False and mc["rcon_password"] == "" and
-            mc["whitelist"] == [] and mc["ops"] == [BOT_NAME] and
+            mc["whitelist"] == [] and mc["ops"] == [BOT_OFFLINE_UUID] and
             mc["online_mode"] is False and
             {x["name"]: x["value"] for x in mc["additional_envs"]} == OWNER,
             "DISPOSABLE_PLAYER_OVERLAY_ESCAPED_ALLOWLIST")

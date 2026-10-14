@@ -461,7 +461,7 @@ def main() -> int:
         desired = runtime_values(control)
         if a.native_offline_player:
             from qualify_native_vanilla263_loopback_player_overlay import (
-                BOT_NAME, PROFILE, derive,
+                BOT_NAME, BOT_OFFLINE_UUID, PROFILE, derive,
             )
             admission = {
                 "schema": PROFILE, "rdte_disposable": True,
@@ -520,6 +520,15 @@ def main() -> int:
             deadline = time.monotonic() + a.state_timeout
             while time.monotonic() < deadline:
                 app = getapp()
+                if a.native_offline_player:
+                    from qualify_native_vanilla263_loopback_player_overlay import (
+                        redacted_native_startup_census,
+                    )
+                    witness = redacted_native_startup_census(app)
+                    history = payload.setdefault("native_startup_states_seen", [])
+                    if witness["native_app_state"] not in history:
+                        history.append(witness["native_app_state"])
+                    payload["native_startup_last_census"] = witness
                 if isinstance(app, dict) and app.get("state") == "RUNNING":
                     matching_image = qualified_native_image(app,
                          image_fragment=CATALOG_PROFILES[a.native_catalog_profile]["image"])
@@ -535,7 +544,7 @@ def main() -> int:
                         cm = cfg.get("minecraft") if isinstance(cfg, dict) else None
                         if (not isinstance(cm, dict) or
                             cm.get("online_mode") is not False or
-                            cm.get("ops") != ["SupraCraftProbe"] or
+                            cm.get("ops") != [BOT_OFFLINE_UUID] or
                             cm.get("enable_rcon") is not False or
                             cm.get("rcon_password") != "" or
                             cm.get("whitelist") != []):
