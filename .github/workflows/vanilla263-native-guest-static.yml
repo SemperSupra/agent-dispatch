@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'scripts/truenas_middleware_minecraft_t6_probe.py'
+      - 'scripts/qualify_vanilla263_native_lantern_stage.py'
+      - 'tests/test_vanilla263_native_lantern_stage.py'
       - 'scripts/assert_vanilla263_native_t6_receipt.py'
       - 'tests/test_truenas_t6_vanilla263_guest.py'
       - '.github/workflows/vanilla263-native-guest-static.yml'
@@ -26,12 +28,14 @@ jobs:
           set -euo pipefail
           python3 -m py_compile \
             scripts/truenas_middleware_minecraft_t6_probe.py \
+            scripts/qualify_vanilla263_native_lantern_stage.py \
             scripts/admit_vanilla263_native_t6_control.py \
             scripts/assert_vanilla263_native_t6_receipt.py
           python3 -m py_compile tests/test_truenas_t6_vanilla263_guest.py
       - name: Native vanilla real guest boundary source and red-blue negatives
         run: |
           set -euo pipefail
+          python3 -m unittest -v tests/test_vanilla263_native_lantern_stage.py
           python3 -m unittest -v tests/test_truenas_t6_vanilla263_guest.py
           bash -n scripts/gha_kvm_truenas_rdte.sh
           python3 -m unittest -v tests/test_vanilla263_t6_guest_routing.py
