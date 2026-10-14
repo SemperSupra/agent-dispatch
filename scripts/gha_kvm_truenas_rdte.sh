@@ -1195,7 +1195,7 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
     NATIVE_READBACK_ARGS=(
       --collage-source-dir "$REPO_ROOT/.deps/collage-source"
       --collage-https-port "$HTTPS_PORT"
-      --collage-source-ref "17dfacc4351053fa06f8bdbaed7d931c97c1707e"
+      --collage-source-ref "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8"
     )
   fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \

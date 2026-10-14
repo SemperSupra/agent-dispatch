@@ -607,7 +607,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SupraCraft/collage
-          ref: 17dfacc4351053fa06f8bdbaed7d931c97c1707e
+          ref: 2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8
           path: .deps/collage-source
           persist-credentials: false
       - name: Prepare pinned scoped native vanilla COLLAGE Go read-only observer
@@ -620,7 +620,7 @@ jobs:
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
         run: |
           set -euo pipefail
-          test "$(git -C .deps/collage-source rev-parse HEAD)" = 17dfacc4351053fa06f8bdbaed7d931c97c1707e
+          test "$(git -C .deps/collage-source rev-parse HEAD)" = 2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8
           (cd .deps/collage-source &&
             python3 -m unittest -v tests.test_collage_native_readback tests.test_consume_vanilla_datapack_source)
           (cd .deps/collage-source/tools/truenas-readonly-probe &&
