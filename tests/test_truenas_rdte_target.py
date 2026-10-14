@@ -78,7 +78,7 @@ class TargetRegistryTests(unittest.TestCase):
         target=self.targets[request["version"]]
         self.assertEqual(request["authority_issue"], target["authority_issue"])
         if request["rung"] == "t6":
-            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-controller-f0f5","garm-provider-g2","garm-provider-g3","garm-provider-g4","garm-provider-g5","garm-provider-container-pre-b4","official-catalog","foliorelay","minecraft-paper","collage-native-paper"})
+            self.assertIn(request.get("product", "litellm"), {"litellm","wow-sidecar","garm","garm-controller-f0f5","garm-provider-g2","garm-provider-g3","garm-provider-g4","garm-provider-g5","garm-provider-container-pre-b4","official-catalog","foliorelay","minecraft-paper","collage-native-paper","minecraft-vanilla-263"})
         if request.get("product") == "collage-native-paper":
             self.assertEqual(request["rung"], "t6")
             self.assertEqual(request["version"], "25.04.1")
@@ -86,6 +86,13 @@ class TargetRegistryTests(unittest.TestCase):
             # source-locked Minecraft 1.15.30 qualification successor.
             # This is a constrained allowlist, not arbitrary issue authority.
             self.assertIn(request["consumer_authority_issue"], {614, 625})
+        if request.get("product") == "minecraft-vanilla-263":
+            self.assertEqual(request["rung"], "t6")
+            self.assertEqual(request["version"], "25.04.2.6")
+            self.assertEqual(request["authority_issue"], 423)
+            self.assertEqual(request["consumer_authority_issue"], 627)
+            self.assertEqual(request["request_id"],
+                             "tn-25-04-2-6-t6-vanilla-263-op4b-002-native-guest")
         if request.get("product") == "wow-sidecar":
             self.assertEqual(request.get("consumer_authority_issue"), 276)
         if request.get("product") == "garm":
