@@ -822,6 +822,36 @@ def main() -> int:
                 "physical_true_nas_apply": "HOLD",
                 "collage_mutation_authorized": False,
             }
+            # All emitted codes are fixed source literals, never DDP errors.
+            def g4_phase(code):
+                if code not in {
+                    "fixture_preparation", "preaction.stop", "candidate.stop",
+                    "rollback.stop", "preaction.stopped", "candidate.stopped",
+                    "rollback.stopped", "preaction.owner_query",
+                    "candidate.owner_query", "rollback.owner_query",
+                    "preaction.owner_verified", "candidate.owner_verified",
+                    "rollback.owner_verified", "preaction.version_query",
+                    "candidate.version_query", "rollback.version_query",
+                    "preaction.version_verified", "candidate.version_verified",
+                    "rollback.version_verified", "preaction.restart",
+                    "candidate.restart", "rollback.restart",
+                    "preaction.restarted", "candidate.restarted",
+                    "rollback.restarted",
+                } and code not in {
+                    st + "." + ph
+                    for st in ("preaction", "candidate", "rollback")
+                    for ph in (
+                        "app_state_query", "app_stopped_verified",
+                        "file_stat", "file_stat_verified",
+                        "download_request", "download_route_verified",
+                        "download_job", "download_job_completed",
+                        "bytes_fetch", "bytes_verified",
+                        "anvil_decode", "anvil_verified",
+                    )
+                }:
+                    raise MinecraftT6Error("G4 phase code not admitted")
+                payload["native_backend_world"]["last_backend_phase"] = code
+            g4_phase("fixture_preparation")
             payload["native_backend_world"]["preparation"] = run_player(
                 stage="candidate-prep", forward=a.native_player_forward,
                 state_dir=a.out.parent, node_path=a.native_player_node_path)
@@ -829,16 +859,22 @@ def main() -> int:
                 # A separate native App stop after the actual client action
                 # flushes server-owned region files. Never decode packets as
                 # if they were an authoritative backend world state.
+                g4_phase(stage + ".stop")
                 wait_job(call("app.stop", [APP]), "G4 backend quiesce " + stage)
+                g4_phase(stage + ".stopped")
+                g4_phase(stage + ".owner_query")
                 cfg = call("app.config", [APP])
                 if not owned_config(cfg, desired):
                     raise MinecraftT6Error("G4 region owner drift")
+                g4_phase(stage + ".owner_verified")
+                g4_phase(stage + ".version_query")
                 if call("system.version", []) != a.expected_system_version:
                     raise MinecraftT6Error("G4 region target drift")
+                g4_phase(stage + ".version_verified")
                 obs = capture(call=call, wait_job=wait_job,
                     fetch_bytes=lambda p: middleware_http_bytes(
                         a.host, a.port, a.tls, p, timeout=a.timeout),
-                    stage=stage)
+                    stage=stage, on_phase=g4_phase)
                 # Upgraded only in this signed, actual guest runner after
                 # real DDP owner/session, stop, bounded fixed-path download
                 # and independent Anvil block decoding all succeeded.
@@ -846,9 +882,11 @@ def main() -> int:
                 obs["live_guest_identity_independently_verified"] = True
                 obs["server_quiescence_proven"] = True
                 obs["native_guest_server_owned_bytes_proven"] = True
+                g4_phase(stage + ".restart")
                 wait_job(call("app.start", [APP]), "G4 backend restart " + stage)
                 wait_app()
                 wait_status("g4-" + stage)
+                g4_phase(stage + ".restarted")
                 return obs
             payload["native_backend_world"]["preaction"] = sample_owned_backend(
                 "preaction")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.qualify_native_vanilla263_anvil_guest_readback import capture, PATH
+from scripts.qualify_native_vanilla263_anvil_guest_readback import capture, PATH, record_phase
 from scripts.qualify_native_vanilla263_anvil_blocks import Refused
 from scripts.qualify_vanilla263_native_world_rollback import APP
 from tests.test_native_vanilla263_anvil_blocks import build
@@ -94,6 +94,76 @@ class NativeReadbackTests(unittest.TestCase):
     def test_refuse_wrong_effect_inside_download(self):
         self.blob = build("rollback")
         self.reject("SERVER_BLOCK_CONSEQUENCE_ABSENT")
+
+
+    def test_phase_census_is_literal_and_contains_no_provider_values(self):
+        seen = []
+        got = capture(call=self.call, wait_job=self.wait, fetch_bytes=self.fetch,
+                      stage="candidate", on_phase=seen.append)
+        self.assertTrue(got["block_state_expectations_matched"])
+        self.assertEqual(seen, [
+            "candidate.app_state_query",
+            "candidate.app_stopped_verified",
+            "candidate.file_stat",
+            "candidate.file_stat_verified",
+            "candidate.download_request",
+            "candidate.download_route_verified",
+            "candidate.download_job",
+            "candidate.download_job_completed",
+            "candidate.bytes_fetch",
+            "candidate.bytes_verified",
+            "candidate.anvil_decode",
+            "candidate.anvil_verified",
+        ])
+        self.assertNotIn("/mnt/", str(seen))
+        self.assertNotIn("/_download/", str(seen))
+        self.assertNotIn("credential", str(seen))
+
+    def test_native_rpc_failure_identifies_operation_not_exception(self):
+        for fail_method, last_phase in (
+            ("app.query", "candidate.app_state_query"),
+            ("filesystem.stat", "candidate.file_stat"),
+            ("core.download", "candidate.download_request"),
+        ):
+            with self.subTest(fail_method=fail_method):
+                previous = self.call
+                phases = []
+                def injected(method, args):
+                    if method == fail_method:
+                        raise RuntimeError("secret-password provider-path /mnt/private")
+                    return previous(method, args)
+                with self.assertRaises(RuntimeError):
+                    capture(call=injected, wait_job=self.wait, fetch_bytes=self.fetch,
+                            stage="candidate", on_phase=phases.append)
+                self.assertEqual(phases[-1], last_phase)
+                self.assertNotIn("secret-password", str(phases))
+                self.assertNotIn("/mnt/private", str(phases))
+
+    def test_download_job_and_http_failures_are_distinct(self):
+        cases = (
+            (lambda job, label: (_ for _ in ()).throw(
+                RuntimeError("untrusted job exception")), self.fetch,
+             "candidate.download_job"),
+            (self.wait, lambda token: (_ for _ in ()).throw(
+                RuntimeError("untrusted URL exception")), "candidate.bytes_fetch"),
+        )
+        for wait, fetch, wanted in cases:
+            with self.subTest(wanted=wanted):
+                phases = []
+                with self.assertRaises(RuntimeError):
+                    capture(call=self.call, wait_job=wait, fetch_bytes=fetch,
+                            stage="candidate", on_phase=phases.append)
+                self.assertEqual(phases[-1], wanted)
+                self.assertNotIn("untrusted", str(phases))
+
+    def test_unknown_phase_and_stage_not_emitted(self):
+        phases = []
+        with self.assertRaisesRegex(Refused, "BACKEND_PHASE_CODE_INVALID"):
+            record_phase("candidate", "secret=PASSWORD", phases.append)
+        with self.assertRaisesRegex(Refused, "BACKEND_PHASE_CODE_INVALID"):
+            record_phase("foreign", "download_request", phases.append)
+        self.assertEqual(phases, [])
+
 
 
 if __name__ == "__main__":
