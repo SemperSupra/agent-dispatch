@@ -20,13 +20,13 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('|| "$T6_PRODUCT" == "minecraft-vanilla-263"',HARNESS)
 
     def test_producer_signer_and_fresh_exact_artifact_seam(self):
-        pin="29ec6cba7df51e316b0329926aa85807805dd07b"
+        pin="5ee204df205edfd531304441fd1a6a24004557b1"
         self.assertIn("foundry-minecraft-vanilla263-t6-control:",WORKFLOW)
         self.assertIn(
-            "export-minecraft-vanilla-263-t6-control.yml@"+pin,WORKFLOW)
+            "export-minecraft-vanilla-263-11531-t6-control.yml@"+pin,WORKFLOW)
         self.assertIn("foundry_ref: "+pin,WORKFLOW)
         self.assertIn(
-            "name: minecraft-vanilla263-java25-truenas-250426-t6-source-candidate",WORKFLOW)
+            "name: minecraft-vanilla263-truenas-250426-11531-signed-source-candidate",WORKFLOW)
         self.assertIn("scripts/admit_vanilla263_native_t6_control.py",WORKFLOW)
         self.assertIn('foundry_commit="'+pin+'"',WORKFLOW)
         self.assertIn(
@@ -37,7 +37,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("Checkout independently qualified vanilla26.3 protocol777 status oracle",WORKFLOW)
         self.assertIn("4df9fbbfea0ae0e824719db367bd551349a86378",WORKFLOW)
         self.assertIn("python3 scripts/assert_vanilla263_native_t6_receipt.py",WORKFLOW)
-        self.assertIn("--product-profile vanilla263 --native-catalog-profile 1.15.30",HARNESS)
+        self.assertIn("--product-profile vanilla263 --native-catalog-profile 1.15.31",HARNESS)
         self.assertIn('"minecraft_protocol": 777',HARNESS)
         self.assertIn('"minecraft_version": "26.3"',HARNESS)
         self.assertIn('"rdte-t6-minecraft-vanilla-263"',HARNESS)
@@ -197,7 +197,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("cancel-in-progress: false",WORKFLOW)
         # Exact accepted source consumer must refuse a wrong Foundry SHA
         from scripts.admit_vanilla263_native_t6_control import CONTROL_SHA
-        self.assertEqual(CONTROL_SHA,"c1d6d9bd6306de55b12072ea9d0d6411fa7d7f106a6a87bdbe1913c0d82c0615")
+        self.assertEqual(CONTROL_SHA,"59516bbbcb1750af6f0cb1c624756f08113a070acc11c60affe94d2bbd8d8dd5")
 
 if __name__=="__main__":
     unittest.main()

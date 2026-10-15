@@ -277,7 +277,7 @@ payload = {
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "official-catalog"
       else {"name": "rdte-t6-foliorelay", "images": foliorelay_images}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "foliorelay"
-      else {"name": "rdte-t6-minecraft-vanilla-263", "catalog_app": "minecraft", "catalog_version_candidate": "1.15.30", "minecraft_version": "26.3", "minecraft_protocol": 777}
+      else {"name": "rdte-t6-minecraft-vanilla-263", "catalog_app": "minecraft", "catalog_version_candidate": "1.15.31", "minecraft_version": "26.3", "minecraft_protocol": 777}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") == "minecraft-vanilla-263"
       else {"name": "rdte-t6-minecraft-paper", "catalog_app": "minecraft", "catalog_version_candidate": "1.15.29", "paper_version": "1.21.11"}
       if os.environ.get("R_RUNG") == "t6" and os.environ.get("R_T6_PRODUCT") in {"minecraft-paper", "collage-native-paper"}
@@ -1256,7 +1256,7 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
     NATIVE_PLAYER_ARGS+=(--native-backend-region)
   fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
-    --product-profile vanilla263 --native-catalog-profile 1.15.30 \
+    --product-profile vanilla263 --native-catalog-profile 1.15.31 \
     --host 127.0.0.1 --port "$MIDDLEWARE_PORT" \
     --status-port "$MINECRAFT_HOST_PORT" \
     --status-oracle "$REPO_ROOT/.deps/minecraft-product/tools/minecraft_java_status_oracle.py" \

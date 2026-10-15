@@ -33,7 +33,7 @@ def guest_fixture():
                   "foundry_profile_blob":native.PROFILE_BLOB},
         "requested_shape":{"app":{
             "name":native.APP,"catalog_app":"minecraft",
-            "catalog_version_candidate":"1.15.30",
+            "catalog_version_candidate":"1.15.31",
             "minecraft_version":"26.3","minecraft_protocol":777}},
         "foundry_materialization":{
             "schema":"truenas-minecraft-vanilla263-t6/v1",
@@ -281,7 +281,7 @@ class TestNativeVanilla263Guest(unittest.TestCase):
         self.assertEqual(mc.MC_TYPE,"VANILLA")
         self.assertEqual(mc.MC_VERSION,"26.3")
         self.assertEqual(mc.MC_PROTOCOL,777)
-        self.assertEqual(mc.CATALOG_PROFILES["1.15.30"]["image"],native.OCI)
+        self.assertEqual(mc.CATALOG_PROFILES["1.15.31"]["image"],native.OCI)
 
     def test_vanilla_status_requires_exact_version_protocol_implementation(self):
         mc.configure_exact_vanilla263()

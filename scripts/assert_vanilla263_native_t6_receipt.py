@@ -48,7 +48,7 @@ def check(root: dict, *, require_collage: bool = False,
     need(type(shape) is dict and
          shape.get("name") == APP and
          shape.get("catalog_app") == "minecraft" and
-         shape.get("catalog_version_candidate") == "1.15.30" and
+         shape.get("catalog_version_candidate") == "1.15.31" and
          shape.get("minecraft_version") == "26.3" and
          shape.get("minecraft_protocol") == 777,
          "wrong native workload shape")

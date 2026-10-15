@@ -125,7 +125,7 @@ def configure_exact_vanilla263() -> None:
     MC_IMPLEMENTATION, MC_STATUS_NAME_CONTRACT = "vanilla", "vanilla_exact"
     VANILLA263 = True
     CATALOG_PROFILES = dict(CATALOG_PROFILES)
-    CATALOG_PROFILES["1.15.30"] = {"apps_commit": APPS_REF, "image": OCI}
+    CATALOG_PROFILES["1.15.31"] = {"apps_commit": APPS_REF, "image": OCI}
 
 
 class MinecraftT6Error(RuntimeError):
@@ -175,7 +175,7 @@ def canonical_sha256(doc: dict) -> str:
 def load_control(path: pathlib.Path, expected_commit: str, catalog_version: str = "1.15.29") -> dict:
     if VANILLA263:
         from admit_vanilla263_native_t6_control import verify
-        if catalog_version != "1.15.30":
+        if catalog_version != "1.15.31":
             raise MinecraftT6Error("vanilla263 exact native catalog version refused")
         try:
             control = json.loads((path / "control.json").read_text(encoding="utf-8"))
