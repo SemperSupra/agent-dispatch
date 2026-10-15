@@ -1,0 +1,8 @@
+# Google Actions short-lived generated credential files
+gha-creds-*.json
+.google-oidc/
+# Never commit private Google Cloud state or values
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json

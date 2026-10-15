@@ -1,0 +1,24 @@
+name: Agent Dispatch Google read-only source contract
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/google-cloud-readonly.yml'
+      - '.github/workflows/google-cloud-source-check.yml'
+      - 'scripts/google_cloud_readonly.py'
+      - 'tests/test_google_cloud_readonly.py'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run offline Google identity and receipt negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q scripts/google_cloud_readonly.py
+          python3 -m unittest -v tests/test_google_cloud_readonly.py

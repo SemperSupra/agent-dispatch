@@ -1,0 +1,76 @@
+name: Agent Dispatch Google Cloud read-only OIDC qualification
+run-name: Google RO OIDC qualification ${{ github.run_id }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  google-read:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: google-cloud-readonly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fail closed when bound environment is not configured
+        shell: bash
+        env:
+          PROVIDER: ${{ secrets.GOOGLE_RO_WIF_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ secrets.GOOGLE_RO_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ secrets.GOOGLE_RO_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$PROVIDER"
+          test -n "$SERVICE_ACCOUNT"
+          test -n "$PROJECT_ID"
+      - name: Get short-lived Google identity via reviewed OIDC binding
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ secrets.GOOGLE_RO_WIF_PROVIDER }}
+          service_account: ${{ secrets.GOOGLE_RO_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.GOOGLE_RO_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up pinned Google Cloud SDK action
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+      - name: Perform single read-only project metadata verification
+        shell: bash
+        env:
+          GOOGLE_RO_PROJECT_ID: ${{ secrets.GOOGLE_RO_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          python3 scripts/google_cloud_readonly.py --probe .google-oidc/receipt.json
+      - name: Upload sanitized observation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: google-readonly-${{ github.run_id }}
+          path: .google-oidc/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  independent-receipt:
+    needs: google-read
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: google-readonly-${{ github.run_id }}
+          path: .google-oidc
+      - name: Validate exact run- and commit-bound receipt without cloud credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/google_cloud_readonly.py --verify .google-oidc/receipt.json
+          sha256sum .google-oidc/receipt.json
