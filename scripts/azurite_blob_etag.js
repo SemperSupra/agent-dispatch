@@ -90,7 +90,11 @@ async function main() {
     const replay = await signed("PUT", BLOB, INITIAL, {
       "x-ms-blob-type":"BlockBlob", "content-type":"application/octet-stream", "if-none-match":"*"
     });
-    check(replay, 412, "REPLAY_MUST_BE_BLOCKED");
+    // Blob already exists may be 409; a conditional precondition failure may be 412.
+    // Both reject replay. The independent verifier requires one of these failures.
+    if (![409, 412].includes(replay.status)) {
+      throw new Error("REPLAY_NOT_BLOCKED_HTTP_" + replay.status);
+    }
     process.stdout.write(JSON.stringify({
       schema:"azurite-transport-phase/v1",phase,etag,
       sha256:digest(INITIAL), length:INITIAL.length,
