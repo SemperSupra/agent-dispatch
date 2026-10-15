@@ -11,6 +11,11 @@ on:
       - 'tests/test_native_vanilla263_anvil_blocks.py'
       - 'scripts/qualify_native_vanilla263_anvil_guest_readback.py'
       - 'tests/test_native_vanilla263_anvil_guest_readback.py'
+      - 'tests/test_native_vanilla263_backend_three_checkpoint_receipt.py'
+      - 'scripts/truenas_middleware_minecraft_t6_probe.py'
+      - 'scripts/assert_vanilla263_native_t6_receipt.py'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
       - '.github/workflows/qualify-native-loopback-gameplay-overlay.yml'
   workflow_dispatch:
 permissions:
@@ -35,11 +40,15 @@ jobs:
             scripts/qualify_native_vanilla263_anvil_blocks.py \
             tests/test_native_vanilla263_anvil_blocks.py \
             scripts/qualify_native_vanilla263_anvil_guest_readback.py \
-            tests/test_native_vanilla263_anvil_guest_readback.py
+            tests/test_native_vanilla263_anvil_guest_readback.py \
+            tests/test_native_vanilla263_backend_three_checkpoint_receipt.py \
+            scripts/truenas_middleware_minecraft_t6_probe.py \
+            scripts/assert_vanilla263_native_t6_receipt.py
           python3 -m unittest -v tests.test_native_vanilla263_loopback_player_overlay
           python3 -m unittest -v tests.test_native_vanilla263_mineflayer_causal
           python3 -m unittest -v tests.test_native_vanilla263_anvil_blocks
           python3 -m unittest -v tests.test_native_vanilla263_anvil_guest_readback
+          python3 -m unittest -v tests.test_native_vanilla263_backend_three_checkpoint_receipt
           node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
           bash -n scripts/gha_kvm_truenas_rdte.sh
       - name: Preserve operational auth and physical TrueNAS hold
