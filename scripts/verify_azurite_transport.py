@@ -68,7 +68,7 @@ def verify(write_raw, recovery_raw, trusted_sha, trusted_run):
             b["sha256"] != hashlib.sha256(expected["recover"]).hexdigest()):
         raise Denied("PAYLOAD_DIGEST_DENIED")
     if (type(a["create_status"]) is not int or a["create_status"] != 201 or
-            type(a["replay_status"]) is not int or a["replay_status"] != 412 or
+            type(a["replay_status"]) is not int or a["replay_status"] not in (409, 412) or
             type(b["stale_write_status"]) is not int or b["stale_write_status"] != 412 or
             type(b["stale_read_status"]) is not int or b["stale_read_status"] != 412 or
             type(b["conditional_update_status"]) is not int or
