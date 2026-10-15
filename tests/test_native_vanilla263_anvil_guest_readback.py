@@ -39,17 +39,17 @@ class NativeReadbackTests(unittest.TestCase):
         self.assertEqual(token, self.token)
         return self.blob
 
-    def run(self, stage="candidate"):
+    def capture_stage(self, stage="candidate"):
         return capture(call=self.call, wait_job=self.wait,
                        fetch_bytes=self.fetch, stage=stage)
 
     def reject(self, reason):
         with self.assertRaises(Refused) as cm:
-            self.run()
+            self.capture_stage()
         self.assertEqual(str(cm.exception), reason)
 
     def test_fixed_native_quiesced_read_only_path_and_nonclaim(self):
-        result = self.run()
+        result = self.capture_stage()
         self.assertEqual(result["classification"],
                          "SOURCE_ONLY_OWNED_ANVIL_DOWNLOAD_SEAM")
         self.assertEqual(result["downloaded_file_size"], len(self.blob))
@@ -64,7 +64,7 @@ class NativeReadbackTests(unittest.TestCase):
 
     def test_wrong_stage_has_zero_provider_calls(self):
         with self.assertRaisesRegex(Refused, "BACKEND_STAGE_NOT_ADMITTED"):
-            self.run("other")
+            self.capture_stage("other")
         self.assertEqual(self.record, [])
 
     def test_refuse_running_app_before_file_read(self):
