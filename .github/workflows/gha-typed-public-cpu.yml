@@ -62,6 +62,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Discover immutable Azurite 3.37.0 OCI image without executing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect mcr.microsoft.com/azure-storage/azurite:3.37.0 | head -34
       - name: Validate public request and authority contracts
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
