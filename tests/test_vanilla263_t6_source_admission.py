@@ -14,7 +14,7 @@ sys.path.insert(0,str(ROOT/"scripts"))
 import admit_vanilla263_native_t6_control as consumer
 
 FOUNDRY=ROOT/".deps"/"vanilla-foundry"
-EXPORT=FOUNDRY/"tools"/"export_minecraft_vanilla_263_t6_control.py"
+EXPORT=FOUNDRY/"tools"/"export_minecraft_vanilla_263_11531_t6_control.py"
 
 
 def producer():
@@ -36,7 +36,7 @@ def source_document():
         "result":"PASS","truenas_target":"25.04.2.6",
         "runtime_qualification":False,
         "upstream":{"ref":f.SOURCE,"app":"community/minecraft"},
-        "server":{"catalog_version":"1.15.30","type":"VANILLA",
+        "server":{"catalog_version":"1.15.31","type":"VANILLA",
                   "minecraft_version":"26.3","image_selector":"j25_image",
                   "image_ref":f.IMAGE,"ownership_metadata":f.IDENTITY,
                   "world_mount":{"source":"/opt/tests/collage-vanilla-263-world"}},
