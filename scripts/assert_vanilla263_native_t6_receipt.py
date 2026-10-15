@@ -22,7 +22,8 @@ IMAGE_SHA = OCI.split("@sha256:", 1)[1]
 def check(root: dict, *, require_collage: bool = False,
           require_lantern_staged: bool = False,
           require_native_rollback: bool = False,
-          require_native_client_visibility: bool = False) -> None:
+          require_native_client_visibility: bool = False,
+          require_native_backend_region: bool = False) -> None:
     def need(condition: bool, reason: str) -> None:
         if not condition:
             raise ValueError(reason)
@@ -157,6 +158,70 @@ def check(root: dict, *, require_collage: bool = False,
                  client.get("collage_mutation_authorized") is False and
                  client.get("physical_true_nas_apply") == "HOLD",
                  "native offline client causal stage missing")
+    if require_native_backend_region:
+        need(require_native_client_visibility and require_native_rollback and
+             require_collage and require_lantern_staged,
+             "backend world region requires G2/G3 and same native client")
+        proof = p.get("native_backend_world") or {}
+        need(type(proof) is dict and
+             proof.get("schema") == "supracraft.native-vanilla263-live-backend-region/1" and
+             proof.get("classification") == "LIVE_NATIVE_BACKEND_THREE_CHECKPOINTS" and
+             proof.get("same_owned_guest_three_checkpoints") is True and
+             proof.get("backend_independent_world_oracle_pass") is True and
+             proof.get("collage_mutation_authorized") is False and
+             proof.get("physical_true_nas_apply") == "HOLD",
+             "live three checkpoint backend admission unproven")
+        prep = proof.get("preparation") or {}
+        need(type(prep) is dict and
+             prep.get("schema") == "supracraft.native-vanilla263-mineflayer-causal/1" and
+             prep.get("classification") == "FIXED_PLAYER_FIXTURE_PREPARATION_ONLY" and
+             prep.get("stage") == "candidate-prep" and
+             prep.get("client_protocol777_connected_and_spawned") is True and
+             prep.get("client_fixture_prepared_without_core_placement") is True and
+             prep.get("native_guest_backend_independent_oracle_qualified") is False and
+             prep.get("collage_mutation_authorized") is False and
+             prep.get("physical_true_nas_apply") == "HOLD",
+             "independent backend preaction preparation absent")
+        blocks = {
+            "preaction": ["minecraft:air", "minecraft:iron_bars", "minecraft:black_concrete"],
+            "candidate": ["minecraft:redstone_block", "minecraft:air", "minecraft:sea_lantern"],
+            "rollback": ["minecraft:redstone_block", "minecraft:iron_bars", "minecraft:black_concrete"],
+        }
+        hashes = set()
+        for stage, expected in blocks.items():
+            observed = proof.get(stage) or {}
+            digest = observed.get("region_sha256")
+            need(type(observed) is dict and
+                 observed.get("schema") == "supracraft.native-vanilla263-server-owned-anvil/1" and
+                 observed.get("classification") == "LIVE_NATIVE_STOPPED_OWNER_ANVIL_READBACK" and
+                 observed.get("stage") == stage and
+                 observed.get("block_states") == expected and
+                 observed.get("coordinates") == [[0,70,0],[2,70,0],[1,70,1]] and
+                 observed.get("block_state_expectations_matched") is True and
+                 observed.get("requested_native_app") == APP and
+                 observed.get("requested_native_world") ==
+                   "rdtepool/minecraft-vanilla-263-t6-world" and
+                 observed.get("requested_native_world_file_fixed") is True and
+                 observed.get("read_only_middleware_calls") is True and
+                 observed.get("live_guest_identity_independently_verified") is True and
+                 observed.get("native_guest_server_owned_bytes_proven") is True and
+                 observed.get("server_quiescence_proven") is True and
+                 observed.get("raw_region_published") is False and
+                 observed.get("collage_mutation_authorized") is False and
+                 observed.get("physical_true_nas_apply") == "HOLD" and
+                 type(observed.get("downloaded_file_size")) is int and
+                 8192 <= observed["downloaded_file_size"] <= 64*1024*1024 and
+                 type(digest) is str and len(digest) == 64 and
+                 all(c in "0123456789abcdef" for c in digest),
+                 "native server-owned Anvil stage missing or corrupted: " + stage)
+            hashes.add(digest)
+            readiness = (p.get("readiness") or {}).get("g4-" + stage) or {}
+            need(type(readiness) is dict and
+                 (readiness.get("protocol") or {}).get("oracleSatisfied") is True and
+                 type((readiness.get("level") or {}).get("size")) is int and
+                 readiness["level"]["size"] > 0,
+                 "native backend stage restart/health missing: " + stage)
+        need(len(hashes) == 3, "backend world snapshot hash replay")
     if require_native_rollback:
         need(require_lantern_staged and require_collage,
              "native rollback requires independently qualified G2 and artifact")
@@ -220,13 +285,15 @@ def main() -> int:
     p.add_argument("--require-lantern-staged", action="store_true")
     p.add_argument("--require-native-rollback", action="store_true")
     p.add_argument("--require-native-client-visibility", action="store_true")
+    p.add_argument("--require-native-backend-region", action="store_true")
     a = p.parse_args()
     try:
         check(json.loads(a.receipt.read_text(encoding="utf-8")),
               require_collage=a.require_collage_readback,
               require_lantern_staged=a.require_lantern_staged,
               require_native_rollback=a.require_native_rollback,
-              require_native_client_visibility=a.require_native_client_visibility)
+              require_native_client_visibility=a.require_native_client_visibility,
+              require_native_backend_region=a.require_native_backend_region)
     except (OSError, ValueError, TypeError) as ex:
         # Error messages generated by check() are constant, never propagate
         # arbitrary provider receipt fields, credentials or real addresses.
