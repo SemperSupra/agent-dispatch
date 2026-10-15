@@ -6,9 +6,10 @@ const mineflayer = require('mineflayer')
 const { Vec3 } = require('vec3')
 
 const stage = process.env.SUPRACRAFT_NATIVE_STAGE
+const prepare = stage === 'candidate-prep'
 const port = Number(process.env.MC_PORT)
 const output = process.env.BOT_RESULT_FILE
-const admitted = ['candidate', 'rollback'].includes(stage) &&
+const admitted = ['candidate', 'rollback', 'candidate-prep'].includes(stage) &&
   Number.isSafeInteger(port) && port > 1024 && port < 65536 &&
   typeof output === 'string' && output.length > 0
 if (!admitted) process.exit(2)
@@ -18,7 +19,7 @@ const result = {
   stage, requested_version: '26.3',
   protocol: 777, offline_mode: true,
   synthetic_bot: 'SupraCraftProbe',
-  operation: 'mineflayer.placeBlock',
+  operation: prepare ? 'mineflayer.chat.fixedFixture' : 'mineflayer.placeBlock',
   rcon_used: false,
   backend_independent_oracle_qualified: false,
   true_nas_physical_apply: false,
@@ -33,7 +34,7 @@ function save () { fs.writeFileSync(output, JSON.stringify(result, null, 2) + '\
 function finish (ok, code) {
   if (done) return
   done = true
-  result.classification = ok ? 'CLIENT_CAUSAL_VISIBILITY' : 'CLIENT_REFUSED'
+  result.classification = ok ? (prepare ? 'CLIENT_FIXTURE_PREPARED' : 'CLIENT_CAUSAL_VISIBILITY') : 'CLIENT_REFUSED'
   if (!ok) result.reason_code = code
   save()
   try { bot?.quit('synthetic native world test complete') } catch {}
@@ -83,6 +84,14 @@ bot?.once('spawn', async () => {
     const support = read(0, 69, 0)
     if (before !== 'air' || support !== 'stone') {
       return finish(false, 'CLIENT_FIXTURE_NOT_PRESENT')
+    }
+    if (prepare) {
+      result.expected_datapack_present = true
+      result.visible_effect_correct = before === 'air' && support === 'stone' &&
+        read(2, 70, 0) === 'iron_bars' &&
+        read(1, 70, 1) === 'black_concrete'
+      return finish(result.visible_effect_correct,
+                    'CLIENT_FIXTURE_PREPARATION_FAILED')
     }
     const deadline = Date.now() + 20000
     let core
