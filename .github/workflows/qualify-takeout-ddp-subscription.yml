@@ -1,0 +1,40 @@
+name: Takeout TrueNAS DDP event subscription contract (offline)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/truenas_takeout_ddp_subscription.py'
+      - 'tests/test_truenas_takeout_ddp_subscription.py'
+      - '.github/workflows/qualify-takeout-ddp-subscription.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-ddp-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Checkout exact public source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run strict DDP contract test suite
+        run: PYTHONPATH=scripts python3 -m unittest discover -s tests -p 'test_truenas_takeout_ddp_subscription.py' -v
+      - name: Confirm no active socket, process or privileged actuator
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          source=Path('scripts/truenas_takeout_ddp_subscription.py').read_text()
+          tree=ast.parse(source)
+          names={a.name.split('.')[0] for node in ast.walk(tree) if isinstance(node,ast.Import) for a in node.names}
+          names|={node.module.split('.')[0] for node in ast.walk(tree) if isinstance(node,ast.ImportFrom) and node.module}
+          assert not names.intersection({'socket','os','subprocess','requests','urllib','docker','ssl'}), names
+          assert 'def arm(ws,' in source
+          assert 'def collect_worker_until_die(ws,' in source
+          assert '"docker.events"' in source
+          print('PASS_OBSERVER_INJECTED_SOCKET_NO_HOST_ACTUATOR')
+          PY
