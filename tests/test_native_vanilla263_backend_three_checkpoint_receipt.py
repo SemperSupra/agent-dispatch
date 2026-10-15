@@ -3,8 +3,8 @@ from __future__ import annotations
 import copy
 import unittest
 
-from scripts.assert_vanilla263_native_t6_receipt import check
 from tests.test_native_vanilla263_player_guest_receipt import guest
+from scripts.assert_vanilla263_native_t6_receipt import check
 from scripts.admit_vanilla263_native_t6_control import APP
 
 BLOCKS = {
