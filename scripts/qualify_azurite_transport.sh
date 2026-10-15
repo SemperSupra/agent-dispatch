@@ -5,7 +5,10 @@ IMAGE='mcr.microsoft.com/azure-storage/azurite@sha256:830430c1da1a2d537e08f3e676
 NET="azq-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 CONTAINER="$NET"
 OUT="$RUNNER_TEMP/azurite-blob"
-test "$GITHUB_EVENT_NAME" = "pull_request"
+case "$GITHUB_EVENT_NAME" in
+  pull_request|workflow_dispatch) ;;
+  *) echo "AZURITE_EVENT_DENIED" >&2; exit 2 ;;
+esac
 test "$RUNNER_ARCH" = X64
 mkdir -p "$OUT"
 chmod 700 "$OUT"
