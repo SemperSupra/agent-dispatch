@@ -836,7 +836,7 @@ jobs:
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
                 foundry_commit="403321031b6d4e66aa64a8299fd7621eee290b0d"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
-                foundry_commit="29ec6cba7df51e316b0329926aa85807805dd07b"
+                foundry_commit="5ee204df205edfd531304441fd1a6a24004557b1"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi
