@@ -19,6 +19,7 @@ MAX_CHUNK = 16 * 1024 * 1024
 MAX_ITEMS = 1_000_000
 COORDINATES = ((0, 70, 0), (2, 70, 0), (1, 70, 1))
 EXPECTED = {
+    "preaction": ("minecraft:air", "minecraft:iron_bars", "minecraft:black_concrete"),
     "candidate": ("minecraft:redstone_block", "minecraft:air", "minecraft:sea_lantern"),
     "rollback": ("minecraft:redstone_block", "minecraft:iron_bars", "minecraft:black_concrete"),
 }
@@ -179,6 +180,7 @@ def inspect(region_bytes: bytes, stage: str) -> dict:
         "stage": stage, "region_sha256": hashlib.sha256(region_bytes).hexdigest(),
         "coordinates": [list(c) for c in COORDINATES],
         "block_state_expectations_matched": True,
+        "block_states": list(actual),
         "native_guest_server_owned_bytes_proven": False,
         "server_quiescence_proven": False,
         "backend_independent_world_oracle_pass": False,
