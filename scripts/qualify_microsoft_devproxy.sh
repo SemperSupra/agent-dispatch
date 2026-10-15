@@ -23,7 +23,6 @@ test "$(docker network inspect "$NETWORK" --format '{{.Internal}}')" = true
 docker run --detach --name "$CONTAINER" \
   --network "$NETWORK" --cap-drop ALL --security-opt no-new-privileges \
   --pids-limit 128 --memory 768m --cpus 1 \
-  -p 127.0.0.1:8000:8000 \
   --mount "type=bind,src=$GITHUB_WORKSPACE/fixtures/microsoft,dst=/config,readonly" \
   "$IMAGE" --config-file /config/devproxyrc.json >/dev/null
 ready=0
