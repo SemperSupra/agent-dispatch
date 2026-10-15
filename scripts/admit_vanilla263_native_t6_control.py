@@ -15,7 +15,7 @@ import sys
 
 SCHEMA = "semper-supra.minecraft-vanilla-263-truenas-t6-control/1"
 PRODUCER = "5ee204df205edfd531304441fd1a6a24004557b1"
-CONTROL_SHA = "c1d6d9bd6306de55b12072ea9d0d6411fa7d7f106a6a87bdbe1913c0d82c0615"
+CONTROL_SHA = "59516bbbcb1750af6f0cb1c624756f08113a070acc11c60affe94d2bbd8d8dd5"
 APPS_REF = "95b0cc78e75fcd4b128f4ef2f8428034d981f7c2"
 OCI = ("ghcr.io/itzg/minecraft-server:2026.10.0-java25@sha256:"
        "5a2ab74ae179c11e2dbbce67f307cdcf2c1257b3abb0f654d3a310b3d8ea57da")
