@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Bounded G4 quiesced native world Anvil file readback seam (source-only).
+
+This is a fixed-path read-only adapter for the existing disposable native T6
+DDP session and its already admitted owned App/world. It has no network client,
+credential issuance, provider mutation or disk export. Neither a synthetic
+test nor a caller-provided bytes callback is an independent live guest receipt.
+"""
+from __future__ import annotations
+
+try:
+    from .qualify_native_vanilla263_anvil_blocks import (
+        MAX_REGION, SCHEMA, inspect, require)
+    from .qualify_vanilla263_native_world_rollback import (
+        APP, WORLD, app_state)
+except ImportError:
+    from qualify_native_vanilla263_anvil_blocks import (
+        MAX_REGION, SCHEMA, inspect, require)
+    from qualify_vanilla263_native_world_rollback import (
+        APP, WORLD, app_state)
+
+PATH = WORLD + "/region/r.0.0.mca"
+STAGES = ("candidate", "rollback")
+
+
+def capture(*, call, wait_job, fetch_bytes, stage: str) -> dict:
+    """Only after existing *actual* guest runner verified owned App then stop.
+
+    The runner MUST independently bind the current authenticated DDP session,
+    exact native service/world, player action, signed request, and App stop.
+    It must not publish the raw Anvil region, signed session or download URL.
+    """
+    require(stage in STAGES, "BACKEND_STAGE_NOT_ADMITTED")
+    require(app_state(call) == "STOPPED", "BACKEND_QUIESCENCE_NOT_OBSERVED")
+    stat = call("filesystem.stat", [PATH])
+    require(type(stat) is dict and stat.get("type") == "FILE" and
+            type(stat.get("size")) is int and
+            8192 <= stat["size"] <= MAX_REGION, "BACKEND_REGION_FILE_NOT_EXACT")
+    row = call("core.download", [
+        "filesystem.get", [PATH], "g4-owned-region-" + stage + ".mca", True])
+    require(type(row) is list and len(row) == 2 and
+            type(row[0]) is int and row[0] > 0 and
+            type(row[1]) is str and
+            row[1].startswith("/_download/") and
+            len(row[1]) <= 300 and
+            ".." not in row[1] and "?" not in row[1] and "#" not in row[1],
+            "BACKEND_DOWNLOAD_ROUTE_INVALID")
+    wait_job(row[0], "G4 read-only owned Anvil file download")
+    blob = fetch_bytes(row[1])
+    require(type(blob) is bytes and len(blob) == stat["size"],
+            "BACKEND_DOWNLOADED_FILE_DRIFT")
+    result = inspect(blob, stage)
+    # The host transfer API is separate from independent receipt admission:
+    # this module cannot prove the caller ran under authorized guest identity.
+    result.update({
+        "classification": "SOURCE_ONLY_OWNED_ANVIL_DOWNLOAD_SEAM",
+        "downloaded_file_size": len(blob),
+        "requested_native_app": APP,
+        "requested_native_world_file_fixed": True,
+        "read_only_middleware_calls": True,
+        "live_guest_identity_independently_verified": False,
+        "backend_independent_world_oracle_pass": False,
+        "raw_region_published": False,
+        "next_gate": "EXACT_LIVE_GUEST_RUNNER_AND_INDEPENDENT_RECEIPT_BINDING",
+    })
+    return result
