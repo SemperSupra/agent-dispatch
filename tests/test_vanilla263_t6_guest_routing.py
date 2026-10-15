@@ -171,11 +171,10 @@ class TestVanilla263GuestRouting(unittest.TestCase):
                             needle)
         probe=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
         for stage in ("preaction","candidate","rollback"):
-            self.assertIn('sample_owned_backend("'+stage+'")',probe.replace('\n                    ', ''))
+            self.assertIn('native_backend_world"]["'+stage+'"]', probe)
         self.assertIn("backend_independent_world_oracle_pass", probe)
         self.assertIn("owned_config(cfg, desired)", probe)
         self.assertNotIn("native_backend_region", str(request))
-        self.assertIn("source-router", WORKFLOW) if False else None
 
     def test_player_dependencies_are_installed_in_native_guest_job(self):
         top, native = WORKFLOW.split("  truenas-26-beta3:", 1)
