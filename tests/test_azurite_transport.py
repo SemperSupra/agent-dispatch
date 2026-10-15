@@ -49,6 +49,14 @@ class EmulatorNegativeTests(unittest.TestCase):
         self.assertTrue(verdict["fresh_client_recovered"])
         self.assertIn("@sha256:",verdict["immutable_image"])
 
+    def test_provider_replay_denial_409_and_412_both_accepted(self):
+        for code in (409, 412):
+            with self.subTest(status=code):
+                a, b = fixture()
+                a["replay_status"] = code
+                result = m.verify(*encoded(a, b), SHA, RUN)
+                self.assertTrue(result["write_replay_blocked"])
+
     def test_all_revision_and_replay_mutations_denied(self):
         mutations=[("a","replay_status",201),("a","create_status",200),
                    ("b","stale_write_status",200),("b","stale_read_status",200),
