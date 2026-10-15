@@ -66,7 +66,7 @@ function digest(payload) {
 }
 
 function check(result, expected, label) {
-  assert.equal(result.status, expected, label + "_HTTP_STATUS");
+  if (result.status !== expected) throw new Error(label + "_HTTP_" + result.status);
 }
 function verifyPayload(result, expected, label) {
   check(result, 200, label);
@@ -125,7 +125,10 @@ async function main() {
   }
 }
 main().catch(_err => {
-  // Do not print request headers, emulator key, object addresses or response bodies.
-  console.error("AZURITE_FIXTURE_BLOCKED");
+  // Emit only the allowlisted local-fixture phase and HTTP status. No headers,
+  // URLs, request bodies, emulator keys, or other exception material.
+  const label = String(_err && _err.message || "");
+  console.error(/^[A-Z_]{3,48}_HTTP_[1-5][0-9]{2}$/.test(label)
+    ? "AZURITE_FIXTURE_" + label : "AZURITE_FIXTURE_BLOCKED");
   process.exitCode = 2;
 });
