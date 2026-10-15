@@ -38,6 +38,14 @@ on:
       - 'scripts/verify_gha_assignment_receipt.py'
       - 'tests/test_gha_assignment_execution.py'
       - 'tests/test_gha_workload_request.py'
+      - 'scripts/provider_packet_contract.py'
+      - 'tests/test_provider_packet_contract.py'
+      - 'scripts/microsoft_devproxy_contract.py'
+      - 'scripts/verify_microsoft_devproxy_receipt.py'
+      - 'scripts/qualify_microsoft_devproxy.sh'
+      - 'tests/test_microsoft_devproxy_contract.py'
+      - 'tests/test_microsoft_dispatch_profile.py'
+      - 'fixtures/microsoft/**'
       - 'tests/test_verify_gha_typed_receipt.py'
       - 'scripts/verify_gha_typed_receipt.py'
       - 'requests/gha/**'
@@ -57,8 +65,57 @@ jobs:
       - name: Validate public request and authority contracts
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
+          python3 -m unittest -v tests/test_provider_packet_contract.py
+          python3 -m unittest -v tests/test_microsoft_devproxy_contract.py
+          python3 -m unittest -v tests/test_microsoft_dispatch_profile.py
           python3 tests/test_verify_gha_typed_receipt.py -v
           python3 tests/test_gha_assignment_execution.py -v
+
+  devproxy-mock-only:
+    if: github.event_name == 'pull_request'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Admit reviewed Microsoft mock-only work request
+        id: fixed
+        shell: bash
+        env:
+          REQUEST: requests/gha/microsoft-devproxy-mock-v1.json
+        run: python3 scripts/gha_workload_request.py --action plan --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
+      - name: Execute bounded Microsoft mock using the typed Agent Dispatch executor
+        shell: bash
+        env:
+          REQUEST: requests/gha/microsoft-devproxy-mock-v1.json
+          DIGEST: ${{ steps.fixed.outputs.request_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 scripts/gha_workload_request.py --action run \
+            --request "$REQUEST" --digest "$DIGEST" \
+            --receipt "$RUNNER_TEMP/microsoft-mock/typed.json"
+      - name: Independently verify native typed and Dev Proxy mock receipts
+        shell: bash
+        env:
+          REQUEST: requests/gha/microsoft-devproxy-mock-v1.json
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum "$RUNNER_TEMP/microsoft-mock/typed.json" | cut -d' ' -f1)
+          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+            --receipt "$RUNNER_TEMP/microsoft-mock/typed.json" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --runner ubuntu-24.04 --sha256 "$sha" \
+            --out "$RUNNER_TEMP/microsoft-mock/typed-verified.json"
+      - name: Upload public synthetic mock receipts
+        if: always() && hashFiles('scripts/microsoft_devproxy_contract.py') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: microsoft-mock-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/microsoft-mock/*.json
+          if-no-files-found: ignore
+          retention-days: 3
 
   cpu-native-proofs:
     if: github.event_name == 'pull_request'

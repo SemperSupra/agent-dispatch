@@ -41,10 +41,18 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
     envelope = fresh(profile_id)
     raw = json.dumps(envelope, sort_keys=True)
     plan = execute.plan(raw, SOURCE)
-    machine = "x86_64" if profile_id == "cpu-x64-arithmetic-v1" else "aarch64"
+    machine = "aarch64" if profile_id == "cpu-arm64-contract-v1" else "x86_64"
     runner_arch = "X64" if machine == "x86_64" else "ARM64"
-    fixed_result = profile._execute("arithmetic-oracle", 30) if machine == "x86_64" else {
-        "oracle_verified": True, "classification": "PASS"}
+    if profile_id == "microsoft-devproxy-mock-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "mock_only": True, "provider_access_verified": False,
+            "verdict_sha256": "c" * 64,
+        }
+    elif profile_id == "cpu-x64-arithmetic-v1":
+        fixed_result = profile._execute("arithmetic-oracle", 30)
+    else:
+        fixed_result = {"oracle_verified": True, "classification": "PASS"}
     with patch.object(profile.platform, "system", return_value="Linux"), \
          patch.object(profile.platform, "machine", return_value=machine), \
          patch.object(profile, "_execute", return_value=fixed_result), \

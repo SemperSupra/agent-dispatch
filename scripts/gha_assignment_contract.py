@@ -25,6 +25,7 @@ FIELDS = {
 PROFILES = {
     "cpu-x64-arithmetic-v1": "requests/gha/cpu-x64-arithmetic-v1.json",
     "cpu-arm64-contract-v1": "requests/gha/cpu-arm64-contract-v1.json",
+    "microsoft-devproxy-mock-v1": "requests/gha/microsoft-devproxy-mock-v1.json",
 }
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
