@@ -22,21 +22,22 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/check_collage_catalog_preflight.py
           python3 -m unittest -v tests.test_collage_catalog_preflight
-      - name: Verify upstream live official master with exact immutable 1.15.30 admission
+      - name: Verify actual upstream 1.15.31 native source availability; no Paper 1.15.30 runtime claim
         run: |
           set -euo pipefail
-          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30 \
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.31 \
             > "$RUNNER_TEMP/official-catalog-result.json"
           python3 - "$RUNNER_TEMP/official-catalog-result.json" <<'PY'
           import json,sys
           v=json.load(open(sys.argv[1]))
           assert v["classification"] == "PRE_KVM_CATALOG_VERSION_AVAILABLE"
-          assert v["expected_version"] == "1.15.30"
-          assert "1.15.30" in v["visible_versions"]
+          assert v["expected_version"] == "1.15.31"
+          assert "1.15.31" in v["visible_versions"]
+          assert "1.15.30" not in v["visible_versions"]
           assert v["guest_catalog_observed"] is False
           assert v["live_minecraft_qualified"] is False
           assert v["world_mutated"] is False
           PY
       - name: Report exact read-only external preflight boundary
         if: always()
-        run: echo 'Only official source catalog read; no KVM, native TrueNAS App, game-world mutation or physical APPLY.' >> "$GITHUB_STEP_SUMMARY"
+        run: echo 'Only current native vanilla 1.15.31 source catalog availability, not retired Paper 1.15.30; no KVM, native TrueNAS App, game-world mutation or physical APPLY.' >> "$GITHUB_STEP_SUMMARY"
