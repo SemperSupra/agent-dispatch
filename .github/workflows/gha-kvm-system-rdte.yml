@@ -337,9 +337,9 @@ jobs:
   foundry-minecraft-vanilla263-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_version == '25.04.2.6'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-vanilla-263-t6-control.yml@29ec6cba7df51e316b0329926aa85807805dd07b
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-vanilla-263-11531-t6-control.yml@5ee204df205edfd531304441fd1a6a24004557b1
     with:
-      foundry_ref: 29ec6cba7df51e316b0329926aa85807805dd07b
+      foundry_ref: 5ee204df205edfd531304441fd1a6a24004557b1
       target_version: "25.04.2.6"
     permissions:
       contents: read
@@ -579,7 +579,7 @@ jobs:
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: minecraft-vanilla263-java25-truenas-250426-t6-source-candidate
+          name: minecraft-vanilla263-truenas-250426-11531-signed-source-candidate
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Independently verify immutable native vanilla control pre-KVM
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
@@ -744,12 +744,18 @@ jobs:
         with:
           name: garm-provider-truenas-container-pre-b4-fixture
           path: ${{ runner.temp }}/gha-kvm-system-rdte/container-pre-b4-fixture
-      - name: Refuse floating upstream Minecraft catalog before heavyweight KVM
-        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper' || needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+      - name: Refuse floating historical COLLAGE Paper 1.15.30 catalog before KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
         run: |
           set -euo pipefail
           python3 -m unittest -v tests.test_collage_catalog_preflight
           python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30
+      - name: Refuse retired native vanilla 1.15.30; require current pinned 1.15.31
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_collage_catalog_preflight
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.31
 
       - name: Set up immutable 26.3 experimental client toolchain for native G4
         if: needs.changes.outputs.truenas_native_offline_player == 'true'
