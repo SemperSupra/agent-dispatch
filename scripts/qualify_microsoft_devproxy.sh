@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-test "$GITHUB_EVENT_NAME" = "pull_request"
+case "$GITHUB_EVENT_NAME" in pull_request|workflow_dispatch) ;; *) echo "MICROSOFT_MOCK_EVENT_BLOCKED" >&2; exit 2 ;; esac
 test "$RUNNER_ARCH" = X64
 python3 scripts/microsoft_devproxy_contract.py --action validate
 docker pull --platform linux/amd64 "$IMAGE" >/dev/null
@@ -40,3 +40,6 @@ fi
 python3 scripts/microsoft_devproxy_contract.py \
   --action probe --container "$CONTAINER" --receipt "$OUT/producer.json"
 echo "MICROSOFT_MOCK_PRODUCER_RECEIPT_CREATED"
+python3 scripts/verify_microsoft_devproxy_receipt.py \
+  --receipt "$OUT/producer.json" --out "$OUT/verified.json" \
+  --source "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
