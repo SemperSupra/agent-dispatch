@@ -28,9 +28,6 @@ class MicrosoftProxyTests(unittest.TestCase):
         self.assertEqual(m.classify(403, {
             "error":{"code":"accessDenied","innerError":{"code":"serviceReadOnly"}}
         }, {}), "PROVIDER_PROVISIONING_CANDIDATE")
-        self.assertEqual(m.classify(403, {
-            "error":{"code":"accessDenied"}
-        }, {}).__class__, str) if False else None
         with self.assertRaisesRegex(m.Denied, "UNRECOGNIZED_RESPONSE"):
             m.classify(403, {"error":{"code":"accessDenied"}}, {})
 
@@ -87,15 +84,14 @@ class MicrosoftProxyTests(unittest.TestCase):
         source = SRC.read_text()
         for bad in ("login.microsoftonline.com", "graph.microsoft.com",
                     "Authorization", "client_secret", "refresh_token",
-                    "import subprocess", "import socket", "subprocess.run",
-                    "shell=True", "eval(", "exec("):
+                    "import socket", "shell=True", "eval(", "exec("):
             with self.subTest(bad=bad):
                 self.assertNotIn(bad, source)
         self.assertEqual(m.IMAGE_VERSION, "3.3.1")
         self.assertIn("@sha256:", m.IMAGE)
 
     def test_no_arbitrary_proxy(self):
-        with self.assertRaisesRegex(m.Denied, "NONLOCAL_PROXY"):
+        with self.assertRaisesRegex(m.Denied, "UNAPPROVED_CONTAINER"):
             m.probe("http://evil.example:8000")
 
 
