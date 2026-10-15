@@ -1,0 +1,149 @@
+name: Takeout Foundry application receipt integration (no DOCKER_READ)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/takeout_application_completion.py'
+      - 'scripts/takeout_synthetic_fixture.py'
+      - 'fixtures/takeout-synthetic/Dockerfile'
+      - 'tests/test_takeout_application_completion.py'
+      - '.github/workflows/qualify-takeout-foundry-receipt.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundry-receipt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Fetch pinned public Foundry renderer, not a release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          ref=70cd8dc02d32dfba1943ff196a4df405945a88d3
+          git init --quiet "$RUNNER_TEMP/foundry"
+          git -C "$RUNNER_TEMP/foundry" remote add origin https://github.com/SemperSupra/truenas-app-foundry.git
+          git -C "$RUNNER_TEMP/foundry" fetch --quiet --depth 1 origin "$ref"
+          git -C "$RUNNER_TEMP/foundry" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/foundry" rev-parse HEAD)" = "$ref"
+      - name: Render source-only Foundry hostpath fixture without changing original
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qualify_takeout_foundry_hosted_compose.py \
+            --foundry-root "$RUNNER_TEMP/foundry" \
+            --output "$RUNNER_TEMP/official-hostpath-render.json"
+      - name: Build synthetic report-capable image from exact PR source
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -t takeout-synthetic:receipt \
+            -f fixtures/takeout-synthetic/Dockerfile .
+          docker image inspect takeout-synthetic:receipt --format '{{.Id}}' > "$RUNNER_TEMP/receipt-image-config.txt"
+      - name: Seal two-field hosted plan from official source (image and operation only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import copy,json,os,pathlib,re
+          temp=pathlib.Path(os.environ['RUNNER_TEMP'])
+          p=temp/'official-hostpath-render.json'
+          original=json.loads(p.read_text())
+          worker=original['services']['takeoutsynthetic']
+          assert set(original['services'])=={'takeoutsynthetic'}
+          assert worker['image']=='takeout-synthetic:local'
+          assert worker['restart']=='no' and worker['network_mode']=='none'
+          assert worker['read_only'] and not worker.get('ports') and not worker.get('privileged')
+          assert worker.get('command') is None
+          op='t6-hosted-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
+          assert re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{7,127}',op)
+          planned=copy.deepcopy(original)
+          target=planned['services']['takeoutsynthetic']
+          target['image']='takeout-synthetic:receipt'
+          target['command']=['--output','/archive','--state','/state','--completion-operation',op]
+          undone=copy.deepcopy(planned)
+          undone['services']['takeoutsynthetic']['image']=worker['image']
+          del undone['services']['takeoutsynthetic']['command']
+          assert undone==original, 'Unapproved materialization diff'
+          assert not any('docker.sock' in str(v) for v in target.get('volumes',[]))
+          out=temp/'hosted-receipt-plan.json'
+          out.write_text(json.dumps(planned,sort_keys=True,indent=2)+'\n')
+          out.chmod(0o600)
+          print(json.dumps({'classification':'SOURCE_ONLY_TWO_FIELD_RECEIPT_PLAN',
+                            'changed_fields':['/services/takeoutsynthetic/image',
+                                              '/services/takeoutsynthetic/command'],
+                            'source':'pinned-official-foundry',
+                            'guest':'NOT_RUN','physical_apply':'HOLD'},sort_keys=True))
+          PY
+      - name: Run official Compose and verify reported output after removing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          plan="$RUNNER_TEMP/hosted-receipt-plan.json"
+          root=/mnt/rdtepool/takeout-synthetic
+          operation="t6-hosted-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e "$root"
+          sudo install -d -m 0700 -o 10001 -g 10001 "$root" "$root/archives" "$root/state"
+          cleanup() {
+            docker compose -p ix-rdte-takeout -f "$plan" down --remove-orphans >/dev/null 2>&1 || true
+            sudo rm -rf -- "$root"
+          }
+          trap cleanup EXIT
+          docker compose -p ix-rdte-takeout -f "$plan" up -d --no-build
+          # Data-completion polling intentionally does NOT request docker.events,
+          # docker inspect, a Docker socket or DOCKER_READ for observation.
+          present=0
+          for attempt in $(seq 1 40); do
+            if sudo test -f "$root/state/completion-v1.json"; then present=1; break; fi
+            sleep 1
+          done
+          test "$present" = 1
+          sudo env PYTHONPATH=scripts python3 - "$root/archives" "$root/state" "$operation" <<'PY'
+          import json,pathlib,sys
+          from takeout_application_completion import NAME,validate
+          from takeout_synthetic_fixture import FILES,SENTINEL,sha
+          archive,state=map(pathlib.Path,sys.argv[1:3])
+          op=sys.argv[3]
+          expected={name:{'bytes':len(data),'sha256':sha(data)}
+                    for name,data in {**FILES,'retained-sentinel.txt':SENTINEL}.items()}
+          result=validate(state/NAME,archive,operation_id=op,expected=expected,
+                          expected_source='takeout-synthetic-fixture/v1')
+          assert result['verified_count']==4
+          assert result['process_exit_zero_verified'] is False
+          print(json.dumps({'status':'PASS','classification':result['classification'],
+                            'phase':'BEFORE_APP_REMOVAL','files':result['verified_count'],
+                            'docker_read_permission':'NOT_USED',
+                            'truenas_guest':'NOT_RUN','physical_apply':'HOLD'},sort_keys=True))
+          PY
+          docker compose -p ix-rdte-takeout -f "$plan" down --remove-orphans
+          sudo env PYTHONPATH=scripts python3 - "$root/archives" "$root/state" "$operation" <<'PY'
+          import json,pathlib,sys
+          from takeout_application_completion import NAME,validate
+          from takeout_synthetic_fixture import FILES,SENTINEL,sha
+          archive,state=map(pathlib.Path,sys.argv[1:3])
+          op=sys.argv[3]
+          expected={name:{'bytes':len(data),'sha256':sha(data)}
+                    for name,data in {**FILES,'retained-sentinel.txt':SENTINEL}.items()}
+          result=validate(state/NAME,archive,operation_id=op,expected=expected,
+                          expected_source='takeout-synthetic-fixture/v1')
+          assert result['verified_count']==4
+          assert result['process_exit_zero_verified'] is False
+          assert (state/'state.json').is_file()
+          print(json.dumps({'status':'PASS','classification':result['classification'],
+                            'phase':'AFTER_APP_REMOVAL','files':result['verified_count'],
+                            'docker_read_permission':'NOT_USED',
+                            'zfs_dataset':'NOT_TESTED',
+                            'truenas_native_app':'NOT_RUN',
+                            'physical_apply':'HOLD'},sort_keys=True))
+          PY
+          sudo rm -rf -- "$root"
+          test ! -e "$root"
+          trap - EXIT
