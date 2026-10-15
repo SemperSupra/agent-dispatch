@@ -29,8 +29,8 @@ jobs:
             scripts/qualify_native_vanilla263_loopback_player_overlay.py \
             scripts/qualify_native_vanilla263_mineflayer_causal.py \
             tests/test_native_vanilla263_loopback_player_overlay.py \
-            tests/test_native_vanilla263_mineflayer_causal.py \\
-            scripts/qualify_native_vanilla263_anvil_blocks.py \\
+            tests/test_native_vanilla263_mineflayer_causal.py \
+            scripts/qualify_native_vanilla263_anvil_blocks.py \
             tests/test_native_vanilla263_anvil_blocks.py
           python3 -m unittest -v tests.test_native_vanilla263_loopback_player_overlay
           python3 -m unittest -v tests.test_native_vanilla263_mineflayer_causal
