@@ -127,8 +127,6 @@ def publish(state_dir: Path, archive_root: Path, *, operation_id: str,
             os.fsync(out.fileno())
         # Atomic no-replace publication: prior success cannot be overwritten.
         os.link(tmp, dest, follow_symlinks=False)
-        with os.fdopen(os.open(state_dir, os.O_RDONLY | os.O_DIRECTORY), "rb"):
-            pass
     finally:
         tmp.unlink(missing_ok=True)
     # Directory metadata durability matters for a power-loss recovery path.
