@@ -1,14 +1,15 @@
 {
   "schema": "gha-kvm-truenas-run-request/v1",
-  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4h-015-offline-uuid-player",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint",
   "version": "25.04.2.6",
   "rung": "t6",
   "product": "minecraft-vanilla-263",
   "authority_issue": 423,
   "consumer_authority_issue": 627,
-  "purpose": "OP4H-015: fresh serialized disposable TrueNAS25.04.2.6 native Minecraft26.3 Java25/777 Mineflayer client causal rep after 014 offline OPS synthetic username made native Minecraft App fail healthy startup; source-only repair PR #468 pins Java offline UUIDv3 f4469b77-cc14-3c07-95f3-0b0c3f151bd2 for exact QEMU-only bot SupraCraftProbe. Same signed official Minecraft App1.15.30 Foundry OCI, exact 739-byte Lantern SHA256, TLS Go scoped APPS_READ G2, owned ZFS snapshot/fault rollback G3. New safe bounded startup state/count census without raw logs, never infer provider secrets. QEMU usernet ephemeral host 127.0.0.1 to guest25580, no external ingress, one synthetic offline OP with RCON disabled, no production online identity or permissions. Test actual Mineflayer core placement candidate positive and same action postrollback negative in SAME guest/App, retain owned cleanup. Client visual packet oracle not independent backend-world proof; managed COLLAGE mutation, VIP/Microsoft auth, full Two Rivers and physical TrueNAS APPLY held. One-use 015; never replay 013/014/015 or overlap guests.",
+  "purpose": "OP4I-016 one-shot real disposable TrueNAS25.04.2.6 native community Minecraft App1.15.30 Java25 vanilla26.3/protocol777 authenticated guest DDP G4 backend-world cause test. EXACT signed immutable Foundry pinned itzg Java25 image and original 739-byte Lantern ZIP (SHA256 da25005e8729e6f013f7108ac5b8869dd46323befc78efdae18221b26cafe5f8), APPS_READ TLS Go six marker owner, fixed owned ZFS snapshot/release-fault rollback. Same runner-only QEMU 127.0.0.1 ephemeral port synthetic offline UUIDv3 OP Mineflayer, RCON disabled, canonical operational online authentication remains true. New three stopped-App read-only fixed r.0.0.mca region checkpoints: clean preaction fixture empty core, candidate redstone/sea lantern opened gate, rollback same action with iron bars/black concrete. Independent server-owned Anvil decoder fixed protected coordinates, source/receipt verifier exact hashes and negative/cached/foreign/replay/clean owned final cleanup. Distinct request 016 consumed once; do not replay 011-015, no other concurrent heavyweight guest. Does not authorize COLLAGE APPLY, real Mojang/stock/VIP, full Two Rivers, operations or physical TrueNAS.",
   "collage_readback": true,
   "lantern_stage": true,
   "native_world_rollback": true,
-  "native_offline_player": true
+  "native_offline_player": true,
+  "native_backend_region": true
 }
