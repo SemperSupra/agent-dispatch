@@ -31,6 +31,7 @@ RESULT_FIELDS = {
     "arithmetic-oracle": {
         "classification", "oracle_verified", "task_count", "fixture_sha256"},
     "sealed-contract-native": {"classification", "oracle_verified"},
+    "microsoft-devproxy-mock": {"classification", "oracle_verified", "mock_only", "provider_access_verified", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -96,6 +97,12 @@ def evaluate(
         raise VerdictError("WORKLOAD_RESULT_FIELDS_UNTRUSTED")
     if result["classification"] != "PASS" or result["oracle_verified"] is not True:
         raise VerdictError("WORKLOAD_ORACLE_NOT_VERIFIED")
+    if p["workload"] == "microsoft-devproxy-mock":
+        if (result.get("mock_only") is not True or
+                result.get("provider_access_verified") is not False or
+                not isinstance(result.get("verdict_sha256"), str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("MOCK_RECEIPT_AUTHORITY_DENIED")
     if p["workload"] == "arithmetic-oracle":
         nums = [i**2 for i in range(256)]
         independent_digest = hashlib.sha256(
