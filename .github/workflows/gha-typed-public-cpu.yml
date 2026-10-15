@@ -45,6 +45,10 @@ on:
       - 'scripts/qualify_microsoft_devproxy.sh'
       - 'tests/test_microsoft_devproxy_contract.py'
       - 'tests/test_microsoft_dispatch_profile.py'
+      - 'scripts/azurite_blob_etag.js'
+      - 'scripts/qualify_azurite_transport.sh'
+      - 'scripts/verify_azurite_transport.py'
+      - 'tests/test_azurite_transport.py'
       - 'fixtures/microsoft/**'
       - 'tests/test_verify_gha_typed_receipt.py'
       - 'scripts/verify_gha_typed_receipt.py'
@@ -62,17 +66,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Discover immutable Azurite 3.37.0 OCI image without executing it
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker buildx imagetools inspect mcr.microsoft.com/azure-storage/azurite:3.37.0 | head -34
       - name: Validate public request and authority contracts
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
           python3 -m unittest -v tests/test_provider_packet_contract.py
           python3 -m unittest -v tests/test_microsoft_devproxy_contract.py
           python3 -m unittest -v tests/test_microsoft_dispatch_profile.py
+          python3 -m unittest -v tests/test_azurite_transport.py
           python3 tests/test_verify_gha_typed_receipt.py -v
           python3 tests/test_gha_assignment_execution.py -v
 
@@ -119,6 +119,27 @@ jobs:
         with:
           name: microsoft-mock-${{ github.run_attempt }}
           path: ${{ runner.temp }}/microsoft-mock/*.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+  azurite-blob-transport:
+    if: github.event_name == 'pull_request'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify isolated Azurite ETag, replay, restart-recovery and source-bound receipt
+        shell: bash
+        run: bash scripts/qualify_azurite_transport.sh
+      - name: Upload bounded public-synthetic transport evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: azurite-blob-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/azurite-blob/*.json
           if-no-files-found: ignore
           retention-days: 3
 
