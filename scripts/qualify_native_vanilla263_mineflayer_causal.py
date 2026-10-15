@@ -18,7 +18,7 @@ except ImportError:
     from qualify_native_vanilla263_loopback_player_overlay import runner_owned_loopback_forward
 
 SCHEMA = "supracraft.native-vanilla263-mineflayer-causal/1"
-STAGES = ("candidate", "rollback")
+STAGES = ("candidate", "rollback", "candidate-prep")
 WORKER = Path(__file__).with_name("qualify_native_vanilla263_mineflayer_causal.js")
 
 
@@ -32,6 +32,39 @@ def require(ok: bool, reason: str) -> None:
 
 
 def validate(receipt: object, stage: str) -> dict:
+    if stage == "candidate-prep":
+        require(type(receipt) is dict and
+                receipt.get("schema") == SCHEMA and
+                receipt.get("classification") == "CLIENT_FIXTURE_PREPARED" and
+                receipt.get("stage") == stage and
+                receipt.get("requested_version") == "26.3" and
+                receipt.get("negotiated_version") == "26.3" and
+                type(receipt.get("protocol")) is int and receipt["protocol"] == 777 and
+                type(receipt.get("negotiated_protocol")) is int and
+                receipt["negotiated_protocol"] == 777 and
+                receipt.get("offline_mode") is True and
+                receipt.get("synthetic_bot") == "SupraCraftProbe" and
+                receipt.get("operation") == "mineflayer.chat.fixedFixture" and
+                receipt.get("connected_and_spawned") is True and
+                receipt.get("fixture_via_bounded_bot_commands") is True and
+                receipt.get("placed") is False and
+                receipt.get("visible_effect_correct") is True and
+                receipt.get("expected_datapack_present") is True and
+                receipt.get("rcon_used") is False and
+                receipt.get("backend_independent_oracle_qualified") is False and
+                receipt.get("true_nas_physical_apply") is False and
+                receipt.get("collage_mutation_authorized") is False and
+                receipt.get("in_guest_server_world") is False and
+                "error" not in receipt and "reason_code" not in receipt,
+                "G4_PREACTION_FIXTURE_UNQUALIFIED")
+        return {
+            "schema": SCHEMA, "classification": "FIXED_PLAYER_FIXTURE_PREPARATION_ONLY",
+            "stage": stage, "client_protocol777_connected_and_spawned": True,
+            "client_fixture_prepared_without_core_placement": True,
+            "native_guest_backend_independent_oracle_qualified": False,
+            "collage_mutation_authorized": False,
+            "physical_true_nas_apply": "HOLD",
+        }
     require(stage in STAGES and type(receipt) is dict and
             receipt.get("schema") == SCHEMA and
             receipt.get("classification") == "CLIENT_CAUSAL_VISIBILITY" and
