@@ -56,6 +56,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Discover pinned Dev Proxy 3.3.1 release manifest without executing upstream code
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect ghcr.io/dotnet/dev-proxy:3.3.1 | head -28
       - name: Validate public request and authority contracts
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
