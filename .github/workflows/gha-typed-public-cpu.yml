@@ -44,6 +44,7 @@ on:
       - 'scripts/verify_microsoft_devproxy_receipt.py'
       - 'scripts/qualify_microsoft_devproxy.sh'
       - 'tests/test_microsoft_devproxy_contract.py'
+      - 'tests/test_microsoft_dispatch_profile.py'
       - 'fixtures/microsoft/**'
       - 'tests/test_verify_gha_typed_receipt.py'
       - 'scripts/verify_gha_typed_receipt.py'
@@ -66,6 +67,7 @@ jobs:
           python3 -m unittest -v tests/test_gha_workload_request.py
           python3 -m unittest -v tests/test_provider_packet_contract.py
           python3 -m unittest -v tests/test_microsoft_devproxy_contract.py
+          python3 -m unittest -v tests/test_microsoft_dispatch_profile.py
           python3 tests/test_verify_gha_typed_receipt.py -v
           python3 tests/test_gha_assignment_execution.py -v
 
