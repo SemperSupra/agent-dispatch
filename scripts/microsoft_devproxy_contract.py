@@ -8,8 +8,8 @@ import json
 import os
 from pathlib import Path
 import re
-import urllib.error
-import urllib.request
+import subprocess
+from email.parser import Parser
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "microsoft"
@@ -131,19 +131,38 @@ def classify(status, body, headers):
     raise Denied("UNRECOGNIZED_RESPONSE")
 
 
-def probe(proxy_url):
-    if proxy_url != "http://127.0.0.1:8000":
-        raise Denied("NONLOCAL_PROXY")
+def _request_from_isolated_container(name: str, container: str):
+    if not re.fullmatch(r"msmock-[0-9]{1,20}-[0-9]{1,4}-proxy", container):
+        raise Denied("UNAPPROVED_CONTAINER")
+    if not re.fullmatch(r"[a-z]{2,25}", name):
+        raise Denied("UNAPPROVED_CASE")
+    command = ["docker", "exec", container, "curl", "--silent", "--show-error",
+               "--max-time", "5", "--proxy", "http://127.0.0.1:8000",
+               "--dump-header", "-", "--write-out", "\n%{http_code}", STEM + name]
+    try:
+        result = subprocess.run(command, check=False, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, timeout=9)
+    except subprocess.TimeoutExpired as exc:
+        raise Denied("FIXTURE_REQUEST_TIMEOUT") from exc
+    if result.returncode != 0:
+        raise Denied("FIXTURE_TRANSPORT_FAILED")
+    try:
+        http_part, status_raw = result.stdout.rsplit(b"\n", 1)
+        head, data = http_part.split(b"\r\n\r\n", 1)
+        status = int(status_raw.decode("ascii"))
+        headers = Parser().parsestr(head.decode("ascii", "strict").split("\r\n", 1)[1])
+    except (ValueError, UnicodeDecodeError, IndexError) as exc:
+        raise Denied("FIXTURE_HTTP_MALFORMED") from exc
+    return status, data, headers
+
+
+def probe(container):
+    if not re.fullmatch(r"msmock-[0-9]{1,20}-[0-9]{1,4}-proxy", container):
+        raise Denied("UNAPPROVED_CONTAINER")
     digest = validate_fixtures()
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy_url}))
     cases = {}
     for name, (expected_status, expected_class) in EXPECTED.items():
-        url = STEM + name
-        try:
-            with opener.open(urllib.request.Request(url, method="GET"), timeout=5) as res:
-                status, data, headers = res.status, res.read(4096), res.headers
-        except urllib.error.HTTPError as ex:
-            status, data, headers = ex.code, ex.read(4096), ex.headers
+        status, data, headers = _request_from_isolated_container(name, container)
         if status != expected_status:
             raise Denied("PROXY_STATUS_MISMATCH")
         try:
@@ -154,11 +173,7 @@ def probe(proxy_url):
         if actual != expected_class:
             raise Denied("PROXY_CLASS_MISMATCH")
         cases[name] = actual
-    try:
-        with opener.open(STEM + "unmocked", timeout=5) as res:
-            unmocked = res.status
-    except urllib.error.HTTPError as ex:
-        unmocked = ex.code
+    unmocked, _unmocked_data, _unmocked_headers = _request_from_isolated_container("unmocked", container)
     if unmocked != 502:
         raise Denied("UNMOCKED_REQUEST_NOT_BLOCKED")
     source = os.environ.get("GITHUB_SHA", "")
@@ -188,7 +203,7 @@ def probe(proxy_url):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--action", required=True, choices=["validate", "probe"])
-    parser.add_argument("--proxy", default="http://127.0.0.1:8000")
+    parser.add_argument("--container", default="")
     parser.add_argument("--receipt")
     args = parser.parse_args()
     try:
@@ -197,14 +212,14 @@ def main():
         else:
             if not args.receipt:
                 raise Denied("RECEIPT_PATH_REQUIRED")
-            data = probe(args.proxy)
+            data = probe(args.container)
             out = Path(args.receipt)
             if out.exists() or out.is_symlink():
                 raise Denied("RECEIPT_ALREADY_EXISTS")
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(json.dumps(data, sort_keys=True, indent=2) + "\n")
             print("MICROSOFT_MOCK_ONLY_PASS")
-    except (Denied, OSError, ValueError, urllib.error.URLError) as ex:
+    except (Denied, OSError, ValueError) as ex:
         print("MICROSOFT_MOCK_BLOCKED " + type(ex).__name__)
         return 2
     return 0
