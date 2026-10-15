@@ -1,0 +1,32 @@
+name: Native Minecraft 26.3 offline UUID image helper preflight
+on:
+  pull_request:
+    paths:
+      - 'scripts/qualify_native_vanilla263_offline_ops_image.sh'
+      - 'scripts/qualify_native_vanilla263_loopback_player_overlay.py'
+      - '.github/workflows/qualify-native-263-offline-ops-image.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pinned-image-offline-operator:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Exact checked-out source, no credentials persisted
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate bounded offline username-to-UUID source
+        run: |
+          set -euo pipefail
+          bash -n scripts/qualify_native_vanilla263_offline_ops_image.sh
+          python3 -m unittest -v tests.test_native_vanilla263_loopback_player_overlay
+      - name: Use pinned actual public image helper, no Minecraft, no guest
+        run: |
+          set -euo pipefail
+          bash scripts/qualify_native_vanilla263_offline_ops_image.sh
+      - name: Preserve boundary
+        run: |
+          echo 'Pinned image offline UUID operator configuration only. No native TrueNAS, live player, backend world witness, principal mutation authorization or physical APPLY.' >> "$GITHUB_STEP_SUMMARY"

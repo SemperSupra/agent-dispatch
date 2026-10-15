@@ -1,0 +1,64 @@
+{
+  "schema": "gha-kvm-proxmox-targets/v1",
+  "policy": {
+    "exact_version_required": true,
+    "floating_target_prohibited": true,
+    "runtime_admission_is_explicit": true,
+    "evidence_inheritance_across_versions": false
+  },
+  "targets": [
+    {
+      "version": "9.2-1",
+      "runtime_admitted": true,
+      "authority_issue": 396,
+      "iso_name": "proxmox-ve_9.2-1.iso",
+      "iso_url": "https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso",
+      "iso_sha256": "4e88fe416df9b527624a175f24c9aa07c714d3332afb1ee3dbf3879573ef2c6c",
+      "installer_source_version": "9.2.5",
+      "installer_source_commit": "32afcd4cd534d8e2f99ae76aa0234a0a5c697ba9",
+      "pve_manager_source_commit": "b9984c6d90a4bd80ab72dc2088c1b9103fb167b1",
+      "pve_manager_package_version": "9.2.2",
+      "pve_manager_apt_api_blob": "9cb6e473436719f3024ac09fffaad8faf0d7160d",
+      "pve_access_control_source_commit": "5ccd07d9302562b73374d331b63d25b04b86766c",
+      "pve_container_source_commit": "5eb5574ee9158ac40a5230de2cf18d7d6345709f",
+      "pve_container_package_version": "6.1.10",
+      "pve_container_lxc_api_blob": "88067ddebf5a0bd540f91ffd1db11f8eec40cefb",
+      "pve_container_status_api_blob": "c95fc3c7732d637639ab29e496bc27eafb9d222d",
+      "pve_qemu_source_commit": "684796e835289dab11af8606fbf7358b93526dd6",
+      "pve_qemu_package_version": "11.0.0-3",
+      "pve_qemu_submodule_commit": "98b060da3a4f92b2a994ead5b16a87e783baf77c",
+      "container_fixture": {
+        "template_name": "debian-13-standard_13.1-2_amd64.tar.zst",
+        "template_url": "http://download.proxmox.com/images/system/debian-13-standard_13.1-2_amd64.tar.zst",
+        "catalog_source": {
+          "repository": "proxmox/pve-manager",
+          "commit": "b9984c6d90a4bd80ab72dc2088c1b9103fb167b1",
+          "path": "PVE/APLInfo.pm",
+          "blob_sha": "433a8ef4bf78d606508c6bae162c49e9ef0ecfd3",
+          "base_url": "http://download.proxmox.com/images"
+        },
+        "template_sha512": "5aec4ab2ac5c16c7c8ecb87bfeeb10213abe96db6b85e2463585cea492fc861d7c390b3f9c95629bf690b95e9dfe1037207fc69c0912429605f208d5cb2621f8"
+      },
+      "required_rest_surfaces": [
+        "/version",
+        "/nodes",
+        "/nodes/{node}/apt/versions",
+        "/nodes/{node}/lxc",
+        "/nodes/{node}/lxc/{vmid}/config",
+        "/nodes/{node}/lxc/{vmid}/status/current",
+        "/nodes/{node}/lxc/{vmid}/status/start",
+        "/nodes/{node}/lxc/{vmid}/status/stop",
+        "/nodes/{node}/tasks/{upid}/status"
+      ],
+      "qemu_server_source": {
+        "repository": "proxmox/qemu-server",
+        "commit": "6785065b3f766f15f6f151af8ec27ec8bb5b07ab",
+        "package_version": "9.1.15",
+        "api2_qemu_blob": "e029a204d121f3c8b104457ef14eb6d5ce029464",
+        "qemu_server_blob": "118f26bc94d9ee8e8c4c39a3d710e67c14f61bc0",
+        "changelog_blob": "63ded16d9d06ae0dd114a67d19bb36e14c71c980"
+      },
+      "vm_source_status": "SOURCE_BOUND_RUNTIME_NOT_YET_QUALIFIED"
+    }
+  ]
+}

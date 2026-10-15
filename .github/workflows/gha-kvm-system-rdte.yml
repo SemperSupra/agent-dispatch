@@ -1,0 +1,927 @@
+name: Real-system KVM RDTE
+
+on:
+  push:
+    branches:
+      - experiment/gha-kvm-system-rdte
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Heavy target to exercise"
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - proxmox
+          - truenas
+      truenas_version:
+        description: "Exact TrueNAS target version"
+        required: true
+        default: "26.0.0-BETA.3"
+        type: choice
+        options:
+          - "26.0.0-BETA.3"
+          - "25.10.7"
+          - "25.04.2.6"
+          - "25.04.1"
+      truenas_rung:
+        description: "TrueNAS system qualification rung"
+        required: true
+        default: t6
+        type: choice
+        options:
+          - t0
+          - t1
+          - t2
+          - t3
+          - t4
+          - t5
+          - t6
+      truenas_t6_product:
+        description: "Exact T6 Foundry consumer"
+        required: true
+        default: litellm
+        type: choice
+        options:
+          - litellm
+          - wow-sidecar
+          - garm
+          - garm-controller-f0f5
+          - garm-provider-g2
+          - garm-provider-g3
+          - garm-provider-g4
+          - garm-provider-g5
+          - garm-provider-container-pre-b4
+          - official-catalog
+          - foliorelay
+          - minecraft-paper
+          - collage-native-paper
+          - minecraft-vanilla-263
+      proxmox_compute_fixture:
+        description: "Optional native PVE REST compute fixture"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - container-c0
+          - vm-v0
+      truenas_compute_fixture:
+        description: "Optional compute fixture layered on the selected system rung"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - container-c0
+          - vm-v0
+          - vm-v1
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      proxmox: ${{ steps.scope.outputs.proxmox }}
+      truenas: ${{ steps.scope.outputs.truenas }}
+      qemu_topology: ${{ steps.scope.outputs.qemu_topology }}
+      truenas_version: ${{ steps.scope.outputs.truenas_version }}
+      truenas_rung: ${{ steps.scope.outputs.truenas_rung }}
+      truenas_t6_product: ${{ steps.scope.outputs.truenas_t6_product }}
+      truenas_collage_readback: ${{ steps.scope.outputs.truenas_collage_readback }}
+      truenas_lantern_stage: ${{ steps.scope.outputs.truenas_lantern_stage }}
+      truenas_world_rollback: ${{ steps.scope.outputs.truenas_world_rollback }}
+      truenas_native_offline_player: ${{ steps.scope.outputs.truenas_native_offline_player }}
+      truenas_native_backend_region: ${{ steps.scope.outputs.truenas_native_backend_region }}
+      truenas_compute_fixture: ${{ steps.scope.outputs.truenas_compute_fixture }}
+      proxmox_compute_fixture: ${{ steps.scope.outputs.proxmox_compute_fixture }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TARGET: ${{ inputs.target }}
+          DISPATCH_TRUENAS_VERSION: ${{ inputs.truenas_version }}
+          DISPATCH_TRUENAS_RUNG: ${{ inputs.truenas_rung }}
+          DISPATCH_TRUENAS_T6_PRODUCT: ${{ inputs.truenas_t6_product }}
+          DISPATCH_TRUENAS_COMPUTE_FIXTURE: ${{ inputs.truenas_compute_fixture }}
+          DISPATCH_PROXMOX_COMPUTE_FIXTURE: ${{ inputs.proxmox_compute_fixture }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+          RUN_REQUEST_PATH: config/truenas-rdte-run-request.json
+          PROXMOX_RUN_REQUEST_PATH: config/proxmox-rdte-run-request.json
+        run: |
+          set -euo pipefail
+          proxmox=false
+          truenas=false
+          qemu_topology=false
+          truenas_version="${DISPATCH_TRUENAS_VERSION:-26.0.0-BETA.3}"
+          truenas_rung="${DISPATCH_TRUENAS_RUNG:-t6}"
+          truenas_t6_product="${DISPATCH_TRUENAS_T6_PRODUCT:-litellm}"
+          truenas_collage_readback=false
+          truenas_lantern_stage=false
+          truenas_world_rollback=false
+          truenas_native_offline_player=false
+          truenas_native_backend_region=false
+          truenas_compute_fixture="${DISPATCH_TRUENAS_COMPUTE_FIXTURE:-none}"
+          proxmox_compute_fixture="${DISPATCH_PROXMOX_COMPUTE_FIXTURE:-none}"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            case "$DISPATCH_TARGET" in
+              proxmox) proxmox=true ;;
+              truenas) truenas=true ;;
+              both) proxmox=true; truenas=true; qemu_topology=true ;;
+              *) echo "unsupported dispatch target: $DISPATCH_TARGET" >&2; exit 2 ;;
+            esac
+          elif [[ -n "$BEFORE_SHA" && -n "$AFTER_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+            while IFS= read -r path; do
+              case "$path" in
+                config/truenas-rdte-run-request.json)
+                  # Heavy TrueNAS work is request-edge driven. Harness/probe/workflow
+                  # changes alone must never replay the previously committed request.
+                  truenas=true
+                  ;;
+                config/proxmox-rdte-run-request.json)
+                  # Heavy Proxmox work is request-edge driven. Harness/probe/workflow
+                  # changes alone must never launch or replay a heavyweight PVE rep.
+                  proxmox=true
+                  ;;
+                scripts/gha_qemu_t3_topology_probe.py|.github/workflows/gha-kvm-system-rdte.yml)
+                  qemu_topology=true
+                  ;;
+              esac
+            done < <(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
+          else
+            proxmox=true
+            truenas=true
+            qemu_topology=true
+          fi
+          if [[ "$EVENT_NAME" != "workflow_dispatch" && "$proxmox" == "true" ]]; then
+            [[ -f "$PROXMOX_RUN_REQUEST_PATH" ]] || { echo "missing Proxmox run request" >&2; exit 2; }
+            jq -e '.schema == "gha-kvm-proxmox-run-request/v1"' "$PROXMOX_RUN_REQUEST_PATH" >/dev/null
+            current_proxmox_request_id="$(jq -er '.request_id | select(type == "string" and length > 0)' "$PROXMOX_RUN_REQUEST_PATH")"
+            previous_proxmox_request_id=""
+            if git cat-file -e "$BEFORE_SHA:$PROXMOX_RUN_REQUEST_PATH" 2>/dev/null; then
+              previous_proxmox_request_id="$(git show "$BEFORE_SHA:$PROXMOX_RUN_REQUEST_PATH" | jq -er '.request_id | select(type == "string" and length > 0)')"
+            fi
+            if [[ -n "$previous_proxmox_request_id" && "$current_proxmox_request_id" == "$previous_proxmox_request_id" ]]; then
+              echo "refusing stale Proxmox request replay: request_id did not change ($current_proxmox_request_id)" >&2
+              exit 2
+            fi
+            proxmox_version="$(jq -er '.version | select(type == "string" and length > 0)' "$PROXMOX_RUN_REQUEST_PATH")"
+            proxmox_target_json="$(python3 scripts/proxmox_rdte_target.py --registry config/proxmox-rdte-targets.json --version "$proxmox_version" --require-runtime-admitted)"
+            proxmox_target_authority="$(jq -er '.authority_issue' <<<"$proxmox_target_json")"
+            proxmox_request_authority="$(jq -er '.authority_issue' "$PROXMOX_RUN_REQUEST_PATH")"
+            [[ "$proxmox_request_authority" == "$proxmox_target_authority" ]] || {
+              echo "Proxmox request authority does not match exact target profile" >&2
+              exit 2
+            }
+            proxmox_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0")' "$PROXMOX_RUN_REQUEST_PATH")"
+            printf 'fresh Proxmox request edge: previous=%s current=%s\n' "${previous_proxmox_request_id:-<none>}" "$current_proxmox_request_id"
+          fi
+          if [[ "$EVENT_NAME" != "workflow_dispatch" && "$truenas" == "true" ]]; then
+            jq -e '.schema == "gha-kvm-truenas-run-request/v1"' "$RUN_REQUEST_PATH" >/dev/null
+            current_request_id="$(jq -er '.request_id | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
+            previous_request_id=""
+            if git cat-file -e "$BEFORE_SHA:$RUN_REQUEST_PATH" 2>/dev/null; then
+              previous_request_id="$(git show "$BEFORE_SHA:$RUN_REQUEST_PATH" | jq -er '.request_id | select(type == "string" and length > 0)')"
+            fi
+            if [[ -n "$previous_request_id" && "$current_request_id" == "$previous_request_id" ]]; then
+              echo "refusing stale TrueNAS request replay: request_id did not change ($current_request_id)" >&2
+              exit 2
+            fi
+            truenas_version="$(jq -er '.version | select(type == "string" and length > 0)' "$RUN_REQUEST_PATH")"
+            truenas_rung="$(jq -er '.rung | select(. == "t0" or . == "t1" or . == "t2" or . == "t3" or . == "t4" or . == "t5" or . == "t6")' "$RUN_REQUEST_PATH")"
+            truenas_t6_product="$(jq -er '(.product // "litellm") | select(. == "litellm" or . == "wow-sidecar" or . == "garm" or . == "garm-controller-f0f5" or . == "garm-provider-g2" or . == "garm-provider-g3" or . == "garm-provider-g4" or . == "garm-provider-g5" or . == "garm-provider-container-pre-b4" or . == "official-catalog" or . == "foliorelay" or . == "minecraft-paper" or . == "collage-native-paper" or . == "minecraft-vanilla-263")' "$RUN_REQUEST_PATH")"
+            truenas_compute_fixture="$(jq -er '(.compute_fixture // "none") | select(. == "none" or . == "container-c0" or . == "vm-v0" or . == "vm-v1")' "$RUN_REQUEST_PATH")"
+            truenas_collage_readback="$(jq -er '(.collage_readback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            truenas_lantern_stage="$(jq -er '(.lantern_stage // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            truenas_world_rollback="$(jq -er '(.native_world_rollback // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            truenas_native_offline_player="$(jq -er '(.native_offline_player // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            truenas_native_backend_region="$(jq -er '(.native_backend_region // false) | select(. == true or . == false)' "$RUN_REQUEST_PATH")"
+            if [[ "$truenas_native_backend_region" == "true" &&
+                  "$truenas_native_offline_player" != "true" ]]; then
+              echo "G4 region requires native offline player" >&2; exit 2
+            fi
+            if [[ "$truenas_native_offline_player" == "true" ]]; then
+              [[ "$truenas_world_rollback" == "true" && "$truenas_lantern_stage" == "true" &&
+                 "$truenas_collage_readback" == "true" && "$truenas_version" == "25.04.2.6" &&
+                 "$truenas_rung" == "t6" && "$truenas_t6_product" == "minecraft-vanilla-263" ]] || {
+                echo "G4 only admitted in exact disposable native G2+G3 player profile" >&2; exit 2;
+              }
+            fi
+            if [[ "$truenas_world_rollback" == "true" ]]; then
+              [[ "$truenas_lantern_stage" == "true" && "$truenas_collage_readback" == "true" &&
+                 "$truenas_t6_product" == "minecraft-vanilla-263" && "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
+                echo "native rollback only allowed in one exact G2+Lantern disposable fixture" >&2; exit 2;
+              }
+            fi
+            if [[ "$truenas_lantern_stage" == "true" ]]; then
+              [[ "$truenas_collage_readback" == "true" && "$truenas_t6_product" == "minecraft-vanilla-263" &&
+                 "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
+                echo "native Lantern stage requires exact one disposable vanilla263 T6 + read-only COLLAGE" >&2; exit 2;
+              }
+            fi
+            if [[ "$truenas_collage_readback" == "true" ]]; then
+              [[ "$truenas_t6_product" == "minecraft-vanilla-263" && "$truenas_version" == "25.04.2.6" && "$truenas_rung" == "t6" ]] || {
+                echo "read-only COLLAGE observer requires exact native vanilla263/25.04.2.6/T6" >&2; exit 2;
+              }
+            fi
+            python3 scripts/truenas_rdte_target.py \
+              --registry config/truenas-rdte-targets.json \
+              --version "$truenas_version" >/dev/null
+            printf 'fresh TrueNAS request edge: previous=%s current=%s\n' "${previous_request_id:-<none>}" "$current_request_id"
+          fi
+          if [[ "$truenas_compute_fixture" != "none" && "$truenas_rung" != "t3" ]]; then
+            echo "compute fixture $truenas_compute_fixture requires truenas rung t3" >&2
+            exit 2
+          fi
+          echo "proxmox=$proxmox" >>"$GITHUB_OUTPUT"
+          echo "truenas=$truenas" >>"$GITHUB_OUTPUT"
+          echo "qemu_topology=$qemu_topology" >>"$GITHUB_OUTPUT"
+          echo "truenas_version=$truenas_version" >>"$GITHUB_OUTPUT"
+          echo "truenas_rung=$truenas_rung" >>"$GITHUB_OUTPUT"
+          echo "truenas_t6_product=$truenas_t6_product" >>"$GITHUB_OUTPUT"
+          echo "truenas_collage_readback=$truenas_collage_readback" >>"$GITHUB_OUTPUT"
+          echo "truenas_lantern_stage=$truenas_lantern_stage" >>"$GITHUB_OUTPUT"
+          echo "truenas_world_rollback=$truenas_world_rollback" >>"$GITHUB_OUTPUT"
+          echo "truenas_native_offline_player=$truenas_native_offline_player" >>"$GITHUB_OUTPUT"
+          echo "truenas_native_backend_region=$truenas_native_backend_region" >>"$GITHUB_OUTPUT"
+          echo "truenas_compute_fixture=$truenas_compute_fixture" >>"$GITHUB_OUTPUT"
+          echo "proxmox_compute_fixture=$proxmox_compute_fixture" >>"$GITHUB_OUTPUT"
+          printf 'target scope: proxmox=%s proxmox_compute_fixture=%s truenas=%s qemu_topology=%s truenas_version=%s truenas_rung=%s t6_product=%s truenas_compute_fixture=%s\n' "$proxmox" "$proxmox_compute_fixture" "$truenas" "$qemu_topology" "$truenas_version" "$truenas_rung" "$truenas_t6_product" "$truenas_compute_fixture"
+
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate public-safe contract
+        run: python3 -m unittest -v tests/test_gha_kvm_system_rdte.py tests/test_truenas_future_protocols.py tests/test_truenas_t6_litellm_control.py tests/test_truenas_t6_wow_sidecar_control.py tests/test_truenas_t6_garm_control.py tests/test_truenas_garm_provider_g2.py tests/test_truenas_garm_provider_g3.py tests/test_truenas_garm_provider_g4.py tests/test_truenas_garm_provider_g5.py tests/test_truenas_garm_container_pre_b4.py tests/test_truenas_garm_controller_f0_f5.py tests/test_truenas_t6_official_catalog_control.py tests/test_truenas_t6_foliorelay_control.py tests/test_truenas_rdte_target.py tests/test_truenas_session_runner.py tests/test_minecraft_t6_receipt_gate.py
+
+  foundry-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'litellm'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-litellm-t6-control.yml@4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
+    with:
+      foundry_ref: 4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba
+    permissions:
+      contents: read
+
+  foundry-wow-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'wow-sidecar'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-wow-sidecar-t6-control.yml@9ac2eef97581caff5b0de740560c55a778fa3f1c
+    with:
+      foundry_ref: 9ac2eef97581caff5b0de740560c55a778fa3f1c
+    permissions:
+      contents: read
+
+  foundry-garm-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-garm-t6-control.yml@7fd0d2474248b61cf8e290fc80f40b761cea5e98
+    with:
+      foundry_ref: 7fd0d2474248b61cf8e290fc80f40b761cea5e98
+    permissions:
+      contents: read
+
+  foundry-garm-f0-f5-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-controller-f0f5'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-garm-f0-f5-control.yml@bfbf2158c3f679c3422e6035bdb67e7874a5c07a
+    with:
+      foundry_ref: bfbf2158c3f679c3422e6035bdb67e7874a5c07a
+      target_version: ${{ needs.changes.outputs.truenas_version }}
+    permissions:
+      contents: read
+
+  foundry-official-catalog-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'official-catalog'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-official-catalog-t6-control.yml@60d56cc1752bc825cb232d72b397ff17fe6d47c4
+    with:
+      foundry_ref: 60d56cc1752bc825cb232d72b397ff17fe6d47c4
+      control_id: ntfy
+    permissions:
+      contents: read
+
+  foundry-foliorelay-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'foliorelay'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@81deb97185760975fd8d3162df42056c77b3c0fd
+    with:
+      foundry_ref: 81deb97185760975fd8d3162df42056c77b3c0fd
+      target_version: ${{ needs.changes.outputs.truenas_version }}
+    permissions:
+      contents: read
+
+  foundry-minecraft-paper-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-paper-t6-control.yml@2cc7e1fe3772f8c532e933b3d7832e6cf985db4e
+    with:
+      foundry_ref: 2cc7e1fe3772f8c532e933b3d7832e6cf985db4e
+      target_version: "25.04.1"
+    permissions:
+      contents: read
+
+  foundry-minecraft-vanilla263-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_version == '25.04.2.6'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-vanilla-263-11531-t6-control.yml@5ee204df205edfd531304441fd1a6a24004557b1
+    with:
+      foundry_ref: 5ee204df205edfd531304441fd1a6a24004557b1
+      target_version: "25.04.2.6"
+    permissions:
+      contents: read
+
+  foundry-collage-paper-11530-t6-control:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-paper-11530-t6-control.yml@403321031b6d4e66aa64a8299fd7621eee290b0d
+    with:
+      foundry_ref: 403321031b6d4e66aa64a8299fd7621eee290b0d
+      target_version: "25.04.1"
+    permissions:
+      contents: read
+
+  provider-g2-fixtures:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-g2-nested-fixtures.yml@1667aa73e514c278e221082ac33f2f10a4141eef
+    with:
+      provider_ref: 1667aa73e514c278e221082ac33f2f10a4141eef
+    permissions:
+      contents: read
+
+  provider-g3-fixture:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g3'
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-g3-nested-fixture.yml@e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab
+    with:
+      provider_ref: e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab
+    permissions:
+      contents: read
+
+  provider-g4-fixture:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g4'
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-g4-nested-fixture.yml@e5fc7c50780de54f7579f64990c87b2e16482613
+    with:
+      provider_ref: e5fc7c50780de54f7579f64990c87b2e16482613
+    permissions:
+      contents: read
+
+  provider-g5-runner-fixture:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g5'
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-g3-nested-fixture.yml@e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab
+    with:
+      provider_ref: e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab
+    permissions:
+      contents: read
+
+  provider-g5-version-matrix:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g5'
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-g5-version-matrix.yml@f83a712e095c6962741f93cf86bea69479ce4d4a
+    with:
+      provider_ref: f83a712e095c6962741f93cf86bea69479ce4d4a
+    permissions:
+      contents: read
+
+  provider-container-pre-b4-fixture:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4'
+    uses: SemperSupra/garm-provider-truenas/.github/workflows/export-container-b0-b5-fixture.yml@9f3c86169320b6a2330bbb345d25a41c736c73c2
+    with:
+      provider_ref: 9f3c86169320b6a2330bbb345d25a41c736c73c2
+    permissions:
+      contents: read
+
+  qemu-t3-topology:
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.qemu_topology == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install QEMU topology prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils
+      - name: Exercise actual hosted-runner QEMU topology
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          python3 scripts/gha_qemu_t3_topology_probe.py \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/qemu-t3-topology.json"
+      - name: Upload QEMU topology evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-qemu-t3-topology-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/qemu-t3-topology.json
+          if-no-files-found: error
+          retention-days: 7
+
+  proxmox-9-2:
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
+      cancel-in-progress: false
+    needs: [changes, contract]
+    if: needs.contract.result == 'success' && needs.changes.outputs.proxmox == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Ensure bounded QEMU/KVM prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso sshpass
+      - name: Exercise pinned Proxmox real-system target
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          bash scripts/gha_kvm_proxmox_rdte.sh \
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-state" \
+            --compute-fixture "${{ needs.changes.outputs.proxmox_compute_fixture }}" \
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+          python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+      - name: Preserve Proxmox harness failure evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/gha-kvm-system-rdte/proxmox-receipt.json"
+          if [ ! -f "$receipt" ]; then
+            python3 - "$receipt" <<'PY'
+          import json, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+            "contract":"gha-kvm-system-lab/v1",
+            "target":{"product":"proxmox-ve","version":"9.2-1"},
+            "classification":"HARNESS_FAILURE",
+            "oracleSatisfied":False,
+            "phase":"workflow-fallback",
+            "detail":"adapter exited before emitting its normal receipt"
+          }, indent=2, sort_keys=True)+"\n")
+          PY
+          fi
+      - name: Upload Proxmox evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-kvm-proxmox-9-2-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/proxmox-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  truenas-26-beta3:
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
+      cancel-in-progress: false
+    needs: [changes, contract, proxmox-9-2, foundry-t6-control, foundry-wow-t6-control, foundry-garm-t6-control, foundry-garm-f0-f5-control, foundry-official-catalog-t6-control, foundry-foliorelay-t6-control, foundry-minecraft-paper-t6-control, foundry-collage-paper-11530-t6-control, foundry-minecraft-vanilla263-t6-control, provider-g2-fixtures, provider-g3-fixture, provider-g4-fixture, provider-g5-runner-fixture, provider-g5-version-matrix, provider-container-pre-b4-fixture]
+    if: >-
+      always() &&
+      needs.contract.result == 'success' &&
+      needs.changes.outputs.truenas == 'true' &&
+      (needs['proxmox-9-2'].result == 'success' || needs['proxmox-9-2'].result == 'skipped') &&
+      (
+        needs.changes.outputs.truenas_rung != 't6' ||
+        (needs.changes.outputs.truenas_t6_product == 'litellm' && needs['foundry-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'wow-sidecar' && needs['foundry-wow-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm' && needs['foundry-garm-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-controller-f0f5' && needs['foundry-garm-f0-f5-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'official-catalog' && needs['foundry-official-catalog-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'foliorelay' && needs['foundry-foliorelay-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' && needs['foundry-minecraft-paper-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'collage-native-paper' && needs['foundry-collage-paper-11530-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_version == '25.04.2.6' && needs['foundry-minecraft-vanilla263-t6-control'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g2' && needs['provider-g2-fixtures'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g3' && needs['provider-g3-fixture'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g4' && needs['provider-g4-fixture'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-g5' && needs['provider-g5-runner-fixture'].result == 'success' && needs['provider-g5-version-matrix'].result == 'success') ||
+        (needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4' && needs['provider-container-pre-b4-fixture'].result == 'success')
+      )
+    runs-on: ubuntu-26.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Download exact LiteLLM Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'litellm'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: litellm-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact WOW Sidecar Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'wow-sidecar'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: wow-sidecar-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact GARM Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact GARM Foundry F0-F5 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-controller-f0f5'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-truenas-f0-f5-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact official-catalog Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'official-catalog'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: official-catalog-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact FolioRelay Foundry T6 control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'foliorelay'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: foliorelay-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact Minecraft Paper Foundry control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-paper'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: minecraft-paper-truenas-t6-control
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact COLLAGE 1.15.30 native Paper Foundry control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: minecraft-paper-11530-truenas-t6-candidate
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Download exact vanilla26.3 25.04.2.6 merged-source native control
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: minecraft-vanilla263-truenas-250426-11531-signed-source-candidate
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
+      - name: Independently verify immutable native vanilla control pre-KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        run: |
+          set -euo pipefail
+          python3 scripts/admit_vanilla263_native_t6_control.py \
+            --control "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control/control.json" \
+            --out "$RUNNER_TEMP/vanilla263-pre-kvm-control.json"
+
+      - name: Checkout exact Minecraft product status oracle
+        if: needs.changes.outputs.truenas_rung == 't6' && (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' || needs.changes.outputs.truenas_t6_product == 'collage-native-paper')
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: 1b2227847d56007cdf8b668c00845326827e5fd5
+          path: .deps/minecraft-product
+          persist-credentials: false
+      - name: Prove exact Minecraft product source identity
+        if: needs.changes.outputs.truenas_rung == 't6' && (needs.changes.outputs.truenas_t6_product == 'minecraft-paper' || needs.changes.outputs.truenas_t6_product == 'collage-native-paper')
+        run: |
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 1b2227847d56007cdf8b668c00845326827e5fd5
+          python3 .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
+      - name: Checkout independently qualified vanilla26.3 protocol777 status oracle
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: 4df9fbbfea0ae0e824719db367bd551349a86378
+          path: .deps/minecraft-product
+          persist-credentials: false
+      - name: Verify exact independent vanilla status oracle source
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
+          python3 .deps/minecraft-product/tools/test_minecraft_java_status_oracle.py
+
+      - name: Checkout exact accepted COLLAGE read-only source
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/collage
+          ref: fbda94f3fea0a216ddd9c35b38a09d325bed3640
+          path: .deps/collage-source
+          persist-credentials: false
+      - name: Set up pinned Go toolchain for COLLAGE read-only probe
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .deps/collage-source/tools/truenas-readonly-probe/go.mod
+          cache: false
+      - name: Prequalify exact COLLAGE source, Go probe and policy before KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/collage-source rev-parse HEAD)" = fbda94f3fea0a216ddd9c35b38a09d325bed3640
+          (cd .deps/collage-source &&
+            python3 -m unittest discover -s tests -p 'test_collage_*.py' -v)
+          (cd .deps/collage-source/tools/truenas-readonly-probe &&
+            go mod download && go mod verify &&
+            go test ./... && go build -o /dev/null .)
+      - name: Checkout pinned COLLAGE 25.04.2.6 vanilla read-only observer
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/collage
+          ref: 2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8
+          path: .deps/collage-source
+          persist-credentials: false
+      - name: Prepare pinned scoped native vanilla COLLAGE Go read-only observer
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .deps/collage-source/tools/truenas-readonly-probe/go.mod
+          cache: false
+      - name: Verify actual COLLAGE read-only Go source and negative semantics before KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/collage-source rev-parse HEAD)" = 2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8
+          (cd .deps/collage-source &&
+            python3 -m unittest -v tests.test_collage_native_readback tests.test_consume_vanilla_datapack_source)
+          (cd .deps/collage-source/tools/truenas-readonly-probe &&
+            go mod download && go mod verify &&
+            go test ./... && go build -o /dev/null .)
+
+      - name: Checkout immutable real vanilla 26.3 Lantern datapack producer
+        if: needs.changes.outputs.truenas_lantern_stage == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: 7f888b5829f4e5576d5ce512d86327348c43f01e
+          path: .deps/lantern-producer
+          persist-credentials: false
+      - name: Verify exact real Lantern ZIP and native-target COLLAGE source plan before guest mutation
+        if: needs.changes.outputs.truenas_lantern_stage == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/lantern-producer rev-parse HEAD)" = 7f888b5829f4e5576d5ce512d86327348c43f01e
+          mkdir -p "$RUNNER_TEMP/lantern-native"
+          python3 .deps/lantern-producer/tools/export_core_restoration_datapack_26_3.py \
+            --out "$RUNNER_TEMP/lantern-native/lantern-restoration-26.3.zip" \
+            --manifest "$RUNNER_TEMP/lantern-native/manifest.json" \
+            --world-id lantern-rdte --release-id lantern-core-restore-26-3 \
+            > /dev/null
+          python3 - "$RUNNER_TEMP/lantern-native" <<'PY'
+          from pathlib import Path
+          import sys
+          from scripts.qualify_vanilla263_native_lantern_stage import verify_exact_candidate,SHA
+          root=Path(sys.argv[1])
+          content,proof=verify_exact_candidate(root/"lantern-restoration-26.3.zip",root/"manifest.json")
+          assert proof["sha256"]==SHA and proof["size"]==len(content)
+          PY
+          python3 .deps/collage-source/tools/consume_vanilla_datapack_source.py \
+            --manifest "$RUNNER_TEMP/lantern-native/manifest.json" \
+            --artifact "$RUNNER_TEMP/lantern-native/lantern-restoration-26.3.zip" \
+            --artifact-root "$RUNNER_TEMP/lantern-native" \
+            --native-target-profile vanilla263-250426 \
+            > "$RUNNER_TEMP/lantern-native/collage-source-intent.json"
+          python3 - "$RUNNER_TEMP/lantern-native/collage-source-intent.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d["classification"]=="SOURCE_ARTIFACT_AND_INTENT_PARITY_VALIDATED"
+          assert d["expected_native_app"]=="rdte-t6-minecraft-vanilla-263"
+          assert set(d["audience_receipts"])=={"human","automation","agent"}
+          assert d["native_guest_with_this_artifact_qualified"] is False
+          assert d["mutation_authorized"] is False
+          PY
+      - name: Download exact GARM provider G2 fixtures
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g2'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-g2-fixtures
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/g2-fixtures
+      - name: Download exact GARM provider G3 fixture
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g3'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-g3-fixture
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/g3-fixture
+      - name: Download exact GARM provider G4 fixture
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g4'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-g4-fixture
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/g4-fixture
+      - name: Download exact GARM provider G5 runner fixture
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g5'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-g3-fixture
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/g3-fixture
+      - name: Download exact GARM provider G5 version matrix
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-g5'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-g5-version-matrix
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/g5-matrix
+      - name: Download exact GARM Container pre-B4 fixture
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'garm-provider-container-pre-b4'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: garm-provider-truenas-container-pre-b4-fixture
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/container-pre-b4-fixture
+      - name: Refuse floating historical COLLAGE Paper 1.15.30 catalog before KVM
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'collage-native-paper'
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_collage_catalog_preflight
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30
+      - name: Refuse retired native vanilla 1.15.30; require current pinned 1.15.31
+        if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_collage_catalog_preflight
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.31
+
+      - name: Set up immutable 26.3 experimental client toolchain for native G4
+        if: needs.changes.outputs.truenas_native_offline_player == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Build pre-qualified 26.3 Mineflayer client on public runner only
+        if: needs.changes.outputs.truenas_native_offline_player == 'true'
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/minecraft-product rev-parse HEAD)" = 4df9fbbfea0ae0e824719db367bd551349a86378
+          bash .deps/minecraft-product/tools/install_experimental_prismarine_26_3.sh "$RUNNER_TEMP/native-prismarine"
+          test -d "$RUNNER_TEMP/native-prismarine/runtime/node_modules/mineflayer"
+          node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
+      - name: Ensure bounded QEMU/KVM prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso cups-ipp-utils libcups2-dev build-essential
+      - name: Exercise pinned TrueNAS installer target
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gha-kvm-system-rdte"
+          args=(
+            --state-dir "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-state"
+            --target-version "${{ needs.changes.outputs.truenas_version }}"
+            --rung "${{ needs.changes.outputs.truenas_rung }}"
+            --compute-fixture "${{ needs.changes.outputs.truenas_compute_fixture }}"
+            --out "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          )
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" ]]; then
+            if [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-g2" ]]; then
+              args+=(
+                --t6-product "garm-provider-g2"
+                --g2-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/g2-fixtures"
+                --g2-fixture-producer "1667aa73e514c278e221082ac33f2f10a4141eef"
+              )
+            elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-g3" ]]; then
+              args+=(
+                --t6-product "garm-provider-g3"
+                --g3-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/g3-fixture"
+                --g3-fixture-producer "e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab"
+              )
+            elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-g4" ]]; then
+              args+=(
+                --t6-product "garm-provider-g4"
+                --g4-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/g4-fixture"
+                --g4-fixture-producer "e5fc7c50780de54f7579f64990c87b2e16482613"
+              )
+            elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-container-pre-b4" ]]; then
+              args+=(
+                --t6-product "garm-provider-container-pre-b4"
+                --container-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/container-pre-b4-fixture"
+                --container-fixture-producer "9f3c86169320b6a2330bbb345d25a41c736c73c2"
+              )
+            elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-provider-g5" ]]; then
+              args+=(
+                --t6-product "garm-provider-g5"
+                --g5-matrix-dir "$RUNNER_TEMP/gha-kvm-system-rdte/g5-matrix"
+                --g5-matrix-producer "f83a712e095c6962741f93cf86bea69479ce4d4a"
+                --g3-fixture-dir "$RUNNER_TEMP/gha-kvm-system-rdte/g3-fixture"
+                --g3-fixture-producer "e92d4024e6e60c0e2f8bcf5301c11fccb14eaaab"
+              )
+            else
+              if [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm-controller-f0f5" ]]; then
+                foundry_commit="bfbf2158c3f679c3422e6035bdb67e7874a5c07a"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "garm" ]]; then
+                foundry_commit="7fd0d2474248b61cf8e290fc80f40b761cea5e98"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "wow-sidecar" ]]; then
+                foundry_commit="9ac2eef97581caff5b0de740560c55a778fa3f1c"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "official-catalog" ]]; then
+                foundry_commit="60d56cc1752bc825cb232d72b397ff17fe6d47c4"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "foliorelay" ]]; then
+                foundry_commit="81deb97185760975fd8d3162df42056c77b3c0fd"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
+                foundry_commit="2cc7e1fe3772f8c532e933b3d7832e6cf985db4e"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
+                foundry_commit="403321031b6d4e66aa64a8299fd7621eee290b0d"
+              elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
+                foundry_commit="5ee204df205edfd531304441fd1a6a24004557b1"
+              else
+                foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
+              fi
+              args+=(
+                --t6-product "${{ needs.changes.outputs.truenas_t6_product }}"
+                --foundry-control-dir "$RUNNER_TEMP/gha-kvm-system-rdte/foundry-control"
+                --foundry-commit "$foundry_commit"
+              )
+            fi
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" ]]; then
+            args+=(--session-manifest config/truenas-session-minecraft-paper-25-04-1.json)
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" && "${{ needs.changes.outputs.truenas_collage_readback }}" == "true" ]]; then
+            args+=(--vanilla-collage-readback)
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_lantern_stage }}" == "true" ]]; then
+            args+=(--vanilla-lantern-zip "$RUNNER_TEMP/lantern-native/lantern-restoration-26.3.zip"
+                   --vanilla-lantern-manifest "$RUNNER_TEMP/lantern-native/manifest.json")
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_world_rollback }}" == "true" ]]; then
+            args+=(--vanilla-world-rollback)
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_native_offline_player }}" == "true" ]]; then
+            args+=(--vanilla-native-player
+                   --vanilla-player-node-path "$RUNNER_TEMP/native-prismarine/runtime/node_modules")
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_native_backend_region }}" == "true" ]]; then
+            args+=(--vanilla-backend-region)
+          fi
+          bash scripts/gha_kvm_truenas_rdte.sh "${args[@]}"
+          python3 -m json.tool "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          # A green job is not a Minecraft product pass without full guest evidence.
+          # Failure still uploads the receipt through always() below.
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-paper" || "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
+            python3 scripts/assert_minecraft_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
+            additional=()
+            if [[ "${{ needs.changes.outputs.truenas_collage_readback }}" == "true" ]]; then
+              additional+=(--require-collage-readback)
+            fi
+            if [[ "${{ needs.changes.outputs.truenas_lantern_stage }}" == "true" ]]; then
+              additional+=(--require-lantern-staged)
+            fi
+            if [[ "${{ needs.changes.outputs.truenas_world_rollback }}" == "true" ]]; then
+              additional+=(--require-native-rollback)
+            fi
+            if [[ "${{ needs.changes.outputs.truenas_native_offline_player }}" == "true" ]]; then
+              additional+=(--require-native-client-visibility)
+            fi
+            if [[ "${{ needs.changes.outputs.truenas_native_backend_region }}" == "true" ]]; then
+              additional+=(--require-native-backend-region)
+            fi
+            python3 scripts/assert_vanilla263_native_t6_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json" "${additional[@]}"
+          fi
+          if [[ "${{ needs.changes.outputs.truenas_rung }}" == "t6" && "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
+            python3 scripts/assert_collage_p2_receipt.py --receipt "$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          fi
+      - name: Preserve TrueNAS harness failure evidence
+        if: always()
+        env:
+          TRUENAS_VERSION: ${{ needs.changes.outputs.truenas_version }}
+          TRUENAS_RUNG: ${{ needs.changes.outputs.truenas_rung }}
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/gha-kvm-system-rdte/truenas-receipt.json"
+          if [ ! -f "$receipt" ]; then
+            python3 - "$receipt" <<'PY'
+          import json, os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({
+            "contract":"gha-kvm-system-lab/v1",
+            "target":{"product":"truenas","version":os.environ["TRUENAS_VERSION"],"rung":os.environ["TRUENAS_RUNG"].upper()},
+            "classification":"HARNESS_FAILURE",
+            "oracleSatisfied":False,
+            "phase":"workflow-fallback",
+            "detail":"adapter exited before emitting its normal receipt"
+          }, indent=2, sort_keys=True)+"\n")
+          PY
+          fi
+      - name: Upload TrueNAS evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-kvm-truenas-${{ needs.changes.outputs.truenas_version }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/gha-kvm-system-rdte/truenas-receipt.json
+          if-no-files-found: error
+          retention-days: 7

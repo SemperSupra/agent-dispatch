@@ -1,0 +1,216 @@
+"""Static red/blue: distinct native guest selector; no request-edge replay."""
+from __future__ import annotations
+import json
+from pathlib import Path
+import re
+import unittest
+
+ROOT=Path(__file__).resolve().parents[1]
+WORKFLOW=(ROOT/".github/workflows/gha-kvm-system-rdte.yml").read_text()
+HARNESS=(ROOT/"scripts/gha_kvm_truenas_rdte.sh").read_text()
+
+
+class TestVanilla263GuestRouting(unittest.TestCase):
+    def test_native_product_is_explicit_not_paper_alias(self):
+        self.assertIn("- minecraft-vanilla-263",WORKFLOW)
+        self.assertIn('or . == "minecraft-vanilla-263"',WORKFLOW)
+        self.assertIn('needs.changes.outputs.truenas_t6_product == \'minecraft-vanilla-263\'',WORKFLOW)
+        self.assertIn('needs.changes.outputs.truenas_version == \'25.04.2.6\'',WORKFLOW)
+        self.assertIn('[[ "$VERSION" == "25.04.2.6" ]]',HARNESS)
+        self.assertIn('|| "$T6_PRODUCT" == "minecraft-vanilla-263"',HARNESS)
+
+    def test_producer_signer_and_fresh_exact_artifact_seam(self):
+        pin="5ee204df205edfd531304441fd1a6a24004557b1"
+        self.assertIn("foundry-minecraft-vanilla263-t6-control:",WORKFLOW)
+        self.assertIn(
+            "export-minecraft-vanilla-263-11531-t6-control.yml@"+pin,WORKFLOW)
+        self.assertIn("foundry_ref: "+pin,WORKFLOW)
+        self.assertIn(
+            "name: minecraft-vanilla263-truenas-250426-11531-signed-source-candidate",WORKFLOW)
+        self.assertIn("scripts/admit_vanilla263_native_t6_control.py",WORKFLOW)
+        self.assertIn('foundry_commit="'+pin+'"',WORKFLOW)
+        self.assertIn(
+            "needs['foundry-minecraft-vanilla263-t6-control'].result == 'success'",
+            WORKFLOW)
+
+    def test_exact_oracle_not_legacy_paper_status(self):
+        self.assertIn("Checkout independently qualified vanilla26.3 protocol777 status oracle",WORKFLOW)
+        self.assertIn("4df9fbbfea0ae0e824719db367bd551349a86378",WORKFLOW)
+        self.assertIn("python3 scripts/assert_vanilla263_native_t6_receipt.py",WORKFLOW)
+        self.assertIn("--product-profile vanilla263 --native-catalog-profile 1.15.31",HARNESS)
+        self.assertIn('"minecraft_protocol": 777',HARNESS)
+        self.assertIn('"minecraft_version": "26.3"',HARNESS)
+        self.assertIn('"rdte-t6-minecraft-vanilla-263"',HARNESS)
+        self.assertIn("--status-port \"$MINECRAFT_HOST_PORT\"",HARNESS)
+        self.assertIn("MINECRAFT_HOSTFWD",HARNESS)
+
+    def test_existing_request_edge_untouched_during_source_qualification(self):
+        current=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        proposal=json.loads((ROOT/"config/truenas-vanilla263-native-admission-request.json").read_text())
+        self.assertEqual(current.get("product"),"minecraft-vanilla-263")
+        self.assertEqual(current["version"],"25.04.2.6")
+        self.assertEqual(current["rung"],"t6")
+        self.assertEqual(current["authority_issue"],423)
+        self.assertEqual(current["consumer_authority_issue"],627)
+        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4k-018-parsed-native-anvil-three-checkpoint")
+        self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+        self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
+        self.assertIn("OP4J-017", current["purpose"])
+        self.assertIn("permanently consumed", current["purpose"])
+        self.assertIn("parser", current["purpose"])
+        self.assertIn("OP4I-016",current["purpose"])
+        self.assertIn("permanently CONSUMED",current["purpose"])
+        self.assertIn("App1.15.31",current["purpose"])
+        self.assertEqual(current["consumer_authority_issue"],627)
+        self.assertTrue(all(current[k] is True for k in
+            ("collage_readback","lantern_stage","native_world_rollback",
+             "native_offline_player","native_backend_region")))
+
+        self.assertEqual(proposal["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-001")
+        self.assertEqual(proposal["consumer_authority_issue"],627)
+        self.assertIn("NOT wired",proposal["purpose"])
+        # Exactly one bounded heavyweight request edge is admitted in this PR.
+        # A replay of this request_id without a new distinct edge is forbidden.
+        self.assertIn("config/truenas-rdte-run-request.json)",WORKFLOW)
+        self.assertIn('"$current_request_id" == "$previous_request_id"',WORKFLOW)
+
+    def test_scoped_native_collage_readback_explicit_only_not_default_guest(self):
+        self.assertIn('truenas_collage_readback=false',WORKFLOW)
+        self.assertIn('(.collage_readback // false)',WORKFLOW)
+        self.assertIn('truenas_collage_readback=$truenas_collage_readback',WORKFLOW)
+        self.assertIn('--vanilla-collage-readback',WORKFLOW)
+        self.assertIn('needs.changes.outputs.truenas_collage_readback',WORKFLOW)
+        self.assertIn('--require-collage-readback',WORKFLOW)
+        self.assertIn('ref: 2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8',WORKFLOW)
+        self.assertIn('[[ "$truenas_collage_readback" == "true" ]]',WORKFLOW)
+        self.assertIn('"$T6_PRODUCT" == "minecraft-vanilla-263"',HARNESS)
+        self.assertIn('VANILLA_COLLAGE_READBACK=false',HARNESS)
+        self.assertIn('--collage-source-ref "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8"',HARNESS)
+        self.assertIn('NATIVE_READBACK_ARGS=()',HARNESS)
+        self.assertIn('"${NATIVE_READBACK_ARGS[@]}"',HARNESS)
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertIs(request.get("collage_readback"),True)
+        self.assertEqual(request["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4k-018-parsed-native-anvil-three-checkpoint")
+        self.assertEqual(request["product"],"minecraft-vanilla-263")
+        self.assertEqual(request["version"],"25.04.2.6")
+        self.assertNotIn("--vanilla-collage-readback",
+                         str(request))
+        # Synthetic source tests cannot count as a live TLS/Go observation.
+        probe=(ROOT/"scripts/truenas_middleware_collage_readback_p2.py").read_text()
+        self.assertIn('VANILLA263_SOURCE_SHA',probe)
+        self.assertIn('profile="vanilla263" if VANILLA263 else "paper"',
+                      (ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text())
+
+    def test_real_lantern_native_zfs_stage_never_autoruns_or_promotes_gameplay(self):
+        self.assertIn('truenas_lantern_stage=false', WORKFLOW)
+        self.assertIn('(.lantern_stage // false)', WORKFLOW)
+        self.assertIn('truenas_lantern_stage=$truenas_lantern_stage', WORKFLOW)
+        self.assertIn('--vanilla-lantern-zip',WORKFLOW)
+        self.assertIn('--vanilla-lantern-manifest',WORKFLOW)
+        self.assertIn('--require-lantern-staged',WORKFLOW)
+        self.assertIn('ref: 7f888b5829f4e5576d5ce512d86327348c43f01e',WORKFLOW)
+        self.assertIn('verify_exact_candidate',WORKFLOW)
+        self.assertIn('native-target-profile vanilla263-250426',WORKFLOW)
+        self.assertIn('VANILLA_LANTERN_ZIP=""',HARNESS)
+        self.assertIn('"$VANILLA_COLLAGE_READBACK" == "true"',HARNESS)
+        self.assertIn('NATIVE_LANTERN_ARGS=()',HARNESS)
+        current=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertIs(current.get("lantern_stage"),True)
+        source=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        self.assertIn('wait_job(call("app.stop", [APP])',source)
+        self.assertIn('stage(',source)
+        self.assertIn('persisted_on_reinstall',source)
+        self.assertIn('persisted_on_restart',source)
+
+    def test_native_rollback_requires_exact_unique_disposable_request_and_g2(self):
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertEqual(request["request_id"],
+                         "tn-25-04-2-6-t6-vanilla-263-op4k-018-parsed-native-anvil-three-checkpoint")
+        self.assertIs(request.get("native_world_rollback"),True)
+        self.assertIs(request.get("collage_readback"),True)
+        self.assertIs(request.get("lantern_stage"),True)
+        self.assertIn("truenas_world_rollback=false",WORKFLOW)
+        self.assertIn("(.native_world_rollback // false)",WORKFLOW)
+        self.assertIn('truenas_world_rollback=$truenas_world_rollback',WORKFLOW)
+        self.assertIn("--vanilla-world-rollback",WORKFLOW)
+        self.assertIn("--require-native-rollback",WORKFLOW)
+        self.assertIn("VANILLA_WORLD_ROLLBACK=false",HARNESS)
+        self.assertIn('"$VANILLA_COLLAGE_READBACK" == "true"',HARNESS)
+        probe=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        self.assertIn('--native-world-rollback',probe)
+        self.assertIn('take_owned_pre_stage_snapshot(call)',probe)
+        self.assertIn('restore_owned_baseline_after_injected_fault(',probe)
+
+    def test_native_synthetic_client_is_opt_in_and_bound_to_g3_owned_qemu_forward(self):
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        # 012 is consumed; source qualification of G4 cannot replay it.
+        self.assertEqual(request["request_id"],
+                         "tn-25-04-2-6-t6-vanilla-263-op4k-018-parsed-native-anvil-three-checkpoint")
+        self.assertIs(request.get("native_offline_player"),True)
+        self.assertIn("truenas_native_offline_player=false",WORKFLOW)
+        self.assertIn("(.native_offline_player // false)",WORKFLOW)
+        self.assertIn("truenas_native_offline_player=$truenas_native_offline_player",WORKFLOW)
+        self.assertIn("--vanilla-native-player",WORKFLOW)
+        self.assertIn("--vanilla-player-node-path",WORKFLOW)
+        self.assertIn("--require-native-client-visibility",WORKFLOW)
+        self.assertIn("VANILLA_NATIVE_PLAYER=false",HARNESS)
+        self.assertIn("MINECRAFT_HOSTFWD",HARNESS)
+        self.assertIn('"${MINECRAFT_HOSTFWD#,hostfwd=}"',HARNESS)
+        probe=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        self.assertIn("--native-offline-player",probe)
+        self.assertIn("overlay = derive(control, admission)",probe)
+        self.assertIn('stage="candidate"',probe)
+        self.assertIn('stage="rollback"',probe)
+        self.assertIn("if a.native_offline_player",probe)
+        assert_path=(ROOT/"scripts/assert_vanilla263_native_t6_receipt.py").read_text()
+        self.assertIn("native_guest_backend_independent_oracle_qualified",assert_path)
+
+    def test_native_backend_three_checkpoint_is_opt_in_without_consuming_015(self):
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertIs(request.get("native_backend_region"), True)
+        self.assertEqual(request["request_id"],
+                         "tn-25-04-2-6-t6-vanilla-263-op4k-018-parsed-native-anvil-three-checkpoint")
+        for needle in ("truenas_native_backend_region=false",
+                       "(.native_backend_region // false)",
+                       "truenas_native_backend_region=$truenas_native_backend_region",
+                       "--vanilla-backend-region", "--require-native-backend-region"):
+            self.assertIn(needle, WORKFLOW)
+        for needle in ("VANILLA_BACKEND_REGION=false",
+                       "--vanilla-backend-region",
+                       '--native-backend-region',
+                       '"$VANILLA_BACKEND_REGION" == "true"'):
+            self.assertTrue(needle in HARNESS or
+                            needle in (ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text(),
+                            needle)
+        probe=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        for stage in ("preaction","candidate","rollback"):
+            self.assertIn('native_backend_world"]["'+stage+'"]', probe)
+        self.assertIn("backend_independent_world_oracle_pass", probe)
+        self.assertIn("owned_config(cfg, desired)", probe)
+        self.assertIn("native_backend_region", str(request))
+
+    def test_player_dependencies_are_installed_in_native_guest_job(self):
+        top, native = WORKFLOW.split("  truenas-26-beta3:", 1)
+        setup = "Set up immutable 26.3 experimental client toolchain for native G4"
+        install = "Build pre-qualified 26.3 Mineflayer client on public runner only"
+        for name in (setup, install):
+            self.assertEqual(WORKFLOW.count(name), 1)
+            self.assertNotIn(name, top)
+            self.assertIn(name, native)
+        self.assertLess(native.index(install),
+                        native.index("Ensure bounded QEMU/KVM prerequisites"))
+        self.assertLess(native.index("Ensure bounded QEMU/KVM prerequisites"),
+                        native.index("Exercise pinned TrueNAS installer target"))
+        self.assertIn("--require-native-client-visibility", native)
+
+    def test_no_fallback_guest_or_physical_promotion(self):
+        self.assertNotIn('product == "minecraft-vanilla-263" && needs[\'foundry-minecraft-paper',WORKFLOW)
+        self.assertIn("agent-dispatch-heavyweight-rdte",WORKFLOW)
+        self.assertIn("queue: max",WORKFLOW)
+        self.assertIn("cancel-in-progress: false",WORKFLOW)
+        # Exact accepted source consumer must refuse a wrong Foundry SHA
+        from scripts.admit_vanilla263_native_t6_control import CONTROL_SHA
+        self.assertEqual(CONTROL_SHA,"59516bbbcb1750af6f0cb1c624756f08113a070acc11c60affe94d2bbd8d8dd5")
+
+if __name__=="__main__":
+    unittest.main()

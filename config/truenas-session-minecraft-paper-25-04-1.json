@@ -1,0 +1,68 @@
+{
+  "schema": "truenas-session/v1",
+  "session_id": "tn-25-04-1-minecraft-paper-t6-001",
+  "version": "25.04.1",
+  "authority": {
+    "repository": "SemperSupra/agent-dispatch-private",
+    "issue": 480
+  },
+  "budget": {
+    "guest_memory_mib": 8192,
+    "download_mib": 2048,
+    "timeout_minutes": 48
+  },
+  "pool": {
+    "name": "rdtepool",
+    "data_disks": 2
+  },
+  "capsules": [
+    {
+      "schema": "truenas-capsule/v1",
+      "id": "minecraft-paper-world-retention-001",
+      "kind": "foundry-product",
+      "provider": "minecraft-paper-t6",
+      "authority": {
+        "repository": "SupraCraft/mc-server-images",
+        "issue": 53
+      },
+      "exact": {
+        "foundry_producer_ref": "2cc7e1fe3772f8c532e933b3d7832e6cf985db4e",
+        "foundry_artifact_sha256": "cd249c0a97069ff958475b65dbf2143769fe87534c8879b02912de9e146ab525",
+        "minecraft_product_oracle_ref": "d383c657b6accc11fe587f4e9bcd6e2c1a4aa7a8",
+        "minecraft_version": "1.21.11",
+        "native_catalog_candidate": "1.15.29",
+        "truenas_target_profile_blob": "800aca038ded29e6a91bfc4c1b1fe2d2199182e8",
+        "native_image_reference": "ghcr.io/itzg/minecraft-server:2026.9.2-java21@sha256:edf50d431ddc6f73929368e82f4334a405796874f7b0ae11f1edcbb267d670aa",
+        "upstream_apps_commit": "bb96ef6fd8c2708765012a4a3ca3739370a4f92c"
+      },
+      "namespace": "rdte-minecraft-paper-25-04-1",
+      "ports": [
+        25580
+      ],
+      "requirements": [
+        "apps",
+        "zfs-pool",
+        "native-catalog",
+        "minecraft-java-status"
+      ],
+      "resources": {
+        "memory_mib": 4096,
+        "download_mib": 1024,
+        "estimated_minutes": 35
+      },
+      "phases": {
+        "setup": true,
+        "apply": true,
+        "verify": true,
+        "cleanup": true
+      },
+      "oracle": "Minecraft Java status, level.dat world survival after App ixVolume delete and reinstall, zero owned residue",
+      "receipt_contract": "truenas-minecraft-paper-t6/v1",
+      "retry_policy": "read-only-reconcile",
+      "mutating": true,
+      "cleanup_required": true,
+      "dependencies": []
+    }
+  ],
+  "manifest_sha256": "85a740366843255ff2cee80ee0da3550429c911614b91d27325badf58a9d3152"
+}

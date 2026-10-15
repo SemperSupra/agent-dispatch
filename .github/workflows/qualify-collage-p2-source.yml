@@ -1,0 +1,57 @@
+name: Qualify COLLAGE P2 nested TrueNAS source
+
+on:
+  pull_request:
+    branches:
+      - experiment/gha-kvm-system-rdte
+    paths:
+      - 'scripts/truenas_middleware_collage_readback_p2.py'
+      - 'scripts/truenas_middleware_minecraft_t6_probe.py'
+      - 'scripts/assert_collage_p2_receipt.py'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - 'tests/test_collage_p2_native.py'
+      - 'tests/test_collage_p2_new_native_version.py'
+      - 'tests/test_collage_p2_roles.py'
+      - 'tests/test_collage_p2_effective_roles.py'
+      - 'tests/test_collage_catalog_preflight.py'
+      - 'scripts/check_collage_catalog_preflight.py'
+      - 'tests/test_truenas_t6_minecraft_control.py'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
+      - '.github/workflows/qualify-collage-p2-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cheap-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Syntax, receipt, existing product and negative source checks
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            scripts/truenas_middleware_collage_readback_p2.py \
+            scripts/truenas_middleware_minecraft_t6_probe.py \
+            scripts/assert_collage_p2_receipt.py \
+            tests/test_collage_p2_native.py \
+            tests/test_collage_p2_new_native_version.py \
+            tests/test_collage_p2_roles.py \
+            tests/test_collage_p2_effective_roles.py \
+            tests/test_collage_catalog_preflight.py \
+            scripts/check_collage_catalog_preflight.py
+          python3 -m unittest -v \
+            tests.test_collage_p2_native \
+            tests.test_collage_p2_new_native_version \
+            tests.test_collage_p2_roles \
+            tests.test_collage_p2_effective_roles \
+            tests.test_collage_catalog_preflight \
+            tests.test_truenas_t6_minecraft_control
+      - name: Declare no live-system result
+        run: |
+          echo 'SOURCE_ONLY: no TrueNAS guest boot or authenticated API readback. The new distinct request ID requires a separate accepted request-edge after this gate.' >> "$GITHUB_STEP_SUMMARY"

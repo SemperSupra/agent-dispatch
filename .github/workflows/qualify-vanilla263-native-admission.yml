@@ -1,0 +1,40 @@
+name: Source-only vanilla 26.3 current native TrueNAS guest admission guard
+on:
+  pull_request:
+    branches: [experiment/gha-kvm-system-rdte]
+    paths:
+      - 'scripts/qualify_vanilla263_native_admission.py'
+      - 'config/truenas-vanilla263-native-admission-request.json'
+      - 'tests/test_vanilla263_native_admission.py'
+      - '.github/workflows/qualify-vanilla263-native-admission.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fail-closed-source-admission:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Source and disjoint authority checks without guest or credentials
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/qualify_vanilla263_native_admission.py
+          python3 -m unittest discover -s tests -p 'test_vanilla263_native_admission.py' -v
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          req=json.loads(Path("config/truenas-vanilla263-native-admission-request.json").read_text())
+          old=json.loads(Path("config/truenas-rdte-run-request.json").read_text())
+          assert req["request_id"]!=old["request_id"]
+          assert req["product"]=="minecraft-vanilla-263" and old["product"]=="minecraft-vanilla-263"
+          assert old["request_id"]=="tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint"
+          assert req["consumer_authority_issue"]==627
+          assert req["version"]=="25.04.2.6"
+          PY
+      - name: Exact nonclaims
+        run: |
+          echo 'SOURCE-ONLY qualification of new TrueNAS25.04.2.6 Minecraft vanilla26.3 control admission, no GHA request edge, no KVM, no app creation, no online player or physical APPLY. Real Foundry producer control must be downloaded and validated separately before dispatch.' >> "$GITHUB_STEP_SUMMARY"
