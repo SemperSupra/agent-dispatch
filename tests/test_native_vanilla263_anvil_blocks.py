@@ -28,7 +28,7 @@ def compound(*children):
 def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None):
     positions = {((70 & 15) << 8) | (z << 4) | x: value
                  for (x, z, value) in (
-                   (0, 0, 0), (2, 0, 1 if stage == "candidate" else 3),
+                   (0, 0, 1 if stage == "preaction" else 0), (2, 0, 1 if stage == "candidate" else 3),
                    (1, 1, 2 if stage == "candidate" else 4))}
     positions.update(overrides or {})
     bits, per_long = max(4, math.ceil(math.log2(len(PALETTE)))), 16
@@ -77,7 +77,7 @@ class BlockRegionTests(unittest.TestCase):
         self.assertEqual(result["physical_true_nas_apply"], "HOLD")
 
     def test_individual_stages_not_backend_proof(self):
-        for stage in ("candidate", "rollback"):
+        for stage in ("preaction", "candidate", "rollback"):
             result = inspect(build(stage), stage)
             self.assertTrue(result["block_state_expectations_matched"])
             self.assertFalse(result["native_guest_server_owned_bytes_proven"])
@@ -88,6 +88,14 @@ class BlockRegionTests(unittest.TestCase):
         with self.assertRaises(Refused) as ex:
             inspect(blob, stage)
         self.assertEqual(str(ex.exception), code)
+
+    def test_clean_preaction_backend_fixture_must_be_absent_redstone(self):
+        control = inspect(build("preaction"), "preaction")
+        self.assertEqual(control["block_states"], [
+            "minecraft:air", "minecraft:iron_bars", "minecraft:black_concrete"])
+        core_idx = ((70 & 15) << 8)
+        self.reject(build("preaction", overrides={core_idx: 0}), "preaction",
+                    "SERVER_BLOCK_CONSEQUENCE_ABSENT")
 
     def test_wrong_stage_and_replayed_same_region(self):
         self.reject(build(), "rollback", "SERVER_BLOCK_CONSEQUENCE_ABSENT")

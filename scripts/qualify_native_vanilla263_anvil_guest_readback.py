@@ -20,7 +20,7 @@ except ImportError:
         APP, WORLD, app_state)
 
 PATH = WORLD + "/region/r.0.0.mca"
-STAGES = ("candidate", "rollback")
+STAGES = ("preaction", "candidate", "rollback")
 
 
 def capture(*, call, wait_job, fetch_bytes, stage: str) -> dict:
@@ -57,6 +57,7 @@ def capture(*, call, wait_job, fetch_bytes, stage: str) -> dict:
         "downloaded_file_size": len(blob),
         "requested_native_app": APP,
         "requested_native_world_file_fixed": True,
+        "requested_native_world": "rdtepool/minecraft-vanilla-263-t6-world",
         "read_only_middleware_calls": True,
         "live_guest_identity_independently_verified": False,
         "backend_independent_world_oracle_pass": False,

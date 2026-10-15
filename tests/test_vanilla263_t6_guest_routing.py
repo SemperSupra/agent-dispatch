@@ -152,6 +152,30 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         assert_path=(ROOT/"scripts/assert_vanilla263_native_t6_receipt.py").read_text()
         self.assertIn("native_guest_backend_independent_oracle_qualified",assert_path)
 
+    def test_native_backend_three_checkpoint_is_opt_in_without_consuming_015(self):
+        request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
+        self.assertNotIn("native_backend_region", request)
+        self.assertEqual(request["request_id"],
+                         "tn-25-04-2-6-t6-vanilla-263-op4h-015-offline-uuid-player")
+        for needle in ("truenas_native_backend_region=false",
+                       "(.native_backend_region // false)",
+                       "truenas_native_backend_region=$truenas_native_backend_region",
+                       "--vanilla-backend-region", "--require-native-backend-region"):
+            self.assertIn(needle, WORKFLOW)
+        for needle in ("VANILLA_BACKEND_REGION=false",
+                       "--vanilla-backend-region",
+                       '--native-backend-region',
+                       '"$VANILLA_BACKEND_REGION" == "true"'):
+            self.assertTrue(needle in HARNESS or
+                            needle in (ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text(),
+                            needle)
+        probe=(ROOT/"scripts/truenas_middleware_minecraft_t6_probe.py").read_text()
+        for stage in ("preaction","candidate","rollback"):
+            self.assertIn('native_backend_world"]["'+stage+'"]', probe)
+        self.assertIn("backend_independent_world_oracle_pass", probe)
+        self.assertIn("owned_config(cfg, desired)", probe)
+        self.assertNotIn("native_backend_region", str(request))
+
     def test_player_dependencies_are_installed_in_native_guest_job(self):
         top, native = WORKFLOW.split("  truenas-26-beta3:", 1)
         setup = "Set up immutable 26.3 experimental client toolchain for native G4"

@@ -29,7 +29,7 @@ def good(stage):
 
 class ClientSourceTests(unittest.TestCase):
     def test_candidate_and_rollback_effects_are_separate_and_no_authority(self):
-        for stage in target.STAGES:
+        for stage in ("candidate", "rollback"):
             receipt=target.validate(good(stage),stage)
             self.assertEqual(receipt["classification"],"CLIENT_CAUSAL_VISIBILITY_ONLY")
             self.assertFalse(receipt["native_guest_backend_independent_oracle_qualified"])
@@ -39,6 +39,22 @@ class ClientSourceTests(unittest.TestCase):
                              stage=="candidate")
             self.assertEqual(receipt["client_saw_expected_no_datapack_effect"],
                              stage=="rollback")
+
+    def test_preaction_stages_only_prepare_client_fixture(self):
+        pre=good("candidate-prep")
+        pre.update(classification="CLIENT_FIXTURE_PREPARED",
+                   operation="mineflayer.chat.fixedFixture",
+                   placed=False, expected_datapack_present=True)
+        result=target.validate(pre,"candidate-prep")
+        self.assertEqual(result["classification"],"FIXED_PLAYER_FIXTURE_PREPARATION_ONLY")
+        self.assertTrue(result["client_fixture_prepared_without_core_placement"])
+        self.assertFalse(result["native_guest_backend_independent_oracle_qualified"])
+        for field,value in (("placed",True),("operation","mineflayer.placeBlock"),
+                            ("backend_independent_oracle_qualified",True),
+                            ("expected_datapack_present",False),("rcon_used",True)):
+            bad=dict(pre, **{field:value})
+            with self.subTest(field=field),self.assertRaises(target.Refused):
+                target.validate(bad,"candidate-prep")
 
     def test_forged_success_protocol_bot_gameplay_and_privilege_are_refused(self):
         for field,value in (

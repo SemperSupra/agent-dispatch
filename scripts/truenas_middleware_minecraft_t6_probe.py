@@ -404,6 +404,7 @@ def main() -> int:
     p.add_argument("--lantern-manifest", type=pathlib.Path)
     p.add_argument("--native-world-rollback", action="store_true")
     p.add_argument("--native-offline-player", action="store_true")
+    p.add_argument("--native-backend-region", action="store_true")
     p.add_argument("--native-player-forward")
     p.add_argument("--native-player-node-path", type=pathlib.Path)
     p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
@@ -443,6 +444,10 @@ def main() -> int:
         if a.native_offline_player and (not a.native_world_rollback or
             not a.native_player_forward or a.native_player_node_path is None):
             raise MinecraftT6Error("G4 client requires exact G3 rollback and owned loopback")
+        if a.native_backend_region and (not a.native_offline_player or
+            not a.native_world_rollback or not VANILLA263 or
+            a.collage_source_dir is None):
+            raise MinecraftT6Error("G4 backend region requires exact native G2/G3 and player")
         if not a.native_offline_player and (a.native_player_forward or
             a.native_player_node_path is not None):
             raise MinecraftT6Error("G4 client arguments without explicit admission")
@@ -807,6 +812,46 @@ def main() -> int:
             payload["lantern_artifact_stage"]["persisted_on_reinstall"] = True
             # The same exact App owner is rechecked by wait_app() above;
             # pre-stage TLS Go observation remains a separate G2 receipt.
+        if a.native_backend_region:
+            from qualify_native_vanilla263_anvil_guest_readback import capture
+            from qualify_native_vanilla263_mineflayer_causal import run as run_player
+            payload["native_backend_world"] = {
+                "schema": "supracraft.native-vanilla263-live-backend-region/1",
+                "classification": "INCOMPLETE_NATIVE_BACKEND_REGION",
+                "backend_independent_world_oracle_pass": False,
+                "physical_true_nas_apply": "HOLD",
+                "collage_mutation_authorized": False,
+            }
+            payload["native_backend_world"]["preparation"] = run_player(
+                stage="candidate-prep", forward=a.native_player_forward,
+                state_dir=a.out.parent, node_path=a.native_player_node_path)
+            def sample_owned_backend(stage):
+                # A separate native App stop after the actual client action
+                # flushes server-owned region files. Never decode packets as
+                # if they were an authoritative backend world state.
+                wait_job(call("app.stop", [APP]), "G4 backend quiesce " + stage)
+                cfg = call("app.config", [APP])
+                if not owned_config(cfg, desired):
+                    raise MinecraftT6Error("G4 region owner drift")
+                if call("system.version", []) != a.expected_system_version:
+                    raise MinecraftT6Error("G4 region target drift")
+                obs = capture(call=call, wait_job=wait_job,
+                    fetch_bytes=lambda p: middleware_http_bytes(
+                        a.host, a.port, a.tls, p, timeout=a.timeout),
+                    stage=stage)
+                # Upgraded only in this signed, actual guest runner after
+                # real DDP owner/session, stop, bounded fixed-path download
+                # and independent Anvil block decoding all succeeded.
+                obs["classification"] = "LIVE_NATIVE_STOPPED_OWNER_ANVIL_READBACK"
+                obs["live_guest_identity_independently_verified"] = True
+                obs["server_quiescence_proven"] = True
+                obs["native_guest_server_owned_bytes_proven"] = True
+                wait_job(call("app.start", [APP]), "G4 backend restart " + stage)
+                wait_app()
+                wait_status("g4-" + stage)
+                return obs
+            payload["native_backend_world"]["preaction"] = sample_owned_backend(
+                "preaction")
         if a.native_offline_player:
             from qualify_native_vanilla263_mineflayer_causal import run as run_player
             payload["native_player_gameplay"] = {
@@ -818,6 +863,9 @@ def main() -> int:
                 "collage_managed_deployment": False,
                 "physical_true_nas_apply": "HOLD",
             }
+            if a.native_backend_region:
+                payload["native_backend_world"]["candidate"] = sample_owned_backend(
+                    "candidate")
         if a.native_world_rollback:
             from qualify_vanilla263_native_world_rollback import restore_owned_baseline_after_injected_fault
             try:
@@ -835,6 +883,23 @@ def main() -> int:
                 stage="rollback", forward=a.native_player_forward,
                 state_dir=a.out.parent, node_path=a.native_player_node_path)
             payload["native_player_gameplay"]["same_native_guest_client_causal_visibility"] = True
+            if a.native_backend_region:
+                payload["native_backend_world"]["rollback"] = sample_owned_backend(
+                    "rollback")
+                stages = payload["native_backend_world"]
+                p0, p1, p2 = (stages[name] for name in
+                              ("preaction", "candidate", "rollback"))
+                if len({p0["region_sha256"], p1["region_sha256"],
+                        p2["region_sha256"]}) != 3:
+                    raise MinecraftT6Error("G4 region state replay or noncausal stage")
+                if not all(p.get("live_guest_identity_independently_verified")
+                           is True and p.get("server_quiescence_proven") is True
+                           and p.get("native_guest_server_owned_bytes_proven") is True
+                           for p in (p0, p1, p2)):
+                    raise MinecraftT6Error("G4 missing independent backend checkpoints")
+                stages["classification"] = "LIVE_NATIVE_BACKEND_THREE_CHECKPOINTS"
+                stages["same_owned_guest_three_checkpoints"] = True
+                stages["backend_independent_world_oracle_pass"] = True
         read_sentinel()
         if first_level <= 0:
             raise MinecraftT6Error("world level.dat size invalid")
