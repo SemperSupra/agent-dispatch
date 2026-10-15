@@ -44,6 +44,7 @@ VANILLA_LANTERN_ZIP=""
 VANILLA_LANTERN_MANIFEST=""
 VANILLA_WORLD_ROLLBACK=false
 VANILLA_NATIVE_PLAYER=false
+VANILLA_BACKEND_REGION=false
 VANILLA_PLAYER_NODE_PATH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -71,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --vanilla-lantern-manifest) VANILLA_LANTERN_MANIFEST="$2"; shift 2 ;;
     --vanilla-world-rollback) VANILLA_WORLD_ROLLBACK=true; shift ;;
     --vanilla-native-player) VANILLA_NATIVE_PLAYER=true; shift ;;
+    --vanilla-backend-region) VANILLA_BACKEND_REGION=true; shift ;;
     --vanilla-player-node-path) VANILLA_PLAYER_NODE_PATH="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -97,6 +99,9 @@ if [[ "$VANILLA_NATIVE_PLAYER" == "true" ]]; then
   [[ "$VANILLA_WORLD_ROLLBACK" == "true" && -d "$VANILLA_PLAYER_NODE_PATH" &&
      "$T6_PRODUCT" == "minecraft-vanilla-263" && "$VERSION" == "25.04.2.6" ]] ||
     { echo "G4 synthetic client requires exact disposable native G3 and pinned Node dependencies" >&2; exit 2; }
+fi
+if [[ "$VANILLA_BACKEND_REGION" == "true" && "$VANILLA_NATIVE_PLAYER" != "true" ]]; then
+  echo "G4 region requires native offline player and separate G2/G3" >&2; exit 2
 fi
 if [[ "$VANILLA_NATIVE_PLAYER" != "true" && -n "$VANILLA_PLAYER_NODE_PATH" ]]; then
   echo "G4 client dependencies without explicit disposable admission" >&2; exit 2
@@ -1246,6 +1251,9 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
     NATIVE_PLAYER_ARGS=(--native-offline-player
       --native-player-forward "${MINECRAFT_HOSTFWD#,hostfwd=}"
       --native-player-node-path "$VANILLA_PLAYER_NODE_PATH")
+  fi
+  if [[ "$VANILLA_BACKEND_REGION" == "true" ]]; then
+    NATIVE_PLAYER_ARGS+=(--native-backend-region)
   fi
   python3 "$SCRIPT_DIR/truenas_middleware_minecraft_t6_probe.py" \
     --product-profile vanilla263 --native-catalog-profile 1.15.30 \
