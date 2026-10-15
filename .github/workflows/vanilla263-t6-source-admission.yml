@@ -59,7 +59,7 @@ jobs:
           r=json.load(open(sys.argv[1]))
           assert r["schema"]=="semper-supra.minecraft-vanilla263-t6-consumer-admission/1"
           assert r["classification"]=="SOURCE_CONTROL_READY_GUEST_NOT_DISPATCHED"
-          assert r["control_sha256"]=="c1d6d9bd6306de55b12072ea9d0d6411fa7d7f106a6a87bdbe1913c0d82c0615"
+          assert r["control_sha256"]=="59516bbbcb1750af6f0cb1c624756f08113a070acc11c60affe94d2bbd8d8dd5"
           assert r["minecraft_version"]=="26.3" and r["minecraft_protocol"]==777
           assert r["java_version"]==25 and r["truenas_version"]=="25.04.2.6"
           assert r["native_guest_created"] is False and r["native_guest_qualified"] is False
