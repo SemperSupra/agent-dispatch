@@ -4,11 +4,12 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import sys
 import unittest
 
-from scripts import truenas_middleware_minecraft_t6_probe as native
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import truenas_middleware_minecraft_t6_probe as native
 WORKFLOW = ROOT / ".github/workflows/gha-kvm-system-rdte.yml"
 HARNESS = ROOT / "scripts/gha_kvm_truenas_rdte.sh"
 REQUEST = ROOT / "config/truenas-rdte-run-request.json"
