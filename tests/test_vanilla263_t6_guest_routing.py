@@ -52,7 +52,16 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertEqual(current["rung"],"t6")
         self.assertEqual(current["authority_issue"],423)
         self.assertEqual(current["consumer_authority_issue"],627)
-        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
+        self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+        self.assertIn("OP4I-016",current["purpose"])
+        self.assertIn("permanently CONSUMED",current["purpose"])
+        self.assertIn("App1.15.31",current["purpose"])
+        self.assertEqual(current["consumer_authority_issue"],627)
+        self.assertTrue(all(current[k] is True for k in
+            ("collage_readback","lantern_stage","native_world_rollback",
+             "native_offline_player","native_backend_region")))
+
         self.assertEqual(proposal["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4b-001")
         self.assertEqual(proposal["consumer_authority_issue"],627)
         self.assertIn("NOT wired",proposal["purpose"])
@@ -77,7 +86,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('"${NATIVE_READBACK_ARGS[@]}"',HARNESS)
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         self.assertIs(request.get("collage_readback"),True)
-        self.assertEqual(request["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+        self.assertEqual(request["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
         self.assertEqual(request["product"],"minecraft-vanilla-263")
         self.assertEqual(request["version"],"25.04.2.6")
         self.assertNotIn("--vanilla-collage-readback",
@@ -112,7 +121,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
     def test_native_rollback_requires_exact_unique_disposable_request_and_g2(self):
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         self.assertEqual(request["request_id"],
-                         "tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+                         "tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
         self.assertIs(request.get("native_world_rollback"),True)
         self.assertIs(request.get("collage_readback"),True)
         self.assertIs(request.get("lantern_stage"),True)
@@ -132,7 +141,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         # 012 is consumed; source qualification of G4 cannot replay it.
         self.assertEqual(request["request_id"],
-                         "tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+                         "tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
         self.assertIs(request.get("native_offline_player"),True)
         self.assertIn("truenas_native_offline_player=false",WORKFLOW)
         self.assertIn("(.native_offline_player // false)",WORKFLOW)
@@ -156,7 +165,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         self.assertIs(request.get("native_backend_region"), True)
         self.assertEqual(request["request_id"],
-                         "tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+                         "tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
         for needle in ("truenas_native_backend_region=false",
                        "(.native_backend_region // false)",
                        "truenas_native_backend_region=$truenas_native_backend_region",

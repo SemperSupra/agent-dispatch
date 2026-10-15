@@ -92,7 +92,7 @@ class TargetRegistryTests(unittest.TestCase):
             self.assertEqual(request["authority_issue"], 423)
             self.assertEqual(request["consumer_authority_issue"], 627)
             self.assertEqual(request["request_id"],
-                             "tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
+                             "tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
             self.assertIs(request.get("collage_readback"), True)
             self.assertIs(request.get("lantern_stage"), True)
             self.assertIs(request.get("native_offline_player"), True)
