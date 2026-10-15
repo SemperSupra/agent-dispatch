@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -85,6 +85,44 @@ def plan(name: str) -> dict:
 
 
 def _execute(workload: str, timeout: int) -> dict:
+    if workload == "azurite-blob-transport":
+        # Fixed source, no input-substituted command, public Azurite emulator account only.
+        try:
+            cp = subprocess.run(
+                ["bash", "scripts/qualify_azurite_transport.sh"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return {"oracle_verified": False, "classification": "FAIL_TIMEOUT",
+                    "emulator_only": True, "provider_access_verified": False,
+                    "verdict_sha256": None}
+        p = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "azurite-blob" / "verified.json"
+        if cp.returncode != 0 or p.is_symlink() or not p.is_file() or p.stat().st_size > 8192:
+            return {"oracle_verified": False, "classification": "FAIL_EMULATOR",
+                    "emulator_only": True, "provider_access_verified": False,
+                    "verdict_sha256": None}
+        raw = p.read_bytes()
+        try:
+            verdict = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            verdict = {}
+        accepted = (
+            isinstance(verdict, dict) and
+            verdict.get("schema") == "azurite-transport-independent-verdict/v1" and
+            verdict.get("classification") == "EMULATOR_ONLY_PASS" and
+            verdict.get("provider_access_verified") is False and
+            verdict.get("revision_changed") is True and
+            verdict.get("write_replay_blocked") is True and
+            verdict.get("stale_write_blocked") is True and
+            verdict.get("stale_read_blocked") is True and
+            verdict.get("fresh_client_recovered") is True and
+            verdict.get("source_sha") == os.environ.get("GITHUB_SHA") and
+            verdict.get("native_run_id") == os.environ.get("GITHUB_RUN_ID"))
+        return {"oracle_verified": bool(accepted),
+                "classification": "PASS" if accepted else "FAIL_EMULATOR_VERDICT",
+                "emulator_only": True, "provider_access_verified": False,
+                "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
     if workload == "microsoft-devproxy-mock":
         # Fixed reviewed public-synthetic source only; never shell-interpolated inputs.
         try:

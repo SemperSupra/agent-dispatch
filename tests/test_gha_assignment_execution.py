@@ -49,6 +49,12 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "mock_only": True, "provider_access_verified": False,
             "verdict_sha256": "c" * 64,
         }
+    elif profile_id == "azurite-blob-transport-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "emulator_only": True, "provider_access_verified": False,
+            "verdict_sha256": "d" * 64,
+        }
     elif profile_id == "cpu-x64-arithmetic-v1":
         fixed_result = profile._execute("arithmetic-oracle", 30)
     else:
