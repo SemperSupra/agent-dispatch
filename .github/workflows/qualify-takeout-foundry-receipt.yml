@@ -71,7 +71,12 @@ jobs:
           target['command']=['--output','/archive','--state','/state','--completion-operation',op]
           undone=copy.deepcopy(planned)
           undone['services']['takeoutsynthetic']['image']=worker['image']
-          del undone['services']['takeoutsynthetic']['command']
+          # Official renderer explicitly emits command:null. Preserve the
+          # *entire* original dictionary shape on reversal.
+          if 'command' in worker:
+            undone['services']['takeoutsynthetic']['command']=worker['command']
+          else:
+            del undone['services']['takeoutsynthetic']['command']
           assert undone==original, 'Unapproved materialization diff'
           assert not any('docker.sock' in str(v) for v in target.get('volumes',[]))
           out=temp/'hosted-receipt-plan.json'
