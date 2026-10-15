@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -85,6 +85,38 @@ def plan(name: str) -> dict:
 
 
 def _execute(workload: str, timeout: int) -> dict:
+    if workload == "microsoft-devproxy-mock":
+        # Fixed reviewed public-synthetic source only; never shell-interpolated inputs.
+        try:
+            cp = subprocess.run(
+                ["bash", "scripts/qualify_microsoft_devproxy.sh"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return {"oracle_verified": False, "classification": "FAIL_TIMEOUT",
+                    "mock_only": True, "provider_access_verified": False,
+                    "verdict_sha256": None}
+        verdict_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "microsoft-mock" / "verified.json"
+        if cp.returncode != 0 or not verdict_path.is_file():
+            return {"oracle_verified": False, "classification": "FAIL_MOCK_CANARY",
+                    "mock_only": True, "provider_access_verified": False,
+                    "verdict_sha256": None}
+        raw = verdict_path.read_bytes()
+        try:
+            verdict = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            verdict = {}
+        accepted = (isinstance(verdict, dict) and
+                    verdict.get("classification") == "MOCK_ONLY_PASS" and
+                    verdict.get("verified") is True and
+                    verdict.get("provider_access_verified") is False and
+                    verdict.get("source_sha") == os.environ.get("GITHUB_SHA") and
+                    verdict.get("run_id") == os.environ.get("GITHUB_RUN_ID"))
+        return {"oracle_verified": bool(accepted),
+                "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
+                "mock_only": True, "provider_access_verified": False,
+                "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
     if workload == "arithmetic-oracle":
         nums = [i*i for i in range(256)]
         ok = sum(nums) == 5559680 and len(nums) == 256
