@@ -1,0 +1,179 @@
+{
+  "mocks": [
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/ok",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 200,
+        "body": {
+          "item": {
+            "id": "fixture-item",
+            "name": "synthetic-app-root"
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/unauthorized",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 401,
+        "body": {
+          "error": {
+            "code": "InvalidAuthenticationToken",
+            "message": "fixture-only"
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/provisioning",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 403,
+        "body": {
+          "error": {
+            "code": "accessDenied",
+            "message": "fixture-only",
+            "innerError": {
+              "code": "serviceReadOnly"
+            }
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/missing",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 404,
+        "body": {
+          "error": {
+            "code": "itemNotFound",
+            "message": "fixture-only"
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/expired",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 410,
+        "body": {
+          "error": {
+            "code": "resyncRequired",
+            "message": "fixture-only"
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/conflict",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 412,
+        "body": {
+          "error": {
+            "code": "preconditionFailed",
+            "message": "fixture-only"
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/throttle",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 429,
+        "body": {
+          "error": {
+            "code": "tooManyRequests",
+            "message": "fixture-only"
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          },
+          {
+            "name": "Retry-After",
+            "value": "2"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "url": "http://graph-fixture.invalid/v1.0/approot/unavailable",
+        "method": "GET"
+      },
+      "response": {
+        "statusCode": 503,
+        "body": {
+          "error": {
+            "code": "serviceUnavailable",
+            "message": "fixture-only"
+          }
+        },
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/json"
+          }
+        ]
+      }
+    }
+  ]
+}
