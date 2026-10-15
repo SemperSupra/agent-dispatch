@@ -386,7 +386,14 @@ def owned_config(config: dict, wanted: dict) -> bool:
     return all(owner_readback_vector(config, wanted).values())
 
 
-def main() -> int:
+def product_catalog_admitted(product: str, version: str) -> bool:
+    """Bound CLI catalog claims before any DDP/session or App mutation."""
+    return (product == "legacy-paper" and version in ("1.15.29", "1.15.30")) or (
+        product == "vanilla263" and version == "1.15.31")
+
+
+def parse_guest_args(argv=None) -> argparse.Namespace:
+    """Exact source-only parsing; vanilla catalog isn't registered until after parse."""
     p = argparse.ArgumentParser()
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", required=True, type=int)
@@ -407,7 +414,7 @@ def main() -> int:
     p.add_argument("--native-backend-region", action="store_true")
     p.add_argument("--native-player-forward")
     p.add_argument("--native-player-node-path", type=pathlib.Path)
-    p.add_argument("--native-catalog-profile", choices=sorted(CATALOG_PROFILES),
+    p.add_argument("--native-catalog-profile", choices=("1.15.29", "1.15.30", "1.15.31"),
                    default="1.15.29")
     p.add_argument("--product-profile", choices=("legacy-paper", "vanilla263"),
                    default="legacy-paper")
@@ -415,7 +422,14 @@ def main() -> int:
     p.add_argument("--timeout", type=float, default=8)
     p.add_argument("--job-timeout", type=float, default=600)
     p.add_argument("--state-timeout", type=float, default=480)
-    a = p.parse_args()
+    a = p.parse_args(argv)
+    if not product_catalog_admitted(a.product_profile, a.native_catalog_profile):
+        p.error("PRODUCT_SCOPED_CATALOG_NOT_ADMITTED")
+    return a
+
+
+def main() -> int:
+    a = parse_guest_args()
     if a.product_profile == "vanilla263":
         configure_exact_vanilla263()
     started = time.monotonic()
