@@ -1,0 +1,81 @@
+name: Takeout application-owned completion receipt qualification
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/takeout_application_completion.py'
+      - 'scripts/takeout_synthetic_fixture.py'
+      - 'tests/test_takeout_application_completion.py'
+      - 'fixtures/takeout-synthetic/Dockerfile'
+      - '.github/workflows/qualify-takeout-application-receipt.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-container-report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact public source without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact Python source, negative controls and legacy semantics
+        run: |
+          PYTHONPATH=scripts python3 -m unittest discover -s tests -p 'test_takeout_application_completion.py' -v
+          PYTHONPATH=scripts python3 -m unittest discover -s tests -p 'test_takeout_synthetic_fixture.py' -v
+      - name: Build disposable public synthetic image only
+        run: |
+          docker build -t takeout-synthetic:completion-test -f fixtures/takeout-synthetic/Dockerfile .
+      - name: Exercise application report, post-container independent verification and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/receipt-archive"
+          state="$RUNNER_TEMP/receipt-state"
+          operation="t6-public-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          container="t6-public-completion-${GITHUB_RUN_ID}"
+          sudo install -d -m 0700 -o 10001 -g 10001 "$archive" "$state"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            sudo rm -rf -- "$archive" "$state"
+          }
+          trap cleanup EXIT
+          docker run --rm --name "$container" \
+            --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --mount "type=bind,src=$archive,dst=/archive" \
+            --mount "type=bind,src=$state,dst=/state" \
+            takeout-synthetic:completion-test \
+            --output /archive --state /state --completion-operation "$operation" \
+            > "$RUNNER_TEMP/takeout-application-stdout.json"
+          sudo env PYTHONPATH=scripts python3 - "$archive" "$state" "$operation" <<'PY'
+          import json, pathlib, sys
+          from takeout_synthetic_fixture import FILES, SENTINEL, sha
+          from takeout_application_completion import NAME, validate
+          archive, state=map(pathlib.Path, sys.argv[1:3])
+          operation=sys.argv[3]
+          expected={name: {'bytes': len(data), 'sha256': sha(data)}
+                    for name,data in {**FILES, 'retained-sentinel.txt':SENTINEL}.items()}
+          received=validate(state/NAME, archive,
+                            operation_id=operation, expected=expected,
+                            expected_source='takeout-synthetic-fixture/v1')
+          assert (state/'state.json').is_file()
+          assert not list(archive.glob('*.part'))
+          assert received['verified_count']==4
+          assert received['process_exit_zero_verified'] is False
+          assert received['app_report_trusted_as_exit_evidence'] is False
+          print(json.dumps({**received, 'hosted_container_removed':True,
+                            'archive_retained_after_container_removal':True,
+                            'trueNAS_native_app':'NOT_RUN',
+                            'zfs_retention':'NOT_RUN',
+                            'credential_use':'NONE',
+                            'physical_apply':'HOLD'},sort_keys=True))
+          PY
+          sudo rm -rf -- "$archive" "$state"
+          test ! -e "$archive"
+          test ! -e "$state"
+          trap - EXIT
