@@ -38,6 +38,8 @@ on:
       - 'scripts/verify_gha_assignment_receipt.py'
       - 'tests/test_gha_assignment_execution.py'
       - 'tests/test_gha_workload_request.py'
+      - 'scripts/provider_packet_contract.py'
+      - 'tests/test_provider_packet_contract.py'
       - 'tests/test_verify_gha_typed_receipt.py'
       - 'scripts/verify_gha_typed_receipt.py'
       - 'requests/gha/**'
@@ -57,6 +59,7 @@ jobs:
       - name: Validate public request and authority contracts
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
+          python3 -m unittest -v tests/test_provider_packet_contract.py
           python3 tests/test_verify_gha_typed_receipt.py -v
           python3 tests/test_gha_assignment_execution.py -v
 
