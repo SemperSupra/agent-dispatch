@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dotnet/dev-proxy/v3.3.1/schemas/v3.3.1/rc.schema.json",
+  "plugins": [
+    {
+      "name": "MockResponsePlugin",
+      "enabled": true,
+      "pluginPath": "~appFolder/plugins/DevProxy.Plugins.dll",
+      "configSection": "mockResponsePlugin"
+    }
+  ],
+  "urlsToWatch": [
+    "http://graph-fixture.invalid/*"
+  ],
+  "mockResponsePlugin": {
+    "mocksFile": "mocks.json",
+    "blockUnmockedRequests": true
+  },
+  "logLevel": "error",
+  "showSkipMessages": false
+}
