@@ -28,7 +28,7 @@ docker run --detach --name "$CONTAINER" \
   "$IMAGE" --config-file /config/devproxyrc.json >/dev/null
 ready=0
 for _ in $(seq 1 45); do
-  if python3 -c 'import socket; s=socket.create_connection(("127.0.0.1",8000),timeout=1); s.close()' >/dev/null 2>&1; then
+  if docker exec "$CONTAINER" curl --fail --silent --max-time 3 --proxy http://127.0.0.1:8000 http://graph-fixture.invalid/v1.0/approot/ok >/dev/null 2>&1; then
     ready=1
     break
   fi
@@ -36,9 +36,8 @@ for _ in $(seq 1 45); do
 done
 if [ "$ready" -ne 1 ]; then
   echo "MICROSOFT_MOCK_PROXY_STARTUP_FAILED" >&2
-  docker logs "$CONTAINER" 2>&1 | tail -35 || true
   exit 2
 fi
 python3 scripts/microsoft_devproxy_contract.py \
-  --action probe --receipt "$OUT/producer.json"
+  --action probe --container "$CONTAINER" --receipt "$OUT/producer.json"
 echo "MICROSOFT_MOCK_PRODUCER_RECEIPT_CREATED"
