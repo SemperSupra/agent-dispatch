@@ -188,9 +188,11 @@ def inspect(region_bytes: bytes, stage: str) -> dict:
 
 
 def compare(candidate: bytes, rollback: bytes) -> dict:
+    require(type(candidate) is bytes and type(rollback) is bytes and
+            8192 <= len(candidate) <= MAX_REGION and
+            8192 <= len(rollback) <= MAX_REGION, "REGION_FILE_BOUNDS")
+    require(candidate != rollback, "CANDIDATE_ROLLBACK_SAME_REGION_REPLAY")
     c, r = inspect(candidate, "candidate"), inspect(rollback, "rollback")
-    require(c["region_sha256"] != r["region_sha256"],
-            "CANDIDATE_ROLLBACK_SAME_REGION_REPLAY")
     return {
         "schema": SCHEMA,
         "classification": "SOURCE_ONLY_DUAL_ANVIL_BLOCK_DECODER",
