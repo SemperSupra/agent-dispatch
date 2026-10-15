@@ -27,16 +27,16 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SemperSupra/truenas-app-foundry
-          ref: 29ec6cba7df51e316b0329926aa85807805dd07b
+          ref: 5ee204df205edfd531304441fd1a6a24004557b1
           path: .deps/vanilla263-foundry
           persist-credentials: false
       - name: Source admission and exact producer-head negative gates
         run: |
           set -euo pipefail
-          test "$(git -C .deps/vanilla263-foundry rev-parse HEAD)" = 29ec6cba7df51e316b0329926aa85807805dd07b
+          test "$(git -C .deps/vanilla263-foundry rev-parse HEAD)" = 5ee204df205edfd531304441fd1a6a24004557b1
           python3 -m unittest discover -s tests -p 'test_vanilla263_native_admission.py' -v
           python3 -m unittest discover -s .deps/vanilla263-foundry/tests \
-            -p 'test_export_minecraft_vanilla_263_t6_control.py' -v
+            -p 'test_export_minecraft_vanilla_263_11531_t6_control.py' -v
           python3 -m unittest discover -s .deps/vanilla263-foundry/tests \
             -p 'test_vanilla_263_native_source.py' -v
           docker compose version
@@ -45,14 +45,14 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/vanilla263"
           python3 .deps/vanilla263-foundry/tools/validate_minecraft_world_control.py \
-            --product vanilla-263 --catalog-profile 1.15.30 \
+            --product vanilla-263 --catalog-profile 1.15.31 \
             --target-version 25.04.2.6 \
             > "$RUNNER_TEMP/vanilla263/merged-source.json"
       - name: Produce new signed-by-digest merged-commit control
         run: |
           set -euo pipefail
-          python3 .deps/vanilla263-foundry/tools/export_minecraft_vanilla_263_t6_control.py \
-            --foundry-ref 29ec6cba7df51e316b0329926aa85807805dd07b \
+          python3 .deps/vanilla263-foundry/tools/export_minecraft_vanilla_263_11531_t6_control.py \
+            --foundry-ref 5ee204df205edfd531304441fd1a6a24004557b1 \
             --target-version 25.04.2.6 \
             --source-evidence "$RUNNER_TEMP/vanilla263/merged-source.json" \
             --out "$RUNNER_TEMP/vanilla263/control.json"
@@ -71,7 +71,7 @@ jobs:
           raw=dict(c)
           claimed=raw.pop("control_sha256")
           assert claimed == hashlib.sha256(json.dumps(raw,sort_keys=True,separators=(",",":")).encode()).hexdigest()
-          assert c["foundry_ref"] == "29ec6cba7df51e316b0329926aa85807805dd07b"
+          assert c["foundry_ref"] == "5ee204df205edfd531304441fd1a6a24004557b1"
           assert a["classification"] == "SOURCE_CONTROL_READY_GUEST_NOT_DISPATCHED"
           assert a["control_sha256"] == claimed
           assert a["foundry_ref"] == c["foundry_ref"]
