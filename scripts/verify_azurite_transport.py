@@ -32,7 +32,7 @@ def _parse(raw):
     try:
         obj = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs,
                          parse_constant=lambda _: (_ for _ in ()).throw(Denied("INVALID_NUMBER")))
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as err:
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise Denied("PHASE_JSON_DENIED") from err
     if not isinstance(obj, dict):
         raise Denied("PHASE_SHAPE_DENIED")
