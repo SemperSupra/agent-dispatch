@@ -69,5 +69,84 @@ class PassiveRunnerCensusTests(unittest.TestCase):
             },
         )
 
+    def test_linux_dev_shm_presence(self):
+        with mock.patch("pathlib.Path.exists", return_value=True), \
+             mock.patch("pathlib.Path.is_dir", return_value=True), \
+             mock.patch("shutil.disk_usage", return_value=mock.Mock(total=16000000000, free=15000000000)), \
+             mock.patch("os.access", return_value=True):
+            cap = MOD._linux_dev_shm_capability()
+        self.assertEqual(cap["name"], "linux:dev-shm-tmpfs")
+        self.assertTrue(cap["observed"])
+        self.assertTrue(cap["installed"])
+        self.assertEqual(cap["evidence"]["total_bytes"], 16000000000)
+
+    def test_linux_kvm_access_capabilities(self):
+        with mock.patch("pathlib.Path.exists", return_value=True), \
+             mock.patch("os.access", return_value=False), \
+             mock.patch("subprocess.run", return_value=mock.Mock(returncode=0)):
+            caps = MOD._linux_kvm_access_capabilities()
+        self.assertEqual(len(caps), 2)
+        user_cap, sudo_cap = caps
+        self.assertEqual(user_cap["name"], "linux:kvm-user-accessible")
+        self.assertFalse(user_cap["observed"])
+        self.assertEqual(sudo_cap["name"], "linux:kvm-sudo-accessible")
+        self.assertTrue(sudo_cap["observed"])
+
+    def test_docker_daemon_responsive_vs_unresponsive(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/docker"), \
+             mock.patch.object(MOD, "_run_text", return_value="28.0.4"):
+            cap = MOD._docker_daemon_capability()
+        self.assertTrue(cap["observed"])
+        self.assertTrue(cap["installed"])
+        self.assertEqual(cap["evidence"]["server_version"], "28.0.4")
+
+        with mock.patch("shutil.which", return_value="/usr/bin/docker"), \
+             mock.patch.object(MOD, "_run_text", return_value=None):
+            cap = MOD._docker_daemon_capability()
+        self.assertFalse(cap["observed"])
+        self.assertFalse(cap["installed"])
+
+    def test_android_capabilities(self):
+        with mock.patch.dict("os.environ", {"ANDROID_HOME": "/opt/android-sdk"}), \
+             mock.patch("pathlib.Path.exists", return_value=True), \
+             mock.patch("shutil.which", side_effect=lambda cmd: f"/opt/android-sdk/platform-tools/{cmd}"):
+            caps = MOD._android_capabilities()
+        names = {c["name"] for c in caps}
+        self.assertIn("android:sdk-present", names)
+        self.assertIn("android:emulator-present", names)
+
+    def test_macos_simctl_and_metal_capabilities(self):
+        sim_json = '{"runtimes": [{"name": "iOS 18.2", "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-18-2"}]}'
+        with mock.patch("shutil.which", return_value="/usr/bin/xcrun"), \
+             mock.patch.object(MOD, "_run_text", return_value=sim_json):
+            caps = MOD._macos_simctl_capabilities()
+        self.assertTrue(caps[0]["observed"])
+        self.assertIn("iOS 18.2", caps[0]["evidence"]["runtimes"])
+
+        with mock.patch("pathlib.Path.exists", return_value=True), \
+             mock.patch.object(MOD, "_run_text", return_value="Chipset Model: Apple M1 Max\nMetal Support: Metal 3"):
+            cap = MOD._macos_metal_capability()
+        self.assertTrue(cap["observed"])
+        self.assertEqual(cap["evidence"].get("Chipset Model"), "Apple M1 Max")
+
+    def test_windows_additional_capabilities(self):
+        evidence = '{"UserInteractive":true,"MountVHDPresent":true,"DockerServicePresent":true,"DockerServiceStatus":"Running","WSLPresent":true}'
+        with mock.patch("shutil.which", return_value="powershell.exe"), \
+             mock.patch.object(MOD, "_run_text", return_value=evidence):
+            caps = MOD._windows_additional_capabilities()
+        names = {c["name"] for c in caps}
+        self.assertIn("windows:interactive-session", names)
+        self.assertIn("windows:vhd-cmdlet", names)
+        self.assertIn("windows:docker-daemon", names)
+        self.assertIn("windows:wsl", names)
+        self.assertTrue(all(c["observed"] for c in caps))
+
+    def test_resources_contain_cpu_extensions(self):
+        receipt = MOD.build_receipt("test-runner")
+        self.assertIn("features", receipt["resources"]["cpu"])
+        self.assertIsInstance(receipt["resources"]["cpu"]["features"], list)
+        self.assertIn("steal_ticks", receipt["resources"]["cpu"])
+
+
 if __name__ == "__main__":
     unittest.main()
