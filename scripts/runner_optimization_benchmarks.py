@@ -34,8 +34,8 @@ def _get_cpu_steal_time() -> float:
         pass
     return 0.0
 
-def benchmark_ramdisk_io(n_pairs: int = 15, payload_mb: int = 64) -> Dict[str, Any]:
-    """In-VM paired trial: Standard workspace disk vs /dev/shm RAM-disk."""
+def benchmark_ramdisk_io(n_pairs: int = 10, payload_mb: int = 32) -> Dict[str, Any]:
+    """In-VM paired microbenchmark: Standard workspace disk vs /dev/shm tmpfs sequential write+fsync."""
     payload = os.urandom(payload_mb * 1024 * 1024)
     disk_dir = tempfile.mkdtemp(prefix="bench_disk_")
     
@@ -45,12 +45,14 @@ def benchmark_ramdisk_io(n_pairs: int = 15, payload_mb: int = 64) -> Dict[str, A
     
     disk_durations: List[float] = []
     shm_durations: List[float] = []
+    paired_diffs: List[float] = []
     
     try:
-        # A/B/B/A interleaved block design
+        # Interleaved AB/BA pairs (consecutive pairs i, i+1 form an A-B-B-A block)
         for i in range(n_pairs):
-            order = ["disk", "shm", "shm", "disk"] if (i % 2 == 0) else ["shm", "disk", "disk", "shm"]
-            for mode in order[:2]:
+            pair_order = ("disk", "shm") if (i % 2 == 0) else ("shm", "disk")
+            pair_obs: Dict[str, float] = {}
+            for mode in pair_order:
                 if mode == "disk":
                     p = os.path.join(disk_dir, f"file_{i}.bin")
                     t0 = time.perf_counter()
@@ -60,6 +62,7 @@ def benchmark_ramdisk_io(n_pairs: int = 15, payload_mb: int = 64) -> Dict[str, A
                         os.fsync(f.fileno())
                     elapsed = time.perf_counter() - t0
                     disk_durations.append(elapsed)
+                    pair_obs["disk"] = elapsed
                     try:
                         os.unlink(p)
                     except OSError:
@@ -73,29 +76,46 @@ def benchmark_ramdisk_io(n_pairs: int = 15, payload_mb: int = 64) -> Dict[str, A
                         os.fsync(f.fileno())
                     elapsed = time.perf_counter() - t0
                     shm_durations.append(elapsed)
+                    pair_obs["shm"] = elapsed
                     try:
                         os.unlink(p)
                     except OSError:
                         pass
+            if "disk" in pair_obs and "shm" in pair_obs:
+                paired_diffs.append(pair_obs["disk"] - pair_obs["shm"])
     finally:
         shutil.rmtree(disk_dir, ignore_errors=True)
         shutil.rmtree(shm_dir, ignore_errors=True)
         
-    mean_disk = sum(disk_durations) / len(disk_durations) if disk_durations else 0.0
+    n = len(disk_durations)
+    mean_disk = sum(disk_durations) / n if n else 0.0
     mean_shm = sum(shm_durations) / len(shm_durations) if shm_durations else 0.0
     speedup = (mean_disk / mean_shm) if mean_shm > 0 else 1.0
+    mean_diff = sum(paired_diffs) / len(paired_diffs) if paired_diffs else 0.0
+    var_diff = (
+        sum((d - mean_diff) ** 2 for d in paired_diffs) / (len(paired_diffs) - 1)
+        if len(paired_diffs) > 1
+        else 0.0
+    )
+    std_diff = math.sqrt(var_diff)
     
     return {
         "metric": "write_fsync_throughput",
+        "scope": "microbenchmark_sequential_write_fsync_only",
+        "design": "interleaved_ab_ba_pairs",
         "payload_mb": payload_mb,
-        "n_samples": len(disk_durations),
+        "n_samples": n,
+        "n_abba_blocks": n // 2,
+        "shm_backed_by_dev_shm": bool(shm_available),
         "disk_mean_seconds": mean_disk,
         "shm_mean_seconds": mean_shm,
+        "paired_diff_mean_seconds": mean_diff,
+        "paired_diff_std_seconds": std_diff,
         "speedup": speedup,
         "shm_verified_faster": bool(mean_shm < mean_disk)
     }
 
-def benchmark_compute_vectorization(n_iterations: int = 30) -> Dict[str, Any]:
+def benchmark_compute_vectorization(n_iterations: int = 20) -> Dict[str, Any]:
     """Measures compute / hash / memory throughput across iterations to detect thermal jitter."""
     durations: List[float] = []
     block = os.urandom(16 * 1024 * 1024) # 16 MB block
@@ -141,6 +161,10 @@ def run_benchmarks(label: str = "local") -> Dict[str, Any]:
         "hypervisor_steal_ticks": steal_delta,
         "ramdisk_benchmark": io_res,
         "compute_jitter_benchmark": compute_res,
+        "warnings": [
+            "32 MiB sequential write+fsync microbenchmark only; does not prove large-model RAM-disk residency or OOM safety",
+            "tmpfs (/dev/shm) shares physical RAM with guest processes and reduces available model/KV-cache memory"
+        ],
         "status": "PASS" if compute_res["jitter_acceptable"] else "CONTAMINATED_JITTER"
     }
     return receipt
