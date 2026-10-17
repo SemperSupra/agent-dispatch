@@ -132,8 +132,10 @@ class PassiveRunnerCensusTests(unittest.TestCase):
     def test_windows_additional_capabilities(self):
         evidence = '{"UserInteractive":true,"MountVHDPresent":true,"DockerServicePresent":true,"DockerServiceStatus":"Running","WSLPresent":true}'
         with mock.patch("shutil.which", return_value="powershell.exe"), \
-             mock.patch.object(MOD, "_run_text", return_value=evidence):
+             mock.patch.object(MOD, "_run_text", return_value=evidence) as run_mock:
             caps = MOD._windows_additional_capabilities()
+        run_mock.assert_called_once()
+        self.assertEqual(run_mock.call_args.kwargs.get("timeout"), 15)
         names = {c["name"] for c in caps}
         self.assertIn("windows:interactive-session", names)
         self.assertIn("windows:vhd-cmdlet", names)
@@ -141,11 +143,44 @@ class PassiveRunnerCensusTests(unittest.TestCase):
         self.assertIn("windows:wsl", names)
         self.assertTrue(all(c["observed"] for c in caps))
 
+    def test_windows_docker_daemon_requires_running_status(self):
+        stopped_evidence = '{"UserInteractive":true,"MountVHDPresent":true,"DockerServicePresent":true,"DockerServiceStatus":"Stopped","WSLPresent":true}'
+        with mock.patch("shutil.which", return_value="powershell.exe"), \
+             mock.patch.object(MOD, "_run_text", return_value=stopped_evidence):
+            caps = {c["name"]: c for c in MOD._windows_additional_capabilities()}
+        docker_cap = caps["windows:docker-daemon"]
+        self.assertFalse(docker_cap["observed"])
+        self.assertTrue(docker_cap["installed"])
+        self.assertEqual(docker_cap["classification"], "NEGATIVE_OBSERVATION")
+
+    def test_windows_hyperv_uses_extended_timeout(self):
+        evidence = '{"HypervisorPresent":true,"GetVMHostPresent":true,"GetVMSwitchPresent":true,"VMMSPresent":true,"VMMSStatus":"Running"}'
+        with mock.patch.object(MOD.shutil, "which", return_value="powershell.exe"), \
+             mock.patch.object(MOD, "_run_text", return_value=evidence) as run_mock:
+            MOD._windows_hyperv_capabilities()
+        self.assertEqual(run_mock.call_args.kwargs.get("timeout"), 15)
+
     def test_resources_contain_cpu_extensions(self):
         receipt = MOD.build_receipt("test-runner")
         self.assertIn("features", receipt["resources"]["cpu"])
         self.assertIsInstance(receipt["resources"]["cpu"]["features"], list)
         self.assertIn("steal_ticks", receipt["resources"]["cpu"])
+
+    def test_optimization_benchmark_receipt_contract(self):
+        bench_spec = importlib.util.spec_from_file_location(
+            "runner_optimization_benchmarks",
+            ROOT / "scripts" / "runner_optimization_benchmarks.py",
+        )
+        bench_mod = importlib.util.module_from_spec(bench_spec)
+        assert bench_spec.loader
+        bench_spec.loader.exec_module(bench_mod)
+        io_res = bench_mod.benchmark_ramdisk_io(n_pairs=2, payload_mb=1)
+        self.assertEqual(io_res["scope"], "microbenchmark_sequential_write_fsync_only")
+        self.assertEqual(io_res["design"], "interleaved_ab_ba_pairs")
+        self.assertEqual(io_res["n_samples"], 2)
+        self.assertEqual(io_res["n_abba_blocks"], 1)
+        self.assertEqual(io_res["payload_mb"], 1)
+        self.assertIn("paired_diff_mean_seconds", io_res)
 
 
 if __name__ == "__main__":

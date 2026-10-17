@@ -91,7 +91,7 @@ $vmms = Get-Service vmms -ErrorAction SilentlyContinue
   VMMSStatus = if ($vmms) { [string]$vmms.Status } else { $null }
 } | ConvertTo-Json -Compress
 """
-    raw = _run_text([ps, "-NoProfile", "-NonInteractive", "-Command", script])
+    raw = _run_text([ps, "-NoProfile", "-NonInteractive", "-Command", script], timeout=15)
     if not raw:
         return [_presence_capability("windows:hyperv-control-plane", False)]
     try:
@@ -122,7 +122,7 @@ $wsl = [bool](Get-Command wsl -ErrorAction SilentlyContinue)
   WSLPresent = [bool]$wsl
 } | ConvertTo-Json -Compress
 """
-    raw = _run_text([ps, "-NoProfile", "-NonInteractive", "-Command", script], timeout=8)
+    raw = _run_text([ps, "-NoProfile", "-NonInteractive", "-Command", script], timeout=15)
     if not raw:
         return [
             _presence_capability("windows:interactive-session", False),
@@ -139,10 +139,12 @@ $wsl = [bool](Get-Command wsl -ErrorAction SilentlyContinue)
             _presence_capability("windows:docker-daemon", False),
             _presence_capability("windows:wsl", False),
         ]
+    docker_present = bool(ev.get("DockerServicePresent"))
+    docker_running = docker_present and str(ev.get("DockerServiceStatus") or "").strip().lower() == "running"
     return [
         _presence_capability("windows:interactive-session", bool(ev.get("UserInteractive")), ev),
         _presence_capability("windows:vhd-cmdlet", bool(ev.get("MountVHDPresent")), ev),
-        _presence_capability("windows:docker-daemon", bool(ev.get("DockerServicePresent")), ev),
+        _presence_capability("windows:docker-daemon", docker_running, ev, installed=docker_present),
         _presence_capability("windows:wsl", bool(ev.get("WSLPresent")), ev),
     ]
 
