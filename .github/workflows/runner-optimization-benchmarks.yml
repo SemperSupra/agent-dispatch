@@ -1,0 +1,43 @@
+name: Runner Optimization Empirical Benchmarks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark-optimizations:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-26.04
+          - ubuntu-24.04-arm
+          - ubuntu-26.04-arm
+          - macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Execute In-VM Paired Statistical Benchmark
+        run: |
+          mkdir -p receipts
+          python3 scripts/runner_optimization_benchmarks.py \
+            --label "${{ matrix.runner }}" \
+            --out "receipts/optimization-receipt-${{ matrix.runner }}.json"
+
+      - name: Upload Optimization Receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimization-receipt-${{ matrix.runner }}
+          path: receipts/*.json
