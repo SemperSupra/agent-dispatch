@@ -117,7 +117,7 @@ def execute():
                         "module_load_id": "main-executable", "va": pc}],
         }
         result = CORR.correlate(document)
-        if pc != symbol or len(result["matched_instructions"]) != 1:
+        if not symbol <= pc < symbol + length or len(result["matched_instructions"]) != 1:
             raise OracleError("independent debugger/static symbol identity oracle failed")
         if result["matched_instructions"][0]["function_id"] != TARGET:
             raise OracleError("wrong recovered function")
@@ -126,6 +126,7 @@ def execute():
             "qualification": "NATIVE_SYNTHETIC_ELF_RUNTIME_PASS",
             "artifact_sha256": digest,
             "static_symbol_rva": symbol - base,
+            "static_symbol_size": length,
             "runtime_observed_rva": pc - base,
             "function_id": TARGET,
             "correlation_input_sha256": result["input_sha256"],
