@@ -81,7 +81,10 @@ def function_assessment(export, symbol, size, image_base):
     if set(f) != {"name", "entry", "ranges"} or not isinstance(f["ranges"], list):
         return {"outcome": "INVALID_FUNCTION_BODY", "recovered_bytes": 0, "oracle_bytes": size}
     if len(f["ranges"]) != 1:
-        return {"outcome": "INVALID_FUNCTION_BODY", "recovered_bytes": 0, "oracle_bytes": size}
+        return {"outcome": "INVALID_FUNCTION_BODY",
+                "diagnostic": "MULTIRANGE_OR_EMPTY_BODY",
+                "reported_range_count": len(f["ranges"]),
+                "recovered_bytes": 0, "oracle_bytes": size}
     r = f["ranges"][0]
     if not isinstance(r, dict) or set(r) != {"start", "end_exclusive"}:
         return {"outcome": "INVALID_FUNCTION_BODY", "recovered_bytes": 0, "oracle_bytes": size}
@@ -89,7 +92,10 @@ def function_assessment(export, symbol, size, image_base):
         return {"outcome": "INVALID_FUNCTION_BODY", "recovered_bytes": 0, "oracle_bytes": size}
     a, b = int(r["start"]), int(r["end_exclusive"])
     if a != symbol or b <= a:
-        return {"outcome": "INVALID_FUNCTION_BODY", "recovered_bytes": 0, "oracle_bytes": size}
+        return {"outcome": "INVALID_FUNCTION_BODY",
+                "diagnostic": "BODY_START_OR_ORDER_INVALID",
+                "start_delta_from_entry": a-symbol,
+                "recovered_bytes": 0, "oracle_bytes": size}
     if b > symbol + size:
         return {"outcome": "BODY_EXTENDS_BEYOND_ORACLE", "recovered_bytes": b-a, "oracle_bytes": size}
     return {"outcome": "EXACT_BODY" if b == symbol + size else "PARTIAL_BODY",
@@ -163,6 +169,9 @@ def observe(ghidra_home, profile):
                 "oracle_symbol_rva": sym-image_base, "gdb_pc_rva": pc-image_base,
                 "recovered_bytes": assessment["recovered_bytes"],
                 "oracle_bytes": size,
+                "diagnostic": assessment.get("diagnostic"),
+                "reported_range_count": assessment.get("reported_range_count"),
+                "start_delta_from_entry": assessment.get("start_delta_from_entry"),
                 "original_sha256": sha256(original.read_bytes()).hexdigest(),
                 "stripped_sha256": sha256(stripped.read_bytes()).hexdigest(),
                 "symbol_table_absent": True, "unwind_tables_absent": True,
@@ -192,7 +201,10 @@ def main():
     }
     args.output.write_text(json.dumps(report, sort_keys=True, indent=2)+"\n", encoding="utf-8")
     for item in assessments:
-        print("MEASURED_PROFILE=" + item["profile"] + ":" + item["outcome"])
+        print("MEASURED_PROFILE=" + item["profile"] + ":" + item["outcome"] +
+              (":" + item["diagnostic"] if item["diagnostic"] else "") +
+              (":ranges=" + str(item["reported_range_count"])
+               if item["reported_range_count"] is not None else ""))
     print(report["result"])
 
 
