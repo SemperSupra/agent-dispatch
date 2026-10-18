@@ -243,7 +243,7 @@ def observe(ghidra_home, profile):
         ghidra_export = json.loads(exported.read_text(encoding="utf-8"))
         assessment = function_assessment(ghidra_export, sym, size, image_base)
         boundary_assessment = BOUNDARY.compare_ghidra_ranges(
-            ghidra_export, sym, size, independent_nonnop, independent_boundaries)
+            ghidra_export, sym, size, independent_nonnop, independent_boundaries, image_base)
         interval_set = inspect_multirange_export(
             ghidra_export, sym, size, image_base, image_size, pc,
             sha256(stripped.read_bytes()).hexdigest())
