@@ -6,6 +6,9 @@ on:
       - '.github/workflows/github-runner-frontier.yml'
       - 'scripts/reversing_evidence_correlate.py'
       - 'scripts/reversing_native_elf_probe.py'
+      - 'scripts/reversing_ghidra_headless_probe.py'
+      - 'scripts/ghidra/ReversingExportFunctions.java'
+      - 'tests/test_reversing_ghidra_headless_probe.py'
       - 'tests/test_reversing_evidence_correlate.py'
       - 'fixtures/reversing-correlation-synthetic-v1.json'
       - 'docs/reversing-correlation-experiment.md'
@@ -17,7 +20,7 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -71,4 +74,40 @@ jobs:
           assert r["unresolved_instruction_count"] == 0
           assert r["static_symbol_rva"] <= r["runtime_observed_rva"] < r["static_symbol_rva"] + r["static_symbol_size"]
           print("NATIVE_ELF_GDB_ORACLE_PASS")
+          PY
+
+      - name: Test Ghidra exporter input and oracle rules
+        run: python3 -m unittest -v tests/test_reversing_ghidra_headless_probe.py
+      - name: Install pinned official Ghidra and JDK 21
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends openjdk-21-jdk-headless unzip >/dev/null
+          export JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
+          "${JAVA_HOME}/bin/java" -version
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip" \
+            --output "${RUNNER_TEMP}/ghidra-release.zip"
+          echo "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db  ${RUNNER_TEMP}/ghidra-release.zip" | sha256sum -c -
+          unzip -q "${RUNNER_TEMP}/ghidra-release.zip" -d "${RUNNER_TEMP}/ghidra-install"
+          ghidra_dir="${RUNNER_TEMP}/ghidra-install/ghidra_12.1.4_PUBLIC"
+          test -x "${ghidra_dir}/support/analyzeHeadless"
+          echo "GHIDRA_HOME=${ghidra_dir}" >> "${GITHUB_ENV}"
+          echo "GHIDRA_JAVA_HOME=${JAVA_HOME}" >> "${GITHUB_ENV}"
+          rm -f "${RUNNER_TEMP}/ghidra-release.zip"
+      - name: Run real Ghidra headless to GDB cross-tool oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_ghidra_headless_probe.py \
+            --ghidra-home "${GHIDRA_HOME}" \
+            --output "${RUNNER_TEMP}/ghidra-gdb-receipt.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          x=json.loads((Path(os.environ["RUNNER_TEMP"])/"ghidra-gdb-receipt.json").read_text())
+          assert x["qualification"] == "NATIVE_SYNTHETIC_GHIDRA_GDB_CORRELATION_PASS"
+          assert x["ghidra_function_rva"] == x["nm_symbol_rva"] == x["gdb_breakpoint_rva"]
+          print("GHIDRA_GDB_REAL_ORACLE_PASS")
           PY
