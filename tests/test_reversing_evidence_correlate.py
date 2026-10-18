@@ -119,6 +119,17 @@ class CorrelationTests(unittest.TestCase):
         x = fixture(); x["events"][0]["kind"] = "shell"
         with self.assertRaises(MOD.ContractError): MOD.correlate(x)
 
+    def test_reject_unhashable_json_enums_as_contract_errors(self):
+        for field in ("mode", "kind", "vantage"):
+            with self.subTest(field=field):
+                x = fixture()
+                if field == "mode":
+                    x[field] = ["synthetic"]
+                else:
+                    x["events"][0][field] = ["instruction" if field == "kind" else "guest"]
+                with self.assertRaises(MOD.ContractError):
+                    MOD.correlate(x)
+
     def test_digest_is_deterministic(self):
         x = fixture()
         self.assertEqual(MOD.correlate(x), MOD.correlate(copy.deepcopy(x)))
