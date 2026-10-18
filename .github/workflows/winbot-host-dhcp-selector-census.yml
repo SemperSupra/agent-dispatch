@@ -1,0 +1,41 @@
+name: WinBot Host DHCP Selector Census
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-host-dhcp-selector-census.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1,2,3,4]
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Examine host-wide DHCP listener versus exact NAT selection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $listeners=@(Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object LocalPort -eq 67)
+          $switches=@(Get-VMSwitch -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+          $netnats=@(Get-NetNat -ErrorAction SilentlyContinue)
+          $observation=[ordered]@{
+            classification='HOST_ONLY_OBSERVATION'
+            rep=[int]'${{ matrix.rep }}'
+            image_version=$env:ImageVersion
+            global_dhcp_port67_count=$listeners.Count
+            global_dhcp_port67_present=($listeners.Count -gt 0)
+            host_switch_names=$switches
+            existing_netnat_count=$netnats.Count
+            current_control_blob='e8156d246bab134a38f33a4f49e5cd18831d4257'
+            current_gate='Internal AND NOT host-global UDP/67 listener'
+            exact_nat_requires_static_guest_addressing=$true
+          }
+          Write-Host ('HOST_DHCP_CENSUS='+($observation | ConvertTo-Json -Depth 5 -Compress))

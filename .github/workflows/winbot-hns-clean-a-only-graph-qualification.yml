@@ -1,0 +1,107 @@
+name: WinBot HNS-clean A-only Graph Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hns-clean-a-only-graph-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      MASTER_MANIFEST_SHA: 'b306d3c22fb6e752c8ab300fec5519fc62a85628'
+      CONTROL_MANIFEST_SHA: 'a9d7c88a4758cf7df352fce5ad979b162029bbdc'
+      CONTROL_BLOB_SHA: '528c76ae9e857893b36ab4e8fd6b6ed634591934'
+      WRAPPER_BLOB_SHA: 'b8da8fc5685f3a8f82f3b72811edec5bd6d57c2b'
+      EXPECTED_SOURCE: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      EXPECTED_PROJECTION: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+    steps:
+      - name: Qualify exact prepared graph
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-hns-clean-a-qual'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          function Get-ExactBlob([string]$Sha) {
+            $headers=@{
+              Authorization="Bearer $env:GH_TOKEN"
+              Accept='application/vnd.github+json'
+              'X-GitHub-Api-Version'='2022-11-28'
+            }
+            $obj=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha" -Headers $headers
+            if([string]$obj.sha -ne $Sha -or [string]$obj.encoding -ne 'base64'){throw "blob identity mismatch: $Sha"}
+            $bytes=[Convert]::FromBase64String(([string]$obj.content -replace '\s',''))
+            $prefix=[Text.Encoding]::ASCII.GetBytes(('blob ' + $bytes.Length + [char]0))
+            $git=New-Object byte[] ($prefix.Length+$bytes.Length)
+            [Array]::Copy($prefix,0,$git,0,$prefix.Length)
+            [Array]::Copy($bytes,0,$git,$prefix.Length,$bytes.Length)
+            $sha1=[Security.Cryptography.SHA1]::Create()
+            try{$observed=([BitConverter]::ToString($sha1.ComputeHash($git))).Replace('-','').ToLowerInvariant()}finally{$sha1.Dispose()}
+            if($observed -ne $Sha){throw "git digest mismatch: $Sha"}
+            return ,$bytes
+          }
+
+          $master=([Text.Encoding]::UTF8.GetString((Get-ExactBlob $env:MASTER_MANIFEST_SHA))) | ConvertFrom-Json
+          if([string]$master.source_revision -ne $env:EXPECTED_SOURCE){throw 'source mismatch'}
+          if([string]$master.projection_identity_sha256 -ne $env:EXPECTED_PROJECTION){throw 'projection mismatch'}
+          if([string]$master.control_manifest_sha -ne $env:CONTROL_MANIFEST_SHA){throw 'control manifest mismatch'}
+          if([string]$master.construction.readiness_control -ne $env:CONTROL_BLOB_SHA){throw 'master control mismatch'}
+          if([int64]$master.construction.hns_exclusivity_qualification_run -ne 37652441260){throw 'HNS qualification evidence mismatch'}
+          if([int64]$master.construction.hns_clean_linux_proof_run -ne 37663244388){throw 'Linux proof gate mismatch'}
+
+          $cm=([Text.Encoding]::UTF8.GetString((Get-ExactBlob $env:CONTROL_MANIFEST_SHA))) | ConvertFrom-Json
+          $entry=@($cm.entries | Where-Object path -eq 'rdte/gha/full-rdte.ps1')
+          if($entry.Count -ne 1 -or [string]$entry[0].git_blob_sha -ne $env:CONTROL_BLOB_SHA){throw 'control manifest exact entry mismatch'}
+
+          $controlPath=Join-Path $root 'full-rdte.ps1'
+          [IO.File]::WriteAllBytes($controlPath,(Get-ExactBlob $env:CONTROL_BLOB_SHA))
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile($controlPath,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){$errors|ForEach-Object{Write-Error $_.Message};throw 'control parse failed'}
+          $control=Get-Content -LiteralPath $controlPath -Raw
+          foreach($marker in @(
+            'Get-HnsNetwork',
+            'Remove-HnsNetwork',
+            'preexisting_hns_nat_count',
+            'removed_preexisting_hns_nat_count',
+            'post_condition_hns_nat_count',
+            'winnat-exclusivity',
+            '$ownedNatName = ''WbNat-'' + $ownedNatHash.Substring(0,20)',
+            'New-NetNat -Name $ownedNatName -InternalIPInterfaceAddressPrefix $ownedNatPrefix'
+          )){
+            if(-not $control.Contains($marker)){throw "control invariant missing: $marker"}
+          }
+
+          $wrapper=[Text.Encoding]::UTF8.GetString((Get-ExactBlob $env:WRAPPER_BLOB_SHA))
+          foreach($marker in @(
+            "MASTER_MANIFEST_SHA: 'b306d3c22fb6e752c8ab300fec5519fc62a85628'",
+            "EXPECTED_CONTROL_MANIFEST_SHA: 'a9d7c88a4758cf7df352fce5ad979b162029bbdc'",
+            "EXPECTED_A_ONLY_CONTROL_BLOB: '528c76ae9e857893b36ab4e8fd6b6ed634591934'",
+            'group: agent-dispatch-heavyweight-rdte',
+            'preexisting_hns_nat_count = $r.build.preexisting_hns_nat_count',
+            'post_condition_hns_nat_count = $r.build.post_condition_hns_nat_count',
+            'netnat_count_after_cleanup = $r.cleanup.netnat_count_after_cleanup'
+          )){
+            if(-not $wrapper.Contains($marker)){throw "wrapper invariant missing: $marker"}
+          }
+
+          [ordered]@{
+            classification='SUPPORTED'
+            master=$env:MASTER_MANIFEST_SHA
+            control_manifest=$env:CONTROL_MANIFEST_SHA
+            control=$env:CONTROL_BLOB_SHA
+            wrapper=$env:WRAPPER_BLOB_SHA
+            source=$env:EXPECTED_SOURCE
+            projection=$env:EXPECTED_PROJECTION
+            hns_qualification_run=37652441260
+            linux_proof_gate=37663244388
+          } | ConvertTo-Json -Compress

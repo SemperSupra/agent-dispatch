@@ -1,0 +1,102 @@
+name: WinBot Native Clone Regression
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-native-clone-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-clone:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      SOURCE_REVISION: '0283e44337705aab350ea506758dcb312c43aef7'
+      MODULE_BLOB_SHA: '3cc498696e006dcb8dafd28045999ddaf6e1460f'
+      TEST_BLOB_SHA: 'f88445da444da9cc1c13f59b42d8e8b11e59411d'
+
+    steps:
+      - name: Reconstruct exact module and native regression
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-native-clone-regression'
+          New-Item -ItemType Directory -Force -Path (Join-Path $root 'host'),(Join-Path $root 'test') | Out-Null
+          $py=@'
+          import base64, hashlib, json, os, pathlib, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"winbot-native-clone-regression"
+          def fetch(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+              )
+              with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
+              raw=base64.b64decode(obj["content"])
+              actual=hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()
+              if obj.get("sha")!=sha or actual!=sha or len(raw)!=int(obj["size"]):
+                  raise SystemExit(f"exact blob verification failed: {sha}")
+              return raw
+          (root/"host"/"WinBot.psm1").write_bytes(fetch(os.environ["MODULE_BLOB_SHA"]))
+          (root/"test"/"test-clone-native.ps1").write_bytes(fetch(os.environ["TEST_BLOB_SHA"]))
+          '@
+          $py | python -
+          if($LASTEXITCODE -ne 0){throw 'exact regression reconstruction failed'}
+          git -C $root init | Out-Null
+          git -C $root add .
+          if($LASTEXITCODE -ne 0){throw 'fixture git staging failed'}
+
+      - name: Run exact native Hyper-V clone regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-native-clone-regression'
+          $log=Join-Path $env:RUNNER_TEMP 'winbot-native-clone-regression.log'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'test\test-clone-native.ps1') *>&1 |
+            Tee-Object -FilePath $log
+          $rc=$LASTEXITCODE
+          $receipt=[ordered]@{
+            schema_version=1
+            authority='mark-e-deyoung/WinBot#70'
+            experiment_authority='SemperSupra/agent-dispatch-private#406'
+            source_revision=$env:SOURCE_REVISION
+            module_blob_sha=$env:MODULE_BLOB_SHA
+            test_blob_sha=$env:TEST_BLOB_SHA
+            exit_code=[int]$rc
+            fixture_pass=[bool]($rc -eq 0)
+            leaked_vms=@(Get-VM -Name 'WinBot-wp5-qual-*' -ErrorAction SilentlyContinue | ForEach-Object{$_.Name})
+          }
+          $receipt.cleanup_oracle_satisfied=($receipt.leaked_vms.Count -eq 0)
+          $receipt.classification=if($receipt.fixture_pass -and $receipt.cleanup_oracle_satisfied){'SUPPORTED'}else{'REGRESSION_FAILURE'}
+          $receipt | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $root 'receipt.json') -Encoding utf8
+          if($rc -ne 0){exit $rc}
+          if(-not $receipt.cleanup_oracle_satisfied){throw 'native regression leaked qualification VM state'}
+
+      - name: Upload regression evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-native-clone-regression-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/winbot-native-clone-regression/receipt.json
+            ${{ runner.temp }}/winbot-native-clone-regression.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce regression receipt
+        if: always()
+        shell: pwsh
+        run: |
+          $p=Join-Path $env:RUNNER_TEMP 'winbot-native-clone-regression\receipt.json'
+          if(-not(Test-Path -LiteralPath $p)){throw 'native regression receipt missing'}
+          $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          Write-Host "classification=$($r.classification)"
+          Write-Host "fixture_pass=$($r.fixture_pass)"
+          Write-Host "cleanup=$($r.cleanup_oracle_satisfied)"
+          if($r.classification -ne 'SUPPORTED'){throw 'native clone regression failed'}

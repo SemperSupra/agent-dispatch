@@ -1,0 +1,74 @@
+name: Sealed Public Windows Git Blob Contract
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/sealed-public-windows-git-blob-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  git-blob-round-trip:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install pinned age release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $uri='https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-windows-amd64.zip'
+          $expected='f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7'
+          $zip=Join-Path $env:RUNNER_TEMP 'age.zip'
+          Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
+          if((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()-ne$expected){throw 'age pin mismatch'}
+          $root=Join-Path $env:RUNNER_TEMP 'age'
+          Expand-Archive $zip $root -Force
+          $age=Get-ChildItem $root -Recurse -Filter age.exe|select -First 1
+          $keygen=Get-ChildItem $root -Recurse -Filter age-keygen.exe|select -First 1
+          if(-not$age-or-not$keygen){throw 'age tools missing'}
+          $age.Directory.FullName|Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Fetch content-addressed capsule and execute
+        shell: pwsh
+        env:
+          BLOB_SHA: '96004d441557b1edd871861cac233ff29a58c915'
+          CAPSULE_SHA256: '91b18693f00b51e847554fa0715ce45393d1c352f2f6b5b71ebe535d9bb85ba1'
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'git-blob-contract'
+          New-Item -ItemType Directory -Force $root|Out-Null
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$env:BLOB_SHA"
+          $blob=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+          if([string]$blob.encoding-ne'base64'){throw 'unexpected blob encoding'}
+          if([int64]$blob.size-ne249){throw "unexpected blob size $($blob.size)"}
+          $b64=([string]$blob.content -replace '\s','')
+          $b64Path=Join-Path $root 'capsule.b64'
+          [IO.File]::WriteAllText($b64Path,$b64,[Text.Encoding]::ASCII)
+
+          $identity=Join-Path $root 'identity.txt'
+          age-keygen -o $identity 2>$null
+          $recipient=(Select-String -LiteralPath $identity -Pattern '^# public key: '|select -First 1).Line.Split()[-1]
+          $env:SEALED_CAPSULE_TRANSPORT='git_blob'
+          $env:SEALED_CAPSULE_BLOB_SHA=$env:BLOB_SHA
+          $sealed=Join-Path $root 'sealed'
+          python scripts/sealed_public_execution.py --assignment-id git-blob-selftest-001 --capsule-b64-file $b64Path --capsule-sha256 $env:CAPSULE_SHA256 --recipient $recipient --timeout-seconds 30 --entrypoint run.ps1 --out-dir $sealed
+          if($LASTEXITCODE-ne0){throw "worker returned $LASTEXITCODE"}
+
+          $plain=Join-Path $root 'result.tar.gz'
+          age --decrypt --identity $identity --output $plain (Join-Path $sealed 'result.age')
+          $result=Join-Path $root 'result';New-Item -ItemType Directory -Force $result|Out-Null
+          python -c "import tarfile,sys; t=tarfile.open(sys.argv[1],'r:gz'); t.extractall(sys.argv[2],filter='data'); t.close()" $plain $result
+          if((Get-Content (Join-Path $result 'files/out.txt') -Raw).Trim()-ne'git-blob-ok'){throw 'result mismatch'}
+          $e=Get-Content (Join-Path $result 'execution.json') -Raw|ConvertFrom-Json
+          if($e.capsule_transport-ne'git_blob'){throw 'transport provenance mismatch'}
+          if($e.capsule_blob_sha-ne$env:BLOB_SHA){throw 'blob provenance mismatch'}
+          if($e.capsule_sha256-ne$env:CAPSULE_SHA256){throw 'capsule digest mismatch'}

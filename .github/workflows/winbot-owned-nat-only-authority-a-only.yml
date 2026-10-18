@@ -1,0 +1,459 @@
+name: WinBot Owned-NAT-Only Authority A-Only
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-owned-nat-only-authority-a-only.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  authority-repair-a:
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      queue: max
+      cancel-in-progress: false
+    runs-on: windows-2025
+    timeout-minutes: 150
+    env:
+      MASTER_MANIFEST_SHA: '158ac139db287bd6c7efcf5d2c7477e802b86796'
+      EXPECTED_SOURCE_REVISION: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      EXPECTED_PROJECTION_IDENTITY: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+      EXPECTED_CONTROL_MANIFEST_SHA: '35cf3d54ddca6eb56cf564837e4206295cc2079b'
+      EXPECTED_A_ONLY_CONTROL_BLOB: '357abe0886b36e93f818f5f17704ae11f6348199'
+      PRODUCT_REPAIR_BLOB: 'c34b8e891220ba4ceab9f4e08c415f26d1490741'
+      ASSIGNMENT_ID: 'winbot-owned-nat-only-authority-a-20261007-03'
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Reconstruct exact authorized source and A-only product-repair control
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-authority-a'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $py = @'
+          import base64, hashlib, json, os, pathlib, tarfile, urllib.request
+          from datetime import datetime, timezone
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          master_sha = os.environ["MASTER_MANIFEST_SHA"]
+          expected_rev = os.environ["EXPECTED_SOURCE_REVISION"]
+          expected_identity = os.environ["EXPECTED_PROJECTION_IDENTITY"]
+          expected_control_manifest = os.environ["EXPECTED_CONTROL_MANIFEST_SHA"]
+          expected_a_only = os.environ["EXPECTED_A_ONLY_CONTROL_BLOB"]
+          product_repair = os.environ["PRODUCT_REPAIR_BLOB"]
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "winbot-authority-a"
+          staging = root / "capsule"
+          projection = staging / "projection"
+          projection.mkdir(parents=True, exist_ok=True)
+
+          def get_blob(sha):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  obj = json.load(r)
+              if obj.get("sha") != sha or obj.get("encoding") != "base64":
+                  raise SystemExit(f"blob identity/encoding mismatch for {sha}")
+              raw = base64.b64decode(obj["content"])
+              if len(raw) != int(obj["size"]):
+                  raise SystemExit(f"blob size mismatch for {sha}")
+              git_sha = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+              if git_sha != sha:
+                  raise SystemExit(f"Git object digest mismatch for {sha}")
+              return raw
+
+          master = json.loads(get_blob(master_sha))
+          if master["source_revision"] != expected_rev:
+              raise SystemExit("master source revision mismatch")
+          if master["projection_identity_sha256"] != expected_identity:
+              raise SystemExit("master projection identity mismatch")
+          if master["control_manifest_sha"] != expected_control_manifest:
+              raise SystemExit("master control manifest mismatch")
+
+          entries = []
+          for batch_sha in master["source_batch_manifests"]:
+              batch = json.loads(get_blob(batch_sha))
+              if batch["source_revision"] != expected_rev:
+                  raise SystemExit(f"batch source revision mismatch: {batch_sha}")
+              entries.extend(batch["entries"])
+          if len(entries) != int(master["projected_file_count"]):
+              raise SystemExit("projected file count mismatch")
+          if len({e["path"] for e in entries}) != len(entries):
+              raise SystemExit("duplicate projected path")
+
+          projected = []
+          for e in sorted(entries, key=lambda x: x["path"]):
+              raw = get_blob(e["git_blob_sha"])
+              if len(raw) != int(e["size"]):
+                  raise SystemExit(f"source size mismatch: {e['path']}")
+              dest = projection / pathlib.PurePosixPath(e["path"])
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              dest.write_bytes(raw)
+              projected.append({
+                  "path": e["path"],
+                  "bytes": len(raw),
+                  "sha256": hashlib.sha256(raw).hexdigest(),
+              })
+          total = sum(x["bytes"] for x in projected)
+          if total != int(master["projected_bytes"]):
+              raise SystemExit("projected byte count mismatch")
+          identity_obj = {"source_revision": expected_rev, "projected_files": projected}
+          identity = hashlib.sha256(
+              json.dumps(identity_obj, sort_keys=True, separators=(",", ":")).encode()
+          ).hexdigest()
+          if identity != expected_identity:
+              raise SystemExit(f"projection identity mismatch: {identity}")
+
+          controls_manifest = json.loads(get_blob(expected_control_manifest))
+          controls = {e["path"]: get_blob(e["git_blob_sha"]) for e in controls_manifest["entries"]}
+          required = {
+              "rdte/gha/media/windows-enterprise-eval-x64.json",
+              "rdte/gha/qualification.json",
+              "rdte/gha/projection-policy.json",
+              "rdte/gha/full-rdte.ps1",
+          }
+          if set(controls) != required:
+              raise SystemExit("control object set mismatch")
+          projected_paths = {e["path"] for e in entries}
+          for required_path in (
+              "guest/tools/configuration.winget",
+              "guest/api/static/index.html",
+              "guest/api/main.py",
+              "guest/tools/stage-provision.ps1",
+              "guest/tools/fix-api-service.ps1",
+          ):
+              if required_path not in projected_paths:
+                  raise SystemExit(f"corrected projection path missing: {required_path}")
+
+          run_raw = controls["rdte/gha/full-rdte.ps1"]
+          run_sha = hashlib.sha1(f"blob {len(run_raw)}\0".encode() + run_raw).hexdigest()
+          if run_sha != expected_a_only:
+              raise SystemExit(f"A-only control identity mismatch: {run_sha}")
+
+          product_repair_raw = get_blob(product_repair)
+          repair_entries = [e for e in entries if e["path"] == "guest/tools/fix-api-service.ps1"]
+          if len(repair_entries) != 1 or repair_entries[0]["git_blob_sha"] != product_repair:
+              raise SystemExit("authorized product repair primitive projection identity mismatch")
+          run_text = run_raw.decode("utf-8-sig")
+          for required_marker in (
+              "C:\\WinBot\\tools\\fix-api-service.ps1",
+              product_repair,
+              "RNGCryptoServiceProvider",
+              "repair_stage='product-repair'",
+              "AuthorityRepairScriptIdentity",
+              "AuthorityRepairLogSignal",
+              "AuthorityPythonPresentBefore",
+              "AuthorityPythonPresentAfter",
+          ):
+              if required_marker not in run_text:
+                  raise SystemExit(f"product-repair control invariant missing: {required_marker}")
+
+          for forbidden in (
+              "pytest",
+              "canary_survived_rematerialization",
+              "New-WinBotWorkCell -CustomName $vmNameB",
+              "workcell-taint",
+              "Invoke-SeedFinalization",
+          ):
+              if forbidden in run_text:
+                  raise SystemExit(f"A-only causal boundary violation: {forbidden}")
+          if "profile = 'AuthorityRepairDiagnosticV2'" not in run_text:
+              raise SystemExit("product-repair diagnostic v2 profile marker missing")
+          for readiness_marker in (
+              "$nativeAuthorityReady",
+              "$repairAuthorityReady",
+              "ProvisionFailureReason",
+              "ProvisionFailureRouteReady",
+              "ProvisionFailureDnsReady",
+              "ProvisionFailureTlsHostReady",
+              "authority_readiness_path",
+              "$ownedNatName = 'WbNat-' + $ownedNatHash.Substring(0,20)",
+              "New-NetNat -Name $ownedNatName",
+              "network_provider = 'deterministic-netnat'",
+              "deterministic_nat_absent",
+              "Do not trust a pre-existing switch merely named 'nat'",
+          ):
+              if readiness_marker not in run_text:
+                  raise SystemExit(f"hosted-NAT readiness invariant missing: {readiness_marker}")
+          stage_entries = [e for e in entries if e["path"] == "guest/tools/stage-provision.ps1"]
+          if len(stage_entries) != 1 or stage_entries[0]["git_blob_sha"] != "99052b87800ee00b4177f8bc3626316b4ab999d6":
+              raise SystemExit("fail-closed stage-provision identity mismatch")
+          stage_text = get_blob("99052b87800ee00b4177f8bc3626316b4ab999d6").decode("utf-8-sig")
+          for required_stage in (
+              "2.5/8-network",
+              "AddMinutes(10)",
+              "outbound-route-unavailable",
+              "dns-resolution-unavailable",
+              "tls-host-connect-unavailable",
+              "refusing to write .provisioned",
+              "authenticated-health-200",
+          ):
+              if required_stage not in stage_text:
+                  raise SystemExit(f"fail-closed provisioning invariant missing: {required_stage}")
+
+          policy = json.loads(controls["rdte/gha/projection-policy.json"])
+          auth = policy.get("authorization", {})
+          authorized = (
+              policy.get("state") == "authorized"
+              and auth.get("approved_revision") == expected_rev
+              and auth.get("approved_manifest_sha256") == expected_identity
+          )
+          if not authorized:
+              raise SystemExit("projection policy does not authorize exact source identity")
+
+          (staging / "media.json").write_bytes(controls["rdte/gha/media/windows-enterprise-eval-x64.json"])
+          (staging / "qualification.json").write_bytes(controls["rdte/gha/qualification.json"])
+          (staging / "projection-policy.json").write_bytes(controls["rdte/gha/projection-policy.json"])
+          (staging / "run.ps1").write_bytes(run_raw)
+          manifest = {
+              "schema_version": 1,
+              "authority": "mark-e-deyoung/WinBot#70",
+              "experiment_authority": "SemperSupra/agent-dispatch-private#406",
+              "profile": "AuthorityRepairDiagnosticV2",
+              "source_revision": expected_rev,
+              "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+              "projection_identity_sha256": identity,
+              "projected_files": projected,
+              "projected_file_count": len(projected),
+              "projected_bytes": total,
+              "constraints": {
+                  "private_repo_checkout_on_public_runner": False,
+                  "local_vhdx": False,
+                  "local_iso": False,
+                  "local_credentials": False,
+                  "local_api_token": False,
+                  "capsule_public_safe_required": True,
+                  "conformance": False,
+                  "cell_b": False,
+                  "seed_finalization": False,
+              },
+          }
+          (staging / "projection-manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+
+          capsule = root / "capsule.tar.gz"
+          with tarfile.open(capsule, "w:gz") as tf:
+              for item in sorted(staging.rglob("*")):
+                  if item.is_file():
+                      tf.add(item, arcname=item.relative_to(staging))
+          raw = capsule.read_bytes()
+          if len(raw) > 8 * 1024 * 1024:
+              raise SystemExit("capsule exceeds 8 MiB")
+          capsule_sha = hashlib.sha256(raw).hexdigest()
+          (root / "capsule.b64").write_text(base64.b64encode(raw).decode("ascii"), encoding="ascii")
+
+          receipt = {
+              "schema_version": 1,
+              "authority": master["authority"],
+              "experiment_authority": master["experiment_authority"],
+              "master_manifest_sha": master_sha,
+              "control_manifest_sha": expected_control_manifest,
+              "source_revision": expected_rev,
+              "projection_identity_sha256": identity,
+              "projection_authorized": authorized,
+              "projected_file_count": len(projected),
+              "projected_bytes": total,
+              "product_repair_blob": product_repair,
+              "derived_a_only_control_blob": run_sha,
+              "product_repair_projection_bound": True,
+              "causal_scope": "A through product API repair, authenticated readiness, and task-registration evidence only",
+              "capsule_bytes": len(raw),
+              "capsule_sha256": capsule_sha,
+              "private_repo_checkout": False,
+              "staged_public_git_objects_only": True,
+          }
+          (root / "reconstruction.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(receipt, sort_keys=True))
+          '@
+          $py | python -
+          if ($LASTEXITCODE -ne 0) { throw 'authorized A-only projection reconstruction failed' }
+          $receipt = Get-Content -LiteralPath (Join-Path $root 'reconstruction.json') -Raw | ConvertFrom-Json
+          "CAPSULE_SHA256=$($receipt.capsule_sha256)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CAPSULE_B64_FILE=$(Join-Path $root 'capsule.b64')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Parse exact reconstructed PowerShell surfaces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-authority-a\capsule'
+          foreach ($path in @((Join-Path $root 'projection\host\WinBot.psm1'),(Join-Path $root 'run.ps1'))) {
+            $tokens=$null; $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error ("{0}:{1}: {2}" -f $path,$_.Extent.StartLineNumber,$_.Message) }
+              throw "PowerShell parse preflight failed: $path"
+            }
+          }
+
+      - name: Install pinned result sealer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uri = 'https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-windows-amd64.zip'
+          $expected = 'f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7'
+          $zip = Join-Path $env:RUNNER_TEMP 'age-v1.3.2-windows-amd64.zip'
+          Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'age archive SHA-256 mismatch' }
+          $ageRoot = Join-Path $env:RUNNER_TEMP 'age-v1.3.2'
+          Expand-Archive -LiteralPath $zip -DestinationPath $ageRoot -Force
+          $age = Get-ChildItem -LiteralPath $ageRoot -Recurse -Filter age.exe | Select-Object -First 1
+          if (-not $age) { throw 'age.exe missing' }
+          $age.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Generate ephemeral diagnostic result key
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $identity = Join-Path $env:RUNNER_TEMP 'winbot-authority-age-identity.txt'
+          age-keygen -o $identity 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'age-keygen failed' }
+          $line = (Select-String -LiteralPath $identity -Pattern '^# public key: ' | Select-Object -First 1).Line
+          if (-not $line) { throw 'age public recipient missing' }
+          $recipient = $line.Split()[-1]
+          if ($recipient -notmatch '^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$') { throw 'invalid age recipient' }
+          "AGE_RECIPIENT=$recipient" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DIAG_IDENTITY=$identity" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Execute sealed A-only product-repair diagnostic v2 corrected projection
+        id: execute
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $env:SEALED_CAPSULE_TRANSPORT = 'staged_git_projection'
+          python scripts/sealed_public_execution.py `
+            --assignment-id "$env:ASSIGNMENT_ID" `
+            --capsule-b64-file "$env:CAPSULE_B64_FILE" `
+            --capsule-sha256 "$env:CAPSULE_SHA256" `
+            --recipient "$env:AGE_RECIPIENT" `
+            --timeout-seconds 7200 `
+            --entrypoint run.ps1 `
+            --out-dir .sealed
+          $rc = $LASTEXITCODE
+          "task_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+
+      - name: Derive bounded authority-repair diagnostic v2 receipt
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.execute.outputs.task_rc }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-authority-a'
+          $plain = Join-Path $root 'result.tar.gz'
+          $full = Join-Path $root 'full-rdte.json'
+          $bounded = Join-Path $root 'authority-repair-diagnostic-v2.json'
+          try {
+            if (-not (Test-Path -LiteralPath '.sealed\result.age')) { throw 'sealed result missing' }
+            age --decrypt --identity $env:DIAG_IDENTITY --output $plain '.sealed\result.age'
+            if ($LASTEXITCODE -ne 0) { throw 'result decryption failed' }
+            python -c "import pathlib,sys,tarfile; tf=tarfile.open(sys.argv[1],'r:gz'); ms=[m for m in tf.getmembers() if m.isfile() and m.name=='files/full-rdte.json']; assert len(ms)==1, 'expected one result'; pathlib.Path(sys.argv[2]).write_bytes(tf.extractfile(ms[0]).read())" $plain $full
+            if ($LASTEXITCODE -ne 0) { throw 'result extraction failed' }
+            $r = Get-Content -LiteralPath $full -Raw | ConvertFrom-Json
+            $out = [ordered]@{
+              schema_version = 1
+              profile = 'AuthorityRepairDiagnosticV2'
+              source_revision = [string]$r.source_revision
+              projection_identity_sha256 = [string]$r.projection_identity_sha256
+              classification = [string]$r.classification
+              failure_domain = [string]$r.failure_domain
+              error_type = [string]$r.error_type
+              elapsed_seconds = $r.elapsed_seconds
+              task_rc = if ([string]::IsNullOrWhiteSpace($env:TASK_RC)) { $null } else { [int]$env:TASK_RC }
+              build = [ordered]@{
+                network_placement_retryable = [bool]$r.build.network_placement_retryable
+                switch_name = [string]$r.build.switch_name
+                seed_test_vhd = [bool]$r.build.seed_test_vhd
+                seed_integrity = [bool]$r.build.seed_integrity
+                iso_reclaimed_before_materialization = [bool]$r.build.iso_reclaimed_before_materialization
+                network_provider = [string]$r.build.network_provider
+                deterministic_nat_created = [bool]$r.build.deterministic_nat_created
+                deterministic_nat_prefix = [string]$r.build.deterministic_nat_prefix
+                deterministic_nat_gateway = [string]$r.build.deterministic_nat_gateway
+              }
+              a = [ordered]@{
+                lineage = [string]$r.work_cells.a.lineage
+                powershell_direct_observed = [bool]$r.work_cells.a.powershell_direct_observed
+                network_correction_attempted = [bool]$r.work_cells.a.network_correction_attempted
+                network_correction_applied = [bool]$r.work_cells.a.network_correction_applied
+                provision_phase = [string]$r.work_cells.a.provision_phase
+                provision_status = [string]$r.work_cells.a.provision_status
+                provision_elapsed = $r.work_cells.a.provision_elapsed
+                provision_failure_reason = [string]$r.work_cells.a.provision_failure_reason
+                provision_failure_route_ready = $r.work_cells.a.provision_failure_route_ready
+                provision_failure_dns_ready = $r.work_cells.a.provision_failure_dns_ready
+                provision_failure_tls_host_ready = $r.work_cells.a.provision_failure_tls_host_ready
+                authority_rehydration_applicable = [bool]$r.work_cells.a.authority_rehydration_applicable
+                authority_rehydration_attempted = [bool]$r.work_cells.a.authority_rehydration_attempted
+                authority_rehydration_succeeded = [bool]$r.work_cells.a.authority_rehydration_succeeded
+                authority_repair_script_present = [bool]$r.work_cells.a.authority_repair_script_present
+                authority_repair_script_identity = [bool]$r.work_cells.a.authority_repair_script_identity
+                authority_repair_exit_code = $r.work_cells.a.authority_repair_exit_code
+                authority_repair_stage = [string]$r.work_cells.a.authority_repair_stage
+                authority_runtime_started = [bool]$r.work_cells.a.authority_runtime_started
+                authority_main_py_present = [bool]$r.work_cells.a.authority_main_py_present
+                authority_python_present_before = [bool]$r.work_cells.a.authority_python_present_before
+                authority_python_present_after = [bool]$r.work_cells.a.authority_python_present_after
+                authority_chocolatey_present = [bool]$r.work_cells.a.authority_chocolatey_present
+                authority_repair_log_signal = [string]$r.work_cells.a.authority_repair_log_signal
+                run_owned_token_created = [bool]$r.work_cells.a.run_owned_token_created
+                api_task_registered = [bool]$r.work_cells.a.api_task_registered
+                api_task_started = [bool]$r.work_cells.a.api_task_started
+                health_status = $r.work_cells.a.health_status
+              }
+              cleanup = [ordered]@{
+                vm_a_absent = [bool]$r.cleanup.vm_a_absent
+                vm_b_absent = [bool]$r.cleanup.vm_b_absent
+                work_absent = [bool]$r.cleanup.work_absent
+                deterministic_nat_absent = [bool]$r.cleanup.deterministic_nat_absent
+                oracle_satisfied = [bool]$r.cleanup.oracle_satisfied
+              }
+            }
+            $out | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $bounded -Encoding utf8
+          } finally {
+            Remove-Item -LiteralPath $plain,$full -Force -ErrorAction SilentlyContinue
+            if ($env:DIAG_IDENTITY) { Remove-Item -LiteralPath $env:DIAG_IDENTITY -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Upload bounded authority-repair diagnostic v2 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-owned-nat-only-authority-a-only-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .sealed/receipt.json
+            ${{ runner.temp }}/winbot-authority-a/reconstruction.json
+            ${{ runner.temp }}/winbot-authority-a/authority-repair-diagnostic-v2.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Preserve A-only verdict
+        if: always()
+        shell: pwsh
+        env:
+          TASK_RC: ${{ steps.execute.outputs.task_rc }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TASK_RC)) { exit 1 }
+          exit [int]$env:TASK_RC

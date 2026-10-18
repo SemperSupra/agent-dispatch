@@ -1,0 +1,62 @@
+name: WinBot Heavyweight Queue Wrapper Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-heavyweight-queue-wrapper-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AONLY_WORKFLOW: 'af87c32f3e87c33dd6edf0d64daa9c26880fe472'
+      SEED_WORKFLOW: 'd91e1663ebba50606485734cc968926e94ff3b28'
+      TERMINAL_WORKFLOW: '64cf3fe7272e3e1f16a4554ba8a0cc5e68cba166'
+    steps:
+      - name: Qualify shared heavyweight queue contract
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+              )
+              with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
+              raw=base64.b64decode(obj["content"])
+              if obj.get("sha")!=sha or hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"blob identity mismatch: {sha}")
+              return raw.decode("utf-8-sig")
+          specs=[
+              ("aonly",os.environ["AONLY_WORKFLOW"],"authority-repair-a:","a5002ecb5e6f4bdf7c4d82310cadcb582a7a0ad4"),
+              ("seed",os.environ["SEED_WORKFLOW"],"seed-finalization:","f1ba78698efc60331e82d16f0a7d97ecd958665b"),
+              ("terminal",os.environ["TERMINAL_WORKFLOW"],"terminal-fullrdte:","7ef1c3f5a5e674a84b908208dad2716a911bbf1c"),
+          ]
+          result={}
+          for label,sha,job,master in specs:
+              text=blob(sha)
+              required=[
+                  f"  {job}",
+                  "    concurrency:\n      group: agent-dispatch-heavyweight-rdte\n      queue: max\n      cancel-in-progress: false",
+                  f"MASTER_MANIFEST_SHA: '{master}'",
+                  "EXPECTED_SOURCE_REVISION: '8c1738806d44c082f43a5363531837d6a6216ab7'",
+                  "EXPECTED_PROJECTION_IDENTITY: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'",
+              ]
+              for marker in required:
+                  if marker not in text: raise SystemExit(f"{label}: queue-wrapper invariant missing: {marker}")
+              if text.count("group: agent-dispatch-heavyweight-rdte") != 1:
+                  raise SystemExit(f"{label}: expected exactly one heavyweight queue group")
+              result[label]={"workflow_blob":sha,"master_manifest":master,"shared_queue":True}
+          print(json.dumps({"classification":"SUPPORTED","queue":"agent-dispatch-heavyweight-rdte","workflows":result},sort_keys=True))
+          PY

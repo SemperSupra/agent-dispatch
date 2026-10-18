@@ -1,0 +1,96 @@
+name: WinBot Hosted-NAT A-Only Graph Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hosted-nat-a-only-graph-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MASTER_MANIFEST_SHA: '582ae90ecb0923821da7e870e25d410cbd49e78d'
+      EXPECTED_SOURCE: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      EXPECTED_PROJECTION: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+      EXPECTED_CONTROL: '0731aa765b3cc3f0de560223bf146e729bd721c7'
+      EXPECTED_POLICY: '498182e3e7d463916393bb9358f5c536be65f55c'
+      EXPECTED_STAGE: '99052b87800ee00b4177f8bc3626316b4ab999d6'
+    steps:
+      - name: Qualify exact hosted-NAT A-only graph
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+              )
+              with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
+              raw=base64.b64decode(obj["content"])
+              if obj.get("sha")!=sha or len(raw)!=int(obj["size"]) or hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"blob identity mismatch: {sha}")
+              return raw
+          m=json.loads(blob(os.environ["MASTER_MANIFEST_SHA"]))
+          if m["source_revision"]!=os.environ["EXPECTED_SOURCE"]: raise SystemExit("source mismatch")
+          if m["projection_identity_sha256"]!=os.environ["EXPECTED_PROJECTION"]: raise SystemExit("projection mismatch")
+          if m["projected_file_count"]!=82 or m["projected_bytes"]!=1050197: raise SystemExit("projection cardinality mismatch")
+          entries=[]
+          for b in m["source_batch_manifests"]:
+              batch=json.loads(blob(b))
+              if batch["source_revision"]!=m["source_revision"]: raise SystemExit("batch source mismatch")
+              entries.extend(batch["entries"])
+          if len(entries)!=82 or len({e["path"] for e in entries})!=82: raise SystemExit("entry mismatch")
+          projected=[]
+          for e in sorted(entries,key=lambda x:x["path"]):
+              raw=blob(e["git_blob_sha"])
+              projected.append({"path":e["path"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()})
+          identity=hashlib.sha256(json.dumps({"source_revision":m["source_revision"],"projected_files":projected},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+          if identity!=m["projection_identity_sha256"]: raise SystemExit("recomputed projection mismatch")
+          bypath={e["path"]:e for e in entries}
+          if bypath["guest/tools/stage-provision.ps1"]["git_blob_sha"]!=os.environ["EXPECTED_STAGE"]: raise SystemExit("stage identity mismatch")
+
+          cm=json.loads(blob(m["control_manifest_sha"]))
+          ctl={e["path"]:e["git_blob_sha"] for e in cm["entries"]}
+          if ctl["rdte/gha/full-rdte.ps1"]!=os.environ["EXPECTED_CONTROL"]: raise SystemExit("control mismatch")
+          if ctl["rdte/gha/projection-policy.json"]!=os.environ["EXPECTED_POLICY"]: raise SystemExit("policy mismatch")
+          policy=json.loads(blob(ctl["rdte/gha/projection-policy.json"]))
+          auth=policy["authorization"]
+          if policy.get("state")!="authorized" or auth.get("approved_revision")!=m["source_revision"] or auth.get("approved_manifest_sha256")!=m["projection_identity_sha256"]:
+              raise SystemExit("exact authorization mismatch")
+
+          control=blob(os.environ["EXPECTED_CONTROL"]).decode("utf-8-sig")
+          for marker in (
+              "$nativeAuthorityReady",
+              "$repairAuthorityReady",
+              "ProvisionFailureReason",
+              "ProvisionFailureRouteReady",
+              "ProvisionFailureDnsReady",
+              "ProvisionFailureTlsHostReady",
+              "authority_readiness_path",
+          ):
+              if marker not in control: raise SystemExit(f"control discriminator missing: {marker}")
+          stage=blob(os.environ["EXPECTED_STAGE"]).decode("utf-8-sig")
+          for marker in ("AddMinutes(10)","outbound-route-unavailable","dns-resolution-unavailable","tls-host-connect-unavailable","route-dns-tls-ready"):
+              if marker not in stage: raise SystemExit(f"stage timing/discriminator missing: {marker}")
+
+          print(json.dumps({
+              "classification":"SUPPORTED",
+              "source_revision":m["source_revision"],
+              "projection_identity_sha256":identity,
+              "control_manifest":m["control_manifest_sha"],
+              "master_manifest":os.environ["MASTER_MANIFEST_SHA"],
+              "readiness_control":os.environ["EXPECTED_CONTROL"],
+              "stage_provision":os.environ["EXPECTED_STAGE"],
+          },sort_keys=True))
+          PY

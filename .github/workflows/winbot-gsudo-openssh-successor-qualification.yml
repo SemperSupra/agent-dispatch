@@ -1,0 +1,114 @@
+name: WinBot gsudo + OpenSSH Successor Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-gsudo-openssh-successor-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE: '90d5d8a7244b781c28d438d9ba01155735c765b7'
+      PROJECTION: 'd4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45'
+      POLICY: '225dcb07e9d6c322098f629592f86244c8d372d5'
+      STAGE: '0efa30b3c585a7a5fbee2271040cb8046d7ec262'
+      CONFIG: 'aaebafd43b350886171f16828fd3b74b420c95fc'
+      SEED_MANIFEST: '688e6f3a20bd915bf639a4d6c6844b3e56708bea'
+      SEED_MASTER: '6a050cc7a590efc788520c2136ec18ae44b9d3dd'
+      SEED_WRAPPER: '734af0ea6197bd65cf28f308b608a74ad56fe942'
+      TERMINAL_MANIFEST: 'ef63dce5e907997b9e4dcaa43d367479775ff075'
+      TERMINAL_MASTER: '1d6a0a2da3564431f598cf61496b7d4d0e960ce7'
+      TERMINAL_WRAPPER: 'c561d70fdbeffd925456ace51bee6ce905dc0b32'
+    steps:
+      - name: Qualify exact downstream graphs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+              )
+              with urllib.request.urlopen(req,timeout=60) as r: o=json.load(r)
+              raw=base64.b64decode(o["content"])
+              if o.get("sha")!=sha or hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"blob identity mismatch: {sha}")
+              return raw
+
+          source=os.environ["SOURCE"]; projection=os.environ["PROJECTION"]
+          policy=json.loads(blob(os.environ["POLICY"]))
+          auth=policy["authorization"]
+          if policy.get("state")!="authorized" or auth.get("approved_revision")!=source or auth.get("approved_manifest_sha256")!=projection:
+              raise SystemExit("policy authorization mismatch")
+
+          phases=[
+              ("seed",os.environ["SEED_MANIFEST"],os.environ["SEED_MASTER"],os.environ["SEED_WRAPPER"],"624a1cdb1aa0f066c7238f6166eb2b3884b15cf8","seed_control"),
+              ("terminal",os.environ["TERMINAL_MANIFEST"],os.environ["TERMINAL_MASTER"],os.environ["TERMINAL_WRAPPER"],"a95a4e923d515c56d972790a8544cefa2e063f3d","terminal_control"),
+          ]
+          result={}
+          for name,manifest_sha,master_sha,wrapper_sha,control_sha,control_key in phases:
+              cm=json.loads(blob(manifest_sha))
+              master=json.loads(blob(master_sha))
+              wrapper=blob(wrapper_sha).decode("utf-8-sig")
+              if cm["source_revision"]!=source or cm["projection_identity_sha256"]!=projection:
+                  raise SystemExit(f"{name}: manifest source/projection mismatch")
+              if master["source_revision"]!=source or master["projection_identity_sha256"]!=projection:
+                  raise SystemExit(f"{name}: master source/projection mismatch")
+              if master["control_manifest_sha"]!=manifest_sha:
+                  raise SystemExit(f"{name}: manifest linkage mismatch")
+              if master["projected_file_count"]!=82 or master["projected_bytes"]!=1053198:
+                  raise SystemExit(f"{name}: projection cardinality mismatch")
+              if master["construction"]["stage_provision_blob"]!=os.environ["STAGE"]:
+                  raise SystemExit(f"{name}: stage blob mismatch")
+              if master["construction"]["configuration_winget_blob"]!=os.environ["CONFIG"]:
+                  raise SystemExit(f"{name}: config blob mismatch")
+              if master["construction"]["provisioning_qualification_run"]!=37686681209:
+                  raise SystemExit(f"{name}: provisioning evidence mismatch")
+              if master["construction"]["projection_review_run"]!=37687397525:
+                  raise SystemExit(f"{name}: projection review evidence mismatch")
+              if master["construction"][control_key]!=control_sha:
+                  raise SystemExit(f"{name}: control linkage mismatch")
+              controls={e["path"]:e["git_blob_sha"] for e in cm["entries"]}
+              if controls["rdte/gha/projection-policy.json"]!=os.environ["POLICY"]:
+                  raise SystemExit(f"{name}: policy blob mismatch")
+              if controls["rdte/gha/full-rdte.ps1"]!=control_sha:
+                  raise SystemExit(f"{name}: control blob mismatch")
+
+              entries=[]
+              for bsha in master["source_batch_manifests"]:
+                  batch=json.loads(blob(bsha))
+                  if batch["source_revision"]!=source:
+                      raise SystemExit(f"{name}: batch revision mismatch")
+                  entries.extend(batch["entries"])
+              by_path={e["path"]:e for e in entries}
+              if by_path["guest/tools/configuration.winget"]["git_blob_sha"]!=os.environ["CONFIG"]:
+                  raise SystemExit(f"{name}: projected config mismatch")
+              if by_path["guest/tools/stage-provision.ps1"]["git_blob_sha"]!=os.environ["STAGE"]:
+                  raise SystemExit(f"{name}: projected stage mismatch")
+
+              markers=[
+                  "group: agent-dispatch-heavyweight-rdte",
+                  "queue: max",
+                  f"EXPECTED_SOURCE_REVISION: '{source}'",
+                  f"EXPECTED_PROJECTION_IDENTITY: '{projection}'",
+              ]
+              for m in markers:
+                  if m not in wrapper: raise SystemExit(f"{name}: wrapper invariant missing: {m}")
+              if master_sha not in wrapper or manifest_sha not in wrapper:
+                  raise SystemExit(f"{name}: wrapper graph identity mismatch")
+              result[name]={"manifest":manifest_sha,"master":master_sha,"wrapper":wrapper_sha}
+
+          print(json.dumps({"classification":"SUPPORTED","source_revision":source,"projection_identity_sha256":projection,"phases":result},sort_keys=True))
+          PY

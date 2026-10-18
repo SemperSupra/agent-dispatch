@@ -1,0 +1,202 @@
+name: WinBot Master Acceptance Tail Probe
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-master-acceptance-tail-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      SOURCE_REVISION: '4220566a40afa90436b9ec82f2de9d608a40369b'
+      PROJECTION_IDENTITY: 'd264f3357c083d9cf68ef48e4d3751eb91e1c6590488f79892cd24b4a04ec0ad'
+      MODULE_BLOB_SHA: '0568262419d68547d406ce31a3b7388d2b58a31e'
+    steps:
+      - name: Exercise exact WinBot master acceptance tail
+        id: probe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'winbot-master-acceptance-tail-probe'
+          $project = Join-Path $root 'WinBot'
+          $hostDir = Join-Path $project 'host'
+          $masterDir = Join-Path $root 'master'
+          $vhd = Join-Path $masterDir 'acceptance-tail.vhdx'
+          $receiptPath = Join-Path $root 'receipt.json'
+          New-Item -ItemType Directory -Force -Path $root,$project,$hostDir,$masterDir | Out-Null
+
+          $receipt = [ordered]@{
+            schema_version = 1
+            authority = 'mark-e-deyoung/WinBot#70'
+            experiment_authority = 'SemperSupra/agent-dispatch-private#406'
+            source_revision = $env:SOURCE_REVISION
+            projection_identity_sha256 = $env:PROJECTION_IDENTITY
+            module_blob_sha = $env:MODULE_BLOB_SHA
+            runner = [ordered]@{
+              image_os = $env:ImageOS
+              image_version = $env:ImageVersion
+              runner_os = $env:RUNNER_OS
+              runner_arch = $env:RUNNER_ARCH
+            }
+            phases = [ordered]@{}
+            cleanup = [ordered]@{}
+            classification = 'HARNESS_FAILURE'
+            failure_domain = $null
+          }
+
+          function Fail-Phase([hashtable]$phase,[System.Management.Automation.ErrorRecord]$err,[string]$domain) {
+            $phase.state = 'FAIL'
+            $phase.command_name = [string]$err.InvocationInfo.MyCommand.Name
+            $phase.script_line = [int]$err.InvocationInfo.ScriptLineNumber
+            $phase.fully_qualified_error_id = [string]$err.FullyQualifiedErrorId
+            $phase.category = [string]$err.CategoryInfo.Category
+            $phase.reason = [string]$err.CategoryInfo.Reason
+            $phase.activity = [string]$err.CategoryInfo.Activity
+            $phase.error_type = $err.Exception.GetType().FullName
+            $phase.error_message = $err.Exception.Message
+            $receipt.classification = 'BOUNDARY_OBSERVED'
+            $receipt.failure_domain = $domain
+          }
+
+          try {
+            $headers = @{
+              Authorization = "Bearer $env:GH_TOKEN"
+              Accept = 'application/vnd.github+json'
+              'X-GitHub-Api-Version' = '2022-11-28'
+            }
+
+            $p0 = [ordered]@{ state='RUNNING'; current_step='fetch-exact-module' }
+            $receipt.phases['exact_module'] = $p0
+            try {
+              $blob = Invoke-RestMethod -Headers $headers -Uri ("https://api.github.com/repos/SemperSupra/agent-dispatch/git/blobs/" + $env:MODULE_BLOB_SHA)
+              if ([string]$blob.sha -ne $env:MODULE_BLOB_SHA -or [string]$blob.encoding -ne 'base64') { throw 'module blob identity/encoding mismatch' }
+              $raw = [Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+              if ([int64]$raw.Length -ne [int64]$blob.size) { throw 'module blob size mismatch' }
+              $gitHeader = [Text.Encoding]::ASCII.GetBytes(("blob " + $raw.Length + [char]0))
+              $sha1 = [Security.Cryptography.SHA1]::Create()
+              try {
+                $joined = New-Object byte[] ($gitHeader.Length + $raw.Length)
+                [Array]::Copy($gitHeader,0,$joined,0,$gitHeader.Length)
+                [Array]::Copy($raw,0,$joined,$gitHeader.Length,$raw.Length)
+                $observedBlob = ([BitConverter]::ToString($sha1.ComputeHash($joined)) -replace '-','').ToLowerInvariant()
+              } finally { $sha1.Dispose() }
+              if ($observedBlob -ne $env:MODULE_BLOB_SHA) { throw "module Git identity mismatch: $observedBlob" }
+              [IO.File]::WriteAllBytes((Join-Path $hostDir 'WinBot.psm1'),$raw)
+              $p0.bytes = [int64]$raw.Length
+              $p0.state = 'PASS'
+            } catch { Fail-Phase $p0 $_ 'source-identity'; throw }
+
+            $config = [ordered]@{
+              api = [ordered]@{ port=8000; healthCheckTimeoutSeconds=120; healthCheckIntervalSeconds=5; token='' }
+              clones = [ordered]@{ defaultMemoryBytes=2147483648; basePath=(Join-Path $root 'clones'); defaultProcessors=2; defaultDiskSizeGB=20 }
+              master = [ordered]@{ generation=2; vhdxHash=''; vhdxPath=$vhd; memoryBytes=2147483648; vmPath=$masterDir; processors=2; vmName='WinBot-Master'; switchName='nat' }
+              sessions = [ordered]@{ basePath=(Join-Path $root 'sessions') }
+              nodes = [ordered]@{ basePath=(Join-Path $root 'nodes') }
+              credentials = [ordered]@{ vmUsername='winbot' }
+              media = [ordered]@{ method='CDN'; version='26H2'; edition='Enterprise'; architecture='x64'; language='English' }
+            }
+            $configPath = Join-Path $project 'config.json'
+            $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding utf8
+
+            $p1 = [ordered]@{ state='RUNNING'; current_step='import-module' }
+            $receipt.phases['module_import'] = $p1
+            try {
+              Import-Module (Join-Path $hostDir 'WinBot.psm1') -Force -DisableNameChecking -ErrorAction Stop
+              foreach($name in @('Set-WinBotMasterHash','Test-WinBotMasterIntegrity')) {
+                if(-not (Get-Command $name -ErrorAction SilentlyContinue)){ throw "required WinBot command missing: $name" }
+              }
+              $p1.state='PASS'
+            } catch { Fail-Phase $p1 $_ 'module-import'; throw }
+
+            $p2 = [ordered]@{ state='RUNNING'; current_step='new-fixed-vhd' }
+            $receipt.phases['synthetic_master'] = $p2
+            try {
+              New-VHD -Path $vhd -SizeBytes 2GB -Fixed -ErrorAction Stop | Out-Null
+              $p2.current_step='test-vhd-before-accept'
+              $p2.test_vhd_before=[bool](Test-VHD -Path $vhd -ErrorAction Stop)
+              $p2.physical_size_bytes=[int64](Get-Item -LiteralPath $vhd -ErrorAction Stop).Length
+              if(-not $p2.test_vhd_before -or $p2.physical_size_bytes -lt 1GB){ throw 'synthetic master precondition failed' }
+              $p2.current_step='set-readonly'
+              Set-ItemProperty -Path $vhd -Name IsReadOnly -Value $true -ErrorAction Stop
+              $p2.readonly=[bool](Get-Item -LiteralPath $vhd -ErrorAction Stop).IsReadOnly
+              if(-not $p2.readonly){ throw 'synthetic master did not become read-only' }
+              $p2.state='PASS'
+            } catch { Fail-Phase $p2 $_ 'synthetic-master'; throw }
+
+            $p3 = [ordered]@{ state='RUNNING'; current_step='set-winbot-master-hash' }
+            $receipt.phases['acceptance_tail'] = $p3
+            try {
+              Set-WinBotMasterHash -VHDXPath $vhd
+              $p3.current_step='read-config-after-hash'
+              $after = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+              $actualHash=(Get-FileHash -LiteralPath $vhd -Algorithm SHA256 -ErrorAction Stop).Hash
+              $p3.stored_hash=[string]$after.master.vhdxHash
+              $p3.hash_matches=([string]$after.master.vhdxHash -eq $actualHash)
+              $p3.path_matches=([IO.Path]::GetFullPath([string]$after.master.vhdxPath) -eq [IO.Path]::GetFullPath($vhd))
+              if(-not $p3.hash_matches -or -not $p3.path_matches){ throw 'Set-WinBotMasterHash did not persist exact master identity' }
+              $p3.current_step='test-winbot-master-integrity'
+              $p3.integrity=[bool](Test-WinBotMasterIntegrity -VHDXPath $vhd)
+              if(-not $p3.integrity){ throw 'Test-WinBotMasterIntegrity rejected accepted synthetic master' }
+              $p3.state='PASS'
+              $receipt.classification='SUPPORTED'
+            } catch { Fail-Phase $p3 $_ 'master-acceptance-tail'; throw }
+          } catch {
+            if(-not $receipt.error_type){ $receipt.error_type=$_.Exception.GetType().FullName }
+            if(-not $receipt.error_message){ $receipt.error_message=$_.Exception.Message }
+          } finally {
+            try {
+              if(Test-Path -LiteralPath $vhd){
+                Set-ItemProperty -Path $vhd -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
+                Dismount-VHD -Path $vhd -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $vhd -Force -ErrorAction Stop
+              }
+              if(Test-Path -LiteralPath $project){ Remove-Item -LiteralPath $project -Recurse -Force -ErrorAction Stop }
+              $receipt.cleanup.vhd_absent = -not (Test-Path -LiteralPath $vhd)
+              $receipt.cleanup.project_absent = -not (Test-Path -LiteralPath $project)
+              $receipt.cleanup.oracle_satisfied=[bool]($receipt.cleanup.vhd_absent -and $receipt.cleanup.project_absent)
+              if(-not $receipt.cleanup.oracle_satisfied){ $receipt.classification='ORACLE_FAILURE'; $receipt.failure_domain='cleanup' }
+            } catch {
+              $receipt.cleanup.oracle_satisfied=$false
+              $receipt.cleanup.error_type=$_.Exception.GetType().FullName
+              $receipt.cleanup.error_message=$_.Exception.Message
+              $receipt.classification='ORACLE_FAILURE'
+              $receipt.failure_domain='cleanup'
+            }
+            $receipt | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+          }
+          "classification=$($receipt.classification)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload probe receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-master-acceptance-tail-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-master-acceptance-tail-probe/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce bounded probe
+        if: always()
+        shell: pwsh
+        run: |
+          $p=Join-Path $env:RUNNER_TEMP 'winbot-master-acceptance-tail-probe\receipt.json'
+          if(-not (Test-Path -LiteralPath $p)){ throw 'probe receipt missing' }
+          $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          Write-Host "classification=$($r.classification)"
+          Write-Host "failure_domain=$($r.failure_domain)"
+          foreach($prop in $r.phases.PSObject.Properties){
+            Write-Host "$($prop.Name)=$($prop.Value.state) step=$($prop.Value.current_step) type=$($prop.Value.error_type)"
+          }
+          Write-Host "cleanup=$($r.cleanup.oracle_satisfied)"
+          if($r.classification -ne 'SUPPORTED' -or -not $r.cleanup.oracle_satisfied){
+            throw "master acceptance tail probe failed: $($r.classification) / $($r.failure_domain)"
+          }

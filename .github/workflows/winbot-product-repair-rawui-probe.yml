@@ -1,0 +1,62 @@
+name: WinBot Product Repair RawUI Probe
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-product-repair-rawui-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-2025
+    timeout-minutes: 5
+    env:
+      PRODUCT_REPAIR_BLOB: 'c34b8e891220ba4ceab9f4e08c415f26d1490741'
+    steps:
+      - name: Verify exact product repair logging surface and probe headless RawUI
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$env:PRODUCT_REPAIR_BLOB"
+          $blob=Invoke-RestMethod -Headers $headers -Uri $uri
+          if([string]$blob.sha -ne $env:PRODUCT_REPAIR_BLOB -or [string]$blob.encoding -ne 'base64'){throw 'repair blob identity mismatch'}
+          $raw=[Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+          $text=[Text.Encoding]::UTF8.GetString($raw)
+          foreach($needle in @(
+            '$ErrorActionPreference = "Stop"',
+            '$host.ui.RawUI.ForegroundColor = switch($level)',
+            'Write-Host $line; $host.ui.RawUI.ForegroundColor = "Gray"'
+          )){
+            if(-not $text.Contains($needle)){throw "expected repair logging surface missing: $needle"}
+          }
+
+          function Invoke-Headless([string]$command) {
+            $psi=New-Object Diagnostics.ProcessStartInfo
+            $psi.FileName='powershell.exe'
+            $psi.Arguments='-NoProfile -NonInteractive -Command "' + ($command -replace '"','\"') + '"'
+            $psi.UseShellExecute=$false
+            $psi.CreateNoWindow=$true
+            $psi.RedirectStandardOutput=$true
+            $psi.RedirectStandardError=$true
+            $p=[Diagnostics.Process]::Start($psi)
+            if(-not $p.WaitForExit(15000)){try{$p.Kill()}catch{};throw 'headless probe timeout'}
+            [PSCustomObject]@{ExitCode=$p.ExitCode;Stdout=$p.StandardOutput.ReadToEnd();Stderr=$p.StandardError.ReadToEnd()}
+          }
+
+          $rawui=Invoke-Headless '$ErrorActionPreference=''Stop''; $host.ui.RawUI.ForegroundColor=''Green''; Write-Output ''rawui-ok''; $host.ui.RawUI.ForegroundColor=''Gray'''
+          $guarded=Invoke-Headless '$ErrorActionPreference=''Stop''; try { $host.ui.RawUI.ForegroundColor=''Green'' } catch {}; Write-Output ''guarded-ok''; try { $host.ui.RawUI.ForegroundColor=''Gray'' } catch {}'
+
+          Write-Host "rawui_exit=$($rawui.ExitCode)"
+          Write-Host "rawui_stdout_ok=$([bool]($rawui.Stdout -match 'rawui-ok'))"
+          Write-Host "rawui_stderr_present=$([bool]$rawui.Stderr)"
+          Write-Host "guarded_exit=$($guarded.ExitCode)"
+          Write-Host "guarded_stdout_ok=$([bool]($guarded.Stdout -match 'guarded-ok'))"
+
+          if($guarded.ExitCode -ne 0 -or $guarded.Stdout -notmatch 'guarded-ok'){throw 'guarded RawUI control failed'}

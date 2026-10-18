@@ -88,3 +88,79 @@ The artifact is transport, not durable project authority. Durable conclusions, a
 ## Non-goals
 
 This increment does not add a scheduler, task database, queue, generic provider registry, automatic public/private classifier, result archive, or new portfolio authority. It also does not make `agent-dispatch` mandatory for interactive/local execution paths.
+
+## Windows executor
+
+A Windows adapter is available for bounded native-Windows work that has already
+been approved as a public-safe projection.
+
+It preserves the same authority and result model as the Linux adapter:
+
+- standard public `windows-2025` runner;
+- top-level `run.ps1` entrypoint;
+- same assignment ID, capsule digest, timeout, and ephemeral age recipient;
+- same bounded stdout/stderr and result-file budget;
+- same encrypted `result.age` plus minimal `receipt.json`;
+- no private-repository checkout and no private credentials.
+
+The Windows workflow accepts the base64 capsule in two segments of at most
+30,000 characters each. This avoids Windows command-line/environment transport
+limits while retaining the existing 60,000-character capsule authority bound.
+The worker reassembles the segments into a temporary file and still verifies
+the decoded capsule SHA-256 before extraction.
+
+The result sealer is the official age v1.3.2 Windows amd64 release archive,
+downloaded from `FiloSottile/age` and accepted only when its SHA-256 is
+`f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7`.
+
+The Windows contract workflow exercises the full
+PowerShell execute -> capture -> encrypt -> decrypt -> verify path on
+`windows-2025`. A successful contract proves the adapter mechanics only; it
+does not prove any projected workload such as WinBot.
+
+
+
+### Content-addressed Windows capsule transport
+
+The Windows executor also supports a reference transport for capsules that are
+too large for GitHub's manual-dispatch input envelope.
+
+This mode does **not** widen source authority. The trusted side must first
+approve the capsule as public-safe exactly as it would for inline transport.
+
+The transport contract is:
+
+- publish the exact raw `.tar.gz` capsule bytes as one unreferenced Git blob
+  in the public `SemperSupra/agent-dispatch` repository;
+- pass only the returned 40-hex Git blob SHA plus the independently computed
+  capsule SHA-256 through `workflow_dispatch`;
+- the runner reads only that same-repository object through the GitHub API;
+- the blob is capped at 8 MiB before execution;
+- the existing sealed worker independently verifies the capsule SHA-256 before
+  extraction;
+- execution metadata records both `capsule_transport=git_blob` and the exact
+  `capsule_blob_sha`;
+- result handling, encryption, evidence bounds, and verdict semantics are
+  unchanged.
+
+An unreferenced Git blob is a transport object, not durable authority. Its
+continued retention is not required for later interpretation because the
+durable evidence chain retains the source/projection identity, capsule SHA-256,
+blob SHA, worker revision, and result receipt.
+
+This avoids creating a public branch, release, storage service, queue, or new
+receipt family solely to move a public-safe capsule.
+
+Qualification evidence:
+
+- Windows Git-blob round trip: Actions run `36746586367`;
+- contract capsule Git object:
+  `96004d441557b1edd871861cac233ff29a58c915`;
+- capsule SHA-256:
+  `91b18693f00b51e847554fa0715ce45393d1c352f2f6b5b71ebe535d9bb85ba1`;
+- the runner retrieved the exact Git object, executed `run.ps1`, sealed and
+  decrypted the result, and verified the transport/blob/capsule identities;
+- the ordinary sealed execution contract remained green after the worker bound
+  was split into the 60,000-character inline envelope and an 8 MiB decoded
+  file-backed capsule bound.
+

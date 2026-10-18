@@ -1,0 +1,136 @@
+name: WinBot Fail-Closed Successor Graph Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-fail-closed-successor-graph-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SEED_MASTER: 'db08007e8ee8376050b5693b816d6b3a2d9af251'
+      TERMINAL_MASTER: 'a0c01cbd2183cb428c14cf25b64d583fa41148be'
+      EXPECTED_SOURCE: 'd623e0b0a6503457754d48adbfb737135500ebbe'
+      EXPECTED_PROJECTION: '7327a8de5927da3dbe52db0756012a2c6b24b2236dc7f471425880d139bfc3e7'
+      EXPECTED_POLICY: '2060e4ee1149483e41fb3a17d007d597c993ac5a'
+      SEED_CONTROL: '334ace52bba1053e54b385752d01e6d4d0384d03'
+      TERMINAL_CONTROL: '677d89dd15a3ec9eda12325fc0c097032832e83c'
+    steps:
+      - name: Qualify corrected successor graphs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+
+          repo=os.environ["GITHUB_REPOSITORY"]
+          token=os.environ["GH_TOKEN"]
+
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={
+                      "Authorization":f"Bearer {token}",
+                      "Accept":"application/vnd.github+json",
+                      "X-GitHub-Api-Version":"2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req,timeout=60) as r:
+                  obj=json.load(r)
+              if obj.get("sha")!=sha or obj.get("encoding")!="base64":
+                  raise SystemExit(f"blob identity/encoding mismatch: {sha}")
+              raw=base64.b64decode(obj["content"])
+              if len(raw)!=int(obj["size"]):
+                  raise SystemExit(f"blob size mismatch: {sha}")
+              if hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"Git object digest mismatch: {sha}")
+              return raw
+
+          def qualify(master_sha, expected_profile, expected_control):
+              master=json.loads(blob(master_sha))
+              if master["source_revision"]!=os.environ["EXPECTED_SOURCE"]:
+                  raise SystemExit(f"{expected_profile}: source mismatch")
+              if master["projection_identity_sha256"]!=os.environ["EXPECTED_PROJECTION"]:
+                  raise SystemExit(f"{expected_profile}: projection mismatch")
+              if master["projected_file_count"]!=82 or master["projected_bytes"]!=1049035:
+                  raise SystemExit(f"{expected_profile}: projection cardinality mismatch")
+
+              entries=[]
+              for batch_sha in master["source_batch_manifests"]:
+                  batch=json.loads(blob(batch_sha))
+                  if batch["source_revision"]!=master["source_revision"]:
+                      raise SystemExit(f"{expected_profile}: batch source mismatch")
+                  entries.extend(batch["entries"])
+              if len(entries)!=82 or len({e["path"] for e in entries})!=82:
+                  raise SystemExit(f"{expected_profile}: entry mismatch")
+
+              projected=[]
+              for e in sorted(entries,key=lambda x:x["path"]):
+                  raw=blob(e["git_blob_sha"])
+                  if len(raw)!=int(e["size"]):
+                      raise SystemExit(f"{expected_profile}: source size mismatch {e['path']}")
+                  projected.append({"path":e["path"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()})
+              identity=hashlib.sha256(
+                  json.dumps({"source_revision":master["source_revision"],"projected_files":projected},sort_keys=True,separators=(",",":")).encode()
+              ).hexdigest()
+              if identity!=master["projection_identity_sha256"]:
+                  raise SystemExit(f"{expected_profile}: recomputed projection mismatch")
+
+              cm=json.loads(blob(master["control_manifest_sha"]))
+              if cm["profile"]!=expected_profile:
+                  raise SystemExit(f"{expected_profile}: profile mismatch")
+              ctl={e["path"]:e["git_blob_sha"] for e in cm["entries"]}
+              if ctl["rdte/gha/full-rdte.ps1"]!=expected_control:
+                  raise SystemExit(f"{expected_profile}: control mismatch")
+              if ctl["rdte/gha/projection-policy.json"]!=os.environ["EXPECTED_POLICY"]:
+                  raise SystemExit(f"{expected_profile}: policy mismatch")
+
+              policy=json.loads(blob(ctl["rdte/gha/projection-policy.json"]))
+              auth=policy.get("authorization",{})
+              if not (
+                  policy.get("state")=="authorized"
+                  and auth.get("approved_revision")==master["source_revision"]
+                  and auth.get("approved_manifest_sha256")==master["projection_identity_sha256"]
+              ):
+                  raise SystemExit(f"{expected_profile}: exact authorization mismatch")
+
+              text=blob(expected_control).decode("utf-8-sig")
+              if expected_profile.startswith("Seed"):
+                  forbidden=["New-WinBotWorkCell -CustomName $vmNameA","New-WinBotWorkCell -CustomName $vmNameB","pytest","canary_survived_rematerialization"]
+                  required=["function Invoke-SeedFinalization","fix-api-service.ps1","seed_changed_by_finalization","seed_read_only"]
+              else:
+                  forbidden=[]
+                  required=["function Invoke-SeedFinalization","fix-api-service.ps1","canary_survived_rematerialization","pytest","work_cells.a","work_cells.b"]
+              for r in required:
+                  if r not in text:
+                      raise SystemExit(f"{expected_profile}: required marker missing: {r}")
+              for f in forbidden:
+                  if f in text:
+                      raise SystemExit(f"{expected_profile}: forbidden marker present: {f}")
+
+              return {
+                  "profile":expected_profile,
+                  "master_manifest":master_sha,
+                  "control_manifest":master["control_manifest_sha"],
+                  "control":expected_control,
+                  "projection_identity_sha256":identity,
+                  "projected_file_count":len(projected),
+                  "projected_bytes":sum(x["bytes"] for x in projected),
+              }
+
+          result={
+              "classification":"SUPPORTED",
+              "seed":qualify(os.environ["SEED_MASTER"],"SeedFinalizationProductRepair",os.environ["SEED_CONTROL"]),
+              "terminal":qualify(os.environ["TERMINAL_MASTER"],"FullRDTEFinalizedSeedProductRepair",os.environ["TERMINAL_CONTROL"]),
+          }
+          print(json.dumps(result,sort_keys=True))
+          PY

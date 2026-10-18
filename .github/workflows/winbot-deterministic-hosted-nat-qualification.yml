@@ -1,0 +1,110 @@
+name: WinBot Deterministic Hosted NAT Primitive Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-deterministic-hosted-nat-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Measure NetNat name-length boundary
+        id: probe
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-netnat-name-boundary'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $out=Join-Path $root 'netnat-name-boundary.json'
+          $switch='WbNatLenProbe'
+          $prefix='172.29.250.0/24'
+          $gateway='172.29.250.1'
+          $createdSwitch=$false;$createdIp=$false
+          $results=[Collections.Generic.List[object]]::new()
+          $schemaMax=$null
+          $rc=0
+          try {
+            try {
+              $c=Get-CimClass -Namespace root/StandardCimv2 -ClassName MSFT_NetNat -ErrorAction Stop
+              $p=$c.CimClassProperties['Name']
+              $q=$p.Qualifiers['MaxLen']
+              if($q){$schemaMax=$q.Value}
+            } catch {}
+
+            Get-NetNat -Name $switch -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+            Get-VMSwitch -Name $switch -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue
+            New-VMSwitch -Name $switch -SwitchType Internal -ErrorAction Stop | Out-Null
+            $createdSwitch=$true
+            $alias='vEthernet ('+$switch+')'
+            $adapter=Get-NetAdapter -Name $alias -ErrorAction Stop
+            New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $gateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
+            $createdIp=$true
+
+            foreach($len in @(16,24,31,32,33,40,47,48,49,50,55,60,61,63,64)){
+              $name=('N' * $len)
+              Get-NetNat -Name $name -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+              $r=[ordered]@{length=$len;success=$false;error_type=$null;fqid=$null}
+              try {
+                New-NetNat -Name $name -InternalIPInterfaceAddressPrefix $prefix -ErrorAction Stop | Out-Null
+                $r.success=$true
+              } catch {
+                $r.error_type=[string]$_.Exception.GetType().FullName
+                $r.fqid=[string]$_.FullyQualifiedErrorId
+              } finally {
+                Get-NetNat -Name $name -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+              }
+              $results.Add($r)
+            }
+          } catch {
+            $rc=1
+          } finally {
+            if($createdIp){
+              Get-NetIPAddress -InterfaceAlias ('vEthernet ('+$switch+')') -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Where-Object IPAddress -eq $gateway | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+            }
+            if($createdSwitch){Get-VMSwitch -Name $switch -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue}
+            $cleanup=(-not [bool](Get-VMSwitch -Name $switch -ErrorAction SilentlyContinue)) -and (-not [bool](Get-NetIPAddress -InterfaceAlias ('vEthernet ('+$switch+')') -AddressFamily IPv4 -IPAddress $gateway -ErrorAction SilentlyContinue))
+            $successful=@($results | Where-Object success | ForEach-Object length)
+            $failed=@($results | Where-Object { -not $_.success } | ForEach-Object length)
+            $record=[ordered]@{
+              schema_version=1
+              runner_image_os=[string]$env:ImageOS
+              runner_image_version=[string]$env:ImageVersion
+              cim_name_maxlen=$schemaMax
+              results=@($results)
+              max_successful_length=if($successful.Count){($successful|Measure-Object -Maximum).Maximum}else{$null}
+              min_failed_length=if($failed.Count){($failed|Measure-Object -Minimum).Minimum}else{$null}
+              cleanup_oracle=$cleanup
+            }
+            $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding utf8
+            if(-not $cleanup){$rc=1}
+            "probe_rc=$rc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+          exit 0
+
+      - name: Upload bounded name-boundary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-netnat-name-boundary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-netnat-name-boundary/netnat-name-boundary.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Preserve probe execution
+        if: always()
+        shell: pwsh
+        env:
+          PROBE_RC: ${{ steps.probe.outputs.probe_rc }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PROBE_RC)){exit 1}
+          exit [int]$env:PROBE_RC

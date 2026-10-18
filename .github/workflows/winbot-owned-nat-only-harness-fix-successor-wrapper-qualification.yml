@@ -1,0 +1,89 @@
+name: WinBot Owned-NAT-Only Harness-Fix Prepared Successor Wrapper Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-owned-nat-only-harness-fix-successor-wrapper-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SEED_WORKFLOW: '8a19f286fa6e86a2ed32902eefafd882e79f63ec'
+      TERMINAL_WORKFLOW: 'daac406e084a9c3d11040e23ad362d48cac9b979'
+    steps:
+      - name: Qualify prepared owned-NAT-only successor wrappers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+              )
+              with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
+              raw=base64.b64decode(obj["content"])
+              if obj.get("sha")!=sha or hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"blob identity mismatch: {sha}")
+              return raw.decode("utf-8-sig")
+
+          seed=blob(os.environ["SEED_WORKFLOW"])
+          terminal=blob(os.environ["TERMINAL_WORKFLOW"])
+
+          seed_req=[
+              "name: WinBot Seed Finalization Owned-NAT-Only",
+              "winbot-seed-finalization-owned-nat-only.yml",
+              "MASTER_MANIFEST_SHA: 'e50a2e9223e7277230903b23b9d6884275f81054'",
+              "EXPECTED_CONTROL_MANIFEST_SHA: '96b1e55d521d2a4f29a1b6bf877f6f8a02607f2a'",
+              "EXPECTED_SEED_CONTROL_BLOB: '1e856aa19eee8aa6e22d20928dafcfee25b000f4'",
+              "group: agent-dispatch-heavyweight-rdte",
+              "queue: max",
+              "Do not trust a pre-existing switch merely named 'nat'",
+              "authority_readiness_path=[string]$s.authority_readiness_path",
+              "deterministic_nat_absent=[bool]$r.cleanup.deterministic_nat_absent",
+          ]
+          terminal_req=[
+              "name: WinBot Terminal FullRDTE Owned-NAT-Only Acceptance",
+              "winbot-terminal-fullrdte-owned-nat-only.yml",
+              "MASTER_MANIFEST_SHA: '8b59a44a4edbfb003267c67251d34453eb3f32be'",
+              "EXPECTED_CONTROL_MANIFEST_SHA: 'ec592f44f886e658ce7a1cb404b2efdb98adb018'",
+              "EXPECTED_TERMINAL_CONTROL_BLOB: '44e6af5c3ee0f3db94ff24ce1dcc762b20aa41f0'",
+              "group: agent-dispatch-heavyweight-rdte",
+              "queue: max",
+              "Do not trust a pre-existing switch merely named 'nat'",
+              "seed_finalization.authority_readiness_path",
+              "work_cells.$cellName.authority_readiness_path",
+              "deterministic_nat_absent=[bool]$r.cleanup.deterministic_nat_absent",
+          ]
+          for marker in seed_req:
+              if marker not in seed: raise SystemExit(f"seed wrapper invariant missing: {marker}")
+          for marker in terminal_req:
+              if marker not in terminal: raise SystemExit(f"terminal wrapper invariant missing: {marker}")
+
+          stale=[
+              "f1ba78698efc60331e82d16f0a7d97ecd958665b",
+              "7ef1c3f5a5e674a84b908208dad2716a911bbf1c",
+              "309228e4fcfea213ee0fd0068c69fe64333d5a43",
+              "3cd4c317e10839d7e9382c504ebc916daff63f92",
+          ]
+          for marker in stale:
+              if marker in seed or marker in terminal: raise SystemExit(f"stale deterministic successor identity remains: {marker}")
+          print(json.dumps({
+              "classification":"SUPPORTED",
+              "seed_workflow_blob":os.environ["SEED_WORKFLOW"],
+              "terminal_workflow_blob":os.environ["TERMINAL_WORKFLOW"],
+              "shared_queue":"agent-dispatch-heavyweight-rdte",
+              "preexisting_nat_trusted":False,
+          },sort_keys=True))
+          PY

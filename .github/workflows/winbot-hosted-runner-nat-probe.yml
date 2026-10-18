@@ -1,0 +1,71 @@
+name: WinBot Hosted Runner NAT Probe
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hosted-runner-nat-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Probe bounded hosted NAT facts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $hns=@()
+          if (Get-Command Get-HnsNetwork -ErrorAction SilentlyContinue) {
+            $hns=Get-HnsNetwork -ErrorAction SilentlyContinue | ForEach-Object {
+              [ordered]@{
+                name=[string]$_.Name
+                type=[string]$_.Type
+                subnets=@($_.Subnets | ForEach-Object {
+                  [ordered]@{
+                    address_prefix=[string]$_.AddressPrefix
+                    gateway_address=[string]$_.GatewayAddress
+                  }
+                })
+              }
+            }
+          }
+          $switches=Get-VMSwitch -ErrorAction SilentlyContinue | ForEach-Object {
+            [ordered]@{name=[string]$_.Name; switch_type=[string]$_.SwitchType}
+          }
+          $ifaces=Get-NetIPConfiguration -ErrorAction SilentlyContinue | ForEach-Object {
+            [ordered]@{
+              interface_alias=[string]$_.InterfaceAlias
+              ipv4=@($_.IPv4Address | ForEach-Object { [string]$_.IPAddress })
+              gateway=@($_.IPv4DefaultGateway | ForEach-Object { [string]$_.NextHop })
+              dns=@($_.DNSServer.ServerAddresses | ForEach-Object { [string]$_ })
+            }
+          }
+          $route443=$false
+          try {
+            $c=New-Object Net.Sockets.TcpClient
+            $a=$c.BeginConnect('1.1.1.1',443,$null,$null)
+            if($a.AsyncWaitHandle.WaitOne(5000,$false)){$c.EndConnect($a);$route443=$true}
+            $c.Close()
+          } catch {}
+          $dns=$false
+          try {[Net.Dns]::GetHostAddresses('github.com')|Out-Null;$dns=$true}catch{}
+          $host443=$false
+          try {
+            $c=New-Object Net.Sockets.TcpClient
+            $a=$c.BeginConnect('github.com',443,$null,$null)
+            if($a.AsyncWaitHandle.WaitOne(5000,$false)){$c.EndConnect($a);$host443=$true}
+            $c.Close()
+          } catch {}
+          [ordered]@{
+            hns=$hns
+            switches=$switches
+            interfaces=$ifaces
+            host_route_1_1_1_1_443=$route443
+            host_dns_github=$dns
+            host_github_443=$host443
+          } | ConvertTo-Json -Depth 8 -Compress

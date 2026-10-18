@@ -6,6 +6,7 @@ on:
       - 'scripts/sealed_public_execution.py'
       - 'tests/test_sealed_public_execution.py'
       - '.github/workflows/sealed-public-execution.yml'
+      - '.github/workflows/sealed-public-windows-execution.yml'
       - '.github/workflows/sealed-public-execution-contract.yml'
       - 'docs/sealed-public-execution.md'
   workflow_dispatch:
@@ -23,7 +24,16 @@ jobs:
           persist-credentials: false
 
       - name: Run dependency-free contract tests
-        run: python3 -m unittest -v tests/test_sealed_public_execution.py
+        run: python3 -m unittest -v tests/test_sealed_public_execution.py tests/test_redact_winbot_fullrdte_diagnostic.py tests/test_verify_winbot_fullrdte_acceptance.py
+
+      - name: Guard work-cell guest file reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -nE 'Get-Content[^\n]*-Raw|-Raw[^\n]*Get-Content' scripts/winbot_hyperv_workcell_materialization.ps1; then
+            echo 'provider-dependent Get-Content -Raw is prohibited in the work-cell guest harness' >&2
+            exit 1
+          fi
 
       - name: Install age for round-trip test
         shell: bash
@@ -75,3 +85,93 @@ jobs:
           assert receipt['status'] == 'completed'
           assert len(receipt['sealed_sha256']) == 64
           PY
+
+  windows-round-trip:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install pinned age release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uri = 'https://github.com/FiloSottile/age/releases/download/v1.3.2/age-v1.3.2-windows-amd64.zip'
+          $expected = 'f48d8f8f9ebe903ab5027ed067652f2cc1db94bc206976430133b905dcd8e8c7'
+          $zip = Join-Path $env:RUNNER_TEMP 'age-v1.3.2-windows-amd64.zip'
+          Invoke-WebRequest -Uri $uri -OutFile $zip -UseBasicParsing
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "age archive SHA-256 mismatch" }
+          $root = Join-Path $env:RUNNER_TEMP 'age-v1.3.2'
+          Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
+          $age = Get-ChildItem -LiteralPath $root -Recurse -Filter age.exe | Select-Object -First 1
+          $keygen = Get-ChildItem -LiteralPath $root -Recurse -Filter age-keygen.exe | Select-Object -First 1
+          if (-not $age -or -not $keygen) { throw "age executables missing from pinned archive" }
+          $age.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Exercise PowerShell execute-seal-decrypt round trip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'sealed-windows-selftest'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $capsuleDir = Join-Path $root 'capsule'
+          New-Item -ItemType Directory -Force -Path $capsuleDir | Out-Null
+
+          @'
+          Write-Output "captured windows stdout"
+          [Console]::Error.WriteLine("captured windows stderr")
+          New-Item -ItemType Directory -Force -Path $env:SEALED_RESULT_DIR | Out-Null
+          [IO.File]::WriteAllText((Join-Path $env:SEALED_RESULT_DIR 'out.txt'), ("windows-round-trip-ok" + [Environment]::NewLine))
+          '@ | Set-Content -LiteralPath (Join-Path $capsuleDir 'run.ps1') -Encoding utf8
+
+          $capsule = Join-Path $root 'capsule.tar.gz'
+          @'
+          import tarfile, pathlib, sys
+          capsule_dir = pathlib.Path(sys.argv[1])
+          out = pathlib.Path(sys.argv[2])
+          with tarfile.open(out, "w:gz") as tf:
+              tf.add(capsule_dir / "run.ps1", arcname="run.ps1")
+          '@ | python - $capsuleDir $capsule
+
+          $capsuleSha = (Get-FileHash -LiteralPath $capsule -Algorithm SHA256).Hash.ToLowerInvariant()
+          $capsuleB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($capsule))
+          $capsuleB64Path = Join-Path $root 'capsule.b64'
+          [IO.File]::WriteAllText($capsuleB64Path, $capsuleB64, [Text.Encoding]::ASCII)
+
+          $identity = Join-Path $root 'identity.txt'
+          age-keygen -o $identity 2>$null
+          $recipient = (Select-String -LiteralPath $identity -Pattern '^# public key: ' | Select-Object -First 1).Line.Split()[-1]
+          if (-not $recipient) { throw "age recipient missing" }
+
+          $sealed = Join-Path $root 'sealed'
+          python scripts/sealed_public_execution.py --assignment-id windows-selftest-001 --capsule-b64-file $capsuleB64Path --capsule-sha256 $capsuleSha --recipient $recipient --timeout-seconds 30 --entrypoint run.ps1 --out-dir $sealed
+          if ($LASTEXITCODE -ne 0) { throw "sealed Windows worker returned $LASTEXITCODE" }
+
+          $plain = Join-Path $root 'result.tar.gz'
+          age --decrypt --identity $identity --output $plain (Join-Path $sealed 'result.age')
+          $result = Join-Path $root 'result'
+          New-Item -ItemType Directory -Force -Path $result | Out-Null
+          @'
+          import tarfile, pathlib, sys
+          with tarfile.open(sys.argv[1], "r:gz") as tf:
+              tf.extractall(sys.argv[2], filter="data")
+          '@ | python - $plain $result
+
+          if ((Get-Content -LiteralPath (Join-Path $result 'stdout.txt') -Raw).Trim() -ne 'captured windows stdout') {
+            throw "Windows stdout round-trip mismatch"
+          }
+          if ((Get-Content -LiteralPath (Join-Path $result 'stderr.txt') -Raw).Trim() -ne 'captured windows stderr') {
+            throw "Windows stderr round-trip mismatch"
+          }
+          if ((Get-Content -LiteralPath (Join-Path $result 'files/out.txt') -Raw).Trim() -ne 'windows-round-trip-ok') {
+            throw "Windows result file round-trip mismatch"
+          }
+
+          $execution = Get-Content -LiteralPath (Join-Path $result 'execution.json') -Raw | ConvertFrom-Json
+          if ($execution.assignment_id -ne 'windows-selftest-001') { throw "assignment mismatch" }
+          if ($execution.entrypoint -ne 'run.ps1') { throw "entrypoint mismatch" }
+          if ($execution.exit_code -ne 0) { throw "execution exit mismatch" }
+

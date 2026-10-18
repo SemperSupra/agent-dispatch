@@ -1,0 +1,62 @@
+name: WinBot Hyper-V Network Variance Census
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hyperv-network-variance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1, 2, 3, 4]
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Observe hosted Hyper-V network surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP ('winbot-network-variance-' + $env:GITHUB_RUN_ID + '-' + $env:MATRIX_REP + '.json')
+          $switches = @(Get-VMSwitch -ErrorAction Stop | ForEach-Object {
+            [ordered]@{
+              name = [string]$_.Name
+              switch_type = [string]$_.SwitchType
+              net_adapter = [string]$_.NetAdapterInterfaceDescription
+            }
+          })
+          $nats = @(Get-NetNat -ErrorAction SilentlyContinue | ForEach-Object {
+            [ordered]@{ name=[string]$_.Name; prefix=[string]$_.InternalIPInterfaceAddressPrefix }
+          })
+          $vEthernet = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object InterfaceAlias -like 'vEthernet*' |
+            ForEach-Object { [ordered]@{ interface=[string]$_.InterfaceAlias; address=[string]$_.IPAddress; prefix_length=[int]$_.PrefixLength } })
+          $preferred = @('Default Switch','nat') | Where-Object { $_ -in @($switches | ForEach-Object name) } | Select-Object -First 1
+          $r = [ordered]@{
+            schema_version = 1
+            rep = [int]$env:MATRIX_REP
+            runner = [ordered]@{ image_os=$env:ImageOS; image_version=$env:ImageVersion; runner_name=$env:RUNNER_NAME }
+            switches = $switches
+            net_nats = $nats
+            vethernet_ipv4 = $vEthernet
+            preferred_existing_switch = $preferred
+            preferred_present = [bool]$preferred
+          }
+          $r | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $out -Encoding utf8
+          Get-Content -LiteralPath $out
+        env:
+          MATRIX_REP: ${{ matrix.rep }}
+
+      - name: Upload observation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-network-variance-${{ github.run_id }}-${{ matrix.rep }}
+          path: ${{ runner.temp }}/winbot-network-variance-${{ github.run_id }}-${{ matrix.rep }}.json
+          if-no-files-found: error
+          retention-days: 14

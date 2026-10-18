@@ -1,0 +1,72 @@
+name: WinBot HNS-clean Successor Wrapper Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-hns-clean-successor-wrapper-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      SEED_WRAPPER: 'e5fb3fcf3958c6db42757b7371cbc84b2ebe2eea'
+      TERMINAL_WRAPPER: '151ad0619d5f907efdbe6e554b0813a33d36d033'
+    steps:
+      - name: Qualify exact dormant wrappers
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          function Get-BlobText([string]$Sha){
+            $h=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+            $o=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha" -Headers $h
+            if([string]$o.sha -ne $Sha -or [string]$o.encoding -ne 'base64'){throw "blob identity mismatch: $Sha"}
+            return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(([string]$o.content -replace '\s','')))
+          }
+
+          $seed=Get-BlobText $env:SEED_WRAPPER
+          foreach($m in @(
+            "name: WinBot Seed Finalization HNS-clean Owned-NAT",
+            "MASTER_MANIFEST_SHA: 'f3257f150fc7714056846382f0b02ddf9b52f548'",
+            "EXPECTED_CONTROL_MANIFEST_SHA: '96d2ac2b846039d2feb33635c0f17c2e009cd204'",
+            "EXPECTED_SEED_CONTROL_BLOB: '624a1cdb1aa0f066c7238f6166eb2b3884b15cf8'",
+            "group: agent-dispatch-heavyweight-rdte",
+            "queue: max",
+            "preexisting_hns_nat_count",
+            "removed_preexisting_hns_nat_count",
+            "post_condition_hns_nat_count",
+            "winnat-exclusivity",
+            'preexisting_hns_nat_count=$r.build.preexisting_hns_nat_count',
+            'netnat_count_after_cleanup=$r.cleanup.netnat_count_after_cleanup'
+          )){if(-not $seed.Contains($m)){throw "seed wrapper missing: $m"}}
+          if($seed.Contains("690a5e61147249c554475b1dc3ecbac92b746d32")){throw 'seed wrapper retains old master'}
+          if($seed.Contains("0d31656db7ae4a8ca478bc621a3d60bb064c4430")){throw 'seed wrapper retains old control'}
+
+          $terminal=Get-BlobText $env:TERMINAL_WRAPPER
+          foreach($m in @(
+            "name: WinBot Terminal FullRDTE HNS-clean Owned-NAT Acceptance",
+            "MASTER_MANIFEST_SHA: '1572a4a9d2c2c3efd02f407e619d24bd74c7810f'",
+            "EXPECTED_CONTROL_MANIFEST_SHA: '2bc78fd94360a09eb77b3d0ad94b38109215556f'",
+            "EXPECTED_TERMINAL_CONTROL_BLOB: 'a95a4e923d515c56d972790a8544cefa2e063f3d'",
+            "group: agent-dispatch-heavyweight-rdte",
+            "queue: max",
+            "preexisting_hns_nat_count",
+            "removed_preexisting_hns_nat_count",
+            "post_condition_hns_nat_count",
+            "winnat-exclusivity"
+          )){if(-not $terminal.Contains($m)){throw "terminal wrapper missing: $m"}}
+          if($terminal.Contains("ebebb9280785ec77fd9ff7c00d941a3777cc44b4")){throw 'terminal wrapper retains old master'}
+          if($terminal.Contains("33a9c68073e5b21251b02c36ae7f0937f825f6cc")){throw 'terminal wrapper retains old control'}
+
+          [ordered]@{
+            classification='SUPPORTED'
+            seed_wrapper=$env:SEED_WRAPPER
+            terminal_wrapper=$env:TERMINAL_WRAPPER
+          } | ConvertTo-Json -Compress

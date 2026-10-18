@@ -1,0 +1,115 @@
+name: WinBot Deterministic NAT A-Only Graph Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-deterministic-nat-a-only-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      MASTER_MANIFEST_SHA: 'a5002ecb5e6f4bdf7c4d82310cadcb582a7a0ad4'
+      EXPECTED_SOURCE: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      EXPECTED_PROJECTION: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+      EXPECTED_CONTROL: 'd4c3e8a44ca710a15d181369444d4c2e45c6b3d9'
+      EXPECTED_POLICY: '498182e3e7d463916393bb9358f5c536be65f55c'
+    steps:
+      - name: Reconstruct and qualify exact deterministic-NAT control
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-deterministic-nat-qual'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $py=@'
+          import base64, hashlib, json, os, pathlib, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+              )
+              with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
+              raw=base64.b64decode(obj["content"])
+              if obj.get("sha")!=sha or hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"blob identity mismatch: {sha}")
+              return raw
+          m=json.loads(blob(os.environ["MASTER_MANIFEST_SHA"]))
+          if m["source_revision"]!=os.environ["EXPECTED_SOURCE"]: raise SystemExit("source mismatch")
+          if m["projection_identity_sha256"]!=os.environ["EXPECTED_PROJECTION"]: raise SystemExit("projection mismatch")
+          if m["projected_file_count"]!=82 or m["projected_bytes"]!=1050197: raise SystemExit("projection cardinality mismatch")
+          entries=[]
+          for b in m["source_batch_manifests"]:
+              batch=json.loads(blob(b))
+              if batch["source_revision"]!=m["source_revision"]: raise SystemExit("batch source mismatch")
+              entries.extend(batch["entries"])
+          projected=[]
+          for e in sorted(entries,key=lambda x:x["path"]):
+              raw=blob(e["git_blob_sha"])
+              if len(raw)!=int(e["size"]): raise SystemExit(f"size mismatch: {e['path']}")
+              projected.append({"path":e["path"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()})
+          identity=hashlib.sha256(json.dumps({"source_revision":m["source_revision"],"projected_files":projected},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+          if identity!=m["projection_identity_sha256"]: raise SystemExit("recomputed projection mismatch")
+
+          cm=json.loads(blob(m["control_manifest_sha"]))
+          ctl={e["path"]:e["git_blob_sha"] for e in cm["entries"]}
+          if ctl["rdte/gha/full-rdte.ps1"]!=os.environ["EXPECTED_CONTROL"]: raise SystemExit("control mismatch")
+          if ctl["rdte/gha/projection-policy.json"]!=os.environ["EXPECTED_POLICY"]: raise SystemExit("policy mismatch")
+          policy=json.loads(blob(ctl["rdte/gha/projection-policy.json"]))
+          auth=policy["authorization"]
+          if policy.get("state")!="authorized" or auth.get("approved_revision")!=m["source_revision"] or auth.get("approved_manifest_sha256")!=m["projection_identity_sha256"]:
+              raise SystemExit("exact projection authorization mismatch")
+
+          control=blob(os.environ["EXPECTED_CONTROL"]).decode("utf-8-sig")
+          required=[
+              "WinBot-RDTE-NAT-",
+              "New-VMSwitch -Name $ownedNatName -SwitchType Internal",
+              "New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ownedNatGateway",
+              "New-NetNat -Name $ownedNatName -InternalIPInterfaceAddressPrefix $ownedNatPrefix",
+              "network_provider = 'deterministic-netnat'",
+              "deterministic_nat_created = $true",
+              "Remove-NetNat -Confirm:$false",
+              "Remove-VMSwitch -Force",
+              "deterministic_nat_absent",
+              "[string]$switch.SwitchType -eq 'Internal' -and -not $dhcpListener",
+          ]
+          for marker in required:
+              if marker not in control: raise SystemExit(f"deterministic NAT invariant missing: {marker}")
+          forbidden=[
+              "no qualified existing Hyper-V switch is available (expected Default Switch or nat)",
+              "$attachedSwitch -eq 'nat' -and -not $dhcpListener",
+          ]
+          for marker in forbidden:
+              if marker in control: raise SystemExit(f"stale placement invariant remains: {marker}")
+
+          pathlib.Path(os.environ["RUNNER_TEMP"],"deterministic-nat-control.ps1").write_bytes(blob(os.environ["EXPECTED_CONTROL"]))
+          print(json.dumps({
+              "classification":"SUPPORTED",
+              "master_manifest":os.environ["MASTER_MANIFEST_SHA"],
+              "control_manifest":m["control_manifest_sha"],
+              "control":os.environ["EXPECTED_CONTROL"],
+              "projection_identity_sha256":identity,
+              "deterministic_nat_primitive_qualification_run":37528085559,
+          },sort_keys=True))
+          '@
+          $pyPath=Join-Path $root 'qualify.py'
+          [IO.File]::WriteAllText($pyPath,$py,[Text.UTF8Encoding]::new($false))
+          python $pyPath
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+
+          $controlPath=Join-Path $env:RUNNER_TEMP 'deterministic-nat-control.ps1'
+          $tokens=$null; $errors=$null
+          [Management.Automation.Language.Parser]::ParseFile($controlPath,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw 'deterministic NAT control parse failed'
+          }
+          Write-Host 'deterministic NAT A-only graph qualification: PASS'

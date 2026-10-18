@@ -1,0 +1,68 @@
+name: WinBot Owned-NAT-Only Harness-Fix Prepared Wrapper Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-owned-nat-only-harness-fix-wrapper-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      WORKFLOW_BLOB: '654747ae9564f439b9d200c4fdf688c5baf68dd3'
+    steps:
+      - name: Qualify prepared owned-NAT-only execution wrapper
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]; sha=os.environ["WORKFLOW_BLOB"]
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+              headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+          )
+          with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
+          raw=base64.b64decode(obj["content"])
+          if obj.get("sha")!=sha or hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+              raise SystemExit("wrapper blob identity mismatch")
+          text=raw.decode("utf-8-sig")
+          required=[
+              "name: WinBot Owned-NAT-Only Authority A-Only",
+              "winbot-owned-nat-only-authority-a-only.yml",
+              "MASTER_MANIFEST_SHA: '93c286e36eb87cf0b4e902037dd336c763f38778'",
+              "EXPECTED_CONTROL_MANIFEST_SHA: '9335ccb66efc1d678450ca961d8be9bace670ab3'",
+              "EXPECTED_A_ONLY_CONTROL_BLOB: '20b7a44fb729808b24d9dbe72c9818d33281721d'",
+              "group: agent-dispatch-heavyweight-rdte",
+              "queue: max",
+              "cancel-in-progress: false",
+              "Do not trust a pre-existing switch merely named 'nat'",
+              "deterministic_nat_absent = [bool]$r.cleanup.deterministic_nat_absent",
+              "ASSIGNMENT_ID: 'winbot-owned-nat-only-authority-a-20261007-02'",
+          ]
+          for marker in required:
+              if marker not in text: raise SystemExit(f"wrapper invariant missing: {marker}")
+          stale=[
+              "MASTER_MANIFEST_SHA: 'a5002ecb5e6f4bdf7c4d82310cadcb582a7a0ad4'",
+              "EXPECTED_A_ONLY_CONTROL_BLOB: 'd4c3e8a44ca710a15d181369444d4c2e45c6b3d9'",
+              "name: WinBot Deterministic NAT Authority A-Only",
+          ]
+          for marker in stale:
+              if marker in text: raise SystemExit(f"stale deterministic wrapper identity remains: {marker}")
+          print(json.dumps({
+              "classification":"SUPPORTED",
+              "workflow_blob":sha,
+              "master_manifest":"93c286e36eb87cf0b4e902037dd336c763f38778",
+              "control":"20b7a44fb729808b24d9dbe72c9818d33281721d",
+              "shared_queue":"agent-dispatch-heavyweight-rdte",
+              "preexisting_nat_trusted":False,
+          },sort_keys=True))
+          PY

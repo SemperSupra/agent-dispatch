@@ -1,0 +1,85 @@
+name: WinBot Windows Route Diagnostic Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-windows-route-diagnostic-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      MASTER_MANIFEST_SHA: '2edff2f28d4aa435863aba61d05f27b1dc5f3e6b'
+      CONTROL_MANIFEST_SHA: '7f0512f10657c5a06828cd418252e203a2a222e3'
+      CONTROL_BLOB_SHA: '8551bb14ced74428db451eac3e0e91ec526ad997'
+      WRAPPER_BLOB_SHA: '90ad6488513663dd73c0242235b204148fb5fc71'
+      SOURCE_REVISION: '90d5d8a7244b781c28d438d9ba01155735c765b7'
+      PROJECTION_IDENTITY: 'd4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45'
+    steps:
+      - name: Qualify exact diagnostic graph
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          function Get-Blob([string]$Sha){
+            $h=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+            $o=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha" -Headers $h
+            if([string]$o.sha -ne $Sha -or [string]$o.encoding -ne 'base64'){throw "blob identity mismatch: $Sha"}
+            return ,[Convert]::FromBase64String(([string]$o.content -replace '\s',''))
+          }
+          $master=([Text.Encoding]::UTF8.GetString((Get-Blob $env:MASTER_MANIFEST_SHA))) | ConvertFrom-Json
+          if([string]$master.source_revision -ne $env:SOURCE_REVISION){throw 'source mismatch'}
+          if([string]$master.projection_identity_sha256 -ne $env:PROJECTION_IDENTITY){throw 'projection mismatch'}
+          if([string]$master.control_manifest_sha -ne $env:CONTROL_MANIFEST_SHA){throw 'manifest linkage mismatch'}
+          if([string]$master.construction.readiness_control -ne $env:CONTROL_BLOB_SHA){throw 'control linkage mismatch'}
+          if([string]$master.construction.stage_provision_blob -ne '0efa30b3c585a7a5fbee2271040cb8046d7ec262'){throw 'stage-provision identity mismatch'}
+
+          $manifest=([Text.Encoding]::UTF8.GetString((Get-Blob $env:CONTROL_MANIFEST_SHA))) | ConvertFrom-Json
+          $entry=@($manifest.entries | Where-Object path -eq 'rdte/gha/full-rdte.ps1')
+          if($entry.Count -ne 1 -or [string]$entry[0].git_blob_sha -ne $env:CONTROL_BLOB_SHA){throw 'control manifest entry mismatch'}
+
+          $controlPath=Join-Path $env:RUNNER_TEMP 'route-diagnostic.ps1'
+          [IO.File]::WriteAllBytes($controlPath,(Get-Blob $env:CONTROL_BLOB_SHA))
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile($controlPath,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){$errors|ForEach-Object{Write-Error $_.Message};throw 'diagnostic control parse failed'}
+          $control=Get-Content -LiteralPath $controlPath -Raw
+          foreach($m in @(
+            'GuestNetworkSnapshot',
+            'guest_network_snapshot',
+            'Find-NetRoute -RemoteIPAddress ''1.1.1.1''',
+            'gateway_neighbor',
+            'raw_tcp_1_1_1_1_443',
+            'netnat_session_count_after_a',
+            'Get-NetNatSession -ErrorAction SilentlyContinue',
+            'terminal provisioning failure is already authoritative product'
+          )){if(-not $control.Contains($m)){throw "control diagnostic invariant missing: $m"}}
+
+          $wrapper=[Text.Encoding]::UTF8.GetString((Get-Blob $env:WRAPPER_BLOB_SHA))
+          foreach($m in @(
+            "MASTER_MANIFEST_SHA: '2edff2f28d4aa435863aba61d05f27b1dc5f3e6b'",
+            "EXPECTED_CONTROL_MANIFEST_SHA: '7f0512f10657c5a06828cd418252e203a2a222e3'",
+            "EXPECTED_A_ONLY_CONTROL_BLOB: '8551bb14ced74428db451eac3e0e91ec526ad997'",
+            "EXPECTED_SOURCE_REVISION: '90d5d8a7244b781c28d438d9ba01155735c765b7'",
+            "EXPECTED_PROJECTION_IDENTITY: 'd4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45'",
+            'group: agent-dispatch-heavyweight-rdte',
+            'netnat_session_count_after_a = $r.build.netnat_session_count_after_a',
+            'guest_network_snapshot = $r.work_cells.a.guest_network_snapshot'
+          )){if(-not $wrapper.Contains($m)){throw "wrapper invariant missing: $m"}}
+
+          [ordered]@{
+            classification='SUPPORTED'
+            source=$env:SOURCE_REVISION
+            projection=$env:PROJECTION_IDENTITY
+            control=$env:CONTROL_BLOB_SHA
+            manifest=$env:CONTROL_MANIFEST_SHA
+            master=$env:MASTER_MANIFEST_SHA
+            wrapper=$env:WRAPPER_BLOB_SHA
+          } | ConvertTo-Json -Compress

@@ -5,6 +5,7 @@ import json
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import sys
@@ -54,6 +55,27 @@ class SealedExecutionContractTests(unittest.TestCase):
             with self.assertRaises(worker.WorkerError):
                 worker.decode_capsule(encoded, "0" * 64, Path(td))
 
+    def test_file_backed_capsule_may_exceed_inline_dispatch_bound(self):
+        raw = b"x" * 60_000
+        encoded = base64.b64encode(raw).decode()
+        self.assertGreater(len(encoded), worker.MAX_INLINE_CAPSULE_B64)
+        self.assertLessEqual(len(raw), worker.MAX_CAPSULE_BYTES)
+        with tempfile.TemporaryDirectory() as td:
+            path = worker.decode_capsule(
+                encoded, hashlib.sha256(raw).hexdigest(), Path(td)
+            )
+            self.assertEqual(path.read_bytes(), raw)
+
+    def test_decode_rejects_capsule_over_decoded_byte_bound(self):
+        raw = b"x" * 33
+        encoded = base64.b64encode(raw).decode()
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(worker, "MAX_CAPSULE_BYTES", 32):
+                with self.assertRaises(worker.WorkerError):
+                    worker.decode_capsule(
+                        encoded, hashlib.sha256(raw).hexdigest(), Path(td)
+                    )
+
     def test_safe_extract_accepts_top_level_runner(self):
         raw = make_capsule([
             ("run.sh", "mkdir -p \"$SEALED_RESULT_DIR\"; echo ok > \"$SEALED_RESULT_DIR/out.txt\"\n", "file"),
@@ -65,6 +87,22 @@ class SealedExecutionContractTests(unittest.TestCase):
             capsule.write_bytes(raw)
             worker.safe_extract(capsule, root / "work")
             self.assertTrue((root / "work" / "run.sh").is_file())
+
+
+    def test_windows_entrypoint_is_bounded_and_extractable(self):
+        raw = make_capsule([
+            ("run.ps1", 'New-Item -ItemType Directory -Force -Path $env:SEALED_RESULT_DIR | Out-Null\n', "file"),
+        ])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            capsule = root / "capsule.tar.gz"
+            capsule.write_bytes(raw)
+            worker.safe_extract(capsule, root / "work", entrypoint="run.ps1")
+            self.assertTrue((root / "work" / "run.ps1").is_file())
+
+        self.assertEqual(worker._validate_entrypoint("run.ps1"), "run.ps1")
+        with self.assertRaises(worker.WorkerError):
+            worker._validate_entrypoint("arbitrary.ps1")
 
     def test_safe_extract_rejects_traversal(self):
         raw = make_capsule([

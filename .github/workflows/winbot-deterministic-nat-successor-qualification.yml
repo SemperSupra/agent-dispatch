@@ -1,0 +1,135 @@
+name: WinBot Deterministic NAT Successor Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-deterministic-nat-successor-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      SEED_MASTER: 'f1ba78698efc60331e82d16f0a7d97ecd958665b'
+      TERMINAL_MASTER: '7ef1c3f5a5e674a84b908208dad2716a911bbf1c'
+      EXPECTED_SOURCE: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      EXPECTED_PROJECTION: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+      EXPECTED_POLICY: '498182e3e7d463916393bb9358f5c536be65f55c'
+      SEED_CONTROL: '309228e4fcfea213ee0fd0068c69fe64333d5a43'
+      TERMINAL_CONTROL: '3cd4c317e10839d7e9382c504ebc916daff63f92'
+    steps:
+      - name: Qualify deterministic-NAT phase-separated successor controls
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-detnat-successor-qual'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $py=@'
+          import base64, hashlib, json, os, pathlib, urllib.request
+          repo=os.environ["GITHUB_REPOSITORY"]; token=os.environ["GH_TOKEN"]
+          def blob(sha):
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs/{sha}",
+                  headers={"Authorization":f"Bearer {token}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"},
+              )
+              with urllib.request.urlopen(req,timeout=60) as r: obj=json.load(r)
+              raw=base64.b64decode(obj["content"])
+              if obj.get("sha")!=sha or hashlib.sha1(f"blob {len(raw)}\0".encode()+raw).hexdigest()!=sha:
+                  raise SystemExit(f"blob identity mismatch: {sha}")
+              return raw
+
+          def common(master_sha,control_sha,label):
+              m=json.loads(blob(master_sha))
+              if m["source_revision"]!=os.environ["EXPECTED_SOURCE"]: raise SystemExit(f"{label}: source mismatch")
+              if m["projection_identity_sha256"]!=os.environ["EXPECTED_PROJECTION"]: raise SystemExit(f"{label}: projection mismatch")
+              if m["projected_file_count"]!=82 or m["projected_bytes"]!=1050197: raise SystemExit(f"{label}: projection cardinality mismatch")
+              entries=[]
+              for b in m["source_batch_manifests"]:
+                  batch=json.loads(blob(b))
+                  if batch["source_revision"]!=m["source_revision"]: raise SystemExit(f"{label}: batch source mismatch")
+                  entries.extend(batch["entries"])
+              projected=[]
+              for e in sorted(entries,key=lambda x:x["path"]):
+                  raw=blob(e["git_blob_sha"])
+                  if len(raw)!=int(e["size"]): raise SystemExit(f"{label}: source size mismatch {e['path']}")
+                  projected.append({"path":e["path"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest()})
+              ident=hashlib.sha256(json.dumps({"source_revision":m["source_revision"],"projected_files":projected},sort_keys=True,separators=(",",":")).encode()).hexdigest()
+              if ident!=m["projection_identity_sha256"]: raise SystemExit(f"{label}: recomputed projection mismatch")
+              cm=json.loads(blob(m["control_manifest_sha"]))
+              ctl={e["path"]:e["git_blob_sha"] for e in cm["entries"]}
+              if ctl["rdte/gha/full-rdte.ps1"]!=control_sha: raise SystemExit(f"{label}: control mismatch")
+              if ctl["rdte/gha/projection-policy.json"]!=os.environ["EXPECTED_POLICY"]: raise SystemExit(f"{label}: policy mismatch")
+              policy=json.loads(blob(ctl["rdte/gha/projection-policy.json"]))
+              auth=policy["authorization"]
+              if policy.get("state")!="authorized" or auth.get("approved_revision")!=m["source_revision"] or auth.get("approved_manifest_sha256")!=m["projection_identity_sha256"]:
+                  raise SystemExit(f"{label}: authorization mismatch")
+              return m,blob(control_sha).decode("utf-8-sig")
+
+          seed_m,seed=common(os.environ["SEED_MASTER"],os.environ["SEED_CONTROL"],"seed")
+          term_m,term=common(os.environ["TERMINAL_MASTER"],os.environ["TERMINAL_CONTROL"],"terminal")
+
+          nat_markers=[
+              "WinBot-RDTE-NAT-",
+              "New-VMSwitch -Name $ownedNatName -SwitchType Internal",
+              "New-NetNat -Name $ownedNatName -InternalIPInterfaceAddressPrefix $ownedNatPrefix",
+              "network_provider = 'deterministic-netnat'",
+              "deterministic_nat_absent",
+              "[string]$switch.SwitchType -eq 'Internal' -and -not $dhcpListener",
+          ]
+          for label,text in (("seed",seed),("terminal",term)):
+              for marker in nat_markers:
+                  if marker not in text: raise SystemExit(f"{label}: deterministic NAT invariant missing: {marker}")
+              if "no qualified existing Hyper-V switch is available (expected Default Switch or nat)" in text:
+                  raise SystemExit(f"{label}: stale switch-lottery failure remains")
+
+          seed_markers=[
+              "authority_readiness_path = if ($ready.AuthorityRehydrationAttempted) { 'product-repair' } else { 'native-provision' }",
+              "[string]$record.seed_finalization.authority_readiness_path -eq 'native-provision'",
+              "-not $record.seed_finalization.authority_rehydration_attempted",
+              "-not $record.seed_finalization.authority_rehydration_succeeded",
+              "native-ready seed finalization/scrub/reseal oracle failed",
+          ]
+          for marker in seed_markers:
+              if marker not in seed: raise SystemExit(f"seed phase invariant missing: {marker}")
+
+          term_markers=[
+              "[string]$record.seed_finalization.authority_readiness_path -eq 'native-provision'",
+              "work cell A did not establish per-cell authority through exact product repair",
+              "work cell B did not establish per-cell authority through exact product repair",
+              "[string]$record.work_cells.a.authority_readiness_path -eq 'product-repair'",
+              "[string]$record.work_cells.b.authority_readiness_path -eq 'product-repair'",
+          ]
+          for marker in term_markers:
+              if marker not in term: raise SystemExit(f"terminal phase invariant missing: {marker}")
+
+          pathlib.Path(os.environ["RUNNER_TEMP"],"seed-detnat.ps1").write_bytes(blob(os.environ["SEED_CONTROL"]))
+          pathlib.Path(os.environ["RUNNER_TEMP"],"terminal-detnat.ps1").write_bytes(blob(os.environ["TERMINAL_CONTROL"]))
+          print(json.dumps({
+              "classification":"SUPPORTED",
+              "seed_master":os.environ["SEED_MASTER"],
+              "seed_control":os.environ["SEED_CONTROL"],
+              "terminal_master":os.environ["TERMINAL_MASTER"],
+              "terminal_control":os.environ["TERMINAL_CONTROL"],
+              "projection_identity_sha256":os.environ["EXPECTED_PROJECTION"],
+              "deterministic_nat_primitive_run":37528085559,
+              "deterministic_nat_a_only_graph_run":37528467171,
+          },sort_keys=True))
+          '@
+          $pyPath=Join-Path $root 'qualify.py'
+          [IO.File]::WriteAllText($pyPath,$py,[Text.UTF8Encoding]::new($false))
+          python $pyPath
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+
+          foreach($p in @((Join-Path $env:RUNNER_TEMP 'seed-detnat.ps1'),(Join-Path $env:RUNNER_TEMP 'terminal-detnat.ps1'))){
+            $tokens=$null;$errors=$null
+            [Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)|Out-Null
+            if(@($errors).Count -gt 0){$errors|ForEach-Object{Write-Error $_.Message};throw "PowerShell parse failed: $p"}
+          }
+          Write-Host 'deterministic NAT successor qualification: PASS'

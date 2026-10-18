@@ -1,0 +1,154 @@
+name: WinBot Exclusive WinNAT Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-exclusive-winnat-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      MASTER_MANIFEST_SHA: 'f0d68cac0cf11214080844572555531416adf37b'
+      EXPECTED_CONTROL_MANIFEST_SHA: '3f5bd766933a7255c3b9f34f99c206d1df05d032'
+      EXPECTED_CONTROL: '8f264497737354011d0eafb4b79050187ab8e22f'
+      EXPECTED_WRAPPER: '18814f5adcfbc79ae1dd32a8cfafe07f4e859248'
+      EXPECTED_SOURCE: '8c1738806d44c082f43a5363531837d6a6216ab7'
+      EXPECTED_PROJECTION: '5b0ed1ae4f6b6d9b7fd7d68ccb5e5f735c7ca9be20fa1ca99eedf339c2c31b32'
+    steps:
+      - name: Qualify exact graph, wrapper, and WinNAT exclusivity primitive
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-exclusive-winnat-qual'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          function Get-ExactBlob([string]$Sha) {
+            $headers=@{
+              Authorization="Bearer $env:GH_TOKEN"
+              Accept='application/vnd.github+json'
+              'X-GitHub-Api-Version'='2022-11-28'
+            }
+            $obj=Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$Sha" -Headers $headers
+            if([string]$obj.sha -ne $Sha -or [string]$obj.encoding -ne 'base64'){throw "blob identity mismatch: $Sha"}
+            $bytes=[Convert]::FromBase64String(([string]$obj.content -replace '\s',''))
+            $prefix=[Text.Encoding]::ASCII.GetBytes(('blob ' + $bytes.Length + [char]0))
+            $git=New-Object byte[] ($prefix.Length+$bytes.Length)
+            [Array]::Copy($prefix,0,$git,0,$prefix.Length)
+            [Array]::Copy($bytes,0,$git,$prefix.Length,$bytes.Length)
+            $sha1=[Security.Cryptography.SHA1]::Create()
+            try{$observed=([BitConverter]::ToString($sha1.ComputeHash($git))).Replace('-','').ToLowerInvariant()}finally{$sha1.Dispose()}
+            if($observed -ne $Sha){throw "git digest mismatch: $Sha"}
+            return ,$bytes
+          }
+
+          $master=([Text.Encoding]::UTF8.GetString((Get-ExactBlob $env:MASTER_MANIFEST_SHA))) | ConvertFrom-Json
+          if([string]$master.source_revision -ne $env:EXPECTED_SOURCE){throw 'source mismatch'}
+          if([string]$master.projection_identity_sha256 -ne $env:EXPECTED_PROJECTION){throw 'projection mismatch'}
+          if([string]$master.control_manifest_sha -ne $env:EXPECTED_CONTROL_MANIFEST_SHA){throw 'control manifest mismatch'}
+
+          $cm=([Text.Encoding]::UTF8.GetString((Get-ExactBlob $env:EXPECTED_CONTROL_MANIFEST_SHA))) | ConvertFrom-Json
+          $controlEntry=@($cm.entries | Where-Object path -eq 'rdte/gha/full-rdte.ps1')
+          if($controlEntry.Count -ne 1 -or [string]$controlEntry[0].git_blob_sha -ne $env:EXPECTED_CONTROL){throw 'control identity mismatch'}
+
+          $controlPath=Join-Path $root 'control.ps1'
+          [IO.File]::WriteAllBytes($controlPath,(Get-ExactBlob $env:EXPECTED_CONTROL))
+          $wrapper=[Text.Encoding]::UTF8.GetString((Get-ExactBlob $env:EXPECTED_WRAPPER))
+          foreach($marker in @(
+            "preexisting_netnat_count",
+            "preexisting_netnat_removed_count",
+            "winnat-exclusivity",
+            "Get-NetNat -ErrorAction SilentlyContinue",
+            "Remove-NetNat -Confirm:`$false -ErrorAction Stop",
+            "`$ownedNatName = 'WbNat-' + `$ownedNatHash.Substring(0,20)"
+          )){
+            if(-not ((Get-Content -LiteralPath $controlPath -Raw).Contains($marker))){throw "control invariant missing: $marker"}
+          }
+          foreach($marker in @(
+            "MASTER_MANIFEST_SHA: 'f0d68cac0cf11214080844572555531416adf37b'",
+            "EXPECTED_CONTROL_MANIFEST_SHA: '3f5bd766933a7255c3b9f34f99c206d1df05d032'",
+            "EXPECTED_A_ONLY_CONTROL_BLOB: '8f264497737354011d0eafb4b79050187ab8e22f'",
+            "group: agent-dispatch-heavyweight-rdte",
+            "preexisting_netnat_count = `$r.build.preexisting_netnat_count",
+            "netnat_count_after_cleanup = `$r.cleanup.netnat_count_after_cleanup"
+          )){
+            if(-not $wrapper.Contains($marker)){throw "wrapper invariant missing: $marker"}
+          }
+
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile($controlPath,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -gt 0){$errors|ForEach-Object{Write-Error $_.Message};throw 'control parse failed'}
+
+          $sentinelSwitch='WbSentinelNat'
+          $sentinelNat='WbSentinelNat'
+          $ownedSwitch='WbNat-0123456789abcdefabcd'
+          $ownedNat=$ownedSwitch
+          $sentinelGateway='172.29.249.1'
+          $ownedGateway='172.29.250.1'
+          try {
+            # Begin from a known WinNAT state on this ephemeral runner.
+            Get-NetNat -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+            foreach($n in @($sentinelSwitch,$ownedSwitch)){
+              Get-VMSwitch -Name $n -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue
+            }
+
+            New-VMSwitch -Name $sentinelSwitch -SwitchType Internal -ErrorAction Stop | Out-Null
+            $si=(Get-NetAdapter -Name "vEthernet ($sentinelSwitch)" -ErrorAction Stop).ifIndex
+            New-NetIPAddress -InterfaceIndex $si -IPAddress $sentinelGateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
+            New-NetNat -Name $sentinelNat -InternalIPInterfaceAddressPrefix '172.29.249.0/24' -ErrorAction Stop | Out-Null
+
+            $before=@(Get-NetNat -ErrorAction Stop)
+            if($before.Count -ne 1){throw "sentinel setup expected one NetNat, got $($before.Count)"}
+
+            # Exact policy semantics: clear all pre-existing WinNAT objects first.
+            $removed=0
+            foreach($n in @(Get-NetNat -ErrorAction SilentlyContinue)){
+              $n | Remove-NetNat -Confirm:$false -ErrorAction Stop
+              $removed++
+            }
+            if($removed -ne 1){throw "expected one pre-existing NetNat removal, got $removed"}
+            if(@(Get-NetNat -ErrorAction SilentlyContinue).Count -ne 0){throw 'WinNAT exclusivity clear failed'}
+
+            New-VMSwitch -Name $ownedSwitch -SwitchType Internal -ErrorAction Stop | Out-Null
+            $oi=(Get-NetAdapter -Name "vEthernet ($ownedSwitch)" -ErrorAction Stop).ifIndex
+            New-NetIPAddress -InterfaceIndex $oi -IPAddress $ownedGateway -PrefixLength 24 -AddressFamily IPv4 -ErrorAction Stop | Out-Null
+            New-NetNat -Name $ownedNat -InternalIPInterfaceAddressPrefix '172.29.250.0/24' -ErrorAction Stop | Out-Null
+
+            $after=@(Get-NetNat -ErrorAction Stop)
+            if($after.Count -ne 1){throw "exclusive create expected one NetNat, got $($after.Count)"}
+            if([string]$after[0].Name -ne $ownedNat){throw 'exclusive NetNat identity mismatch'}
+            if([string]$after[0].InternalIPInterfaceAddressPrefix -ne '172.29.250.0/24'){throw 'exclusive NetNat prefix mismatch'}
+
+            [ordered]@{
+              classification='SUPPORTED'
+              preexisting_count=1
+              preexisting_removed=1
+              netnat_count_during_owned=1
+              owned_nat_name=$ownedNat
+              owned_nat_name_length=$ownedNat.Length
+              owned_nat_prefix=[string]$after[0].InternalIPInterfaceAddressPrefix
+              graph_master=$env:MASTER_MANIFEST_SHA
+              control=$env:EXPECTED_CONTROL
+              wrapper=$env:EXPECTED_WRAPPER
+            } | ConvertTo-Json -Compress
+          }
+          finally {
+            Get-NetNat -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
+            foreach($n in @($ownedSwitch,$sentinelSwitch)){
+              Get-NetIPAddress -InterfaceAlias "vEthernet ($n)" -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+              Get-VMSwitch -Name $n -ErrorAction SilentlyContinue | Remove-VMSwitch -Force -ErrorAction SilentlyContinue
+            }
+            if(@(Get-NetNat -ErrorAction SilentlyContinue).Count -ne 0){throw 'final NetNat cleanup failed'}
+            if(Get-VMSwitch -Name $ownedSwitch -ErrorAction SilentlyContinue){throw 'owned switch cleanup failed'}
+            if(Get-VMSwitch -Name $sentinelSwitch -ErrorAction SilentlyContinue){throw 'sentinel switch cleanup failed'}
+            Write-Host 'exclusive WinNAT cleanup: PASS'
+          }

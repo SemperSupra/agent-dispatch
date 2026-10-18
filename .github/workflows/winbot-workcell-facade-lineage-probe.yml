@@ -1,0 +1,189 @@
+name: WinBot Work-Cell Facade Lineage Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-workcell-facade-lineage-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      SOURCE_REVISION: '0283e44337705aab350ea506758dcb312c43aef7'
+      PROJECTION_IDENTITY: 'UNREVIEWED-PENDING-EXACT-PROJECTION'
+      MODULE_BLOB_SHA: '3cc498696e006dcb8dafd28045999ddaf6e1460f'
+    steps:
+      - name: Qualify exact WinBot work-cell lineage with explicit persistence
+        id: probe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'winbot-workcell-facade-lineage-probe'
+          $project=Join-Path $root 'WinBot'
+          $hostDir=Join-Path $project 'host'
+          $masterDir=Join-Path $root 'master'
+          $cloneDir=Join-Path $root 'clones'
+          $seed=Join-Path $masterDir 'seed.vhdx'
+          $persist=Join-Path $root 'persist.vhdx'
+          $receiptPath=Join-Path $root 'receipt.json'
+          $vmName='WinBot-facade-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT
+          New-Item -ItemType Directory -Force -Path $root,$project,$hostDir,$masterDir,$cloneDir | Out-Null
+
+          $r=[ordered]@{
+            schema_version=1
+            authority='mark-e-deyoung/WinBot#70'
+            experiment_authority='SemperSupra/agent-dispatch-private#406'
+            source_revision=$env:SOURCE_REVISION
+            projection_identity_sha256=$env:PROJECTION_IDENTITY
+            module_blob_sha=$env:MODULE_BLOB_SHA
+            vm_name=$vmName
+            observations=[ordered]@{}
+            cleanup=[ordered]@{}
+            classification='HARNESS_FAILURE'
+            failure_domain=$null
+          }
+          function Capture([System.Management.Automation.ErrorRecord]$e,[string]$domain){
+            $r.classification='BOUNDARY_OBSERVED'; $r.failure_domain=$domain
+            $r.error_type=$e.Exception.GetType().FullName; $r.error_message=$e.Exception.Message
+            $r.command_name=[string]$e.InvocationInfo.MyCommand.Name
+            $r.script_line=[int]$e.InvocationInfo.ScriptLineNumber
+            $r.fqid=[string]$e.FullyQualifiedErrorId
+          }
+
+          try {
+            $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+            $blob=Invoke-RestMethod -Headers $headers -Uri ("https://api.github.com/repos/SemperSupra/agent-dispatch/git/blobs/"+$env:MODULE_BLOB_SHA)
+            if([string]$blob.sha -ne $env:MODULE_BLOB_SHA -or [string]$blob.encoding -ne 'base64'){throw 'module blob identity mismatch'}
+            $raw=[Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+            [IO.File]::WriteAllBytes((Join-Path $hostDir 'WinBot.psm1'),$raw)
+
+            $switch=$null
+            foreach($candidate in @('Default Switch','nat')){
+              $switch=Get-VMSwitch -Name $candidate -ErrorAction SilentlyContinue
+              if($switch){break}
+            }
+            if(-not $switch){$r.classification='ENVIRONMENT_FAILURE';$r.failure_domain='hyperv-network-placement';throw 'no qualified existing switch'}
+            $r.observations.switch_name=[string]$switch.Name
+
+            $config=[ordered]@{
+              api=[ordered]@{port=8000;healthCheckTimeoutSeconds=120;healthCheckIntervalSeconds=5;token=''}
+              clones=[ordered]@{defaultMemoryBytes=1073741824;basePath=$cloneDir;defaultProcessors=1;defaultDiskSizeGB=1}
+              master=[ordered]@{generation=2;vhdxHash='';vhdxPath=$seed;memoryBytes=1073741824;vmPath=$masterDir;processors=1;vmName='WinBot-Master';switchName=[string]$switch.Name}
+              sessions=[ordered]@{basePath=(Join-Path $root 'sessions')}
+              nodes=[ordered]@{basePath=(Join-Path $root 'nodes')}
+              credentials=[ordered]@{vmUsername='winbot'}
+              media=[ordered]@{method='CDN';version='26H2';edition='Enterprise';architecture='x64';language='English'}
+            }
+            $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $project 'config.json') -Encoding utf8
+
+            Import-Module (Join-Path $hostDir 'WinBot.psm1') -Force -DisableNameChecking -ErrorAction Stop
+            foreach($cmd in @('Set-WinBotMasterHash','New-WinBotWorkCell','Get-WinBotCloneObservation','Remove-WinBotWorkCell')){
+              if(-not(Get-Command $cmd -ErrorAction SilentlyContinue)){throw "missing exact module command: $cmd"}
+            }
+
+            New-VHD -Path $seed -SizeBytes 2GB -Fixed -ErrorAction Stop | Out-Null
+            Set-ItemProperty -Path $seed -Name IsReadOnly -Value $true -ErrorAction Stop
+            Set-WinBotMasterHash -VHDXPath $seed
+            if(-not(Test-WinBotMasterIntegrity -VHDXPath $seed)){throw 'synthetic seed failed exact master integrity precondition'}
+            New-VHD -Path $persist -SizeBytes 1GB -Dynamic -ErrorAction Stop | Out-Null
+
+            $wc=New-WinBotWorkCell -CustomName $vmName -Memory 1GB -Processors 1 -SwitchName ([string]$switch.Name) -PersistentVHDXPath $persist -NoStart
+            $r.observations.workcell_success=[bool]$wc.Success
+            $r.observations.workcell_started=[bool]$wc.Started
+            $r.observations.runtime_disk=[string]$wc.RuntimeDiskPath
+            $r.observations.persistent_vhd=[string]$wc.PersistentVHDXPath
+            if(-not $wc.Success -or $wc.Started){throw 'NoStart work-cell materialization contract failed'}
+
+            $disks=@(Get-VMHardDiskDrive -VMName $vmName -ErrorAction Stop)
+            $r.observations.attached_disk_count=$disks.Count
+            $r.observations.attached_disks=@($disks | ForEach-Object {
+              $v=Get-VHD -Path $_.Path -ErrorAction Stop
+              [ordered]@{path=[string]$_.Path;vhd_type=[string]$v.VhdType;parent_path=[string]$v.ParentPath}
+            })
+            $runtimeVhd=Get-VHD -Path ([string]$wc.RuntimeDiskPath) -ErrorAction Stop
+            $r.observations.runtime_parent_matches=[IO.Path]::GetFullPath([string]$runtimeVhd.ParentPath) -eq [IO.Path]::GetFullPath($seed)
+
+            $obs=Get-WinBotCloneObservation -Name $vmName -VerifyMaster
+            $r.observations.lineage_state=[string]$obs.State
+            $r.observations.lineage_reason=[string]$obs.Reason
+            $r.observations.lineage_parent=[string]$obs.ParentPath
+            $r.observations.lineage_disk=[string]$obs.DiskPath
+
+            $r.observations.runtime_candidate_count=[int]$obs.RuntimeDiskCandidateCount
+            $r.observations.observer_disk_matches=[string]::Equals(
+              [IO.Path]::GetFullPath([string]$obs.DiskPath),
+              [IO.Path]::GetFullPath([string]$wc.RuntimeDiskPath),
+              [StringComparison]::OrdinalIgnoreCase
+            )
+            if($r.observations.attached_disk_count -eq 2 -and
+               $r.observations.runtime_parent_matches -and
+               $r.observations.runtime_candidate_count -eq 1 -and
+               $r.observations.observer_disk_matches -and
+               [string]$obs.State -eq 'True'){
+              $r.classification='SUPPORTED'
+            } else {
+              $r.classification='ORACLE_FAILURE'
+              $r.failure_domain='workcell-lineage-qualification'
+            }
+          } catch {
+            if($r.classification -eq 'HARNESS_FAILURE'){Capture $_ 'probe-harness'}
+            elseif(-not $r.error_type){$r.error_type=$_.Exception.GetType().FullName;$r.error_message=$_.Exception.Message}
+          } finally {
+            try {
+              if(Get-VM -Name $vmName -ErrorAction SilentlyContinue){Remove-WinBotWorkCell -Name $vmName -Force}
+              if(Test-Path -LiteralPath $persist){Remove-Item -LiteralPath $persist -Force -ErrorAction Stop}
+              if(Test-Path -LiteralPath $seed){
+                Set-ItemProperty -Path $seed -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $seed -Force -ErrorAction Stop
+              }
+              $r.cleanup.vm_absent=-not [bool](Get-VM -Name $vmName -ErrorAction SilentlyContinue)
+              $r.cleanup.runtime_absent=-not(Test-Path -LiteralPath (Join-Path (Join-Path $cloneDir $vmName) 'disk.vhdx'))
+              $r.cleanup.persistence_absent=-not(Test-Path -LiteralPath $persist)
+              $r.cleanup.seed_absent=-not(Test-Path -LiteralPath $seed)
+              $r.cleanup.oracle_satisfied=[bool]($r.cleanup.vm_absent -and $r.cleanup.runtime_absent -and $r.cleanup.persistence_absent -and $r.cleanup.seed_absent)
+              if(-not $r.cleanup.oracle_satisfied){$r.classification='ORACLE_FAILURE';$r.failure_domain='cleanup'}
+            } catch {
+              $r.cleanup.oracle_satisfied=$false;$r.cleanup.error_type=$_.Exception.GetType().FullName;$r.cleanup.error_message=$_.Exception.Message
+              $r.classification='ORACLE_FAILURE';$r.failure_domain='cleanup'
+            }
+            $r | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $receiptPath -Encoding utf8
+          }
+          "classification=$($r.classification)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload probe receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winbot-workcell-facade-lineage-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/winbot-workcell-facade-lineage-probe/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce causal observation
+        if: always()
+        shell: pwsh
+        run: |
+          $p=Join-Path $env:RUNNER_TEMP 'winbot-workcell-facade-lineage-probe\receipt.json'
+          if(-not(Test-Path -LiteralPath $p)){throw 'probe receipt missing'}
+          $r=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          Write-Host "classification=$($r.classification)"
+          Write-Host "failure_domain=$($r.failure_domain)"
+          Write-Host "attached_disk_count=$($r.observations.attached_disk_count)"
+          Write-Host "runtime_parent_matches=$($r.observations.runtime_parent_matches)"
+          Write-Host "lineage_state=$($r.observations.lineage_state)"
+          Write-Host "runtime_candidate_count=$($r.observations.runtime_candidate_count)"
+          Write-Host "observer_disk_matches=$($r.observations.observer_disk_matches)"
+          Write-Host "lineage_reason=$($r.observations.lineage_reason)"
+          Write-Host "cleanup=$($r.cleanup.oracle_satisfied)"
+          if(-not $r.cleanup.oracle_satisfied){throw 'probe cleanup failed'}
+          if($r.classification -ne 'SUPPORTED'){
+            throw "work-cell lineage qualification failed: $($r.classification) / $($r.failure_domain)"
+          }

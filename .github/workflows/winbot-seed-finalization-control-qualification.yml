@@ -1,0 +1,66 @@
+name: WinBot Seed Finalization Control Qualification
+
+on:
+  push:
+    branches:
+      - 'exp/windows-sealed-public-execution'
+    paths:
+      - '.github/workflows/winbot-seed-finalization-control-qualification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: windows-2025
+    timeout-minutes: 8
+    env:
+      CONTROL_BLOB_SHA: '4e4764f673ce5e8cbfe0a2572c1e0ddcd154929a'
+    steps:
+      - name: Parse and inspect exact seed-finalization control
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $headers=@{Authorization="Bearer $env:GH_TOKEN";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
+          $uri="https://api.github.com/repos/$env:GITHUB_REPOSITORY/git/blobs/$env:CONTROL_BLOB_SHA"
+          $blob=Invoke-RestMethod -Headers $headers -Uri $uri
+          if([string]$blob.sha -ne $env:CONTROL_BLOB_SHA -or [string]$blob.encoding -ne 'base64'){throw 'control blob identity mismatch'}
+          $raw=[Convert]::FromBase64String(([string]$blob.content -replace '\s',''))
+          if($raw.Length -ne [int]$blob.size){throw 'control blob size mismatch'}
+          $path=Join-Path $env:RUNNER_TEMP 'seed-finalization.ps1'
+          [IO.File]::WriteAllBytes($path,$raw)
+
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if($errors.Count -gt 0){
+            $errors | ForEach-Object { Write-Error ("{0}:{1}: {2}" -f $path,$_.Extent.StartLineNumber,$_.Message) }
+            throw 'seed-finalization control parse failed'
+          }
+
+          $text=[IO.File]::ReadAllText($path)
+          foreach($needle in @(
+            "profile = 'SeedFinalizationDiagnostic'",
+            'function Invoke-SeedFinalization',
+            "C:\WinBot\.api_token",
+            'Unregister-ScheduledTask -TaskName',
+            'Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Dhcp Enabled',
+            'Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses',
+            'Set-WinBotMasterHash -VHDXPath $masterVhd',
+            'Test-WinBotMasterIntegrity -VHDXPath $masterVhd',
+            'seed_changed_by_finalization',
+            'seed_vm_absent'
+          )){
+            if(-not $text.Contains($needle)){throw "seed-finalization invariant missing: $needle"}
+          }
+
+          if($text.Contains('New-WinBotWorkCell -CustomName $vmNameA')){
+            throw 'seed-finalization probe unexpectedly materializes work cell A'
+          }
+          if($text.Contains('New-WinBotWorkCell -CustomName $vmNameB')){
+            throw 'seed-finalization probe unexpectedly materializes work cell B'
+          }
+
+          Write-Host "classification=SUPPORTED"
+          Write-Host "control_blob=$env:CONTROL_BLOB_SHA"
