@@ -75,8 +75,12 @@ def execute(ghidra_home):
             raise StrippedOracleError("fixture not demonstrably stripped")
         nm = subprocess.run(["nm", "--defined-only", str(stripped)], capture_output=True,
                             text=True, stdin=subprocess.DEVNULL, timeout=5)
-        if nm.returncode == 0 or native.TARGET in nm.stdout:
-            raise StrippedOracleError("ordinary symbol table not removed")
+        # GNU nm can return zero for a stripped file with no symbol output.
+        # Prove the ordinary ELF .symtab section is absent independently.
+        sections = native.run(["readelf", "-W", "-S", str(stripped)])
+        if (".symtab" in sections or native.TARGET in nm.stdout
+                or native.TARGET in native.run(["nm", "-D", str(stripped)])):
+            raise StrippedOracleError("ordinary symbol table or target name remains")
         native.run([str(stripped)], timeout=5)
         stripped_base, stripped_size = native.parse_image(native.run(["readelf", "-W", "-l", str(stripped)]))
         if (stripped_base, stripped_size) != (image_base, image_size):
