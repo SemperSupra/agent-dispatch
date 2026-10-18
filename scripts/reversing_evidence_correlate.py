@@ -42,7 +42,7 @@ def region(start, length):
 
 def validate(doc):
     keys(doc, ("schema", "run_id", "mode", "artifact_sha256", "functions", "module_loads", "events"))
-    if doc["schema"] != INPUT_SCHEMA or doc["mode"] not in MODES:
+    if doc["schema"] != INPUT_SCHEMA or not isinstance(doc["mode"], str) or doc["mode"] not in MODES:
         raise ContractError("unsupported contract")
     identity(doc["run_id"]); digest(doc["artifact_sha256"])
     for k in ("functions", "module_loads", "events"):
@@ -69,7 +69,8 @@ def validate(doc):
              ("module_load_id", "va", "cause_event_id", "resource_token"))
         for k in ("sensor", "run_id", "time_domain"):
             identity(e[k])
-        if e["kind"] not in EVENT_KINDS or e["vantage"] not in VANTAGES:
+        if (not isinstance(e["kind"], str) or not isinstance(e["vantage"], str)
+                or e["kind"] not in EVENT_KINDS or e["vantage"] not in VANTAGES):
             raise ContractError("unsupported event")
         if e["kind"] == "instruction":
             if not {"module_load_id", "va"} <= set(e) or {"cause_event_id", "resource_token"} & set(e):
