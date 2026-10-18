@@ -25,6 +25,10 @@ V2SPEC = importlib.util.spec_from_file_location(
     "reversing_correlator_v2", ROOT / "scripts" / "reversing_evidence_correlate_v2.py")
 V2 = importlib.util.module_from_spec(V2SPEC)
 V2SPEC.loader.exec_module(V2)
+BOUNDSPEC = importlib.util.spec_from_file_location(
+    "reversing_boundary_oracle", ROOT / "scripts" / "reversing_interval_boundary_oracle.py")
+BOUNDARY = importlib.util.module_from_spec(BOUNDSPEC)
+BOUNDSPEC.loader.exec_module(BOUNDARY)
 SOURCE = r'''
 volatile long branch_seed = 3;
 __attribute__((noinline,used)) long fixture_target(long n) {
@@ -191,6 +195,13 @@ def observe(ghidra_home, profile):
             raise MatrixError("symbol outside ELF image")
         if any(name in sections_before for name in (".eh_frame", ".eh_frame_hdr")):
             raise MatrixError("compiler/linker failed no-unwind fixture constraint")
+        original_disassembly = run_program(
+            ["objdump", "-d", "--insn-width=16", "--disassemble=fixture_target", str(original)])
+        try:
+            independent_nonnop, independent_boundaries = BOUNDARY.parse_objdump_nonnop_ranges(
+                original_disassembly, sym, size)
+        except BOUNDARY.BoundaryOracleError as exc:
+            raise MatrixError("independent GNU objdump symbol oracle failed") from exc
         shutil.copy2(original, stripped)
         run_program(["strip", "--strip-all", str(stripped)])
         sections = run_program(["readelf", "-W", "-S", str(stripped)])
@@ -198,6 +209,13 @@ def observe(ghidra_home, profile):
             raise MatrixError("stripped fixture still contains ordinary symbols or unwind tables")
         if NATIVE.TARGET in run_program(["nm", "-D", str(stripped)]):
             raise MatrixError("stripped fixture leaks target dynamic symbol")
+        original_text, stripped_text = d / "original-text", d / "stripped-text"
+        run_program(["objcopy", "--dump-section", ".text=" + str(original_text), str(original)])
+        run_program(["objcopy", "--dump-section", ".text=" + str(stripped_text), str(stripped)])
+        if (not original_text.is_file() or not stripped_text.is_file() or
+                sha256(original_text.read_bytes()).digest() != sha256(stripped_text.read_bytes()).digest()):
+            raise MatrixError("original and stripped executable .text bytes differ")
+        text_sha256 = sha256(stripped_text.read_bytes()).hexdigest()
         if sha256(original.read_bytes()).digest() == sha256(stripped.read_bytes()).digest():
             raise MatrixError("stripped binary and ground truth share bytes")
         run_program([str(stripped)], timeout=5)
@@ -224,6 +242,8 @@ def observe(ghidra_home, profile):
             raise MatrixError("Ghidra headless infrastructure/export failure")
         ghidra_export = json.loads(exported.read_text(encoding="utf-8"))
         assessment = function_assessment(ghidra_export, sym, size, image_base)
+        boundary_assessment = BOUNDARY.compare_ghidra_ranges(
+            ghidra_export, sym, size, independent_nonnop, independent_boundaries)
         interval_set = inspect_multirange_export(
             ghidra_export, sym, size, image_base, image_size, pc,
             sha256(stripped.read_bytes()).hexdigest())
@@ -240,7 +260,9 @@ def observe(ghidra_home, profile):
                 "stripped_sha256": sha256(stripped.read_bytes()).hexdigest(),
                 "symbol_table_absent": True, "unwind_tables_absent": True,
                 "native_unmodified_fixture_exercised": True,
-                "v2_interval_set": interval_set}
+                "v2_interval_set": interval_set,
+                "independent_objdump_boundary_oracle": boundary_assessment,
+                "stripped_original_text_sha256": text_sha256}
 
 
 def main():
@@ -251,7 +273,7 @@ def main():
     home = args.ghidra_home.resolve()
     if not (home / "support" / "analyzeHeadless").is_file():
         parser.error("missing pinned Ghidra")
-    if any(shutil.which(t) is None for t in ("gcc", "strip", "nm", "readelf", "gdb")):
+    if any(shutil.which(t) is None for t in ("gcc", "strip", "nm", "readelf", "gdb", "objdump", "objcopy")):
         parser.error("missing fixed test tools")
     assessments = [observe(home, p) for p in PROFILES]
     report = {
@@ -261,6 +283,7 @@ def main():
         "known_limits": ["x86-64-linux-static-no-crt-only",
                          "fixed-synthetic-cfg", "original-symbol-oracle-exists-only-outside-analyzed-binary",
                          "Ghidra-body-bytes-not-path-completeness",
+                         "objdump-linear-decode-not-independent-cfg-ownership",
                          "no-VM-or-external-sensors",
                          "no-Windows-Android-or-FRITZ", "no-source-equivalence-proof"]
     }
@@ -273,6 +296,12 @@ def main():
         print("MEASURED_V2=" + item["profile"] + ":" +
               item["v2_interval_set"]["status"] +
               ":ranges=" + str(item["v2_interval_set"].get("reported_range_count", 0)))
+        b = item["independent_objdump_boundary_oracle"]
+        print("MEASURED_BOUNDARY=" + item["profile"] + ":" + b["classification"] +
+              ":ghidra=" + str(b.get("ghidra_interval_count", 0)) +
+              ":objdump=" + str(b.get("objdump_nonnop_interval_count", 0)) +
+              ":missing=" + str(b.get("missing_nonnop_bytes", -1)) +
+              ":extra=" + str(b.get("extra_nonoracle_bytes", -1)))
     print(report["result"])
 
 
