@@ -1,7 +1,9 @@
 """Offline source tests: preflight must reject missing pins, not launch a VM."""
 import unittest
 import pathlib
-from scripts.check_collage_catalog_preflight import evaluate, version_inventory, URI
+import urllib.error
+from scripts.check_collage_catalog_preflight import (evaluate, version_inventory,
+                                                       fixed_catalog_failure_reason, URI)
 
 class CatalogPreflightTests(unittest.TestCase):
     def test_public_vendor_catalog_uses_real_master_not_nonexistent_main(self):
@@ -56,6 +58,33 @@ class CatalogPreflightTests(unittest.TestCase):
                   ".github/workflows/official-minecraft-catalog-preflight.yml").read_text()
         self.assertIn("python3 scripts/check_collage_catalog_preflight.py --expected 1.15.31",workflow)
         self.assertIn('assert "1.15.30" not in v["visible_versions"]',workflow)
+
+    def test_catalog_http_and_transport_are_inconclusive_not_retired(self):
+        # The OP4K-018 standalone cheap CI returned exit 3 (not version drift).
+        # Classify without copying URLs, GitHub error bodies, tokens or traces.
+        cases = (
+            (urllib.error.HTTPError("https://private.example/SECRET", 403,
+                                    "SECRET", None, None),
+             "OFFICIAL_CATALOG_HTTP_THROTTLED_OR_FORBIDDEN"),
+            (urllib.error.HTTPError("https://private.example/SECRET", 429,
+                                    "SECRET", None, None),
+             "OFFICIAL_CATALOG_HTTP_THROTTLED_OR_FORBIDDEN"),
+            (urllib.error.HTTPError("https://private.example/SECRET", 404,
+                                    "SECRET", None, None),
+             "OFFICIAL_CATALOG_HTTP_NOT_FOUND"),
+            (urllib.error.HTTPError("https://private.example/SECRET", 502,
+                                    "SECRET", None, None),
+             "OFFICIAL_CATALOG_HTTP_OTHER"),
+            (urllib.error.URLError("SECRET-transport"),
+             "OFFICIAL_CATALOG_TRANSPORT_UNAVAILABLE"),
+            (OSError("SECRET-network"), "OFFICIAL_CATALOG_TRANSPORT_UNAVAILABLE"),
+            (ValueError("SECRET-json"), "OFFICIAL_CATALOG_RESPONSE_INVALID"),
+        )
+        for exc, code in cases:
+            with self.subTest(code=code):
+                category = fixed_catalog_failure_reason(exc)
+                self.assertEqual(category, code)
+                self.assertNotIn("SECRET", category)
 
     def test_no_float_latest_pin(self):
         rows=[{"name":"1.15.30","type":"dir"}]

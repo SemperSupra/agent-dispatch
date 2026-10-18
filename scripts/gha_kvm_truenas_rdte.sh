@@ -1230,7 +1230,7 @@ elif [[ "$T6_PRODUCT" == "minecraft-vanilla-263" ]]; then
     NATIVE_READBACK_ARGS=(
       --collage-source-dir "$REPO_ROOT/.deps/collage-source"
       --collage-https-port "$HTTPS_PORT"
-      --collage-source-ref "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8"
+      --collage-source-ref "b9256d6ec0dbac43be2f5a136103b6e3512ee2ec"
     )
   fi
   NATIVE_LANTERN_ARGS=()

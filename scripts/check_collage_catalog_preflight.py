@@ -54,6 +54,19 @@ def evaluate(rows: object, expected: str) -> dict:
     }
 
 
+def fixed_catalog_failure_reason(exc: Exception) -> str:
+    """No remote error/body/URL leakage; inconclusive is never version drift."""
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code in (403, 429):
+            return "OFFICIAL_CATALOG_HTTP_THROTTLED_OR_FORBIDDEN"
+        if exc.code == 404:
+            return "OFFICIAL_CATALOG_HTTP_NOT_FOUND"
+        return "OFFICIAL_CATALOG_HTTP_OTHER"
+    if isinstance(exc, urllib.error.URLError) or isinstance(exc, OSError):
+        return "OFFICIAL_CATALOG_TRANSPORT_UNAVAILABLE"
+    return "OFFICIAL_CATALOG_RESPONSE_INVALID"
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--expected", required=True)
@@ -69,11 +82,11 @@ def main() -> int:
             raise ValueError("CATALOG_LIST_OVERSIZED")
         row = evaluate(json.loads(payload), a.expected)
         status = 0 if row["classification"] == "PRE_KVM_CATALOG_VERSION_AVAILABLE" else 2
-    except (OSError, ValueError, urllib.error.HTTPError):
+    except (OSError, ValueError, urllib.error.HTTPError) as exc:
         row = {
             "schema": "collage.official-catalog-preflight/1",
             "classification": "PRE_KVM_CATALOG_INCONCLUSIVE",
-            "reason": "OFFICIAL_READONLY_CATALOG_UNAVAILABLE_OR_UNEXPECTED",
+            "reason": fixed_catalog_failure_reason(exc),
             "guest_catalog_observed": False, "world_mutated": False,
         }
         status = 3
