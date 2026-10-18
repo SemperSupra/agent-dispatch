@@ -10,12 +10,12 @@ from __future__ import annotations
 
 try:
     from .qualify_native_vanilla263_anvil_blocks import (
-        MAX_REGION, SCHEMA, inspect, require)
+        MAX_REGION, SCHEMA, Refused, inspect, require)
     from .qualify_vanilla263_native_world_rollback import (
         APP, WORLD, app_state)
 except ImportError:
     from qualify_native_vanilla263_anvil_blocks import (
-        MAX_REGION, SCHEMA, inspect, require)
+        MAX_REGION, SCHEMA, Refused, inspect, require)
     from qualify_vanilla263_native_world_rollback import (
         APP, WORLD, app_state)
 
