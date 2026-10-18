@@ -1,0 +1,67 @@
+{
+  "schema": "reversing-correlation-input/v1",
+  "run_id": "synthetic-run-001",
+  "mode": "synthetic",
+  "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "functions": [
+    {
+      "id": "fixture_fn_alpha",
+      "rva": 256,
+      "size": 32
+    },
+    {
+      "id": "fixture_fn_beta",
+      "rva": 320,
+      "size": 16
+    }
+  ],
+  "module_loads": [
+    {
+      "id": "load-main",
+      "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "base_va": 1879048192,
+      "size": 4096
+    }
+  ],
+  "events": [
+    {
+      "id": "executed-1",
+      "kind": "instruction",
+      "sensor": "synthetic-gdb",
+      "vantage": "guest",
+      "run_id": "synthetic-run-001",
+      "time_domain": "guest-monotonic",
+      "module_load_id": "load-main",
+      "va": 1879048453
+    },
+    {
+      "id": "packet-1",
+      "kind": "network",
+      "sensor": "synthetic-vnic",
+      "vantage": "hypervisor",
+      "run_id": "synthetic-run-001",
+      "time_domain": "host-monotonic",
+      "cause_event_id": "executed-1",
+      "resource_token": "test-packet"
+    },
+    {
+      "id": "file-1",
+      "kind": "file",
+      "sensor": "synthetic-audit",
+      "vantage": "guest",
+      "run_id": "synthetic-run-001",
+      "time_domain": "guest-monotonic",
+      "resource_token": "test-file"
+    },
+    {
+      "id": "unmapped-1",
+      "kind": "instruction",
+      "sensor": "synthetic-gdb",
+      "vantage": "guest",
+      "run_id": "synthetic-run-001",
+      "time_domain": "guest-monotonic",
+      "module_load_id": "load-main",
+      "va": 1879048704
+    }
+  ]
+}
