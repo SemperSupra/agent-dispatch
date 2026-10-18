@@ -20,11 +20,16 @@ except ImportError:
         APP, WORLD, app_state)
 
 PATH = WORLD + "/region/r.0.0.mca"
+REGION_DIRECTORY = WORLD + "/region"
+REGION_BASENAME = "r.0.0.mca"
+MAX_OWNED_REGION_ENTRIES = 4096
 STAGES = ("preaction", "candidate", "rollback")
 # Only these literal, non-sensitive phases may escape as a public diagnostic.
 PHASES = (
     "app_state_query", "app_stopped_verified",
     "file_stat", "file_stat_verified",
+    "file_stat_listing_absent", "file_stat_listing_present",
+    "file_stat_listing_inconclusive",
     "download_request", "download_route_verified",
     "download_job", "download_job_completed",
     "bytes_fetch", "bytes_verified", "anvil_decode", "anvil_verified",
@@ -36,6 +41,36 @@ def record_phase(stage: str, phase: str, reporter=None) -> None:
     if reporter is not None:
         reporter(stage + "." + phase)
 
+
+
+def classify_failed_stat(*, call, stage: str, on_phase=None) -> None:
+    """One extra fixed-path, read-only census after a failed native stat.
+
+    This is a diagnostic, never a fallback source of world bytes or authority.
+    A missing directory, provider error or malformed list is INCONCLUSIVE.
+    No raw paths, listing names, provider responses or errors reach the caller.
+    """
+    try:
+        rows = call("filesystem.listdir", [REGION_DIRECTORY])
+    except Exception:
+        record_phase(stage, "file_stat_listing_inconclusive", on_phase)
+        raise Refused("BACKEND_REGION_STAT_CENSUS_INCONCLUSIVE") from None
+    if (type(rows) is not list or len(rows) > MAX_OWNED_REGION_ENTRIES
+            or any(type(row) is not dict
+                   or type(row.get("name")) is not str
+                   or type(row.get("type")) is not str
+                   for row in rows)):
+        record_phase(stage, "file_stat_listing_inconclusive", on_phase)
+        raise Refused("BACKEND_REGION_STAT_CENSUS_INVALID") from None
+    matched = [row for row in rows if row["name"] == REGION_BASENAME]
+    if not matched:
+        record_phase(stage, "file_stat_listing_absent", on_phase)
+        raise Refused("BACKEND_REGION_NOT_LISTED_AFTER_STOP") from None
+    if len(matched) != 1 or matched[0]["type"] != "FILE":
+        record_phase(stage, "file_stat_listing_inconclusive", on_phase)
+        raise Refused("BACKEND_REGION_CENSUS_ENTRY_UNSAFE") from None
+    record_phase(stage, "file_stat_listing_present", on_phase)
+    raise Refused("BACKEND_REGION_STAT_REFUSED_BUT_FILE_LISTED") from None
 
 
 def capture(*, call, wait_job, fetch_bytes, stage: str, on_phase=None) -> dict:
@@ -50,7 +85,14 @@ def capture(*, call, wait_job, fetch_bytes, stage: str, on_phase=None) -> dict:
     require(app_state(call) == "STOPPED", "BACKEND_QUIESCENCE_NOT_OBSERVED")
     record_phase(stage, "app_stopped_verified", on_phase)
     record_phase(stage, "file_stat", on_phase)
-    stat = call("filesystem.stat", [PATH])
+    try:
+        stat = call("filesystem.stat", [PATH])
+    except Exception:
+        # The 019 real guest died here with only RuntimeError. Distinguish a
+        # missing fixed region entry from a provider/stat refusal, without
+        # reflecting private middleware error strings or accepting a fallback.
+        classify_failed_stat(call=call, stage=stage, on_phase=on_phase)
+        raise AssertionError("unreachable")
     require(type(stat) is dict and stat.get("type") == "FILE" and
             type(stat.get("size")) is int and
             8192 <= stat["size"] <= MAX_REGION, "BACKEND_REGION_FILE_NOT_EXACT")
