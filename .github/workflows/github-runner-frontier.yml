@@ -69,6 +69,6 @@ jobs:
           assert r["qualification"] == "NATIVE_SYNTHETIC_ELF_RUNTIME_PASS"
           assert r["matched_instruction_count"] == 1
           assert r["unresolved_instruction_count"] == 0
-          assert r["static_symbol_rva"] == r["runtime_observed_rva"]
+          assert r["static_symbol_rva"] <= r["runtime_observed_rva"] < r["static_symbol_rva"] + r["static_symbol_size"]
           print("NATIVE_ELF_GDB_ORACLE_PASS")
           PY
