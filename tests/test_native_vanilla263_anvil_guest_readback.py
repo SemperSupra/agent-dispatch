@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.qualify_native_vanilla263_anvil_guest_readback import (capture, PATH, REGION_DIRECTORY, record_phase)
+from scripts.qualify_native_vanilla263_anvil_guest_readback import (capture, PATH, REGION_DIRECTORY, record_phase, validate_single_use_download)
 from scripts.qualify_vanilla263_native_world_rollback import WORLD
 from scripts.qualify_native_vanilla263_anvil_blocks import Refused
 from scripts.qualify_vanilla263_native_world_rollback import APP
@@ -15,7 +15,7 @@ class NativeReadbackTests(unittest.TestCase):
         self.blob = build("candidate")
         self.state = "STOPPED"
         self.stat = {"type": "FILE", "size": len(self.blob)}
-        self.token = "/_download/synthetic-test-opaque"
+        self.token = "/_download/1001?auth_token=" + ("A" * 64)
         self.record = []
         self.downloaded = []
 
@@ -102,12 +102,55 @@ class NativeReadbackTests(unittest.TestCase):
                 self.stat = attr
                 self.reject("BACKEND_REGION_FILE_NOT_EXACT")
 
-    def test_refuse_injected_redirect_or_query(self):
-        for path in ("https://foreign.invalid/a", "/_download/../secrets",
-                     "/_download/a?x=secret", "/_download/a#fragment", "/outside"):
-            with self.subTest(path=path):
-                self.token = path
+    def test_vendor_true_nas_250426_download_shape_is_accepted(self):
+        # Actual pinned middleware core_service.py's return URL format.
+        # Token values are synthetic: no real host, credential or guest access.
+        route = "/_download/1001?auth_token=" + ("Qw7Nm3Kz" * 8)
+        job, selected = validate_single_use_download([1001, route])
+        self.assertEqual((job, selected), (1001, route))
+        self.token = route
+        self.assertEqual(self.capture_stage()["classification"],
+                         "SOURCE_ONLY_OWNED_ANVIL_DOWNLOAD_SEAM")
+        self.assertEqual(self.downloaded, [(1001, "G4 read-only owned Anvil file download")])
+        self.assertNotIn("auth_token", str(self.downloaded))
+
+    def test_fail_closed_foreign_redirect_token_job_replay_and_extra_query(self):
+        token = "SENSITIVE" * 8
+        allowed = "/_download/1001?auth_token=" + token
+        candidates = (
+            "https://foreign.invalid" + allowed,
+            "//foreign.invalid" + allowed,
+            "/_download/../1001?auth_token=" + token,
+            "/_download/1002?auth_token=" + token,
+            "/_download/01001?auth_token=" + token,
+            "/_download/1001",
+            "/_download/1001?x=" + token,
+            allowed + "&root=1",
+            allowed + "?extra=1",
+            allowed + "#fragment",
+            allowed.replace("auth_token=", "auth_token=%41"),
+            "/_download/1001?auth_token=a",
+            allowed + "/suffix",
+        )
+        for candidate in candidates:
+            with self.subTest(route_kind=candidate.split("?")[0][:20]):
+                self.token = candidate
                 self.reject("BACKEND_DOWNLOAD_ROUTE_INVALID")
+                self.assertEqual(self.downloaded, [])
+                self.assertNotIn(token, str(self.downloaded))
+        for row in ([True, allowed], ["1001", allowed],
+                    [0, allowed], [1002, allowed], [1001, allowed, "other"],
+                    {"job": 1001, "url": allowed}, [1001, None]):
+            with self.subTest(type_row=str(type(row))):
+                with self.assertRaisesRegex(Refused,
+                                            "BACKEND_DOWNLOAD_ROUTE_INVALID") as cm:
+                    validate_single_use_download(row)
+                self.assertNotIn(token, str(cm.exception))
+
+    def test_old_non_query_synthetic_download_is_rejected(self):
+        self.token = "/_download/synthetic-test-opaque"
+        self.reject("BACKEND_DOWNLOAD_ROUTE_INVALID")
+        self.assertEqual(self.downloaded, [])
 
     def test_refuse_wrong_file_bytes(self):
         self.blob = self.blob[:-1]

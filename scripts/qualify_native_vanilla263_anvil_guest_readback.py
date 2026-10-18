@@ -8,6 +8,8 @@ test nor a caller-provided bytes callback is an independent live guest receipt.
 """
 from __future__ import annotations
 
+import re
+
 try:
     from .qualify_native_vanilla263_anvil_blocks import (
         MAX_REGION, SCHEMA, Refused, inspect, require)
@@ -76,6 +78,28 @@ def classify_failed_stat(*, call, stage: str, on_phase=None) -> None:
     raise Refused("BACKEND_REGION_STAT_REFUSED_BUT_FILE_LISTED") from None
 
 
+
+def validate_single_use_download(row: object) -> tuple[int, str]:
+    """Accept only the exact job-bound TrueNAS single-use download URL.
+
+    Pinned truenas/middleware@244b717 service/core_service.py issues
+    /_download/{job.id}?auth_token={token}. file_app.py validates both
+    token and job ID. Never print or copy the bearer URL into a receipt.
+    This adapter cannot grant a token or broaden the underlying credential.
+    """
+    require(type(row) is list and len(row) == 2 and
+            type(row[0]) is int and 0 < row[0] < 10**12 and
+            type(row[1]) is str and len(row[1]) < 400,
+            "BACKEND_DOWNLOAD_ROUTE_INVALID")
+    job, route = row
+    # One fixed-origin relative path; exactly one job-bound query parameter.
+    # No foreign authority, fragment, traversal, percent escapes or extra args.
+    require(re.fullmatch(
+        rf"/_download/{job}\?auth_token=[A-Za-z0-9_-]{{16,256}}", route
+    ) is not None, "BACKEND_DOWNLOAD_ROUTE_INVALID")
+    return job, route
+
+
 def capture(*, call, wait_job, fetch_bytes, stage: str, on_phase=None) -> dict:
     """Only after existing *actual* guest runner verified owned App then stop.
 
@@ -103,19 +127,13 @@ def capture(*, call, wait_job, fetch_bytes, stage: str, on_phase=None) -> dict:
     record_phase(stage, "download_request", on_phase)
     row = call("core.download", [
         "filesystem.get", [PATH], "g4-owned-region-" + stage + ".mca", True])
-    require(type(row) is list and len(row) == 2 and
-            type(row[0]) is int and row[0] > 0 and
-            type(row[1]) is str and
-            row[1].startswith("/_download/") and
-            len(row[1]) <= 300 and
-            ".." not in row[1] and "?" not in row[1] and "#" not in row[1],
-            "BACKEND_DOWNLOAD_ROUTE_INVALID")
+    job_id, single_use_route = validate_single_use_download(row)
     record_phase(stage, "download_route_verified", on_phase)
     record_phase(stage, "download_job", on_phase)
-    wait_job(row[0], "G4 read-only owned Anvil file download")
+    wait_job(job_id, "G4 read-only owned Anvil file download")
     record_phase(stage, "download_job_completed", on_phase)
     record_phase(stage, "bytes_fetch", on_phase)
-    blob = fetch_bytes(row[1])
+    blob = fetch_bytes(single_use_route)
     require(type(blob) is bytes and len(blob) == stat["size"],
             "BACKEND_DOWNLOADED_FILE_DRIFT")
     record_phase(stage, "bytes_verified", on_phase)
