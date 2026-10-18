@@ -57,7 +57,12 @@ def validate_and_project(doc):
         "module_loads": doc["module_loads"], "events": doc["events"],
         "functions": projected,
     }
-    V1.validate(legacy)
+    try:
+        V1.validate(legacy)
+    except TypeError as exc:
+        # v1 membership checks can raise TypeError on JSON arrays/objects
+        # supplied where an enum string is required. Reject as contract data.
+        raise V1.ContractError("non-scalar projected contract field") from exc
     return legacy, surrogate_to_original, members
 
 
