@@ -21,6 +21,10 @@ SPEC = importlib.util.spec_from_file_location(
 NATIVE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(NATIVE)
 EXPORT_SCRIPT = ROOT / "scripts" / "ghidra" / "ReversingExportFunctions.java"
+V2SPEC = importlib.util.spec_from_file_location(
+    "reversing_correlator_v2", ROOT / "scripts" / "reversing_evidence_correlate_v2.py")
+V2 = importlib.util.module_from_spec(V2SPEC)
+V2SPEC.loader.exec_module(V2)
 SOURCE = r'''
 volatile long branch_seed = 3;
 __attribute__((noinline,used)) long fixture_target(long n) {
@@ -102,6 +106,62 @@ def function_assessment(export, symbol, size, image_base):
             "recovered_bytes": b-a, "oracle_bytes": size}
 
 
+def inspect_multirange_export(export, symbol, size, image_base, image_size, pc, digest):
+    """Use Ghidra's *reported disjoint intervals*, never a convex hull."""
+    fs = export.get("functions")
+    if not isinstance(fs, list):
+        return {"status": "INVALID_EXPORT"}
+    selected = [x for x in fs if isinstance(x, dict) and x.get("entry") == str(symbol)]
+    if len(selected) != 1 or not isinstance(selected[0].get("ranges"), list):
+        return {"status": "ENTRY_NOT_UNIQUELY_DISCOVERED"}
+    intervals = []
+    beyond_oracle = 0
+    for item in selected[0]["ranges"]:
+        if not isinstance(item, dict) or set(item) != {"start", "end_exclusive"}:
+            return {"status": "INVALID_INTERVAL"}
+        try:
+            a, b = int(item["start"]), int(item["end_exclusive"])
+        except (ValueError, TypeError, KeyError):
+            return {"status": "INVALID_INTERVAL"}
+        if not image_base <= a < b <= image_base + image_size:
+            return {"status": "OUTSIDE_MODULE_IMAGE"}
+        if a < symbol or b > symbol + size:
+            beyond_oracle += 1
+        intervals.append({"rva": a-image_base, "size": b-a})
+    doc = {
+        "schema": V2.INPUT, "run_id": "ghidra-contrast-v2",
+        "mode": "synthetic", "artifact_sha256": digest,
+        "functions": [{"id": "stripped_target", "intervals": intervals}],
+        "module_loads": [{"id": "native-main", "artifact_sha256": digest,
+                          "base_va": image_base, "size": image_size}],
+        "events": [{"id": "native-breakpoint", "kind": "instruction",
+                    "sensor": "native-gdb", "vantage": "guest",
+                    "run_id": "ghidra-contrast-v2", "time_domain": "debugger",
+                    "module_load_id": "native-main", "va": pc}],
+    }
+    try:
+        result = V2.correlate(doc)
+    except V2.V1.ContractError:
+        return {"status": "REJECTED_OVERLAPPING_OR_MALFORMED_INTERVAL_SET",
+                "reported_range_count": len(intervals)}
+    if not result["matched_instructions"] or result["unresolved_observations"]:
+        return {"status": "NO_UNIQUE_RUNTIME_ENTRY_MATCH",
+                "reported_range_count": len(intervals),
+                "unresolved_reason": result["unresolved_observations"][0]["reason"]
+                if result["unresolved_observations"] else "UNKNOWN"}
+    match = result["matched_instructions"][0]
+    return {
+        "status": "V2_ENTRY_CORRELATED_INTERVAL_SET",
+        "reported_range_count": len(intervals),
+        "matched_range_index": match["interval_index"],
+        "out_of_symbol_oracle_range_count": beyond_oracle,
+        "total_ghidra_body_bytes": sum(x["size"] for x in intervals),
+        "independent_nm_symbol_size": size,
+        "input_sha256": result["input_sha256"],
+        "interpretation": "ENTRY_MATCHED_ONLY_NOT_ALL_PATHS_OR_BODY_SEMANTICS",
+    }
+
+
 def run_program(argv, timeout=30):
     try:
         return NATIVE.run(argv, timeout=timeout)
@@ -162,7 +222,11 @@ def observe(ghidra_home, profile):
                                  stdin=subprocess.DEVNULL, timeout=240, check=False)
         if process.returncode != 0 or not exported.is_file() or exported.stat().st_size > 2097152:
             raise MatrixError("Ghidra headless infrastructure/export failure")
-        assessment = function_assessment(json.loads(exported.read_text(encoding="utf-8")), sym, size, image_base)
+        ghidra_export = json.loads(exported.read_text(encoding="utf-8"))
+        assessment = function_assessment(ghidra_export, sym, size, image_base)
+        interval_set = inspect_multirange_export(
+            ghidra_export, sym, size, image_base, image_size, pc,
+            sha256(stripped.read_bytes()).hexdigest())
         if assessment["outcome"] not in OUTCOMES:
             raise MatrixError("unknown assessment outcome")
         return {"profile": profile, "outcome": assessment["outcome"],
@@ -175,7 +239,8 @@ def observe(ghidra_home, profile):
                 "original_sha256": sha256(original.read_bytes()).hexdigest(),
                 "stripped_sha256": sha256(stripped.read_bytes()).hexdigest(),
                 "symbol_table_absent": True, "unwind_tables_absent": True,
-                "native_unmodified_fixture_exercised": True}
+                "native_unmodified_fixture_exercised": True,
+                "v2_interval_set": interval_set}
 
 
 def main():
@@ -205,6 +270,9 @@ def main():
               (":" + item["diagnostic"] if item["diagnostic"] else "") +
               (":ranges=" + str(item["reported_range_count"])
                if item["reported_range_count"] is not None else ""))
+        print("MEASURED_V2=" + item["profile"] + ":" +
+              item["v2_interval_set"]["status"] +
+              ":ranges=" + str(item["v2_interval_set"].get("reported_range_count", 0)))
     print(report["result"])
 
 
