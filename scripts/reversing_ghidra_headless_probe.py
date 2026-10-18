@@ -82,6 +82,7 @@ def run_probe(ghidra_home):
         if not base <= symbol < symbol + size <= base + total:
             raise GhidraOracleError("independent symbol does not fit the ELF load map")
         export = d / "ghidra-functions.json"
+        (d / "projects").mkdir(mode=0o700)
         script_dir = ROOT / "scripts" / "ghidra"
         proc = subprocess.run([str(analyze), str(d / "projects"), "reversing-fixture",
                                "-import", str(binary), "-scriptPath", str(script_dir),
@@ -90,7 +91,16 @@ def run_probe(ghidra_home):
                                "-deleteProject"], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, check=False, timeout=240)
         if proc.returncode != 0 or not export.is_file() or export.stat().st_size > MAX_EXPORT:
-            raise GhidraOracleError("Ghidra export failed, timeout, or unbounded output")
+            # This fixture contains no private input. Retain only bounded tool
+            # diagnostics, never full headless logs or intermediate binary bytes.
+            detail = "\n".join(
+                line[:220] for line in (proc.stdout + "\n" + proc.stderr).splitlines()
+                if any(word in line.lower() for word in
+                       ("error", "exception", "failed", "not found", "script"))
+            )[-2000:]
+            raise GhidraOracleError(
+                "Ghidra export incomplete (rc=" + str(proc.returncode) +
+                ", file_present=" + str(export.is_file()) + "); " + detail)
         function = parse_export(json.loads(export.read_text(encoding="utf-8")), symbol, size, base)
         gdb_output = native.run(["gdb", "--batch", "--nx", "--quiet", str(binary),
                                 "-ex", "set pagination off", "-ex", "break *fixture_target",
