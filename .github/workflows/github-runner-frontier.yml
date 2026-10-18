@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/github-runner-frontier.yml'
       - 'scripts/reversing_evidence_correlate.py'
+      - 'scripts/reversing_native_elf_probe.py'
       - 'tests/test_reversing_evidence_correlate.py'
       - 'fixtures/reversing-correlation-synthetic-v1.json'
       - 'docs/reversing-correlation-experiment.md'
@@ -44,4 +45,30 @@ jobs:
           assert len(r["static_functions_not_observed"]) == 1
           assert r["mode"] == "synthetic"
           print("SYNTHETIC_CONTRACT_PASS")
+          PY
+
+      - name: Check qualified native GNU debugger availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gdb >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends gdb
+          fi
+          command -v gcc nm readelf gdb
+      - name: Correlate generated native ELF with GDB execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_native_elf_probe.py --output "${RUNNER_TEMP}/reversing-native-elf.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          r = json.loads((Path(os.environ["RUNNER_TEMP"]) / "reversing-native-elf.json").read_text())
+          assert r["qualification"] == "NATIVE_SYNTHETIC_ELF_RUNTIME_PASS"
+          assert r["matched_instruction_count"] == 1
+          assert r["unresolved_instruction_count"] == 0
+          assert r["static_symbol_rva"] <= r["runtime_observed_rva"] < r["static_symbol_rva"] + r["static_symbol_size"]
+          print("NATIVE_ELF_GDB_ORACLE_PASS")
           PY
