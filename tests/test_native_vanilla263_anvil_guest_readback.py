@@ -132,12 +132,72 @@ class NativeReadbackTests(unittest.TestCase):
                     if method == fail_method:
                         raise RuntimeError("secret-password provider-path /mnt/private")
                     return previous(method, args)
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises(Refused if fail_method == "filesystem.stat"
+                                       else RuntimeError) as raised:
                     capture(call=injected, wait_job=self.wait, fetch_bytes=self.fetch,
                             stage="candidate", on_phase=phases.append)
-                self.assertEqual(phases[-1], last_phase)
+                self.assertEqual(phases[-1],
+                                 "candidate.file_stat_listing_inconclusive"
+                                 if fail_method == "filesystem.stat" else last_phase)
+                if fail_method == "filesystem.stat":
+                    self.assertEqual(str(raised.exception),
+                                     "BACKEND_REGION_STAT_CENSUS_INCONCLUSIVE")
                 self.assertNotIn("secret-password", str(phases))
                 self.assertNotIn("/mnt/private", str(phases))
+
+    def test_019_stat_failure_has_one_readonly_fixed_path_census(self):
+        # Synthetic 019-shaped failure only, NOT evidence of real guest file.
+        cases = [
+            ([], "BACKEND_REGION_NOT_LISTED_AFTER_STOP", "file_stat_listing_absent"),
+            ([{"name": "r.0.0.mca", "type": "FILE"}],
+             "BACKEND_REGION_STAT_REFUSED_BUT_FILE_LISTED", "file_stat_listing_present"),
+            ([{"name": "r.0.0.mca", "type": "DIRECTORY"}],
+             "BACKEND_REGION_CENSUS_ENTRY_UNSAFE", "file_stat_listing_inconclusive"),
+            ([{"name": "r.0.0.mca", "type": "FILE"}]*2,
+             "BACKEND_REGION_CENSUS_ENTRY_UNSAFE", "file_stat_listing_inconclusive"),
+            ({"secret": "private"}, "BACKEND_REGION_STAT_CENSUS_INVALID",
+             "file_stat_listing_inconclusive"),
+            ([{"name": "r.0.0.mca", "type": "FILE"}]*4097,
+             "BACKEND_REGION_STAT_CENSUS_INVALID", "file_stat_listing_inconclusive"),
+        ]
+        for entries, expected, last in cases:
+            with self.subTest(reason=expected):
+                calls, phases = [], []
+                def injected(method, args):
+                    calls.append(method)
+                    if method == "filesystem.stat":
+                        self.assertEqual(args, [PATH])
+                        raise RuntimeError("SECRET /mnt/foreign")
+                    if method == "filesystem.listdir":
+                        self.assertEqual(args, [PATH.rsplit("/", 1)[0]])
+                        return entries
+                    return self.call(method, args)
+                with self.assertRaises(Refused) as raised:
+                    capture(call=injected, wait_job=self.wait,
+                            fetch_bytes=self.fetch, stage="candidate",
+                            on_phase=phases.append)
+                self.assertEqual(str(raised.exception), expected)
+                self.assertEqual(calls, ["app.query", "filesystem.stat",
+                                         "filesystem.listdir"])
+                self.assertEqual(phases[-1], "candidate." + last)
+                self.assertEqual(self.downloaded, [])
+                self.assertNotIn("SECRET", str(phases) + str(raised.exception))
+
+    def test_019_inventory_failure_is_inconclusive_never_retry_or_escalate(self):
+        calls, phases = [], []
+        def injected(method, args):
+            calls.append(method)
+            if method in ("filesystem.stat", "filesystem.listdir"):
+                raise RuntimeError("SECRET provider error")
+            return self.call(method, args)
+        with self.assertRaises(Refused) as raised:
+            capture(call=injected, wait_job=self.wait,
+                    fetch_bytes=self.fetch, stage="preaction",
+                    on_phase=phases.append)
+        self.assertEqual(str(raised.exception), "BACKEND_REGION_STAT_CENSUS_INCONCLUSIVE")
+        self.assertEqual(calls, ["app.query", "filesystem.stat", "filesystem.listdir"])
+        self.assertEqual(phases[-1], "preaction.file_stat_listing_inconclusive")
+        self.assertEqual(self.downloaded, [])
 
     def test_download_job_and_http_failures_are_distinct(self):
         cases = (
