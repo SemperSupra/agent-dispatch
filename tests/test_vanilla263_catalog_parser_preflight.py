@@ -70,9 +70,9 @@ class ProductScopedParserTests(unittest.TestCase):
         self.assertIn('--native-catalog-profile "1.15.30"', harness)
         self.assertIn("--expected 1.15.31", workflow)
         self.assertEqual(request["request_id"],
-            "tn-25-04-2-6-t6-vanilla-263-op4l-019-pinned-readonly-join-anvil-three-checkpoint")
-        self.assertNotIn("018", request["request_id"])
-        self.assertIn("019", request["request_id"])
+            "tn-25-04-2-6-t6-vanilla-263-op4m-020-namespaced-overworld-anvil-three-checkpoint")
+        self.assertNotIn("019", request["request_id"])
+        self.assertIn("020", request["request_id"])
         self.assertEqual(request["consumer_authority_issue"], 627)
         self.assertEqual(request["authority_issue"], 423)
         self.assertEqual(set(request), {
