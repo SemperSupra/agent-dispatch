@@ -76,7 +76,8 @@ class CorrelationTests(unittest.TestCase):
         x = fixture(); x["events"].append(external(cause="i1"))
         r = MOD.correlate(x)
         self.assertEqual(r["causal_links"][0]["function_id"], "first")
-        self.assertEqual(r["external_events"][0]["status"], "EXPLICITLY_LINKED")
+        self.assertEqual(r["external_events"][0]["status"], "ASSERTED_CAUSE_UNVERIFIED")
+        self.assertEqual(r["causal_links"][0]["basis"], "CALLER_ASSERTED_SAME_RUN_EDGE_UNVERIFIED")
 
     def test_foreign_run_excluded_from_causal_join(self):
         x = fixture(); x["events"][0]["run_id"] = "foreign"
@@ -89,6 +90,14 @@ class CorrelationTests(unittest.TestCase):
         x = fixture(); x["events"][0]["va"] = 0x70000200
         x["events"].append(external(cause="i1"))
         self.assertEqual(MOD.correlate(x)["unresolved_links"][0]["reason"], "UNRESOLVED_CAUSE")
+
+    def test_forged_same_run_cause_is_never_called_proven(self):
+        x = fixture()
+        x["events"].append(external(cause="i1"))
+        r = MOD.correlate(x)
+        self.assertTrue(r["causal_links"])
+        self.assertNotIn("VERIFIED", r["external_events"][0]["status"])
+        self.assertEqual(r["interpretation"]["semantic_equivalence"], "NOT_PROVEN")
 
     def test_unknown_cause(self):
         x = fixture(); x["events"].append(external(cause="missing"))
