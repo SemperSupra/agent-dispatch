@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.qualify_native_vanilla263_anvil_guest_readback import capture, PATH, record_phase
+from scripts.qualify_native_vanilla263_anvil_guest_readback import (capture, PATH, REGION_DIRECTORY, record_phase)
+from scripts.qualify_vanilla263_native_world_rollback import WORLD
 from scripts.qualify_native_vanilla263_anvil_blocks import Refused
 from scripts.qualify_vanilla263_native_world_rollback import APP
 from tests.test_native_vanilla263_anvil_blocks import build
@@ -47,6 +48,27 @@ class NativeReadbackTests(unittest.TestCase):
         with self.assertRaises(Refused) as cm:
             self.capture_stage()
         self.assertEqual(str(cm.exception), reason)
+
+    def test_java_26_3_namespaced_overworld_region_is_exclusive(self):
+        correct = WORLD + "/dimensions/minecraft/overworld/region"
+        legacy = WORLD + "/region"
+        self.assertEqual(REGION_DIRECTORY, correct)
+        self.assertEqual(PATH, correct + "/r.0.0.mca")
+        self.assertNotEqual(PATH, legacy + "/r.0.0.mca")
+        # Valid-looking bytes from the old 1.21.11 location are never read.
+        requested = []
+        def strict(name, args):
+            requested.append((name, args))
+            if name == "filesystem.stat" and args == [legacy + "/r.0.0.mca"]:
+                self.fail("legacy 1.21.11 overworld fallback attempted")
+            return self.call(name, args)
+        result = capture(call=strict, wait_job=self.wait,
+                         fetch_bytes=self.fetch, stage="candidate")
+        self.assertFalse(result["native_guest_backend_independent_oracle_pass"]
+                         if "native_guest_backend_independent_oracle_pass" in result
+                         else result["backend_independent_world_oracle_pass"])
+        self.assertIn(("filesystem.stat", [PATH]), requested)
+        self.assertNotIn(("filesystem.stat", [legacy + "/r.0.0.mca"]), requested)
 
     def test_fixed_native_quiesced_read_only_path_and_nonclaim(self):
         result = self.capture_stage()
