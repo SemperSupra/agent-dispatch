@@ -85,6 +85,17 @@ class IntervalSetTests(unittest.TestCase):
         r=M.correlate(x)
         self.assertEqual(r["unresolved_observations"][0]["reason"], "FOREIGN_RUN")
 
+    def test_reject_nonscalar_enums_as_typed_contract_errors(self):
+        for field in ("mode", "kind", "vantage"):
+            with self.subTest(field=field):
+                x = fixture()
+                if field == "mode":
+                    x["mode"] = ["synthetic"]
+                else:
+                    x["events"][0][field] = ["instruction" if field == "kind" else "guest"]
+                with self.assertRaises(M.V1.ContractError):
+                    M.correlate(x)
+
     def test_empty_collection_has_no_false_observations(self):
         x=fixture(); x["events"]=[]
         r=M.correlate(x)
