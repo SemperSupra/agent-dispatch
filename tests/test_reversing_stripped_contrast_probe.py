@@ -43,7 +43,10 @@ class ContrastTests(unittest.TestCase):
 
     def test_discontiguous_body_not_promoted(self):
         x = fixture(); x["functions"][0]["ranges"].append({"start": "4198750", "end_exclusive": "4198760"})
-        self.assertEqual(self.check(x)["outcome"], "INVALID_FUNCTION_BODY")
+        r = self.check(x)
+        self.assertEqual(r["outcome"], "INVALID_FUNCTION_BODY")
+        self.assertEqual(r["diagnostic"], "MULTIRANGE_OR_EMPTY_BODY")
+        self.assertEqual(r["reported_range_count"], 2)
 
     def test_wrong_image_base_fail_closed(self):
         x = fixture(); x["image_base"] = "4194303"
