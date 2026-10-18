@@ -59,12 +59,17 @@ def parse_objdump_nonnop_ranges(text, symbol, size):
     return spans, boundaries
 
 
-def compare_ghidra_ranges(export, symbol, size, oracle_ranges, boundaries):
+def compare_ghidra_ranges(export, symbol, size, oracle_ranges, boundaries, image_base):
     if not isinstance(export, dict) or set(export) != {'schema','image_base','executable_format','functions'}:
         return {'classification':'INVALID_GHIDRA_EXPORT'}
     if export['schema'] != 'ghidra-function-ranges/v1' or not isinstance(export['functions'], list):
         return {'classification':'INVALID_GHIDRA_EXPORT'}
     if len(export['functions']) > 1024:
+        return {'classification':'INVALID_GHIDRA_EXPORT'}
+    if (not isinstance(export['image_base'], str) or not export['image_base'].isdigit()
+            or int(export['image_base']) != image_base
+            or not isinstance(export['executable_format'], str)
+            or 'ELF' not in export['executable_format']):
         return {'classification':'INVALID_GHIDRA_EXPORT'}
     selected = [f for f in export['functions'] if isinstance(f, dict) and f.get('entry') == str(symbol)]
     if len(selected) != 1 or set(selected[0]) != {'name','entry','ranges'}:
