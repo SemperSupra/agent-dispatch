@@ -68,7 +68,7 @@ def execute(ghidra_home):
         original_hash = sha256(original.read_bytes()).hexdigest()
         symbol, size = native.parse_symbol(native.run(["nm", "-n", "-S", "--defined-only", str(original)]))
         image_base, image_size = native.parse_image(native.run(["readelf", "-W", "-l", str(original)]))
-        shutil.copyfile(original, stripped)
+        shutil.copy2(original, stripped)
         native.run(["strip", "--strip-all", str(stripped)])
         stripped_hash = sha256(stripped.read_bytes()).hexdigest()
         if stripped_hash == original_hash or native.TARGET in native.run(["nm", "-D", str(stripped)]):
