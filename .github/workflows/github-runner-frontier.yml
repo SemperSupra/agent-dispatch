@@ -9,6 +9,8 @@ on:
       - 'scripts/reversing_ghidra_headless_probe.py'
       - 'scripts/reversing_ghidra_stripped_probe.py'
       - 'scripts/reversing_stripped_contrast_probe.py'
+      - 'scripts/reversing_evidence_correlate_v2.py'
+      - 'tests/test_reversing_evidence_correlate_v2.py'
       - 'tests/test_reversing_stripped_contrast_probe.py'
       - 'tests/test_reversing_ghidra_stripped_probe.py'
       - 'scripts/ghidra/ReversingExportFunctions.java'
@@ -137,6 +139,8 @@ jobs:
 
       - name: Test no-unwind contrast and negative-classification semantics
         run: python3 -m unittest -v tests/test_reversing_stripped_contrast_probe.py
+      - name: Test versioned disjoint function-body correlation
+        run: python3 -m unittest -v tests/test_reversing_evidence_correlate_v2.py
       - name: Measure native no-unwind Ghidra O0/O2 stripped contrast
         shell: bash
         run: |
@@ -151,6 +155,9 @@ jobs:
           assert r["schema"]=="reversing-stripped-contrast/v1"
           assert r["result"]=="MATRIX_MEASURED_NOT_FULL_RECOVERY_PROOF"
           assert {v["profile"] for v in r["profiles"]}=={"O0-no-unwind","O2-no-unwind"}
+          for v in r["profiles"]:
+            assert v["v2_interval_set"]["status"]=="V2_ENTRY_CORRELATED_INTERVAL_SET"
+          assert next(v for v in r["profiles"] if v["profile"]=="O2-no-unwind")["v2_interval_set"]["reported_range_count"] > 1
           for v in r["profiles"]:
             assert v["symbol_table_absent"] and v["unwind_tables_absent"]
             assert v["native_unmodified_fixture_exercised"]
