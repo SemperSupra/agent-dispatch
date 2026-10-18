@@ -4,7 +4,7 @@ Authority: https://github.com/mark-e-deyoung/ghidra-tools/issues/4
 
 ## Scope
 
-Deterministically correlate sampled runtime instruction virtual addresses with *unique* static function RVA intervals, only when bound to the exact loaded module identity and artifact SHA-256. Preserve all unknowns and do not infer that static-only functions are unreachable. External file/network/memory/driver events remain unattributed unless an explicit same-run causal observation points to a uniquely matched instruction. Clock proximity does **not** establish causality.
+Deterministically correlate sampled runtime instruction virtual addresses with *unique* static function RVA intervals, only when bound to the exact loaded module identity and artifact SHA-256. Preserve all unknowns and do not infer that static-only functions are unreachable. External file/network/memory/driver events remain unattributed unless an explicitly ASSERTED same-run causal observation points to a uniquely matched instruction. The assertion is UNVERIFIED without an independent oracle. Clock proximity does **not** establish causality.
 
 This is a public-safe synthetic contract, **not an implemented Ghidra plugin, VM debugger, QEMU/PANDA trace, or demonstration of a live process**. No real target binary is executed.
 
