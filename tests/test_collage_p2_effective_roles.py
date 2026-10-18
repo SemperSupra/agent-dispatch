@@ -6,7 +6,8 @@ import datetime as dt
 from scripts.truenas_middleware_collage_readback_p2 import (
     ObservationError, provision_guest_readonly, bounded_rbac_call, RBAC_CALL_SEQUENCE,
     classify_scoped_key_ddp_failure, scoped_key_record_count_suffix,
-    scoped_key_expiry_ejson,
+    scoped_key_expiry_ejson, validated_native_join_verdict,
+    SERVICE_UUID, VANILLA263_OWNER, VANILLA263_WORLD,
 )
 
 ROLE = "APPS_READ"
@@ -326,6 +327,86 @@ class RoleLinkageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ObservationError, reason):
                     provision_guest_readonly(fn)
                 self.assertNotIn("api_key.create", methods)
+
+
+class NativeJoin018Tests(unittest.TestCase):
+    """Pure sanitized child-result classification; no guest or API calls."""
+
+    def document(self):
+        return {
+            "schema": "collage.native-readback/1",
+            "classification": "PROVIDER_READBACK_MATCH",
+            "mutation_authorized": False,
+            "ownership_fields_matched": 6,
+            "service_id": SERVICE_UUID,
+            "native_app": VANILLA263_OWNER,
+            "world_id": VANILLA263_WORLD,
+            "native_app_version": "1.15.31",
+            "truenas_version": "25.04.2.6",
+            "source_plan_sha256": "a" * 64,
+        }
+
+    def adjudicate(self, code, result):
+        return validated_native_join_verdict(
+            code, json.dumps(result) if not isinstance(result, str) else result,
+            owner=VANILLA263_OWNER, world=VANILLA263_WORLD)
+
+    def refused(self, code, result, expected):
+        with self.assertRaises(ObservationError) as caught:
+            self.adjudicate(code, result)
+        self.assertEqual(str(caught.exception), expected)
+        self.assertNotIn("SECRET-DO-NOT-EMIT", str(caught.exception))
+
+    def test_independent_exact_positive_requires_readback_and_sha(self):
+        result = self.adjudicate(0, self.document())
+        self.assertEqual(result["ownership_fields_matched"], 6)
+        self.assertEqual(result["native_app_version"], "1.15.31")
+
+    def test_version_owner_service_replay_and_shape_fail_closed(self):
+        base = self.document()
+        for field, bad, reason in (
+            ("native_app_version", "1.15.30", "EXACT_CATALOG_INVALID"),
+            ("truenas_version", "25.04.2.7", "EXACT_CATALOG_INVALID"),
+            ("native_app", "foreign", "TARGET_INVALID"),
+            ("world_id", "foreign", "TARGET_INVALID"),
+            ("service_id", "foreign", "OWNER_FIELDS_INVALID"),
+            ("ownership_fields_matched", 5, "OWNER_FIELDS_INVALID"),
+            ("source_plan_sha256", "wrong", "SOURCE_DIGEST_INVALID"),
+            ("mutation_authorized", True, "OWNER_FIELDS_INVALID"),
+            ("classification", "REFUSED", "CLASSIFICATION_INVALID"),
+            ("schema", "foreign", "SCHEMA_INVALID"),
+        ):
+            d = dict(base)
+            d[field] = bad
+            with self.subTest(field=field):
+                self.refused(0, d, "NATIVE_READONLY_GUEST_JOIN_" + reason)
+
+    def test_fixed_child_codes_only_no_raw_private_reflection(self):
+        error = {"schema": "collage.native-readback/1",
+                 "classification": "REFUSED",
+                 "mutation_authorized": False,
+                 "reason": "NATIVE_VANILLA263_GUEST_PROFILE_DRIFT",
+                 "private": "SECRET-DO-NOT-EMIT"}
+        self.refused(2, error,
+                     "NATIVE_READONLY_GUEST_JOIN_REFUSED_NATIVE_VANILLA263_GUEST_PROFILE_DRIFT")
+        error["reason"] = "SENSITIVE_SECRET-DO-NOT-EMIT"
+        self.refused(2, error, "NATIVE_READONLY_GUEST_JOIN_REFUSED_OTHER")
+        error["reason"] = "NATIVE_READONLY_PROBE_FAILED"
+        self.refused(2, error,
+                     "NATIVE_READONLY_GUEST_JOIN_REFUSED_NATIVE_READONLY_PROBE_FAILED")
+        error["mutation_authorized"] = True
+        self.refused(2, error, "NATIVE_READONLY_GUEST_JOIN_CLIENT_EXIT")
+        self.refused(1, error, "NATIVE_READONLY_GUEST_JOIN_CLIENT_EXIT")
+        self.refused(0, "SECRET-DO-NOT-EMIT not json",
+                     "NATIVE_READONLY_GUEST_JOIN_NONJSON")
+        self.refused(0, "x" * 32768,
+                     "NATIVE_READONLY_GUEST_JOIN_OUTPUT_INVALID")
+        inconclusive = {"schema": "collage.native-readback/1",
+                        "classification": "INCONCLUSIVE",
+                        "mutation_authorized": False,
+                        "reason": "PROBE_EXECUTION_UNAVAILABLE"}
+        self.refused(3, inconclusive,
+                     "NATIVE_READONLY_GUEST_JOIN_CLIENT_INCONCLUSIVE")
 
 
 if __name__ == "__main__":
