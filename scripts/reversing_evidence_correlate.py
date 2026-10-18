@@ -143,8 +143,8 @@ def correlate(doc):
         else:
             links.append({"event_id": e["id"], "cause_event_id": cause_id,
                           "function_id": mapped[cause_id]["function_id"],
-                          "basis": "EXPLICIT_SAME_RUN_CAUSAL_EDGE_NOT_TIMING"})
-            x["status"] = "EXPLICITLY_LINKED"
+                          "basis": "CALLER_ASSERTED_SAME_RUN_EDGE_UNVERIFIED"})
+            x["status"] = "ASSERTED_CAUSE_UNVERIFIED"
     canonical = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     return {
         "schema": RESULT_SCHEMA, "run_id": doc["run_id"], "mode": doc["mode"],
@@ -156,7 +156,7 @@ def correlate(doc):
         "interpretation": {
             "coverage": "OBSERVED_SAMPLES_ONLY_NOT_EXHAUSTIVE",
             "static_not_observed": "NOT_EVIDENCE_OF_UNREACHABILITY",
-            "external_events": "NO_CODE_ATTRIBUTION_WITHOUT_EXPLICIT_CAUSE",
+            "external_events": "NO_CODE_ATTRIBUTION_WITHOUT_EXPLICIT_CAUSE_AND_INDEPENDENT_ORACLE",
             "time_domains": "NOT_SYNCHRONIZED_BY_THIS_ADAPTER",
             "semantic_equivalence": "NOT_PROVEN",
         },
