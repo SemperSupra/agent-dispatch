@@ -60,7 +60,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("permanently CONSUMED",current["purpose"])
         self.assertIn("OP4J-017", current["purpose"])
         self.assertIn("permanently consumed", current["purpose"])
-        self.assertIn("parser", current["purpose"])
+        self.assertIn("vanilla263-11531", current["purpose"])
         self.assertIn("OP4I-016",current["purpose"])
         self.assertIn("permanently CONSUMED",current["purpose"])
         self.assertIn("App1.15.31",current["purpose"])
