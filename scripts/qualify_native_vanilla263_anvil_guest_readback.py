@@ -19,8 +19,11 @@ except ImportError:
     from qualify_vanilla263_native_world_rollback import (
         APP, WORLD, app_state)
 
-PATH = WORLD + "/region/r.0.0.mca"
-REGION_DIRECTORY = WORLD + "/region"
+# Minecraft Java 26.1 Snapshot 6 migrated the Overworld (including region)
+# into dimensions/minecraft/overworld. The root region/ is legacy 1.21.11;
+# never fall back there for the exact 26.3 signed source target.
+REGION_DIRECTORY = WORLD + "/dimensions/minecraft/overworld/region"
+PATH = REGION_DIRECTORY + "/r.0.0.mca"
 REGION_BASENAME = "r.0.0.mca"
 MAX_OWNED_REGION_ENTRIES = 4096
 STAGES = ("preaction", "candidate", "rollback")
