@@ -96,7 +96,7 @@ class CorrelationTests(unittest.TestCase):
         x["events"].append(external(cause="i1"))
         r = MOD.correlate(x)
         self.assertTrue(r["causal_links"])
-        self.assertNotIn("VERIFIED", r["external_events"][0]["status"])
+        self.assertEqual(r["external_events"][0]["status"], "ASSERTED_CAUSE_UNVERIFIED")
         self.assertEqual(r["interpretation"]["semantic_equivalence"], "NOT_PROVEN")
 
     def test_unknown_cause(self):
