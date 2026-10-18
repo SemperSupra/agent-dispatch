@@ -8,6 +8,8 @@ on:
       - 'scripts/reversing_native_elf_probe.py'
       - 'scripts/reversing_ghidra_headless_probe.py'
       - 'scripts/reversing_ghidra_stripped_probe.py'
+      - 'scripts/reversing_stripped_contrast_probe.py'
+      - 'tests/test_reversing_stripped_contrast_probe.py'
       - 'tests/test_reversing_ghidra_stripped_probe.py'
       - 'scripts/ghidra/ReversingExportFunctions.java'
       - 'tests/test_reversing_ghidra_headless_probe.py'
@@ -22,7 +24,7 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -131,4 +133,30 @@ jobs:
           assert x["symbol_removed"] and x["original_symbol_artifact_sha256"] != x["actual_stripped_artifact_sha256"]
           assert x["oracle_symbol_rva"]==x["ghidra_recovered_function_rva"]==x["gdb_stripped_runtime_rva"]
           print("GHIDRA_STRIPPED_ELF_ORACLE_PASS")
+          PY
+
+      - name: Test no-unwind contrast and negative-classification semantics
+        run: python3 -m unittest -v tests/test_reversing_stripped_contrast_probe.py
+      - name: Measure native no-unwind Ghidra O0/O2 stripped contrast
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_stripped_contrast_probe.py \
+            --ghidra-home "${GHIDRA_HOME}" \
+            --output "${RUNNER_TEMP}/reversing-contrast-receipt.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads((Path(os.environ["RUNNER_TEMP"])/"reversing-contrast-receipt.json").read_text())
+          assert r["schema"]=="reversing-stripped-contrast/v1"
+          assert r["result"]=="MATRIX_MEASURED_NOT_FULL_RECOVERY_PROOF"
+          assert {v["profile"] for v in r["profiles"]}=={"O0-no-unwind","O2-no-unwind"}
+          for v in r["profiles"]:
+            assert v["symbol_table_absent"] and v["unwind_tables_absent"]
+            assert v["native_unmodified_fixture_exercised"]
+            assert v["original_sha256"]!=v["stripped_sha256"]
+            assert v["oracle_symbol_rva"]==v["gdb_pc_rva"]
+            assert v["outcome"] in {"ENTRY_NOT_FOUND","AMBIGUOUS_ENTRY","INVALID_FUNCTION_BODY",
+                  "BODY_EXTENDS_BEYOND_ORACLE","PARTIAL_BODY","EXACT_BODY"}
+          print("NO_UNWIND_CONTRAST_MATRIX_MEASURED")
           PY
