@@ -857,6 +857,8 @@ def main() -> int:
                     for ph in (
                         "app_state_query", "app_stopped_verified",
                         "file_stat", "file_stat_verified",
+                        "file_stat_listing_absent", "file_stat_listing_present",
+                        "file_stat_listing_inconclusive",
                         "download_request", "download_route_verified",
                         "download_job", "download_job_completed",
                         "bytes_fetch", "bytes_verified",
