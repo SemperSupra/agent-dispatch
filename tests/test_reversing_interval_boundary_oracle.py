@@ -81,7 +81,7 @@ class IndependentOracleTests(unittest.TestCase):
     def test_duplicate_entry_is_unknown(self):
         x = export(self.spans)
         x["functions"].append(copy.deepcopy(x["functions"][0]))
-        self.assertEqual(M.compare_ghidra_ranges(x, START, 6, self.spans, self.bounds)["classification"],
+        self.assertEqual(M.compare_ghidra_ranges(x, START, 6, self.spans, self.bounds, 0x400000)["classification"],
                          "ENTRY_NOT_UNIQUE")
 
 
