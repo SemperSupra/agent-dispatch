@@ -28,7 +28,7 @@ OWNER = "rdte-t6-minecraft-paper"
 WORLD_ID = "world-rdte-001"
 VANILLA263_OWNER = "rdte-t6-minecraft-vanilla-263"
 VANILLA263_WORLD = "lantern-rdte"
-VANILLA263_SOURCE_SHA = "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8"
+VANILLA263_SOURCE_SHA = "b9256d6ec0dbac43be2f5a136103b6e3512ee2ec"
 DEFAULT_SOURCE_SHA = "fbda94f3fea0a216ddd9c35b38a09d325bed3640"
 
 
@@ -371,6 +371,62 @@ def bounded_rbac_call(call):
     return invoke
 
 
+# Only fixed public-source refusal codes may cross from the child observer.
+# Never concatenate untrusted JSON reason/error strings or stderr into receipts.
+_ALLOWED_NATIVE_REFUSALS = frozenset({
+    "NATIVE_READONLY_PROBE_FAILED", "PROBE_OUTPUT_NOT_JSON",
+    "PROBE_OUTPUT_OVERSIZED", "INVALID_PROVIDER_REPORT",
+    "NATIVE_APP_READBACK_INVALID", "NATIVE_APP_NOT_RUNNING",
+    "PROVIDER_OWNERSHIP_MISMATCH", "ARTIFACT_TARGET_DRIFT",
+    "SERVICE_ID_REQUIRED_FOR_PROVIDER_READBACK",
+    "REALM_NOT_IN_ADMITTED_SITE_BOUNDARY",
+    "NATIVE_VANILLA263_TARGET_PROFILE_DRIFT",
+    "NATIVE_VANILLA263_GUEST_PROFILE_DRIFT",
+    "NATIVE_VANILLA263_CATALOG_PROFILE_REFUSED",
+    "NATIVE_CATALOG_PROFILE_WRONG_PRODUCT",
+    "MISSING_BOUNDED_API_AUTHORITY",
+})
+
+
+def validated_native_join_verdict(code: int, stdout: str, *, owner: str,
+                                  world: str) -> dict:
+    """Distinguish bounded failure planes while preserving read-only proof."""
+    if type(stdout) is not str or len(stdout.encode("utf-8")) >= 32768:
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_OUTPUT_INVALID")
+    try:
+        v = json.loads(stdout)
+    except ValueError:
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_NONJSON") from None
+    if type(v) is not dict or v.get("schema") != "collage.native-readback/1":
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_SCHEMA_INVALID")
+    if code != 0:
+        if code == 2 and v.get("classification") == "REFUSED" and (
+                v.get("mutation_authorized") is False):
+            why = v.get("reason")
+            suffix = why if type(why) is str and why in _ALLOWED_NATIVE_REFUSALS else "OTHER"
+            raise ObservationError("NATIVE_READONLY_GUEST_JOIN_REFUSED_" + suffix)
+        if code == 3 and v.get("classification") == "INCONCLUSIVE" and (
+                v.get("mutation_authorized") is False):
+            raise ObservationError("NATIVE_READONLY_GUEST_JOIN_CLIENT_INCONCLUSIVE")
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_CLIENT_EXIT")
+    if v.get("classification") != "PROVIDER_READBACK_MATCH":
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_CLASSIFICATION_INVALID")
+    if v.get("mutation_authorized") is not False or (
+            v.get("ownership_fields_matched") != 6 or
+            v.get("service_id") != SERVICE_UUID):
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_OWNER_FIELDS_INVALID")
+    if v.get("native_app") != owner or v.get("world_id") != world:
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_TARGET_INVALID")
+    digest = v.get("source_plan_sha256")
+    if type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_SOURCE_DIGEST_INVALID")
+    if owner == VANILLA263_OWNER and (
+            v.get("native_app_version") != "1.15.31" or
+            v.get("truenas_version") != "25.04.2.6"):
+        raise ObservationError("NATIVE_READONLY_GUEST_JOIN_EXACT_CATALOG_INVALID")
+    return v
+
+
 def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
                       state_dir: pathlib.Path, expected_source_sha: str
                       = DEFAULT_SOURCE_SHA, profile: str = "paper") -> dict:
@@ -403,24 +459,19 @@ def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
            "--host", hostname, "--username", NAME,
            "--trusted-realm-id", REALM,
            "--manager-id", "manager-rdte", "--fleet-id", "rdte"]
+    if profile == "vanilla263":
+        # Caller is already bound to exact immutable 1.15.31 Foundry control.
+        # Explicitly select the qualified current consumer, never float catalog.
+        cmd += ["--native-catalog-profile", "vanilla263-11531"]
     try:
         p = subprocess.run(cmd, env=env, text=True, capture_output=True,
                            timeout=180, check=False)
     except (OSError, subprocess.TimeoutExpired):
         raise ObservationError("NATIVE_READONLY_CLIENT_UNAVAILABLE") from None
-    # No raw stdout/stderr from clients or API; only extract declared schema.
-    try:
-        verdict = json.loads(p.stdout) if len(p.stdout) < 32768 else {}
-    except ValueError:
-        verdict = {}
-    require(p.returncode == 0 and verdict.get("schema") == "collage.native-readback/1"
-            and verdict.get("classification") == "PROVIDER_READBACK_MATCH"
-            and verdict.get("mutation_authorized") is False
-            and verdict.get("ownership_fields_matched") == 6
-            and verdict.get("service_id") == SERVICE_UUID
-            and verdict.get("native_app") == expected_owner
-            and verdict.get("world_id") == expected_world,
-            "NATIVE_READONLY_GUEST_JOIN_FAILED")
+    # Raw stdout/stderr and arbitrary child/provider data stay private.
+    # The fixed-code validator does not report secrets or controller data.
+    verdict = validated_native_join_verdict(
+        p.returncode, p.stdout, owner=expected_owner, world=expected_world)
     return {
         "schema": SCHEMA,
         "classification": "PROVIDER_READBACK_MATCH",
