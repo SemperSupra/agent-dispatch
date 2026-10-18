@@ -7,6 +7,8 @@ on:
       - 'scripts/reversing_evidence_correlate.py'
       - 'scripts/reversing_native_elf_probe.py'
       - 'scripts/reversing_ghidra_headless_probe.py'
+      - 'scripts/reversing_ghidra_stripped_probe.py'
+      - 'tests/test_reversing_ghidra_stripped_probe.py'
       - 'scripts/ghidra/ReversingExportFunctions.java'
       - 'tests/test_reversing_ghidra_headless_probe.py'
       - 'tests/test_reversing_evidence_correlate.py'
@@ -110,4 +112,23 @@ jobs:
           assert x["qualification"] == "NATIVE_SYNTHETIC_GHIDRA_GDB_CORRELATION_PASS"
           assert x["ghidra_function_rva"] == x["nm_symbol_rva"] == x["gdb_breakpoint_rva"]
           print("GHIDRA_GDB_REAL_ORACLE_PASS")
+          PY
+
+      - name: Test independent stripped-function oracle contract
+        run: python3 -m unittest -v tests/test_reversing_ghidra_stripped_probe.py
+      - name: Run real Ghidra headless/GDB against symbol-stripped ELF
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_ghidra_stripped_probe.py \
+            --ghidra-home "${GHIDRA_HOME}" \
+            --output "${RUNNER_TEMP}/ghidra-stripped-receipt.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          x=json.loads((Path(os.environ["RUNNER_TEMP"])/"ghidra-stripped-receipt.json").read_text())
+          assert x["qualification"]=="NATIVE_STRIPPED_ELF_GHIDRA_GDB_PASS"
+          assert x["symbol_removed"] and x["original_symbol_artifact_sha256"] != x["actual_stripped_artifact_sha256"]
+          assert x["oracle_symbol_rva"]==x["ghidra_recovered_function_rva"]==x["gdb_stripped_runtime_rva"]
+          print("GHIDRA_STRIPPED_ELF_ORACLE_PASS")
           PY
