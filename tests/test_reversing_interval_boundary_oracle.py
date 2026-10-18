@@ -32,7 +32,7 @@ class IndependentOracleTests(unittest.TestCase):
         self.spans, self.bounds = M.parse_objdump_nonnop_ranges(RAW, START, 6)
 
     def check(self, pairs):
-        return M.compare_ghidra_ranges(export(pairs), START, 6, self.spans, self.bounds)
+        return M.compare_ghidra_ranges(export(pairs), START, 6, self.spans, self.bounds, 0x400000)
 
     def test_exact_discontiguous_nonnop(self):
         self.assertEqual(self.spans, [(START, START+2), (START+5, START+6)])
@@ -69,6 +69,14 @@ class IndependentOracleTests(unittest.TestCase):
         raw = "0000000000401000 <fixture_target>:\n 401000: 90 nop\n"
         with self.assertRaises(M.BoundaryOracleError):
             M.parse_objdump_nonnop_ranges(raw, START, 1)
+
+    def test_wrong_image_base_and_non_elf_cannot_pass(self):
+        for key, value in (("image_base", str(0x500000)), ("executable_format", "PE")):
+            with self.subTest(key=key):
+                x = export(self.spans)
+                x[key] = value
+                r = M.compare_ghidra_ranges(x, START, 6, self.spans, self.bounds, 0x400000)
+                self.assertEqual(r["classification"], "INVALID_GHIDRA_EXPORT")
 
     def test_duplicate_entry_is_unknown(self):
         x = export(self.spans)
