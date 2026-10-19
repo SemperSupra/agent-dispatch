@@ -35,7 +35,16 @@ def parse_objdump_nonnop_ranges(text, symbol, size):
             raise BoundaryOracleError('objdump address outside nm symbol')
         nbytes = len(match[2].split())
         asm = match[3].lower()
-        padding = bool(re.search(r'\bnop[a-z]*\b', asm))
+        # A NOP token in an operand, comment, or symbol is not a NOP opcode.
+        # GNU x86 objdump may render multi-byte alignment NOPs with prefixes.
+        tokens = asm.split()
+        prefixes = {'data16', 'addr32', 'cs', 'ss', 'ds', 'es', 'fs', 'gs',
+                    'rex', 'rex.w', 'rep', 'repz', 'repne', 'lock'}
+        while tokens and tokens[0] in prefixes:
+            tokens.pop(0)
+        if not tokens:
+            raise BoundaryOracleError('missing disassembled mnemonic')
+        padding = bool(re.fullmatch(r'nop[a-z]*', tokens[0]))
         if addr + nbytes > symbol + size:
             raise BoundaryOracleError('objdump instruction exceeds nm symbol')
         entries.append((addr, addr+nbytes, padding))
