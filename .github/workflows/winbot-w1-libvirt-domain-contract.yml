@@ -65,7 +65,16 @@ jobs:
             "claim_boundary":"synthetic plan and libvirt Relax NG validation ONLY",
           },indent=2)+"\n")
           PY
-          virt-xml-validate "$out/candidate.xml"
+          virt-xml-validate "$out/candidate.xml" domain
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          out=pathlib.Path("/tmp/winbot-w1-xml")
+          p=out/"classification.json"
+          receipt=json.loads(p.read_text())
+          receipt["host_native_xml_validated"]=True
+          receipt["candidate_xml_sha256"]=hashlib.sha256((out/"candidate.xml").read_bytes()).hexdigest()
+          p.write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n")
+          PY
       - name: Preserve inert XML and non-admission classification
         if: always()
         uses: actions/upload-artifact@v4
