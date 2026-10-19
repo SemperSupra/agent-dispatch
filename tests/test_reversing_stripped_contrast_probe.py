@@ -56,6 +56,19 @@ class ContrastTests(unittest.TestCase):
         x = fixture(); x["source"] = "restricted"
         with self.assertRaises(M.MatrixError): self.check(x)
 
+    def test_only_bounded_volatiles_change_in_seed_contrast(self):
+        baseline = M.fixture_source("O2-no-unwind")
+        alternate = M.fixture_source("O2-seed2-no-unwind")
+        self.assertIn("volatile long branch_seed = 3;", baseline)
+        self.assertIn("volatile long branch_seed = 2;", alternate)
+        self.assertEqual(alternate.replace("branch_seed = 2;", "branch_seed = 3;"), baseline)
+        self.assertEqual(M.PROFILE_SEEDS["O2-seed2-no-unwind"], 2)
+        self.assertEqual(M.PROFILE_SEEDS["O2-no-unwind"], 3)
+
+    def test_unregistered_source_profile_rejected(self):
+        with self.assertRaises(M.MatrixError):
+            M.fixture_source("host-provided-input")
+
     def test_unregistered_profile_not_executed(self):
         with self.assertRaises(M.MatrixError): M.observe(Path("/no-ghidra"), "user-supplied")
 
