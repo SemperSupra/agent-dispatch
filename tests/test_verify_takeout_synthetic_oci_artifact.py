@@ -28,8 +28,9 @@ def j(value):
 
 def make_artifact(path, *, corrupt_layer=False, user="10001:10001",
                   claim="NOT_RUN", wrong_receipt=False,
-                  docker_transport=False, docker_corruption=False, bad_docker_receipt=False):
-    layers = [bytes([n]) * (n + 3) for n in range(5)]
+                  docker_transport=False, docker_corruption=False, bad_docker_receipt=False,
+                  layers_count=5, source_sha=SOURCE):
+    layers = [bytes([n]) * (n + 3) for n in range(layers_count)]
     config = j({"os": "linux", "architecture": "amd64",
                 "config": {"User": user, "Entrypoint": ["python3", "/app/fixture.py"],
                            "ExposedPorts": None}})
@@ -52,12 +53,12 @@ def make_artifact(path, *, corrupt_layer=False, user="10001:10001",
             member = tarfile.TarInfo(name)
             member.size = len(data)
             archive.addfile(member, io.BytesIO(data))
-    receipt = {"source_sha": SOURCE if not wrong_receipt else "1" * 40,
+    receipt = {"source_sha": source_sha if not wrong_receipt else "1" * 40,
                "image_digest": blob(manifest), "guest": claim, "admission": "HOLD",
                "guest_attempt_budget": 0}
     files = {"fixture.oci.tar": tar_buffer.getvalue(), "image.json": b"{}",
              "loaded-config-digest.txt": blob(config).encode("ascii"),
-             "source-sha.txt": SOURCE.encode("ascii"),
+             "source-sha.txt": source_sha.encode("ascii"),
              "first.json": b"{}", "restart.json": b"{}"}
     if docker_transport:
         names = ["blobs/sha256/" + blob(x)[7:] for x in layers]
@@ -96,19 +97,35 @@ class VerifyTests(unittest.TestCase):
 
     def check(self, *, corrupt_layer=False, user="10001:10001",
               claim="NOT_RUN", wrong_receipt=False,
-              docker_transport=False, docker_corruption=False, bad_docker_receipt=False):
+              docker_transport=False, docker_corruption=False, bad_docker_receipt=False,
+              layers_count=5, source_sha=SOURCE):
         image = make_artifact(self.path, corrupt_layer=corrupt_layer,
                               user=user, claim=claim, wrong_receipt=wrong_receipt,
                               docker_transport=docker_transport,
                               docker_corruption=docker_corruption,
-                              bad_docker_receipt=bad_docker_receipt)
-        return v.verify(self.path, v.file_hash(self.path), image, SOURCE)
+                              bad_docker_receipt=bad_docker_receipt,
+                              layers_count=layers_count, source_sha=source_sha)
+        return v.verify(self.path, v.file_hash(self.path), image, source_sha)
 
     def test_correct_package(self):
         result = self.check()
         self.assertEqual((result["status"], result["layers"], result["uid"]),
                          ("PASS", 5, "10001:10001"))
         self.assertEqual(result["truenas_guest"], "NOT_RUN")
+
+    def test_report_source_exact_six_layers_passes(self):
+        result = self.check(docker_transport=True, layers_count=6,
+                            source_sha=v.REPORT_SOURCE_SHA)
+        self.assertEqual((result["layers"], result["docker_archive_layers"]), (6, 6))
+
+    def test_report_source_wrong_layer_count_fails_closed(self):
+        with self.assertRaisesRegex(v.Blocked, "UNEXPECTED_LAYER_COUNT"):
+            self.check(docker_transport=True, layers_count=5,
+                       source_sha=v.REPORT_SOURCE_SHA)
+
+    def test_old_source_extra_layer_still_blocked(self):
+        with self.assertRaisesRegex(v.Blocked, "UNEXPECTED_LAYER_COUNT"):
+            self.check(docker_transport=True, layers_count=6, source_sha=SOURCE)
 
     def test_tampered_layer_even_with_rehashed_outer_zip(self):
         with self.assertRaisesRegex(v.Blocked, "TAMPERED_OCI_BLOB"):
