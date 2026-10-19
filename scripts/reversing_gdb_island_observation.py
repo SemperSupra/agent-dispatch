@@ -10,8 +10,8 @@ import re
 class IslandObservationError(ValueError):
     pass
 
-_GDB_BREAK_SET = re.compile(r'^Breakpoint 1 at 0x([0-9a-fA-F]+)\\b', re.MULTILINE)
-_GDB_BREAK_HIT = re.compile(r'^Breakpoint 1, 0x([0-9a-fA-F]+)\\b', re.MULTILINE)
+_GDB_BREAK_SET = re.compile(r'^Breakpoint 1 at 0x([0-9a-fA-F]+)\b', re.MULTILINE)
+_GDB_BREAK_HIT = re.compile(r'^Breakpoint 1, 0x([0-9a-fA-F]+)\b', re.MULTILINE)
 
 
 def classify_gdb_single_breakpoint(output, requested_va):
@@ -29,7 +29,7 @@ def classify_gdb_single_breakpoint(output, requested_va):
         if re.search(r'(?:signal SIG|Program received signal|No such process)', output, re.I):
             raise IslandObservationError('debugger reports a signal or invalid process')
         return 'BREAKPOINT_OBSERVED'
-    if re.search(r'\\bexited normally\\b', output, re.I):
+    if re.search(r'\bexited normally\b', output, re.I):
         return 'NOT_OBSERVED_IN_THIS_RUN'
     raise IslandObservationError('neither breakpoint hit nor normal process completion')
 
