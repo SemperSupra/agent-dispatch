@@ -33,6 +33,10 @@ ISLANDSPEC = importlib.util.spec_from_file_location(
     "reversing_gdb_islands", ROOT / "scripts" / "reversing_gdb_island_observation.py")
 ISLAND = importlib.util.module_from_spec(ISLANDSPEC)
 ISLANDSPEC.loader.exec_module(ISLAND)
+RDISPEC = importlib.util.spec_from_file_location(
+    "reversing_gdb_rdi", ROOT / "scripts" / "reversing_gdb_rdi_intervention.py")
+RDI = importlib.util.module_from_spec(RDISPEC)
+RDISPEC.loader.exec_module(RDI)
 SOURCE = r'''
 volatile long branch_seed = 3;
 __attribute__((noinline,used)) long fixture_target(long n) {
@@ -268,6 +272,17 @@ def observe(ghidra_home, profile):
             runtime_islands = {
                 "status": "NOT_RUN_STATIC_PRECONDITION_NOT_EXACT",
                 "interpretation": "NO_GUESSED_GDB_ISLAND_ADDRS_ON_STRUCTURAL_MISMATCH"}
+        immutable_before = sha256(stripped.read_bytes()).hexdigest()
+        if boundary_assessment["classification"] == "EXACT_OBJDUMP_NONNOP_INTERVALS":
+            rdi_intervention = RDI.observe_intervened_islands(
+                stripped, sym, independent_nonnop, run_program)
+        else:
+            rdi_intervention = {
+                "status": "NOT_RUN_STATIC_PRECONDITION_NOT_EXACT",
+                "interpretation": "NO_GUESSED_PC_OR_RDI_INTERVENTION"}
+        immutable_after = sha256(stripped.read_bytes()).hexdigest()
+        if immutable_before != immutable_after:
+            raise MatrixError("synthetic stripped binary modified across GDB runs")
         interval_set = inspect_multirange_export(
             ghidra_export, sym, size, image_base, image_size, pc,
             sha256(stripped.read_bytes()).hexdigest())
@@ -288,7 +303,9 @@ def observe(ghidra_home, profile):
                 "v2_interval_set": interval_set,
                 "independent_objdump_boundary_oracle": boundary_assessment,
                 "stripped_original_text_sha256": text_sha256,
-                "native_gdb_island_observations": runtime_islands}
+                "native_gdb_island_observations": runtime_islands,
+                "rdi_intervention": rdi_intervention,
+                "rdi_binary_unchanged_sha256": immutable_after}
 
 
 def main():
@@ -312,6 +329,7 @@ def main():
                          "objdump-linear-decode-not-independent-cfg-ownership",
                          "gdb-breakpoint-hit-per-range-entry-is-a-sample-not-all-paths",
                          "seed-contrast-separate-synthetic-builds-not-path-coverage",
+                         "RDI-intervention-samples-separate-runs-not-control-flow-completeness",
                          "no-VM-or-external-sensors",
                          "no-Windows-Android-or-FRITZ", "no-source-equivalence-proof"]
     }
@@ -335,6 +353,14 @@ def main():
         print("MEASURED_ISLANDS=" + item["profile"] + ":" + islands["status"] +
               ":observed=" + str(islands.get("observed_count", 0)) +
               ":not_observed=" + str(islands.get("not_observed_count", 0)))
+        intervention = item["rdi_intervention"]
+        if intervention["status"] == "RDI_INTERVENTION_ISLAND_SAMPLES_MEASURED":
+            for row in intervention["arguments"]:
+                print("MEASURED_RDI=" + item["profile"] + ":n=" + str(row["argument_n"]) +
+                      ":observed=" + repr(row["observed_indices"]) +
+                      ":not_observed=" + repr(row["not_observed_indices"]))
+        else:
+            print("MEASURED_RDI=" + item["profile"] + ":" + intervention["status"])
     print(report["result"])
 
 
