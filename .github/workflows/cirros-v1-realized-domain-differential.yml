@@ -61,6 +61,10 @@ jobs:
           owned_nic="/var/lib/libvirt/images/ad-v1-realized-$uuid_nic"
           owned_nic_created=0
           domain_nic_defined=0
+          uuid_kvm='ed0b56c4-1467-5eca-af37-322c0f8ded1a'
+          owned_kvm="/var/lib/libvirt/images/ad-v1-realized-$uuid_kvm"
+          owned_kvm_created=0
+          domain_kvm_defined=0
           qpid=''
           npid=''
           nnpid=''
@@ -78,6 +82,11 @@ jobs:
               kill "$nnpid" 2>/dev/null
               wait "$nnpid" 2>/dev/null
             fi
+            if [[ "$domain_kvm_defined" == 1 ]]; then
+              sudo virsh -c qemu:///system destroy "$uuid_kvm" >/dev/null 2>&1
+              sudo virsh -c qemu:///system undefine "$uuid_kvm" --nvram >/dev/null 2>&1 \
+                || sudo virsh -c qemu:///system undefine "$uuid_kvm" >/dev/null 2>&1
+            fi
             if [[ "$domain_nic_defined" == 1 ]]; then
               sudo virsh -c qemu:///system destroy "$uuid_nic" >/dev/null 2>&1
               sudo virsh -c qemu:///system undefine "$uuid_nic" --nvram >/dev/null 2>&1 \
@@ -90,9 +99,10 @@ jobs:
             fi
             if [[ "$owned_created" == 1 && -d "$owned" ]]; then sudo rm -rf -- "$owned"; fi
             if [[ "$owned_nic_created" == 1 && -d "$owned_nic" ]]; then sudo rm -rf -- "$owned_nic"; fi
-            if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1 || sudo virsh -c qemu:///system dominfo "$uuid_nic" >/dev/null 2>&1; then
+            if [[ "$owned_kvm_created" == 1 && -d "$owned_kvm" ]]; then sudo rm -rf -- "$owned_kvm"; fi
+            if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1 || sudo virsh -c qemu:///system dominfo "$uuid_nic" >/dev/null 2>&1 || sudo virsh -c qemu:///system dominfo "$uuid_kvm" >/dev/null 2>&1; then
               echo '{"owned_domain_absent":false}' > cleanup.json
-            elif sudo test -e "$owned" || sudo test -e "$owned_nic"; then
+            elif sudo test -e "$owned" || sudo test -e "$owned_nic" || sudo test -e "$owned_kvm"; then
               echo '{"owned_domain_absent":true,"owned_files_absent":false}' > cleanup.json
             else
               echo '{"owned_domain_absent":true,"owned_files_absent":true}' > cleanup.json
@@ -104,6 +114,9 @@ jobs:
           fi
           if sudo virsh -c qemu:///system dominfo "$uuid_nic" >/dev/null 2>&1 || sudo test -e "$owned_nic"; then
             echo "Preexisting secondary libvirt UUID/path, refusing to touch it" >&2; exit 4
+          fi
+          if sudo virsh -c qemu:///system dominfo "$uuid_kvm" >/dev/null 2>&1 || sudo test -e "$owned_kvm"; then
+            echo "Preexisting KVM UUID/path, refusing to touch it" >&2; exit 4
           fi
           # Only an absent, preflight-owned path is eligible for later deletion.
           owned_created=1
@@ -308,6 +321,65 @@ jobs:
           sudo cp "$owned_nic/serial.log" libvirt-nic-console.log
           sudo chown "$(id -u):$(id -g)" libvirt-nic-console.log
           printf '{"nonce":%s}\n' "$([[ "$found" == 1 ]] && echo true || echo false)" > libvirt-nic-oracle.json
+
+          # WinBot #108: independent KVM-accelerated native Linux substrate
+          # qualifier. Reuse the existing tiny pinned guest/seed/owned libvirt
+          # contract; this is NOT Windows or WinBot qualification.
+          if ! sudo test -c /dev/kvm; then
+            printf '{"kvm_device_observed":false,"accel_argument_observed":false,"nonce":false,"classification":"ENVIRONMENT_FAILURE"}\n' > libvirt-kvm-oracle.json
+          else
+            sudo install -d -o libvirt-qemu -g kvm -m 0750 "$owned_kvm"
+            owned_kvm_created=1
+            sudo install -o libvirt-qemu -g kvm -m 0644 pristine.raw "$owned_kvm/cirros.raw"
+            sudo install -o libvirt-qemu -g kvm -m 0644 seed.iso "$owned_kvm/seed.iso"
+            sudo install -o libvirt-qemu -g kvm -m 0644 "$vars" "$owned_kvm/nvram.fd"
+            sed -e "s@$uuid_nic@$uuid_kvm@g" \
+                -e "s@$owned_nic@$owned_kvm@g" \
+                -e "s@domain type='qemu'@domain type='kvm'@" \
+                libvirt-domain-nic.xml > libvirt-domain-kvm.xml
+            sudo virt-xml-validate libvirt-domain-kvm.xml
+            sudo virsh -c qemu:///system define libvirt-domain-kvm.xml
+            domain_kvm_defined=1
+            sudo virsh -c qemu:///system start "$uuid_kvm"
+            sudo virsh -c qemu:///system dumpxml "$uuid_kvm" > libvirt-kvm-realized.xml
+            sudo virsh -c qemu:///system domxml-to-native qemu-argv libvirt-kvm-realized.xml > libvirt-kvm-native-argv.txt
+            sudo python3 - "$uuid_kvm" libvirt-kvm-process-realized-argv.json libvirt-kvm-accel.json <<'PY'
+          import json, pathlib, sys
+          uid=sys.argv[1]
+          found=[]
+          for path in pathlib.Path("/proc").iterdir():
+              if not path.name.isdecimal(): continue
+              try:
+                  raw=(path/"cmdline").read_bytes().rstrip(b"\0")
+                  args=raw.decode(errors="replace").split("\0")
+                  if args and args[0].endswith("qemu-system-x86_64") and any(uid in arg for arg in args[1:]):
+                      found.append(args)
+              except (OSError, PermissionError):
+                  pass
+          assert len(found)==1, f"expected one exact-owned KVM libvirt QEMU, observed {len(found)}"
+          args=found[0]
+          accelerated = "-enable-kvm" in args or any("accel=kvm" in arg for arg in args)
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(args, indent=2)+"\n")
+          pathlib.Path(sys.argv[3]).write_text(json.dumps({"accel_argument_observed":accelerated,"kvm_device_observed":True})+"\n")
+          PY
+            found=0
+            for _ in $(seq 1 60); do
+              if sudo grep -Fq "$marker" "$owned_kvm/serial.log" 2>/dev/null; then found=1; break; fi
+              state="$(sudo virsh -c qemu:///system domstate "$uuid_kvm" 2>/dev/null || true)"
+              if [[ "$state" != running && "$state" != idle ]]; then break; fi
+              sleep 1
+            done
+            sudo cp "$owned_kvm/serial.log" libvirt-kvm-console.log
+            sudo chown "$(id -u):$(id -g)" libvirt-kvm-console.log
+            sudo python3 - "$found" <<'PY'
+          import json, pathlib, sys
+          p=pathlib.Path("libvirt-kvm-accel.json")
+          data=json.loads(p.read_text())
+          data["nonce"]=sys.argv[1]=="1"
+          data["classification"]="SUPPORTED" if data["nonce"] and data["accel_argument_observed"] else "ORACLE_FAILURE"
+          pathlib.Path("libvirt-kvm-oracle.json").write_text(json.dumps(data,sort_keys=True)+"\n")
+          PY
+          fi
       - name: Classify differential (never a platform-V1 acceptance)
         if: always()
         shell: bash
@@ -320,12 +392,13 @@ jobs:
           nodefaults=load("direct-nodefaults-oracle.json")
           nic=load("direct-nodefaults-nic-oracle.json")
           libvirt_nic=load("libvirt-nic-oracle.json")
+          libvirt_kvm=load("libvirt-kvm-oracle.json")
           def boots(name):
               p=d/name
               return p.read_bytes().count(b"BdsDxe: starting Boot") if p.exists() else None
           cleanup=load("cleanup.json")
           classification=("HARNESS_FAILURE" if direct is None or direct.get("nonce") is not True
-                          or libvirt is None or libvirt_nic is None or nodefaults is None or nic is None or not cleanup or
+                          or libvirt is None or libvirt_nic is None or libvirt_kvm is None or nodefaults is None or nic is None or not cleanup or
                           cleanup.get("owned_domain_absent") is not True or
                           cleanup.get("owned_files_absent") is not True or
                           load("direct-realized-argv.json") is None or
@@ -345,17 +418,21 @@ jobs:
               "nodefaults_isolated_cause":False,
               "libvirt_nonce":libvirt,
               "libvirt_explicit_nic_nonce":libvirt_nic,
+              "standalone_linux_kvm_substrate":libvirt_kvm,
+              "standalone_kvm_claim_boundary":"Linux/KVM tiny public guest only; Windows and WinBot guest/conformance not tested",
               "network_device_recovery_supported":libvirt.get("nonce") is False and libvirt_nic.get("nonce") is True and nic.get("nonce") is True,
               "direct_uefi_boot_starts":boots("direct-console.log"),
               "direct_nodefaults_uefi_boot_starts":boots("direct-nodefaults-console.log"),
               "direct_nodefaults_nic_uefi_boot_starts":boots("direct-nodefaults-nic-console.log"),
               "libvirt_uefi_boot_starts":boots("libvirt-console.log"),
               "libvirt_nic_uefi_boot_starts":boots("libvirt-nic-console.log"),
+              "libvirt_kvm_uefi_boot_starts":boots("libvirt-kvm-console.log"),
               "realized_direct_argv":load("direct-realized-argv.json") is not None,
               "realized_direct_nodefaults_argv":load("direct-nodefaults-realized-argv.json") is not None,
               "realized_direct_nodefaults_nic_argv":load("direct-nodefaults-nic-realized-argv.json") is not None,
               "realized_libvirt_argv":load("libvirt-process-realized-argv.json") is not None,
               "realized_libvirt_nic_argv":load("libvirt-nic-process-realized-argv.json") is not None,
+              "realized_libvirt_kvm_argv":load("libvirt-kvm-process-realized-argv.json") is not None,
               "cleanup":cleanup,
               "product_v1_acceptance":False,
               "trueNAS_rep006_authorized":False,
@@ -378,10 +455,13 @@ jobs:
             ${{ runner.temp }}/v1-realized/*-realized-argv.json
             ${{ runner.temp }}/v1-realized/libvirt-native-argv.txt
             ${{ runner.temp }}/v1-realized/libvirt-nic-native-argv.txt
+            ${{ runner.temp }}/v1-realized/libvirt-kvm-native-argv.txt
             ${{ runner.temp }}/v1-realized/libvirt-realized.xml
             ${{ runner.temp }}/v1-realized/libvirt-nic-realized.xml
+            ${{ runner.temp }}/v1-realized/libvirt-kvm-realized.xml
             ${{ runner.temp }}/v1-realized/libvirt-domain.xml
             ${{ runner.temp }}/v1-realized/libvirt-domain-nic.xml
+            ${{ runner.temp }}/v1-realized/libvirt-domain-kvm.xml
             ${{ runner.temp }}/v1-realized/*-console.log
             ${{ runner.temp }}/v1-realized/*-version.txt
             ${{ runner.temp }}/v1-realized/*-sha256.txt
