@@ -43,6 +43,15 @@ class TypedGdbIslandTests(unittest.TestCase):
                     M.classify_gdb_single_breakpoint(msg, ADDR) if "signal" not in msg else \
                         M.classify_gdb_single_breakpoint(sample("hit")+"Program received signal SIGSEGV\n", ADDR)
 
+    def test_misleading_nonhit_and_signal_are_rejected(self):
+        # A printed phrase 'exited normally' is not a GDB inferior event.
+        with self.assertRaises(M.IslandObservationError):
+            M.classify_gdb_single_breakpoint(sample("none")+"stdout: exited normally\\n", ADDR)
+        with self.assertRaises(M.IslandObservationError):
+            M.classify_gdb_single_breakpoint(sample("exit")+"Program received signal SIGSEGV\\n", ADDR)
+        with self.assertRaises(M.IslandObservationError):
+            M.classify_gdb_single_breakpoint(sample("exit")+"Cannot insert breakpoint 1.\\n", ADDR)
+
     def test_invalid_target_denied(self):
         for val in (-1, 2**64, True, "0x401000"):
             with self.subTest(value=str(val)):
@@ -53,8 +62,7 @@ class TypedGdbIslandTests(unittest.TestCase):
         def fake_run(argv, timeout=0):
             self.assertEqual(argv[0], "gdb")
             self.assertEqual(argv[2], "--nx")
-            addr = int(argv[argv.index("-ex") + 4].split("*0x")[1], 16) if False else \
-                   int(next(s.split("*0x")[1] for s in argv if s.startswith("break *0x")), 16)
+            addr = int(next(s.split("*0x")[1] for s in argv if s.startswith("break *0x")), 16)
             head = f"Breakpoint 1 at 0x{addr:x}\n"
             return head + (f"Breakpoint 1, 0x{addr:x} in ?? ()\n" if addr == ADDR
                            else "[Inferior 1 (process 123) exited normally]\n")
