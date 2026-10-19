@@ -1,0 +1,67 @@
+name: Takeout T6 guest-admission static negative controls
+
+on:
+  pull_request:
+    paths:
+      - 'config/takeout-t6-admission-candidate.json'
+      - 'scripts/qualify_takeout_t6_admission.py'
+      - 'tests/test_qualify_takeout_t6_admission.py'
+      - '.github/workflows/qualify-takeout-t6-admission.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact Takeout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout independent existing nested TrueNAS executor source at exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2376961b4c5d2bb79843046774249cca02dc6888
+          path: nested-runner
+          persist-credentials: false
+      - name: Exercise 13 fail-closed source tests
+        run: python3 -m unittest discover -s tests -p 'test_qualify_takeout_t6_admission.py' -v
+      - name: Verify actual nested executor remains blocked, not silently dispatchable
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          python3 scripts/qualify_takeout_t6_admission.py \
+            --candidate config/takeout-t6-admission-candidate.json \
+            --providers nested-runner/config/truenas-capsule-providers.json \
+            --run-request nested-runner/config/truenas-rdte-run-request.json \
+            --workflow nested-runner/.github/workflows/gha-kvm-system-rdte.yml \
+            > "$RUNNER_TEMP/admission-verdict.json"
+          code=$?
+          set -e
+          test "$code" = 2
+          python3 - "$RUNNER_TEMP/admission-verdict.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          d=json.loads(Path(sys.argv[1]).read_text())
+          assert d['status']=='BLOCKED'
+          assert d['classification']=='STATIC_READ_ONLY_NOT_ADMISSION'
+          assert d['guest_started'] is False
+          assert d['docker_read_required'] is False
+          assert d['physical_apply']=='HOLD'
+          blockers=set(d['blockers'])
+          assert {'PRODUCT_PROVIDER_NOT_BOUND',
+                  'WORKFLOW_SELECTOR_NOT_BOUND',
+                  'NATIVE_TAKEOUT_PROBE_NOT_QUALIFIED',
+                  'GUEST_CONTROL_ARTIFACT_NOT_QUALIFIED',
+                  'FRESH_TAKEOUT_RUN_REQUEST_MISSING',
+                  'LANE_480_RELEASE_MISSING',
+                  'FOUNDRY_DATA_OUTCOME_OBSERVER_NOT_QUALIFIED',
+                  'NATIVE_ZFS_RETENTION_NOT_QUALIFIED'} <= blockers
+          print(json.dumps(d,sort_keys=True))
+          PY
