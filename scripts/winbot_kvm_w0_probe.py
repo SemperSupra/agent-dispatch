@@ -73,7 +73,7 @@ def probe_tpm2() -> dict[str, Any]:
             cmd = [swtpm, "socket", "--tpm2", "--tpmstate", f"dir={directory}",
                    "--server", f"type=unixio,path={sock}",
                    "--ctrl", f"type=unixio,path={ctrl}",
-                   "--flags", "not-need-init,startup-clear"]
+                   "--flags", "not-need-init"]
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             for _ in range(60):
                 if proc.poll() is not None:
