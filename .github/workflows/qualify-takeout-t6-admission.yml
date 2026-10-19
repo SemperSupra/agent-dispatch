@@ -1,0 +1,105 @@
+name: Takeout T6 guest-admission static negative controls
+
+on:
+  pull_request:
+    paths:
+      - 'config/takeout-t6-admission-candidate.json'
+      - 'config/takeout-synthetic-guest-control-candidate.json'
+      - 'tests/test_takeout_guest_control_candidate.py'
+      - 'scripts/qualify_takeout_t6_admission.py'
+      - 'tests/test_qualify_takeout_t6_admission.py'
+      - 'scripts/verify_takeout_synthetic_oci_artifact.py'
+      - 'tests/test_verify_takeout_synthetic_oci_artifact.py'
+      - '.github/workflows/qualify-takeout-t6-admission.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact Takeout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout independent existing nested TrueNAS executor source at exact head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2376961b4c5d2bb79843046774249cca02dc6888
+          path: nested-runner
+          persist-credentials: false
+      - name: Exercise 13 fail-closed source tests
+        run: python3 -m unittest discover -s tests -p 'test_qualify_takeout_t6_admission.py' -v
+      - name: Exercise source-pinned OCI layer count plus legacy negative controls
+        run: python3 -m unittest discover -s tests -p 'test_verify_takeout_synthetic_oci_artifact.py' -v
+      - name: Independently bind exact synthetic image, archive manifest and guest-only control
+        run: python3 -m unittest discover -s tests -p 'test_takeout_guest_control_candidate.py' -v
+      - name: Verify actual nested executor remains blocked, not silently dispatchable
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          python3 scripts/qualify_takeout_t6_admission.py \
+            --candidate config/takeout-t6-admission-candidate.json \
+            --providers nested-runner/config/truenas-capsule-providers.json \
+            --run-request nested-runner/config/truenas-rdte-run-request.json \
+            --workflow nested-runner/.github/workflows/gha-kvm-system-rdte.yml \
+            > "$RUNNER_TEMP/admission-verdict.json"
+          code=$?
+          set -e
+          test "$code" = 2
+          python3 - "$RUNNER_TEMP/admission-verdict.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          d=json.loads(Path(sys.argv[1]).read_text())
+          assert d['status']=='BLOCKED'
+          assert d['classification']=='STATIC_READ_ONLY_NOT_ADMISSION'
+          assert d['guest_started'] is False
+          assert d['docker_read_required'] is False
+          assert d['physical_apply']=='HOLD'
+          blockers=set(d['blockers'])
+          assert {'PRODUCT_PROVIDER_NOT_BOUND',
+                  'WORKFLOW_SELECTOR_NOT_BOUND',
+                  'NATIVE_TAKEOUT_PROBE_NOT_QUALIFIED',
+                  'GUEST_CONTROL_ARTIFACT_NOT_QUALIFIED',
+                  'FRESH_TAKEOUT_RUN_REQUEST_MISSING',
+                  'LANE_480_RELEASE_MISSING',
+                  'FOUNDRY_DATA_OUTCOME_OBSERVER_NOT_QUALIFIED',
+                  'NATIVE_ZFS_RETENTION_NOT_QUALIFIED'} <= blockers
+          print(json.dumps(d,sort_keys=True))
+          PY
+
+      - name: Independently inspect the actual six-layer public receipt-enabled transport
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --method GET -H "Accept: application/vnd.github+json" \
+            "repos/SemperSupra/agent-dispatch/actions/artifacts/11991297351/zip" \
+            > "$RUNNER_TEMP/takeout-receipt-enabled.zip"
+          python3 scripts/verify_takeout_synthetic_oci_artifact.py \
+            "$RUNNER_TEMP/takeout-receipt-enabled.zip" \
+            --artifact-digest sha256:293ed237e714aafe6b8f991ae6409005cafc2f89e65da4e6c83fb46afee8869f \
+            --image-digest sha256:32d6d63f5534bac350fcc89dee9b3b03d086ab20d3526e3263fb686193579c8c \
+            --source-sha 96f814785217404963e06cbbf75b9a443c7688e8 \
+            > "$RUNNER_TEMP/takeout-oci-audit.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'takeout-oci-audit.json'
+          v=json.loads(p.read_text())
+          assert v['status']=='PASS' and v['layers']==6
+          assert v['docker_archive_layers']==6
+          assert v['docker_archive_import_receipt']=='PASS'
+          assert v['truenas_guest']=='NOT_RUN' and v['physical_apply']=='HOLD'
+          print(json.dumps({'classification':'PUBLIC_REPORT_IMAGE_ARTIFACT_CROSS_FORMAT_PASS',
+                            'image_config_in_archive':v['docker_config_digest'],
+                            'oci_layers':v['layers'],'docker_layers':v['docker_archive_layers'],
+                            'guest':'NOT_RUN','physical_apply':'HOLD'},sort_keys=True))
+          PY
