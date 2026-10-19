@@ -57,6 +57,10 @@ jobs:
           owned="/var/lib/libvirt/images/$name"
           domain_defined=0
           owned_created=0
+          uuid_nic='ed0b56c4-1467-5eca-af37-322c0f8ded19'
+          owned_nic="/var/lib/libvirt/images/ad-v1-realized-$uuid_nic"
+          owned_nic_created=0
+          domain_nic_defined=0
           qpid=''
           npid=''
           nnpid=''
@@ -74,15 +78,21 @@ jobs:
               kill "$nnpid" 2>/dev/null
               wait "$nnpid" 2>/dev/null
             fi
+            if [[ "$domain_nic_defined" == 1 ]]; then
+              sudo virsh -c qemu:///system destroy "$uuid_nic" >/dev/null 2>&1
+              sudo virsh -c qemu:///system undefine "$uuid_nic" --nvram >/dev/null 2>&1 \
+                || sudo virsh -c qemu:///system undefine "$uuid_nic" >/dev/null 2>&1
+            fi
             if [[ "$domain_defined" == 1 ]]; then
               sudo virsh -c qemu:///system destroy "$uuid" >/dev/null 2>&1
               sudo virsh -c qemu:///system undefine "$uuid" --nvram >/dev/null 2>&1 \
                 || sudo virsh -c qemu:///system undefine "$uuid" >/dev/null 2>&1
             fi
             if [[ "$owned_created" == 1 && -d "$owned" ]]; then sudo rm -rf -- "$owned"; fi
-            if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1; then
+            if [[ "$owned_nic_created" == 1 && -d "$owned_nic" ]]; then sudo rm -rf -- "$owned_nic"; fi
+            if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1 || sudo virsh -c qemu:///system dominfo "$uuid_nic" >/dev/null 2>&1; then
               echo '{"owned_domain_absent":false}' > cleanup.json
-            elif sudo test -e "$owned"; then
+            elif sudo test -e "$owned" || sudo test -e "$owned_nic"; then
               echo '{"owned_domain_absent":true,"owned_files_absent":false}' > cleanup.json
             else
               echo '{"owned_domain_absent":true,"owned_files_absent":true}' > cleanup.json
@@ -91,6 +101,9 @@ jobs:
           trap cleanup EXIT
           if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1 || sudo test -e "$owned"; then
             echo 'Preexisting UUID/path, refusing to touch it' >&2; exit 4
+          fi
+          if sudo virsh -c qemu:///system dominfo "$uuid_nic" >/dev/null 2>&1 || sudo test -e "$owned_nic"; then
+            echo "Preexisting secondary libvirt UUID/path, refusing to touch it" >&2; exit 4
           fi
           # Only an absent, preflight-owned path is eligible for later deletion.
           owned_created=1
@@ -250,6 +263,51 @@ jobs:
           sudo cp "$owned/serial.log" libvirt-console.log
           sudo chown "$(id -u):$(id -g)" libvirt-console.log
           printf '{"nonce":%s}\n' "$([[ "$found" == 1 ]] && echo true || echo false)" > libvirt-oracle.json
+
+          # Product-adjacent cheap falsifier: independent libvirt VM with ONLY an
+          # explicit user-mode NIC added to the otherwise failing libvirt XML.
+          # Its disk, NVRAM, domain identity, and cleanup ownership are separate.
+          sudo mkdir -m 0750 "$owned_nic"
+          owned_nic_created=1
+          sudo chown libvirt-qemu:kvm "$owned_nic"
+          sudo install -o libvirt-qemu -g kvm -m 0644 pristine.raw "$owned_nic/cirros.raw"
+          sudo install -o libvirt-qemu -g kvm -m 0644 seed.iso "$owned_nic/seed.iso"
+          sudo install -o libvirt-qemu -g kvm -m 0644 "$vars" "$owned_nic/nvram.fd"
+          sed -e "s@$uuid@$uuid_nic@g" \
+              -e "s@</devices>@<interface type='user'><model type='e1000'/></interface></devices>@" \
+              libvirt-domain.xml > libvirt-domain-nic.xml
+          sudo virt-xml-validate libvirt-domain-nic.xml
+          sudo virsh -c qemu:///system define libvirt-domain-nic.xml
+          domain_nic_defined=1
+          sudo virsh -c qemu:///system start "$uuid_nic"
+          sudo virsh -c qemu:///system dumpxml "$uuid_nic" > libvirt-nic-realized.xml
+          sudo virsh -c qemu:///system domxml-to-native qemu-argv libvirt-nic-realized.xml > libvirt-nic-native-argv.txt
+          sudo python3 - "$uuid_nic" libvirt-nic-process-realized-argv.json <<'PY'
+          import json, pathlib, sys
+          uid=sys.argv[1]
+          found=[]
+          for path in pathlib.Path("/proc").iterdir():
+              if not path.name.isdecimal(): continue
+              try:
+                  raw=(path/"cmdline").read_bytes().rstrip(b"\0")
+                  args=raw.decode(errors="replace").split("\0")
+                  if args and args[0].endswith("qemu-system-x86_64") and any(uid in arg for arg in args[1:]):
+                      found.append(args)
+              except (OSError, PermissionError):
+                  pass
+          assert len(found)==1, f"expected one exact-owned NIC libvirt QEMU, observed {len(found)}"
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(found[0], indent=2)+"\n")
+          PY
+          found=0
+          for _ in $(seq 1 90); do
+            if sudo grep -Fq "$marker" "$owned_nic/serial.log" 2>/dev/null; then found=1; break; fi
+            state="$(sudo virsh -c qemu:///system domstate "$uuid_nic" 2>/dev/null || true)"
+            if [[ "$state" != running && "$state" != idle ]]; then break; fi
+            sleep 1
+          done
+          sudo cp "$owned_nic/serial.log" libvirt-nic-console.log
+          sudo chown "$(id -u):$(id -g)" libvirt-nic-console.log
+          printf '{"nonce":%s}\n' "$([[ "$found" == 1 ]] && echo true || echo false)" > libvirt-nic-oracle.json
       - name: Classify differential (never a platform-V1 acceptance)
         if: always()
         shell: bash
@@ -261,18 +319,20 @@ jobs:
           direct=load("direct-oracle.json"); libvirt=load("libvirt-oracle.json")
           nodefaults=load("direct-nodefaults-oracle.json")
           nic=load("direct-nodefaults-nic-oracle.json")
+          libvirt_nic=load("libvirt-nic-oracle.json")
           def boots(name):
               p=d/name
               return p.read_bytes().count(b"BdsDxe: starting Boot") if p.exists() else None
           cleanup=load("cleanup.json")
           classification=("HARNESS_FAILURE" if direct is None or direct.get("nonce") is not True
-                          or libvirt is None or nodefaults is None or nic is None or not cleanup or
+                          or libvirt is None or libvirt_nic is None or nodefaults is None or nic is None or not cleanup or
                           cleanup.get("owned_domain_absent") is not True or
                           cleanup.get("owned_files_absent") is not True or
                           load("direct-realized-argv.json") is None or
                           load("direct-nodefaults-realized-argv.json") is None or
                           load("direct-nodefaults-nic-realized-argv.json") is None or
-                          load("libvirt-process-realized-argv.json") is None
+                          load("libvirt-process-realized-argv.json") is None or
+                          load("libvirt-nic-process-realized-argv.json") is None
                           else "DIFFERENTIAL_REPRODUCED" if libvirt.get("nonce") is False
                           else "DIFFERENTIAL_NOT_REPRODUCED")
           result={
@@ -284,14 +344,18 @@ jobs:
               "direct_nodefaults_nic_nonce":nic,
               "nodefaults_isolated_cause":False,
               "libvirt_nonce":libvirt,
+              "libvirt_explicit_nic_nonce":libvirt_nic,
+              "network_device_recovery_supported":libvirt.get("nonce") is False and libvirt_nic.get("nonce") is True and nic.get("nonce") is True,
               "direct_uefi_boot_starts":boots("direct-console.log"),
               "direct_nodefaults_uefi_boot_starts":boots("direct-nodefaults-console.log"),
               "direct_nodefaults_nic_uefi_boot_starts":boots("direct-nodefaults-nic-console.log"),
               "libvirt_uefi_boot_starts":boots("libvirt-console.log"),
+              "libvirt_nic_uefi_boot_starts":boots("libvirt-nic-console.log"),
               "realized_direct_argv":load("direct-realized-argv.json") is not None,
               "realized_direct_nodefaults_argv":load("direct-nodefaults-realized-argv.json") is not None,
               "realized_direct_nodefaults_nic_argv":load("direct-nodefaults-nic-realized-argv.json") is not None,
               "realized_libvirt_argv":load("libvirt-process-realized-argv.json") is not None,
+              "realized_libvirt_nic_argv":load("libvirt-nic-process-realized-argv.json") is not None,
               "cleanup":cleanup,
               "product_v1_acceptance":False,
               "trueNAS_rep006_authorized":False,
@@ -313,8 +377,11 @@ jobs:
             ${{ runner.temp }}/v1-realized/*-oracle.json
             ${{ runner.temp }}/v1-realized/*-realized-argv.json
             ${{ runner.temp }}/v1-realized/libvirt-native-argv.txt
+            ${{ runner.temp }}/v1-realized/libvirt-nic-native-argv.txt
             ${{ runner.temp }}/v1-realized/libvirt-realized.xml
+            ${{ runner.temp }}/v1-realized/libvirt-nic-realized.xml
             ${{ runner.temp }}/v1-realized/libvirt-domain.xml
+            ${{ runner.temp }}/v1-realized/libvirt-domain-nic.xml
             ${{ runner.temp }}/v1-realized/*-console.log
             ${{ runner.temp }}/v1-realized/*-version.txt
             ${{ runner.temp }}/v1-realized/*-sha256.txt
