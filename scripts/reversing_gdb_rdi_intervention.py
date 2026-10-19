@@ -62,6 +62,18 @@ def parse_intervention_receipt(output, entry_va, target_va, argument):
         entry_va, entry_va, entry_va, BASELINE_ARGUMENT, argument
     ):
         raise InterventionError("entry breakpoint or RDI intervention not attested")
+    # Establish temporal provenance: a PC hit preceding the register write
+    # must never be accepted as execution *after* the intervention.
+    ordered = [
+        re.search(r"^Breakpoint 1 at 0x", output, re.M).start(),
+        re.search(r"^Breakpoint 1, 0x", output, re.M).start(),
+        re.search(r"^RE_RDI_ENTRY_PC=", output, re.M).start(),
+        re.search(r"^RE_RDI_BEFORE=", output, re.M).start(),
+        re.search(r"^RE_RDI_AFTER=", output, re.M).start(),
+    ]
+    if any(a >= b for a, b in zip(ordered, ordered[1:])):
+        raise InterventionError("GDB entry/RDI evidence occurred out of order")
+    after_pos = ordered[-1]
     if target_va == entry_va:
         if re.search(r"^Breakpoint 2(?: at|,)", output, re.M):
             raise InterventionError("duplicate breakpoint at original entry")
@@ -76,9 +88,15 @@ def parse_intervention_receipt(output, entry_va, target_va, argument):
     if target_hits:
         if target_hits != [target_va]:
             raise InterventionError("unexpected island hit PC or repeated hit")
+        target_pos = re.search(r"^Breakpoint 2, 0x", output, re.M).start()
+        if target_pos <= after_pos:
+            raise InterventionError("island PC hit before attested RDI intervention")
         return "BREAKPOINT_OBSERVED_AFTER_RDI_INTERVENTION"
-    if re.search(r"^\[Inferior [0-9]+ \(process [0-9]+\) exited normally\]$",
-                 output, re.M):
+    clean_exit = re.search(r"^\[Inferior [0-9]+ \(process [0-9]+\) exited normally\]$",
+                           output, re.M)
+    if clean_exit:
+        if clean_exit.start() <= after_pos:
+            raise InterventionError("inferior exited before attested RDI intervention")
         return "NOT_OBSERVED_IN_THIS_INTERVENED_RUN"
     raise InterventionError("no authenticated hit or inferior normal exit")
 
