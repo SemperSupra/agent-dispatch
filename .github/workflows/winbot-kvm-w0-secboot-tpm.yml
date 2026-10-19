@@ -1,0 +1,145 @@
+name: WinBot standalone KVM W0 secure UEFI and TPM (cheap)
+on:
+  push:
+    branches:
+      - experiment/winbot-kvm-w0-secboot-tpm-20261019
+    paths:
+      - '.github/workflows/winbot-kvm-w0-secboot-tpm.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: winbot-kvm-w0-preflight
+  cancel-in-progress: false
+jobs:
+  native-prerequisites:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Install and observe native free-runner prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvirt-daemon-system libvirt-clients qemu-system-x86 ovmf swtpm swtpm-tools
+          sudo systemctl start libvirtd
+          sudo test -c /dev/kvm
+          sudo virsh -c qemu:///system version
+          out=/tmp/winbot-w0-evidence
+          test ! -e "$out"
+          mkdir -m 0700 "$out"
+          uname -a > "$out/host.txt"
+          qemu-system-x86_64 --version > "$out/qemu-version.txt"
+          swtpm --version > "$out/swtpm-version.txt"
+          sudo virsh -c qemu:///system domcapabilities --virttype kvm --arch x86_64 > "$out/domcapabilities.xml"
+          dpkg-query -W qemu-system-x86 ovmf swtpm libvirt-daemon-system > "$out/package-versions.txt"
+          python3 - "$out/domcapabilities.xml" <<'PY'
+          import sys,xml.etree.ElementTree as ET
+          r=ET.parse(sys.argv[1]).getroot()
+          assert r.findtext('./domain')=='kvm', 'native KVM domain not observed'
+          print('KVM domain capability PASS')
+          PY
+      - name: Start and observe one run-owned diskless SecureBoot/vTPM KVM domain
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=/tmp/winbot-w0-evidence
+          code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
+          vars=/usr/share/OVMF/OVMF_VARS_4M.ms.fd
+          test -s "$code" && test -s "$vars" && test -x /usr/bin/swtpm
+          sha256sum "$code" "$vars" /usr/bin/swtpm > "$out/prerequisite-sha256.txt"
+          uuid="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+          name="ad-winbot-kvm-w0-$uuid"
+          owned="/var/lib/libvirt/images/$name"
+          defined=0
+          created=0
+          cleanup() {
+            status=$?
+            trap - EXIT
+            set +e
+            if [[ "$defined" == 1 ]]; then
+              sudo virsh -c qemu:///system destroy "$uuid" >/dev/null 2>&1
+              sudo virsh -c qemu:///system undefine "$uuid" --nvram --tpm >/dev/null 2>&1
+              if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1; then
+                sudo virsh -c qemu:///system undefine "$uuid" --nvram >/dev/null 2>&1
+              fi
+            fi
+            if [[ "$created" == 1 ]]; then sudo rm -rf -- "$owned"; fi
+            vm_absent=true
+            storage_absent=true
+            tpm_absent=true
+            if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1; then vm_absent=false; fi
+            if sudo test -e "$owned"; then storage_absent=false; fi
+            if sudo test -e "/var/lib/libvirt/swtpm/$uuid"; then tpm_absent=false; fi
+            printf '{"domain_absent":%s,"storage_absent":%s,"tpm_state_absent":%s,"test_exit_code":%s}\n' "$vm_absent" "$storage_absent" "$tpm_absent" "$status" > "$out/cleanup.json"
+            if [[ "$vm_absent" != true || "$storage_absent" != true || "$tpm_absent" != true ]]; then status=89; fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          if sudo virsh -c qemu:///system dominfo "$uuid" >/dev/null 2>&1 || sudo test -e "$owned"; then
+            echo 'Refuse preexisting domain or storage path' >&2
+            exit 4
+          fi
+          sudo install -d -m 0750 -o libvirt-qemu -g kvm "$owned"
+          created=1
+          cat > "$out/domain.xml" <<EOF
+          <domain type='kvm'>
+            <name>$name</name><uuid>$uuid</uuid>
+            <memory unit='MiB'>512</memory><vcpu>1</vcpu>
+            <os>
+              <type arch='x86_64' machine='q35'>hvm</type>
+              <loader readonly='yes' type='pflash' secure='yes'>$code</loader>
+              <nvram template='$vars'>$owned/nvram.fd</nvram>
+            </os>
+            <features><acpi/></features>
+            <cpu mode='host-passthrough'/>
+            <devices>
+              <emulator>/usr/bin/qemu-system-x86_64</emulator>
+              <tpm model='tpm-tis'><backend type='emulator' version='2.0'/></tpm>
+              <graphics type='none'/>
+            </devices>
+          </domain>
+          EOF
+          sudo virt-xml-validate "$out/domain.xml"
+          sudo virsh -c qemu:///system define "$out/domain.xml"
+          defined=1
+          sudo virsh -c qemu:///system start "$uuid"
+          sudo virsh -c qemu:///system domstate "$uuid" | grep -qx running
+          sudo virsh -c qemu:///system dumpxml "$uuid" > "$out/realized.xml"
+          sudo virsh -c qemu:///system domxml-to-native qemu-argv "$out/realized.xml" > "$out/native-argv.txt"
+          sudo python3 - "$uuid" "$out" <<'PY'
+          import json,pathlib,sys,xml.etree.ElementTree as ET
+          uid,out=sys.argv[1],pathlib.Path(sys.argv[2])
+          root=ET.parse(out/'realized.xml').getroot()
+          loader=root.find('./os/loader'); tpm=root.find('./devices/tpm/backend')
+          assert root.attrib.get('type')=='kvm'
+          assert loader is not None and loader.get('secure')=='yes'
+          assert tpm is not None and tpm.get('type')=='emulator' and tpm.get('version')=='2.0'
+          matches=[]
+          for p in pathlib.Path('/proc').iterdir():
+              if not p.name.isdecimal(): continue
+              try:
+                  a=(p/'cmdline').read_bytes().rstrip(b'\0').decode(errors='replace').split('\0')
+                  if a and a[0].endswith('qemu-system-x86_64') and any(uid in v for v in a[1:]): matches.append(a)
+              except (OSError,PermissionError): pass
+          assert len(matches)==1, f'exact owned QEMU process count={len(matches)}'
+          args=matches[0]
+          assert any(args[i]=='-accel' and args[i+1]=='kvm' for i in range(len(args)-1)) or '-enable-kvm' in args
+          assert any('tpm-tis' in a for a in args) and any('tpmdev' in a for a in args)
+          (out/'observed-qemu-argv.json').write_text(json.dumps(args,indent=2)+'\n')
+          (out/'w0-receipt.json').write_text(json.dumps({
+              'schema':'winbot-kvm-w0/v1','classification':'SUBSTRATE_W0_ONLY',
+              'realized_kvm':True,'ovmf_secure_loader_observed':True,
+              'vtpm2_frontend_backend_observed':True,
+              'windows_guest_qualified':False,'winbot_api_gui_qualified':False
+          },indent=2)+'\n')
+          print('KVM+OVMF SecureBoot+vTPM2 W0 PASS; no Windows/WinBot guest present')
+          PY
+      - name: Upload explicit cleanup and W0 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-kvm-w0-prerequisites
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-w0-evidence/
