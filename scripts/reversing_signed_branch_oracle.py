@@ -43,10 +43,12 @@ def assess_signed_early_exit(disasm, entry, symbol_size, intervals):
     # Do not require a particular instruction at the first byte: GCC versions
     # can safely move register setup before the early conditional branch.
     jles = [(i,p,b,a) for i,(p,b,a) in enumerate(rows)
-            if re.match(r'^jle\s+', a)]
+            if re.match(r'^jle\s+', a) or b[:1]==b'\x7e' or b[:2]==b'\x0f\x8e']
     if len(jles) != 1:
         return {"status":"INCONCLUSIVE_JLE_NOT_UNIQUE"}
     i, pc, data, asm = jles[0]
+    if not re.match(r'^jle\s+',asm):
+        return {"status":"INCONCLUSIVE_MNEMONIC_BYTE_DISAGREEMENT"}
     if len(data)==2 and data[0]==0x7e:
         rel = int.from_bytes(data[1:],"little",signed=True)
     elif len(data)==6 and data[:2]==b'\x0f\x8e':
