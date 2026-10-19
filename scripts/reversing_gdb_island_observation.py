@@ -31,7 +31,8 @@ def classify_gdb_single_breakpoint(output, requested_va):
         if hits != [requested_va]:
             raise IslandObservationError('breakpoint hit does not match requested PC')
         return 'BREAKPOINT_OBSERVED'
-    if re.search(r'^\[Inferior [0-9]+ \(process [0-9]+\) exited normally\]        return 'NOT_OBSERVED_IN_THIS_RUN'
+    if re.search(r'^\[Inferior [0-9]+ \(process [0-9]+\) exited normally\]$', output, re.M):
+        return 'NOT_OBSERVED_IN_THIS_RUN'
     raise IslandObservationError('neither breakpoint hit nor normal process completion')
 
 
