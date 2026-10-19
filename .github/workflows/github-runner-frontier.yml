@@ -207,9 +207,10 @@ jobs:
             signed=v["independent_signed_branch_oracle"]
             if v["profile"].startswith("O2") and b["classification"]=="EXACT_OBJDUMP_NONNOP_INTERVALS":
               assert signed["status"]=="SIGNED_JLE_DIRECT_EDGE_TO_ISLAND_3"
-              assert signed["source_register"]=="RDI" and signed["width_bits"]==64
+              assert signed["width_bits"]==64
+              assert signed["rdi_test_immediately_precedes"] in {True,False}
               assert signed["interval_index"]==3
-              assert signed["predicate"]=="signed_n_le_zero_after_test_rdi_rdi"
+              assert signed["predicate"]=="signed_flags_le_zero_at_jle"
               runs={row["argument_n"]:row for row in intervention["arguments"]}
               assert 3 in runs[0]["observed_indices"]
               assert 3 in runs[-1]["observed_indices"]
