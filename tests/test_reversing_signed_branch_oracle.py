@@ -22,9 +22,10 @@ class SignedEntryBranchTests(unittest.TestCase):
         self.assertEqual(r["status"], "SIGNED_JLE_DIRECT_EDGE_TO_ISLAND_3")
         self.assertEqual(r["interval_index"], 3)
         self.assertEqual(r["target_rva"], 0x68)
-        self.assertEqual(r["entry_branch_rva"], 3)
+        self.assertEqual(r["branch_pc_rva"], 3)
+        self.assertTrue(r["rdi_test_immediately_precedes"])
         self.assertEqual(r["instruction_bytes_hex"], "7e63")
-        self.assertEqual(r["predicate"], "signed_n_le_zero_after_test_rdi_rdi")
+        self.assertEqual(r["predicate"], "signed_flags_le_zero_at_jle")
 
     def test_opcode_change_fails_closed(self):
         for encoded in ("7f 63", "76 63", "74 63", "eb 63"):
@@ -46,9 +47,21 @@ class SignedEntryBranchTests(unittest.TestCase):
         with self.assertRaises(B.SignedBranchError):
             B.assess_signed_early_exit(disasm(target="401058"),ENTRY,0x6f,INTERVALS)
 
-    def test_wrong_entry_flags_are_inconclusive(self):
+    def test_wrong_entry_flags_do_not_prove_signed_rdi_predicate(self):
         r=B.assess_signed_early_exit(disasm(test="48 85 f6"),ENTRY,0x6f,INTERVALS)
-        self.assertEqual(r["status"], "INCONCLUSIVE_ENTRY_FLAGS_NOT_TEST_RDI")
+        self.assertEqual(r["status"], "SIGNED_JLE_DIRECT_EDGE_TO_ISLAND_3")
+        self.assertFalse(r["rdi_test_immediately_precedes"])
+        self.assertEqual(r["source_register_if_tested"], "UNKNOWN")
+
+    def test_movable_register_setup_before_test_and_signed_branch(self):
+        text = ("0000000000401000 <fixture_target>:\n"
+                "  401000: 48 89 f9    mov %rdi,%rcx\n"
+                "  401003: 48 85 ff    test %rdi,%rdi\n"
+                "  401006: 7e 60       jle 401068 <fixture_target+0x68>\n")
+        r=B.assess_signed_early_exit(text, ENTRY, 0x6f, INTERVALS)
+        self.assertEqual(r["status"], "SIGNED_JLE_DIRECT_EDGE_TO_ISLAND_3")
+        self.assertEqual(r["branch_pc_rva"], 6)
+        self.assertTrue(r["rdi_test_immediately_precedes"])
 
     def test_wrong_interval_count_does_not_promote(self):
         r=B.assess_signed_early_exit(disasm(), ENTRY, 0x6f, INTERVALS[:1])
