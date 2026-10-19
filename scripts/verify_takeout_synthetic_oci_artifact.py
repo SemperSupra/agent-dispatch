@@ -22,6 +22,12 @@ ARTIFACT_FILES = frozenset({
 MAX_TAR = 512 * 1024 * 1024
 DOCKER_TRANSPORT = "fixture.docker.tar.gz"
 MAX_SMALL = 256 * 1024
+# The receipt module adds one image layer at the independently pinned source.
+REPORT_SOURCE_SHA = "96f814785217404963e06cbbf75b9a443c7688e8"
+
+
+def source_layer_count(source_sha: str) -> int:
+    return 6 if source_sha == REPORT_SOURCE_SHA else 5
 
 
 class Blocked(ValueError):
@@ -56,7 +62,7 @@ def digest_hex(value: str) -> str:
     return match.group(1)
 
 
-def stream_oci(stream, image_digest: str, loaded_config: str) -> dict:
+def stream_oci(stream, image_digest: str, loaded_config: str, *, expected_layers: int = 5) -> dict:
     collected, sizes = {}, {}
     seen_files = set()
     size_total = 0
@@ -120,7 +126,7 @@ def stream_oci(stream, image_digest: str, loaded_config: str) -> dict:
     require(runtime.get("Entrypoint") == ["python3", "/app/fixture.py"], "WRONG_ENTRYPOINT")
     require(not runtime.get("ExposedPorts"), "UNEXPECTED_PUBLIC_PORT")
     layers = manifest.get("layers")
-    require(isinstance(layers, list) and len(layers) == 5, "UNEXPECTED_LAYER_COUNT")
+    require(isinstance(layers, list) and len(layers) == expected_layers, "UNEXPECTED_LAYER_COUNT")
     expected = {manifest_path, config_path}
     for item in layers:
         require(isinstance(item, dict), "MALFORMED_OCI_LAYER")
@@ -133,7 +139,7 @@ def stream_oci(stream, image_digest: str, loaded_config: str) -> dict:
             "os": "linux", "arch": "amd64", "uid": "10001:10001"}
 
 
-def verify_docker_archive(stream, loaded_config: str) -> dict:
+def verify_docker_archive(stream, loaded_config: str, *, expected_layers: int = 5) -> dict:
     """Cross-check Docker-loadable layers and image config, not only gzip bytes."""
     small, sizes, seen = {}, {}, set()
     count = 0
@@ -180,8 +186,8 @@ def verify_docker_archive(stream, loaded_config: str) -> dict:
     require(info.get("RepoTags") == ["takeout-synthetic:local"],
             "DOCKER_TAG_MISMATCH")
     layers = info.get("Layers")
-    require(isinstance(layers, list) and len(layers) == 5 and
-            len(set(layers)) == 5 and all(isinstance(x, str) and x in sizes for x in layers),
+    require(isinstance(layers, list) and len(layers) == expected_layers and
+            len(set(layers)) == expected_layers and all(isinstance(x, str) and x in sizes for x in layers),
             "DOCKER_LAYER_INVENTORY")
     config = json_obj(small.get(info["Config"], b""), "DOCKER_CONFIG")
     runtime = config.get("config") or {}
@@ -237,10 +243,10 @@ def verify(path: Path, artifact_digest: str, image_digest: str, source_sha: str)
         loaded = z.read("loaded-config-digest.txt").decode("ascii").strip()
         digest_hex(loaded)
         with z.open("fixture.oci.tar") as f:
-            result = stream_oci(f, image_digest, loaded)
+            result = stream_oci(f, image_digest, loaded, expected_layers=source_layer_count(source_sha))
         if docker_transport:
             with z.open(DOCKER_TRANSPORT) as f:
-                result.update(verify_docker_archive(f, loaded))
+                result.update(verify_docker_archive(f, loaded, expected_layers=source_layer_count(source_sha)))
     return {"status": "PASS", "classification": "OCI_ARTIFACT_INTEGRITY_ONLY",
             "artifact_digest": artifact_digest, "source_sha": source_sha,
             **result, "docker_archive_transferred": docker_transport,
