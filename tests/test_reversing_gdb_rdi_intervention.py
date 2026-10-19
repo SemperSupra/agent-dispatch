@@ -78,7 +78,7 @@ class InterventionTests(unittest.TestCase):
 
     def test_reject_hit_before_attested_rdi_write(self):
         original = evidence(8)
-        hit = f"Breakpoint 2, 0x{ISLAND:x} in ?? ()\\n"
+        hit = f"Breakpoint 2, 0x{ISLAND:x} in ?? ()\n"
         self.assertEqual(original.count(hit), 1)
         reordered = original.replace(hit, "").replace("RE_RDI_ENTRY_PC=",
                                                         hit+"RE_RDI_ENTRY_PC=", 1)
@@ -87,7 +87,7 @@ class InterventionTests(unittest.TestCase):
 
     def test_reject_exit_before_attested_rdi_write(self):
         original = evidence(4, hit=False)
-        exitline = "[Inferior 1 (process 321) exited normally]\\n"
+        exitline = "[Inferior 1 (process 321) exited normally]\n"
         self.assertEqual(original.count(exitline), 1)
         reordered = original.replace(exitline, "").replace("RE_RDI_BEFORE=",
                                                              exitline+"RE_RDI_BEFORE=", 1)
