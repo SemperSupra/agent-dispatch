@@ -60,7 +60,9 @@ void _start(void) {
     __builtin_unreachable();
 }
 '''
-PROFILES = ("O0-no-unwind", "O2-no-unwind")
+PROFILE_SEEDS = {"O0-no-unwind": 3, "O2-no-unwind": 3,
+                 "O2-seed2-no-unwind": 2}
+PROFILES = tuple(PROFILE_SEEDS)
 OUTCOMES = {
     "ENTRY_NOT_FOUND", "AMBIGUOUS_ENTRY", "INVALID_FUNCTION_BODY",
     "BODY_EXTENDS_BEYOND_ORACLE", "PARTIAL_BODY", "EXACT_BODY",
@@ -177,13 +179,24 @@ def run_program(argv, timeout=30):
         raise MatrixError("fixed fixture tool could not execute") from ex
 
 
+def fixture_source(profile):
+    """Bounded source variant changes only the volatile initializer, never CFG source."""
+    if profile not in PROFILE_SEEDS:
+        raise MatrixError("unregistered profile")
+    src = SOURCE.replace("volatile long branch_seed = 3;",
+                         "volatile long branch_seed = %d;" % PROFILE_SEEDS[profile])
+    if src.count("volatile long branch_seed = ") != 1:
+        raise MatrixError("synthetic branch seed substitution not unique")
+    return src
+
+
 def observe(ghidra_home, profile):
     if profile not in PROFILES:
         raise MatrixError("unregistered profile")
     with tempfile.TemporaryDirectory(prefix="reversing-matrix-") as td:
         d = Path(td)
         src, original, stripped = (d / n for n in ("fixture.c", "original", "stripped"))
-        src.write_text(SOURCE, encoding="utf-8")
+        src.write_text(fixture_source(profile), encoding="utf-8")
         flags = ["-O0"] if profile.startswith("O0") else ["-O2"]
         run_program(["gcc", *flags, "-nostdlib", "-static", "-fno-pie", "-no-pie",
                      "-fno-unwind-tables", "-fno-asynchronous-unwind-tables",
@@ -260,7 +273,8 @@ def observe(ghidra_home, profile):
             sha256(stripped.read_bytes()).hexdigest())
         if assessment["outcome"] not in OUTCOMES:
             raise MatrixError("unknown assessment outcome")
-        return {"profile": profile, "outcome": assessment["outcome"],
+        return {"profile": profile, "branch_seed": PROFILE_SEEDS[profile],
+                "fixture_argument_n": 7, "outcome": assessment["outcome"],
                 "oracle_symbol_rva": sym-image_base, "gdb_pc_rva": pc-image_base,
                 "recovered_bytes": assessment["recovered_bytes"],
                 "oracle_bytes": size,
@@ -297,6 +311,7 @@ def main():
                          "Ghidra-body-bytes-not-path-completeness",
                          "objdump-linear-decode-not-independent-cfg-ownership",
                          "gdb-breakpoint-hit-per-range-entry-is-a-sample-not-all-paths",
+                         "seed-contrast-separate-synthetic-builds-not-path-coverage",
                          "no-VM-or-external-sensors",
                          "no-Windows-Android-or-FRITZ", "no-source-equivalence-proof"]
     }
@@ -316,6 +331,7 @@ def main():
               ":missing=" + str(b.get("missing_nonnop_bytes", -1)) +
               ":extra=" + str(b.get("extra_nonoracle_bytes", -1)))
         islands = item["native_gdb_island_observations"]
+        print("MEASURED_SEED=" + item["profile"] + ":seed=" + str(item["branch_seed"]))
         print("MEASURED_ISLANDS=" + item["profile"] + ":" + islands["status"] +
               ":observed=" + str(islands.get("observed_count", 0)) +
               ":not_observed=" + str(islands.get("not_observed_count", 0)))
