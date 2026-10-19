@@ -25,14 +25,16 @@
     "loaded_image_config_sha256": "sha256:de4a72662de5e91d3a72fe4e8b27e984a760150f0df60d492ec547807dcb0ae2",
     "docker_archive_sha256": "sha256:8e19aaf612336aae0dd66c34e195e73a37a8035c5e386de3998f787295687687",
     "artifact_independent_byte_audit": "PASS_2026-10-19",
-    "docker_archive_layer_count": 6
+    "docker_archive_layer_count": 6,
+    "portable_oci_cross_format_workflow": 39245979100,
+    "guest_control_source_workflow": 39246668887
   },
   "consumer": {
     "repository": "SemperSupra/truenas-app-foundry",
     "pr": 144,
     "source_commit": "70cd8dc02d32dfba1943ff196a4df405945a88d3",
     "data_outcome_observer": "LOCAL_ONLY_NOT_COMMITTED",
-    "native_app_observation": "NOT_RUN",
+    "native_app_observation": "SOURCE_ONLY_TESTS_COMMITTED_GUEST_NOT_RUN",
     "zfs_retention": "NOT_RUN"
   },
   "completion": {
@@ -53,7 +55,12 @@
     "control_artifact_qualified": false,
     "fresh_takeout_run_request": null,
     "exclusive_lane_release": null,
-    "run_dispatched": false
+    "run_dispatched": false,
+    "guest_control_candidate": "config/takeout-synthetic-guest-control-candidate.json",
+    "native_app_observer_source": "scripts/observe_takeout_t6_native_app.py",
+    "native_app_observer_tests": "tests/test_observe_takeout_t6_native_app.py",
+    "native_app_observer_exact_head": "873c5a47eea7d14d3868011446c9ccec6f00a88d",
+    "native_app_observer_hosted_ci": "NOT_RUN_WORKFLOW_UPDATE_BLOCKED"
   },
   "constraints": {
     "allow_real_google_data": false,
