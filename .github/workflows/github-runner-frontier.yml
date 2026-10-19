@@ -12,6 +12,8 @@ on:
       - 'scripts/reversing_interval_boundary_oracle.py'
       - 'scripts/reversing_gdb_island_observation.py'
       - 'scripts/reversing_gdb_rdi_intervention.py'
+      - 'scripts/reversing_signed_branch_oracle.py'
+      - 'tests/test_reversing_signed_branch_oracle.py'
       - 'tests/test_reversing_gdb_rdi_intervention.py'
       - 'tests/test_reversing_gdb_island_observation.py'
       - 'tests/test_reversing_interval_boundary_oracle.py'
@@ -149,6 +151,8 @@ jobs:
         run: python3 -m unittest -v tests/test_reversing_interval_boundary_oracle.py
       - name: Test independent native GDB island receipt parser
         run: python3 -m unittest -v tests/test_reversing_gdb_island_observation.py
+      - name: Test independent byte-grounded signed branch oracle
+        run: python3 -m unittest -v tests/test_reversing_signed_branch_oracle.py
       - name: Test fixed SysV native GDB entry-register intervention oracle
         run: python3 -m unittest -v tests/test_reversing_gdb_rdi_intervention.py
       - name: Test versioned disjoint function-body correlation
@@ -192,7 +196,7 @@ jobs:
               assert intervention["status"]=="RDI_INTERVENTION_ISLAND_SAMPLES_MEASURED"
               assert intervention["baseline_argument_n"]==7
               assert intervention["abi"]=="X86_64_SYSV_FIRST_ARGUMENT_RDI"
-              assert [x["argument_n"] for x in intervention["arguments"]]==[1,4,8,12]
+              assert [x["argument_n"] for x in intervention["arguments"]]==[1,4,8,12,0,-1]
               for row in intervention["arguments"]:
                 assert row["interval_count"]==b["ghidra_interval_count"]
                 assert sorted(row["observed_indices"]+row["not_observed_indices"])==list(range(row["interval_count"]))
@@ -200,6 +204,21 @@ jobs:
                 assert row["statuses"][0]["status"]=="ENTRY_PC_OBSERVED_AND_RDI_ATTESTED"
             else:
               assert intervention["status"]=="NOT_RUN_STATIC_PRECONDITION_NOT_EXACT"
+            signed=v["independent_signed_branch_oracle"]
+            if v["profile"].startswith("O2") and b["classification"]=="EXACT_OBJDUMP_NONNOP_INTERVALS":
+              assert signed["status"]=="SIGNED_JLE_DIRECT_EDGE_TO_ISLAND_3"
+              assert signed["source_register"]=="RDI" and signed["width_bits"]==64
+              assert signed["interval_index"]==3
+              assert signed["predicate"]=="signed_n_le_zero_after_test_rdi_rdi"
+              runs={row["argument_n"]:row for row in intervention["arguments"]}
+              assert 3 in runs[0]["observed_indices"]
+              assert 3 in runs[-1]["observed_indices"]
+              assert all(3 in runs[n]["not_observed_indices"] for n in (1,4,8,12))
+              print("SIGNED_EDGE_NATIVE_WITNESS="+v["profile"]+":n=0,-1:island=3")
+            elif v["profile"].startswith("O0"):
+              assert signed["status"]=="NOT_APPLICABLE_UNOPTIMIZED"
+            else:
+              assert signed["status"]=="INCONCLUSIVE_STATIC_BOUNDARY_MISMATCH"
             island=v["native_gdb_island_observations"]
             if b["classification"]=="EXACT_OBJDUMP_NONNOP_INTERVALS":
               assert island["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED"
