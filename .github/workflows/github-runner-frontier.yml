@@ -197,7 +197,18 @@ jobs:
           alternate=next(v for v in r["profiles"] if v["profile"]=="O2-seed2-no-unwind")
           assert original["stripped_original_text_sha256"]==alternate["stripped_original_text_sha256"]
           assert original["stripped_sha256"]!=alternate["stripped_sha256"]
-          if original["native_gdb_island_observations"]["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED" and alternate["native_gdb_island_observations"]["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED":
+          assert original["oracle_symbol_rva"]==alternate["oracle_symbol_rva"]
+          assert original["independent_objdump_boundary_oracle"]["oracle_sha256"]==alternate["independent_objdump_boundary_oracle"]["oracle_sha256"]
+          original_islands=original["native_gdb_island_observations"]
+          alternate_islands=alternate["native_gdb_island_observations"]
+          if original_islands["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED" and alternate_islands["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED":
+            old_hits={x["interval_index"] for x in original_islands["intervals"] if x["status"]=="BREAKPOINT_OBSERVED"}
+            new_hits={x["interval_index"] for x in alternate_islands["intervals"] if x["status"]=="BREAKPOINT_OBSERVED"}
+            assert all(isinstance(i,int) and 0<=i<original_islands["interval_count"] for i in old_hits|new_hits)
+            print("SEED_VARIANT_BASE_OBSERVED_INDICES="+repr(sorted(old_hits)))
+            print("SEED_VARIANT_ALTERNATE_OBSERVED_INDICES="+repr(sorted(new_hits)))
+            print("SEED_VARIANT_NEW_HITS="+repr(sorted(new_hits-old_hits)))
+            print("SEED_VARIANT_LOST_HITS="+repr(sorted(old_hits-new_hits)))
             print("SEED_VARIANT_OBSERVATIONS_MEASURED_NOT_REACHABILITY")
           else:
             print("SEED_VARIANT_INCONCLUSIVE_STATIC_PRECONDITION")
