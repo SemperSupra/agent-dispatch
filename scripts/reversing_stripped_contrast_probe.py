@@ -29,6 +29,10 @@ BOUNDSPEC = importlib.util.spec_from_file_location(
     "reversing_boundary_oracle", ROOT / "scripts" / "reversing_interval_boundary_oracle.py")
 BOUNDARY = importlib.util.module_from_spec(BOUNDSPEC)
 BOUNDSPEC.loader.exec_module(BOUNDARY)
+ISLANDSPEC = importlib.util.spec_from_file_location(
+    "reversing_gdb_islands", ROOT / "scripts" / "reversing_gdb_island_observation.py")
+ISLAND = importlib.util.module_from_spec(ISLANDSPEC)
+ISLANDSPEC.loader.exec_module(ISLAND)
 SOURCE = r'''
 volatile long branch_seed = 3;
 __attribute__((noinline,used)) long fixture_target(long n) {
@@ -244,6 +248,13 @@ def observe(ghidra_home, profile):
         assessment = function_assessment(ghidra_export, sym, size, image_base)
         boundary_assessment = BOUNDARY.compare_ghidra_ranges(
             ghidra_export, sym, size, independent_nonnop, independent_boundaries, image_base)
+        if boundary_assessment["classification"] == "EXACT_OBJDUMP_NONNOP_INTERVALS":
+            runtime_islands = ISLAND.probe_static_intervals(
+                stripped, independent_nonnop, run_program)
+        else:
+            runtime_islands = {
+                "status": "NOT_RUN_STATIC_PRECONDITION_NOT_EXACT",
+                "interpretation": "NO_GUESSED_GDB_ISLAND_ADDRS_ON_STRUCTURAL_MISMATCH"}
         interval_set = inspect_multirange_export(
             ghidra_export, sym, size, image_base, image_size, pc,
             sha256(stripped.read_bytes()).hexdigest())
@@ -262,7 +273,8 @@ def observe(ghidra_home, profile):
                 "native_unmodified_fixture_exercised": True,
                 "v2_interval_set": interval_set,
                 "independent_objdump_boundary_oracle": boundary_assessment,
-                "stripped_original_text_sha256": text_sha256}
+                "stripped_original_text_sha256": text_sha256,
+                "native_gdb_island_observations": runtime_islands}
 
 
 def main():
@@ -284,6 +296,7 @@ def main():
                          "fixed-synthetic-cfg", "original-symbol-oracle-exists-only-outside-analyzed-binary",
                          "Ghidra-body-bytes-not-path-completeness",
                          "objdump-linear-decode-not-independent-cfg-ownership",
+                         "gdb-breakpoint-hit-per-range-entry-is-a-sample-not-all-paths",
                          "no-VM-or-external-sensors",
                          "no-Windows-Android-or-FRITZ", "no-source-equivalence-proof"]
     }
@@ -302,6 +315,10 @@ def main():
               ":objdump=" + str(b.get("objdump_nonnop_interval_count", 0)) +
               ":missing=" + str(b.get("missing_nonnop_bytes", -1)) +
               ":extra=" + str(b.get("extra_nonoracle_bytes", -1)))
+        islands = item["native_gdb_island_observations"]
+        print("MEASURED_ISLANDS=" + item["profile"] + ":" + islands["status"] +
+              ":observed=" + str(islands.get("observed_count", 0)) +
+              ":not_observed=" + str(islands.get("not_observed_count", 0)))
     print(report["result"])
 
 
