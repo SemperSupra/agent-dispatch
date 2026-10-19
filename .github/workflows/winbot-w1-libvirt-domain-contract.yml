@@ -1,0 +1,85 @@
+name: WinBot libvirt Windows W1 inert XML contract (cheap)
+on:
+  push:
+    branches:
+      - experiment/winbot-w1-libvirt-domain-20261019
+    paths:
+      - 'scripts/windows_w1_libvirt_domain.py'
+      - 'tests/test_windows_w1_libvirt_domain.py'
+      - '.github/workflows/winbot-w1-libvirt-domain-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-and-real-schema:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Independent plan and negative regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_windows_w1_libvirt_domain.py tests/test_windows_w1_libvirt_plan.py
+      - name: Verify rendered native libvirt XML schema without defining guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvirt-clients libxml2-utils
+          out="/tmp/winbot-w1-xml"
+          test ! -e "$out"
+          mkdir -m 0700 "$out"
+          python3 - <<'PY'
+          import json,pathlib,uuid
+          from scripts.compute_guest_profile_contract import load
+          from scripts.windows_w1_libvirt_plan import libvirt_w1_plan,MEDIA_SHA256,MEDIA_SIZE
+          from scripts.windows_w1_libvirt_domain import render_w1_libvirt_xml
+          run="c31d4df2-9ab1-4ea7-b317-75b9c633b9b1"
+          he=uuid.UUID(run).hex
+          obs={
+            "owned_root":"/var/lib/libvirt/images/ad-w1-"+he,
+            "libvirt_uri":"qemu:///system",
+            "kvm_vcpu_exercised":True,"host_passthrough_supported":True,
+            "secureboot_firmware_observed":True,"enrolled_keys_observed":True,
+            "swtpm2_startup_exercised":True,"owned_isolated_network_observed":True,
+            "domain_uuid_absent":True,"owned_root_absent":True,
+            "installer_media_digest_verified":True,"unattended_seed_secret_free":True,
+            "windows_wipe_target_is_single_run_owned_disk":True,
+            "installer_media_sha256":MEDIA_SHA256,
+            "installer_media_size_bytes":MEDIA_SIZE,
+            "network":"ad-w1-"+he,
+            "unattended_seed_sha256":"f"*64,
+          }
+          p=libvirt_w1_plan(load(pathlib.Path("config/compute-guest-profiles.json")),obs,run)
+          out=pathlib.Path("/tmp/winbot-w1-xml")
+          (out/"candidate.xml").write_text(render_w1_libvirt_xml(p))
+          (out/"classification.json").write_text(json.dumps({
+            "schema":"winbot-w1-xml-contract/v1",
+            "classification":"INERT_SCHEMA_ONLY",
+            "synthetic_observation":True,
+            "host_native_xml_validated":False,
+            "windows_media_downloaded":False,
+            "vm_defined":False,"windows_guest_qualified":False,
+            "winbot_guest_qualified":False,"mutation_authorized":False,
+            "claim_boundary":"synthetic plan and libvirt Relax NG validation ONLY",
+          },indent=2)+"\n")
+          PY
+          virt-xml-validate "$out/candidate.xml" domain
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          out=pathlib.Path("/tmp/winbot-w1-xml")
+          p=out/"classification.json"
+          receipt=json.loads(p.read_text())
+          receipt["host_native_xml_validated"]=True
+          receipt["candidate_xml_sha256"]=hashlib.sha256((out/"candidate.xml").read_bytes()).hexdigest()
+          p.write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n")
+          PY
+      - name: Preserve inert XML and non-admission classification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-w1-libvirt-inert-xml
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-w1-xml/
