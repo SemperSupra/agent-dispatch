@@ -91,7 +91,7 @@ jobs:
               <loader readonly='yes' type='pflash' secure='yes'>$code</loader>
               <nvram template='$vars'>$owned/nvram.fd</nvram>
             </os>
-            <features><acpi/></features>
+            <features><acpi/><smm state='on'/></features>
             <cpu mode='host-passthrough'/>
             <devices>
               <emulator>/usr/bin/qemu-system-x86_64</emulator>
