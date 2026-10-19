@@ -162,7 +162,10 @@ jobs:
           r=json.loads((Path(os.environ["RUNNER_TEMP"])/"reversing-contrast-receipt.json").read_text())
           assert r["schema"]=="reversing-stripped-contrast/v1"
           assert r["result"]=="MATRIX_MEASURED_NOT_FULL_RECOVERY_PROOF"
-          assert {v["profile"] for v in r["profiles"]}=={"O0-no-unwind","O2-no-unwind"}
+          assert {v["profile"] for v in r["profiles"]}=={"O0-no-unwind","O2-no-unwind","O2-seed2-no-unwind"}
+          seeds={v["profile"]:v["branch_seed"] for v in r["profiles"]}
+          assert seeds=={"O0-no-unwind":3,"O2-no-unwind":3,"O2-seed2-no-unwind":2}
+          assert all(v["fixture_argument_n"]==7 for v in r["profiles"])
           for v in r["profiles"]:
             assert v["v2_interval_set"]["status"]=="V2_ENTRY_CORRELATED_INTERVAL_SET"
           assert next(v for v in r["profiles"] if v["profile"]=="O2-no-unwind")["v2_interval_set"]["reported_range_count"] > 1
@@ -190,5 +193,13 @@ jobs:
               assert island["status"]=="NOT_RUN_STATIC_PRECONDITION_NOT_EXACT"
             assert v["outcome"] in {"ENTRY_NOT_FOUND","AMBIGUOUS_ENTRY","INVALID_FUNCTION_BODY",
                   "BODY_EXTENDS_BEYOND_ORACLE","PARTIAL_BODY","EXACT_BODY"}
+          original=next(v for v in r["profiles"] if v["profile"]=="O2-no-unwind")
+          alternate=next(v for v in r["profiles"] if v["profile"]=="O2-seed2-no-unwind")
+          assert original["stripped_original_text_sha256"]==alternate["stripped_original_text_sha256"]
+          assert original["stripped_sha256"]!=alternate["stripped_sha256"]
+          if original["native_gdb_island_observations"]["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED" and alternate["native_gdb_island_observations"]["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED":
+            print("SEED_VARIANT_OBSERVATIONS_MEASURED_NOT_REACHABILITY")
+          else:
+            print("SEED_VARIANT_INCONCLUSIVE_STATIC_PRECONDITION")
           print("NO_UNWIND_CONTRAST_MATRIX_MEASURED")
           PY
