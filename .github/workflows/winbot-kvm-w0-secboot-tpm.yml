@@ -96,7 +96,6 @@ jobs:
             <devices>
               <emulator>/usr/bin/qemu-system-x86_64</emulator>
               <tpm model='tpm-tis'><backend type='emulator' version='2.0'/></tpm>
-              <graphics type='none'/>
             </devices>
           </domain>
           EOF
