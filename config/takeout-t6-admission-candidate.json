@@ -20,7 +20,12 @@
     "hosted_receipt_workflow": 38771167004,
     "oci_artifact_id": 11991297351,
     "oci_artifact_zip_sha256": "sha256:293ed237e714aafe6b8f991ae6409005cafc2f89e65da4e6c83fb46afee8869f",
-    "oci_artifact_expires": "2026-10-22T16:42:25Z"
+    "oci_artifact_expires": "2026-10-22T16:42:25Z",
+    "oci_manifest_sha256": "sha256:32d6d63f5534bac350fcc89dee9b3b03d086ab20d3526e3263fb686193579c8c",
+    "loaded_image_config_sha256": "sha256:de4a72662de5e91d3a72fe4e8b27e984a760150f0df60d492ec547807dcb0ae2",
+    "docker_archive_sha256": "sha256:8e19aaf612336aae0dd66c34e195e73a37a8035c5e386de3998f787295687687",
+    "artifact_independent_byte_audit": "PASS_2026-10-19",
+    "docker_archive_layer_count": 6
   },
   "consumer": {
     "repository": "SemperSupra/truenas-app-foundry",
