@@ -37,6 +37,10 @@ RDISPEC = importlib.util.spec_from_file_location(
     "reversing_gdb_rdi", ROOT / "scripts" / "reversing_gdb_rdi_intervention.py")
 RDI = importlib.util.module_from_spec(RDISPEC)
 RDISPEC.loader.exec_module(RDI)
+SIGNEDSPEC = importlib.util.spec_from_file_location(
+    "reversing_signed_branch", ROOT / "scripts" / "reversing_signed_branch_oracle.py")
+SIGNED = importlib.util.module_from_spec(SIGNEDSPEC)
+SIGNEDSPEC.loader.exec_module(SIGNED)
 SOURCE = r'''
 volatile long branch_seed = 3;
 __attribute__((noinline,used)) long fixture_target(long n) {
@@ -265,6 +269,13 @@ def observe(ghidra_home, profile):
         assessment = function_assessment(ghidra_export, sym, size, image_base)
         boundary_assessment = BOUNDARY.compare_ghidra_ranges(
             ghidra_export, sym, size, independent_nonnop, independent_boundaries, image_base)
+        if boundary_assessment["classification"] == "EXACT_OBJDUMP_NONNOP_INTERVALS" and profile.startswith("O2"):
+            signed_branch = SIGNED.assess_signed_early_exit(
+                original_disassembly, sym, size, independent_nonnop)
+        elif profile.startswith("O0"):
+            signed_branch = {"status": "NOT_APPLICABLE_UNOPTIMIZED"}
+        else:
+            signed_branch = {"status": "INCONCLUSIVE_STATIC_BOUNDARY_MISMATCH"}
         if boundary_assessment["classification"] == "EXACT_OBJDUMP_NONNOP_INTERVALS":
             runtime_islands = ISLAND.probe_static_intervals(
                 stripped, independent_nonnop, run_program)
@@ -302,6 +313,7 @@ def observe(ghidra_home, profile):
                 "native_unmodified_fixture_exercised": True,
                 "v2_interval_set": interval_set,
                 "independent_objdump_boundary_oracle": boundary_assessment,
+                "independent_signed_branch_oracle": signed_branch,
                 "stripped_original_text_sha256": text_sha256,
                 "native_gdb_island_observations": runtime_islands,
                 "rdi_intervention": rdi_intervention,
@@ -330,6 +342,7 @@ def main():
                          "gdb-breakpoint-hit-per-range-entry-is-a-sample-not-all-paths",
                          "seed-contrast-separate-synthetic-builds-not-path-coverage",
                          "RDI-intervention-samples-separate-runs-not-control-flow-completeness",
+                         "signed-direct-branch-in-original-bytecode-still-needs-native-witness",
                          "no-VM-or-external-sensors",
                          "no-Windows-Android-or-FRITZ", "no-source-equivalence-proof"]
     }
@@ -353,6 +366,10 @@ def main():
         print("MEASURED_ISLANDS=" + item["profile"] + ":" + islands["status"] +
               ":observed=" + str(islands.get("observed_count", 0)) +
               ":not_observed=" + str(islands.get("not_observed_count", 0)))
+        edge = item["independent_signed_branch_oracle"]
+        print("MEASURED_SIGNED_EDGE=" + item["profile"] + ":" + edge["status"] +
+              ":index=" + str(edge.get("interval_index", "UNKNOWN")) +
+              ":target_rva=" + str(edge.get("target_rva", "UNKNOWN")))
         intervention = item["rdi_intervention"]
         if intervention["status"] == "RDI_INTERVENTION_ISLAND_SAMPLES_MEASURED":
             for row in intervention["arguments"]:
