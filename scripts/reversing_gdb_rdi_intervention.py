@@ -13,7 +13,7 @@ class InterventionError(ValueError):
     pass
 
 # The exact public fixture calls fixture_target(7); allow only these inputs.
-ALLOWED_ARGUMENTS = (1, 4, 8, 12)
+ALLOWED_ARGUMENTS = (1, 4, 8, 12, 0, -1)
 BASELINE_ARGUMENT = 7
 MAX_ISLANDS = 32
 MAX_OUTPUT = 131072

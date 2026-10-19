@@ -65,10 +65,21 @@ class InterventionTests(unittest.TestCase):
                                          ENTRY, ISLAND, 8)
 
     def test_reject_untrusted_arguments(self):
-        for n in (0, 7, 100, -1, True, "8", None):
+        for n in (7, 100, -2, True, "8", None):
             with self.subTest(n=n):
                 with self.assertRaises(M.InterventionError):
                     M.parse_intervention_receipt(evidence(8), ENTRY, ISLAND, n)
+
+    def test_signed_zero_and_negative_register_witnesses(self):
+        for n in (0, -1):
+            with self.subTest(n=n):
+                result = M.parse_intervention_receipt(evidence(n), ENTRY, ISLAND, n)
+                self.assertEqual(result, "BREAKPOINT_OBSERVED_AFTER_RDI_INTERVENTION")
+
+    def test_negative_wrong_register_value_rejected(self):
+        with self.assertRaises(M.InterventionError):
+            M.parse_intervention_receipt(evidence(-1, after=(2**64)-1),
+                                         ENTRY, ISLAND, -1)
 
     def test_no_forged_exit_message(self):
         with self.assertRaises(M.InterventionError):
