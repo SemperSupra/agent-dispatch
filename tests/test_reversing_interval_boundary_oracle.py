@@ -78,6 +78,29 @@ class IndependentOracleTests(unittest.TestCase):
                 r = M.compare_ghidra_ranges(x, START, 6, self.spans, self.bounds, 0x400000)
                 self.assertEqual(r["classification"], "INVALID_GHIDRA_EXPORT")
 
+    def test_nop_in_operand_or_comment_is_not_padding(self):
+        # Previously an arbitrary operand/comment containing 'nop' hid code.
+        raw = (f"{START:016x} <fixture_target>:\n"
+               f"  {START:x}: b8 00 00 00 00   mov $nop,%eax # nop\n"
+               f"  {START+5:x}: c3   ret\n")
+        spans, _ = M.parse_objdump_nonnop_ranges(raw, START, 6)
+        self.assertEqual(spans, [(START, START + 6)])
+
+    def test_call_to_symbol_named_nop_is_not_padding(self):
+        raw = (f"{START:016x} <fixture_target>:\n"
+               f"  {START:x}: e8 00 00 00 00   call nop\n"
+               f"  {START+5:x}: c3   ret\n")
+        spans, _ = M.parse_objdump_nonnop_ranges(raw, START, 6)
+        self.assertEqual(spans, [(START, START + 6)])
+
+    def test_prefixed_multibyte_nop_is_padding(self):
+        raw = (f"{START:016x} <fixture_target>:\n"
+               f"  {START:x}: 66 2e 0f 1f 84 00 00 00 00 00   data16 cs nopw 0x0(%rax,%rax,1)\n"
+               f"  {START+10:x}: c3   ret\n")
+        spans, bounds = M.parse_objdump_nonnop_ranges(raw, START, 11)
+        self.assertEqual(spans, [(START + 10, START + 11)])
+        self.assertIn(START + 10, bounds)
+
     def test_duplicate_entry_is_unknown(self):
         x = export(self.spans)
         x["functions"].append(copy.deepcopy(x["functions"][0]))
