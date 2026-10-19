@@ -1,0 +1,24 @@
+name: Windows W1 standalone libvirt KVM plan contract (source-only, free)
+on:
+  push:
+    branches:
+      - experiment/windows-w1-libvirt-plan-20261019
+    paths:
+      - '.github/workflows/windows-w1-libvirt-plan-contract.yml'
+      - 'scripts/windows_w1_libvirt_plan.py'
+      - 'tests/test_windows_w1_libvirt_plan.py'
+permissions:
+  contents: read
+jobs:
+  qualify-source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Execute source-only W1 three-backend common-intent and negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/windows_w1_libvirt_plan.py
+          python3 -m unittest discover -s tests -p 'test_windows_w1_*plan.py' -v
+          echo 'SOURCE_CONTRACT_TESTS_PASSED_ONLY; no VM or Windows or WinBot run'
