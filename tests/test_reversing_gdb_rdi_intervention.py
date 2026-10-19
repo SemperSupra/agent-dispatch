@@ -76,6 +76,24 @@ class InterventionTests(unittest.TestCase):
                 "[Inferior 1 (process 321) exited normally]", "ordinary stdout exited normally"),
                 ENTRY, ISLAND, 8)
 
+    def test_reject_hit_before_attested_rdi_write(self):
+        original = evidence(8)
+        hit = f"Breakpoint 2, 0x{ISLAND:x} in ?? ()\\n"
+        self.assertEqual(original.count(hit), 1)
+        reordered = original.replace(hit, "").replace("RE_RDI_ENTRY_PC=",
+                                                        hit+"RE_RDI_ENTRY_PC=", 1)
+        with self.assertRaises(M.InterventionError):
+            M.parse_intervention_receipt(reordered, ENTRY, ISLAND, 8)
+
+    def test_reject_exit_before_attested_rdi_write(self):
+        original = evidence(4, hit=False)
+        exitline = "[Inferior 1 (process 321) exited normally]\\n"
+        self.assertEqual(original.count(exitline), 1)
+        reordered = original.replace(exitline, "").replace("RE_RDI_BEFORE=",
+                                                             exitline+"RE_RDI_BEFORE=", 1)
+        with self.assertRaises(M.InterventionError):
+            M.parse_intervention_receipt(reordered, ENTRY, ISLAND, 4)
+
     def test_bounded_fixed_argv_and_fresh_process(self):
         seen = []
         def runner(argv, timeout=0):
