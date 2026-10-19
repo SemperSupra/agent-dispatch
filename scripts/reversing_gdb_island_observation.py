@@ -64,36 +64,3 @@ def probe_static_intervals(stripped, intervals, run_program):
         'intervals': observations,
         'interpretation': 'ONE_ADDRESS_PER_INTERVAL_PER_FRESH_RUN_NOT_ALL_PATHS_OR_REACHABILITY'
     }
-, output, re.M):
-        return 'NOT_OBSERVED_IN_THIS_RUN'
-    raise IslandObservationError('neither breakpoint hit nor normal process completion')
-
-
-def probe_static_intervals(stripped, intervals, run_program):
-    """One fresh ordinary native GDB inferior for each independent interval start."""
-    if not isinstance(intervals, list) or not 1 <= len(intervals) <= 32:
-        raise IslandObservationError('invalid bounded interval census')
-    seen = set()
-    observations = []
-    for i, interval in enumerate(intervals):
-        if (not isinstance(interval, (tuple, list)) or len(interval) != 2
-                or any(type(x) is not int for x in interval)):
-            raise IslandObservationError('invalid interval')
-        start, end = interval
-        if not 0 <= start < end <= 2**64 or start in seen:
-            raise IslandObservationError('invalid or duplicated interval start')
-        seen.add(start)
-        text = run_program(
-            ['gdb', '--batch', '--nx', '--quiet', str(stripped),
-             '-ex', 'set pagination off', '-ex', 'break *0x%x' % start,
-             '-ex', 'run'], timeout=35)
-        status = classify_gdb_single_breakpoint(text, start)
-        observations.append({'interval_index': i, 'status': status})
-    return {
-        'status': 'NATIVE_GDB_ISLAND_SAMPLES_MEASURED',
-        'interval_count': len(observations),
-        'observed_count': sum(x['status'] == 'BREAKPOINT_OBSERVED' for x in observations),
-        'not_observed_count': sum(x['status'] == 'NOT_OBSERVED_IN_THIS_RUN' for x in observations),
-        'intervals': observations,
-        'interpretation': 'ONE_ADDRESS_PER_INTERVAL_PER_FRESH_RUN_NOT_ALL_PATHS_OR_REACHABILITY'
-    }
