@@ -358,7 +358,8 @@ jobs:
                   pass
           assert len(found)==1, f"expected one exact-owned KVM libvirt QEMU, observed {len(found)}"
           args=found[0]
-          accelerated = "-enable-kvm" in args or any("accel=kvm" in arg for arg in args)
+          accelerated = ("-enable-kvm" in args or any("accel=kvm" in arg for arg in args)
+                         or any(args[i] == "-accel" and args[i + 1] == "kvm" for i in range(len(args) - 1)))
           pathlib.Path(sys.argv[2]).write_text(json.dumps(args, indent=2)+"\n")
           pathlib.Path(sys.argv[3]).write_text(json.dumps({"accel_argument_observed":accelerated,"kvm_device_observed":True})+"\n")
           PY
