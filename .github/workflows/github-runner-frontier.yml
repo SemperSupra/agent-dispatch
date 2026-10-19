@@ -10,6 +10,8 @@ on:
       - 'scripts/reversing_ghidra_stripped_probe.py'
       - 'scripts/reversing_stripped_contrast_probe.py'
       - 'scripts/reversing_interval_boundary_oracle.py'
+      - 'scripts/reversing_gdb_island_observation.py'
+      - 'tests/test_reversing_gdb_island_observation.py'
       - 'tests/test_reversing_interval_boundary_oracle.py'
       - 'scripts/reversing_evidence_correlate_v2.py'
       - 'tests/test_reversing_evidence_correlate_v2.py'
@@ -143,6 +145,8 @@ jobs:
         run: python3 -m unittest -v tests/test_reversing_stripped_contrast_probe.py
       - name: Test independent objdump interval and padding oracle
         run: python3 -m unittest -v tests/test_reversing_interval_boundary_oracle.py
+      - name: Test independent native GDB island receipt parser
+        run: python3 -m unittest -v tests/test_reversing_gdb_island_observation.py
       - name: Test versioned disjoint function-body correlation
         run: python3 -m unittest -v tests/test_reversing_evidence_correlate_v2.py
       - name: Measure native no-unwind Ghidra O0/O2 stripped contrast
@@ -175,6 +179,15 @@ jobs:
               "NON_INSTRUCTION_BOUNDARY", "OVERLAPPING_GHIDRA_RANGES",
               "INVALID_GHIDRA_RANGES", "INVALID_GHIDRA_EXPORT", "ENTRY_NOT_UNIQUE"}
             assert b.get("interpretation","").endswith("NOT_CFG_OR_SEMANTIC_EQUIVALENCE") or b["classification"]!="EXACT_OBJDUMP_NONNOP_INTERVALS"
+            island=v["native_gdb_island_observations"]
+            if b["classification"]=="EXACT_OBJDUMP_NONNOP_INTERVALS":
+              assert island["status"]=="NATIVE_GDB_ISLAND_SAMPLES_MEASURED"
+              assert island["observed_count"]+island["not_observed_count"]==b["ghidra_interval_count"]
+              assert island["observed_count"] >= 1
+              assert len(island["intervals"])==b["ghidra_interval_count"]
+              assert all(x["status"] in {"BREAKPOINT_OBSERVED","NOT_OBSERVED_IN_THIS_RUN"} for x in island["intervals"])
+            else:
+              assert island["status"]=="NOT_RUN_STATIC_PRECONDITION_NOT_EXACT"
             assert v["outcome"] in {"ENTRY_NOT_FOUND","AMBIGUOUS_ENTRY","INVALID_FUNCTION_BODY",
                   "BODY_EXTENDS_BEYOND_ORACLE","PARTIAL_BODY","EXACT_BODY"}
           print("NO_UNWIND_CONTRAST_MATRIX_MEASURED")
