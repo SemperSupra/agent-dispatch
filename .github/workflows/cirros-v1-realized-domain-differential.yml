@@ -58,11 +58,16 @@ jobs:
           domain_defined=0
           owned_created=0
           qpid=''
+          npid=''
           cleanup() {
             set +e
             if [[ -n "$qpid" ]]; then
               kill "$qpid" 2>/dev/null
               wait "$qpid" 2>/dev/null
+            fi
+            if [[ -n "$npid" ]]; then
+              kill "$npid" 2>/dev/null
+              wait "$npid" 2>/dev/null
             fi
             if [[ "$domain_defined" == 1 ]]; then
               sudo virsh -c qemu:///system destroy "$uuid" >/dev/null 2>&1
@@ -115,6 +120,35 @@ jobs:
           kill "$qpid" 2>/dev/null || true
           wait "$qpid" 2>/dev/null || true
           qpid=''
+
+          # One-axis counterfactual: add -nodefaults to the passing direct-QEMU
+          # recipe. The guest/seed and all other QEMU flags stay equivalent.
+          cp pristine.raw direct-nodefaults.raw
+          cp "$vars" direct-nodefaults-vars.fd
+          qemu-system-x86_64 -nodefaults -machine q35,accel=tcg -cpu qemu64 -smp 1 -m 512 -display none -monitor none -serial file:direct-nodefaults-console.log -drive "if=pflash,format=raw,readonly=on,file=$code" -drive "if=pflash,format=raw,file=$PWD/direct-nodefaults-vars.fd" -drive "file=$PWD/direct-nodefaults.raw,format=raw,if=virtio" -drive "file=$PWD/seed.iso,format=raw,media=cdrom,readonly=on" >direct-nodefaults-stderr.log 2>&1 &
+          npid=$!
+          sleep 1
+          if ! kill -0 "$npid" 2>/dev/null; then
+            echo 'Direct -nodefaults QEMU exited before argv observation' >&2; exit 5
+          fi
+          sudo python3 - "$npid" direct-nodefaults-realized-argv.json <<'PY'
+          import json, pathlib, sys
+          pid=int(sys.argv[1])
+          args=pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
+          assert args and args[0].endswith("qemu-system-x86_64"), args
+          assert "-nodefaults" in args, args
+          pathlib.Path(sys.argv[2]).write_text(json.dumps(args, indent=2)+"\n")
+          PY
+          found=0
+          for _ in $(seq 1 90); do
+            if grep -Fq "$marker" direct-nodefaults-console.log 2>/dev/null; then found=1; break; fi
+            if ! kill -0 "$npid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          printf '{"nonce":%s}\n' "$([[ "$found" == 1 ]] && echo true || echo false)" > direct-nodefaults-oracle.json
+          kill "$npid" 2>/dev/null || true
+          wait "$npid" 2>/dev/null || true
+          npid=''
 
           sudo install -d -o libvirt-qemu -g kvm -m 0750 "$owned"
           sudo install -o libvirt-qemu -g kvm -m 0644 pristine.raw "$owned/cirros.raw"
@@ -191,15 +225,17 @@ jobs:
           d=pathlib.Path(__import__("os").environ["RUNNER_TEMP"])/"v1-realized"
           load=lambda name: json.loads((d/name).read_text()) if (d/name).exists() else None
           direct=load("direct-oracle.json"); libvirt=load("libvirt-oracle.json")
+          nodefaults=load("direct-nodefaults-oracle.json")
           def boots(name):
               p=d/name
               return p.read_bytes().count(b"BdsDxe: starting Boot") if p.exists() else None
           cleanup=load("cleanup.json")
           classification=("HARNESS_FAILURE" if direct is None or direct.get("nonce") is not True
-                          or libvirt is None or not cleanup or
+                          or libvirt is None or nodefaults is None or not cleanup or
                           cleanup.get("owned_domain_absent") is not True or
                           cleanup.get("owned_files_absent") is not True or
                           load("direct-realized-argv.json") is None or
+                          load("direct-nodefaults-realized-argv.json") is None or
                           load("libvirt-process-realized-argv.json") is None
                           else "DIFFERENTIAL_REPRODUCED" if libvirt.get("nonce") is False
                           else "DIFFERENTIAL_NOT_REPRODUCED")
@@ -208,10 +244,14 @@ jobs:
               "source_run":"SemperSupra/agent-dispatch-private#426",
               "classification":classification,
               "direct_nonce":direct,
+              "direct_nodefaults_nonce":nodefaults,
+              "nodefaults_isolated_cause":False,
               "libvirt_nonce":libvirt,
               "direct_uefi_boot_starts":boots("direct-console.log"),
+              "direct_nodefaults_uefi_boot_starts":boots("direct-nodefaults-console.log"),
               "libvirt_uefi_boot_starts":boots("libvirt-console.log"),
               "realized_direct_argv":load("direct-realized-argv.json") is not None,
+              "realized_direct_nodefaults_argv":load("direct-nodefaults-realized-argv.json") is not None,
               "realized_libvirt_argv":load("libvirt-process-realized-argv.json") is not None,
               "cleanup":cleanup,
               "product_v1_acceptance":False,
