@@ -336,7 +336,11 @@ jobs:
             sed -e "s@$uuid_nic@$uuid_kvm@g" \
                 -e "s@$owned_nic@$owned_kvm@g" \
                 -e "s@domain type='qemu'@domain type='kvm'@" \
+                -e "s@<cpu mode='custom' match='exact'><model fallback='forbid'>qemu64</model>@<cpu mode='host-passthrough'>@" \
                 libvirt-domain-nic.xml > libvirt-domain-kvm.xml
+            # Fail closed if the expected exact CPU model was not transformed.
+            grep -Fq "<cpu mode='host-passthrough'>" libvirt-domain-kvm.xml
+            ! grep -Fq "<model fallback='forbid'>qemu64</model>" libvirt-domain-kvm.xml
             sudo virt-xml-validate libvirt-domain-kvm.xml
             sudo virsh -c qemu:///system define libvirt-domain-kvm.xml
             domain_kvm_defined=1
