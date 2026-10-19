@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'config/takeout-t6-admission-candidate.json'
+      - 'config/takeout-synthetic-guest-control-candidate.json'
+      - 'tests/test_takeout_guest_control_candidate.py'
       - 'scripts/qualify_takeout_t6_admission.py'
       - 'tests/test_qualify_takeout_t6_admission.py'
       - 'scripts/verify_takeout_synthetic_oci_artifact.py'
@@ -36,6 +38,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_qualify_takeout_t6_admission.py' -v
       - name: Exercise source-pinned OCI layer count plus legacy negative controls
         run: python3 -m unittest discover -s tests -p 'test_verify_takeout_synthetic_oci_artifact.py' -v
+      - name: Independently bind exact synthetic image, archive manifest and guest-only control
+        run: python3 -m unittest discover -s tests -p 'test_takeout_guest_control_candidate.py' -v
       - name: Verify actual nested executor remains blocked, not silently dispatchable
         shell: bash
         run: |
