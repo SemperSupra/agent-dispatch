@@ -1,0 +1,41 @@
+name: WinBot standalone KVM W0 firmware and TPM2 (cheap, public)
+on:
+  push:
+    branches:
+      - experiment/winbot-kvm-w0-firmware-tpm-20261019
+    paths:
+      - '.github/workflows/winbot-kvm-w0-firmware-tpm.yml'
+      - 'scripts/winbot_kvm_w0_probe.py'
+permissions:
+  contents: read
+
+jobs:
+  w0-observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install bounded disposable firmware and TPM capability tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            ovmf qemu-system-x86 libvirt-daemon-system libvirt-clients swtpm swtpm-tools
+          sudo systemctl start libvirtd
+      - name: Exercise observed firmware / owned TPM2 socket and retain machine receipt
+        shell: bash
+        env:
+          WINBOT_W0_RECEIPT: ${{ runner.temp }}/winbot-kvm-w0-receipt.json
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/winbot_kvm_w0_probe.py
+          python3 scripts/winbot_kvm_w0_probe.py
+      - name: Upload limited public-safe W0 capability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-kvm-w0-host-observation
+          retention-days: 7
+          if-no-files-found: warn
+          path: ${{ runner.temp }}/winbot-kvm-w0-receipt.json
