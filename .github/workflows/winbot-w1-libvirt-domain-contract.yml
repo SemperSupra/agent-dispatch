@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libvirt-clients
+          sudo apt-get install -y -qq libvirt-clients libxml2-utils
           out="/tmp/winbot-w1-xml"
           test ! -e "$out"
           mkdir -m 0700 "$out"
