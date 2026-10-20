@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           test "$(git hash-object scripts/windows_w1_winpe_disk_identity.py)" = b18daec968da05aef5f85b432422e31d5197fd58
           test "$(git hash-object tests/test_windows_w1_winpe_disk_identity.py)" = 5ed38a1b13ca6f99cbc93876ecd6f2c4a4e65680
-          test "$(git hash-object scripts/windows_w1_winpe_observer_seed.py)" = 4ce8106cc80e4766371694926dd47da9559b446c
+          test "$(git hash-object scripts/windows_w1_winpe_observer_seed.py)" = 3f98e3e82e611b5504a4bb1a34dfa66fcc3c1634
           test "$(git hash-object tests/test_windows_w1_winpe_observer_seed.py)" = 6db53d6c8fdd8a2085efa83afb00d364f53ab8c0
           git rev-parse HEAD
       - name: Independently execute shared source-only safety regressions
