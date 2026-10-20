@@ -26,7 +26,7 @@ def compound(*children):
 
 
 def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
-          empty_end_list_length=None, palette_key="Name"):
+          empty_end_list_length=None, palette_key="Name", palette_mode="compound"):
     positions = {((70 & 15) << 8) | (z << 4) | x: value
                  for (x, z, value) in (
                    (0, 0, 1 if stage == "preaction" else 0), (2, 0, 1 if stage == "candidate" else 3),
@@ -42,9 +42,15 @@ def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
         if value >= 1 << 63:
             value -= 1 << 64
         longs.append(value)
-    pal = b"".join(compound(tag(8, palette_key, nbt_string(n))) for n in PALETTE)
+    if palette_mode == "string":
+        pal_type = b"\x08"
+        pal = b"".join(nbt_string(n) for n in PALETTE)
+    else:
+        pal_type = b"\x0a"
+        pal = b"".join(compound(tag(8, palette_key, nbt_string(n)))
+                       for n in PALETTE)
     states = compound(
-        tag(9, "palette", b"\x0a" + struct.pack(">i", len(PALETTE)) + pal),
+        tag(9, "palette", pal_type + struct.pack(">i", len(PALETTE)) + pal),
         tag(12, "data", struct.pack(">i", len(longs)) +
             b"".join(struct.pack(">q", n) for n in longs)),
     )
@@ -131,6 +137,19 @@ class BlockRegionTests(unittest.TestCase):
         # and expected world-stage consequences would have matched.
         self.reject(build(palette_key=""), "candidate",
                     "BLOCK_PALETTE_INVALID")
+
+    def test_real_263_palette_default_state_wrappers_and_bare_strings(self):
+        # 26.3 chunk palettes use compact strings and the unnamed
+        # heterogeneous-list compound wrapper for default block states.
+        for mode, key in (("string", "Name"), ("compound", "")):
+            for stage in ("preaction", "candidate", "rollback"):
+                receipt = inspect(build(stage, palette_mode=mode,
+                                        palette_key=key,
+                                        empty_end_list_length=0),stage)
+                self.assertTrue(receipt["block_state_expectations_matched"])
+                self.assertFalse(receipt["native_guest_server_owned_bytes_proven"])
+        self.reject(build(palette_mode="compound",palette_key="foreign"),
+                    "candidate", "BLOCK_PALETTE_INVALID")
 
     def test_wrong_stage_and_replayed_same_region(self):
         self.reject(build(), "rollback", "SERVER_BLOCK_CONSEQUENCE_ABSENT")
