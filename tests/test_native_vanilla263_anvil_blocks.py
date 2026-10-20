@@ -155,6 +155,33 @@ class BlockRegionTests(unittest.TestCase):
         self.reject(build(palette_mode="compound",palette_key="foreign"),
                     "candidate", "BLOCK_PALETTE_INVALID")
 
+    def test_canonical_vanilla_resource_path_and_bounds(self):
+        # Do not accept syntactically invalid IDs merely because they have
+        # the minecraft: prefix; retain documented 26.3 palette shapes.
+        from scripts.qualify_native_vanilla263_anvil_blocks import palette_name
+        for value in ("minecraft:air", "minecraft:redstone_block",
+                      "minecraft:oak_log", "minecraft:stone/variant"):
+            for entry in (value, {"": value}, {"id": value},
+                          {"Name": value}):
+                with self.subTest(entry=entry):
+                    self.assertEqual(palette_name(entry), value)
+        invalid = ("minecraft:", "minecraft:.", "minecraft:..",
+                   "minecraft:stone/..", "minecraft:../stone",
+                   "minecraft:stone//variant", "minecraft:Stone",
+                   "minecraft:stone name", "minecraft:stone\\nbad",
+                   "minecraft:stone\x00", "other:air",
+                   "minecraft:" + "a" * 257)
+        for value in invalid:
+            for entry in (value, {"": value}, {"id": value},
+                          {"Name": value}):
+                with self.subTest(entry=entry):
+                    with self.assertRaisesRegex(Refused, "BLOCK_PALETTE_INVALID"):
+                        palette_name(entry)
+        # Reject ambiguous old/current block state identifiers regardless of
+        # an otherwise valid vanilla resource ID.
+        with self.assertRaisesRegex(Refused, "BLOCK_PALETTE_INVALID"):
+            palette_name({"Name": "minecraft:air", "id": "minecraft:air"})
+
     def test_wrong_stage_and_replayed_same_region(self):
         self.reject(build(), "rollback", "SERVER_BLOCK_CONSEQUENCE_ABSENT")
         self.reject(build(), "unknown", "STAGE_NOT_ADMITTED")
