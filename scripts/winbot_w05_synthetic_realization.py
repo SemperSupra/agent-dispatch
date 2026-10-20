@@ -33,7 +33,35 @@ def main():
         assert Path('/usr/share/OVMF/OVMF_VARS_4M.ms.fd').is_file()
         root.mkdir(mode=0o750); own_root=True
         shutil.chown(root,user='libvirt-qemu',group='kvm')
-        cmd('qemu-img','create','-f','qcow2',str(root/'system.qcow2'),'64G')
+        # Bind a NEW run-specific GPT GUID to the EXACT qcow2 later attached to
+        # the KVM VM, not to a separate host-only rehearsal. All bytes are
+        # written only inside this fresh run-owned disposable directory.
+        from scripts.windows_w1_gpt_header import verify_gpt_primary
+        gpt_guid = str(uuid.uuid4())
+        raw = root/'preseed-gpt-sparse.raw'
+        with raw.open('xb') as handle:
+            handle.truncate(64 * 1024**3)
+        cmd('sgdisk','--clear','--disk-guid='+gpt_guid,str(raw))
+        cmd('sgdisk','--verify',str(raw))
+        target = root/'system.qcow2'
+        cmd('qemu-img','convert','-f','raw','-O','qcow2','-S','4096',str(raw),str(target))
+        raw.unlink()
+        early = root/'first-34-sectors.raw'
+        cmd('qemu-img','dd','-f','qcow2','bs=512','count=34',
+            'if='+str(target),'of='+str(early))
+        gpt_info = verify_gpt_primary(early.read_bytes(),
+                                      expected_guid=gpt_guid,
+                                      virtual_size_bytes=64*1024**3)
+        early.unlink()
+        receipt('run-owned-guest-gpt-preseed.json',{
+            'schema':'winbot-w1-live-owned-gpt-preseed/v1',
+            'classification':'HOST_GPT_ANCHORED_TO_VM_SOURCE',
+            'run_uuid':uid,'source_path':str(target),
+            'gpt_observation':gpt_info,
+            'winpe_guest_guid_observed':False,
+            'windows_setup_authorized':False,
+            'winbot_guest_qualified':False,
+        })
         shutil.chown(root/'system.qcow2',user='libvirt-qemu',group='kvm')
         (OUT/'synthetic.txt').write_text('SYNTHETIC NONBOOTABLE; NOT WINDOWS\n')
         hashes={}
