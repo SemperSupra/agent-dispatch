@@ -1,0 +1,57 @@
+name: WinBot read-only WinPE disk identity contract (source-only)
+on:
+  push:
+    branches:
+      - experiment/winbot-pe-readonly-observation-20261020
+    paths:
+      - scripts/windows_w1_winpe_disk_identity.py
+      - tests/test_windows_w1_winpe_disk_identity.py
+      - .github/workflows/winbot-winpe-readonly-contract.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Test source-only WinPE observation and host disk negative matrices
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_windows_w1_winpe_disk_identity.py tests/test_windows_w1_libvirt_disk_guard.py
+      - name: Create unambiguously SYNTHETIC and nonadmitting receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e /tmp/winbot-readonly
+          mkdir -m 0700 /tmp/winbot-readonly
+          python3 - <<'PY'
+          import json,pathlib
+          from scripts.windows_w1_winpe_disk_identity import diskpart_readonly_commands
+          from tests.test_windows_w1_winpe_disk_identity import run
+          out=pathlib.Path("/tmp/winbot-readonly")
+          (out/"read-only-diskpart.txt").write_text(diskpart_readonly_commands())
+          classified=run()
+          assert classified["destructive_windows_setup_authorized"] is False
+          assert classified["guest_media_provenance_independently_proved"] is False
+          (out/"oracle-synthetic.json").write_text(json.dumps({
+              "schema":"winbot-w1-winpe-source-contract/v1",
+              "classification":"SYNTHETIC_SOURCE_TEST_ONLY",
+              "embedded_example_guids_not_real_machine_observations":True,
+              "unit_parser_classification":classified["classification"],
+              "winpe_guest_executed":False,"windows_iso_downloaded":False,
+              "real_guest_disk_zero_identity_confirmed":False,
+              "destructive_windows_setup_authorized":False,
+              "windows_installed":False,"winbot_guest_qualified":False
+          },indent=2,sort_keys=True)+"\n")
+          PY
+      - name: Upload cheap source-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-winpe-readonly-source-contract
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-readonly/
