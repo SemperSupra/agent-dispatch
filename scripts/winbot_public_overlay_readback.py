@@ -29,12 +29,15 @@ def main():
     master_root=BASE/("winbot-synthetic-master-"+hx)
     owned_root=BASE/("winbot-rdte-"+hx)
     name="WinBot-OverlayProbe-"+hx
+    net="winbot-rdte-"+hx
+    bridge="wb"+hx[:10]
     master=master_root/"accepted-master.qcow2"
     overlay=owned_root/"system.qcow2"
-    created=[];defined=False;started=False;err=None
+    created=[];defined=False;started=False;net_defined=False;net_started=False;err=None
     try:
         if (master_root.exists() or owned_root.exists() or
-            virsh("dominfo",ident,check=False).returncode==0):
+            virsh("dominfo",ident,check=False).returncode==0 or
+            virsh("net-info",net,check=False).returncode==0):
             raise ValueError("refuse preexisting identity")
         for root in (master_root,owned_root):
             root.mkdir(mode=0o750);created.append(root)
@@ -52,6 +55,14 @@ def main():
             shutil.chown(root,user="libvirt-qemu",group="kvm")
         for p in (master,overlay):
             shutil.chown(p,user="libvirt-qemu",group="kvm")
+        n=ET.Element("network")
+        ET.SubElement(n,"name").text=net
+        ET.SubElement(n,"uuid").text=str(uuid.uuid4())
+        ET.SubElement(n,"bridge",{"name":bridge,"stp":"off","delay":"0"})
+        (OUT/"network.xml").write_text(ET.tostring(n,encoding="unicode")+"\n")
+        virsh("net-define",str(OUT/"network.xml"));net_defined=True
+        virsh("net-start",net);net_started=True
+        (OUT/"network-realized.xml").write_text(virsh("net-dumpxml",net).stdout)
         d=ET.Element("domain",{"type":"kvm"})
         ET.SubElement(d,"name").text=name
         ET.SubElement(d,"uuid").text=ident
@@ -66,6 +77,9 @@ def main():
         ET.SubElement(disk,"driver",{"name":"qemu","type":"qcow2"})
         ET.SubElement(disk,"source",{"file":str(overlay)})
         ET.SubElement(disk,"target",{"dev":"sda","bus":"sata"})
+        nic=ET.SubElement(devices,"interface",{"type":"network"})
+        ET.SubElement(nic,"source",{"network":net})
+        ET.SubElement(nic,"model",{"type":"e1000"})
         (OUT/"requested.xml").write_text(ET.tostring(d,encoding="unicode")+"\n")
         command("virt-xml-validate",str(OUT/"requested.xml"),"domain")
         virsh("define",str(OUT/"requested.xml"));defined=True
@@ -97,6 +111,16 @@ def main():
         }
         if nested is not None and (nested.attrib or list(nested)):
             raise ValueError("nested nonterminal backing chain: refuse")
+        interfaces=tree.findall("./devices/interface")
+        if (len(interfaces)!=1 or interfaces[0].get("type")!="network" or
+            interfaces[0].find("source") is None or
+            interfaces[0].find("source").get("network")!=net or
+            interfaces[0].find("model") is None or
+            interfaces[0].find("model").get("type")!="e1000"):
+            raise ValueError("live network must be a single run-owned E1000")
+        actual_net=ET.fromstring((OUT/"network-realized.xml").read_text())
+        if actual_net.find("forward") is not None or actual_net.findtext("name")!=net:
+            raise ValueError("native network is not run-owned or isolated")
         if sha(master)!=master_before:
             raise ValueError("master content mutated")
         emit("backing-shape.json",{
@@ -104,6 +128,8 @@ def main():
             "classification":"SYNTHETIC_LIVE_NATIVE_BACKING_READBACK_ONLY",
             "run_uuid":ident,"master_path":str(master),"overlay_path":str(overlay),
             "master_sha256_unchanged":True,
+            "native_network_name":net,"native_network_isolated":True,
+            "native_nic_model":"e1000",
             "backing_attributes":dict(back.attrib),
             "backing_format":None if back.find("format") is None else
                   dict(back.find("format").attrib),
@@ -129,17 +155,24 @@ def main():
         if defined:
             x=virsh("undefine",ident,check=False)
             if x.returncode:problems.append("undefine: "+x.stderr[:200])
+        if net_started:
+            x=virsh("net-destroy",net,check=False)
+            if x.returncode:problems.append("net-destroy: "+x.stderr[:200])
+        if net_defined:
+            x=virsh("net-undefine",net,check=False)
+            if x.returncode:problems.append("net-undefine: "+x.stderr[:200])
         for root in reversed(created):
             try:shutil.rmtree(root)
             except Exception as ex:problems.append(type(ex).__name__+": "+str(ex))
         present=virsh("dominfo",ident,check=False).returncode==0
+        network_present=virsh("net-info",net,check=False).returncode==0
         cleanup={"schema":"winbot-native-overlay-cleanup/v1",
-                 "domain_absent":not present,
+                 "domain_absent":not present,"owned_network_absent":not network_present,
                  "owned_overlay_absent":not owned_root.exists(),
                  "owned_master_fixture_absent":not master_root.exists(),
                  "problems":problems,"prior_failure":err}
         emit("cleanup.json",cleanup)
-        if not all((cleanup["domain_absent"],cleanup["owned_overlay_absent"],
+        if not all((cleanup["domain_absent"],cleanup["owned_network_absent"],cleanup["owned_overlay_absent"],
                     cleanup["owned_master_fixture_absent"])) or problems:
             err="NATIVE_CLEANUP_FAILED"
     return 0 if err is None else 3
