@@ -75,8 +75,11 @@ class NBT:
         if tag == 9:
             nested = self.num("B")
             n = self.num("i")
-            require(1 <= nested <= 12 and 0 <= n <= MAX_ITEMS,
-                    "NBT_LIST_BOUNDS")
+            # Vanilla Java NBT encodes an empty TAG_List using TAG_End (0).
+            # The sentinel is legal only for n == 0; nonempty TAG_End lists,
+            # unknown element tags and negative lengths must still be refused.
+            require(0 <= n <= MAX_ITEMS and 0 <= nested <= 12 and
+                    (nested != 0 or n == 0), "NBT_LIST_BOUNDS")
             return [self.payload(nested, depth+1) for _ in range(n)]
         if tag == 10:
             value = {}
