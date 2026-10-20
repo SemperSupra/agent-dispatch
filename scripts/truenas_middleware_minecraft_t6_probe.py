@@ -54,6 +54,52 @@ def sequenced_guest_ddp_call(ws, *, transport=scoped_ddp_call):
     return call
 
 
+# Diagnostic only: an actual future admitted guest must retain an exact,
+# finite refusal reason rather than losing it as "Refused" at the outer
+# exception boundary. This has no effect on authority or guest execution.
+# Source: qualify_native_vanilla263_anvil_blocks.py fixed literal errors.
+G4_ANVIL_FIXED_REFUSAL_CODES = frozenset({
+    "NBT_SIZE", "NBT_TRUNCATED", "NBT_STRING_TOO_LONG",
+    "NBT_UTF8_INVALID", "NBT_RECURSION", "NBT_ARRAY_BOUNDS",
+    "NBT_LIST_BOUNDS", "NBT_TAG_UNSUPPORTED", "NBT_DUPLICATE_NAME",
+    "NBT_COMPOUND_TOO_LARGE", "NBT_ROOT_NOT_COMPOUND",
+    "NBT_TRAILING_BYTES", "REGION_FILE_BOUNDS",
+    "REGION_CHUNK_NOT_OWNED", "REGION_CHUNK_LENGTH_INVALID",
+    "REGION_COMPRESSION_UNSUPPORTED", "REGION_TRUNCATED",
+    "REGION_DECOMPRESS_BOUNDS", "REGION_WRONG_CHUNK",
+    "FIXTURE_COORDINATE_DRIFT", "SECTION_LIST_INVALID",
+    "SECTION_ID_AMBIGUOUS", "BLOCK_PALETTE_MISSING",
+    "BLOCK_PALETTE_INVALID", "BLOCK_DATA_REQUIRED",
+    "BLOCK_DATA_INVALID", "BLOCK_DATA_TRUNCATED",
+    "BLOCK_PALETTE_INDEX_INVALID", "SERVER_BLOCK_CONSEQUENCE_ABSENT",
+    "STAGE_NOT_ADMITTED",
+})
+
+
+def retain_bounded_g4_anvil_refusal(payload: dict, stage: str, exc: Exception) -> None:
+    """Save only a fixed decoder code in a failed disposable guest receipt.
+
+    Neither arbitrary str(exc), paths, DDP data, bearer routes nor exception
+    details escape. Never treat this observation as an admitted backend oracle.
+    No telemetry if failure did not occur exactly at stage.anvil_decode.
+    """
+    if type(payload) is not dict or stage not in ("preaction", "candidate", "rollback"):
+        return
+    state = payload.get("native_backend_world")
+    if (type(state) is not dict or
+            state.get("last_backend_phase") != stage + ".anvil_decode"):
+        return
+    from qualify_native_vanilla263_anvil_blocks import Refused as AnvilRefused
+    if type(exc) is not AnvilRefused:
+        return
+    args = exc.args
+    reason = (args[0] if len(args) == 1 and type(args[0]) is str and
+              args[0] in G4_ANVIL_FIXED_REFUSAL_CODES else "UNCLASSIFIED")
+    state["decoder_refusal_code"] = reason
+    # Not an authorization signal. The G4 backend oracle stays false.
+    state["backend_independent_world_oracle_pass"] = False
+
+
 SCHEMA = "semper-supra.minecraft-paper-truenas-t6-control/1"
 EXPECTED_TARGET = "25.04.1"
 EXPECTED_PROFILE = "800aca038ded29e6a91bfc4c1b1fe2d2199182e8"
@@ -887,10 +933,17 @@ def main() -> int:
                 if call("system.version", []) != a.expected_system_version:
                     raise MinecraftT6Error("G4 region target drift")
                 g4_phase(stage + ".version_verified")
-                obs = capture(call=call, wait_job=wait_job,
-                    fetch_bytes=lambda p: middleware_http_bytes(
-                        a.host, a.port, a.tls, p, timeout=a.timeout),
-                    stage=stage, on_phase=g4_phase)
+                try:
+                    obs = capture(call=call, wait_job=wait_job,
+                        fetch_bytes=lambda p: middleware_http_bytes(
+                            a.host, a.port, a.tls, p, timeout=a.timeout),
+                        stage=stage, on_phase=g4_phase)
+                except Exception as exc:
+                    # Native 021 only retained failure_type=Refused. A later,
+                    # separately admitted run may now retain the finite
+                    # first decoder error without exposing exception text.
+                    retain_bounded_g4_anvil_refusal(payload, stage, exc)
+                    raise
                 # Upgraded only in this signed, actual guest runner after
                 # real DDP owner/session, stop, bounded fixed-path download
                 # and independent Anvil block decoding all succeeded.
