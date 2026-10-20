@@ -1,0 +1,49 @@
+name: WinBot hosted sparse qcow2 GPT identity (no Windows)
+on:
+  push:
+    branches:
+      - experiment/winbot-gpt-host-identity-20261020
+    paths:
+      - scripts/windows_w1_gpt_header.py
+      - scripts/windows_w1_gpt_host_probe.py
+      - tests/test_windows_w1_gpt_header.py
+      - .github/workflows/winbot-gpt-host-identity.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-dispatch-heavyweight-rdte
+  cancel-in-progress: false
+jobs:
+  owned-sparse-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Independent CRC and malformed GPT fixture regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_windows_w1_gpt_header.py tests/test_windows_w1_winpe_disk_identity.py
+      - name: Observe disk headroom and install only public GPT/QEMU tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(df -Pk /tmp | awk 'NR==2 {print $4}')" -ge 10485760
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdisk qemu-utils
+          qemu-img --version
+          sgdisk --version
+      - name: Fresh owned 64GiB virtual GPT -> qcow2 -> readback -> teardown
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m scripts.windows_w1_gpt_host_probe
+      - name: Retain bounded GPT/cleanup machine receipts without 64GiB images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-host-gpt-guid-evidence
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-host-gpt-evidence/
