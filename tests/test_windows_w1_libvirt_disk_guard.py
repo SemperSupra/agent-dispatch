@@ -96,6 +96,17 @@ class HostGuardAdversarial(unittest.TestCase):
             with self.subTest(case=idx),self.assertRaises(DiskGuardRefused):
                 verify_host_disk_guard(modify(x,fn),run_uuid=UID,image=i)
 
+    def test_qemu_namespaced_commandline_can_not_smuggle_additional_disk(self):
+        xml,image=fixture()
+        ns="http://libvirt.org/schemas/domain/qemu/1.0"
+        def inject(dom):
+            ext=ET.SubElement(dom,"{"+ns+"}commandline")
+            ET.SubElement(ext,"{"+ns+"}arg",{"value":"-drive"})
+            ET.SubElement(ext,"{"+ns+"}arg",{"value":"file=/dev/sda,if=none"})
+        tampered=modify(xml,inject)
+        with self.assertRaises(DiskGuardRefused):
+            verify_host_disk_guard(tampered,run_uuid=UID,image=image)
+
     def test_other_unowned_guest_interfaces_refused(self):
         x,i=fixture()
         for device in ("hostdev","filesystem","redirdev"):
