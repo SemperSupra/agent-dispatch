@@ -135,6 +135,18 @@ def chunk_from_region(blob: bytes):
     return root
 
 
+def palette_name(p: object) -> str:
+    # 26.3 block-state codec replaced Name -> id; the older synthetic
+    # and legacy regions remain useful separate regression fixtures. Exactly
+    # one identifier field is required; ambiguous/unqualified entries fail.
+    require(type(p) is dict and ("Name" in p) != ("id" in p),
+            "BLOCK_PALETTE_INVALID")
+    name = p["id"] if "id" in p else p["Name"]
+    require(type(name) is str and name.startswith("minecraft:") and
+            len(name) <= 4096, "BLOCK_PALETTE_INVALID")
+    return name
+
+
 def block_at(root: dict, xyz: tuple[int, int, int]):
     x, y, z = xyz
     require(0 <= x <= 15 and 0 <= z <= 15 and y == 70,
@@ -148,10 +160,8 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
     require(type(states) is dict and type(states.get("palette")) is list,
             "BLOCK_PALETTE_MISSING")
     palette = states["palette"]
-    require(1 <= len(palette) <= 4096 and all(type(p) is dict and
-            type(p.get("Name")) is str and
-            p["Name"].startswith("minecraft:") for p in palette),
-            "BLOCK_PALETTE_INVALID")
+    require(1 <= len(palette) <= 4096, "BLOCK_PALETTE_INVALID")
+    names = [palette_name(p) for p in palette]
     if len(palette) == 1:
         # A uniform section has no palette data. Nonempty data for uniform
         # sections is unusual, but must still contain valid zero indices.
@@ -164,7 +174,7 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
             "BLOCK_DATA_INVALID")
     if not data:
         require(len(palette) == 1, "BLOCK_DATA_REQUIRED")
-        return palette[0]["Name"]
+        return names[0]
     bits = max(4, math.ceil(math.log2(len(palette))))
     per_long = 64 // bits
     idx = ((y & 15) << 8) | (z << 4) | x
@@ -172,7 +182,7 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
     require(position < len(data), "BLOCK_DATA_TRUNCATED")
     number = ((data[position] & ((1<<64)-1)) >> (shift*bits)) & ((1<<bits)-1)
     require(number < len(palette), "BLOCK_PALETTE_INDEX_INVALID")
-    return palette[number]["Name"]
+    return names[number]
 
 
 def inspect(region_bytes: bytes, stage: str) -> dict:
