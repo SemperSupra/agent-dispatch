@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 import struct
 import zlib
 
@@ -159,8 +160,14 @@ def palette_name(p: object) -> str:
                         0 < len(k) <= 128 and len(v) <= 128
                         for k, v in props.items()), "BLOCK_PALETTE_INVALID")
         name = p[key]
-    require(type(name) is str and name.startswith("minecraft:") and
-            0 < len(name) <= 4096, "BLOCK_PALETTE_INVALID")
+    # Resource-location path must be present and canonical. The old prefix-
+    # only predicate accepted "minecraft:", uppercase/space, control chars and
+    # arbitrarily long identifiers even though the expected fixture is vanilla.
+    require(type(name) is str and len(name) <= 256 and
+            re.fullmatch(r"minecraft:[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*", name)
+            is not None and
+            all(part not in (".", "..") for part in name[10:].split("/")),
+            "BLOCK_PALETTE_INVALID")
     return name
 
 
