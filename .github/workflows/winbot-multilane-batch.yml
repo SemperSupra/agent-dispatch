@@ -1,0 +1,145 @@
+name: WinBot W1 Multi-Lane Bounded Batch
+on:
+  push:
+    branches: [experiment/winbot-batched-multilane-rdte-20261020]
+    paths:
+      - scripts/winbot_public_overlay_readback.py
+      - scripts/winbot_public_overlay_negative_batch.py
+      - .github/workflows/winbot-multilane-batch.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contracts:
+    name: Source contracts / ${{ matrix.lane }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [native, winpe]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Execute independent source-only regression package
+        shell: bash
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          if [ "$LANE" = native ]; then
+            python3 -m unittest -v tests.test_windows_w1_native_plan tests.test_windows_w1_native_binding_hardening
+          else
+            python3 -m unittest -v tests.test_windows_w1_winpe_disk_identity tests.test_windows_w1_winpe_observer_seed tests.test_windows_w1_gpt_header tests.test_windows_w1_libvirt_disk_guard
+          fi
+      - name: Emit exact-head non-admission receipt
+        shell: bash
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          mkdir -p "/tmp/winbot-batch-$LANE"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,subprocess
+          lane=os.environ["LANE"]
+          s=pathlib.Path("scripts/windows_w1_native_plan.py" if lane=="native" else "scripts/windows_w1_winpe_observer_seed.py")
+          if lane=="winpe":
+            from scripts.windows_w1_winpe_observer_seed import build_probe_seed
+            seed=build_probe_seed("winbotBatchProbe20261020")
+            assert seed["windows_installation_authorized"] is False
+            assert seed["guest_configsetroot_expansion_proved"] is False
+            assert "ADW1PE.tag" not in seed["files"]
+          r={"schema":"winbot-batch-source-receipt/v1","classification":"SOURCE_TESTED_ONLY",
+             "lane":lane,"head":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
+             "source_sha256":hashlib.sha256(s.read_bytes()).hexdigest(),
+             "real_native_provider_invoked":False,"windows_pe_guest_executed":False,
+             "windows_media_downloaded":False,"winbot_guest_qualified":False,
+             "mutation_authorized":False}
+          pathlib.Path("/tmp/winbot-batch-"+lane+"/receipt.json").write_text(json.dumps(r,sort_keys=True,indent=2)+"\n")
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-batch-source-${{ matrix.lane }}
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-batch-${{ matrix.lane }}/
+  native-kvm:
+    name: Live owned KVM + eight hostile disk-chain variants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Preflight and install public disposable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo test -c /dev/kvm
+          test "$(df -Pk / | awk 'NR==2 {print $4}')" -ge 7340032
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients libxml2-utils
+          sudo systemctl start libvirtd
+      - name: Single run-owned synthetic master/overlay KVM lifecycle and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo python3 -m scripts.winbot_public_overlay_readback
+      - name: Falsify eight hostile variants against actual libvirt XML
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo python3 -m scripts.winbot_public_overlay_negative_batch
+      - if: always()
+        shell: bash
+        run: |
+          if sudo test -d /tmp/winbot-libvirt-overlay-readback; then sudo chmod -R a+rX /tmp/winbot-libvirt-overlay-readback; fi
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-batch-native-kvm
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-libvirt-overlay-readback/
+  aggregate:
+    if: always()
+    needs: [source-contracts, native-kvm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Emit machine-readable batch acceptance boundary
+        shell: bash
+        env:
+          SOURCE_RESULT: ${{ needs.source-contracts.result }}
+          KVM_RESULT: ${{ needs.native-kvm.result }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/winbot-batch-aggregate
+          python3 - <<'PY'
+          import json,os,pathlib
+          a=os.environ["SOURCE_RESULT"];b=os.environ["KVM_RESULT"]
+          r={"schema":"winbot-multilane-batch/v1","classification":"NONADMITTING_PUBLIC_RDTE",
+             "head":os.environ["HEAD_SHA"],"source_lanes_result":a,
+             "real_disposable_kvm_result":b,"all_lanes_passed":a==b=="success",
+             "windows_pe_guest_executed":False,"windows_installed":False,
+             "winbot_guest_qualified":False,"truenas_proxmox_api_qualified":False,
+             "private_source_exposed":False,"deployment_or_merge_authorized":False}
+          pathlib.Path("/tmp/winbot-batch-aggregate/verdict.json").write_text(json.dumps(r,sort_keys=True,indent=2)+"\n")
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-batch-final-verdict
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-batch-aggregate/
+      - name: Reject if any independent batch lane failed
+        shell: bash
+        env:
+          SOURCE_RESULT: ${{ needs.source-contracts.result }}
+          KVM_RESULT: ${{ needs.native-kvm.result }}
+        run: |
+          test "$SOURCE_RESULT" = success
+          test "$KVM_RESULT" = success
