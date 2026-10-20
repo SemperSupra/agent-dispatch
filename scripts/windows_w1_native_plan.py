@@ -69,7 +69,7 @@ def _safe_pve_iso_volume(value: str, label: str) -> str:
     """Constrain PVE storage:iso/path.iso to non-injectable volume grammar."""
     value = _safe_binding(value, label)
     match = re.fullmatch(r"([A-Za-z0-9_][A-Za-z0-9_.-]*):iso/([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)", value)
-    if match is None or any(x in (".", "..") for x in match.group(2).split("/")) or not value.lower().endswith(".iso"):
+    if match is None or any(x in (".", "..") for x in match.group(2).split("/")) or not value.lower().endswith(".iso") or match.group(2).split("/")[-1].startswith("."):
         raise WindowsW1PlanError(f"{label} must be a canonical ISO volume ID")
     return value
 
