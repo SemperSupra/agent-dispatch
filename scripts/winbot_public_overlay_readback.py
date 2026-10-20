@@ -123,8 +123,13 @@ def main():
             raise ValueError("native network is not run-owned or isolated")
         # Independent public fixture: verify the *actual* qemu-img backing
         # chain, not just libvirt's rendered XML. No private WinBot source.
-        chain=json.loads(command("qemu-img","info","--output=json",
-                                 "--backing-chain",str(overlay)).stdout)
+        # -U is QEMU read-only force-share for metadata inspection while its
+        # own disposable guest holds the image open; not a write-lock override.
+        qc=command("qemu-img","info","-U","--output=json",
+                   "--backing-chain",str(overlay),check=False)
+        if qc.returncode:
+            raise ValueError("read-only QEMU image chain read failed: "+qc.stderr[:350])
+        chain=json.loads(qc.stdout)
         if (not isinstance(chain,list) or len(chain)!=2 or
             chain[0].get("filename")!=str(overlay) or
             chain[0].get("format")!="qcow2" or
