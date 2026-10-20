@@ -9,7 +9,19 @@ from __future__ import annotations
 import hashlib, json, os, pathlib, shutil, stat, subprocess, sys, time, uuid
 import xml.etree.ElementTree as ET
 
-OUT = pathlib.Path("/tmp/winbot-libvirt-overlay-readback")
+OUT = pathlib.Path(os.environ.get("WINBOT_PUBLIC_OVERLAY_EVIDENCE_DIR",
+                                  "/tmp/winbot-libvirt-overlay-readback"))
+FAULT = os.environ.get("WINBOT_PUBLIC_FAULT_STAGE", "")
+ALLOWED_FAULTS = ("after_overlay_created", "after_network_started",
+                  "after_domain_defined", "after_domain_started")
+def inject_fault(stage):
+    # Cannot be enabled against anything except this deliberately synthetic
+    # public-safe fixture; never hook this into a product/production adapter.
+    if FAULT == stage:
+        if os.environ.get("WINBOT_PUBLIC_SYNTHETIC_FAULTS") != "1":
+            raise ValueError("fault injection not admitted by synthetic workcell")
+        raise RuntimeError("EXPECTED_SYNTHETIC_FAILURE:"+stage)
+
 BASE = pathlib.Path("/var/lib/libvirt/images")
 def command(*args,check=True):
     return subprocess.run(args,check=check,text=True,stdout=subprocess.PIPE,
@@ -24,6 +36,12 @@ def sha(p):
     return h.hexdigest()
 def main():
     if OUT.exists(): raise RuntimeError("preexisting evidence directory")
+    if FAULT not in ("", *ALLOWED_FAULTS):
+        raise ValueError("unsupported synthetic failure stage")
+    if FAULT and os.environ.get("WINBOT_PUBLIC_SYNTHETIC_FAULTS") != "1":
+        raise ValueError("synthetic fault permission absent")
+    if not str(OUT).startswith("/tmp/winbot-") or ".." in str(OUT).split("/"):
+        raise ValueError("public evidence root not uniquely bounded")
     OUT.mkdir(mode=0o700)
     ident=str(uuid.uuid4()); hx=uuid.UUID(ident).hex
     master_root=BASE/("winbot-synthetic-master-"+hx)
@@ -45,6 +63,7 @@ def main():
         master_before=sha(master)
         command("qemu-img","create","-f","qcow2","-F","qcow2",
                 "-b",str(master),str(overlay))
+        inject_fault("after_overlay_created")
         image_info=json.loads(command("qemu-img","info","--output=json",
                                      str(overlay)).stdout)
         if (image_info.get("format")!="qcow2" or
@@ -62,6 +81,7 @@ def main():
         (OUT/"network.xml").write_text(ET.tostring(n,encoding="unicode")+"\n")
         virsh("net-define",str(OUT/"network.xml"));net_defined=True
         virsh("net-start",net);net_started=True
+        inject_fault("after_network_started")
         (OUT/"network-realized.xml").write_text(virsh("net-dumpxml",net).stdout)
         d=ET.Element("domain",{"type":"kvm"})
         ET.SubElement(d,"name").text=name
@@ -83,8 +103,10 @@ def main():
         (OUT/"requested.xml").write_text(ET.tostring(d,encoding="unicode")+"\n")
         command("virt-xml-validate",str(OUT/"requested.xml"),"domain")
         virsh("define",str(OUT/"requested.xml"));defined=True
+        inject_fault("after_domain_defined")
         (OUT/"defined.xml").write_text(virsh("dumpxml",ident).stdout)
         virsh("start",ident);started=True
+        inject_fault("after_domain_started")
         time.sleep(2)
         if virsh("domstate",ident).stdout.strip()!="running":
             raise ValueError("owned guest not running")
