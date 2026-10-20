@@ -133,10 +133,14 @@ class BlockRegionTests(unittest.TestCase):
                             ["block_state_expectations_matched"])
         self.reject(build(palette_key="unknown"), "candidate",
                     "BLOCK_PALETTE_INVALID")
-        # Refuse empty or unrecognized keys, even if all other block data
-        # and expected world-stage consequences would have matched.
-        self.reject(build(palette_key=""), "candidate",
-                    "BLOCK_PALETTE_INVALID")
+        # The empty-string wrapper is now an explicitly supported 26.3
+        # format, not an invalid field. Check instead that conflicting
+        # identifier aliases are refused.
+        from scripts.qualify_native_vanilla263_anvil_blocks import palette_name
+        with self.assertRaisesRegex(Refused, "BLOCK_PALETTE_INVALID"):
+            palette_name({"Name":"minecraft:air", "id":"minecraft:stone"})
+        with self.assertRaisesRegex(Refused, "BLOCK_PALETTE_INVALID"):
+            palette_name({"":"minecraft:stone", "id":"minecraft:air"})
 
     def test_real_263_palette_default_state_wrappers_and_bare_strings(self):
         # 26.3 chunk palettes use compact strings and the unnamed
