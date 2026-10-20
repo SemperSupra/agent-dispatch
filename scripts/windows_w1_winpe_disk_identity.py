@@ -7,6 +7,7 @@ transcript against a separately observed host-owned GPT GUID and host guard.
 Microsoft DiskPart 'uniqueid disk' displays GPT disk GUID without id=.
 """
 from __future__ import annotations
+import hashlib
 import re
 import uuid
 from typing import Any, Mapping
@@ -46,6 +47,8 @@ def classify_winpe_serial(
     host_gpt_disk_guid: str,
     host_gpt_guid_observed: bool,
     host_guard: Mapping[str, Any],
+    read_only_script_sha256: str,
+    read_only_script_independently_verified: bool,
 ) -> dict[str, Any]:
     """Require separately trusted host GPT readback and external guest serial.
 
@@ -70,6 +73,10 @@ def classify_winpe_serial(
             "/var/lib/libvirt/images/ad-w1-" + uuid.UUID(uid).hex + "/system.qcow2",
             "host guard path mismatch")
 
+    script_sha=hashlib.sha256(diskpart_readonly_commands().encode("utf-8")).hexdigest()
+    require(read_only_script_independently_verified is True and
+            read_only_script_sha256 == script_sha,
+            "independent pinned read-only DiskPart script SHA256 missing/mismatched")
     first = "AD_W1_WINPE_BEGIN=" + expected_nonce
     last = "AD_W1_WINPE_END=" + expected_nonce
     require(text.count(first) == 1 and text.count(last) == 1,
@@ -77,18 +84,18 @@ def classify_winpe_serial(
     begin, end = text.index(first), text.index(last)
     require(begin < end, "reordered serial transcript")
     body = text[begin + len(first):end]
-    require(text.count("Disk ID:") == 1, "disk identities outside verified envelope or repeated")
-    echoed = [c.strip().lower() for c in re.findall(r"(?im)^DISKPART>\s*(.*?)\s*$", body)]
-    require(echoed == ["list disk", "select disk 0", "uniqueid disk", "exit"],
-            "unrecognized, missing or mutating DiskPart commands")
-    require("DISKPART> list disk" in body and "DISKPART> select disk 0" in body and
-            "DISKPART> uniqueid disk" in body,
-            "expected read-only DiskPart command echoes absent")
-    i_list = body.index("DISKPART> list disk")
-    i_sel = body.index("DISKPART> select disk 0")
-    i_uid = body.index("DISKPART> uniqueid disk")
-    require(i_list < i_sel < i_uid, "DiskPart command order invalid")
-    listing = body[i_list:i_sel]
+    require(text.count("Disk ID:") == 1, "disk IDs outside envelope or duplicated")
+    # Native Windows DiskPart /s output DOES NOT ECHO input commands. Exact
+    # readonly command provenance must instead be proven by an independent
+    # source/seed digest, never inferred from the output transcript itself.
+    require("DISKPART>" not in body, "interactive command echo not supported by this oracle")
+    require(body.count("Microsoft DiskPart version") == 1 and
+            body.count("Leaving DiskPart...") == 1,
+            "native DiskPart start/finish provenance not observed")
+    selected_lines = list(re.finditer(
+        r"(?im)^Disk 0 is now the selected disk\.\s*$", body))
+    require(len(selected_lines) == 1, "DiskPart did not select exactly disk zero")
+    listing = body[:selected_lines[0].start()]
     matches = DISK_ROW.findall(listing)
     all_disk_rows = re.findall(r"(?im)^\s*Disk\s+([0-9]+)\b", listing)
     require(len(all_disk_rows) == len(matches), "unrecognized disk status/extra disk row")
@@ -96,10 +103,7 @@ def classify_winpe_serial(
             matches[0][1].lower() == "online" and
             matches[0][2] == "64" and matches[0][3] == "GB",
             "guest DiskPart list disk did not observe only one online 64 GB disk zero")
-    selected = body[i_sel:i_uid]
-    require(re.search(r"(?im)^Disk 0 is now the selected disk\.\s*$", selected) is not None,
-            "DiskPart did not explicitly select disk zero")
-    ids = GUID_LINE.findall(body[i_uid:])
+    ids = GUID_LINE.findall(body[selected_lines[0].end():])
     require(len(ids) == 1 and ids[0].lower() == guid,
             "guest disk zero GPT GUID does not equal independently observed host GUID")
     require("DiskPart has encountered an error" not in body and
@@ -114,6 +118,7 @@ def classify_winpe_serial(
         "observed_guest_gpt_guid": ids[0].lower(),
         "single_online_disk": True,
         "host_guard_matched": True,
+        "read_only_script_sha256_matched": True,
         "guest_media_provenance_independently_proved": False,
         "destructive_windows_setup_authorized": False,
         "windows_installed": False,
