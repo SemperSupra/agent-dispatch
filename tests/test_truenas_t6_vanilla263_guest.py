@@ -57,6 +57,69 @@ def guest_fixture():
 
 
 class TestNativeVanilla263Guest(unittest.TestCase):
+    def test_g4_refusal_telemetry_exact_phase_finite_code_only(self):
+        from qualify_native_vanilla263_anvil_blocks import Refused as AnvilRefused
+        for stage in ("preaction", "candidate", "rollback"):
+            with self.subTest(stage=stage):
+                receipt = {"native_backend_world": {
+                    "last_backend_phase": stage + ".anvil_decode",
+                    "backend_independent_world_oracle_pass": False,
+                    "physical_true_nas_apply": "HOLD"}}
+                mc.retain_bounded_g4_anvil_refusal(
+                    receipt, stage, AnvilRefused("BLOCK_PALETTE_INVALID"))
+                self.assertEqual(
+                    receipt["native_backend_world"]["decoder_refusal_code"],
+                    "BLOCK_PALETTE_INVALID")
+                self.assertFalse(
+                    receipt["native_backend_world"]["backend_independent_world_oracle_pass"])
+                self.assertEqual(receipt["native_backend_world"]["physical_true_nas_apply"],"HOLD")
+
+        unknown = {"native_backend_world":{
+            "last_backend_phase": "preaction.anvil_decode",
+            "backend_independent_world_oracle_pass": False}}
+        mc.retain_bounded_g4_anvil_refusal(
+            unknown, "preaction", AnvilRefused(
+                "auth_token=PRIVATE-PROVIDER-TEXT"))
+        self.assertEqual(
+            unknown["native_backend_world"]["decoder_refusal_code"],
+            "UNCLASSIFIED")
+        self.assertNotIn("PRIVATE", str(unknown))
+
+        for phase in ("preaction.bytes_verified", "preaction.download_job",
+                      "candidate.anvil_decode", "preaction.anvil_verified"):
+            receipt = {"native_backend_world":{
+                "last_backend_phase": phase,
+                "backend_independent_world_oracle_pass": False}}
+            mc.retain_bounded_g4_anvil_refusal(
+                receipt, "preaction", AnvilRefused("NBT_LIST_BOUNDS"))
+            self.assertNotIn("decoder_refusal_code", receipt["native_backend_world"])
+
+        for error in (ValueError("NBT_LIST_BOUNDS"),
+                      RuntimeError("auth_token=NEVER-LOG"),
+                      AnvilRefused({"credential": "SECRET"})):
+            receipt = {"native_backend_world":{
+                "last_backend_phase":"rollback.anvil_decode",
+                "backend_independent_world_oracle_pass": False}}
+            mc.retain_bounded_g4_anvil_refusal(receipt, "rollback", error)
+            if type(error) is AnvilRefused:
+                self.assertEqual(receipt["native_backend_world"]["decoder_refusal_code"],
+                                 "UNCLASSIFIED")
+            else:
+                self.assertNotIn("decoder_refusal_code", receipt["native_backend_world"])
+            self.assertNotIn("SECRET", str(receipt))
+            self.assertNotIn("NEVER-LOG", str(receipt))
+
+    def test_g4_decoder_telemetry_is_exception_only_not_native_promotion(self):
+        import inspect
+        source = inspect.getsource(mc.main)
+        self.assertIn("retain_bounded_g4_anvil_refusal(payload, stage, exc)",source)
+        self.assertIn("payload[\"failure_type\"] = type(exc).__name__",source)
+        self.assertIn("backend_independent_world_oracle_pass",inspect.getsource(
+            mc.retain_bounded_g4_anvil_refusal))
+        self.assertNotIn("auth_token",inspect.getsource(
+            mc.retain_bounded_g4_anvil_refusal))
+        self.assertTrue(callable(mc.retain_bounded_g4_anvil_refusal))
+
     def test_scoped_tls_go_readback_precedes_redundant_zip_lifecycle(self):
         # Actual 006/007/008 native ZIP staging was independently qualified.
         # Fail early on still-unqualified scoped key instead of repaying
