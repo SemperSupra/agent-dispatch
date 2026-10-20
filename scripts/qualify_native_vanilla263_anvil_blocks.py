@@ -133,6 +133,40 @@ def chunk_from_region(blob: bytes):
     return root
 
 
+def palette_block_name(entry: object) -> str:
+    """Return only a bounded block ID from the old or official 26.3 palette.
+
+    26.3 renamed block state Name/Properties to id/properties and permits
+    compact block-ID strings. In an NBT compound list a compact string may
+    also be represented as the sole empty-name string tag. Reject ambiguous,
+    unknown or incorrectly typed palette members rather than guessing.
+    """
+    if type(entry) is str:
+        name = entry
+    elif type(entry) is dict and set(entry) == {""}:
+        name = entry[""]
+    elif type(entry) is dict and "id" in entry and set(entry) <= {"id", "properties"}:
+        name = entry["id"]
+        props = entry.get("properties", {})
+        require(type(props) is dict and len(props) <= 64 and
+                all(type(k) is str and len(k) <= 64 and type(v) is str
+                    and len(v) <= 128 for k, v in props.items()),
+                "BLOCK_PALETTE_INVALID")
+    elif type(entry) is dict and "Name" in entry and set(entry) <= {"Name", "Properties"}:
+        # Some existing saves retain the older encoded chunk until rewritten.
+        name = entry["Name"]
+        props = entry.get("Properties", {})
+        require(type(props) is dict and len(props) <= 64 and
+                all(type(k) is str and len(k) <= 64 and type(v) is str
+                    and len(v) <= 128 for k, v in props.items()),
+                "BLOCK_PALETTE_INVALID")
+    else:
+        raise Refused("BLOCK_PALETTE_INVALID")
+    require(type(name) is str and 10 < len(name) <= 256 and
+            name.startswith("minecraft:"), "BLOCK_PALETTE_INVALID")
+    return name
+
+
 def block_at(root: dict, xyz: tuple[int, int, int]):
     x, y, z = xyz
     require(0 <= x <= 15 and 0 <= z <= 15 and y == 70,
@@ -146,10 +180,8 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
     require(type(states) is dict and type(states.get("palette")) is list,
             "BLOCK_PALETTE_MISSING")
     palette = states["palette"]
-    require(1 <= len(palette) <= 4096 and all(type(p) is dict and
-            type(p.get("Name")) is str and
-            p["Name"].startswith("minecraft:") for p in palette),
-            "BLOCK_PALETTE_INVALID")
+    require(1 <= len(palette) <= 4096, "BLOCK_PALETTE_INVALID")
+    block_names = [palette_block_name(p) for p in palette]
     if len(palette) == 1:
         # A uniform section has no palette data. Nonempty data for uniform
         # sections is unusual, but must still contain valid zero indices.
@@ -162,7 +194,7 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
             "BLOCK_DATA_INVALID")
     if not data:
         require(len(palette) == 1, "BLOCK_DATA_REQUIRED")
-        return palette[0]["Name"]
+        return block_names[0]
     bits = max(4, math.ceil(math.log2(len(palette))))
     per_long = 64 // bits
     idx = ((y & 15) << 8) | (z << 4) | x
@@ -170,7 +202,7 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
     require(position < len(data), "BLOCK_DATA_TRUNCATED")
     number = ((data[position] & ((1<<64)-1)) >> (shift*bits)) & ((1<<bits)-1)
     require(number < len(palette), "BLOCK_PALETTE_INDEX_INVALID")
-    return palette[number]["Name"]
+    return block_names[number]
 
 
 def inspect(region_bytes: bytes, stage: str) -> dict:
