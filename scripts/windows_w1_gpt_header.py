@@ -34,6 +34,9 @@ def verify_gpt_primary(raw_early_sectors: bytes, *, expected_guid: str,
     except (ValueError, TypeError, AttributeError) as exc:
         raise GPTIdentityRefused("invalid expected GUID") from exc
     need(guid.version == 4 and str(guid) == expected_guid, "expected random canonical UUIDv4")
+    mbr = raw_early_sectors[:512]
+    need(mbr[510:512] == bytes.fromhex("55aa") and mbr[450] == 0xee,
+         "missing protective MBR on owned GPT disk")
     header = raw_early_sectors[512:1024]
     need(header[:8] == b"EFI PART", "no GPT header signature")
     revision, length, stored_crc, reserved = struct.unpack_from("<IIII", header, 8)
