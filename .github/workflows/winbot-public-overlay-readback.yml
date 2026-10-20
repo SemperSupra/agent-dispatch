@@ -1,0 +1,49 @@
+name: WinBot public-safe live libvirt backing XML reality probe
+on:
+  push:
+    branches:
+      - experiment/winbot-libvirt-overlay-native-readback-20261020
+    paths:
+      - scripts/winbot_public_overlay_readback.py
+      - .github/workflows/winbot-public-overlay-readback.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-dispatch-heavyweight-rdte
+  cancel-in-progress: false
+jobs:
+  single-owned-overlay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Preflight only free KVM host and install disposable hypervisor
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo test -c /dev/kvm
+          test "$(df -Pk / | awk 'NR==2 {print $4}')" -ge 7340032
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients libxml2-utils
+          sudo systemctl start libvirtd
+      - name: Actual KVM libvirt backing source and owned cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo python3 -m scripts.winbot_public_overlay_readback
+      - name: Expose only bounded receipt files for unprivileged artifact upload
+        if: always()
+        shell: bash
+        run: |
+          if sudo test -d /tmp/winbot-libvirt-overlay-readback; then
+            sudo chmod -R a+rX /tmp/winbot-libvirt-overlay-readback
+          fi
+      - name: Preserve independent native XML and cleanup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-live-public-libvirt-overlay-native-readback
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-libvirt-overlay-readback/
