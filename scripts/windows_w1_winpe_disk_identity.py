@@ -78,7 +78,7 @@ def classify_winpe_serial(
     require(begin < end, "reordered serial transcript")
     body = text[begin + len(first):end]
     require(text.count("Disk ID:") == 1, "disk identities outside verified envelope or repeated")
-    echoed = [c.strip().lower() for c in re.findall(r"(?im)^DISKPART>\\s*(.*?)\\s*$", body)]
+    echoed = [c.strip().lower() for c in re.findall(r"(?im)^DISKPART>\s*(.*?)\s*$", body)]
     require(echoed == ["list disk", "select disk 0", "uniqueid disk", "exit"],
             "unrecognized, missing or mutating DiskPart commands")
     require("DISKPART> list disk" in body and "DISKPART> select disk 0" in body and
@@ -90,7 +90,7 @@ def classify_winpe_serial(
     require(i_list < i_sel < i_uid, "DiskPart command order invalid")
     listing = body[i_list:i_sel]
     matches = DISK_ROW.findall(listing)
-    all_disk_rows = re.findall(r"(?im)^\\s*Disk\\s+([0-9]+)\\b", listing)
+    all_disk_rows = re.findall(r"(?im)^\s*Disk\s+([0-9]+)\b", listing)
     require(len(all_disk_rows) == len(matches), "unrecognized disk status/extra disk row")
     require(len(matches) == 1 and matches[0][0] == "0" and
             matches[0][1].lower() == "online" and
