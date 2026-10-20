@@ -21,6 +21,10 @@ class NonDestructiveSeed(unittest.TestCase):
         self.assertEqual(len(root.findall(".//{"+U+"}RunSynchronousCommand")),1)
         self.assertEqual(root.findtext(".//{"+U+"}Order"),"1")
         self.assertIn("adw1pe.cmd",root.findtext(".//{"+U+"}Path"))
+        self.assertEqual(root.findtext(".//{"+U+"}UseConfigurationSet"),"true")
+        self.assertIn("%configsetroot%",root.findtext(".//{"+U+"}Path"))
+        self.assertNotIn("for %D",root.findtext(".//{"+U+"}Path"))
+        self.assertNotIn("ADW1PE.tag",root.findtext(".//{"+U+"}Path"))
         self.assertLessEqual(len(root.findtext(".//{"+U+"}Path")),259)
         for tag in ("DiskConfiguration","ImageInstall","InstallTo","ProductKey",
                     "Credentials","UserData"):
@@ -50,11 +54,29 @@ class NonDestructiveSeed(unittest.TestCase):
         a=build_probe_seed(NONCE);b=build_probe_seed(NONCE)
         self.assertEqual(a,b)
         self.assertEqual(set(a["files"]),{"Autounattend.xml","adw1pe.cmd",
-                                            "diskpart-readonly.txt","ADW1PE.tag"})
+                                            "diskpart-readonly.txt"})
         for name,value in a["files"].items():
             self.assertEqual(a["file_sha256"][name],
                              hashlib.sha256(value.encode("utf-8")).hexdigest())
         self.assertEqual(a["files"]["diskpart-readonly.txt"],diskpart_readonly_commands())
+
+    def test_no_drive_enumeration_or_marker_execution(self):
+        seed=build_probe_seed(NONCE)
+        self.assertEqual(seed["unique_seed_binding"],"CONFIGURATION_SET_ROOT_CANDIDATE_UNQUALIFIED")
+        self.assertIs(seed["guest_configsetroot_expansion_proved"],False)
+        self.assertEqual(set(seed["files"]),{"Autounattend.xml","adw1pe.cmd","diskpart-readonly.txt"})
+        xml=seed["files"]["Autounattend.xml"].lower()
+        self.assertIn("%configsetroot%",xml)
+        self.assertNotIn("adw1pe.tag",xml)
+        self.assertNotIn("for %d in",xml)
+        self.assertNotIn("if exist %d:",xml)
+        self.assertEqual(xml.count("runsynchronouscommand"),2)  # opening and closing XML tags
+
+    def test_no_source_claim_of_guest_runtime(self):
+        seed=build_probe_seed(NONCE)
+        self.assertFalse(seed["winpe_executed"])
+        self.assertFalse(seed["windows_installation_authorized"])
+        self.assertFalse(seed["guest_configsetroot_expansion_proved"])
 
     def test_invalid_nonce_refused(self):
         for bad in ("short","contains space!" ,"a\n"*12, "!"*20, "x"*65, "",None):
