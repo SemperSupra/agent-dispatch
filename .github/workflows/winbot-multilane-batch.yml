@@ -1,10 +1,11 @@
-name: WinBot W1 Native Master Provenance Integrated Batch
+name: WinBot W1 Six-Stage Rollback Integrated Batch
 on:
   push:
-    branches: [experiment/winbot-master-provenance-batch-20261020]
+    branches: [experiment/winbot-kvm-failure-cleanup-batch-20261020]
     paths:
       - scripts/winbot_public_overlay_readback.py
       - scripts/winbot_public_overlay_negative_batch.py
+      - scripts/winbot_public_failure_matrix.py
       - .github/workflows/winbot-multilane-batch.yml
   workflow_dispatch:
 permissions:
@@ -86,22 +87,33 @@ jobs:
         run: |
           set -euo pipefail
           sudo python3 -m scripts.winbot_public_overlay_readback
-      - name: Falsify eight hostile variants against actual libvirt XML
+      - name: Falsify eleven hostile variants against actual libvirt XML
         shell: bash
         run: |
           set -euo pipefail
           sudo python3 -m scripts.winbot_public_overlay_negative_batch
+      - name: Falsify six staged lifecycle failures and prove complete cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo python3 -m scripts.winbot_public_failure_matrix
       - if: always()
         shell: bash
         run: |
           if sudo test -d /tmp/winbot-libvirt-overlay-readback; then sudo chmod -R a+rX /tmp/winbot-libvirt-overlay-readback; fi
+          for root in /tmp/winbot-fault-*; do
+            if sudo test -d "$root"; then sudo chmod -R a+rX "$root"; fi
+          done
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: winbot-batch-native-kvm
           retention-days: 7
           if-no-files-found: error
-          path: /tmp/winbot-libvirt-overlay-readback/
+          path: |
+            /tmp/winbot-libvirt-overlay-readback/
+            /tmp/winbot-fault-matrix/
+            /tmp/winbot-fault-*/
   aggregate:
     if: always()
     needs: [source-contracts, native-kvm]
