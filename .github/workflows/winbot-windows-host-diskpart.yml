@@ -1,0 +1,31 @@
+name: WinBot owned VHDX native Windows DiskPart read-only output (cheap)
+on:
+  push:
+    branches:
+      - experiment/winbot-windows-host-diskpart-20261020
+    paths:
+      - scripts/winbot_windows_host_diskpart.ps1
+      - .github/workflows/winbot-windows-host-diskpart.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-dispatch-heavyweight-rdte
+  cancel-in-progress: false
+jobs:
+  diskpart-host-only:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Observe only exact run-owned VHD and native DiskPart GPT GUID
+        shell: pwsh
+        run: ./scripts/winbot_windows_host_diskpart.ps1
+      - name: Retain bounded native command/cleanup receipts, never VHD bytes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-windows-host-owned-vhd-diskpart
+          retention-days: 7
+          if-no-files-found: error
+          path: ${{ runner.temp }}/winbot-owned-diskpart-evidence/
