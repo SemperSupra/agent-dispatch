@@ -1,0 +1,70 @@
+name: WinBot W1 stacked corrective parity (cheap, no Windows)
+on:
+  push:
+    branches:
+      - experiment/winbot-gpt-host-identity-20261020
+      - experiment/winbot-winpe-observe-only-seed-20261020
+      - experiment/winbot-live-gpt-preseed-20261020
+      - experiment/winbot-windows-host-diskpart-20261020
+    paths:
+      - scripts/windows_w1_winpe_disk_identity.py
+      - tests/test_windows_w1_winpe_disk_identity.py
+      - .github/workflows/winbot-w1-stack-parity.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-head-source-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Assert corrected native DiskPart parser and negatives are exact-same blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object scripts/windows_w1_winpe_disk_identity.py)" = b18daec968da05aef5f85b432422e31d5197fd58
+          test "$(git hash-object tests/test_windows_w1_winpe_disk_identity.py)" = 5ed38a1b13ca6f99cbc93876ecd6f2c4a4e65680
+          git rev-parse HEAD
+      - name: Independently execute shared source-only safety regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v \
+            tests.test_windows_w1_winpe_disk_identity \
+            tests.test_windows_w1_gpt_header \
+            tests.test_windows_w1_libvirt_disk_guard
+          if test -f tests/test_windows_w1_winpe_observer_seed.py; then
+            python3 -m unittest -v tests.test_windows_w1_winpe_observer_seed
+          fi
+      - name: Produce explicit non-admission and exact-head receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e /tmp/winbot-stack-parity
+          mkdir -m 0700 /tmp/winbot-stack-parity
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess
+          root=pathlib.Path("/tmp/winbot-stack-parity")
+          files=("scripts/windows_w1_winpe_disk_identity.py","tests/test_windows_w1_winpe_disk_identity.py")
+          data={
+            "schema":"winbot-w1-stacked-source-parity/v1",
+            "classification":"SOURCE_TESTED_NO_WINDOWS",
+            "exact_head":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
+            "parser_and_negatives_sha256":{f:hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest() for f in files},
+            "runtime_windows_pe_executed":False,
+            "windows_media_downloaded":False,
+            "windows_setup_or_disk_wipe_authorized":False,
+            "winbot_guest_api_gui_qualified":False,
+            "merged_or_production_promoted":False,
+          }
+          (root/"qualification.json").write_text(json.dumps(data,sort_keys=True,indent=2)+"\n")
+          PY
+      - name: Retain source-only qualification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-w1-stack-parity
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-stack-parity/
