@@ -136,14 +136,31 @@ def chunk_from_region(blob: bytes):
 
 
 def palette_name(p: object) -> str:
-    # 26.3 block-state codec replaced Name -> id; the older synthetic
-    # and legacy regions remain useful separate regression fixtures. Exactly
-    # one identifier field is required; ambiguous/unqualified entries fail.
-    require(type(p) is dict and ("Name" in p) != ("id" in p),
-            "BLOCK_PALETTE_INVALID")
-    name = p["id"] if "id" in p else p["Name"]
+    # Real Minecraft 26.3 Anvil palettes can encode default states as bare
+    # block-id strings or in heterogeneous-list wrapper compounds with the
+    # empty-string field name. Non-default states use id/properties. Older
+    # explicit Name/Properties remains a separate compatibility fixture.
+    # Refuse aliases mixed together and unexpected properties/fields.
+    if type(p) is str:
+        name = p
+    else:
+        require(type(p) is dict, "BLOCK_PALETTE_INVALID")
+        identifiers = [key for key in ("", "id", "Name") if key in p]
+        require(len(identifiers) == 1, "BLOCK_PALETTE_INVALID")
+        key = identifiers[0]
+        props_key = {"": None, "id": "properties",
+                     "Name": "Properties"}[key]
+        allowed = {key} if props_key is None else {key, props_key}
+        require(set(p).issubset(allowed), "BLOCK_PALETTE_INVALID")
+        if props_key is not None and props_key in p:
+            props = p[props_key]
+            require(type(props) is dict and len(props) <= 64 and
+                    all(type(k) is str and type(v) is str and
+                        0 < len(k) <= 128 and len(v) <= 128
+                        for k, v in props.items()), "BLOCK_PALETTE_INVALID")
+        name = p[key]
     require(type(name) is str and name.startswith("minecraft:") and
-            len(name) <= 4096, "BLOCK_PALETTE_INVALID")
+            0 < len(name) <= 4096, "BLOCK_PALETTE_INVALID")
     return name
 
 
