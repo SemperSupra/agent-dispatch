@@ -24,6 +24,7 @@ on:
       - 'scripts/ghidra/ReversingExportFunctions.java'
       - 'tests/test_reversing_ghidra_headless_probe.py'
       - 'tests/test_reversing_evidence_correlate.py'
+      - 'tests/test_reversing_native_elf_probe.py'
       - 'fixtures/reversing-correlation-synthetic-v1.json'
       - 'docs/reversing-correlation-experiment.md'
   workflow_dispatch:
@@ -43,6 +44,8 @@ jobs:
         run: python3 -m unittest -v tests/test_github_runner_frontier.py
       - name: Test reversing correlation and adversarial oracle semantics
         run: python3 -m unittest -v tests/test_reversing_evidence_correlate.py
+      - name: Test GDB inferior-exit receipt parser fail-closed behavior
+        run: python3 -m unittest -v tests/test_reversing_native_elf_probe.py
       - name: Exercise synthetic correlated report
         shell: bash
         run: |
