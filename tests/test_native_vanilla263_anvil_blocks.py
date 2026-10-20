@@ -6,7 +6,8 @@ import struct
 import unittest
 import zlib
 
-from scripts.qualify_native_vanilla263_anvil_blocks import Refused, compare, inspect
+from scripts.qualify_native_vanilla263_anvil_blocks import (
+    Refused, compare, inspect, palette_block_name)
 
 PALETTE = ("minecraft:redstone_block", "minecraft:air",
            "minecraft:sea_lantern", "minecraft:iron_bars", "minecraft:black_concrete")
@@ -26,7 +27,8 @@ def compound(*children):
 
 
 def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
-          empty_list_type=None, empty_list_length=0):
+          empty_list_type=None, empty_list_length=0,
+          palette_form="legacy"):
     positions = {((70 & 15) << 8) | (z << 4) | x: value
                  for (x, z, value) in (
                    (0, 0, 1 if stage == "preaction" else 0), (2, 0, 1 if stage == "candidate" else 3),
@@ -42,9 +44,29 @@ def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
         if value >= 1 << 63:
             value -= 1 << 64
         longs.append(value)
-    pal = b"".join(compound(tag(8, "Name", nbt_string(n))) for n in PALETTE)
+    if palette_form == "bare":
+        pal = b"".join(nbt_string(n) for n in PALETTE)
+        pal_element_tag = 8
+    else:
+        entries = []
+        for i, name in enumerate(PALETTE):
+            if palette_form == "legacy":
+                payload = tag(8, "Name", nbt_string(name))
+            elif palette_form == "modern":
+                payload = tag(8, "id", nbt_string(name))
+            elif palette_form == "wrapped":
+                payload = tag(8, "", nbt_string(name))
+            elif palette_form == "mixed":
+                payload = (tag(8, "id", nbt_string(name))
+                           if i % 2 else tag(8, "", nbt_string(name)))
+            else:
+                raise AssertionError("BAD_SYNTHETIC_PALETTE_FORM")
+            entries.append(compound(payload))
+        pal = b"".join(entries)
+        pal_element_tag = 10
     states = compound(
-        tag(9, "palette", b"\x0a" + struct.pack(">i", len(PALETTE)) + pal),
+        tag(9, "palette", bytes((pal_element_tag,)) +
+            struct.pack(">i", len(PALETTE)) + pal),
         tag(12, "data", struct.pack(">i", len(longs)) +
             b"".join(struct.pack(">q", n) for n in longs)),
     )
@@ -119,6 +141,36 @@ class BlockRegionTests(unittest.TestCase):
         for type_id, n in ((0, 1), (0, -1), (13, 0), (13, 1)):
             self.reject(build(empty_list_type=type_id, empty_list_length=n),
                         "candidate", "NBT_LIST_BOUNDS")
+
+    def test_official_263_palette_variants_and_legacy_save(self):
+        # 26.3 official release: Name->id; default state may be a bare ID.
+        for fmt in ("legacy", "modern", "wrapped", "mixed", "bare"):
+            for stage in ("preaction", "candidate", "rollback"):
+                result = inspect(build(stage, palette_form=fmt), stage)
+                self.assertEqual(result["stage"], stage)
+                self.assertTrue(result["block_state_expectations_matched"])
+                self.assertFalse(result["backend_independent_world_oracle_pass"])
+
+    def test_palette_strict_types_and_no_ambiguous_alias(self):
+        for entry, result in (
+            ("minecraft:air", "minecraft:air"),
+            ({"": "minecraft:stone"}, "minecraft:stone"),
+            ({"id": "minecraft:iron_bars",
+              "properties": {"north": "true"}}, "minecraft:iron_bars"),
+            ({"Name": "minecraft:black_concrete"}, "minecraft:black_concrete"),
+        ):
+            self.assertEqual(palette_block_name(entry), result)
+        for entry in (
+            "", "minecraft:", "example:stone", 12, {},
+            {"id": "minecraft:air", "Name": "minecraft:lava"},
+            {"": "minecraft:air", "id": "minecraft:lava"},
+            {"id": "minecraft:air", "properties": []},
+            {"id": "minecraft:air", "properties": {"north": 1}},
+            {"id": "minecraft:air", "other": "minecraft:lava"},
+        ):
+            with self.subTest(entry=entry), self.assertRaisesRegex(
+                    Refused, "BLOCK_PALETTE_INVALID"):
+                palette_block_name(entry)
 
     def test_wrong_stage_and_replayed_same_region(self):
         self.reject(build(), "rollback", "SERVER_BLOCK_CONSEQUENCE_ABSENT")
