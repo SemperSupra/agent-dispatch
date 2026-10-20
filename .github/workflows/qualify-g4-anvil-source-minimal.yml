@@ -1,0 +1,37 @@
+name: G4 source-only 26.3 Anvil parser qualification
+on:
+  pull_request:
+    paths:
+      - 'scripts/qualify_native_vanilla263_anvil_blocks.py'
+      - 'tests/test_native_vanilla263_anvil_blocks.py'
+      - '.github/workflows/qualify-g4-anvil-source-minimal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: g4-anvil-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  bounded-public-source:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout public unprivileged source (no persisted token)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require exact immutable qualified source lineage
+        run: |
+          set -euo pipefail
+          test "$(git hash-object scripts/qualify_native_vanilla263_anvil_blocks.py)" = 27e122e20814df7ec8151cfbf335fd4e78c959f6
+          test "$(git hash-object tests/test_native_vanilla263_anvil_blocks.py)" = e5cdcb1d3cd8787a3bb9c8e5ec1a83925640a80d
+      - name: Fail closed on source-only synthetic controls
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/qualify_native_vanilla263_anvil_blocks.py tests/test_native_vanilla263_anvil_blocks.py
+          python3 -m unittest tests.test_native_vanilla263_anvil_blocks -v
+      - name: Preserve native and physical authorization holds
+        if: always()
+        run: |
+          echo 'This public zero-secret synthetic suite qualifies only the bounded decoder source. It does not admit any consumed native one-use ID, prove TrueNAS G4, authorize COLLAGE APPLY, or allow physical deployment.' >> "$GITHUB_STEP_SUMMARY"
