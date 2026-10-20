@@ -333,7 +333,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/public-nlp-venv"
-          "$RUNNER_TEMP/public-nlp-venv/bin/python" -m pip install --disable-pip-version-check --no-input --no-cache-dir 'spacy==3.8.11'
+          "$RUNNER_TEMP/public-nlp-venv/bin/python" -m pip install --disable-pip-version-check --no-input --no-cache-dir 'spacy==3.8.11' 'click==8.1.8'
       - name: Run standalone synthetic fixture and independent offset oracle
         shell: bash
         run: |
@@ -349,7 +349,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: public-nlp-reference-${ github.run_attempt }
-          path: ${ runner.temp }/public-nlp-reference/*.json
+          name: public-nlp-reference-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/public-nlp-reference/*.json
           if-no-files-found: ignore
           retention-days: 7
