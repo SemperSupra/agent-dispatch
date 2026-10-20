@@ -25,7 +25,8 @@ def compound(*children):
     return b"".join(children) + b"\x00"
 
 
-def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None):
+def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
+          empty_list_type=None, empty_list_length=0):
     positions = {((70 & 15) << 8) | (z << 4) | x: value
                  for (x, z, value) in (
                    (0, 0, 1 if stage == "preaction" else 0), (2, 0, 1 if stage == "candidate" else 3),
@@ -55,6 +56,9 @@ def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None):
         tag(3, "xPos", struct.pack(">i", x_pos)),
         tag(3, "zPos", struct.pack(">i", z_pos)),
         tag(9, "sections", b"\x0a" + struct.pack(">i", 1) + sections),
+        (tag(9, "block_entities", bytes((empty_list_type,)) +
+             struct.pack(">i", empty_list_length))
+         if empty_list_type is not None else b""),
     )
     doc = b"\x0a" + nbt_string("") + root
     packed = zlib.compress(doc, 9)
@@ -96,6 +100,25 @@ class BlockRegionTests(unittest.TestCase):
         core_idx = ((70 & 15) << 8)
         self.reject(build("preaction", overrides={core_idx: 0}), "preaction",
                     "SERVER_BLOCK_CONSEQUENCE_ABSENT")
+
+    def test_real_nbt_zero_length_tag_end_list_is_legal(self):
+        # Reproduces all three real 26.3 OP-3C stopped-region failures:
+        # public run 39384359773 returned NBT_LIST_BOUNDS at every stage.
+        for stage in ("preaction", "candidate", "rollback"):
+            result = inspect(build(stage, empty_list_type=0), stage)
+            self.assertTrue(result["block_state_expectations_matched"])
+            self.assertFalse(result["backend_independent_world_oracle_pass"])
+
+    def test_empty_typed_list_and_tag_end_negative_bounds(self):
+        # Empty lists can also carry a normal element type; neither branch
+        # admits a nonempty TAG_End list, negative count or unknown type.
+        for type_id in (1, 10, 12):
+            self.assertTrue(inspect(
+                build(empty_list_type=type_id), "candidate"
+            )["block_state_expectations_matched"])
+        for type_id, n in ((0, 1), (0, -1), (13, 0), (13, 1)):
+            self.reject(build(empty_list_type=type_id, empty_list_length=n),
+                        "candidate", "NBT_LIST_BOUNDS")
 
     def test_wrong_stage_and_replayed_same_region(self):
         self.reject(build(), "rollback", "SERVER_BLOCK_CONSEQUENCE_ABSENT")
