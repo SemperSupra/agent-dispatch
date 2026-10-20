@@ -71,13 +71,21 @@ def parse_image(readelf_output):
 
 
 def parse_gdb_pc(text):
-    points = re.findall(r"^RE_PC=0x([0-9a-fA-F]+)\s*$", text, re.MULTILINE)
+    points = list(re.finditer(r"^RE_PC=0x([0-9a-fA-F]+)[ \t]*$", text, re.MULTILINE))
     if len(points) != 1:
         raise OracleError("GDB did not observe exactly one breakpoint program counter")
-    if not re.search(r"exited normally", text, re.IGNORECASE):
-        raise OracleError("GDB did not verify successful process exit")
-    return int(points[0], 16)
-
+    # The GDB process can return zero even after an inferior signal. Do not
+    # accept arbitrary substrings, signal output, or a pre-sample exit.
+    if re.search(r"(?:signal SIG|Program received signal|No such process|"
+                 r"^Cannot insert breakpoint|^warning:.*cannot access memory)",
+                 text, re.IGNORECASE | re.MULTILINE):
+        raise OracleError("debugger reports a signal or invalid execution")
+    exits = list(re.finditer(
+        r"^\[Inferior [0-9]+ \(process [0-9]+\) exited normally\]$",
+        text, re.MULTILINE))
+    if len(exits) != 1 or exits[0].start() <= points[0].end():
+        raise OracleError("GDB did not prove ordered normal inferior completion")
+    return int(points[0].group(1), 16)
 
 def execute():
     for program in ("gcc", "nm", "readelf", "gdb"):
