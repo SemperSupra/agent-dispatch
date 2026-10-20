@@ -26,7 +26,7 @@ def compound(*children):
 
 
 def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
-          empty_end_list_length=None):
+          empty_end_list_length=None, palette_key="Name"):
     positions = {((70 & 15) << 8) | (z << 4) | x: value
                  for (x, z, value) in (
                    (0, 0, 1 if stage == "preaction" else 0), (2, 0, 1 if stage == "candidate" else 3),
@@ -42,7 +42,7 @@ def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
         if value >= 1 << 63:
             value -= 1 << 64
         longs.append(value)
-    pal = b"".join(compound(tag(8, "Name", nbt_string(n))) for n in PALETTE)
+    pal = b"".join(compound(tag(8, palette_key, nbt_string(n))) for n in PALETTE)
     states = compound(
         tag(9, "palette", b"\x0a" + struct.pack(">i", len(PALETTE)) + pal),
         tag(12, "data", struct.pack(">i", len(longs)) +
@@ -113,6 +113,24 @@ class BlockRegionTests(unittest.TestCase):
                     "NBT_LIST_BOUNDS")
         self.reject(build(empty_end_list_length=-1), "candidate",
                     "NBT_LIST_BOUNDS")
+
+    def test_26_3_documented_block_state_id_codec_and_legacy_separation(self):
+        # Mojang 26.3 renamed Block State Name -> id; genuine stopped
+        # region run 39384530141 refused BLOCK_PALETTE_INVALID after
+        # empty-list repair. No guesses about non-dictionary palette forms.
+        for stage in ("preaction", "candidate", "rollback"):
+            row = inspect(build(stage, palette_key="id",
+                                empty_end_list_length=0), stage)
+            self.assertTrue(row["block_state_expectations_matched"])
+            self.assertFalse(row["backend_independent_world_oracle_pass"])
+            self.assertTrue(inspect(build(stage, palette_key="Name"),stage)
+                            ["block_state_expectations_matched"])
+        self.reject(build(palette_key="unknown"), "candidate",
+                    "BLOCK_PALETTE_INVALID")
+        # Refuse empty or unrecognized keys, even if all other block data
+        # and expected world-stage consequences would have matched.
+        self.reject(build(palette_key=""), "candidate",
+                    "BLOCK_PALETTE_INVALID")
 
     def test_wrong_stage_and_replayed_same_region(self):
         self.reject(build(), "rollback", "SERVER_BLOCK_CONSEQUENCE_ABSENT")
