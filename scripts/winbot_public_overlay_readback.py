@@ -6,7 +6,7 @@ synthetic master in a separate run-owned root. No Windows, private source,
 credentials, WinBot Apply admission, production hypervisor, or storage wipe.
 """
 from __future__ import annotations
-import hashlib, json, os, pathlib, shutil, subprocess, sys, time, uuid
+import hashlib, json, os, pathlib, shutil, stat, subprocess, sys, time, uuid
 import xml.etree.ElementTree as ET
 
 OUT = pathlib.Path("/tmp/winbot-libvirt-overlay-readback")
@@ -121,8 +121,59 @@ def main():
         actual_net=ET.fromstring((OUT/"network-realized.xml").read_text())
         if actual_net.find("forward") is not None or actual_net.findtext("name")!=net:
             raise ValueError("native network is not run-owned or isolated")
+        # Independent public fixture: verify the *actual* qemu-img backing
+        # chain, not just libvirt's rendered XML. No private WinBot source.
+        chain=json.loads(command("qemu-img","info","--output=json",
+                                 "--backing-chain",str(overlay)).stdout)
+        if (not isinstance(chain,list) or len(chain)!=2 or
+            chain[0].get("filename")!=str(overlay) or
+            chain[0].get("format")!="qcow2" or
+            chain[0].get("backing-filename")!=str(master) or
+            chain[1].get("filename")!=str(master) or
+            chain[1].get("format")!="qcow2" or
+            chain[1].get("backing-filename")):
+            raise ValueError("actual QEMU image chain differs from native XML")
+
+        # Rejected decoys are created ONLY in the already run-owned synthetic
+        # workset. Neither can be mistaken for a single-link regular master.
+        def candidate_is_single_regular(p):
+            observed=os.lstat(p)
+            return stat.S_ISREG(observed.st_mode) and observed.st_nlink==1
+        if not candidate_is_single_regular(master):
+            raise ValueError("master is not a single-link regular file")
+        link=owned_root/"symlink-decoy.qcow2"
+        link.symlink_to(master)
+        try:
+            if candidate_is_single_regular(link):
+                raise ValueError("unowned source symlink was mistakenly accepted")
+        finally:
+            link.unlink()
+        hardlink=owned_root/"hardlink-decoy.qcow2"
+        os.link(master,hardlink)
+        try:
+            if candidate_is_single_regular(master) or candidate_is_single_regular(hardlink):
+                raise ValueError("unowned source hardlink was mistakenly accepted")
+        finally:
+            hardlink.unlink()
+        if not candidate_is_single_regular(master):
+            raise ValueError("master source did not recover original link identity")
         if sha(master)!=master_before:
             raise ValueError("master content mutated")
+        emit("qemu-native-master-provenance.json",{
+            "schema":"winbot-public-qemu-master-source-proof/v1",
+            "classification":"RUN_OWNED_SYNTHETIC_MASTER_CHAIN_ONLY",
+            "qemu_chain_entries":len(chain),
+            "native_xml_overlay_and_qemu_chain_match":True,
+            "master_image_filename":str(master),
+            "overlay_image_filename":str(overlay),
+            "master_digest_before_and_after_equal":True,
+            "single_link_regular_file":True,
+            "symlink_decoy_rejected":True,
+            "hardlink_decoy_rejected":True,
+            "private_winbot_code_executed":False,
+            "windows_or_winbot_guest_qualified":False,
+            "production_master_admitted":False
+        })
         emit("backing-shape.json",{
             "schema":"winbot-native-libvirt-backing-observation/v1",
             "classification":"SYNTHETIC_LIVE_NATIVE_BACKING_READBACK_ONLY",
