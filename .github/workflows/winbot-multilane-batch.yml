@@ -1,7 +1,7 @@
-name: WinBot W1 Multi-Lane Bounded Batch
+name: WinBot W1 Multi-Lane Owned Network Integration Batch
 on:
   push:
-    branches: [experiment/winbot-batched-multilane-rdte-20261020]
+    branches: [experiment/winbot-batch-native-overlay-network-20261020]
     paths:
       - scripts/winbot_public_overlay_readback.py
       - scripts/winbot_public_overlay_negative_batch.py
@@ -64,7 +64,7 @@ jobs:
           if-no-files-found: error
           path: /tmp/winbot-batch-${{ matrix.lane }}/
   native-kvm:
-    name: Live owned KVM + eight hostile disk-chain variants
+    name: Live owned KVM + eleven hostile disk-chain variants
     runs-on: ubuntu-24.04
     timeout-minutes: 16
     concurrency:

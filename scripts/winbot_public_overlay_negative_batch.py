@@ -7,7 +7,7 @@ does not import or publish WinBot private code. No VM lifecycle/mutation here.
 from __future__ import annotations
 import copy, hashlib, json, pathlib, xml.etree.ElementTree as ET
 OUT=pathlib.Path("/tmp/winbot-libvirt-overlay-readback")
-def reject_if_unowned(xml:str, *, overlay:str, master:str)->bool:
+def reject_if_unowned(xml:str, *, overlay:str, master:str, run_uuid:str)->bool:
     """True only for exactly one owned qcow2->accepted qcow2 master chain."""
     try:root=ET.fromstring(xml)
     except ET.ParseError:return False
@@ -27,17 +27,25 @@ def reject_if_unowned(xml:str, *, overlay:str, master:str)->bool:
     if len(terminals)>1:return False
     if terminals and (terminals[0].attrib or list(terminals[0]) or (terminals[0].text or "").strip()):return False
     if root.findall("./devices/hostdev") or root.findall("./devices/filesystem") or root.findall("./devices/redirdev"):return False
+    interfaces=root.findall("./devices/interface")
+    # Fixture binds network identity to the *same* run UUID that owns the overlay.
+    import uuid
+    owner_net="winbot-rdte-"+uuid.UUID(run_uuid).hex
+    if len(interfaces)!=1 or interfaces[0].get("type")!="network":return False
+    interface_source=interfaces[0].find("source")
+    nic_model=interfaces[0].find("model")
+    if interface_source is None or interface_source.get("network")!=owner_net or nic_model is None or nic_model.get("type")!="e1000":return False
     return True
 def main():
     evidence=json.loads((OUT/"backing-shape.json").read_text())
     xml=(OUT/"running.xml").read_text()
     overlay=evidence["overlay_path"];master=evidence["master_path"]
     root=ET.fromstring(xml)
-    assert reject_if_unowned(xml,overlay=overlay,master=master),"baseline native XML rejected"
+    assert reject_if_unowned(xml,overlay=overlay,master=master,run_uuid=evidence["run_uuid"]),"baseline native XML rejected"
     cases={}
     def run_case(name,fn):
         elt=copy.deepcopy(root);fn(elt);s=ET.tostring(elt,encoding="unicode")
-        cases[name]=not reject_if_unowned(s,overlay=overlay,master=master)
+        cases[name]=not reject_if_unowned(s,overlay=overlay,master=master,run_uuid=evidence["run_uuid"])
         assert cases[name],name+" was incorrectly accepted"
     run_case("foreign_overlay",lambda r:r.find("./devices/disk/source").set("file","/dev/sda"))
     run_case("wrong_master",lambda r:r.find("./devices/disk/backingStore/source").set("file","/srv/unowned/master.qcow2"))
@@ -52,6 +60,9 @@ def main():
         ET.SubElement(x,"{"+ns+"}arg",{"value":"-drive"})
         ET.SubElement(x,"{"+ns+"}arg",{"value":"file=/dev/sda,if=none"})
     run_case("qemu_escape_hatch",namespace)
+    run_case("foreign_network",lambda r:r.find("./devices/interface/source").set("network","default"))
+    run_case("wrong_nic",lambda r:r.find("./devices/interface/model").set("type","virtio"))
+    run_case("extra_nic",lambda r:r.find("./devices").append(copy.deepcopy(r.find("./devices/interface"))))
     receipt={
       "schema":"winbot-public-native-chain-negative-batch/v1",
       "classification":"REAL_NATIVE_XML_PLUS_SYNTHETIC_NEGATIVE_MUTATIONS",
