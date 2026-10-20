@@ -75,7 +75,12 @@ class NBT:
         if tag == 9:
             nested = self.num("B")
             n = self.num("i")
-            require(1 <= nested <= 12 and 0 <= n <= MAX_ITEMS,
+            # A zero-length TAG_List may use TAG_End (type 0) as its
+            # declared element type. Minecraft 26.3 emits this legal NBT
+            # form in real saved Anvil chunks. Type 0 with nonzero count
+            # remains invalid; all other type/count limits are unchanged.
+            require(0 <= n <= MAX_ITEMS and
+                    (1 <= nested <= 12 or (nested == 0 and n == 0)),
                     "NBT_LIST_BOUNDS")
             return [self.payload(nested, depth+1) for _ in range(n)]
         if tag == 10:
