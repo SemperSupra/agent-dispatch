@@ -25,7 +25,8 @@ def compound(*children):
     return b"".join(children) + b"\x00"
 
 
-def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None):
+def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None,
+          empty_end_list_length=None):
     positions = {((70 & 15) << 8) | (z << 4) | x: value
                  for (x, z, value) in (
                    (0, 0, 1 if stage == "preaction" else 0), (2, 0, 1 if stage == "candidate" else 3),
@@ -55,6 +56,9 @@ def build(stage="candidate", *, x_pos=0, z_pos=0, overrides=None):
         tag(3, "xPos", struct.pack(">i", x_pos)),
         tag(3, "zPos", struct.pack(">i", z_pos)),
         tag(9, "sections", b"\x0a" + struct.pack(">i", 1) + sections),
+        *( (tag(9, "block_entities", b"\x00" +
+                   struct.pack(">i", empty_end_list_length)),)
+           if empty_end_list_length is not None else () ),
     )
     doc = b"\x0a" + nbt_string("") + root
     packed = zlib.compress(doc, 9)
@@ -96,6 +100,19 @@ class BlockRegionTests(unittest.TestCase):
         core_idx = ((70 & 15) << 8)
         self.reject(build("preaction", overrides={core_idx: 0}), "preaction",
                     "SERVER_BLOCK_CONSEQUENCE_ABSENT")
+
+    def test_real_263_empty_tag_end_list_positive_and_malformed_negative(self):
+        # Real Mojang26.3 public OP-3C failure 39384117192 first refused
+        # valid empty TAG_List with declared type TAG_End, preaction.
+        for stage in ("preaction", "candidate", "rollback"):
+            row = inspect(build(stage, empty_end_list_length=0), stage)
+            self.assertTrue(row["block_state_expectations_matched"])
+            self.assertFalse(row["backend_independent_world_oracle_pass"])
+        # End-tag list elements are NEVER valid at nonzero count.
+        self.reject(build(empty_end_list_length=1), "candidate",
+                    "NBT_LIST_BOUNDS")
+        self.reject(build(empty_end_list_length=-1), "candidate",
+                    "NBT_LIST_BOUNDS")
 
     def test_wrong_stage_and_replayed_same_region(self):
         self.reject(build(), "rollback", "SERVER_BLOCK_CONSEQUENCE_ABSENT")
