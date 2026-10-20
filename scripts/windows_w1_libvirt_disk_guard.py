@@ -76,6 +76,8 @@ def verify_host_disk_guard(
         dom = ET.fromstring(realized_domain_xml)
     except ET.ParseError as exc:
         raise DiskGuardRefused("invalid domain XML") from exc
+    need(all(isinstance(el.tag, str) and not el.tag.startswith("{") for el in dom.iter()),
+         "namespaced QEMU/libvirt device injection is not allowed")
     need(dom.tag == "domain" and dom.get("type") == "kvm", "not a KVM VM")
     need(dom.findtext("uuid") == run_uuid, "realized VM identity differs")
     need(dom.findtext("name") == "ad-w1-" + uid.hex, "realized VM name differs")
