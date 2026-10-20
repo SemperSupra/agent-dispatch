@@ -9,6 +9,8 @@ on:
     paths:
       - scripts/windows_w1_winpe_disk_identity.py
       - tests/test_windows_w1_winpe_disk_identity.py
+      - scripts/windows_w1_winpe_observer_seed.py
+      - tests/test_windows_w1_winpe_observer_seed.py
       - .github/workflows/winbot-w1-stack-parity.yml
   workflow_dispatch:
 permissions:
@@ -25,6 +27,8 @@ jobs:
           set -euo pipefail
           test "$(git hash-object scripts/windows_w1_winpe_disk_identity.py)" = b18daec968da05aef5f85b432422e31d5197fd58
           test "$(git hash-object tests/test_windows_w1_winpe_disk_identity.py)" = 5ed38a1b13ca6f99cbc93876ecd6f2c4a4e65680
+          test "$(git hash-object scripts/windows_w1_winpe_observer_seed.py)" = 4ce8106cc80e4766371694926dd47da9559b446c
+          test "$(git hash-object tests/test_windows_w1_winpe_observer_seed.py)" = 6db53d6c8fdd8a2085efa83afb00d364f53ab8c0
           git rev-parse HEAD
       - name: Independently execute shared source-only safety regressions
         shell: bash
@@ -46,12 +50,13 @@ jobs:
           python3 - <<'PY'
           import hashlib,json,pathlib,subprocess
           root=pathlib.Path("/tmp/winbot-stack-parity")
-          files=("scripts/windows_w1_winpe_disk_identity.py","tests/test_windows_w1_winpe_disk_identity.py")
+          files=("scripts/windows_w1_winpe_disk_identity.py","tests/test_windows_w1_winpe_disk_identity.py","scripts/windows_w1_winpe_observer_seed.py","tests/test_windows_w1_winpe_observer_seed.py")
           data={
             "schema":"winbot-w1-stacked-source-parity/v1",
             "classification":"SOURCE_TESTED_NO_WINDOWS",
             "exact_head":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
             "parser_and_negatives_sha256":{f:hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest() for f in files},
+            "single_seed_binding_candidate":"CONFIGURATION_SET_ROOT_UNQUALIFIED",
             "runtime_windows_pe_executed":False,
             "windows_media_downloaded":False,
             "windows_setup_or_disk_wipe_authorized":False,
