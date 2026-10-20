@@ -1,0 +1,79 @@
+name: WinBot Windows CMD config-set-root source binding smoke (no WinPE)
+on:
+  push:
+    branches:
+      - experiment/winbot-winpe-observe-only-seed-20261020
+    paths:
+      - scripts/windows_w1_winpe_observer_seed.py
+      - .github/workflows/winbot-configsetroot-host-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-cmd-contract:
+    runs-on: windows-2025
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Dry-run exact candidate launch on OWNED Windows host temp script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $dir = Join-Path $env:RUNNER_TEMP 'winbot configsetroot owned'
+          $other = Join-Path $env:RUNNER_TEMP 'winbot untrusted drive decoy'
+          $receipt = Join-Path $env:RUNNER_TEMP 'winbot-configsetroot-receipt'
+          foreach ($v in @($dir,$other,$receipt)) {
+            if (Test-Path -LiteralPath $v) { throw "Refuse preexisting test path $v" }
+            New-Item -ItemType Directory -Path $v | Out-Null
+          }
+          try {
+            $launch = & python -c 'import xml.etree.ElementTree as E; from scripts.windows_w1_winpe_observer_seed import probe_unattend,U; x=E.fromstring(probe_unattend()); print(x.findtext(".//{"+U+"}Path"))'
+            if ($LASTEXITCODE -ne 0) { throw 'Could not render source launch path' }
+            if ($launch -notmatch '%configsetroot%' -or $launch -match 'for %D|ADW1PE.tag') { throw 'Unsafe source selection' }
+            $ok = Join-Path $receipt 'selected-source-was-executed.txt'
+            $bad = Join-Path $receipt 'untrusted-source-was-executed.txt'
+            $stub = @('@echo off', ('echo TRUSTED > "' + $ok + '"'), 'exit /b 0') -join [Environment]::NewLine
+            Set-Content -LiteralPath (Join-Path $dir 'adw1pe.cmd') -Value $stub -Encoding ASCII
+            $decoy = @('@echo off', ('echo UNTRUSTED > "' + $bad + '"'), 'exit /b 0') -join [Environment]::NewLine
+            Set-Content -LiteralPath (Join-Path $other 'adw1pe.cmd') -Value $decoy -Encoding ASCII
+            Set-Content -LiteralPath (Join-Path $other 'ADW1PE.tag') -Value 'DECOY' -Encoding ASCII
+            $wrapper = Join-Path $receipt 'candidate-launch.cmd'
+            (@('@echo off', $launch, 'exit /b %ERRORLEVEL%') -join [Environment]::NewLine) |
+              Set-Content -LiteralPath $wrapper -Encoding ASCII
+            $env:configsetroot = $dir
+            & cmd.exe /D /C ('"' + $wrapper + '"')
+            $yes = ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $ok))
+            $noDecoy = -not (Test-Path -LiteralPath $bad)
+            if (!$yes -or !$noDecoy) { throw 'Source binding or decoy refusal failed' }
+            $env:configsetroot = Join-Path $env:RUNNER_TEMP 'never-created-source'
+            Remove-Item -LiteralPath $ok -Force
+            & cmd.exe /D /C ('"' + $wrapper + '"') 2>$null
+            $missingRefused = ($LASTEXITCODE -ne 0 -and -not (Test-Path -LiteralPath $ok))
+            if (!$missingRefused) { throw 'Missing configuration-set root not refused' }
+            [ordered]@{
+              schema = 'winbot-configsetroot-cmd-host-only/v1'
+              classification = 'WINDOWS_HOST_CMD_CANDIDATE_ONLY'
+              exact_rendered_command = $launch
+              selected_owned_script_only = $yes
+              decoy_never_executed = $noDecoy
+              missing_configsetroot_refused = $missingRefused
+              windows_pe_executed = $false
+              setup_runsynchronous_qualified = $false
+              install_or_wipe_authorized = $false
+              winbot_guest_qualified = $false
+            } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $receipt 'host-smoke.json')
+          }
+          finally {
+            Remove-Item Env:configsetroot -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $dir,$other -Recurse -Force -ErrorAction SilentlyContinue
+            if ((Test-Path -LiteralPath $dir) -or (Test-Path -LiteralPath $other)) { throw 'Cleanup failure' }
+          }
+      - name: Retain host-only nonadmission receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-configsetroot-host-smoke
+          retention-days: 7
+          if-no-files-found: error
+          path: ${{ runner.temp }}/winbot-configsetroot-receipt/host-smoke.json
