@@ -42,7 +42,7 @@ def probe_unattend() -> str:
     # sole seed authority. Never scan all volumes or execute a marker-matched
     # script from an unrelated drive. RunSynchronous expansion of this
     # variable is still UNQUALIFIED inside a real Windows PE guest.
-    path='cmd.exe /D /C "call ""%configsetroot%\\adw1pe.cmd"""'
+    path='cmd.exe /D /C call "%configsetroot%\\adw1pe.cmd"'
     if len(path)>259:
         raise WinPEProbeSeedRefused("Windows Setup Path limit exceeded")
     ET.SubElement(command,"{"+U+"}Path").text=path
