@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Four sequential injected-failure lifecycle exercises in ONE hosted KVM lane.
+"""Six sequential injected-failure lifecycle exercises in ONE hosted KVM lane.
 
 Public synthetic disposable objects only. Expect controlled exit 3 with exact
 first-failure evidence and *zero* resource residue at each lifecycle boundary.
@@ -15,7 +15,9 @@ import sys
 BASE = pathlib.Path("/tmp/winbot-fault-matrix")
 STAGES = (
     "after_overlay_created",
+    "after_network_defined_before_ack",
     "after_network_started",
+    "after_domain_defined_before_ack",
     "after_domain_defined",
     "after_domain_started",
 )
@@ -68,7 +70,7 @@ def main() -> int:
             passed = False
             break  # fail closed; don't compound a leaking workcell
     report = {
-        "schema": "winbot-public-kvm-four-stage-rollback/v1",
+        "schema": "winbot-public-kvm-six-stage-rollback/v1",
         "classification": "SYNTHETIC_LIFECYCLE_FAILURE_QUALIFICATION",
         "all_stages_passed": passed and len(results) == len(STAGES),
         "stages": results,
