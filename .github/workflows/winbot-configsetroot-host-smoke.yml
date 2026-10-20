@@ -69,6 +69,10 @@ jobs:
             Remove-Item -LiteralPath $dir,$other -Recurse -Force -ErrorAction SilentlyContinue
             if ((Test-Path -LiteralPath $dir) -or (Test-Path -LiteralPath $other)) { throw 'Cleanup failure' }
           }
+          if (!(Test-Path -LiteralPath (Join-Path $receipt 'host-smoke.json'))) { throw 'Receipt missing' }
+          # Last native invocation intentionally returned nonzero for the absent
+          # source negative. Reset final pwsh process status only AFTER receipts.
+          exit 0
       - name: Retain host-only nonadmission receipt
         if: always()
         uses: actions/upload-artifact@v4
