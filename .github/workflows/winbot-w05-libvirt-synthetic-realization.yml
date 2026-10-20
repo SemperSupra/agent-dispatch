@@ -1,9 +1,11 @@
-name: WinBot W0.5 synthetic KVM Windows-device topology (bounded public RDTE)
+name: WinBot W0.6 real disk safety preflight on synthetic KVM RDTE
 on:
   push:
     branches:
-      - experiment/winbot-w05-libvirt-synthetic-realization-20261019
+      - experiment/winbot-w1-disk0-safety-20261020
     paths:
+      - scripts/windows_w1_libvirt_disk_guard.py
+      - tests/test_windows_w1_libvirt_disk_guard.py
       - scripts/winbot_w05_synthetic_realization.py
       - .github/workflows/winbot-w05-libvirt-synthetic-realization.yml
   workflow_dispatch:
@@ -18,6 +20,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Run independent fail-closed disk-zero guard adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_windows_w1_libvirt_disk_guard.py
       - name: Observe free runner and install only synthetic lab prerequisites
         shell: bash
         run: |
@@ -40,7 +47,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: winbot-w05-synthetic-libvirt-topology
+          name: winbot-w06-real-disk-guard
           retention-days: 7
           if-no-files-found: error
           path: /tmp/winbot-w05-receipt/

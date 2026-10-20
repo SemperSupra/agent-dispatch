@@ -80,6 +80,18 @@ def main():
         })
         cmd('virt-xml-validate',str(OUT/'synthetic-domain.xml'),'domain')
         virsh('define',str(OUT/'synthetic-domain.xml'));defined=True
+        # Independent HOST-only destructive-target preflight against realized
+        # libvirt readback + actual qcow2 headers; guest DiskID=0 remains UNKNOWN.
+        from scripts.windows_w1_libvirt_disk_guard import (
+            disk_image_observation, verify_host_disk_guard
+        )
+        defined_xml=virsh('dumpxml',uid).stdout
+        host_disk=verify_host_disk_guard(
+            defined_xml, run_uuid=uid,
+            image=disk_image_observation(str(root/'system.qcow2')),
+        )
+        receipt('host-disk-guard.json',host_disk)
+        assert host_disk['windows_unattended_wipe_authorized'] is False
         virsh('start',uid)
         time.sleep(3)
         assert virsh('domstate',uid).stdout.strip()=='running'
