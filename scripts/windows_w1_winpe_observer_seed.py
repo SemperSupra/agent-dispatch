@@ -32,13 +32,17 @@ def probe_unattend() -> str:
         "processorArchitecture":"amd64","publicKeyToken":"31bf3856ad364e35",
         "language":"neutral","versionScope":"nonSxS",
     })
+    ET.SubElement(setup,"{"+U+"}UseConfigurationSet").text="true"
     runs=ET.SubElement(setup,"{"+U+"}RunSynchronous")
     command=ET.SubElement(runs,"{"+U+"}RunSynchronousCommand",
                           {"{"+W+"}action":"add"})
     ET.SubElement(command,"{"+U+"}Order").text="1"
     ET.SubElement(command,"{"+U+"}Description").text="Read-only WinPE disk identity observation; no installation"
-    volumes="D E F G H I J K L M N O P Q R S T U V W Y Z"
-    path='cmd.exe /C "for %D in ('+volumes+') do @if exist %D:\\ADW1PE.tag call %D:\\adw1pe.cmd"'
+    # SOURCE-ONLY proposal: Windows Setup's configuration-set root is the
+    # sole seed authority. Never scan all volumes or execute a marker-matched
+    # script from an unrelated drive. RunSynchronous expansion of this
+    # variable is still UNQUALIFIED inside a real Windows PE guest.
+    path='cmd.exe /D /C "call ""%configsetroot%\\adw1pe.cmd"""'
     if len(path)>259:
         raise WinPEProbeSeedRefused("Windows Setup Path limit exceeded")
     ET.SubElement(command,"{"+U+"}Path").text=path
@@ -75,7 +79,6 @@ def build_probe_seed(nonce: str) -> dict[str, object]:
         "Autounattend.xml":probe_unattend(),
         "adw1pe.cmd":script,
         "diskpart-readonly.txt":diskpart_readonly_commands(),
-        "ADW1PE.tag":"AD-WINPE-READONLY-PROBE\n",
     }
     xml=ET.fromstring(items["Autounattend.xml"])
     for forbidden in ("DiskConfiguration","ImageInstall","InstallTo","ProductKey",
@@ -89,6 +92,8 @@ def build_probe_seed(nonce: str) -> dict[str, object]:
         "files":items,
         "file_sha256":{k:hashlib.sha256(v.encode("utf-8")).hexdigest()
                        for k,v in items.items()},
+        "unique_seed_binding":"CONFIGURATION_SET_ROOT_CANDIDATE_UNQUALIFIED",
+        "guest_configsetroot_expansion_proved":False,
         "winpe_executed":False,
         "disk_identity_real_guest_observed":False,
         "windows_installation_authorized":False,
