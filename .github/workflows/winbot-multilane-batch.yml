@@ -1,4 +1,4 @@
-name: WinBot W1 Four-Stage Rollback Integrated Batch
+name: WinBot W1 Six-Stage Rollback Integrated Batch
 on:
   push:
     branches: [experiment/winbot-kvm-failure-cleanup-batch-20261020]
@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo python3 -m scripts.winbot_public_overlay_negative_batch
-      - name: Falsify four staged lifecycle failures and prove complete cleanup
+      - name: Falsify six staged lifecycle failures and prove complete cleanup
         shell: bash
         run: |
           set -euo pipefail
