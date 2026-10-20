@@ -1,0 +1,54 @@
+name: WinBot native TrueNAS/PVE W1 immutable binding negatives (cheap)
+on:
+  push:
+    branches:
+      - experiment/winbot-native-binding-hardening-20261020
+    paths:
+      - scripts/windows_w1_native_plan.py
+      - tests/test_windows_w1_native_binding_hardening.py
+      - .github/workflows/winbot-native-binding-hardening.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-api-source-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Existing product-native plan contracts and adversarial media binding refusals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_windows_w1_native_plan.py tests/test_windows_w1_native_binding_hardening.py
+      - name: Emit nonmutating checked-source receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e /tmp/winbot-native-bindings
+          mkdir -m 0700 /tmp/winbot-native-bindings
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess
+          source=pathlib.Path("scripts/windows_w1_native_plan.py")
+          receipt={
+            "schema":"winbot-native-w1-binding-source-check/v1",
+            "classification":"SOURCE_NEGATIVE_TESTED_NO_PROVIDER_API",
+            "head":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
+            "native_plan_sha256":hashlib.sha256(source.read_bytes()).hexdigest(),
+            "truenas_vm_executed":False,
+            "proxmox_vm_executed":False,
+            "windows_media_acquired":False,
+            "windows_setup_authorized":False,
+            "winbot_guest_qualified":False,
+            "mutation_authorized":False
+          }
+          pathlib.Path("/tmp/winbot-native-bindings/receipt.json").write_text(json.dumps(receipt,sort_keys=True,indent=2)+"\n")
+          PY
+      - name: Preserve source-only receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-native-media-binding-negatives
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-native-bindings/

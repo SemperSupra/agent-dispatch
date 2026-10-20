@@ -50,6 +50,30 @@ def _safe_binding(value: str, label: str) -> str:
     return value
 
 
+def _safe_mnt_iso_path(value: str, label: str) -> str:
+    """Constrain native TrueNAS staged media to canonical /mnt/<pool>/... ISO."""
+    value = _safe_binding(value, label)
+    path = pathlib.PurePosixPath(value)
+    components = value.split("/")
+    if (not value.startswith("/mnt/") or str(path) != value or
+        len(components) < 5 or components[:2] != ["", "mnt"] or
+        any(x in ("", ".", "..") or
+            re.fullmatch(r"[A-Za-z0-9_.-]+", x) is None
+            for x in components[2:]) or
+        not components[-1].lower().endswith(".iso")):
+        raise WindowsW1PlanError(f"{label} must be a canonical /mnt pool ISO path")
+    return value
+
+
+def _safe_pve_iso_volume(value: str, label: str) -> str:
+    """Constrain PVE storage:iso/path.iso to non-injectable volume grammar."""
+    value = _safe_binding(value, label)
+    match = re.fullmatch(r"([A-Za-z0-9_][A-Za-z0-9_.-]*):iso/([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)", value)
+    if match is None or any(x in (".", "..") for x in match.group(2).split("/")) or not value.lower().endswith(".iso") or match.group(2).split("/")[-1].startswith("."):
+        raise WindowsW1PlanError(f"{label} must be a canonical ISO volume ID")
+    return value
+
+
 def _profile(path: pathlib.Path) -> dict[str, Any]:
     profile = load(path)
     validate(profile)
@@ -131,12 +155,8 @@ def truenas_plan(
     pool = _safe_binding(pool, "pool")
     if "/" in pool:
         raise WindowsW1PlanError("TrueNAS pool binding must be a pool name, not a dataset path")
-    iso_path = _safe_binding(iso_path, "iso-path")
-    if not iso_path.startswith("/mnt/"):
-        raise WindowsW1PlanError("TrueNAS ISO binding must be a staged /mnt path")
-    seed_path = _safe_binding(seed_path, "seed-path")
-    if not seed_path.startswith("/mnt/"):
-        raise WindowsW1PlanError("TrueNAS seed binding must be a staged /mnt path")
+    iso_path = _safe_mnt_iso_path(iso_path, "iso-path")
+    seed_path = _safe_mnt_iso_path(seed_path, "seed-path")
     if seed_path == iso_path:
         raise WindowsW1PlanError("TrueNAS installer and unattended seed must be distinct media")
     bridge = _safe_binding(bridge, "bridge")
@@ -248,17 +268,13 @@ def proxmox_plan(
     storage = _safe_binding(storage, "storage")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", storage):
         raise WindowsW1PlanError("PVE storage binding contains unsupported characters")
-    iso_volume = _safe_binding(iso_volume, "iso-volume")
-    if ":" not in iso_volume:
-        raise WindowsW1PlanError("PVE ISO binding must be a storage volume id")
-    seed_volume = _safe_binding(seed_volume, "seed-volume")
-    if ":" not in seed_volume:
-        raise WindowsW1PlanError("PVE seed binding must be a storage volume id")
+    iso_volume = _safe_pve_iso_volume(iso_volume, "iso-volume")
+    seed_volume = _safe_pve_iso_volume(seed_volume, "seed-volume")
     if seed_volume == iso_volume:
         raise WindowsW1PlanError("PVE installer and unattended seed must be distinct media")
     bridge = _safe_binding(bridge, "bridge")
-    if "," in bridge:
-        raise WindowsW1PlanError("PVE bridge binding must not contain commas")
+    if re.fullmatch(r"[A-Za-z0-9_.-]+", bridge) is None or bridge in (".", ".."):
+        raise WindowsW1PlanError("PVE bridge binding must be a plain interface name")
     name = _safe_binding(name, "name")
 
     return {
