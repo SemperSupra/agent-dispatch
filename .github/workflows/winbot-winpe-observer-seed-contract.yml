@@ -1,0 +1,57 @@
+name: WinBot source-only Windows PE observation seed and no-wipe tests
+on:
+  push:
+    branches:
+      - experiment/winbot-winpe-observe-only-seed-20261020
+    paths:
+      - scripts/windows_w1_winpe_observer_seed.py
+      - tests/test_windows_w1_winpe_observer_seed.py
+      - .github/workflows/winbot-winpe-observer-seed-contract.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Independent read-only seed and disk identity safety tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_windows_w1_winpe_observer_seed.py tests/test_windows_w1_winpe_disk_identity.py tests/test_windows_w1_gpt_header.py
+      - name: Preserve bounded SOURCE-ONLY seed fingerprint and classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e /tmp/winbot-inert-pe
+          mkdir -m 0700 /tmp/winbot-inert-pe
+          python3 - <<'PY'
+          import json,pathlib
+          from scripts.windows_w1_winpe_observer_seed import build_probe_seed
+          a=build_probe_seed("winbotDiskProbe20261020")
+          out=pathlib.Path("/tmp/winbot-inert-pe")
+          for name,content in a["files"].items():
+              (out/name).write_bytes(content.encode("utf-8"))
+          (out/"classification.json").write_text(json.dumps({
+              "schema":a["schema"],
+              "classification":"SOURCE_ONLY_INERT_OBSERVER",
+              "files_sha256":a["file_sha256"],
+              "synthetic_example_nonce":True,
+              "winpe_guest_executed":False,
+              "real_windows_iso_downloaded":False,
+              "host_disk_wiped":False,
+              "windows_installation_authorized":False,
+              "windows_installed":False,
+              "winbot_guest_qualified":False
+          },indent=2,sort_keys=True)+"\n")
+          PY
+      - name: Upload inert artifacts only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-winpe-inert-observer-seed
+          retention-days: 7
+          if-no-files-found: error
+          path: /tmp/winbot-inert-pe/
