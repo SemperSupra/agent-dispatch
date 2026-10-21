@@ -1,7 +1,7 @@
-name: WinBot native broker peer-identity and parallel source gates
+name: WinBot native distinct-generation Unix principal fencing
 on:
   push:
-    branches: [experiment/winbot-native-peercred-broker-20261022]
+    branches: [experiment/winbot-native-generation-uid-fence-20261022]
     paths:
       - scripts/winbot_public_live_native_fence.py
       - scripts/winbot_public_native_peercred_broker.py
