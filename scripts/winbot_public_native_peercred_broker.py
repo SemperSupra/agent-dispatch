@@ -54,14 +54,21 @@ def server():
         raise RuntimeError("public Linux root disposable broker required")
     owner=reaper.classify(str(ROOT/"ownership-manifest.json"))
     path=path_for(owner["uid"])
-    worker_uid=pwd.getpwnam("nobody").pw_uid
-    forbidden_uid=pwd.getpwnam("daemon").pw_uid
-    if forbidden_uid==worker_uid:
-        raise RuntimeError("no distinct adversarial Unix principals")
+    # A new generation MUST use an independently assigned OS principal.
+    # Simply changing a self-asserted generation under the old UID is not an
+    # authenticated claim, and the old actor must not impersonate the new one.
+    worker_uid=pwd.getpwnam("daemon").pw_uid
+    stale_uid=pwd.getpwnam("nobody").pw_uid
+    try:
+        forbidden_uid=pwd.getpwnam("www-data").pw_uid
+    except KeyError:
+        forbidden_uid=pwd.getpwnam("sys").pw_uid
+    if len({worker_uid,stale_uid,forbidden_uid,os.geteuid()})!=4:
+        raise RuntimeError("missing distinct current, stale and foreign Unix principals")
     s,dev,ino=bind_socket(path)
     results=[]
     try:
-        for index in range(3):
+        for index in range(5):
             client,_=s.accept()
             with client:
                 client.settimeout(9)
@@ -82,7 +89,10 @@ def server():
                          request.get("operation")==OP and
                          request.get("target_uuid")==owner["uid"] and
                          type(generation) is int)
-                if uid!=worker_uid:
+                if uid==stale_uid:
+                    label=("STALE_PRINCIPAL_EPOCH_SPOOF_REFUSED"
+                           if generation==2 else "STALE_PRINCIPAL_REFUSED")
+                elif uid!=worker_uid:
                     label="FOREIGN_UID_REFUSED"
                 elif not correct:
                     label="MALFORMED_OR_FOREIGN_TARGET_REFUSED"
@@ -101,10 +111,11 @@ def server():
                     "label":label,"native_mutation":label=="CURRENT_EXACT_OWNER_ACTION_PERFORMED"})
                 client.sendall((json.dumps({"status":label},sort_keys=True)+"\n").encode())
         if ([r["label"] for r in results]!=[
-            "FOREIGN_UID_REFUSED","STALE_EPOCH_REFUSED",
+            "FOREIGN_UID_REFUSED","STALE_PRINCIPAL_REFUSED",
+            "STALE_PRINCIPAL_EPOCH_SPOOF_REFUSED","STALE_EPOCH_REFUSED",
             "CURRENT_EXACT_OWNER_ACTION_PERFORMED"] or
             [r["peer_uid"] for r in results]!=[
-                forbidden_uid,worker_uid,worker_uid]):
+                forbidden_uid,stale_uid,stale_uid,worker_uid,worker_uid]):
             raise RuntimeError("unexpected native OS broker request sequence")
         proof={
             "schema":"winbot-public-native-peercred-broker/v1",
@@ -112,13 +123,18 @@ def server():
             "socket_owner_uid":os.geteuid(),
             "root_owned_broker_socket":True,
             "authorized_worker_uid":worker_uid,
+            "old_generation_worker_uid":stale_uid,
+            "unrelated_worker_uid":forbidden_uid,
             "foreign_uid_refused_before_native_action":True,
+            "stale_principal_generational_impersonation_refused":True,
+            "distinct_unix_uids_for_generation_one_and_two":True,
             "stale_epoch_refused_before_native_action":True,
             "current_owned_worker_mediated_exact_native_action":True,
             "current_native_action_count":1,
             "os_so_peercred_identity_checked":True,
             "worker_direct_virsh_authorized":False,
             "request_generation_is_an_authenticated_credential":False,
+            "fresh_uid_current_epoch_spoof_by_same_uid_fenced":False,
             "privileged_or_same_uid_bypass_prevented":False,
             "external_native_lease_qualified":False,
             "private_winbot_source_executed":False,
