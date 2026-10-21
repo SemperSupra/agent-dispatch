@@ -159,29 +159,42 @@ def main():
                 if time.monotonic()>until:
                     raise RuntimeError("native peercred broker did not bind")
                 time.sleep(.025)
-            daemon=call("runuser","-u","daemon","--",
-                        sys.executable,str(client_path),
-                        owner["uid"],"2",timeout=15)
-            if daemon.returncode!=7 or "FOREIGN_UID_REFUSED" not in daemon.stdout:
-                raise RuntimeError("untrusted UID broker request not refused: "+
-                    str(daemon.returncode)+" "+daemon.stderr[-240:])
-            native=call("virsh","-c","qemu:///system","domstate",owner["uid"])
-            if native.returncode or native.stdout.strip().lower()=="shut off":
-                raise RuntimeError("foreign UID altered live owned VM")
-            stale_client=call("runuser","-u","nobody","--",
-                             sys.executable,str(client_path),
-                             owner["uid"],"1",timeout=15)
-            if stale_client.returncode!=7 or "STALE_EPOCH_REFUSED" not in stale_client.stdout:
-                raise RuntimeError("stale authorized UID request not refused: "+
-                    str(stale_client.returncode)+" "+stale_client.stderr[-240:])
-            native=call("virsh","-c","qemu:///system","domstate",owner["uid"])
-            if native.returncode or native.stdout.strip().lower()=="shut off":
-                raise RuntimeError("stale UID altered live owned VM")
-            current=call("runuser","-u","nobody","--",
+            try:
+                pwd.getpwnam("www-data")
+                foreign_user="www-data"
+            except KeyError:
+                foreign_user="sys"
+            for identity,epoch,refusal in (
+                (foreign_user,"2","FOREIGN_UID_REFUSED"),
+                ("nobody","1","STALE_PRINCIPAL_REFUSED"),
+                ("nobody","2","STALE_PRINCIPAL_EPOCH_SPOOF_REFUSED"),
+                ("daemon","1","STALE_EPOCH_REFUSED")
+            ):
+                attempt=call("runuser","-u",identity,"--",
+                             sys.executable,str(client_path),owner["uid"],epoch,timeout=15)
+                if attempt.returncode!=7 or refusal not in attempt.stdout:
+                    raise RuntimeError("broker denied principal/epoch improperly: "+
+                        identity+"/"+epoch+" "+str(attempt.returncode)+
+                        " "+attempt.stderr[-240:])
+                vm=call("virsh","-c","qemu:///system","domstate",owner["uid"])
+                if vm.returncode or vm.stdout.strip().lower()=="shut off":
+                    raise RuntimeError("refused principal mutated live owned KVM")
+            # Even the current-generation unprivileged UID cannot directly
+            # access the privileged native libvirt actuator socket.
+            direct=call("runuser","-u","daemon","--",
+                        shutil.which("virsh"),"-c","qemu:///system",
+                        "destroy",owner["uid"],timeout=18)
+            if direct.returncode==0:
+                raise RuntimeError("current broker client bypassed native socket")
+            vm=call("virsh","-c","qemu:///system","domstate",owner["uid"])
+            if vm.returncode or vm.stdout.strip().lower()=="shut off":
+                raise RuntimeError("direct bypass negative changed owned KVM")
+            current=call("runuser","-u","daemon","--",
                          sys.executable,str(client_path),
                          owner["uid"],"2",timeout=30)
             if current.returncode!=0:
-                raise RuntimeError("fresh mediated actor failed: "+current.stderr[-450:])
+                raise RuntimeError("distinct-current-principal mediated actor failed: "+
+                                   current.stderr[-450:])
             stdout,stderr=server.communicate(timeout=WAIT_SECONDS)
             if server.returncode:
                 raise RuntimeError("privileged fixed-argv mediator failed: "+stderr[-450:])
@@ -189,6 +202,8 @@ def main():
             if not (broker_proof["foreign_uid_refused_before_native_action"] and
                     broker_proof["stale_epoch_refused_before_native_action"] and
                     broker_proof["current_native_action_count"]==1 and
+                    broker_proof["stale_principal_generational_impersonation_refused"] and
+                    broker_proof["distinct_unix_uids_for_generation_one_and_two"] and
                     broker_proof["os_so_peercred_identity_checked"]):
                 raise RuntimeError("native mediator evidence incomplete")
         finally:
@@ -232,6 +247,9 @@ def main():
                  "foreign_principal_broker_refused":True,
                  "stale_generation_same_principal_refused":True,
                  "authorized_principal_mediated_exact_native_destroy":True,
+                 "stale_uid_claiming_current_epoch_refused_before_native_call":True,
+                 "current_uid_direct_libvirt_destroy_refused":True,
+                 "fresh_generation_worker_distinct_unix_identity":True,
                  "client_supplied_epoch_not_authenticated_credential":True,
                  "native_domain_absent":True,"native_network_absent":True,
                  "owned_overlay_and_master_absent":True,
