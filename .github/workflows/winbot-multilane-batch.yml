@@ -1,11 +1,13 @@
-name: WinBot W1 Six-Stage Rollback Integrated Batch
+name: WinBot W1 SIGKILL Recovery Bounded Batch
 on:
   push:
-    branches: [experiment/winbot-kvm-failure-cleanup-batch-20261020]
+    branches: [experiment/winbot-sigkill-reaper-batch-20261021]
     paths:
       - scripts/winbot_public_overlay_readback.py
       - scripts/winbot_public_overlay_negative_batch.py
       - scripts/winbot_public_failure_matrix.py
+      - scripts/winbot_public_crash_reaper.py
+      - scripts/winbot_public_sigkill_qualification.py
       - .github/workflows/winbot-multilane-batch.yml
   workflow_dispatch:
 permissions:
@@ -67,7 +69,7 @@ jobs:
   native-kvm:
     name: Live owned KVM + eleven hostile disk-chain variants + master provenance
     runs-on: ubuntu-24.04
-    timeout-minutes: 16
+    timeout-minutes: 20
     concurrency:
       group: agent-dispatch-heavyweight-rdte
       cancel-in-progress: false
@@ -97,9 +99,15 @@ jobs:
         run: |
           set -euo pipefail
           sudo python3 -m scripts.winbot_public_failure_matrix
+      - name: SIGKILL live synthetic VM, reject foreign manifest and reap exact owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo python3 -m scripts.winbot_public_sigkill_qualification
       - if: always()
         shell: bash
         run: |
+          if sudo test -d /tmp/winbot-crash-owned; then sudo chmod -R a+rX /tmp/winbot-crash-owned; fi
           if sudo test -d /tmp/winbot-libvirt-overlay-readback; then sudo chmod -R a+rX /tmp/winbot-libvirt-overlay-readback; fi
           for root in /tmp/winbot-fault-*; do
             if sudo test -d "$root"; then sudo chmod -R a+rX "$root"; fi
@@ -113,6 +121,7 @@ jobs:
           path: |
             /tmp/winbot-libvirt-overlay-readback/
             /tmp/winbot-fault-matrix/
+            /tmp/winbot-crash-owned/
             /tmp/winbot-fault-*/
   aggregate:
     if: always()
