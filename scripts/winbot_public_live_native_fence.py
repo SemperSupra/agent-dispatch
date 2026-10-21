@@ -130,10 +130,59 @@ def main():
         state=call("virsh","-c","qemu:///system","domstate",owner["uid"])
         if state.returncode or state.stdout.strip().lower()=="shut off":
             raise RuntimeError("stale actor unexpectedly destroyed native domain")
-        current=call(sys.executable,"-m",
-                     "scripts.winbot_public_live_native_fence","actor","2","current")
-        if current.returncode!=0:
-            raise RuntimeError("fresh native actor failed: "+current.stderr[-450:])
+        # A separate root-only broker is the sole native command issuer.
+        # Two hostile worker requests must be refused by Linux SO_PEERCRED
+        # and epoch before allowing one fixed UUID-scoped native action.
+        from scripts import winbot_public_native_peercred_broker as broker
+        socket_path=broker.path_for(owner["uid"])
+        server=subprocess.Popen([sys.executable,"-m",
+                        "scripts.winbot_public_native_peercred_broker","server"],
+                        stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            until=time.monotonic()+WAIT_SECONDS
+            while not socket_path.exists():
+                if server.poll() is not None:
+                    raise RuntimeError("native peercred broker exited before bind")
+                if time.monotonic()>until:
+                    raise RuntimeError("native peercred broker did not bind")
+                time.sleep(.025)
+            daemon=call("runuser","-u","daemon","--",
+                        sys.executable,"-m","scripts.winbot_public_native_peercred_broker",
+                        "client",owner["uid"],"2",timeout=15)
+            if daemon.returncode!=7 or "FOREIGN_UID_REFUSED" not in daemon.stdout:
+                raise RuntimeError("untrusted UID broker request not refused: "+
+                    str(daemon.returncode)+" "+daemon.stderr[-240:])
+            native=call("virsh","-c","qemu:///system","domstate",owner["uid"])
+            if native.returncode or native.stdout.strip().lower()=="shut off":
+                raise RuntimeError("foreign UID altered live owned VM")
+            stale_client=call("runuser","-u","nobody","--",
+                             sys.executable,"-m","scripts.winbot_public_native_peercred_broker",
+                             "client",owner["uid"],"1",timeout=15)
+            if stale_client.returncode!=7 or "STALE_EPOCH_REFUSED" not in stale_client.stdout:
+                raise RuntimeError("stale authorized UID request not refused: "+
+                    str(stale_client.returncode)+" "+stale_client.stderr[-240:])
+            native=call("virsh","-c","qemu:///system","domstate",owner["uid"])
+            if native.returncode or native.stdout.strip().lower()=="shut off":
+                raise RuntimeError("stale UID altered live owned VM")
+            current=call("runuser","-u","nobody","--",
+                         sys.executable,"-m","scripts.winbot_public_native_peercred_broker",
+                         "client",owner["uid"],"2",timeout=30)
+            if current.returncode!=0:
+                raise RuntimeError("fresh mediated actor failed: "+current.stderr[-450:])
+            stdout,stderr=server.communicate(timeout=WAIT_SECONDS)
+            if server.returncode:
+                raise RuntimeError("privileged fixed-argv mediator failed: "+stderr[-450:])
+            broker_proof=json.loads((RECEIPT/"peercred-broker-verdict.json").read_text())
+            if not (broker_proof["foreign_uid_refused_before_native_action"] and
+                    broker_proof["stale_epoch_refused_before_native_action"] and
+                    broker_proof["current_native_action_count"]==1 and
+                    broker_proof["os_so_peercred_identity_checked"]):
+                raise RuntimeError("native mediator evidence incomplete")
+        finally:
+            if server.poll() is None:
+                server.terminate()
+                try:server.wait(timeout=5)
+                except subprocess.TimeoutExpired:server.kill()
         c=dbconnect()
         effects=c.execute("SELECT generation,kind FROM effects").fetchall()
         c.close()
@@ -160,11 +209,18 @@ def main():
                  "privileged_or_same_uid_bypass_not_qualified":True,
                  "fresh_actor_reverified_exact_native_disk_nic_network":True,
                  "one_real_run_owned_virsh_destroy_by_current_actor":True,
+                 "fixed_root_native_broker_so_peercred_qualified":True,
+                 "foreign_principal_broker_refused":True,
+                 "stale_generation_same_principal_refused":True,
+                 "authorized_principal_mediated_exact_native_destroy":True,
+                 "client_supplied_epoch_not_authenticated_credential":True,
                  "native_domain_absent":True,"native_network_absent":True,
                  "owned_overlay_and_master_absent":True,
                  "private_winbot_source_executed":False,
                  "sqlite_itself_enforces_external_native_fencing":False,
                  "uncooperative_actor_hypervisor_fenced":False,
+                 "privileged_native_bypass_fenced":False,
+                 "same_uid_forgery_fenced":False,
                  "master_immutability_lease_qualified":False,
                  "product_native_vm_mutation_admitted":False,
                  "windows_guest_qualified":False,
