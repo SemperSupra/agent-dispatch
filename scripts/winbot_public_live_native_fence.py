@@ -86,6 +86,22 @@ def main():
         owner=reaper.classify(str(manifest))
         if call("virsh","-c","qemu:///system","dominfo",owner["uid"]).returncode:
             raise RuntimeError("owned VM missing after controller SIGKILL")
+        # Separate from cooperative epoch/fencing checks: an untrusted Linux
+        # UID tries to bypass the controller and act directly through libvirt.
+        # Require OS socket access confinement to reject the destructive call.
+        import shutil
+        import pwd
+        if not shutil.which("runuser") or not shutil.which("virsh"):
+            raise RuntimeError("cannot independently test untrusted UID access")
+        pwd.getpwnam("nobody")
+        unauthorized=call("runuser","-u","nobody","--",
+                          shutil.which("virsh"),"-c","qemu:///system",
+                          "destroy",owner["uid"],timeout=18)
+        if unauthorized.returncode==0:
+            raise RuntimeError("untrusted UID directly destroyed owned native VM")
+        unchanged=call("virsh","-c","qemu:///system","domstate",owner["uid"])
+        if unchanged.returncode or unchanged.stdout.strip().lower()=="shut off":
+            raise RuntimeError("untrusted UID bypass changed VM state")
         (RECEIPT/"native-actor.lock").write_bytes(b"0")
         c=dbconnect()
         c.executescript("CREATE TABLE epoch(id INTEGER PRIMARY KEY,generation INTEGER NOT NULL);"
@@ -140,6 +156,8 @@ def main():
                  "stale_actor_armed_before_supersession":True,
                  "stale_actor_refused_before_native_call":True,
                  "stale_actor_native_vm_unchanged":True,
+                 "independent_unprivileged_uid_direct_virsh_destroy_refused":True,
+                 "privileged_or_same_uid_bypass_not_qualified":True,
                  "fresh_actor_reverified_exact_native_disk_nic_network":True,
                  "one_real_run_owned_virsh_destroy_by_current_actor":True,
                  "native_domain_absent":True,"native_network_absent":True,
