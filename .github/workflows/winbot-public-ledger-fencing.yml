@@ -1,0 +1,41 @@
+name: WinBot public isolated ledger fencing and crash-tombstone matrix
+on:
+  push:
+    branches: [experiment/winbot-ledger-fencing-qualification-20261021]
+    paths:
+      - scripts/winbot_public_ledger_fencing.py
+      - .github/workflows/winbot-public-ledger-fencing.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cross-platform-atomicity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Assert independent public non-admission primitive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:WINBOT_PUBLIC_RECEIPT_DIR = Join-Path $env:RUNNER_TEMP 'winbot-fence-receipt'
+          python -m scripts.winbot_public_ledger_fencing
+          if ($LASTEXITCODE -ne 0) { throw 'Fail-closed: SQLite one-use primitive failed' }
+          $proof = Get-Content (Join-Path $env:WINBOT_PUBLIC_RECEIPT_DIR 'fencing-proof.json') -Raw | ConvertFrom-Json
+          if (!$proof.single_winner_consumption -or !$proof.crash_before_commit_rolled_back -or
+              !$proof.stale_generation_rejected -or !$proof.durable_replay_rejected -or
+              $proof.vm_mutation_or_recovery_admitted -or $proof.private_winbot_code_executed) {
+            throw 'Fail-closed: synthetic public receipt does not satisfy expected constraints'
+          }
+      - name: Preserve independent operating system proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-synthetic-fencing-${{ matrix.os }}
+          retention-days: 7
+          if-no-files-found: error
+          path: ${{ runner.temp }}/winbot-fence-receipt/
