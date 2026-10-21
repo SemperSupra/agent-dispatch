@@ -37,6 +37,25 @@ def command(*args,check=True):
 def virsh(*args,check=True):return command("virsh","-c","qemu:///system",*args,check=check)
 def emit(name,data):
     (OUT/name).write_text(json.dumps(data,sort_keys=True,indent=2)+"\n")
+def emit_durable_manifest(name,data):
+    # Manifest publication is a first-class durability boundary. Never use
+    # a preexisting path, symlink, or world-readable owner authority.
+    path=OUT/name
+    payload=(json.dumps(data,sort_keys=True,indent=2)+"\n").encode("utf-8")
+    flags=os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC
+    fd=os.open(path,flags,0o600)
+    try:
+        with os.fdopen(fd,"wb") as out:
+            out.write(payload)
+            out.flush()
+            os.fsync(out.fileno())
+    except BaseException:
+        try: os.unlink(path)
+        except OSError: pass
+        raise
+    dfd=os.open(OUT,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try: os.fsync(dfd)
+    finally: os.close(dfd)
 def sha(p):
     h=hashlib.sha256()
     with open(p,"rb") as f:
@@ -65,7 +84,7 @@ def main():
     master=master_root/"accepted-master.qcow2"
     overlay=owned_root/"system.qcow2"
     created=[];defined=False;started=False;net_defined=False;net_started=False;err=None
-    emit("ownership-manifest.json",{"schema":"winbot-public-synthetic-owner-manifest/v1",
+    emit_durable_manifest("ownership-manifest.json",{"schema":"winbot-public-synthetic-owner-manifest/v1",
         "classification":"DISPOSABLE_RUN_OWNED_ONLY",
         "vm_uuid":ident,"domain_name":name,"network_name":net,
         "network_uuid":net_uuid,"bridge_name":bridge,
