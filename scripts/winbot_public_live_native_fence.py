@@ -135,6 +135,19 @@ def main():
         # and epoch before allowing one fixed UUID-scoped native action.
         from scripts import winbot_public_native_peercred_broker as broker
         socket_path=broker.path_for(owner["uid"])
+        # The hosted runner's checkout may not be traversable by unrelated
+        # UIDs. Stage a tiny public-only client in /tmp, root-owned, readable
+        # but NOT writable by the test principals; no source-bearing imports.
+        client_source=pathlib.Path(__file__).with_name(
+                        "winbot_public_native_peercred_client.py").read_bytes()
+        if len(client_source)>8192:
+            raise RuntimeError("unexpectedly large unprivileged test client")
+        client_path=pathlib.Path("/tmp/winbot-peercred-client-"+owner["uid"].replace("-","")+".py")
+        descriptor=os.open(client_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o644)
+        with os.fdopen(descriptor,"wb") as stream:
+            stream.write(client_source)
+            stream.flush()
+        os.chmod(client_path,0o644)
         server=subprocess.Popen([sys.executable,"-m",
                         "scripts.winbot_public_native_peercred_broker","server"],
                         stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -147,8 +160,8 @@ def main():
                     raise RuntimeError("native peercred broker did not bind")
                 time.sleep(.025)
             daemon=call("runuser","-u","daemon","--",
-                        sys.executable,"-m","scripts.winbot_public_native_peercred_broker",
-                        "client",owner["uid"],"2",timeout=15)
+                        sys.executable,str(client_path),
+                        owner["uid"],"2",timeout=15)
             if daemon.returncode!=7 or "FOREIGN_UID_REFUSED" not in daemon.stdout:
                 raise RuntimeError("untrusted UID broker request not refused: "+
                     str(daemon.returncode)+" "+daemon.stderr[-240:])
@@ -156,8 +169,8 @@ def main():
             if native.returncode or native.stdout.strip().lower()=="shut off":
                 raise RuntimeError("foreign UID altered live owned VM")
             stale_client=call("runuser","-u","nobody","--",
-                             sys.executable,"-m","scripts.winbot_public_native_peercred_broker",
-                             "client",owner["uid"],"1",timeout=15)
+                             sys.executable,str(client_path),
+                             owner["uid"],"1",timeout=15)
             if stale_client.returncode!=7 or "STALE_EPOCH_REFUSED" not in stale_client.stdout:
                 raise RuntimeError("stale authorized UID request not refused: "+
                     str(stale_client.returncode)+" "+stale_client.stderr[-240:])
@@ -165,8 +178,8 @@ def main():
             if native.returncode or native.stdout.strip().lower()=="shut off":
                 raise RuntimeError("stale UID altered live owned VM")
             current=call("runuser","-u","nobody","--",
-                         sys.executable,"-m","scripts.winbot_public_native_peercred_broker",
-                         "client",owner["uid"],"2",timeout=30)
+                         sys.executable,str(client_path),
+                         owner["uid"],"2",timeout=30)
             if current.returncode!=0:
                 raise RuntimeError("fresh mediated actor failed: "+current.stderr[-450:])
             stdout,stderr=server.communicate(timeout=WAIT_SECONDS)
@@ -183,6 +196,12 @@ def main():
                 server.terminate()
                 try:server.wait(timeout=5)
                 except subprocess.TimeoutExpired:server.kill()
+            try:
+                if client_path.exists() and not client_path.is_symlink() and
+                   client_path.stat().st_uid==os.geteuid():
+                    client_path.unlink()
+            except OSError:
+                pass
         c=dbconnect()
         effects=c.execute("SELECT generation,kind FROM effects").fetchall()
         c.close()
