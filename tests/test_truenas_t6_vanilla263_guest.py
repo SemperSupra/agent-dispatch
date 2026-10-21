@@ -109,6 +109,45 @@ class TestNativeVanilla263Guest(unittest.TestCase):
             self.assertNotIn("SECRET", str(receipt))
             self.assertNotIn("NEVER-LOG", str(receipt))
 
+    def test_g4_parent_chain_refusal_is_bounded_and_distinct_from_decoder(self):
+        from qualify_native_vanilla263_anvil_blocks import Refused as AnvilRefused
+        allowed = ("BACKEND_REGION_PARENT_NOT_DIRECTORY",
+                   "BACKEND_REGION_PARENT_STAT_INCONCLUSIVE")
+        for stage in ("preaction", "candidate", "rollback"):
+            for reason in allowed:
+                with self.subTest(stage=stage,reason=reason):
+                    row = {"native_backend_world": {
+                        "last_backend_phase":stage + ".directory_chain_check",
+                        "backend_independent_world_oracle_pass":False,
+                        "physical_true_nas_apply":"HOLD"}}
+                    mc.retain_bounded_g4_anvil_refusal(
+                        row,stage,AnvilRefused(reason))
+                    state=row["native_backend_world"]
+                    self.assertEqual(state["readback_refusal_code"],reason)
+                    self.assertNotIn("decoder_refusal_code",state)
+                    self.assertFalse(state["backend_independent_world_oracle_pass"])
+                    self.assertEqual(state["physical_true_nas_apply"],"HOLD")
+        for exc in (RuntimeError("token=SECRET /mnt/foreign"),
+                    ValueError("BACKEND_REGION_PARENT_NOT_DIRECTORY"),
+                    AnvilRefused("auth_token=SECRET /mnt/foreign")):
+            row={"native_backend_world":{
+                "last_backend_phase":"preaction.directory_chain_check",
+                "backend_independent_world_oracle_pass":False}}
+            mc.retain_bounded_g4_anvil_refusal(row,"preaction",exc)
+            state=row["native_backend_world"]
+            if type(exc) is AnvilRefused:
+                self.assertEqual(state["readback_refusal_code"],"UNCLASSIFIED")
+            else:
+                self.assertNotIn("readback_refusal_code",state)
+            self.assertNotIn("SECRET",str(row))
+            self.assertNotIn("/mnt/foreign",str(row))
+        wrong={"native_backend_world":{
+            "last_backend_phase":"preaction.directory_chain_verified",
+            "backend_independent_world_oracle_pass":False}}
+        mc.retain_bounded_g4_anvil_refusal(
+            wrong,"preaction",AnvilRefused("BACKEND_REGION_PARENT_NOT_DIRECTORY"))
+        self.assertNotIn("readback_refusal_code",wrong["native_backend_world"])
+
     def test_g4_decoder_telemetry_is_exception_only_not_native_promotion(self):
         import inspect
         source = inspect.getsource(mc.main)
