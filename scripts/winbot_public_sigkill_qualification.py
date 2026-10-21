@@ -51,6 +51,43 @@ def main()->int:
         not pathlib.Path(owned["overlay_root"]).is_dir()):
         raise RuntimeError("manifest tamper was not rejected before native mutation")
     manifest.write_bytes(original)
+    def refuse_no_mutation(label):
+        decision=cmd(sys.executable,"-m","scripts.winbot_public_crash_reaper",str(manifest))
+        if (decision.returncode!=7 or
+            not exists("dominfo",uid) or not exists("net-info",net) or
+            not pathlib.Path(owned["overlay_root"]).is_dir()):
+            raise RuntimeError(label+" did not refuse before native mutation")
+
+    # File custody negative: same exact contents through a symlink must not
+    # become owner authority. Restore the original regular file afterwards.
+    decoy=ROOT/"untrusted-owner-manifest.json"
+    decoy.write_bytes(original)
+    os.chmod(decoy,0o600)
+    manifest.unlink()
+    manifest.symlink_to(decoy)
+    try:
+        refuse_no_mutation("symlink-manifest")
+    finally:
+        manifest.unlink()
+        manifest.write_bytes(original)
+        os.chmod(manifest,0o600)
+        decoy.unlink()
+
+    twin=ROOT/"manifest-hardlink-alias"
+    os.link(manifest,twin)
+    try:
+        refuse_no_mutation("multiply-linked-manifest")
+    finally:
+        twin.unlink()
+
+    # A duplicate key can alter the effective authorization subject while
+    # looking legitimate in a human-readable receipt.
+    payload=original.decode("utf-8").strip()
+    manifest.write_text(payload[:-1]+',"vm_uuid":"'+uid+'"}\n')
+    try:
+        refuse_no_mutation("duplicate-key-manifest")
+    finally:
+        manifest.write_bytes(original)
     recovered=cmd(sys.executable,"-m","scripts.winbot_public_crash_reaper",str(manifest))
     if recovered.returncode:
         raise RuntimeError("exact-owner crash cleanup failed: "+
@@ -64,6 +101,10 @@ def main()->int:
            "actual_process_sigkill_observed":crash.returncode==-9,
            "native_resources_remained_after_sigkill":True,
            "mutated_network_uuid_refused_without_resource_change":True,
+           "symlinked_manifest_refused_without_resource_change":True,
+           "multiply_linked_manifest_refused_without_resource_change":True,
+           "duplicate_key_manifest_refused_without_resource_change":True,
+           "durable_manifest_directory_and_file_private":True,
            "exact_owner_recovery_performed":True,
            "recovered_native_domain_absent":True,
            "recovered_native_network_absent":True,
