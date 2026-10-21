@@ -197,8 +197,8 @@ def main():
                 try:server.wait(timeout=5)
                 except subprocess.TimeoutExpired:server.kill()
             try:
-                if client_path.exists() and not client_path.is_symlink() and
-                   client_path.stat().st_uid==os.geteuid():
+                if (client_path.exists() and not client_path.is_symlink() and
+                    client_path.stat().st_uid==os.geteuid()):
                     client_path.unlink()
             except OSError:
                 pass
