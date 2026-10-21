@@ -1,0 +1,119 @@
+name: WinBot real native epoch fencing and parallel source gates
+on:
+  push:
+    branches: [experiment/winbot-live-native-fence-20261021]
+    paths:
+      - scripts/winbot_public_live_native_fence.py
+      - .github/workflows/winbot-public-live-native-fence.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-owned-kvm:
+    name: Real disposable KVM stale actor refusal and current native destroy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: agent-dispatch-heavyweight-rdte
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Enforce owned public KVM preflight and install only standard free system packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo test -c /dev/kvm
+          test "$(df -Pk / | awk 'NR==2 {print $4}')" -ge 7340032
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients libxml2-utils
+          sudo systemctl start libvirtd
+      - name: SIGKILL owner, stale generation refusal, current exact-native destroy, zero residue
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo python3 -m scripts.winbot_public_live_native_fence
+      - name: Make bounded public receipts uploader-readable
+        if: always()
+        shell: bash
+        run: |
+          if sudo test -d /tmp/winbot-native-epoch-proof; then
+            sudo chmod -R a+rX /tmp/winbot-native-epoch-proof
+          fi
+          if sudo test -d /tmp/winbot-crash-owned; then
+            sudo chmod -R a+rX /tmp/winbot-crash-owned
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-live-owned-native-epoch-evidence
+          path: |
+            /tmp/winbot-native-epoch-proof/native-epoch-verdict.json
+            /tmp/winbot-crash-owned/recovery.json
+          retention-days: 7
+          if-no-files-found: error
+  native-platform:
+    name: TrueNAS and Proxmox no-mutation W1 source validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Native version and media binding negative suites
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_windows_w1_native_plan tests.test_windows_w1_native_binding_hardening
+  winpe-source:
+    name: Windows PE disk identity and no-wipe source validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Read-only WinPE GPT and owned-disk negative suites
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_windows_w1_winpe_disk_identity tests.test_windows_w1_winpe_observer_seed tests.test_windows_w1_gpt_header tests.test_windows_w1_libvirt_disk_guard
+  aggregate:
+    if: always()
+    needs: [real-owned-kvm, native-platform, winpe-source]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Bound aggregation against no-admission truth table
+        env:
+          KVM: ${{ needs.real-owned-kvm.result }}
+          NATIVE: ${{ needs.native-platform.result }}
+          WINPE: ${{ needs.winpe-source.result }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/winbot-epoch-aggregate
+          python3 - <<'PY'
+          import os,json
+          v={k:os.environ[k] for k in ('KVM','NATIVE','WINPE')}
+          proof={'schema':'winbot-native-host-epoch-batch/v1',
+                 'exact_head':os.environ['HEAD'],
+                 'jobs':v,
+                 'all_lanes_passed':all(x=='success' for x in v.values()),
+                 'product_libvirt_adapter_executed':False,
+                 'private_winbot_source_in_public_runner':False,
+                 'native_uncooperative_actor_fenced':False,
+                 'product_apply_power_destroy_admitted':False,
+                 'windows_guest_qualified':False,
+                 'truenas_proxmox_native_runtime_qualified':False,
+                 'production_deployed':False}
+          open('/tmp/winbot-epoch-aggregate/verdict.json','w').write(json.dumps(proof,indent=2,sort_keys=True)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-epoch-aggregate
+          path: /tmp/winbot-epoch-aggregate/verdict.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Fail closed on any unsuccessful lane
+        env:
+          KVM: ${{ needs.real-owned-kvm.result }}
+          NATIVE: ${{ needs.native-platform.result }}
+          WINPE: ${{ needs.winpe-source.result }}
+        run: |
+          test "$KVM" = success
+          test "$NATIVE" = success
+          test "$WINPE" = success
