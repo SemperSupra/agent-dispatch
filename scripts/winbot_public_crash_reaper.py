@@ -41,7 +41,42 @@ def classify(manifest_path):
     need(str(p).startswith("/tmp/winbot-crash-") and
          p.name=="ownership-manifest.json" and p.parent.parent==pathlib.Path("/tmp"),
          "recovery manifest must be direct owned /tmp workcell")
-    info=json.loads(p.read_text())
+    # No path-following and no ambient world-readable mutable claim.
+    # The janitor must not trust a linked/replaced owner manifest even when
+    # it contains otherwise syntactically correct run UUIDs and paths.
+    directory=os.lstat(p.parent)
+    need(stat.S_ISDIR(directory.st_mode) and
+         stat.S_IMODE(directory.st_mode)&0o077==0 and
+         directory.st_uid==os.geteuid(),
+         "owner manifest directory is foreign or not private")
+    dfd=os.open(p.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        fd=os.open(p.name,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC,dir_fd=dfd)
+        try:
+            before=os.fstat(fd)
+            need(stat.S_ISREG(before.st_mode) and before.st_nlink==1 and
+                 stat.S_IMODE(before.st_mode)&0o077==0 and
+                 1<=before.st_size<=8192 and
+                 before.st_uid==os.geteuid(),
+                 "foreign, linked or unbounded recovery manifest")
+            with os.fdopen(fd,"rb",closefd=False) as stream:
+                payload=stream.read(8193)
+            after=os.fstat(fd)
+            at_path=os.stat(p.name,dir_fd=dfd,follow_symlinks=False)
+            tracked=("st_dev","st_ino","st_size","st_mtime_ns","st_ctime_ns","st_nlink")
+            need(len(payload)==before.st_size and
+                 all(getattr(before,k)==getattr(after,k)==getattr(at_path,k)
+                     for k in tracked),
+                 "recovery manifest changed or was rebound")
+        finally: os.close(fd)
+    finally: os.close(dfd)
+    def distinct_pairs(pairs):
+        result={}
+        for k,v in pairs:
+            need(k not in result,"duplicate manifest key")
+            result[k]=v
+        return result
+    info=json.loads(payload,object_pairs_hook=distinct_pairs)
     need(info.get("schema")=="winbot-public-synthetic-owner-manifest/v1" and
          info.get("classification")=="DISPOSABLE_RUN_OWNED_ONLY" and
          info.get("windows_or_private_winbot_source") is False and
