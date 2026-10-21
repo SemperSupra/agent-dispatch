@@ -22,7 +22,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:WINBOT_PUBLIC_RECEIPT_DIR = Join-Path $env:${{ runner.temp }} 'winbot-fence-receipt'
+          $env:WINBOT_PUBLIC_RECEIPT_DIR = Join-Path $env:RUNNER_TEMP 'winbot-fence-receipt'
           python -m scripts.winbot_public_ledger_fencing
           if ($LASTEXITCODE -ne 0) { throw 'Fail-closed: SQLite one-use primitive failed' }
           $proof = Get-Content (Join-Path $env:WINBOT_PUBLIC_RECEIPT_DIR 'fencing-proof.json') -Raw | ConvertFrom-Json
