@@ -6,16 +6,23 @@ synthetic master in a separate run-owned root. No Windows, private source,
 credentials, WinBot Apply admission, production hypervisor, or storage wipe.
 """
 from __future__ import annotations
-import hashlib, json, os, pathlib, shutil, stat, subprocess, sys, time, uuid
+import hashlib, json, os, pathlib, shutil, signal, stat, subprocess, sys, time, uuid
 import xml.etree.ElementTree as ET
 
 OUT = pathlib.Path(os.environ.get("WINBOT_PUBLIC_OVERLAY_EVIDENCE_DIR",
                                   "/tmp/winbot-libvirt-overlay-readback"))
 FAULT = os.environ.get("WINBOT_PUBLIC_FAULT_STAGE", "")
+FATAL = os.environ.get("WINBOT_PUBLIC_FATAL_STAGE", "")
 ALLOWED_FAULTS = ("after_overlay_created", "after_network_defined_before_ack",
                   "after_network_started", "after_domain_defined_before_ack",
                   "after_domain_defined", "after_domain_started")
 def inject_fault(stage):
+    if FATAL == stage:
+        if stage != "after_domain_started" or os.environ.get("WINBOT_PUBLIC_SYNTHETIC_FAULTS") != "1":
+            raise ValueError("non-disposable SIGKILL not admitted")
+        # Deliberately defeat this process's finally cleanup to qualify an
+        # OUT-OF-PROCESS reaper under a fresh owned manifest.
+        os.kill(os.getpid(),signal.SIGKILL)
     # Cannot be enabled against anything except this deliberately synthetic
     # public-safe fixture; never hook this into a product/production adapter.
     if FAULT == stage:
@@ -39,6 +46,10 @@ def main():
     if OUT.exists(): raise RuntimeError("preexisting evidence directory")
     if FAULT not in ("", *ALLOWED_FAULTS):
         raise ValueError("unsupported synthetic failure stage")
+    if FATAL not in ("","after_domain_started") or (FAULT and FATAL):
+        raise ValueError("conflicting or unrecognized fatal-stage admission")
+    if FATAL and os.environ.get("WINBOT_PUBLIC_SYNTHETIC_FAULTS") != "1":
+        raise ValueError("fatal-stage permission absent")
     if FAULT and os.environ.get("WINBOT_PUBLIC_SYNTHETIC_FAULTS") != "1":
         raise ValueError("synthetic fault permission absent")
     if not str(OUT).startswith("/tmp/winbot-") or ".." in str(OUT).split("/"):
@@ -54,6 +65,14 @@ def main():
     master=master_root/"accepted-master.qcow2"
     overlay=owned_root/"system.qcow2"
     created=[];defined=False;started=False;net_defined=False;net_started=False;err=None
+    emit("ownership-manifest.json",{"schema":"winbot-public-synthetic-owner-manifest/v1",
+        "classification":"DISPOSABLE_RUN_OWNED_ONLY",
+        "vm_uuid":ident,"domain_name":name,"network_name":net,
+        "network_uuid":net_uuid,"bridge_name":bridge,
+        "overlay_root":str(owned_root),"master_root":str(master_root),
+        "overlay_file":str(overlay),"master_file":str(master),
+        "windows_or_private_winbot_source":False,
+        "production_or_physical_host_authorized":False})
     try:
         if (master_root.exists() or owned_root.exists() or
             virsh("dominfo",ident,check=False).returncode==0 or
