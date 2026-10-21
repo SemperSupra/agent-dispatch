@@ -26,6 +26,14 @@ def connection(path):
     return con
 
 def worker(dbpath, start, generation, mode):
+    if mode=="commit_crash":
+        db=connection(dbpath)
+        db.execute("BEGIN IMMEDIATE")
+        state=db.execute("SELECT state FROM tickets WHERE generation=?", (generation,)).fetchone()
+        if state!=("issued",):os._exit(94)
+        db.execute("UPDATE tickets SET state='consumed' WHERE generation=?", (generation,))
+        db.execute("COMMIT")
+        os._exit(98)  # durable mutation, but client never sees acknowledgement
     if mode=="crash":
         db=connection(dbpath)
         db.execute("BEGIN IMMEDIATE")
@@ -95,6 +103,21 @@ def main():
         con.close()
         if rows!=[(1,"consumed"),(2,"superseded"),(3,"consumed")]:
             raise RuntimeError("unexpected durable tombstones "+repr(rows))
+        # Opposite crash boundary: commit succeeds before receipt/acknowledgment.
+        # An orphan retry must NOT repeat the already consumed operation.
+        con=connection(dbpath)
+        con.execute("INSERT INTO tickets VALUES(4,'issued')")
+        con.close()
+        lost_ack=subprocess.run([sys.executable,__file__,"worker",
+                str(dbpath),str(signal),"4","commit_crash"],timeout=15)
+        if lost_ack.returncode!=98:raise RuntimeError("commit-before-ack simulation failed")
+        after_crash=connection(dbpath)
+        last=after_crash.execute("SELECT state FROM tickets WHERE generation=4").fetchone()
+        after_crash.close()
+        if last!=("consumed",):raise RuntimeError("durable commit lost on process exit")
+        denied=worker(dbpath,signal,4,"consume")
+        if denied!=7:raise RuntimeError("ambiguous committed claim retried")
+        rows.append((4,"consumed"))
         proof={
             "schema":"winbot-public-sqlite-fence-batch/v1",
             "classification":"INDEPENDENT_SYNTHETIC_SQLITE_PRIMITIVE_ONLY",
@@ -103,6 +126,7 @@ def main():
             "single_winner_consumption":True,
             "rejected_competing_consumers":WORKER_COUNT-1,
             "crash_before_commit_rolled_back":True,
+            "crash_after_commit_before_ack_replay_refused":True,
             "durable_replay_rejected":True,"stale_generation_rejected":True,
             "durable_tombstones":rows,
             "private_winbot_code_executed":False,
