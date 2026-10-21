@@ -1,7 +1,7 @@
-name: WinBot W1 SIGKILL Recovery Bounded Batch
+name: WinBot W1 Durable Manifest Custody Batch
 on:
   push:
-    branches: [experiment/winbot-sigkill-reaper-batch-20261021]
+    branches: [experiment/winbot-sigkill-manifest-custody-20261021]
     paths:
       - scripts/winbot_public_overlay_readback.py
       - scripts/winbot_public_overlay_negative_batch.py
