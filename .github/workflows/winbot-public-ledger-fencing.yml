@@ -1,7 +1,7 @@
-name: WinBot public isolated ledger fencing and crash-tombstone matrix
+name: WinBot parallel fence crash-after-commit + native W1 source batch
 on:
   push:
-    branches: [experiment/winbot-ledger-fencing-qualification-20261021]
+    branches: [experiment/winbot-multilane-ledger-rdte-20261021]
     paths:
       - scripts/winbot_public_ledger_fencing.py
       - .github/workflows/winbot-public-ledger-fencing.yml
@@ -28,6 +28,7 @@ jobs:
           $proof = Get-Content (Join-Path $env:WINBOT_PUBLIC_RECEIPT_DIR 'fencing-proof.json') -Raw | ConvertFrom-Json
           if (!$proof.single_winner_consumption -or !$proof.crash_before_commit_rolled_back -or
               !$proof.stale_generation_rejected -or !$proof.durable_replay_rejected -or
+              !$proof.crash_after_commit_before_ack_replay_refused -or
               $proof.vm_mutation_or_recovery_admitted -or $proof.private_winbot_code_executed) {
             throw 'Fail-closed: synthetic public receipt does not satisfy expected constraints'
           }
@@ -39,3 +40,26 @@ jobs:
           retention-days: 7
           if-no-files-found: error
           path: ${{ runner.temp }}/winbot-fence-receipt/
+
+  native-platform-contracts:
+    name: Native TrueNAS/PVE W1 nonmutation source regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Execute existing native media path + injection negative cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_windows_w1_native_plan tests.test_windows_w1_native_binding_hardening
+  winpe-guard-contracts:
+    name: Read-only WinPE GPT/host disk safety regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Execute existing no-wipe disk and observer contract suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests.test_windows_w1_winpe_disk_identity tests.test_windows_w1_winpe_observer_seed tests.test_windows_w1_gpt_header tests.test_windows_w1_libvirt_disk_guard
