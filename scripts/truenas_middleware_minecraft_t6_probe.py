@@ -86,17 +86,29 @@ def retain_bounded_g4_anvil_refusal(payload: dict, stage: str, exc: Exception) -
     if type(payload) is not dict or stage not in ("preaction", "candidate", "rollback"):
         return
     state = payload.get("native_backend_world")
-    if (type(state) is not dict or
-            state.get("last_backend_phase") != stage + ".anvil_decode"):
+    if type(state) is not dict:
+        return
+    phase = state.get("last_backend_phase")
+    if phase == stage + ".anvil_decode":
+        field, allowed = "decoder_refusal_code", G4_ANVIL_FIXED_REFUSAL_CODES
+    elif phase == stage + ".directory_chain_check":
+        # The fixed parent-directory check runs before any job-bound GET.
+        # On failure, preserve only these exact source-authored no-follow
+        # readback reasons. Unknown exception content is never reflected.
+        field, allowed = "readback_refusal_code", frozenset({
+            "BACKEND_REGION_PARENT_NOT_DIRECTORY",
+            "BACKEND_REGION_PARENT_STAT_INCONCLUSIVE",
+        })
+    else:
         return
     from qualify_native_vanilla263_anvil_blocks import Refused as AnvilRefused
     if type(exc) is not AnvilRefused:
         return
     args = exc.args
     reason = (args[0] if len(args) == 1 and type(args[0]) is str and
-              args[0] in G4_ANVIL_FIXED_REFUSAL_CODES else "UNCLASSIFIED")
-    state["decoder_refusal_code"] = reason
-    # Not an authorization signal. The G4 backend oracle stays false.
+              args[0] in allowed else "UNCLASSIFIED")
+    state[field] = reason
+    # A diagnostic string never grants G4 native backend acceptance.
     state["backend_independent_world_oracle_pass"] = False
 
 
