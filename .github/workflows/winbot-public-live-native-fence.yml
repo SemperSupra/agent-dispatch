@@ -5,6 +5,7 @@ on:
     paths:
       - scripts/winbot_public_live_native_fence.py
       - scripts/winbot_public_native_peercred_broker.py
+      - scripts/winbot_public_native_peercred_client.py
       - scripts/winbot_public_crash_reaper.py
       - .github/workflows/winbot-public-live-native-fence.yml
   workflow_dispatch:
@@ -20,6 +21,11 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Source syntax check before expensive public KVM setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/winbot_public_live_native_fence.py scripts/winbot_public_native_peercred_broker.py scripts/winbot_public_native_peercred_client.py
       - name: Enforce owned public KVM preflight and install only standard free system packages
         shell: bash
         run: |
