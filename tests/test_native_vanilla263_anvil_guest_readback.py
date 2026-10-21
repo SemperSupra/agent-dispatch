@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.qualify_native_vanilla263_anvil_guest_readback import (capture, PATH, REGION_DIRECTORY, record_phase, validate_single_use_download)
+from scripts.qualify_native_vanilla263_anvil_guest_readback import (
+    capture, PATH, REGION_DIRECTORY, REGION_PARENT_DIRECTORIES, record_phase,
+    validate_single_use_download
+)
 from scripts.qualify_vanilla263_native_world_rollback import WORLD
 from scripts.qualify_native_vanilla263_anvil_blocks import Refused
 from scripts.qualify_vanilla263_native_world_rollback import APP
@@ -18,6 +21,7 @@ class NativeReadbackTests(unittest.TestCase):
         self.token = "/_download/1001?auth_token=" + ("A" * 64)
         self.record = []
         self.downloaded = []
+        self.parent_entries = {}
 
     def call(self, name, args):
         self.record.append((name, args))
@@ -25,8 +29,11 @@ class NativeReadbackTests(unittest.TestCase):
             self.assertEqual(args, [[["id", "=", APP]]])
             return [{"name": APP, "state": self.state}]
         if name == "filesystem.stat":
-            self.assertEqual(args, [PATH])
-            return self.stat
+            if args == [PATH]:
+                return self.stat
+            self.assertIn(args[0], REGION_PARENT_DIRECTORIES)
+            self.assertEqual(len(args), 1)
+            return self.parent_entries.get(args[0], {"type": "DIRECTORY"})
         if name == "core.download":
             self.assertEqual(args, ["filesystem.get", [PATH],
                                     "g4-owned-region-candidate.mca", True])
@@ -80,8 +87,13 @@ class NativeReadbackTests(unittest.TestCase):
         self.assertFalse(result["backend_independent_world_oracle_pass"])
         self.assertFalse(result["raw_region_published"])
         self.assertEqual(result["physical_true_nas_apply"], "HOLD")
-        self.assertEqual([name for name, _ in self.record],
-                         ["app.query", "filesystem.stat", "core.download"])
+        self.assertEqual(self.record, [
+            ("app.query", [[["id", "=", APP]]]),
+            ("filesystem.stat", [PATH]),
+            *(( "filesystem.stat", [p]) for p in REGION_PARENT_DIRECTORIES),
+            ("core.download", ["filesystem.get", [PATH],
+                               "g4-owned-region-candidate.mca", True]),
+        ])
         self.assertEqual(self.downloaded, [(1001, "G4 read-only owned Anvil file download")])
 
     def test_wrong_stage_has_zero_provider_calls(self):
@@ -101,6 +113,51 @@ class NativeReadbackTests(unittest.TestCase):
             with self.subTest(stat=attr):
                 self.stat = attr
                 self.reject("BACKEND_REGION_FILE_NOT_EXACT")
+
+    def test_reject_symlinked_ancestor_and_non_directory_before_download(self):
+        self.assertEqual(len(REGION_PARENT_DIRECTORIES), 5)
+        self.assertEqual(REGION_PARENT_DIRECTORIES[0], WORLD)
+        self.assertEqual(REGION_PARENT_DIRECTORIES[-1], REGION_DIRECTORY)
+        for ancestor in REGION_PARENT_DIRECTORIES:
+            for kind in ("SYMLINK", "FILE", "OTHER", None):
+                with self.subTest(path=ancestor,entry_type=kind):
+                    self.record.clear()
+                    self.downloaded.clear()
+                    self.parent_entries = {ancestor: (
+                        None if kind is None else {"type": kind})}
+                    seen = []
+                    with self.assertRaisesRegex(
+                        Refused, "BACKEND_REGION_PARENT_NOT_DIRECTORY"):
+                        capture(call=self.call, wait_job=self.wait,
+                                fetch_bytes=self.fetch, stage="candidate",
+                                on_phase=seen.append)
+                    self.assertEqual(seen[-1], "candidate.directory_chain_check")
+                    self.assertNotIn("core.download",
+                                     [name for name, _ in self.record])
+                    self.assertEqual(self.downloaded, [])
+        self.parent_entries.clear()
+
+    def test_reject_inconclusive_ancestor_stat_without_exposing_provider_error(self):
+        for ancestor in REGION_PARENT_DIRECTORIES:
+            with self.subTest(path=ancestor):
+                seen = []
+                calls = []
+                def injected(name,args):
+                    calls.append((name,args))
+                    if name == "filesystem.stat" and args == [ancestor]:
+                        raise RuntimeError("secret-password /mnt/foreign-world")
+                    return self.call(name,args)
+                with self.assertRaises(Refused) as raised:
+                    capture(call=injected, wait_job=self.wait,
+                            fetch_bytes=self.fetch, stage="preaction",
+                            on_phase=seen.append)
+                self.assertEqual(str(raised.exception),
+                                 "BACKEND_REGION_PARENT_STAT_INCONCLUSIVE")
+                self.assertEqual(seen[-1], "preaction.directory_chain_check")
+                self.assertNotIn("core.download", [m for m, _ in calls])
+                self.assertNotIn("/mnt/foreign-world",str(raised.exception))
+                self.assertNotIn("secret-password",str(seen))
+                self.assertEqual(self.downloaded, [])
 
     def test_vendor_true_nas_250426_download_shape_is_accepted(self):
         # Actual pinned middleware core_service.py's return URL format.
@@ -171,6 +228,8 @@ class NativeReadbackTests(unittest.TestCase):
             "candidate.app_stopped_verified",
             "candidate.file_stat",
             "candidate.file_stat_verified",
+            "candidate.directory_chain_check",
+            "candidate.directory_chain_verified",
             "candidate.download_request",
             "candidate.download_route_verified",
             "candidate.download_job",
