@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import stat
 import subprocess
 import sys
 import uuid
@@ -32,6 +33,13 @@ def main()->int:
     manifest=ROOT/"ownership-manifest.json"
     if not manifest.is_file():
         raise RuntimeError("durable owner manifest not persisted before fatal stage")
+    file_meta=os.lstat(manifest)
+    root_meta=os.lstat(ROOT)
+    if not (stat.S_ISREG(file_meta.st_mode) and file_meta.st_nlink==1 and
+            stat.S_IMODE(file_meta.st_mode)==0o600 and
+            stat.S_ISDIR(root_meta.st_mode) and
+            stat.S_IMODE(root_meta.st_mode)==0o700):
+        raise RuntimeError("real on-runner manifest mode/link custody was not proven")
     original=manifest.read_bytes()
     owned=json.loads(original)
     uid=owned["vm_uuid"];net=owned["network_name"]
@@ -105,6 +113,7 @@ def main()->int:
            "multiply_linked_manifest_refused_without_resource_change":True,
            "duplicate_key_manifest_refused_without_resource_change":True,
            "durable_manifest_directory_and_file_private":True,
+           "power_loss_fsync_durability_proven":False,
            "exact_owner_recovery_performed":True,
            "recovered_native_domain_absent":True,
            "recovered_native_network_absent":True,
