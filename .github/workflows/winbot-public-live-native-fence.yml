@@ -4,6 +4,7 @@ on:
     branches: [experiment/winbot-live-native-fence-20261021]
     paths:
       - scripts/winbot_public_live_native_fence.py
+      - scripts/winbot_public_crash_reaper.py
       - .github/workflows/winbot-public-live-native-fence.yml
   workflow_dispatch:
 permissions:
