@@ -1,9 +1,10 @@
-name: WinBot real native epoch fencing and parallel source gates
+name: WinBot native broker peer-identity and parallel source gates
 on:
   push:
-    branches: [experiment/winbot-live-native-fence-20261021]
+    branches: [experiment/winbot-native-peercred-broker-20261022]
     paths:
       - scripts/winbot_public_live_native_fence.py
+      - scripts/winbot_public_native_peercred_broker.py
       - scripts/winbot_public_crash_reaper.py
       - .github/workflows/winbot-public-live-native-fence.yml
   workflow_dispatch:
@@ -49,6 +50,7 @@ jobs:
           name: winbot-live-owned-native-epoch-evidence
           path: |
             /tmp/winbot-native-epoch-proof/native-epoch-verdict.json
+            /tmp/winbot-native-epoch-proof/peercred-broker-verdict.json
             /tmp/winbot-crash-owned/recovery.json
           retention-days: 7
           if-no-files-found: error
