@@ -903,6 +903,7 @@ def main() -> int:
                     for ph in (
                         "app_state_query", "app_stopped_verified",
                         "file_stat", "file_stat_verified",
+                        "directory_chain_check", "directory_chain_verified",
                         "file_stat_listing_absent", "file_stat_listing_present",
                         "file_stat_listing_inconclusive",
                         "download_request", "download_route_verified",
