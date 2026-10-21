@@ -22,10 +22,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $env:WINBOT_PUBLIC_${{ runner.temp }} = Join-Path $env:RUNNER_TEMP 'winbot-stale-owner'
+          $env:WINBOT_PUBLIC_RECEIPT_DIR = Join-Path $env:RUNNER_TEMP 'winbot-stale-owner'
           python -m scripts.winbot_public_stale_worker_fencing
           if ($LASTEXITCODE -ne 0) { throw 'Fail closed: synthetic generation fencing failed' }
-          $receipt = Get-Content (Join-Path $env:WINBOT_PUBLIC_${{ runner.temp }} 'stale-worker-fence.json') -Raw | ConvertFrom-Json
+          $receipt = Get-Content (Join-Path $env:WINBOT_PUBLIC_RECEIPT_DIR 'stale-worker-fence.json') -Raw | ConvertFrom-Json
           if (!$receipt.stale_worker_after_supersession_refused -or
               !$receipt.single_current_generation_winner -or
               !$receipt.commit_before_ack_replay_refused -or
