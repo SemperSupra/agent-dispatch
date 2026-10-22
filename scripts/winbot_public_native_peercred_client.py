@@ -29,7 +29,8 @@ def main(run_uuid, generation):
     if status=="CURRENT_EXACT_OWNER_ACTION_PERFORMED":return 0
     if status in ("FOREIGN_UID_REFUSED","STALE_EPOCH_REFUSED",
                   "STALE_PRINCIPAL_REFUSED","STALE_PRINCIPAL_EPOCH_SPOOF_REFUSED",
-                  "MALFORMED_OR_FOREIGN_TARGET_REFUSED"):return 7
+                  "MALFORMED_OR_FOREIGN_TARGET_REFUSED",
+                  "CURRENT_UID_UNISSUED_PID_REFUSED"):return 7
     return 8
 if __name__=="__main__":
     if len(sys.argv)!=3:raise SystemExit(8)
