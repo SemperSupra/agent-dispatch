@@ -1,7 +1,7 @@
-name: WinBot native distinct-generation Unix principal fencing
+name: WinBot run-owned broker issued PID fencing plus parallel source checks
 on:
   push:
-    branches: [experiment/winbot-native-generation-uid-fence-20261022]
+    branches: [experiment/winbot-broker-issuer-child-pid-20261022]
     paths:
       - scripts/winbot_public_live_native_fence.py
       - scripts/winbot_public_native_peercred_broker.py
