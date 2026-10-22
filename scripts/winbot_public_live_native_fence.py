@@ -168,7 +168,8 @@ def main():
                 (foreign_user,"2","FOREIGN_UID_REFUSED"),
                 ("nobody","1","STALE_PRINCIPAL_REFUSED"),
                 ("nobody","2","STALE_PRINCIPAL_EPOCH_SPOOF_REFUSED"),
-                ("daemon","1","STALE_EPOCH_REFUSED")
+                ("daemon","1","STALE_EPOCH_REFUSED"),
+                ("daemon","2","CURRENT_UID_UNISSUED_PID_REFUSED")
             ):
                 attempt=call("runuser","-u",identity,"--",
                              sys.executable,str(client_path),owner["uid"],epoch,timeout=15)
@@ -189,12 +190,8 @@ def main():
             vm=call("virsh","-c","qemu:///system","domstate",owner["uid"])
             if vm.returncode or vm.stdout.strip().lower()=="shut off":
                 raise RuntimeError("direct bypass negative changed owned KVM")
-            current=call("runuser","-u","daemon","--",
-                         sys.executable,str(client_path),
-                         owner["uid"],"2",timeout=30)
-            if current.returncode!=0:
-                raise RuntimeError("distinct-current-principal mediated actor failed: "+
-                                   current.stderr[-450:])
+            # The root-side broker creates its own one-shot generation-2
+            # client; the controller is not permitted to nominate a PID.
             stdout,stderr=server.communicate(timeout=WAIT_SECONDS)
             if server.returncode:
                 raise RuntimeError("privileged fixed-argv mediator failed: "+stderr[-450:])
@@ -204,7 +201,10 @@ def main():
                     broker_proof["current_native_action_count"]==1 and
                     broker_proof["stale_principal_generational_impersonation_refused"] and
                     broker_proof["distinct_unix_uids_for_generation_one_and_two"] and
-                    broker_proof["os_so_peercred_identity_checked"]):
+                    broker_proof["os_so_peercred_identity_checked"] and
+                    broker_proof["same_current_uid_unissued_pid_refused"] and
+                    broker_proof["root_broker_forked_only_admitted_current_actor"] and
+                    broker_proof["os_so_peercred_pid_and_uid_checked"]):
                 raise RuntimeError("native mediator evidence incomplete")
         finally:
             if server.poll() is None:
@@ -249,6 +249,8 @@ def main():
                  "authorized_principal_mediated_exact_native_destroy":True,
                  "stale_uid_claiming_current_epoch_refused_before_native_call":True,
                  "current_uid_direct_libvirt_destroy_refused":True,
+                 "unissued_same_current_uid_pid_spoof_refused":True,
+                 "root_issued_only_one_current_actor_pid":True,
                  "fresh_generation_worker_distinct_unix_identity":True,
                  "client_supplied_epoch_not_authenticated_credential":True,
                  "native_domain_absent":True,"native_network_absent":True,
