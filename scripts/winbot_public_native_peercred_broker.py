@@ -13,6 +13,7 @@ import pathlib
 import pwd
 import socket
 import stat
+import subprocess
 import struct
 import sys
 import time
@@ -67,8 +68,26 @@ def server():
         raise RuntimeError("missing distinct current, stale and foreign Unix principals")
     s,dev,ino=bind_socket(path)
     results=[]
+    approved_child=None
+    approved_pid=None
     try:
-        for index in range(5):
+        for index in range(6):
+            if index==5:
+                # The root-side broker, NOT an untrusted client, creates the
+                # one accepted generation-2 actor. The kernel authenticates
+                # its child PID and Unix UID over SO_PEERCRED. A same-UID
+                # attacker cannot nominate itself by supplying epoch=2.
+                client_file=pathlib.Path(
+                    "/tmp/winbot-peercred-client-"+owner["uid"].replace("-","")+".py")
+                st=os.lstat(client_file)
+                if not (stat.S_ISREG(st.st_mode) and st.st_uid==os.geteuid()
+                        and st.st_nlink==1 and stat.S_IMODE(st.st_mode)==0o644):
+                    raise RuntimeError("root-owned immutable synthetic client not proved")
+                approved_child=subprocess.Popen(
+                    [sys.executable,str(client_file),owner["uid"],"2"],
+                    user=worker_uid,group=pwd.getpwnam("daemon").pw_gid,
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                approved_pid=approved_child.pid
             client,_=s.accept()
             with client:
                 client.settimeout(9)
@@ -98,6 +117,8 @@ def server():
                     label="MALFORMED_OR_FOREIGN_TARGET_REFUSED"
                 elif generation!=2:
                     label="STALE_EPOCH_REFUSED"
+                elif pid!=approved_pid:
+                    label="CURRENT_UID_UNISSUED_PID_REFUSED"
                 else:
                     # Import only the fixed, run-owned, native actor function.
                     # It independently checks the SQLite epoch under flock,
@@ -107,15 +128,24 @@ def server():
                     code=actor(2,"current")
                     if code!=0:raise RuntimeError("fixed native broker actor failed "+str(code))
                     label="CURRENT_EXACT_OWNER_ACTION_PERFORMED"
-                results.append({"ordinal":index+1,"peer_uid":uid,
+                results.append({"ordinal":index+1,"peer_pid":pid,"peer_uid":uid,
                     "label":label,"native_mutation":label=="CURRENT_EXACT_OWNER_ACTION_PERFORMED"})
                 client.sendall((json.dumps({"status":label},sort_keys=True)+"\n").encode())
+        if approved_child is None:
+            raise RuntimeError("no root-issued current actor")
+        child_stdout,child_stderr=approved_child.communicate(timeout=15)
+        if approved_child.returncode!=0 or (
+                "CURRENT_EXACT_OWNER_ACTION_PERFORMED" not in child_stdout):
+            raise RuntimeError("root-issued child did not complete "+child_stderr[-250:])
         if ([r["label"] for r in results]!=[
             "FOREIGN_UID_REFUSED","STALE_PRINCIPAL_REFUSED",
             "STALE_PRINCIPAL_EPOCH_SPOOF_REFUSED","STALE_EPOCH_REFUSED",
+            "CURRENT_UID_UNISSUED_PID_REFUSED",
             "CURRENT_EXACT_OWNER_ACTION_PERFORMED"] or
             [r["peer_uid"] for r in results]!=[
-                forbidden_uid,stale_uid,stale_uid,worker_uid,worker_uid]):
+                forbidden_uid,stale_uid,stale_uid,worker_uid,worker_uid,worker_uid] or
+            results[-1]["peer_pid"]!=approved_pid or
+            results[-2]["peer_pid"]==approved_pid):
             raise RuntimeError("unexpected native OS broker request sequence")
         proof={
             "schema":"winbot-public-native-peercred-broker/v1",
@@ -131,11 +161,15 @@ def server():
             "stale_epoch_refused_before_native_action":True,
             "current_owned_worker_mediated_exact_native_action":True,
             "current_native_action_count":1,
+            "same_current_uid_unissued_pid_refused":True,
+            "root_broker_forked_only_admitted_current_actor":True,
+            "os_so_peercred_pid_and_uid_checked":True,
+            "root_issued_current_process_pid":approved_pid,
             "os_so_peercred_identity_checked":True,
             "worker_direct_virsh_authorized":False,
             "request_generation_is_an_authenticated_credential":False,
-            "fresh_uid_current_epoch_spoof_by_same_uid_fenced":False,
-            "privileged_or_same_uid_bypass_prevented":False,
+            "fresh_uid_current_epoch_spoof_by_same_uid_fenced":True,
+            "privileged_or_same_uid_bypass_prevented":False, # same UID can still attack/bypass OTHER surfaces
             "external_native_lease_qualified":False,
             "private_winbot_source_executed":False,
             "windows_or_winbot_guest_qualified":False,
@@ -146,6 +180,9 @@ def server():
             json.dumps(proof,sort_keys=True,indent=2)+"\n")
         return 0
     finally:
+        if approved_child is not None and approved_child.poll() is None:
+            approved_child.kill()
+            approved_child.wait(timeout=5)
         s.close()
         try:
             st=os.lstat(path)
