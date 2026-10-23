@@ -27,6 +27,8 @@ on:
       - 'tests/test_reversing_native_elf_probe.py'
       - 'scripts/reversing_strace_fixture_probe.py'
       - 'tests/test_reversing_strace_fixture_probe.py'
+      - 'scripts/reversing_strace_v1_projection.py'
+      - 'tests/test_reversing_strace_v1_projection.py'
       - 'docs/reversing-strace-fixture-experiment.md'
       - 'fixtures/reversing-correlation-synthetic-v1.json'
       - 'docs/reversing-correlation-experiment.md'
@@ -77,6 +79,26 @@ jobs:
           assert r["observed"]["wrote_bytes"]==15
           print("NATIVE_STRACE_SYNTHETIC_ORACLE_PASS")
           print(json.dumps(r, sort_keys=True))
+          PY
+      - name: Test strace projection preserves v1 unattributed file semantics
+        run: python3 -m unittest -v tests/test_reversing_strace_v1_projection.py
+      - name: Compose actual native strace witness with existing v1 correlator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_strace_v1_projection.py \
+            --input "${RUNNER_TEMP}/reversing-strace-fixture.json" \
+            --output "${RUNNER_TEMP}/reversing-strace-v1-projection.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          result=json.loads((Path(os.environ["RUNNER_TEMP"])/"reversing-strace-v1-projection.json").read_text())
+          assert result["status"]=="SYNTHETIC_SYSCALL_AS_UNATTRIBUTED_FILE_EVENTS_PASS"
+          assert [e["event_id"] for e in result["external_events"]]==["strace-open","strace-write","strace-close"]
+          assert all(e["status"]=="UNATTRIBUTED" for e in result["external_events"])
+          assert result["causal_links"]==[] and result["matched_instructions"]==[]
+          print("NATIVE_STRACE_V1_UNATTRIBUTED_PROJECTION_PASS")
+          print(json.dumps(result, sort_keys=True))
           PY
       - name: Exercise synthetic correlated report
         shell: bash
