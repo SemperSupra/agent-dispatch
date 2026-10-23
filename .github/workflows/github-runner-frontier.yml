@@ -25,6 +25,9 @@ on:
       - 'tests/test_reversing_ghidra_headless_probe.py'
       - 'tests/test_reversing_evidence_correlate.py'
       - 'tests/test_reversing_native_elf_probe.py'
+      - 'scripts/reversing_strace_fixture_probe.py'
+      - 'tests/test_reversing_strace_fixture_probe.py'
+      - 'docs/reversing-strace-fixture-experiment.md'
       - 'fixtures/reversing-correlation-synthetic-v1.json'
       - 'docs/reversing-correlation-experiment.md'
   workflow_dispatch:
@@ -46,6 +49,35 @@ jobs:
         run: python3 -m unittest -v tests/test_reversing_evidence_correlate.py
       - name: Test GDB inferior-exit receipt parser fail-closed behavior
         run: python3 -m unittest -v tests/test_reversing_native_elf_probe.py
+      - name: Falsify fixed synthetic syscall trace evidence claims
+        run: python3 -m unittest -v tests/test_reversing_strace_fixture_probe.py
+      - name: Ensure Ubuntu strace is available for the bounded fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v strace >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends strace
+          fi
+          strace -V | head -n 1
+      - name: Execute native Linux fixed synthetic syscall trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_strace_fixture_probe.py --output "${RUNNER_TEMP}/reversing-strace-fixture.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads((Path(os.environ["RUNNER_TEMP"])/"reversing-strace-fixture.json").read_text())
+          assert r["schema"]=="strace-fixed-fixture-receipt/v0.1"
+          assert r["status"]=="NATIVE_SYSCALL_TRACE_FIXTURE_PASS"
+          assert r["scope"]=="synthetic-generated-linux-elf-only"
+          assert r["observed"]["event_kinds"]==["open","write","close","exit","final"]
+          assert len(r["observed"]["witness_lines"])==5
+          assert r["observed"]["wrote_bytes"]==15
+          print("NATIVE_STRACE_SYNTHETIC_ORACLE_PASS")
+          print(json.dumps(r, sort_keys=True))
+          PY
       - name: Exercise synthetic correlated report
         shell: bash
         run: |
