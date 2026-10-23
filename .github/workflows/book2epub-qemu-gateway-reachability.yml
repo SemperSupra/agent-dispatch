@@ -50,7 +50,7 @@ jobs:
               "target='http://10.0.2.2:5000/v2/'\n"
               "ok=0\n"
               "for i in $(seq 1 45); do\n"
-              "  if wget -q -O /tmp/book2epub-registry-v2 '$target' 2>/dev/null; then ok=1; break; fi\n"
+              "  if wget -q -O /tmp/book2epub-registry-v2 http://10.0.2.2:5000/v2/ 2>/dev/null; then ok=1; break; fi\n"
               "  sleep 2\n"
               "done\n"
               "if [ \"$ok\" -eq 1 ]; then\n"
@@ -96,7 +96,7 @@ jobs:
           test -s "$root/serial.log"
           tail -n 20 "$root/serial.log" | sed -E 's/[^[:print:]\t]//g' | tail -c 4000
           python3 - <<'PY'
-          import json,os,pathlib,hashlib
+          import json,os,pathlib,subprocess
           root=pathlib.Path(os.environ["RUNNER_TEMP"])/"book2epub-gateway"
           serial=root.joinpath("serial.log").read_text(errors="replace")
           flag="BOOK2EPUB_QEMU_HOST_GATEWAY_REGISTRY=PASS"
@@ -115,7 +115,7 @@ jobs:
               "oci_transfer":"NOT_RUN_IN_THIS_LIGHTWEIGHT_GUEST_TEST",
               "model_or_production_image_distribution":False,
               "physical_trueNAS_apply":"HOLD",
-              "source_revision":os.environ["GITHUB_SHA"],
+              "source_revision":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),
           }
           (root/"evidence.json").write_text(json.dumps(proof,sort_keys=True,indent=2)+"\n")
           print("QEMU_GUEST_REGISTRY_EVIDENCE "+json.dumps(proof,sort_keys=True))
