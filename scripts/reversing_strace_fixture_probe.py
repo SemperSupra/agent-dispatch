@@ -19,7 +19,7 @@ SOURCE = r'''#define _GNU_SOURCE
 #include <unistd.h>
 #include <sys/types.h>
 static const char path[] = "trace-proof-output.bin";
-static const char payload[] = "trace-proof-v1\\n";
+static const char payload[] = "trace-proof-v1\n";
 int main(void) {
   int fd = openat(AT_FDCWD, path, O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0600);
   if (fd < 0) return 41;
@@ -30,12 +30,12 @@ int main(void) {
 '''
 PAYLOAD = b"trace-proof-v1\n"
 FILE = "trace-proof-output.bin"
-SYS_PREFIX = r"(?:\\[pid +[0-9]+\\] +)?"
-OPEN = re.compile(r'^' + SYS_PREFIX + r'openat\\(AT_FDCWD, "trace-proof-output\\.bin", ([A-Z0-9_|]+), 0600\\) += +([0-9]+)(?:<[^>]*>)?$')
-WRITE = re.compile(r'^' + SYS_PREFIX + r'write\\(([0-9]+)(?:<[^>]*>)?, "trace-proof-v1\\\\n", 15\\) += +([0-9]+)$')
-CLOSE = re.compile(r'^' + SYS_PREFIX + r'close\\(([0-9]+)(?:<[^>]*>)?\\) += +(0|-1 .*)$')
-EXIT = re.compile(r'^' + SYS_PREFIX + r'exit_group\\(([-0-9]+)\\) += +\\?$')
-FINAL = re.compile(r'^' + SYS_PREFIX + r'\\+\\+\\+ exited with ([0-9]+) \\+\\+\\+$')
+SYS_PREFIX = r"(?:\[pid +[0-9]+\] +)?"
+OPEN = re.compile(r'^' + SYS_PREFIX + r'openat\(AT_FDCWD, "trace-proof-output\.bin", ([A-Z0-9_|]+), 0600\) += +([0-9]+)(?:<[^>]*>)?$')
+WRITE = re.compile(r'^' + SYS_PREFIX + r'write\(([0-9]+)(?:<[^>]*>)?, "trace-proof-v1\\n", 15\) += +([0-9]+)$')
+CLOSE = re.compile(r'^' + SYS_PREFIX + r'close\(([0-9]+)(?:<[^>]*>)?\) += +(0|-1 .*)$')
+EXIT = re.compile(r'^' + SYS_PREFIX + r'exit_group\(([-0-9]+)\) += +\?$')
+FINAL = re.compile(r'^' + SYS_PREFIX + r'\+\+\+ exited with ([0-9]+) \+\+\+$')
 
 
 class OracleError(RuntimeError):
@@ -56,7 +56,7 @@ def check_trace(raw):
     collected = []
     pid_bound = False
     bound_pid = None
-    pid_prefix = re.compile(r"^\\[pid +([0-9]+)\\] +")
+    pid_prefix = re.compile(r"^\[pid +([0-9]+)\] +")
 
     def bind_pid(line):
         nonlocal pid_bound, bound_pid
