@@ -1,0 +1,135 @@
+name: Book2EPUB OCI transport — host-loopback to lightweight QEMU guest (NO TrueNAS)
+
+on:
+  pull_request:
+    branches:
+      - experiment/gha-kvm-system-rdte
+    paths:
+      - '.github/workflows/book2epub-qemu-gateway-reachability.yml'
+      - 'scripts/compute_guest_seed.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book2epub-qemu-gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guest-gateway-no-product:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - name: Checkout exact PR source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install disposable QEMU and seed ISO utilities
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils xorriso
+      - name: Pin known existing Agent Dispatch CirrOS VM source and prepare deterministic guest
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/book2epub-gateway/seed"
+          root="$RUNNER_TEMP/book2epub-gateway"
+          curl -fsSL --retry 3 \
+            https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img \
+            -o "$root/cirros.img"
+          echo '7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b  '"$root/cirros.img" | sha256sum -c -
+          python3 - <<'PY'
+          import pathlib,os
+          from scripts.compute_guest_seed import render_seed
+          base=pathlib.Path(os.environ["RUNNER_TEMP"])/"book2epub-gateway/seed"
+          meta,user=render_seed("Book2EPUBGuestGatewayProof20261023","book2epub-gateway-guest")
+          user += (
+              "target='http://10.0.2.2:5000/v2/'\n"
+              "ok=0\n"
+              "for i in $(seq 1 45); do\n"
+              "  if wget -q -O /tmp/book2epub-registry-v2 '$target' 2>/dev/null; then ok=1; break; fi\n"
+              "  sleep 2\n"
+              "done\n"
+              "if [ \"$ok\" -eq 1 ]; then\n"
+              "  printf 'BOOK2EPUB_QEMU_HOST_GATEWAY_REGISTRY=PASS\\n' >/dev/ttyS0\n"
+              "else\n"
+              "  printf 'BOOK2EPUB_QEMU_HOST_GATEWAY_REGISTRY=FAIL\\n' >/dev/ttyS0\n"
+              "fi\n"
+              "sync; poweroff -f || true\n"
+          )
+          (base/"meta-data").write_text(meta)
+          (base/"user-data").write_text(user)
+          PY
+          xorriso -as mkisofs -quiet -output "$root/seed.iso" -volid cidata -joliet -rock \
+            "$root/seed/user-data" "$root/seed/meta-data"
+      - name: Run pinned ephemeral loopback registry without any Book2EPUB image/weights
+        run: |
+          set -euo pipefail
+          docker run --rm -d --name book2epub-guest-gateway-registry \
+            --network bridge -p 127.0.0.1:5000:5000 \
+            docker.io/library/registry@sha256:7518da9b12dd746278282a729dee2e65eabdeb449db4d0b28d46ef6e90308f58 >/dev/null
+          test "$(docker port book2epub-guest-gateway-registry 5000/tcp)" = "127.0.0.1:5000"
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:5000/v2/ >/dev/null
+      - name: Observe QEMU user-mode guest to host-loopback registry gateway
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/book2epub-gateway"
+          # Uses the same pinned CirrOS source/NoCloud seed primitives already
+          # qualified in Agent Dispatch compute-vm-v1. No TrueNAS installer.
+          rc=0
+          timeout 210s qemu-system-x86_64 \
+            -machine accel=kvm:tcg -m 512 -smp 2 \
+            -display none -monitor none -serial "file:$root/serial.log" \
+            -drive "file=$root/cirros.img,if=virtio,format=qcow2,snapshot=on" \
+            -drive "file=$root/seed.iso,media=cdrom,if=ide,readonly=on" \
+            -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+            -no-reboot || rc="$?"
+          test -s "$root/serial.log"
+          tail -n 20 "$root/serial.log" | sed -E 's/[^[:print:]\t]//g' | tail -c 4000
+          python3 - <<'PY'
+          import json,os,pathlib,hashlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"book2epub-gateway"
+          serial=root.joinpath("serial.log").read_text(errors="replace")
+          flag="BOOK2EPUB_QEMU_HOST_GATEWAY_REGISTRY=PASS"
+          if flag not in serial:
+              raise SystemExit("QEMU guest did not prove host-loopback registry reachability")
+          proof={
+              "schema":"book2epub-qemu-host-loopback-registry/v1",
+              "guest":"CirrOS 0.6.3 x86_64 (NOT TrueNAS)",
+              "guest_image_sha256":"7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b",
+              "transport":"QEMU_USER_NET_GUEST_10_0_2_2_TO_HOST_127_0_0_1_5000",
+              "registry":"EPHEMERAL_LOCAL_DOCKER_DISTRIBUTION_NO_IMAGES_STORED",
+              "registry_binding":"127.0.0.1:5000",
+              "guest_reachability":"PASS",
+              "trueNAS_guest_reachability":"NOT_TESTED",
+              "trueNAS_Docker_trust":"NOT_TESTED",
+              "oci_transfer":"NOT_RUN_IN_THIS_LIGHTWEIGHT_GUEST_TEST",
+              "model_or_production_image_distribution":False,
+              "physical_trueNAS_apply":"HOLD",
+              "source_revision":os.environ["GITHUB_SHA"],
+          }
+          (root/"evidence.json").write_text(json.dumps(proof,sort_keys=True,indent=2)+"\n")
+          print("QEMU_GUEST_REGISTRY_EVIDENCE "+json.dumps(proof,sort_keys=True))
+          PY
+      - name: Cleanup ephemeral registry
+        if: always()
+        run: |
+          docker rm -f book2epub-guest-gateway-registry >/dev/null 2>&1 || true
+          ! docker ps --format '{{.Names}}' | grep -Fx book2epub-guest-gateway-registry
+      - name: Retain JSON only, no VM image, source model or guest files
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: book2epub-qemu-host-gateway-readonly-evidence
+          path: ${{ runner.temp }}/book2epub-gateway/evidence.json
+          if-no-files-found: warn
+          retention-days: 7
