@@ -37,6 +37,8 @@ on:
       - 'scripts/gha_assignment_execute.py'
       - 'scripts/verify_gha_assignment_receipt.py'
       - 'tests/test_gha_assignment_execution.py'
+      - 'scripts/public_nlp_cpu_reference.py'
+      - 'tests/test_public_nlp_cpu_reference.py'
       - 'tests/test_gha_workload_request.py'
       - 'scripts/provider_packet_contract.py'
       - 'tests/test_provider_packet_contract.py'
@@ -314,4 +316,40 @@ jobs:
             .gha-typed/receipt.json
             .gha-typed/verified.json
           if-no-files-found: error
+          retention-days: 7
+
+  public-nlp-reference:
+    # Public-only fixed synthetic dependency/offset oracle. Never accepts external corpus, URL or code.
+    if: github.event_name == 'pull_request'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install spaCy in disposable CPU-only venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/public-nlp-venv"
+          "$RUNNER_TEMP/public-nlp-venv/bin/python" -m pip install --disable-pip-version-check --no-input --no-cache-dir 'spacy==3.8.11' 'click==8.1.8'
+      - name: Run standalone synthetic fixture and independent offset oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY="$RUNNER_TEMP/public-nlp-venv/bin/python"
+          "$PY" -m unittest -v tests/test_public_nlp_cpu_reference.py
+          mkdir -p "$RUNNER_TEMP/public-nlp-reference"
+          "$PY" scripts/public_nlp_cpu_reference.py --out "$RUNNER_TEMP/public-nlp-reference/receipt.json"
+          "$PY" scripts/public_nlp_cpu_reference.py --out "$RUNNER_TEMP/public-nlp-reference/repeat.json"
+          cmp "$RUNNER_TEMP/public-nlp-reference/receipt.json" "$RUNNER_TEMP/public-nlp-reference/repeat.json"
+          sha256sum "$RUNNER_TEMP/public-nlp-reference/receipt.json"
+      - name: Retain public synthetic receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-nlp-reference-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/public-nlp-reference/*.json
+          if-no-files-found: ignore
           retention-days: 7
