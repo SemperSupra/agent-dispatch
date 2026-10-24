@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 import struct
 import zlib
 
@@ -75,7 +76,12 @@ class NBT:
         if tag == 9:
             nested = self.num("B")
             n = self.num("i")
-            require(1 <= nested <= 12 and 0 <= n <= MAX_ITEMS,
+            # A zero-length TAG_List may use TAG_End (type 0) as its
+            # declared element type. Minecraft 26.3 emits this legal NBT
+            # form in real saved Anvil chunks. Type 0 with nonzero count
+            # remains invalid; all other type/count limits are unchanged.
+            require(0 <= n <= MAX_ITEMS and
+                    (1 <= nested <= 12 or (nested == 0 and n == 0)),
                     "NBT_LIST_BOUNDS")
             return [self.payload(nested, depth+1) for _ in range(n)]
         if tag == 10:
@@ -130,6 +136,41 @@ def chunk_from_region(blob: bytes):
     return root
 
 
+def palette_name(p: object) -> str:
+    # Real Minecraft 26.3 Anvil palettes can encode default states as bare
+    # block-id strings or in heterogeneous-list wrapper compounds with the
+    # empty-string field name. Non-default states use id/properties. Older
+    # explicit Name/Properties remains a separate compatibility fixture.
+    # Refuse aliases mixed together and unexpected properties/fields.
+    if type(p) is str:
+        name = p
+    else:
+        require(type(p) is dict, "BLOCK_PALETTE_INVALID")
+        identifiers = [key for key in ("", "id", "Name") if key in p]
+        require(len(identifiers) == 1, "BLOCK_PALETTE_INVALID")
+        key = identifiers[0]
+        props_key = {"": None, "id": "properties",
+                     "Name": "Properties"}[key]
+        allowed = {key} if props_key is None else {key, props_key}
+        require(set(p).issubset(allowed), "BLOCK_PALETTE_INVALID")
+        if props_key is not None and props_key in p:
+            props = p[props_key]
+            require(type(props) is dict and len(props) <= 64 and
+                    all(type(k) is str and type(v) is str and
+                        0 < len(k) <= 128 and len(v) <= 128
+                        for k, v in props.items()), "BLOCK_PALETTE_INVALID")
+        name = p[key]
+    # Resource-location path must be present and canonical. The old prefix-
+    # only predicate accepted "minecraft:", uppercase/space, control chars and
+    # arbitrarily long identifiers even though the expected fixture is vanilla.
+    require(type(name) is str and len(name) <= 256 and
+            re.fullmatch(r"minecraft:[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*", name)
+            is not None and
+            all(part not in (".", "..") for part in name[10:].split("/")),
+            "BLOCK_PALETTE_INVALID")
+    return name
+
+
 def block_at(root: dict, xyz: tuple[int, int, int]):
     x, y, z = xyz
     require(0 <= x <= 15 and 0 <= z <= 15 and y == 70,
@@ -143,10 +184,8 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
     require(type(states) is dict and type(states.get("palette")) is list,
             "BLOCK_PALETTE_MISSING")
     palette = states["palette"]
-    require(1 <= len(palette) <= 4096 and all(type(p) is dict and
-            type(p.get("Name")) is str and
-            p["Name"].startswith("minecraft:") for p in palette),
-            "BLOCK_PALETTE_INVALID")
+    require(1 <= len(palette) <= 4096, "BLOCK_PALETTE_INVALID")
+    names = [palette_name(p) for p in palette]
     if len(palette) == 1:
         # A uniform section has no palette data. Nonempty data for uniform
         # sections is unusual, but must still contain valid zero indices.
@@ -159,7 +198,7 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
             "BLOCK_DATA_INVALID")
     if not data:
         require(len(palette) == 1, "BLOCK_DATA_REQUIRED")
-        return palette[0]["Name"]
+        return names[0]
     bits = max(4, math.ceil(math.log2(len(palette))))
     per_long = 64 // bits
     idx = ((y & 15) << 8) | (z << 4) | x
@@ -167,7 +206,7 @@ def block_at(root: dict, xyz: tuple[int, int, int]):
     require(position < len(data), "BLOCK_DATA_TRUNCATED")
     number = ((data[position] & ((1<<64)-1)) >> (shift*bits)) & ((1<<bits)-1)
     require(number < len(palette), "BLOCK_PALETTE_INDEX_INVALID")
-    return palette[number]["Name"]
+    return names[number]
 
 
 def inspect(region_bytes: bytes, stage: str) -> dict:

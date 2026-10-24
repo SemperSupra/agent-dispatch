@@ -27,12 +27,25 @@ except ImportError:
 REGION_DIRECTORY = WORLD + "/dimensions/minecraft/overworld/region"
 PATH = REGION_DIRECTORY + "/r.0.0.mca"
 REGION_BASENAME = "r.0.0.mca"
+# Fixed component census. TrueNAS filesystem.stat uses a no-follow statx
+# entry and reports SYMLINK rather than DIRECTORY for a symlinked component.
+# The subsequent middleware filesystem.get(path) would otherwise follow
+# symlinked ancestors through os.path.isfile/open. Only read existing entries;
+# this cannot prove absence of races or replace guest owner/session admission.
+REGION_PARENT_DIRECTORIES = (
+    WORLD,
+    WORLD + "/dimensions",
+    WORLD + "/dimensions/minecraft",
+    WORLD + "/dimensions/minecraft/overworld",
+    REGION_DIRECTORY,
+)
 MAX_OWNED_REGION_ENTRIES = 4096
 STAGES = ("preaction", "candidate", "rollback")
 # Only these literal, non-sensitive phases may escape as a public diagnostic.
 PHASES = (
     "app_state_query", "app_stopped_verified",
     "file_stat", "file_stat_verified",
+    "directory_chain_check", "directory_chain_verified",
     "file_stat_listing_absent", "file_stat_listing_present",
     "file_stat_listing_inconclusive",
     "download_request", "download_route_verified",
@@ -100,6 +113,26 @@ def validate_single_use_download(row: object) -> tuple[int, str]:
     return job, route
 
 
+def verify_fixed_world_directory_chain(*, call, stage: str, on_phase=None) -> None:
+    """Fail closed if any fixed stopped-world ancestor is not a directory.
+
+    Per pinned TrueNAS 25.04.2.6 filesystem.stat source, this is a no-follow
+    entry statx; symlinked ancestors have type SYMLINK. filesystem.get later
+    uses an ordinary open, so rejecting symlinks beforehand prevents accepting
+    a known foreign parent at observation time. All RPCs use the existing
+    read-only stat permission; no identity or privileges are expanded.
+    """
+    record_phase(stage, "directory_chain_check", on_phase)
+    for fixed in REGION_PARENT_DIRECTORIES:
+        try:
+            entry = call("filesystem.stat", [fixed])
+        except Exception:
+            raise Refused("BACKEND_REGION_PARENT_STAT_INCONCLUSIVE") from None
+        require(type(entry) is dict and entry.get("type") == "DIRECTORY",
+                "BACKEND_REGION_PARENT_NOT_DIRECTORY")
+    record_phase(stage, "directory_chain_verified", on_phase)
+
+
 def capture(*, call, wait_job, fetch_bytes, stage: str, on_phase=None) -> dict:
     """Only after existing *actual* guest runner verified owned App then stop.
 
@@ -124,6 +157,10 @@ def capture(*, call, wait_job, fetch_bytes, stage: str, on_phase=None) -> dict:
             type(stat.get("size")) is int and
             8192 <= stat["size"] <= MAX_REGION, "BACKEND_REGION_FILE_NOT_EXACT")
     record_phase(stage, "file_stat_verified", on_phase)
+    # Final file lstat alone cannot detect symlinks in the parent path.
+    # Check only these fixed world-owned ancestors before requesting a
+    # job-bound download; no fallback to a different world or realpath.
+    verify_fixed_world_directory_chain(call=call, stage=stage, on_phase=on_phase)
     record_phase(stage, "download_request", on_phase)
     row = call("core.download", [
         "filesystem.get", [PATH], "g4-owned-region-" + stage + ".mca", True])
