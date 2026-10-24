@@ -1,0 +1,141 @@
+name: FolioRelay T6 consumer prep
+
+on:
+  pull_request:
+    branches:
+      - experiment/gha-kvm-system-rdte
+    paths:
+      - ".github/workflows/prep-foliorelay-t6-consumer.yml"
+      - ".github/workflows/gha-kvm-system-rdte.yml"
+      - "scripts/gha_kvm_truenas_rdte.sh"
+      - "scripts/truenas_middleware_foliorelay_t6_probe.py"
+      - "tests/test_truenas_t6_foliorelay_control.py"
+      - "tools/foliorelay-observer/**"
+  push:
+    branches:
+      - "prep/truenas-t6-foliorelay-v1"
+    paths:
+      - ".github/workflows/prep-foliorelay-t6-consumer.yml"
+      - ".github/workflows/gha-kvm-system-rdte.yml"
+      - "scripts/gha_kvm_truenas_rdte.sh"
+      - "scripts/truenas_middleware_foliorelay_t6_probe.py"
+      - "tests/test_truenas_t6_foliorelay_control.py"
+      - "tools/foliorelay-observer/**"
+
+permissions:
+  contents: read
+
+jobs:
+  foundry-control:
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-foliorelay-t6-control.yml@81deb97185760975fd8d3162df42056c77b3c0fd
+    with:
+      foundry_ref: 81deb97185760975fd8d3162df42056c77b3c0fd
+      target_version: 25.10.7
+    permissions:
+      contents: read
+
+  consumer-contract:
+    needs: foundry-control
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Ensure fixture compiler dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            cups-ipp-utils libcups2-dev build-essential
+      - name: Download exact Foundry FolioRelay control
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: foliorelay-t6-control
+          path: ${{ runner.temp }}/foliorelay-control
+      - name: Smoke minimal static independent DNS-SD observer
+        shell: bash
+        run: |
+          set -euo pipefail
+          carrier='docker.io/library/hello-world@sha256:5e23090353324d887c48ad5e5c56d294eab81588df9605b07d1afe895f9cc8f8'
+          work="$RUNNER_TEMP/foliorelay-observer-smoke"
+          rm -rf "$work"
+          mkdir -p "$work"
+          command -v go >/dev/null
+          GO111MODULE=off go test ./tools/foliorelay-observer
+          GO111MODULE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags='-s -w -buildid=' \
+            -o "$work/foliorelay-observer" ./tools/foliorelay-observer
+          test -s "$work/foliorelay-observer"
+          test "$(stat -c%s "$work/foliorelay-observer")" -le 6291456
+          readelf -l "$work/foliorelay-observer" >"$RUNNER_TEMP/foliorelay-observer-elf.txt"
+          if grep -q 'INTERP' "$RUNNER_TEMP/foliorelay-observer-elf.txt"; then
+            echo "observer binary unexpectedly has a dynamic interpreter" >&2
+            exit 1
+          fi
+          port="$(python3 - <<'PY'
+          import socket
+          s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
+          PY
+          )"
+          docker pull "$carrier" >/dev/null
+          test "$(docker image inspect "$carrier" --format '{{.Size}}')" -le 1048576
+          docker rm -f foliorelay-observer-smoke >/dev/null 2>&1 || true
+          trap 'docker rm -f foliorelay-observer-smoke >/dev/null 2>&1 || true' EXIT
+          docker run -d --name foliorelay-observer-smoke \
+            --network host \
+            --read-only \
+            --user 65534:65534 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --mount "type=bind,src=$work/foliorelay-observer,dst=/observer/foliorelay-observer,readonly" \
+            --entrypoint /observer/foliorelay-observer \
+            "$carrier" \
+            --uuid urn:uuid:01234567-89ab-4def-8123-456789abcdef \
+            --txt-uuid 01234567-89ab-4def-8123-456789abcdef \
+            --expected-host intentionally-absent.local \
+            --expected-ipp-port 8634 \
+            --port "$port" \
+            --seconds 1 >/dev/null
+          python3 - "$port" <<'PY'
+          import json, sys, time, urllib.request
+          url=f"http://127.0.0.1:{sys.argv[1]}/"
+          deadline=time.monotonic()+15
+          last=None
+          while time.monotonic()<deadline:
+              try:
+                  with urllib.request.urlopen(url,timeout=2) as r:
+                      last=json.load(r)
+                  if last.get("status")=="error":
+                      break
+              except Exception:
+                  pass
+              time.sleep(.5)
+          if not isinstance(last,dict) or last.get("status")!="error":
+              raise SystemExit(f"observer did not expose bounded error result: {last!r}")
+          if "no qualifying _universal FolioRelay mDNS response" not in last.get("error",""):
+              raise SystemExit(f"unexpected observer error: {last!r}")
+          PY
+          test "$(docker inspect -f '{{.State.Running}}' foliorelay-observer-smoke)" = true
+      - name: Verify producer-consumer binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/foliorelay-control"
+          test -s "$root/control.json"
+          test -s "$root/compose.json"
+          jq -e '
+            .schema == "semper-supra.foliorelay-truenas-t6-control/1" and
+            .foundry_ref == "81deb97185760975fd8d3162df42056c77b3c0fd" and
+            .candidate.truenas_version == "25.10.7" and
+            .candidate.control_image == "ghcr.io/sempersupra/foliorelay-control@sha256:d0ba6d1efbed0d9f84b20d374eeb44ee28ab0874a683396e628850f159193cf5" and
+            .candidate.cups_image == "ghcr.io/sempersupra/foliorelay-cups@sha256:0997ad2054ca5e57f34291372aed55f549eee9ff201f171b430436b0655c0814" and
+            .secrets_captured == false
+          ' "$root/control.json" >/dev/null
+          jq -e '
+            (.services | keys | sort) == ["control","cups","discovery"] and
+            .services.discovery.network_mode == "host"
+          ' "$root/compose.json" >/dev/null
+          python3 -m unittest -v tests/test_truenas_t6_foliorelay_control.py
+          bash -n scripts/gha_kvm_truenas_rdte.sh
+          python3 -m py_compile scripts/truenas_middleware_foliorelay_t6_probe.py

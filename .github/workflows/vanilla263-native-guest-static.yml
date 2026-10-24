@@ -1,0 +1,102 @@
+name: Vanilla 26.3 native guest observer and exact receipt cheap gates
+on:
+  pull_request:
+    paths:
+      - 'scripts/truenas_middleware_minecraft_t6_probe.py'
+      - 'scripts/truenas_middleware_collage_readback_p2.py'
+      - 'tests/test_collage_p2_effective_roles.py'
+      - 'scripts/qualify_vanilla263_native_lantern_stage.py'
+      - 'scripts/qualify_vanilla263_native_world_rollback.py'
+      - 'tests/test_vanilla263_native_world_rollback.py'
+      - 'tests/test_vanilla263_native_rollback_receipt.py'
+      - 'scripts/qualify_native_vanilla263_mineflayer_causal.py'
+      - 'scripts/qualify_native_vanilla263_mineflayer_causal.js'
+      - 'tests/test_native_vanilla263_player_guest_receipt.py'
+      - 'tests/test_vanilla263_native_lantern_stage.py'
+      - 'scripts/assert_vanilla263_native_t6_receipt.py'
+      - 'tests/test_truenas_t6_vanilla263_guest.py'
+      - '.github/workflows/vanilla263-native-guest-static.yml'
+      - 'tests/test_vanilla263_t6_guest_routing.py'
+      - 'scripts/gha_kvm_truenas_rdte.sh'
+      - '.github/workflows/gha-kvm-system-rdte.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+
+  real-artifact-source:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Checkout immutable already-qualified real Lantern producer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SupraCraft/mc-server-images
+          ref: 7f888b5829f4e5576d5ce512d86327348c43f01e
+          path: .deps/lantern-producer
+          persist-credentials: false
+      - name: Rebuild and independently accept actual ZIP bytes before paying for guest
+        run: |
+          set -euo pipefail
+          test "$(git -C .deps/lantern-producer rev-parse HEAD)" = 7f888b5829f4e5576d5ce512d86327348c43f01e
+          mkdir -p "$RUNNER_TEMP/lantern-artifact"
+          python3 .deps/lantern-producer/tools/export_core_restoration_datapack_26_3.py \
+            --out "$RUNNER_TEMP/lantern-artifact/lantern-restoration-26.3.zip" \
+            --manifest "$RUNNER_TEMP/lantern-artifact/manifest.json" \
+            --world-id lantern-rdte \
+            --release-id lantern-core-restore-26-3
+          python3 - "$RUNNER_TEMP/lantern-artifact" <<'PY'
+          from pathlib import Path
+          import sys
+          from scripts.qualify_vanilla263_native_lantern_stage import SHA, verify_exact_candidate
+          root=Path(sys.argv[1])
+          content,evidence=verify_exact_candidate(
+            root/"lantern-restoration-26.3.zip", root/"manifest.json")
+          assert evidence["sha256"]==SHA and evidence["size"]==len(content)
+          assert evidence["world"]=="lantern-rdte"
+          assert evidence["target"]=="disposable_native_truenas_25.04.2.6"
+          PY
+      - name: Guest boundary
+        run: echo 'Actual immutable ZIP and manifest validated on hosted runner. No KVM, TrueNAS, stage, player gameplay, or physical APPLY.' >> "$GITHUB_STEP_SUMMARY"
+  adversarial-source:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile exact native observer and independent acceptance oracle
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            scripts/truenas_middleware_minecraft_t6_probe.py \
+            scripts/truenas_middleware_collage_readback_p2.py \
+            scripts/qualify_vanilla263_native_lantern_stage.py \
+            scripts/qualify_vanilla263_native_world_rollback.py \
+            scripts/admit_vanilla263_native_t6_control.py \
+            scripts/assert_vanilla263_native_t6_receipt.py
+          python3 -m py_compile tests/test_truenas_t6_vanilla263_guest.py
+      - name: Native vanilla real guest boundary source and red-blue negatives
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_vanilla263_native_lantern_stage.py
+          python3 -m unittest -v tests/test_vanilla263_native_world_rollback.py
+          python3 -m unittest -v tests/test_vanilla263_native_rollback_receipt.py
+          python3 -m unittest -v tests/test_native_vanilla263_player_guest_receipt.py
+          node --check scripts/qualify_native_vanilla263_mineflayer_causal.js
+          python3 -m unittest -v tests/test_truenas_t6_vanilla263_guest.py
+          python3 -m unittest -v tests/test_collage_p2_effective_roles.py
+          bash -n scripts/gha_kvm_truenas_rdte.sh
+          python3 -m unittest -v tests/test_vanilla263_t6_guest_routing.py
+      - name: Preserve legacy Paper 25.04.1 T6 regression
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_truenas_t6_minecraft_control.py
+          python3 -m unittest -v tests/test_minecraft_t6_receipt_gate.py
+      - name: No guest or physical promotion
+        run: echo 'Cheap exact vanilla26.3 native observer contract only. No KVM guest, no native App and physical TrueNAS APPLY HOLD.' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,190 @@
+"""Exact-source semantics of a disposable offline synthetic player variant.
+
+Static tests intentionally do not claim actual guest isolation or gameplay.
+The canonical Foundry signature is independently checked by existing tests;
+these tests isolate the additional source-only constrained derivation.
+"""
+import copy
+from pathlib import Path
+import sys
+import unittest
+from unittest.mock import patch
+
+ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/"scripts"))
+import qualify_native_vanilla263_loopback_player_overlay as overlay
+
+def baseline():
+    return {
+        "runtime":{"values_template":{
+            "minecraft":{
+                "online_mode":True,"enable_rcon":False,"rcon_password":"",
+                "ops":[],"whitelist":[],"seed":None,
+                "additional_envs":[{"name":k,"value":v}
+                                   for k,v in overlay.OWNER.items()],
+            },
+            "network":{"host_network":False,
+                       "server_port":{"bind_mode":"published","port_number":25565}},
+            "storage":{"additional_storage":[{"mount_path":"/data/world",
+                         "host_path_config":{"path":"/opt/tests/collage-vanilla-263-world"}}]},
+        }},
+    }
+
+def admission():
+    return {
+        "schema":overlay.PROFILE,
+        "rdte_disposable":True,
+        "experiment":"offline-mineflayer-player-causal",
+        "physical_truenas_apply":"HOLD",
+        "operational_selection":False,
+        "external_ingress":False,
+        "qemu_network":"user",
+        "host_forward":overlay.HOST_FORWARD,
+        "guest_target":"TrueNAS-"+overlay.TARGET,
+        "authorized_bot":"SupraCraftProbe",
+    }
+
+def derive(control=None, request=None):
+    ctl=control if control is not None else baseline()
+    req=request if request is not None else admission()
+    with patch.object(overlay,"verify",return_value={"classification":"SOURCE_CONTROL_READY_GUEST_NOT_DISPATCHED"}) as check:
+        result=overlay.derive(ctl,req)
+        check.assert_called_once_with(ctl)
+    return result
+
+class OverlaySourceTests(unittest.TestCase):
+    def test_synthetic_player_overlay_preserves_operational_control_and_is_source_only(self):
+        before=baseline()
+        frozen=copy.deepcopy(before)
+        result=derive(before,admission())
+        self.assertEqual(before,frozen)
+        self.assertEqual(result["classification"],"SOURCE_ONLY_DISPOSABLE_PLAYER_VARIANT")
+        self.assertEqual(result["immutable_base_control_sha256"],overlay.CONTROL_SHA)
+        minecraft=result["values"]["minecraft"]
+        self.assertIs(minecraft["online_mode"],False)
+        self.assertEqual(minecraft["ops"],[overlay.BOT_OFFLINE_UUID])
+        self.assertNotIn(overlay.BOT_NAME,minecraft["ops"])
+        self.assertFalse(minecraft["enable_rcon"])
+        self.assertEqual(minecraft["rcon_password"],"")
+        self.assertFalse(minecraft["whitelist"])
+        self.assertNotIn("seed",minecraft)
+        self.assertEqual(result["values"]["network"]["server_port"]["port_number"],25580)
+        self.assertEqual(result["values"]["storage"]["additional_storage"][0]["host_path_config"]["path"],overlay.WORLD)
+        self.assertEqual({x["name"]:x["value"] for x in minecraft["additional_envs"]},overlay.OWNER)
+        for field in ("online_account_auth_qualified","in_guest_bot_connected",
+                      "datapack_effect_in_native_guest_qualified",
+                      "collage_managed_deployment","operational_selection"):
+            self.assertIs(result[field],False)
+        self.assertEqual(result["physical_truenas_apply"],"HOLD")
+        self.assertEqual(len(result["derived_runtime_values_sha256"]),64)
+
+    def test_offline_uuid_v3_operator_is_not_an_unresolvable_mojang_name(self):
+        import hashlib, uuid
+        expected=str(uuid.UUID(bytes=hashlib.md5(
+            ("OfflinePlayer:" + overlay.BOT_NAME).encode()).digest(), version=3))
+        self.assertEqual(expected,"f4469b77-cc14-3c07-95f3-0b0c3f151bd2")
+        self.assertEqual(expected,overlay.BOT_OFFLINE_UUID)
+        self.assertEqual(derive()["values"]["minecraft"]["ops"],[expected])
+        self.assertEqual(derive()["bot"],overlay.BOT_NAME)
+        self.assertFalse(derive()["values"]["minecraft"]["online_mode"])
+        self.assertFalse(derive()["values"]["minecraft"]["enable_rcon"])
+
+    def test_read_only_native_startup_census_never_rediscloses_metadata(self):
+        sample={
+            "state":"DEPLOYING",
+            "name":"private-site",
+            "active_workloads":{"container_details":[
+                {"state":"starting","id":"opaque-secret-container",
+                 "image":"private.registry/password"},
+                {"state":"created","port_config":[{"host_ip":"192.0.2.10"}]},
+                {"state":"exited","volume_mounts":[{"source":"/secret/path"}]},
+            ]},
+        }
+        report=overlay.redacted_native_startup_census(sample)
+        self.assertEqual(report["native_app_state"],"DEPLOYING")
+        self.assertEqual(report["container_states"]["starting"],1)
+        self.assertEqual(report["container_states"]["created"],1)
+        self.assertEqual(report["container_states"]["exited"],1)
+        self.assertFalse(report["container_census_truncated"])
+        self.assertNotIn("opaque-secret",str(report))
+        self.assertNotIn("password",str(report))
+        self.assertNotIn("192.0.2.10",str(report))
+        self.assertNotIn("/secret",str(report))
+        self.assertEqual(overlay.redacted_native_startup_census(None)["native_app_state"],
+                         "UNKNOWN")
+        self.assertEqual(overlay.redacted_native_startup_census(
+            {"state":"UNKNOWN", "active_workloads":{"container_details":[]}}
+        )["native_app_state"],"UNKNOWN")
+        self.assertTrue(overlay.redacted_native_startup_census(
+            {"state":"STOPPED", "active_workloads":{"container_details":[
+                {"state":"running"}]*17}}
+        )["container_census_truncated"])
+
+    def test_runner_owned_ephemeral_forward_matches_native_harness(self):
+        req=admission()
+        req["host_forward"]="tcp:127.0.0.1:45451-:25580"
+        result=derive(baseline(),req)
+        self.assertEqual(result["host_forward"],req["host_forward"])
+        self.assertEqual(result["host_port"],45451)
+        self.assertEqual(result["network"],"QEMU_USER_LOOPBACK_ONLY_SOURCE_REQUIREMENT")
+        self.assertFalse(result["in_guest_bot_connected"])
+        # A source parser does not prove QEMU listener ownership or a guest player.
+        for forbidden in (
+            "tcp:0.0.0.0:45451-:25580",
+            "tcp:192.168.1.1:45451-:25580",
+            "tcp:[::1]:45451-:25580",
+            "tcp:127.0.0.1:45451-:25565",
+            "tcp:127.0.0.1:22-:25580",
+            "tcp:127.0.0.1:01025-:25580",
+            "tcp:127.0.0.1:65536-:25580",
+            "tcp:127.0.0.1:45451-:25580,hostfwd=other",
+            "tcp:127.0.0.1:45451-:25580\\nINJECT",
+        ):
+            bad=admission()
+            bad["host_forward"]=forbidden
+            with self.subTest(forbidden=forbidden),self.assertRaises(overlay.Refused):
+                derive(baseline(),bad)
+
+    def test_all_unadmitted_exposure_and_target_variants_refused(self):
+        for key,bad in (
+            ("rdte_disposable",False),
+            ("external_ingress",True),
+            ("qemu_network","tap"),
+            ("host_forward","tcp:0.0.0.0:25580-:25580"),
+            ("host_forward","tcp:127.0.0.1:25580-:25565"),
+            ("guest_target","TrueNAS-25.04.1"),
+            ("authorized_bot","human-owner"),
+            ("physical_truenas_apply","APPLY"),
+            ("operational_selection",True),
+            ("experiment","live-minecraft"),
+        ):
+            q=admission()
+            q[key]=bad
+            with self.subTest(key=key),self.assertRaises(overlay.Refused):
+                derive(baseline(),q)
+        q=admission()
+        q["allow_admin"]=True
+        with self.assertRaises(overlay.Refused):
+            derive(baseline(),q)
+
+    def test_canonical_baseline_cannot_arrive_already_degraded(self):
+        for section,key,bad in (
+            ("minecraft","online_mode",False),
+            ("minecraft","enable_rcon",True),
+            ("minecraft","ops",["OtherUser"]),
+            ("minecraft","whitelist",["Anybody"]),
+            ("network","host_network",True),
+        ):
+            c=baseline()
+            c["runtime"]["values_template"][section][key]=bad
+            with self.subTest(section=section,key=key),self.assertRaises(overlay.Refused):
+                derive(c,admission())
+
+    def test_real_canonical_signature_gate_called_not_bypassed(self):
+        original=baseline()
+        with patch.object(overlay,"verify",side_effect=overlay.Refused("CANONICAL_CONTROL_SHA_DRIFT")):
+            with self.assertRaisesRegex(overlay.Refused,"CANONICAL_CONTROL_SHA_DRIFT"):
+                overlay.derive(original,admission())
+
+if __name__=="__main__":
+    unittest.main()
