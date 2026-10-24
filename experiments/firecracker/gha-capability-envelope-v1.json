@@ -1,0 +1,221 @@
+{
+  "schema": "firecracker-gha-capability-envelope/v1",
+  "authority": "SemperSupra/agent-dispatch-private#287",
+  "purpose": "Empirical placement facts for Firecracker on GitHub-hosted runners; not automatic placement authority.",
+  "portable_baseline": {
+    "firecracker_version": "v1.17.0",
+    "guest_kernel_version": "6.18.48",
+    "guest_userspace": "Ubuntu 24.04 x86_64 squashfs",
+    "architecture": "x86_64"
+  },
+  "runner_fit": {
+    "ubuntu-24.04": {
+      "status": "CORE_SUPPORTED",
+      "architecture": "x86_64",
+      "kvm_api_version": 12,
+      "evidence_run": 35883807656,
+      "notes": "Full fixed F3 useful-work guest passed."
+    },
+    "ubuntu-26.04": {
+      "status": "DEEPLY_CHARACTERIZED",
+      "architecture": "x86_64",
+      "kvm_api_version": 12,
+      "evidence_run": 35883807656,
+      "notes": "Primary follow-on jailer/resource/userspace/snapshot qualification venue."
+    },
+    "ubuntu-slim": {
+      "status": "BLOCKED_PREREQUISITE",
+      "architecture": "x86_64",
+      "reason": "/dev/kvm absent",
+      "evidence_run": 35883807656
+    },
+    "ubuntu-24.04-arm": {
+      "status": "BLOCKED_PREREQUISITE",
+      "architecture": "aarch64",
+      "reason": "/dev/kvm absent",
+      "evidence_run": 35883807656
+    },
+    "ubuntu-26.04-arm": {
+      "status": "BLOCKED_PREREQUISITE",
+      "architecture": "aarch64",
+      "reason": "/dev/kvm absent",
+      "evidence_run": 35883807656
+    }
+  },
+  "qualified_capabilities": {
+    "jailer": {
+      "status": "SUPPORTED",
+      "properties": [
+        "ephemeral_uid_gid_drop",
+        "mount_namespace",
+        "new_pid_namespace",
+        "firecracker_seccomp_filter",
+        "rlimit_nofile",
+        "rlimit_fsize",
+        "cgroup_v2_memory_max"
+      ],
+      "concurrency_points": [
+        1,
+        2,
+        4
+      ],
+      "evidence_run": 35852572661
+    },
+    "cpu": {
+      "status": "RESOURCE_CHARACTERIZED",
+      "max_configured_vcpus_observed": 32,
+      "effective_host_logical_cpus_observed": 4,
+      "guidance": "Treat vCPU counts beyond host logical CPU count as oversubscribed; configured vCPU is not available physical compute."
+    },
+    "memory": {
+      "status": "RESOURCE_CHARACTERIZED",
+      "max_active_working_set_mib_observed": 8192,
+      "evidence_run": 35853352842,
+      "guidance": "Venue observation only; not sovereign sizing guidance."
+    },
+    "writable_storage": {
+      "status": "SUPPORTED",
+      "mechanism": "virtio-block ext4 scratch",
+      "persisted_write_read_bytes": 67108864,
+      "evidence_run": 35882428970
+    },
+    "block_rate_limit": {
+      "status": "SUPPORTED",
+      "configured_bytes_per_second": 16777216,
+      "matched_write_fsync_slowdown_ratio": 15.7446,
+      "evidence_run": 35883807481
+    },
+    "bounded_network": {
+      "status": "SUPPORTED",
+      "mechanism": "TAP + host iptables-nft policy",
+      "allowed": [
+        "bounded outbound DNS/HTTPS where explicitly configured"
+      ],
+      "denied": [
+        "host INPUT except explicitly admitted broker port",
+        "private ranges",
+        "link-local/metadata ranges"
+      ],
+      "evidence_run": 35885788404
+    },
+    "normal_userspace": {
+      "status": "SUPPORTED",
+      "python_version": "3.12.3",
+      "tools_observed": [
+        "sh",
+        "curl",
+        "fio",
+        "iproute2",
+        "strace"
+      ],
+      "rootfs_mode": "read-only",
+      "scratch_mode": "separate writable ext4",
+      "evidence_run": 35886922626
+    },
+    "composed_jailed_connected_userspace": {
+      "status": "SUPPORTED",
+      "lifecycle_ms_observed": 2698.322,
+      "evidence_run": 35955263741
+    },
+    "representative_agent_dispatch_workload": {
+      "status": "SUPPORTED",
+      "workload": "sealed_public_execution contract tests",
+      "tests_passed": 9,
+      "native_test_ms_observed": 105.314,
+      "guest_test_ms_observed": 237.681,
+      "full_jailed_lifecycle_ms_observed": 1181.012,
+      "evidence_run": 35955796457,
+      "interpretation": "For very short trusted work, lifecycle cost dominates; isolation must earn the added machinery."
+    },
+    "minimum_authority_inference_broker": {
+      "status": "SUPPORTED",
+      "provider_credential_in_guest": false,
+      "generic_proxy": false,
+      "accepted_calls": 1,
+      "replay_rejected": 1,
+      "evidence_run": 35958097407
+    },
+    "same_host_state_handoff": {
+      "status": "SUPPORTED",
+      "semantics": "pause -> full snapshot -> terminate source -> fresh Firecracker -> load -> resume",
+      "source_never_resumed_after_snapshot": true
+    },
+    "warm_userspace_restore": {
+      "status": "SUPPORTED",
+      "cold_boot_to_ready_ms_observed": 709.196,
+      "load_start_to_first_output_ms_observed": 72.694,
+      "cold_over_warm_ratio_observed": 9.7559,
+      "snapshot_memory_bytes": 536870912,
+      "snapshot_create_ms_observed": 376.203,
+      "evidence_run": 35962047767
+    },
+    "reusable_snapshot_raw_state": {
+      "status": "CHARACTERIZED_WITH_HAZARD",
+      "application_session_duplicated": true,
+      "python_prng_state_duplicated": true,
+      "kernel_urandom_unique": true,
+      "secrets_output_unique": true,
+      "vmfork_crng_reseed_observed": true,
+      "evidence_run": 35962360077
+    },
+    "reusable_snapshot_reset_barrier": {
+      "status": "SUPPORTED",
+      "rule": [
+        "snapshot only at TEMPLATE_READY barrier",
+        "never resume source after template snapshot",
+        "on every clone obtain fresh kernel randomness",
+        "reseed application PRNG state",
+        "regenerate workcell/session identity",
+        "regenerate ephemeral capabilities",
+        "accept work only after reset completes"
+      ],
+      "clone1_load_start_to_reset_ms_observed": 81.278,
+      "clone2_load_start_to_reset_ms_observed": 93.156,
+      "evidence_run": 35962683812
+    }
+  },
+  "gates": {
+    "real_inference_backend": {
+      "status": "NOT_REACHED",
+      "reason": "No already-authorized host-side provider/backend binding established on the public Agent Dispatch execution surface.",
+      "prohibited_shortcuts": [
+        "do not inject reusable provider credential into guest",
+        "do not create broad generic proxy merely to pass experiment",
+        "do not invent new credential store/provider account in this campaign"
+      ]
+    },
+    "cross_runner_snapshot_restore": {
+      "status": "COMPATIBILITY_GATED",
+      "reason": "Bounded GHA samples landed on incompatible Intel/AMD host CPU families; transport passed but restore was correctly withheld."
+    },
+    "arm64_gha_firecracker": {
+      "status": "BLOCKED_PREREQUISITE",
+      "reason": "GitHub-hosted ARM64 runners did not expose /dev/kvm; not a Firecracker AArch64 limitation."
+    }
+  },
+  "placement_hints": {
+    "strong_fit": [
+      "generated_or_unfamiliar_linux_code",
+      "candidate_requires_separate_guest_kernel",
+      "destructive_disposable_linux_workcell",
+      "normal_python_cli_work_inside_stronger_kernel_boundary",
+      "bounded_stateful_handoff_or_checkpoint",
+      "prewarmed_userspace_when_reset_barrier_is_applicable",
+      "bounded_guest_side_harness_via_minimum_authority_broker"
+    ],
+    "weak_fit": [
+      "tiny_trusted_work_without_material_isolation_requirement",
+      "work_already_satisfied_by_native_or_docker_with_same_requirements",
+      "host_gpu_usb_fpga_or_arbitrary_device_access",
+      "windows_or_macos_native_workloads",
+      "arm64_github_hosted_runner_while_kvm_absent"
+    ]
+  },
+  "invariants": [
+    "GHA timing and capacity observations are venue-specific RDTE evidence, not sovereign capacity forecasts.",
+    "Tool access does not imply placement or delegation authority.",
+    "Do not promote a generic microVM placement capability solely because Firecracker boots.",
+    "Provider credentials remain outside guest unless a separately qualified minimum-authority mechanism explicitly requires otherwise.",
+    "Snapshot compatibility must be rechecked at destination immediately before restore."
+  ]
+}

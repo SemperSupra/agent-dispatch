@@ -1,0 +1,17 @@
+{
+  "schema": "firecracker-guest-userspace/v1",
+  "source": "official-firecracker-ci",
+  "firecracker_ci_prefix": "firecracker-ci/20260923-6f82ac4cf331-0/",
+  "architecture": "x86_64",
+  "distribution": "ubuntu",
+  "distribution_version": "24.04",
+  "rootfs_format": "squashfs",
+  "rootfs_key": "firecracker-ci/20260923-6f82ac4cf331-0/x86_64/ubuntu-24.04.squashfs",
+  "rootfs_url": "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20260923-6f82ac4cf331-0/x86_64/ubuntu-24.04.squashfs",
+  "rootfs_sha256": "9820d05b360b5838bfdf3c6d5bc6dc71adfa966075dc7fcd824172134746be21",
+  "rootfs_size_bytes": 108204032,
+  "kernel_companion_version": "6.18.48",
+  "discovered_by_run": 35886180619,
+  "authority": "SemperSupra/agent-dispatch-private#287",
+  "purpose": "Pinned normal Linux userspace for U1 runtime/harness feasibility. Contains Firecracker CI Ubuntu tooling including python3-minimal, curl, fio, strace and iproute2."
+}
