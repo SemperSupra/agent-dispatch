@@ -6,7 +6,9 @@ on:
       - experiment/book2epub-qemu-gateway-reachability-20261023
     paths:
       - 'scripts/book2epub_g1a_guest_observe.py'
+      - 'scripts/book2epub_g1a_middleware_readonly.py'
       - 'tests/test_book2epub_g1a_guest_observe.py'
+      - 'tests/test_book2epub_g1a_middleware_readonly.py'
       - '.github/workflows/book2epub-g1a-guest-source.yml'
   workflow_dispatch:
 
@@ -28,6 +30,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Compile observer without guest dependencies
-        run: python3 -m py_compile scripts/book2epub_g1a_guest_observe.py
+        run: python3 -m py_compile scripts/book2epub_g1a_guest_observe.py scripts/book2epub_g1a_middleware_readonly.py
       - name: Run negative and positive source-only tests
-        run: python3 -m unittest discover -s tests -p test_book2epub_g1a_guest_observe.py -v
+        run: python3 -m unittest discover -s tests -p 'test_book2epub_g1a_*.py' -v
