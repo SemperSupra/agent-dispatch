@@ -1,0 +1,33 @@
+name: Book2EPUB G1a guest read-only observer (source only)
+
+on:
+  pull_request:
+    branches:
+      - experiment/book2epub-qemu-gateway-reachability-20261023
+    paths:
+      - 'scripts/book2epub_g1a_guest_observe.py'
+      - 'tests/test_book2epub_g1a_guest_observe.py'
+      - '.github/workflows/book2epub-g1a-guest-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book2epub-g1a-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-guest-source-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR commit without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Compile observer without guest dependencies
+        run: python3 -m py_compile scripts/book2epub_g1a_guest_observe.py
+      - name: Run negative and positive source-only tests
+        run: python3 -m unittest discover -s tests -p test_book2epub_g1a_guest_observe.py -v
