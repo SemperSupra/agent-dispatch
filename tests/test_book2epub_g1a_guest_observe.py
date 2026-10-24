@@ -41,6 +41,22 @@ class GuestObserverTests(unittest.TestCase):
         self.assertTrue(v["observations"]["gateway"]["auth_required"])
         self.assertFalse(v["engine_registry_trust_proven"])
 
+    def test_canonical_and_legacy_target_version_variants(self):
+        for version in ('"TrueNAS-25.04.2.6"', '"TrueNAS-SCALE-25.04.2.6"',
+                        '"25.04.2.6"'):
+            with self.subTest(version=version):
+                v = m.observe(self.SESSION, self.runner(version=version),
+                              lambda: {"reachable": True, "http_status": 200, "auth_required": False})
+                self.assertTrue(v["observations"]["version_match"])
+                self.assertEqual(v["classification"], "OBSERVED_NETWORK_ONLY_G1B_UNVERIFIED")
+                self.assertFalse(v["engine_registry_trust_proven"])
+
+    def test_build_suffix_not_the_pinned_exact_version(self):
+        v = m.observe(self.SESSION, self.runner(version='"TrueNAS-25.04.2.6+unqualified"'),
+                      lambda: self.fail("must not contact gateway after version drift"))
+        self.assertEqual(v["classification"], "BLOCKED_OBSERVATION")
+        self.assertFalse(v["observations"]["version_match"])
+
     def test_wrong_version_refuses_before_docker(self):
         def run(cmd):
             self.assertEqual(cmd[:2], ["midclt", "call"])
