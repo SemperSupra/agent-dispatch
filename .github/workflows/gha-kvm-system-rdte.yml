@@ -337,9 +337,9 @@ jobs:
   foundry-minecraft-vanilla263-t6-control:
     needs: [changes, contract]
     if: needs.contract.result == 'success' && needs.changes.outputs.truenas == 'true' && needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_version == '25.04.2.6'
-    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-vanilla-263-11531-t6-control.yml@5ee204df205edfd531304441fd1a6a24004557b1
+    uses: SemperSupra/truenas-app-foundry/.github/workflows/export-minecraft-vanilla-263-11533-t6-control.yml@dba249743a14fa716f728cc1c98af013de2eb1e5
     with:
-      foundry_ref: 5ee204df205edfd531304441fd1a6a24004557b1
+      foundry_ref: dba249743a14fa716f728cc1c98af013de2eb1e5
       target_version: "25.04.2.6"
     permissions:
       contents: read
@@ -579,7 +579,7 @@ jobs:
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: minecraft-vanilla263-truenas-250426-11531-signed-source-candidate
+          name: minecraft-vanilla263-truenas-250426-11533-signed-source-candidate
           path: ${{ runner.temp }}/gha-kvm-system-rdte/foundry-control
       - name: Independently verify immutable native vanilla control pre-KVM
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
@@ -646,7 +646,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SupraCraft/collage
-          ref: b9256d6ec0dbac43be2f5a136103b6e3512ee2ec
+          ref: 5ce9ed7c1be814318b435517191622903146cdca
           path: .deps/collage-source
           persist-credentials: false
       - name: Prepare pinned scoped native vanilla COLLAGE Go read-only observer
@@ -659,7 +659,7 @@ jobs:
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263' && needs.changes.outputs.truenas_collage_readback == 'true'
         run: |
           set -euo pipefail
-          test "$(git -C .deps/collage-source rev-parse HEAD)" = b9256d6ec0dbac43be2f5a136103b6e3512ee2ec
+          test "$(git -C .deps/collage-source rev-parse HEAD)" = 5ce9ed7c1be814318b435517191622903146cdca
           (cd .deps/collage-source &&
             python3 -m unittest -v tests.test_collage_native_readback tests.test_consume_vanilla_datapack_source)
           (cd .deps/collage-source/tools/truenas-readonly-probe &&
@@ -750,12 +750,12 @@ jobs:
           set -euo pipefail
           python3 -m unittest -v tests.test_collage_catalog_preflight
           python3 scripts/check_collage_catalog_preflight.py --expected 1.15.30
-      - name: Refuse retired native vanilla 1.15.30; require current pinned 1.15.31
+      - name: Refuse retired native vanilla 1.15.30; require current pinned 1.15.33
         if: needs.changes.outputs.truenas_rung == 't6' && needs.changes.outputs.truenas_t6_product == 'minecraft-vanilla-263'
         run: |
           set -euo pipefail
           python3 -m unittest -v tests.test_collage_catalog_preflight
-          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.31
+          python3 scripts/check_collage_catalog_preflight.py --expected 1.15.33
 
       - name: Set up immutable 26.3 experimental client toolchain for native G4
         if: needs.changes.outputs.truenas_native_offline_player == 'true'
@@ -836,7 +836,7 @@ jobs:
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "collage-native-paper" ]]; then
                 foundry_commit="403321031b6d4e66aa64a8299fd7621eee290b0d"
               elif [[ "${{ needs.changes.outputs.truenas_t6_product }}" == "minecraft-vanilla-263" ]]; then
-                foundry_commit="5ee204df205edfd531304441fd1a6a24004557b1"
+                foundry_commit="dba249743a14fa716f728cc1c98af013de2eb1e5"
               else
                 foundry_commit="4ba12f4a870f9af8a667056f1e2cc32f80f8e2ba"
               fi

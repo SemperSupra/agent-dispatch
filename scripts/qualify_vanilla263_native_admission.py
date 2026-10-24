@@ -16,7 +16,7 @@ REQUEST="gha-kvm-truenas-run-request/v1"
 VERSION="25.04.2.6"
 IMAGE=("ghcr.io/itzg/minecraft-server:2026.10.0-java25@sha256:"
        "5a2ab74ae179c11e2dbbce67f307cdcf2c1257b3abb0f654d3a310b3d8ea57da")
-APPS="95b0cc78e75fcd4b128f4ef2f8428034d981f7c2"
+APPS="0f586ab56437cd5e29bf1b16d603ec1c48bbbd4e"
 BLOB="631467044411c96a0fe6d361688b99a794f07c80"
 MIDDLEWARE="244b717370fe35fb9eefc3096acfbc25f12b57b6"
 ISSUE=627
@@ -77,7 +77,7 @@ def check(request:dict, control:dict, registry:dict)->dict:
             "TRUENAS_TARGET_PROFILE_DRIFT")
     require(s.get("apps_commit")==APPS and
             s.get("catalog_app")=="community/minecraft" and
-            s.get("catalog_version")=="1.15.31" and
+            s.get("catalog_version")=="1.15.33" and
             s.get("image_reference")==IMAGE and
             type(s.get("source_compose_sha256")) is str and
             re.fullmatch("[a-f0-9]{64}",s["source_compose_sha256"]),
@@ -86,7 +86,7 @@ def check(request:dict, control:dict, registry:dict)->dict:
             runtime.get("minecraft_protocol")==777 and
             runtime.get("java_version")==25 and
             runtime.get("image_selector")=="j25_image" and
-            runtime.get("catalog_version_candidate")=="1.15.31" and
+            runtime.get("catalog_version_candidate")=="1.15.33" and
             runtime.get("app_name")=="rdte-t6-minecraft-vanilla-263" and
             runtime.get("required_independent_world_dataset")==
             "rdtepool/minecraft-vanilla-263-t6-world",

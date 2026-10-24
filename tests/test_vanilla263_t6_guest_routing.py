@@ -20,13 +20,13 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('|| "$T6_PRODUCT" == "minecraft-vanilla-263"',HARNESS)
 
     def test_producer_signer_and_fresh_exact_artifact_seam(self):
-        pin="5ee204df205edfd531304441fd1a6a24004557b1"
+        pin="dba249743a14fa716f728cc1c98af013de2eb1e5"
         self.assertIn("foundry-minecraft-vanilla263-t6-control:",WORKFLOW)
         self.assertIn(
-            "export-minecraft-vanilla-263-11531-t6-control.yml@"+pin,WORKFLOW)
+            "export-minecraft-vanilla-263-11533-t6-control.yml@"+pin,WORKFLOW)
         self.assertIn("foundry_ref: "+pin,WORKFLOW)
         self.assertIn(
-            "name: minecraft-vanilla263-truenas-250426-11531-signed-source-candidate",WORKFLOW)
+            "name: minecraft-vanilla263-truenas-250426-11533-signed-source-candidate",WORKFLOW)
         self.assertIn("scripts/admit_vanilla263_native_t6_control.py",WORKFLOW)
         self.assertIn('foundry_commit="'+pin+'"',WORKFLOW)
         self.assertIn(
@@ -37,7 +37,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("Checkout independently qualified vanilla26.3 protocol777 status oracle",WORKFLOW)
         self.assertIn("4df9fbbfea0ae0e824719db367bd551349a86378",WORKFLOW)
         self.assertIn("python3 scripts/assert_vanilla263_native_t6_receipt.py",WORKFLOW)
-        self.assertIn("--product-profile vanilla263 --native-catalog-profile 1.15.31",HARNESS)
+        self.assertIn("--product-profile vanilla263 --native-catalog-profile 1.15.33",HARNESS)
         self.assertIn('"minecraft_protocol": 777',HARNESS)
         self.assertIn('"minecraft_version": "26.3"',HARNESS)
         self.assertIn('"rdte-t6-minecraft-vanilla-263"',HARNESS)
@@ -52,7 +52,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertEqual(current["rung"],"t6")
         self.assertEqual(current["authority_issue"],423)
         self.assertEqual(current["consumer_authority_issue"],627)
-        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4o-022-job-bound-single-use-anvil-three-checkpoint")
+        self.assertEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4p-023-native-11533-anvil-three-checkpoint")
         self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4i-016-backend-anvil-three-checkpoint")
         self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4j-017-backend-phase-anvil-three-checkpoint")
         self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4k-018-parsed-native-anvil-three-checkpoint")
@@ -60,6 +60,8 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("OP4L-019 permanently CONSUMED",current["purpose"])
         self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4m-020-namespaced-overworld-anvil-three-checkpoint")
         self.assertIn("OP4M-020 permanently CONSUMED",current["purpose"])
+        self.assertNotEqual(current["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4o-022-job-bound-single-use-anvil-three-checkpoint")
+        self.assertIn("OP4O-022 permanently CONSUMED",current["purpose"])
         self.assertIn("core.download",current["purpose"])
         self.assertIn("single-use",current["purpose"])
         self.assertIn("dimensions/minecraft/overworld/region/r.0.0.mca",current["purpose"])
@@ -67,10 +69,10 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("permanently CONSUMED",current["purpose"])
         self.assertIn("OP4J-017", current["purpose"])
         self.assertIn("permanently consumed", current["purpose"])
-        self.assertIn("vanilla263-11531", current["purpose"])
+        self.assertIn("vanilla263-11533", current["purpose"])
         self.assertIn("OP4I-016",current["purpose"])
         self.assertIn("permanently CONSUMED",current["purpose"])
-        self.assertIn("App1.15.31",current["purpose"])
+        self.assertIn("App1.15.33",current["purpose"])
         self.assertEqual(current["consumer_authority_issue"],627)
         self.assertTrue(all(current[k] is True for k in
             ("collage_readback","lantern_stage","native_world_rollback",
@@ -91,16 +93,16 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn('--vanilla-collage-readback',WORKFLOW)
         self.assertIn('needs.changes.outputs.truenas_collage_readback',WORKFLOW)
         self.assertIn('--require-collage-readback',WORKFLOW)
-        self.assertIn('ref: b9256d6ec0dbac43be2f5a136103b6e3512ee2ec',WORKFLOW)
+        self.assertIn('ref: 5ce9ed7c1be814318b435517191622903146cdca',WORKFLOW)
         self.assertIn('[[ "$truenas_collage_readback" == "true" ]]',WORKFLOW)
         self.assertIn('"$T6_PRODUCT" == "minecraft-vanilla-263"',HARNESS)
         self.assertIn('VANILLA_COLLAGE_READBACK=false',HARNESS)
-        self.assertIn('--collage-source-ref "b9256d6ec0dbac43be2f5a136103b6e3512ee2ec"',HARNESS)
+        self.assertIn('--collage-source-ref "5ce9ed7c1be814318b435517191622903146cdca"',HARNESS)
         self.assertIn('NATIVE_READBACK_ARGS=()',HARNESS)
         self.assertIn('"${NATIVE_READBACK_ARGS[@]}"',HARNESS)
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         self.assertIs(request.get("collage_readback"),True)
-        self.assertEqual(request["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4o-022-job-bound-single-use-anvil-three-checkpoint")
+        self.assertEqual(request["request_id"],"tn-25-04-2-6-t6-vanilla-263-op4p-023-native-11533-anvil-three-checkpoint")
         self.assertEqual(request["product"],"minecraft-vanilla-263")
         self.assertEqual(request["version"],"25.04.2.6")
         self.assertNotIn("--vanilla-collage-readback",
@@ -135,7 +137,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
     def test_native_rollback_requires_exact_unique_disposable_request_and_g2(self):
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         self.assertEqual(request["request_id"],
-                         "tn-25-04-2-6-t6-vanilla-263-op4o-022-job-bound-single-use-anvil-three-checkpoint")
+                         "tn-25-04-2-6-t6-vanilla-263-op4p-023-native-11533-anvil-three-checkpoint")
         self.assertIs(request.get("native_world_rollback"),True)
         self.assertIs(request.get("collage_readback"),True)
         self.assertIs(request.get("lantern_stage"),True)
@@ -155,7 +157,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         # 012 is consumed; source qualification of G4 cannot replay it.
         self.assertEqual(request["request_id"],
-                         "tn-25-04-2-6-t6-vanilla-263-op4o-022-job-bound-single-use-anvil-three-checkpoint")
+                         "tn-25-04-2-6-t6-vanilla-263-op4p-023-native-11533-anvil-three-checkpoint")
         self.assertIs(request.get("native_offline_player"),True)
         self.assertIn("truenas_native_offline_player=false",WORKFLOW)
         self.assertIn("(.native_offline_player // false)",WORKFLOW)
@@ -179,7 +181,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         request=json.loads((ROOT/"config/truenas-rdte-run-request.json").read_text())
         self.assertIs(request.get("native_backend_region"), True)
         self.assertEqual(request["request_id"],
-                         "tn-25-04-2-6-t6-vanilla-263-op4o-022-job-bound-single-use-anvil-three-checkpoint")
+                         "tn-25-04-2-6-t6-vanilla-263-op4p-023-native-11533-anvil-three-checkpoint")
         for needle in ("truenas_native_backend_region=false",
                        "(.native_backend_region // false)",
                        "truenas_native_backend_region=$truenas_native_backend_region",
@@ -220,7 +222,7 @@ class TestVanilla263GuestRouting(unittest.TestCase):
         self.assertIn("cancel-in-progress: false",WORKFLOW)
         # Exact accepted source consumer must refuse a wrong Foundry SHA
         from scripts.admit_vanilla263_native_t6_control import CONTROL_SHA
-        self.assertEqual(CONTROL_SHA,"59516bbbcb1750af6f0cb1c624756f08113a070acc11c60affe94d2bbd8d8dd5")
+        self.assertEqual(CONTROL_SHA,"68c65bc601a5df9dbc9196eed88673f57c702452db91b9bd797dc5fd65b8fef8")
 
 if __name__=="__main__":
     unittest.main()

@@ -183,7 +183,7 @@ def configure_exact_vanilla263() -> None:
     MC_IMPLEMENTATION, MC_STATUS_NAME_CONTRACT = "vanilla", "vanilla_exact"
     VANILLA263 = True
     CATALOG_PROFILES = dict(CATALOG_PROFILES)
-    CATALOG_PROFILES["1.15.31"] = {"apps_commit": APPS_REF, "image": OCI}
+    CATALOG_PROFILES["1.15.33"] = {"apps_commit": APPS_REF, "image": OCI}
 
 
 class MinecraftT6Error(RuntimeError):
@@ -233,7 +233,7 @@ def canonical_sha256(doc: dict) -> str:
 def load_control(path: pathlib.Path, expected_commit: str, catalog_version: str = "1.15.29") -> dict:
     if VANILLA263:
         from admit_vanilla263_native_t6_control import verify
-        if catalog_version != "1.15.31":
+        if catalog_version != "1.15.33":
             raise MinecraftT6Error("vanilla263 exact native catalog version refused")
         try:
             control = json.loads((path / "control.json").read_text(encoding="utf-8"))
@@ -447,7 +447,7 @@ def owned_config(config: dict, wanted: dict) -> bool:
 def product_catalog_admitted(product: str, version: str) -> bool:
     """Bound CLI catalog claims before any DDP/session or App mutation."""
     return (product == "legacy-paper" and version in ("1.15.29", "1.15.30")) or (
-        product == "vanilla263" and version == "1.15.31")
+        product == "vanilla263" and version == "1.15.33")
 
 
 def parse_guest_args(argv=None) -> argparse.Namespace:
@@ -472,7 +472,7 @@ def parse_guest_args(argv=None) -> argparse.Namespace:
     p.add_argument("--native-backend-region", action="store_true")
     p.add_argument("--native-player-forward")
     p.add_argument("--native-player-node-path", type=pathlib.Path)
-    p.add_argument("--native-catalog-profile", choices=("1.15.29", "1.15.30", "1.15.31"),
+    p.add_argument("--native-catalog-profile", choices=("1.15.29", "1.15.30", "1.15.33"),
                    default="1.15.29")
     p.add_argument("--product-profile", choices=("legacy-paper", "vanilla263"),
                    default="legacy-paper")

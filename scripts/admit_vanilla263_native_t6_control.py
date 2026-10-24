@@ -14,9 +14,9 @@ import re
 import sys
 
 SCHEMA = "semper-supra.minecraft-vanilla-263-truenas-t6-control/1"
-PRODUCER = "5ee204df205edfd531304441fd1a6a24004557b1"
-CONTROL_SHA = "59516bbbcb1750af6f0cb1c624756f08113a070acc11c60affe94d2bbd8d8dd5"
-APPS_REF = "95b0cc78e75fcd4b128f4ef2f8428034d981f7c2"
+PRODUCER = "dba249743a14fa716f728cc1c98af013de2eb1e5"
+CONTROL_SHA = "68c65bc601a5df9dbc9196eed88673f57c702452db91b9bd797dc5fd65b8fef8"
+APPS_REF = "0f586ab56437cd5e29bf1b16d603ec1c48bbbd4e"
 OCI = ("ghcr.io/itzg/minecraft-server:2026.10.0-java25@sha256:"
        "5a2ab74ae179c11e2dbbce67f307cdcf2c1257b3abb0f654d3a310b3d8ea57da")
 TARGET = "25.04.2.6"
@@ -75,8 +75,8 @@ def verify(control: dict, *, expected_producer: str = PRODUCER,
     require(type(source) is dict and
             source.get("apps_commit") == APPS_REF and
             source.get("catalog_app") == "community/minecraft" and
-            source.get("catalog_version") == "1.15.31" and
-            source.get("library_version") == "2.3.16" and
+            source.get("catalog_version") == "1.15.33" and
+            source.get("library_version") == "2.3.17" and
             source.get("image_reference") == OCI and
             isinstance(source.get("source_compose_sha256"), str) and
             re.fullmatch("[0-9a-f]{64}", source["source_compose_sha256"]) and
@@ -88,7 +88,7 @@ def verify(control: dict, *, expected_producer: str = PRODUCER,
             runtime.get("app_name") == APP and
             runtime.get("catalog_app") == "minecraft" and
             runtime.get("train") == "community" and
-            runtime.get("catalog_version_candidate") == "1.15.31" and
+            runtime.get("catalog_version_candidate") == "1.15.33" and
             runtime.get("minecraft_version") == "26.3" and
             runtime.get("minecraft_protocol") == 777 and
             runtime.get("java_version") == 25 and
@@ -148,7 +148,7 @@ def verify(control: dict, *, expected_producer: str = PRODUCER,
         "foundry_ref": expected_producer,
         "control_sha256": expected_digest,
         "truenas_version": TARGET,
-        "catalog_version": "1.15.31",
+        "catalog_version": "1.15.33",
         "minecraft_version": "26.3",
         "minecraft_protocol": 777,
         "java_version": 25,
