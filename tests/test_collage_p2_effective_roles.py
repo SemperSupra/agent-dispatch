@@ -341,7 +341,7 @@ class NativeJoin018Tests(unittest.TestCase):
             "service_id": SERVICE_UUID,
             "native_app": VANILLA263_OWNER,
             "world_id": VANILLA263_WORLD,
-            "native_app_version": "1.15.31",
+            "native_app_version": "1.15.33",
             "truenas_version": "25.04.2.6",
             "source_plan_sha256": "a" * 64,
         }
@@ -360,7 +360,7 @@ class NativeJoin018Tests(unittest.TestCase):
     def test_independent_exact_positive_requires_readback_and_sha(self):
         result = self.adjudicate(0, self.document())
         self.assertEqual(result["ownership_fields_matched"], 6)
-        self.assertEqual(result["native_app_version"], "1.15.31")
+        self.assertEqual(result["native_app_version"], "1.15.33")
 
     def test_version_owner_service_replay_and_shape_fail_closed(self):
         base = self.document()

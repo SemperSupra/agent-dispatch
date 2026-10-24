@@ -47,8 +47,8 @@ class CatalogPreflightTests(unittest.TestCase):
                         guest.index("      - name: Ensure bounded QEMU/KVM prerequisites"))
 
     def test_live_native_source_contract_separate_from_retired_paper(self):
-        rows=[{"name":"1.15.31","type":"dir"},{"name":"item.yaml","type":"file"}]
-        native=evaluate(rows,"1.15.31")
+        rows=[{"name":"1.15.33","type":"dir"},{"name":"item.yaml","type":"file"}]
+        native=evaluate(rows,"1.15.33")
         paper=evaluate(rows,"1.15.30")
         self.assertEqual(native["classification"],"PRE_KVM_CATALOG_VERSION_AVAILABLE")
         self.assertEqual(paper["classification"],"PRE_KVM_CATALOG_DRIFT")
@@ -56,7 +56,7 @@ class CatalogPreflightTests(unittest.TestCase):
         self.assertFalse(native["live_minecraft_qualified"])
         workflow=(pathlib.Path(__file__).resolve().parents[1]/
                   ".github/workflows/official-minecraft-catalog-preflight.yml").read_text()
-        self.assertIn("python3 scripts/check_collage_catalog_preflight.py --expected 1.15.31",workflow)
+        self.assertIn("python3 scripts/check_collage_catalog_preflight.py --expected 1.15.33",workflow)
         self.assertIn('assert "1.15.30" not in v["visible_versions"]',workflow)
 
     def test_catalog_http_and_transport_are_inconclusive_not_retired(self):

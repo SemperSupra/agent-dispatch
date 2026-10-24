@@ -15,7 +15,7 @@ def accepted_fixture():
         "schema":"semper-supra.collage-native-readback-p2/1",
         "classification":"PROVIDER_READBACK_MATCH",
         "source_profile":"vanilla263",
-        "source_sha":"2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8",
+        "source_sha":"5ce9ed7c1be814318b435517191622903146cdca",
         "native_app":APP,"truenas_version":"25.04.2.6",
         "world_id":"lantern-rdte",
         "service_id":"11111111-1111-4111-8111-111111111111",

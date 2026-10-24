@@ -28,7 +28,7 @@ OWNER = "rdte-t6-minecraft-paper"
 WORLD_ID = "world-rdte-001"
 VANILLA263_OWNER = "rdte-t6-minecraft-vanilla-263"
 VANILLA263_WORLD = "lantern-rdte"
-VANILLA263_SOURCE_SHA = "b9256d6ec0dbac43be2f5a136103b6e3512ee2ec"
+VANILLA263_SOURCE_SHA = "5ce9ed7c1be814318b435517191622903146cdca"
 DEFAULT_SOURCE_SHA = "fbda94f3fea0a216ddd9c35b38a09d325bed3640"
 
 
@@ -421,7 +421,7 @@ def validated_native_join_verdict(code: int, stdout: str, *, owner: str,
     if type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ObservationError("NATIVE_READONLY_GUEST_JOIN_SOURCE_DIGEST_INVALID")
     if owner == VANILLA263_OWNER and (
-            v.get("native_app_version") != "1.15.31" or
+            v.get("native_app_version") != "1.15.33" or
             v.get("truenas_version") != "25.04.2.6"):
         raise ObservationError("NATIVE_READONLY_GUEST_JOIN_EXACT_CATALOG_INVALID")
     return v
@@ -460,9 +460,9 @@ def run_real_readback(call, *, collage: pathlib.Path, https_port: int,
            "--trusted-realm-id", REALM,
            "--manager-id", "manager-rdte", "--fleet-id", "rdte"]
     if profile == "vanilla263":
-        # Caller is already bound to exact immutable 1.15.31 Foundry control.
+        # Caller is already bound to exact immutable 1.15.33 Foundry control.
         # Explicitly select the qualified current consumer, never float catalog.
-        cmd += ["--native-catalog-profile", "vanilla263-11531"]
+        cmd += ["--native-catalog-profile", "vanilla263-11533"]
     try:
         p = subprocess.run(cmd, env=env, text=True, capture_output=True,
                            timeout=180, check=False)

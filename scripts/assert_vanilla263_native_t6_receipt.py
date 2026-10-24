@@ -48,7 +48,7 @@ def check(root: dict, *, require_collage: bool = False,
     need(type(shape) is dict and
          shape.get("name") == APP and
          shape.get("catalog_app") == "minecraft" and
-         shape.get("catalog_version_candidate") == "1.15.31" and
+         shape.get("catalog_version_candidate") == "1.15.33" and
          shape.get("minecraft_version") == "26.3" and
          shape.get("minecraft_protocol") == 777,
          "wrong native workload shape")
@@ -258,7 +258,7 @@ def check(root: dict, *, require_collage: bool = False,
              observer.get("schema") == "semper-supra.collage-native-readback-p2/1" and
              observer.get("classification") == "PROVIDER_READBACK_MATCH" and
              observer.get("source_profile") == "vanilla263" and
-             observer.get("source_sha") == "2b6abe1141e65b8c6872eeba6c8ae39f5a9635f8" and
+             observer.get("source_sha") == "5ce9ed7c1be814318b435517191622903146cdca" and
              observer.get("native_app") == APP and
              observer.get("truenas_version") == TARGET and
              observer.get("world_id") == "lantern-rdte" and
