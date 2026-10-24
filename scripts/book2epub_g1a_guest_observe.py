@@ -77,7 +77,7 @@ def observe(session_id, run_command=read_command, get_gateway=read_gateway):
     # Both a plain version string and the JSON-string form are seen in CLI clients.
     reported = version["text"].strip('"')
     verdict["observations"]["version_match"] = bool(re.fullmatch(
-        r"(?:TrueNAS-SCALE-)?25\.04\.2\.6(?:\+[^\s]+)?", reported))
+        r"(?:TrueNAS(?:-SCALE)?-)?25\.04\.2\.6", reported))
     verdict["observations"]["version_stdout_sha256"] = hashlib.sha256(
         version["text"].encode()).hexdigest()
     if not verdict["observations"]["version_match"]:
