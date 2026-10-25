@@ -1,0 +1,51 @@
+name: Jules Public Source Agent
+run-name: sidecar:${{ inputs.workset_id }}:${{ inputs.delegation_id }}:${{ inputs.assignment_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      workset_id:
+        required: true
+        type: string
+      delegation_id:
+        required: true
+        type: string
+      assignment_id:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-source-agent-${{ inputs.assignment_id }}
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    if: (github.actor == 'mark-e-deyoung' || github.actor == 'sempersupra-sidecar-proof[bot]') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    environment: jules-dispatch
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run the exact public-source assignment
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+          WORKSET_ID: ${{ inputs.workset_id }}
+          DELEGATION_ID: ${{ inputs.delegation_id }}
+        run: |
+          python3 scripts/jules_public_source_agent.py \
+            --workset-id "$WORKSET_ID" \
+            --delegation-id "$DELEGATION_ID" \
+            --assignment-id "$ASSIGNMENT_ID"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-source-agent-result
+          path: jules-public-source-result/
+          if-no-files-found: ignore
+          retention-days: 7
