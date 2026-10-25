@@ -52,8 +52,22 @@ jobs:
           sparse-checkout: |
             truenas_api_client/__init__.py
           sparse-checkout-cone-mode: false
-      - name: Audit immutable TrueNAS API client source without executing it
-        run: python3 scripts/book2epub_g1a_client_source_audit.py --source upstream-truenas-client/truenas_api_client/__init__.py
+      - name: Audit exact client and prove implicit setup is explicit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/book2epub_g1a_client_source_audit.py --source upstream-truenas-client/truenas_api_client/__init__.py > "$RUNNER_TEMP/truenas-api-audit.json"
+          python3 - "$RUNNER_TEMP/truenas-api-audit.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              evidence = json.load(stream)
+          assert evidence["implicit_connection_setup_rpcs"] == ["core.set_options"]
+          assert evidence["connection_setup_requires_independent_authorization"] is True
+          assert evidence["observation_rpc_count_is_total_wire_count"] is False
+          assert evidence["server_protocol_tested"] is False
+          assert evidence["ssl_peer_verified"] is False
+          assert evidence["dispatch_authorized"] is False
+          PY
       - name: Verify machine human and agent status views share hold semantics
         shell: bash
         run: |
