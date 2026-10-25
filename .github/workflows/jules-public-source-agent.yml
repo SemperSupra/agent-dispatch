@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   agent:
-    if: (github.actor == 'mark-e-deyoung' || github.actor == 'github-actions[bot]') && github.ref == 'refs/heads/main'
+    if: (github.actor == 'mark-e-deyoung' || github.actor == 'github-actions[bot]' || github.actor == 'sempersupra-sidecar-proof[bot]') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     environment: jules-dispatch
