@@ -85,6 +85,8 @@ def assess(document):
         if eid in seen:
             raise ContractError("duplicate_evidence_id")
         seen.add(eid)
+        if any(not isinstance(item[k], str) for k in ("kind", "actor", "result")):
+            raise ContractError("unrecognized_evidence_category")
         if item["kind"] not in KIND or item["actor"] not in ACTOR or item["result"] not in RESULT:
             raise ContractError("unrecognized_evidence_category")
         _string(item["ref"], REF, "evidence_ref")
@@ -125,8 +127,8 @@ def human_text(status, markdown=False):
     if markdown:
         lines = ["# Book2EPUB qualification status", "",
                  "**State: HOLD — external evidence not independently verified**", "",
-                 f"Session: \`{status['session_id']}\`", f"Target: \`{status['target']}\`",
-                 f"Source commit: \`{status['source_sha']}\`", ""]
+                 f"Session: `{status['session_id']}`", f"Target: `{status['target']}`",
+                 f"Source commit: `{status['source_sha']}`", ""]
         lines.append("## Required gates")
         for stage, gate in status["all_gates"].items():
             lines.append(f"- **{stage.upper()}: HOLD** — {gate['reason_code'].replace('_', ' ').lower()}")
