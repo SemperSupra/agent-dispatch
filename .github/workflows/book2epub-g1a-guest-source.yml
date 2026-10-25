@@ -9,11 +9,13 @@ on:
       - 'scripts/book2epub_g1a_middleware_readonly.py'
       - 'scripts/book2epub_g1a_rpc_adapter.py'
       - 'scripts/book2epub_g1a_jsonrpc_adapter.py'
+      - 'scripts/book2epub_g1a_client_source_audit.py'
       - 'scripts/book2epub_g1_contract.py'
       - 'tests/test_book2epub_g1a_guest_observe.py'
       - 'tests/test_book2epub_g1a_middleware_readonly.py'
       - 'tests/test_book2epub_g1a_rpc_adapter.py'
       - 'tests/test_book2epub_g1a_jsonrpc_adapter.py'
+      - 'tests/test_book2epub_g1a_client_source_audit.py'
       - 'tests/test_book2epub_g1_contract.py'
       - 'tests/fixtures/book2epub-g1-pre-admission.json'
       - '.github/workflows/book2epub-g1a-guest-source.yml'
@@ -37,9 +39,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Compile observer without guest dependencies
-        run: python3 -m py_compile scripts/book2epub_g1a_guest_observe.py scripts/book2epub_g1a_middleware_readonly.py scripts/book2epub_g1a_rpc_adapter.py scripts/book2epub_g1a_jsonrpc_adapter.py scripts/book2epub_g1_contract.py
+        run: python3 -m py_compile scripts/book2epub_g1a_guest_observe.py scripts/book2epub_g1a_middleware_readonly.py scripts/book2epub_g1a_rpc_adapter.py scripts/book2epub_g1a_jsonrpc_adapter.py scripts/book2epub_g1a_client_source_audit.py scripts/book2epub_g1_contract.py
       - name: Run negative and positive source-only tests
         run: python3 -m unittest discover -s tests -p 'test_book2epub_g1*.py' -v
+      - name: Checkout exact public TrueNAS 25.04.2.6 API client source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: truenas/api_client
+          ref: 3576b3cf9a87ae92bbf1d873e23215b48ca90819
+          persist-credentials: false
+          path: upstream-truenas-client
+          sparse-checkout: |
+            truenas_api_client/__init__.py
+          sparse-checkout-cone-mode: false
+      - name: Audit immutable TrueNAS API client source without executing it
+        run: python3 scripts/book2epub_g1a_client_source_audit.py --source upstream-truenas-client/truenas_api_client/__init__.py
       - name: Verify machine human and agent status views share hold semantics
         shell: bash
         run: |
