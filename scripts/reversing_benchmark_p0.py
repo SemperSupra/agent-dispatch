@@ -93,6 +93,26 @@ def reduce_matrix(doc):
                 and uint(edge.get("target_rva"))
                 and sym + edge["target_rva"] == intervals[3]["start_rva"],
                 "signed branch target disagrees with fourth code island")
+        replay = p.get("native_second_replay")
+        require(isinstance(replay, dict)
+                and replay.get("schema") == "reversing-native-second-replay/v1"
+                and replay.get("scope") == "PUBLIC_FIXED_NO_STDOUT_SYNTHETIC_ONLY"
+                and replay.get("independence")
+                    == "FRESH_GDB_PROCESSES_SAME_HOST_SAME_INSTRUMENTATION"
+                and replay.get("artifact_sha256") == binary_digest
+                and replay.get("entry_rva") == sym
+                and replay.get("target_rva") == intervals[3]["start_rva"],
+                "second native replay not bound to same file/PC/experiment")
+        replay_cases = replay.get("cases")
+        require(isinstance(replay_cases, list) and len(replay_cases) == 2
+                and [x.get("input_n") for x in replay_cases if isinstance(x, dict)] == [0, 1],
+                "second native replay inputs incomplete or ambiguous")
+        for case in replay_cases:
+            require(isinstance(case, dict)
+                    and set(case) == {"input_n", "target_rva", "verdict"}
+                    and case["target_rva"] == intervals[3]["start_rva"]
+                    and case["verdict"] in { "NATIVE_PC_WITNESS", "NOT_OBSERVED_SAMPLE"},
+                    "second native replay target/status inconsistent")
         rdi = p.get("rdi_intervention")
         require(isinstance(rdi, dict)
                 and rdi.get("status") == "RDI_INTERVENTION_ISLAND_SAMPLES_MEASURED"
@@ -135,6 +155,8 @@ def reduce_matrix(doc):
                     "native indices contradict their detailed evidence")
             target_status = statuses[3]["status"]
             verdict = "NATIVE_PC_WITNESS" if target_status == NATIVE_HIT else "NOT_OBSERVED_SAMPLE"
+            require(replay_cases[ARGS.index(n)]["verdict"] == verdict,
+                    "first native witness contradicted by fresh GDB replay")
             require((n == 0 and verdict == "NATIVE_PC_WITNESS")
                     or (n == 1 and verdict == "NOT_OBSERVED_SAMPLE"),
                     "positive/negative synthetic control failed")
@@ -147,7 +169,8 @@ def reduce_matrix(doc):
                 "artifact_sha256": binary_digest,
                 "verdict": verdict,
                 "scope": "ONE_STRIPPED_ELF_NATIVE_GDB_PC_SAMPLE",
-                "oracle": "GNU_OBJDUMP_EDGE_AND_GHIDRA_RANGES_PLUS_NATIVE_GDB_STATUS",
+                "oracle": "GNU_OBJDUMP_GHIDRA_PRIMARY_GDB_AND_SECOND_SAME_HOST_REPLAY",
+                "replay_kind": replay["independence"],
             })
     # Keep code comparison as a real cross-profile falsification constraint.
     require(selected[PROFILES[0]]["stripped_original_text_sha256"]
@@ -159,7 +182,7 @@ def reduce_matrix(doc):
         "work_id": "RE-BENCH-P0",
         "authority_ref": AUTHORITY,
         "exposure_class": "GENERATED_PUBLIC_SYNTHETIC_POSSIBLY_TRAINING_EXPOSED",
-        "verifier_kind": "DETERMINISTIC_SECONDARY_MATRIX_CONSISTENCY_NOT_INDEPENDENT_NATIVE_ATTESTATION",
+        "verifier_kind": "DETERMINISTIC_MATRIX_CHECK_PLUS_FRESH_SAME_HOST_GDB_REPLAY",
         "source_receipt_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
         "cases": cases,
         "overall": "P0_FOUR_CONTROLS_CONSISTENT_NOT_SEALED_BLIND",
@@ -169,7 +192,8 @@ def reduce_matrix(doc):
             "No-hit is not unreachability",
             "Producer and reducer are in one public CI authority, not a sealed independent evaluator",
             "Raw GDB console text is not a hostile-inferior-authenticated channel",
-            "Shape/semantic consistency cannot independently rederive raw debugger bytes or ELF SHA",
+            "Second native GDB run hashes actual stripped file bytes independently of report SHA",
+            "Both native GDB sensors share runner/debugger; raw console is not hostile-independent attestation",
             "Not qualified for real binaries, protected graders, model rankings, releases or merges",
         ],
     }
