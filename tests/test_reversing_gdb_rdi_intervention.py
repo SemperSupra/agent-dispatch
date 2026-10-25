@@ -105,6 +105,21 @@ class InterventionTests(unittest.TestCase):
         with self.assertRaises(M.InterventionError):
             M.parse_intervention_receipt(reordered, ENTRY, ISLAND, 4)
 
+    def test_refuse_simultaneous_target_hit_and_normal_exit(self):
+        with self.assertRaises(M.InterventionError):
+            M.parse_intervention_receipt(evidence(8, fake_exit=True), ENTRY, ISLAND, 8)
+
+    def test_refuse_duplicate_normal_exit(self):
+        receipt = evidence(4, hit=False)
+        with self.assertRaises(M.InterventionError):
+            M.parse_intervention_receipt(receipt +
+                "[Inferior 2 (process 322) exited normally]\n", ENTRY, ISLAND, 4)
+
+    def test_refuse_abnormal_exit_even_with_target_hit(self):
+        with self.assertRaises(M.InterventionError):
+            M.parse_intervention_receipt(evidence(8) +
+                "[Inferior 1 (process 321) exited with code 01]\n", ENTRY, ISLAND, 8)
+
     def test_bounded_fixed_argv_and_fresh_process(self):
         seen = []
         def runner(argv, timeout=0):
@@ -126,6 +141,10 @@ class InterventionTests(unittest.TestCase):
         self.assertEqual(len(result["arguments"]), len(M.ALLOWED_ARGUMENTS))
         self.assertTrue(all(row["not_observed_indices"] == [1] for row in result["arguments"]))
         self.assertEqual(result["abi"], "X86_64_SYSV_FIRST_ARGUMENT_RDI")
+        for sample in result["arguments"]:
+            self.assertEqual(
+                [x["target_delta_from_entry"] for x in sample["statuses"]],
+                [0, ISLAND-ENTRY])
 
     def test_invalid_intervals_rejected(self):
         for spans in ([], [(ISLAND,ISLAND+1)], [(ENTRY, ENTRY)],

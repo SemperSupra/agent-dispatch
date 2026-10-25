@@ -75,6 +75,8 @@ def parse_intervention_receipt(output, entry_va, target_va, argument):
         raise InterventionError("GDB entry/RDI evidence occurred out of order")
     after_pos = ordered[-1]
     if target_va == entry_va:
+        if re.search(r"^\[Inferior [0-9]+ \(process [0-9]+\) exited ", output, re.M):
+            raise InterventionError("unexpected inferior terminal event at entry-only stop")
         if re.search(r"^Breakpoint 2(?: at|,)", output, re.M):
             raise InterventionError("duplicate breakpoint at original entry")
         return "ENTRY_PC_OBSERVED_AND_RDI_ATTESTED"
@@ -83,17 +85,27 @@ def parse_intervention_receipt(output, entry_va, target_va, argument):
                            "island breakpoint installed")
     if bp2 != target_va:
         raise InterventionError("island breakpoint installed at wrong PC")
+    # One bounded native inferior: a target stop and a normal exit are
+    # contradictory terminal observations, not two interchangeable successes.
+    if re.search(r"^\[Inferior [0-9]+ \(process [0-9]+\) exited (?:with|due to)",
+                 output, re.M | re.I):
+        raise InterventionError("inferior terminated abnormally")
+    exits = list(re.finditer(
+        r"^\[Inferior [0-9]+ \(process [0-9]+\) exited normally\]$", output, re.M))
+    if len(exits) > 1:
+        raise InterventionError("ambiguous multiple normal exits")
     target_hits = [int(v, 16) for v in re.findall(
         r"^Breakpoint 2, 0x([0-9a-fA-F]+)\b", output, re.M)]
     if target_hits:
+        if exits:
+            raise InterventionError("contradictory target hit and inferior exit")
         if target_hits != [target_va]:
             raise InterventionError("unexpected island hit PC or repeated hit")
         target_pos = re.search(r"^Breakpoint 2, 0x", output, re.M).start()
         if target_pos <= after_pos:
             raise InterventionError("island PC hit before attested RDI intervention")
         return "BREAKPOINT_OBSERVED_AFTER_RDI_INTERVENTION"
-    clean_exit = re.search(r"^\[Inferior [0-9]+ \(process [0-9]+\) exited normally\]$",
-                           output, re.M)
+    clean_exit = exits[0] if exits else None
     if clean_exit:
         if clean_exit.start() <= after_pos:
             raise InterventionError("inferior exited before attested RDI intervention")
@@ -138,6 +150,7 @@ def observe_intervened_islands(stripped, entry_va, intervals, run_program):
             output = run_program(argv, timeout=35)
             per_island.append({
                 "interval_index": i,
+                "target_delta_from_entry": target - entry_va,
                 "status": parse_intervention_receipt(output, entry_va, target, n)
             })
         observed = [x["interval_index"] for x in per_island
