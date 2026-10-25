@@ -46,6 +46,16 @@ def mock_profile(name, seed, artifact):
             "status":"SIGNED_JLE_DIRECT_EDGE_TO_ISLAND_3",
             "interval_index":3,"width_bits":64,
             "predicate":"signed_flags_le_zero_at_jle","target_rva":104},
+        "native_second_replay":{
+            "schema":"reversing-native-second-replay/v1",
+            "scope":"PUBLIC_FIXED_NO_STDOUT_SYNTHETIC_ONLY",
+            "independence":"FRESH_GDB_PROCESSES_SAME_HOST_SAME_INSTRUMENTATION",
+            "artifact_sha256":artifact,
+            "entry_rva":4096,"target_rva":4200,
+            "cases":[
+                {"input_n":0,"target_rva":4200,"verdict":"NATIVE_PC_WITNESS"},
+                {"input_n":1,"target_rva":4200,"verdict":"NOT_OBSERVED_SAMPLE"}
+            ]},
         "rdi_intervention":{
             "status":"RDI_INTERVENTION_ISLAND_SAMPLES_MEASURED",
             "baseline_argument_n":7,"abi":"X86_64_SYSV_FIRST_ARGUMENT_RDI",
@@ -132,6 +142,36 @@ class PublicSyntheticBenchmarkTests(unittest.TestCase):
                     a["profiles"][1]["rdi_intervention"]["arguments"][1]["argument_n"]=1
                 else:
                     a["profiles"][1]["rdi_intervention"]["arguments"][0]["argument_n"]=99
+                with self.assertRaises(B.BenchmarkError):
+                    B.reduce_matrix(a)
+
+    def test_refuse_replay_artifact_mismatch(self):
+        a=matrix()
+        a["profiles"][1]["native_second_replay"]["artifact_sha256"]="f"*64
+        with self.assertRaises(B.BenchmarkError):
+            B.reduce_matrix(a)
+
+    def test_refuse_replay_target_rva_shift(self):
+        a=matrix()
+        a["profiles"][1]["native_second_replay"]["cases"][0]["target_rva"]=4201
+        with self.assertRaises(B.BenchmarkError):
+            B.reduce_matrix(a)
+
+    def test_refuse_replay_stale_witness(self):
+        a=matrix()
+        a["profiles"][1]["native_second_replay"]["cases"][0]["verdict"]="NOT_OBSERVED_SAMPLE"
+        with self.assertRaises(B.BenchmarkError):
+            B.reduce_matrix(a)
+
+    def test_refuse_second_replay_missing_or_duplicate(self):
+        for case in ("missing","duplicate"):
+            with self.subTest(case=case):
+                a=matrix()
+                rs=a["profiles"][1]["native_second_replay"]["cases"]
+                if case=="missing":
+                    rs.pop()
+                else:
+                    rs[1]["input_n"]=0
                 with self.assertRaises(B.BenchmarkError):
                     B.reduce_matrix(a)
 
