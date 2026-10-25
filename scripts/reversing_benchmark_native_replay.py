@@ -85,8 +85,12 @@ def replay_fixed_stripped(binary, entry_va, target_va, image_base, expected_sha2
     """
     if not isinstance(binary, Path) or binary.is_symlink() or not binary.is_file():
         raise ReplayError("missing ordinary temporary synthetic ELF")
-    if (binary.stat().st_size == 0 or binary.stat().st_size > MAX_FIXTURE_BYTES
-            or binary.open("rb").read(6) != b"\x7fELF\x02\x01"):
+    size = binary.stat().st_size
+    if not 6 <= size <= MAX_FIXTURE_BYTES:
+        raise ReplayError("wrong or oversized public x86-64 ELF fixture")
+    with binary.open("rb") as stream:
+        magic = stream.read(6)
+    if magic != b"\x7fELF\x02\x01":
         raise ReplayError("wrong or oversized public x86-64 ELF fixture")
     if (not isinstance(expected_sha256, str) or
             re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None or
