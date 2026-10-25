@@ -6,6 +6,8 @@ on:
       - '.github/workflows/github-runner-frontier.yml'
       - 'scripts/reversing_evidence_correlate.py'
       - 'scripts/reversing_native_elf_probe.py'
+      - 'scripts/reversing_benchmark_p0.py'
+      - 'tests/test_reversing_benchmark_p0.py'
       - 'scripts/reversing_ghidra_headless_probe.py'
       - 'scripts/reversing_ghidra_stripped_probe.py'
       - 'scripts/reversing_stripped_contrast_probe.py'
@@ -160,6 +162,8 @@ jobs:
         run: python3 -m unittest -v tests/test_reversing_gdb_rdi_intervention.py
       - name: Test versioned disjoint function-body correlation
         run: python3 -m unittest -v tests/test_reversing_evidence_correlate_v2.py
+      - name: Red-blue RE-BENCH-P0 deterministic evidence and projection tests
+        run: python3 -m unittest -v tests/test_reversing_benchmark_p0.py
       - name: Measure native no-unwind Ghidra O0/O2 stripped contrast
         shell: bash
         run: |
@@ -254,4 +258,28 @@ jobs:
           else:
             print("SEED_VARIANT_INCONCLUSIVE_STATIC_PRECONDITION")
           print("NO_UNWIND_CONTRAST_MATRIX_MEASURED")
+          PY
+
+      - name: Reduce P0 native witness and negative controls for all three audiences
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_benchmark_p0.py \
+            --input "${RUNNER_TEMP}/reversing-contrast-receipt.json" \
+            --json-output "${RUNNER_TEMP}/re-bench-p0.json" \
+            --markdown-output "${RUNNER_TEMP}/re-bench-p0.md"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=Path(os.environ["RUNNER_TEMP"])
+          r=json.loads((d/"re-bench-p0.json").read_text())
+          md=(d/"re-bench-p0.md").read_text()
+          assert r["schema"]=="reversing-benchmark-p0/v1"
+          assert r["overall"]=="P0_FOUR_CONTROLS_CONSISTENT_NOT_SEALED_BLIND"
+          assert len(r["cases"])==4
+          assert {x["verdict"] for x in r["cases"]}=={"NATIVE_PC_WITNESS","NOT_OBSERVED_SAMPLE"}
+          assert all(x["claim_id"] in md and x["verdict"] in md for x in r["cases"])
+          assert r["authority_ref"] in md and r["source_receipt_sha256"] in md
+          assert "No-hit is not unreachability" in md
+          print("RE_BENCH_P0_NATIVE_FOUR_CASES_AUDIENCE_PROJECTIONS_PASS")
           PY
