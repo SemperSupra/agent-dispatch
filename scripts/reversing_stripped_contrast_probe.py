@@ -313,6 +313,9 @@ def observe(ghidra_home, profile):
                 "native_unmodified_fixture_exercised": True,
                 "v2_interval_set": interval_set,
                 "independent_objdump_boundary_oracle": boundary_assessment,
+                "independent_code_intervals": [
+                    {"start_rva": a - image_base, "end_exclusive_rva": b - image_base}
+                    for a, b in independent_nonnop],
                 "independent_signed_branch_oracle": signed_branch,
                 "stripped_original_text_sha256": text_sha256,
                 "native_gdb_island_observations": runtime_islands,
