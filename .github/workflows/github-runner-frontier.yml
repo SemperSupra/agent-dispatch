@@ -8,6 +8,7 @@ on:
       - 'scripts/reversing_native_elf_probe.py'
       - 'scripts/reversing_benchmark_p0.py'
       - 'tests/test_reversing_benchmark_p0.py'
+      - 'docs/reversing-benchmark-p0.md'
       - 'scripts/reversing_ghidra_headless_probe.py'
       - 'scripts/reversing_ghidra_stripped_probe.py'
       - 'scripts/reversing_stripped_contrast_probe.py'
@@ -281,5 +282,8 @@ jobs:
           assert all(x["claim_id"] in md and x["verdict"] in md for x in r["cases"])
           assert r["authority_ref"] in md and r["source_receipt_sha256"] in md
           assert "No-hit is not unreachability" in md
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+            out.write(md + "\n")
+          print("RE_BENCH_P0_JSON=" + json.dumps(r, sort_keys=True, separators=(",",":")))
           print("RE_BENCH_P0_NATIVE_FOUR_CASES_AUDIENCE_PROJECTIONS_PASS")
           PY
