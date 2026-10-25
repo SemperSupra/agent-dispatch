@@ -126,11 +126,12 @@ def final_message(session_id: str) -> str:
     if not messages:
         raise ValueError("completed native session has no agent message")
     messages.sort(key=lambda item: item.get("createTime", ""))
-    result = messages[-1]["agentMessaged"]["agentMessage"]
+    return messages[-1]["agentMessaged"]["agentMessage"]
+
+
+def structured_finding(result: str) -> bool:
     required = ("evidence", "conclusion", "falsification test", "remaining unknowns", "next gate")
-    if any(not re.search(r"(?im)^#{1,3}\s*" + re.escape(section) + r"\s*$", result) for section in required):
-        raise ValueError("completed native session has no structured final finding")
-    return result
+    return all(re.search(r"(?im)^#{1,3}\s*" + re.escape(section) + r"\s*$", result) for section in required)
 
 
 def write_receipt(**fields: object) -> None:
@@ -192,9 +193,13 @@ def execute(workset_id: str, delegation_id: str, assignment_id: str, recipient: 
         raise ValueError("provider session stopped without a completed audit")
     message = final_message(session_id)
     sealed_sha256, sealed_bytes = seal_finding(message, recipient)
-    write_receipt(**common, status="provider-completed", provider_state=state,
+    structured = structured_finding(message)
+    status = "provider-completed" if structured else "provider-completed-unstructured"
+    write_receipt(**common, status=status, provider_state=state,
                   sealed_sha256=sealed_sha256, sealed_bytes=sealed_bytes,
                   run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"))
+    if not structured:
+        raise ValueError("completed native session has no structured final finding; sealed result requires private review")
     return {"status": "provider-completed", "assignment_id": assignment_id, "native_correlation": correlation,
             "independent_acceptance": "not-run"}
 

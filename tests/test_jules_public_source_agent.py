@@ -49,6 +49,8 @@ class PublicSourceAgentBoundaryTest(unittest.TestCase):
         ]
         with patch.object(agent, "pages", return_value=activities):
             self.assertIn("# Next gate", agent.final_message("safe-id"))
+            self.assertTrue(agent.structured_finding(agent.final_message("safe-id")))
+        self.assertFalse(agent.structured_finding("**Evidence**\nunsupported claim"))
 
     def test_prior_workflow_attempt_consumes_assignment(self):
         import io
@@ -95,6 +97,24 @@ class PublicSourceAgentBoundaryTest(unittest.TestCase):
                 agent.execute(entry["workset_id"], entry["delegation_id"],
                               "foliorelay-keycloak-audit-001", "age1" + "q" * 58)
         request.assert_not_called()
+
+    def test_unstructured_completed_message_is_sealed_before_failure(self):
+        entry = agent.APPROVED["foliorelay-keycloak-audit-001"]
+        with patch.object(agent, "task_text", return_value="prompt"), \
+             patch.object(agent.jules, "preflight_public_source"), \
+             patch.object(agent.jules, "resolve_source", return_value={"name": "sources/public"}), \
+             patch.object(agent, "reject_prior_workflow_run"), \
+             patch.object(agent, "reject_existing_session"), \
+             patch.object(agent.jules, "request", return_value={"id": "safe-id", "state": "COMPLETED"}), \
+             patch.object(agent, "final_message", return_value="**Evidence**\nclaim"), \
+             patch.object(agent, "seal_finding", return_value=("f" * 64, 99)) as seal, \
+             patch.object(agent, "write_receipt") as receipt:
+            with self.assertRaisesRegex(ValueError, "sealed result requires private review"):
+                agent.execute(entry["workset_id"], entry["delegation_id"],
+                              "foliorelay-keycloak-audit-001", "age1" + "q" * 58)
+        seal.assert_called_once()
+        self.assertEqual(receipt.call_args_list[-1].kwargs["status"], "provider-completed-unstructured")
+        self.assertEqual(receipt.call_args_list[-1].kwargs["independent_acceptance"], "not-run")
 
 
 if __name__ == "__main__":

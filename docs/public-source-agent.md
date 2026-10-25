@@ -1,8 +1,8 @@
 # Public-source agent execution rep
 
-Status: candidate, HOLD until the private Agent Dispatch authority binds a
-qualified target. This public repo provides execution mechanics only. The
-first task is the exact FolioRelay Keycloak catalog source audit in
+Status: first one-use FolioRelay rep failed closed at Actions run 40214545018;
+the assignment is consumed. This public repo provides execution mechanics
+only. The first task is the exact FolioRelay Keycloak catalog source audit in
 `tasks/foliorelay-keycloak-catalog-audit.md`. The private workset and project
 qualification authority decide placement and acceptance.
 
@@ -19,8 +19,10 @@ The provider receives only a public-source prompt and public Source. Its
 instruction forbids repository edits and PR creation; the API does not request
 automatic PR creation. A Jules workspace may still change internally, so the
 workflow does not assert read-only provider execution. It requires provider
-`COMPLETED` and a structured final message, then encrypts that unreviewed
-message to the supplied recipient. Its public artifact contains only
+`COMPLETED` and checks the final message's required sections. It encrypts the
+completed native message even when those sections are missing; in that case
+the workflow fails the content contract and the sealed message remains
+unreviewed for trusted-side recovery. Its public artifact contains only
 `result.age` and a small correlation/integrity receipt, with seven-day
 retention. Logs contain no finding text. The trusted private pickup and
 independent source review happen outside this repository.
