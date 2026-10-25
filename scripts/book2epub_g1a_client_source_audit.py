@@ -72,12 +72,33 @@ def audit_bytes(raw):
     has_rpc = any(isinstance(n, ast.Name) and n.id == "JSONRPCClient" for n in ast.walk(factory))
     if not has_legacy or not has_rpc:
         raise AuditError("protocol_selection_unavailable")
+    # The official client issues a session setup RPC automatically on socket
+    # establishment. Three caller-triggered observations do not equal three
+    # wire-level RPCs; make that behavior an explicit admission dependency.
+    on_open = method(classes["JSONRPCClient"], "on_open")
+    if on_open is None:
+        raise AuditError("setup_rpc_method_missing")
+    setup_calls = [
+        n.args[0].value
+        for n in ast.walk(on_open)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "call"
+        and n.args
+        and isinstance(n.args[0], ast.Constant)
+        and isinstance(n.args[0].value, str)
+    ]
+    if setup_calls != ["core.set_options"]:
+        raise AuditError("unreviewed_connection_setup_rpcs")
     return {
         "schema": SCHEMA, "repository": UPSTREAM,
         "upstream_commit": TAG_COMMIT, "client_source_blob": CLIENT_BLOB,
         "source_only": True, "classification": "PINNED_CLIENT_SOURCE_COMPATIBLE_RUNTIME_UNVERIFIED",
         "client_factory_ssl_default": True, "jsonrpc_call_variadic": True,
         "protocol_branch_identified": True, "connection_uses_ssl_flag": True,
+        "implicit_connection_setup_rpcs": setup_calls,
+        "observation_rpc_count_is_total_wire_count": False,
+        "connection_setup_requires_independent_authorization": True,
         "server_protocol_tested": False, "ssl_peer_verified": False,
         "authenticated_role_tested": False, "trueNAS_guest_observed": False,
         "dispatch_authorized": False, "physical_apply": "HOLD",
