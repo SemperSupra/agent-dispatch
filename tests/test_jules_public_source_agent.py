@@ -52,6 +52,24 @@ class PublicSourceAgentBoundaryTest(unittest.TestCase):
             self.assertTrue(agent.structured_finding(agent.final_message("safe-id")))
         self.assertFalse(agent.structured_finding("**Evidence**\nunsupported claim"))
 
+    def test_sealed_plaintext_budget_includes_wrapper_and_utf8(self):
+        # The trusted private pickup rejects decrypted findings over 1 MiB.
+        # The 43-byte wrapper must be counted BEFORE the age artifact is made.
+        overhead = len(agent.SEALED_FINDING_PREFIX.encode("utf-8")) + len("\n".encode())
+        capacity = agent.MAX_SEALED_PLAINTEXT_BYTES - overhead
+        self.assertEqual(overhead, 43)
+        self.assertEqual(len(agent.sealed_finding_plaintext("A" * capacity)),
+                         agent.MAX_SEALED_PLAINTEXT_BYTES)
+        with self.assertRaisesRegex(ValueError, "wrapped native finding exceeds"):
+            agent.sealed_finding_plaintext("A" * (capacity + 1))
+
+        # Non-ASCII characters are measured as UTF-8 bytes, not code points.
+        multilingual = "ก" * (capacity // 3) + "A" * (capacity % 3)
+        self.assertEqual(len(agent.sealed_finding_plaintext(multilingual)),
+                         agent.MAX_SEALED_PLAINTEXT_BYTES)
+        with self.assertRaisesRegex(ValueError, "wrapped native finding exceeds"):
+            agent.sealed_finding_plaintext(multilingual + "A")
+
     def test_prior_workflow_attempt_consumes_assignment(self):
         import io
         current = b'{"workflow_runs":[{"id":42,"display_title":"sidecar:w:d:a"}]}'
