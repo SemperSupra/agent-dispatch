@@ -1,0 +1,71 @@
+{
+  "schema": "book2epub-b0-b1-corrective-implementation/v1",
+  "recorded_on": "2026-10-25",
+  "authority": {
+    "execution": "SemperSupra/agent-dispatch-private#480",
+    "platform": "SemperSupra/agent-dispatch-private#396",
+    "product": "SemperSupra/truenas-app-foundry-private#325",
+    "shelfmark": "ShelfMark-Bindery/pipeline#50"
+  },
+  "execution": {
+    "repository": "SemperSupra/agent-dispatch",
+    "pr": 544,
+    "stacked_base_pr": 542,
+    "exact_executable_head": "5ed127854abd9384a4b1426a16a0993d525b94ab",
+    "public_ci_run": 40214377308,
+    "public_ci_job": 121232234334,
+    "ci_url": "https://github.com/SemperSupra/agent-dispatch/actions/runs/40214377308",
+    "conclusion": "SUCCESS",
+    "tests_passed": 59,
+    "tests_failed": 0,
+    "three_views_smoke": "PASS",
+    "guest_launched": false,
+    "credential_acquired": false,
+    "private_github_actions_minutes_used": 0,
+    "physical_system_modified": false,
+    "exact_upstream_client_checkout": "truenas/api_client@3576b3cf9a87ae92bbf1d873e23215b48ca90819",
+    "exact_upstream_client_source_blob": "ccd59b19381b0d494528c6854db228e1c2a6665c",
+    "exact_upstream_client_source_audit": "PINNED_CLIENT_SOURCE_COMPATIBLE_RUNTIME_UNVERIFIED",
+    "implicit_upstream_session_rpc": [
+      "core.set_options"
+    ],
+    "implicit_rpc_audit": "SOURCE_ONLY_PASS_CONNECTION_SETUP_SEPARATELY_ADMITTED",
+    "protocol_on_wire_tested": false
+  },
+  "implemented": {
+    "B0": "Source-only exact-target evidence-shape reducer with JSON/text/Markdown presentations, deterministic fail-closed errors, no implicit authority promotion",
+    "B1": "Version-pinned TrueNAS JSON-RPC client API app-read adapter plus exact upstream AST/source audit; explicitly labels implicit core.set_options connection setup and unknown total on-wire method count",
+    "tests": "Unit tests covering malformed/duplicate/mixed-revision proof, wrong role, plaintext/insecure auth declaration, legacy fallback, unauthorized mutation and audience status",
+    "fixture": "tests/fixtures/book2epub-g1-pre-admission.json",
+    "upstream_source_audit": "scripts/book2epub_g1a_client_source_audit.py"
+  },
+  "observed_first_failures": [
+    "Guest-side canonical TrueNAS-25.04.2.6 version mismatch corrected in preceding G1a source work",
+    "Legacy DDP stub was not proof of exact-target JSON-RPC or DOCKER_READ admission",
+    "Unhashable evidence category could raise TypeError; contract now rejects non-string categories before membership",
+    "Source-only CI success and self-reported evidence cannot satisfy system, engine trust or product authorization",
+    "Official README's feature matrix alone cannot establish tag-exact API behavior; 25.04.2.6 commit+blob direct source audit confirms constructor SSL flag and JSON-RPC call signature, not actual verified TLS",
+    "Pinned official 25.04.2.6 JSON-RPC client on_open automatically calls core.set_options; an application-layer three-method allowlist does not constrain session bootstrap or owner authentication RPCs"
+  ],
+  "gates": {
+    "B0": "SOURCE_ONLY_TEST_PASS",
+    "B1": "SOURCE_PINNED_SETUP_RPC_AUDIT_PASS_RUNTIME_FULL_SESSION_AUTHORIZATION_UNVERIFIED",
+    "G1a_guest": "NOT_RUN_NOT_ADMITTED",
+    "G1b_digest_image": "NOT_RUN",
+    "G2_product_rights_MAF_OCI": "BLOCKED",
+    "G3_book2epub_F0_F5_H0_H5": "NOT_RUN",
+    "physical_trueNAS_apply": "HOLD"
+  },
+  "audiences": {
+    "human": "Plain-text and Markdown status with explicit HOLD descriptions; assistive-technology manual QA pending product UI",
+    "automation": "JSON CLI view and deterministic invalid-input exit 2; no state-mutating API introduced",
+    "agent": "Consumes identical pre-admission JSON; cannot acquire apply authorization from this contract"
+  },
+  "next_ready": [
+    "Independently review exact code and CI receipt in owning DLE",
+    "Confirm existing Agent Dispatch single-heavyweight slot and one-use system request",
+    "Under separately admitted single-use TrueNAS 25.04.2.6 session, independently verify WSS peer+exact read-only DOCKER_READ credential and full lifecycle RPCs: core.set_options bootstrap, owner authentication, system.version, docker.status, docker.config, close",
+    "Capture external peer, role, target, session and zero-residue proofs before G1a promotion",
+    "Admit separate benign image transport G1b only after G1a; bind licensed OCI/MAF rights for product G2 independently"
+  ]
+}

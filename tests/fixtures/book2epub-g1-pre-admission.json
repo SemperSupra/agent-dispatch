@@ -1,0 +1,16 @@
+{
+  "schema": "book2epub-pre-admission-evidence/v1",
+  "session_id": "tn-25-04-2-6-g1a-demo",
+  "target": "TrueNAS-25.04.2.6",
+  "source_sha": "02ce7d8b0b0f967ace795e475d743860a2accc38",
+  "evidence": [
+    {
+      "id": "source-only-40148711759",
+      "kind": "source_unit",
+      "actor": "producer",
+      "result": "PASS",
+      "ref": "https://github.com/SemperSupra/agent-dispatch/actions/runs/40148711759",
+      "source_sha": "02ce7d8b0b0f967ace795e475d743860a2accc38"
+    }
+  ]
+}

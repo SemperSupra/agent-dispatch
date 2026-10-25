@@ -1,0 +1,87 @@
+name: Book2EPUB G1a guest read-only observer (source only)
+
+on:
+  pull_request:
+    branches:
+      - experiment/book2epub-qemu-gateway-reachability-20261023
+    paths:
+      - 'scripts/book2epub_g1a_guest_observe.py'
+      - 'scripts/book2epub_g1a_middleware_readonly.py'
+      - 'scripts/book2epub_g1a_rpc_adapter.py'
+      - 'scripts/book2epub_g1a_jsonrpc_adapter.py'
+      - 'scripts/book2epub_g1a_client_source_audit.py'
+      - 'scripts/book2epub_g1_contract.py'
+      - 'tests/test_book2epub_g1a_guest_observe.py'
+      - 'tests/test_book2epub_g1a_middleware_readonly.py'
+      - 'tests/test_book2epub_g1a_rpc_adapter.py'
+      - 'tests/test_book2epub_g1a_jsonrpc_adapter.py'
+      - 'tests/test_book2epub_g1a_client_source_audit.py'
+      - 'tests/test_book2epub_g1_contract.py'
+      - 'tests/fixtures/book2epub-g1-pre-admission.json'
+      - '.github/workflows/book2epub-g1a-guest-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book2epub-g1a-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-guest-source-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR commit without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Compile observer without guest dependencies
+        run: python3 -m py_compile scripts/book2epub_g1a_guest_observe.py scripts/book2epub_g1a_middleware_readonly.py scripts/book2epub_g1a_rpc_adapter.py scripts/book2epub_g1a_jsonrpc_adapter.py scripts/book2epub_g1a_client_source_audit.py scripts/book2epub_g1_contract.py
+      - name: Run negative and positive source-only tests
+        run: python3 -m unittest discover -s tests -p 'test_book2epub_g1*.py' -v
+      - name: Checkout exact public TrueNAS 25.04.2.6 API client source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: truenas/api_client
+          ref: 3576b3cf9a87ae92bbf1d873e23215b48ca90819
+          persist-credentials: false
+          path: upstream-truenas-client
+          sparse-checkout: |
+            truenas_api_client/__init__.py
+          sparse-checkout-cone-mode: false
+      - name: Audit exact client and prove implicit setup is explicit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/book2epub_g1a_client_source_audit.py --source upstream-truenas-client/truenas_api_client/__init__.py > "$RUNNER_TEMP/truenas-api-audit.json"
+          python3 - "$RUNNER_TEMP/truenas-api-audit.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              evidence = json.load(stream)
+          assert evidence["implicit_connection_setup_rpcs"] == ["core.set_options"]
+          assert evidence["connection_setup_requires_independent_authorization"] is True
+          assert evidence["observation_rpc_count_is_total_wire_count"] is False
+          assert evidence["server_protocol_tested"] is False
+          assert evidence["ssl_peer_verified"] is False
+          assert evidence["dispatch_authorized"] is False
+          PY
+      - name: Verify machine human and agent status views share hold semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          for fmt in json text markdown; do
+            python3 scripts/book2epub_g1_contract.py --file tests/fixtures/book2epub-g1-pre-admission.json --format "$fmt" > "$RUNNER_TEMP/book2epub-$fmt.txt"
+            grep -q "HOLD" "$RUNNER_TEMP/book2epub-$fmt.txt"
+          done
+          python3 - "$RUNNER_TEMP/book2epub-json.txt" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              receipt = json.load(stream)
+          assert receipt["qualification"] == "EXTERNAL_EVIDENCE_NOT_INDEPENDENTLY_VERIFIED"
+          assert receipt["dispatch_authorized"] is False
+          assert receipt["release_authorized"] is False
+          assert all(v["state"] == "HOLD" for v in receipt["all_gates"].values())
+          PY
