@@ -134,10 +134,24 @@ def preflight_public_source(args: argparse.Namespace) -> None:
     """Check one approved public Source without disclosing the account's Source list."""
     source = resolve_source(args.repository)
     github_repo = source.get("githubRepo", {})
-    if github_repo.get("isPrivate") is not False:
-        fail("Approved public Source is not confirmed public")
+    if github_repo.get("isPrivate") is True:
+        fail("Approved Source is marked private")
+    owner, repo = args.repository.split("/", 1)
+    public_url = "https://api.github.com/repos/" + urllib.parse.quote(owner, safe="") + "/" + urllib.parse.quote(repo, safe="")
+    public_request = urllib.request.Request(public_url, headers={"Accept": "application/vnd.github+json", "User-Agent": "agent-dispatch-public-source-preflight"})
+    try:
+        with urllib.request.urlopen(public_request, timeout=15) as response:
+            public_repo = json.load(response)
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        fail("Approved repository public visibility could not be verified")
+    if not isinstance(public_repo, dict) or public_repo.get("full_name", "").lower() != args.repository.lower() or public_repo.get("private") is not False:
+        fail("Approved repository is not confirmed public")
+    if public_repo.get("default_branch") != args.branch:
+        fail("Approved public repository does not expose the required branch")
     branches = github_repo.get("branches", [])
-    if not isinstance(branches, list) or args.branch not in {
+    if not isinstance(branches, list):
+        fail("Approved Source branch metadata is malformed")
+    if branches and args.branch not in {
         item.get("displayName") for item in branches if isinstance(item, dict)
     }:
         fail("Approved public Source does not expose the required branch")
