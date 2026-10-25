@@ -47,6 +47,10 @@ class JsonRpcAdmissionTests(unittest.TestCase):
         self.assertEqual(c.calls, ["system.version", "docker.status", "docker.config"])
         self.assertEqual(r["classification"], "MIDDLEWARE_STATUS_OBSERVED_GUEST_UNVERIFIED")
         self.assertEqual(r["runtime_verdict"], "UNVERIFIED_CANDIDATE_ONLY")
+        self.assertEqual(r["application_observation_rpc_count"], 3)
+        self.assertEqual(r["total_transport_rpc_count"], "UNKNOWN_UNTIL_SESSION_OWNER_ATTESTS")
+        self.assertEqual(r["expected_implicit_client_setup_rpc"], "core.set_options")
+        self.assertFalse(r["connection_setup_independently_authorized"])
         for k in ("independent_tls_peer_proof", "independent_role_proof",
                   "independent_guest_ownership_proof", "credential_disclosure",
                   "guest_identity_verified", "registry_trust_verified", "image_pull_verified"):
