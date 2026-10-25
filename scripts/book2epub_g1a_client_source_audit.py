@@ -78,16 +78,18 @@ def audit_bytes(raw):
     on_open = method(classes["JSONRPCClient"], "on_open")
     if on_open is None:
         raise AuditError("setup_rpc_method_missing")
-    setup_calls = [
-        n.args[0].value
-        for n in ast.walk(on_open)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "call"
-        and n.args
-        and isinstance(n.args[0], ast.Constant)
-        and isinstance(n.args[0].value, str)
-    ]
+    setup_calls = []
+    for node in ast.walk(on_open):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "self"
+                and node.func.attr == "call"):
+            continue
+        if (not node.args or not isinstance(node.args[0], ast.Constant)
+                or not isinstance(node.args[0].value, str)):
+            raise AuditError("dynamic_connection_setup_rpc")
+        setup_calls.append(node.args[0].value)
     if setup_calls != ["core.set_options"]:
         raise AuditError("unreviewed_connection_setup_rpcs")
     return {
