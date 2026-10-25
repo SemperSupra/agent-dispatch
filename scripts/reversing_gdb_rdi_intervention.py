@@ -75,6 +75,8 @@ def parse_intervention_receipt(output, entry_va, target_va, argument):
         raise InterventionError("GDB entry/RDI evidence occurred out of order")
     after_pos = ordered[-1]
     if target_va == entry_va:
+        if re.search(r"^\[Inferior [0-9]+ \(process [0-9]+\) exited ", output, re.M):
+            raise InterventionError("unexpected inferior terminal event at entry-only stop")
         if re.search(r"^Breakpoint 2(?: at|,)", output, re.M):
             raise InterventionError("duplicate breakpoint at original entry")
         return "ENTRY_PC_OBSERVED_AND_RDI_ATTESTED"
