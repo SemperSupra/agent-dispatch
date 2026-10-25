@@ -32,6 +32,14 @@ The TrueNAS **25.04.2** documented read roles for both `docker.status` and `dock
 
 Official TrueNAS 25.04 uses versioned **JSON-RPC 2.0 over WebSocket**; the existing codebase contains a legacy DDP helper. Its availability and method privilege behavior on the *exact target version and actual role-scoped principal* are **not yet verified**. If DDP is unavailable or privileged, a separate source-qualified JSON-RPC session adapter should be bound through the existing session owner, not silently promoted from synthetic tests. No default `truenas_admin` credential is authorized merely by this source contract.
 
+## 2026-10-25 first failure: hidden RPC on the official client connection
+
+The **exact** source for `truenas/api_client@3576b3cf9a87ae92bbf1d873e23215b48ca90819` (file Git blob `ccd59b19381b0d494528c6854db228e1c2a6665c`) calls `core.set_options` from `JSONRPCClient.on_open()` when it establishes the WebSocket. The B1 app adapter counts *only application-triggered* `system.version`, `docker.status`, and `docker.config`, not all RPCs on the wire. Auth/login can also involve additional RPCs owned by the runtime actor.
+
+This invalidates a blanket **three-wire-RPC-only** statement. It does not mean `core.set_options` is a persistent guest mutation; upstream source describes it as response-format session options. Before admission, classify this exact setup method independently and bind a lifecycle-complete transport allowlist: connect/verification, bounded `core.set_options` bootstrap, exact version-correct authentication, three observation RPCs and close. Record actual method names and counts in the *independently verified* session receipt, not a claim from a fixture or injected fake client. Any unexpected/dynamic setup method, write RPC, downgrade, missing `DOCKER_READ` scope, unverified peer or replayed request **HOLD**.
+
+Public [CI run #40214377308](https://github.com/SemperSupra/agent-dispatch/actions/runs/40214377308) at exact executable head `5ed127854abd9384a4b1426a16a0993d525b94ab` passed **59/59** tests and asserted that the source audit lists `core.set_options` as a setup RPC requiring separate authorization, not a pre-proved effect or complete wire-count proof. No actual WebSocket session, credentials, TrueNAS guest or socket trace was exercised.
+
 ## Falsifiable gates before an actual G1a observation
 
 - Independently verify current one-heavyweight-slot owner and terminal cleanup of the previous capsule. The 2026-10-24 Minecraft OP4P-023 receipt established a working disposable 25.04.2.6 guest and zero residue, but its request is **CONSUMED** and not reusable.
