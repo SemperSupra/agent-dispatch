@@ -130,6 +130,20 @@ def resolve_source(repo_full_name: str) -> dict:
     return matches[0]
 
 
+def preflight_public_source(args: argparse.Namespace) -> None:
+    """Check one approved public Source without disclosing the account's Source list."""
+    source = resolve_source(args.repository)
+    github_repo = source.get("githubRepo", {})
+    if github_repo.get("isPrivate") is not False:
+        fail("Approved public Source is not confirmed public")
+    branches = github_repo.get("branches", [])
+    if not isinstance(branches, list) or args.branch not in {
+        item.get("displayName") for item in branches if isinstance(item, dict)
+    }:
+        fail("Approved public Source does not expose the required branch")
+    print(json.dumps({"eligible": True, "repository": args.repository, "branch": args.branch}))
+
+
 def dispatch(args: argparse.Namespace) -> None:
     repository, branch = resolve_target(args.target)
     prompt = load_task(args.task)
@@ -188,6 +202,11 @@ def main() -> None:
     p = sub.add_parser("status", help="retrieve a Jules session result (trusted/local use)")
     p.add_argument("session")
     p.set_defaults(func=status)
+
+    p = sub.add_parser("preflight-public-source", help="verify one fixed public Source without listing other Sources")
+    p.add_argument("--repository", required=True)
+    p.add_argument("--branch", required=True)
+    p.set_defaults(func=preflight_public_source)
 
     args = parser.parse_args()
     args.func(args)
