@@ -152,7 +152,7 @@ class ReplayTests(unittest.TestCase):
 
     def test_reject_wrong_elf_version_and_truncated_header(self):
         for content in (elf_fixture(ident_version=0), elf_fixture(object_version=0),
-                        b"\\x7fELF\\x02\\x01"):
+                        b"\x7fELF\x02\x01"):
             with self.subTest(case=content[:10]), tempfile.TemporaryDirectory() as d:
                 f = Path(d)/"stripped"
                 f.write_bytes(content)
