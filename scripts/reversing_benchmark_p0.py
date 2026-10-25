@@ -185,7 +185,7 @@ def render_markdown(r):
         "Work item: " + r["work_id"],
         "Exposure: " + r["exposure_class"],
         "Verifier: " + r["verifier_kind"],
-        "Source receipt SHA-256: \`" + r["source_receipt_sha256"] + "\`",
+        "Source receipt SHA-256: `" + r["source_receipt_sha256"] + "`",
         "",
         "| Claim ID | Argument | Native sample verdict | Target RVA |",
         "| --- | ---: | --- | --- |",
