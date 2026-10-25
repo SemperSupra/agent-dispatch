@@ -9,6 +9,7 @@ independent evaluator, and GDB console remains unsuitable for hostile stdout.
 from hashlib import sha256
 from pathlib import Path
 import re
+import struct
 
 LIMIT = 131072
 MAX_FIXTURE_BYTES = 2 * 1024 * 1024
@@ -86,11 +87,16 @@ def replay_fixed_stripped(binary, entry_va, target_va, image_base, expected_sha2
     if not isinstance(binary, Path) or binary.is_symlink() or not binary.is_file():
         raise ReplayError("missing ordinary temporary synthetic ELF")
     size = binary.stat().st_size
-    if not 6 <= size <= MAX_FIXTURE_BYTES:
+    if not 64 <= size <= MAX_FIXTURE_BYTES:
         raise ReplayError("wrong or oversized public x86-64 ELF fixture")
     with binary.open("rb") as stream:
-        magic = stream.read(6)
-    if magic != b"\x7fELF\x02\x01":
+        header = stream.read(64)
+    # This generated -no-pie target must be ELF64/LE, version 1,
+    # ET_EXEC (2), EM_X86_64 (62). Magic/class/endian alone are insufficient.
+    if (len(header) < 64 or header[:7] != b"\x7fELF\x02\x01\x01"
+            or struct.unpack_from("<H", header, 16)[0] != 2
+            or struct.unpack_from("<H", header, 18)[0] != 62
+            or struct.unpack_from("<I", header, 20)[0] != 1):
         raise ReplayError("wrong or oversized public x86-64 ELF fixture")
     if (not isinstance(expected_sha256, str) or
             re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None or
