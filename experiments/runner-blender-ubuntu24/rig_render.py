@@ -104,14 +104,19 @@ def main():
 
     hashes = []
     evaluated_vertices = []
+    all_evaluated_positions = []
     for frame in (1, 9, 17):
         scene.frame_set(frame)
         depsgraph = bpy.context.evaluated_depsgraph_get()
         obj = lever.evaluated_get(depsgraph)
         sampled = obj.to_mesh()
         try:
-            vert = obj.matrix_world @ sampled.vertices[0].co
-            evaluated_vertices.append([round(float(v), 5) for v in vert])
+            coords = [
+                [round(float(v), 5) for v in (obj.matrix_world @ vertex.co)]
+                for vertex in sampled.vertices
+            ]
+            all_evaluated_positions.append(coords)
+            evaluated_vertices.append(coords[0])
         finally:
             obj.to_mesh_clear()
         dest = output / ("frame_%04d.png" % frame)
@@ -121,9 +126,13 @@ def main():
         assert len(blob) > 1000, "empty render"
         hashes.append(hashlib.sha256(blob).hexdigest())
 
+    # Check every skinned vertex; vertex 0 happens to sit near the hinge pivot.
     delta = max(
-        math.dist(evaluated_vertices[0], item) for item in evaluated_vertices[1:]
+        math.dist(a, b)
+        for sample in all_evaluated_positions[1:]
+        for a, b in zip(all_evaluated_positions[0], sample)
     )
+    print("BLENDER_DEFORMATION_MAX_METERS=" + str(delta))
     assert delta > 0.20, "armature has not deformed the evaluated mesh"
     assert len(set(hashes)) == 3, "three keyframes generated identical images"
 
