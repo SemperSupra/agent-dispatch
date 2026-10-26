@@ -1,0 +1,83 @@
+name: Blender 4.5.15 CPU synthetic qualification
+run-name: Blender CPU ubuntu-24.04 synthetic oracle
+on:
+  push:
+    branches: [exp/runner-blender-ubuntu24-20261027]
+    paths:
+      - ".github/workflows/blender-cpu-smoke-ubuntu24.yml"
+      - "experiments/runner-blender-ubuntu24/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: blender-cpu-smoke-ubuntu24
+  cancel-in-progress: true
+jobs:
+  ubuntu-24-04-blender-cpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout original public synthetic fixture
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Official Blender 4.5.15 x64 download and published SHA256 verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in x86_64) ;; *) echo 'Wrong architecture'; exit 90;; esac
+          folder="$RUNNER_TEMP/blender-bundle"
+          mkdir -p "$folder"
+          cd "$folder"
+          base="https://download.blender.org/release/Blender4.5"
+          tarball="blender-4.5.15-linux-x64.tar.xz"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 300 --silent --show-error --output "$tarball" "$base/$tarball"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 45 --silent --show-error --output release.sha256 "$base/blender-4.5.15.sha256"
+          python3 - <<'PY'
+          import hashlib, pathlib, re
+          lines=pathlib.Path("release.sha256").read_text().splitlines()
+          target="blender-4.5.15-linux-x64.tar.xz"
+          matches=[re.search(r"(?i)\b[a-f0-9]{64}\b",x).group(0).lower() for x in lines if target in x and re.search(r"(?i)\b[a-f0-9]{64}\b",x)]
+          assert len(matches)==1, "no unambiguous official checksum"
+          with open(target,"rb") as f: actual=hashlib.file_digest(f,"sha256").hexdigest()
+          assert actual==matches[0], "official Blender archive checksum mismatch"
+          print("blender_archive_sha256="+actual)
+          PY
+          tar -xf "$tarball"
+          test -x "$folder/blender-4.5.15-linux-x64/blender"
+          "$folder/blender-4.5.15-linux-x64/blender" --version | head -n 3
+      - name: Native Blender armature, evaluated geometry and CPU image oracle
+        env:
+          RUNNER_LABEL: ubuntu-24.04
+          BLENDER_USER_CONFIG: ${{ runner.temp }}/blender-user-config
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          blender="$RUNNER_TEMP/blender-bundle/blender-4.5.15-linux-x64/blender"
+          mkdir -p "$RUNNER_TEMP/blender-smoke"
+          timeout 400s "$blender" --background --factory-startup --disable-autoexec --python-exit-code 5 --python experiments/runner-blender-ubuntu24/rig_render.py -- --output "$RUNNER_TEMP/blender-smoke"
+          python3 - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"blender-smoke"
+          receipt=json.loads((root/"receipt.json").read_text())
+          assert receipt["result"]=="PASS"
+          assert receipt["compute_device"]=="CPU"
+          assert receipt["native_bones"]==2
+          assert receipt["max_evaluated_vertex_displacement_m"]>0.20
+          assert len(set(receipt["pixel_sha256"]))==3
+          assert "4.5.15" in receipt["blender_version"]
+          for frame in (1,9,17): assert (root/("frame_%04d.png" % frame)).stat().st_size>1000
+          print("independent_blender_receipt_oracle=PASS")
+          PY
+      - name: Retain public original-mesh evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-ubuntu24-cpu-synthetic-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/blender-smoke/receipt.json
+            ${{ runner.temp }}/blender-smoke/synthetic_rig.blend
+            ${{ runner.temp }}/blender-smoke/frame_*.png
+          retention-days: 7
+          if-no-files-found: error
