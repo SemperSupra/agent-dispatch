@@ -35,6 +35,7 @@ def main():
     scene.frame_start = 1
     scene.frame_end = 17
     scene.render.fps = 12
+    scene.world = bpy.data.worlds.new("synthetic-world")
     scene.world.color = (0.12, 0.12, 0.12)
 
     arm_data = bpy.data.armatures.new("two-bone-fixture-data")
