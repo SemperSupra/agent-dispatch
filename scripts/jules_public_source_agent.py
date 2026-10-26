@@ -33,6 +33,8 @@ APPROVED = {
 TERMINAL = {"COMPLETED", "FAILED", "AWAITING_PLAN_APPROVAL", "AWAITING_USER_FEEDBACK", "PAUSED"}
 SESSION_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 RECIPIENT = re.compile(r"^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$")
+MAX_SEALED_PLAINTEXT_BYTES = 1024 * 1024
+SEALED_FINDING_PREFIX = "# Unreviewed Jules public-source finding\n\n"
 
 
 def approved_assignment(workset_id: str, delegation_id: str, assignment_id: str) -> dict:
@@ -126,11 +128,12 @@ def final_message(session_id: str) -> str:
     if not messages:
         raise ValueError("completed native session has no agent message")
     messages.sort(key=lambda item: item.get("createTime", ""))
-    result = messages[-1]["agentMessaged"]["agentMessage"]
+    return messages[-1]["agentMessaged"]["agentMessage"]
+
+
+def structured_finding(result: str) -> bool:
     required = ("evidence", "conclusion", "falsification test", "remaining unknowns", "next gate")
-    if any(not re.search(r"(?im)^#{1,3}\s*" + re.escape(section) + r"\s*$", result) for section in required):
-        raise ValueError("completed native session has no structured final finding")
-    return result
+    return all(re.search(r"(?im)^#{1,3}\s*" + re.escape(section) + r"\s*$", result) for section in required)
 
 
 def write_receipt(**fields: object) -> None:
@@ -138,15 +141,22 @@ def write_receipt(**fields: object) -> None:
     (RESULT_DIR / "receipt.json").write_text(json.dumps(fields, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def sealed_finding_plaintext(message: str) -> bytes:
+    """Enforce the private pickup's 1 MiB limit on the FULL decrypted envelope."""
+    plaintext = (SEALED_FINDING_PREFIX + message + "\n").encode("utf-8")
+    if len(plaintext) > MAX_SEALED_PLAINTEXT_BYTES:
+        raise ValueError("wrapped native finding exceeds sealed-result budget")
+    return plaintext
+
+
 def seal_finding(message: str, recipient: str) -> tuple[str, int]:
     if not RECIPIENT.fullmatch(recipient):
         raise ValueError("valid age X25519 recipient is required")
-    if len(message.encode()) > 1024 * 1024:
-        raise ValueError("native finding exceeds sealed-result budget")
+    payload = sealed_finding_plaintext(message)
     RESULT_DIR.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="public-agent-finding-") as temp_name:
         plaintext = Path(temp_name) / "finding.md"
-        plaintext.write_text("# Unreviewed Jules public-source finding\n\n" + message + "\n", encoding="utf-8")
+        plaintext.write_bytes(payload)
         ciphertext = RESULT_DIR / "result.age"
         subprocess.run(["age", "--encrypt", "--recipient", recipient, "--output", str(ciphertext),
                         str(plaintext)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -192,9 +202,13 @@ def execute(workset_id: str, delegation_id: str, assignment_id: str, recipient: 
         raise ValueError("provider session stopped without a completed audit")
     message = final_message(session_id)
     sealed_sha256, sealed_bytes = seal_finding(message, recipient)
-    write_receipt(**common, status="provider-completed", provider_state=state,
+    structured = structured_finding(message)
+    status = "provider-completed" if structured else "provider-completed-unstructured"
+    write_receipt(**common, status=status, provider_state=state,
                   sealed_sha256=sealed_sha256, sealed_bytes=sealed_bytes,
                   run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"))
+    if not structured:
+        raise ValueError("completed native session has no structured final finding; sealed result requires private review")
     return {"status": "provider-completed", "assignment_id": assignment_id, "native_correlation": correlation,
             "independent_acceptance": "not-run"}
 
