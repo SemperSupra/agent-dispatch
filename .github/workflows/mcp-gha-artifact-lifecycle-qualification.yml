@@ -157,8 +157,10 @@ jobs:
         with:
           artifact-ids: ${{ steps.resolve.outputs.cpe_id }}
           path: ${{ runner.temp }}/synthetic-pair/cpe
-      - name: Precommit typed synthetic manifest with separately resolved native IDs
+      - name: Assemble synthetic evidence candidate with both pinned source roles
         shell: bash
+        env:
+          WORKFLOW_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -177,10 +179,11 @@ jobs:
           assert a["provider_image_digest"]==b["provider_image_digest"] and a["config_sha256"]==b["config_sha256"]
           assert a["plan_sha256"]!=b["plan_sha256"]
           manifest={
-           "schema":"mcp-gha-private-pair-preflight/v1",
+           "schema":"mcp-gha-private-pair-preflight/v2",
            "assignment_id":"public-synthetic-artifact-lifecycle",
            "repository":"SemperSupra/agent-dispatch",
-           "workflow":".github/workflows/mcp-gha-worker.yml",
+           "workflow":".github/workflows/mcp-gha-artifact-lifecycle-qualification.yml",
+           "workflow_source_sha":os.environ["WORKFLOW_SOURCE_SHA"],
            "run_id":os.environ["GITHUB_RUN_ID"],
            "run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],
            "source_sha":a["source_sha"],
@@ -195,7 +198,9 @@ jobs:
            } for arm in ("reference","cpe")],
           }
           (root/"synthetic-pair-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
-          print("MCP_GHA_REAL_ARTIFACT_PAIR_MANIFEST_BYTE_CONSISTENT_COMPOSITE_SOURCE_NOT_PRODUCTION_ATTESTED")
+          assert len(os.environ["WORKFLOW_SOURCE_SHA"])==40
+          assert manifest["workflow_source_sha"]!=manifest["source_sha"]
+          print("MCP_GHA_COMPOSITE_SOURCE_SYNTHETIC_V2_MANIFEST_TWO_ROLES_BOUND")
           PY
       - name: Stage and repeat idempotently with pure Go (local test only)
         shell: bash
