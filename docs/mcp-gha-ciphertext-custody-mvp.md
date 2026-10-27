@@ -4,6 +4,53 @@ This is an offline, **source-only** candidate stacked as draft PR #557
 on read-only controller draft PR #556. Nothing here deploys to a
 private host, reads an age secret or makes a scientific claim.
 
+## Native GitHub artifact lifecycle evidence (2026-10-27)
+
+**Source-only test:** [public Actions run 40562713367](https://github.com/SemperSupra/agent-dispatch/actions/runs/40562713367) is a completed **three-job success**.
+
+- Reference VM job **122395739738** uploaded artifact ID
+  **12760379376**, name `mcp-gha-artifact-test-reference-40562713367-1`.
+- CPE-labelled VM job **122395740256** uploaded artifact ID
+  **12760628947**, name `mcp-gha-artifact-test-cpe-40562713367-1`.
+- Collector job **122396260895** independently read GitHub's native
+  jobs/artifacts, downloaded both archives by their **immutable artifact
+  IDs**, verified both receipt/ciphertext hashes, created the two-arm
+  manifest and ran `stage-pair` twice. First stage committed, second
+  returned `IDEMPOTENT_CIPHERTEXT_ALREADY_STAGED`.
+
+The artifact source itself was an **immutable exact checkout** of the
+still-unmerged public Stage R candidate `330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa`,
+while the workflow source revision was
+`d0505fbb3c52616d2679fdca06b4c4d26fcd5e9c`.
+These are **distinct** and the qualification manifest explicitly
+identifies the collector source. This is a composite-source transport
+test; it **does not pass** the production native one-source attestation
+contract. Keep both source revisions in the admission record for any
+composed execution and require independent source provenance checks
+before ingesting real findings.
+
+Both upstream providers returned three public synthetic results sets per
+arm, but the test does **not** qualify actual CPE authority. Disposable
+age identity files never left the temporary arm VM. Only encrypted
+`result.age` and public-safe `receipt.json` were uploaded; each
+artifact has **one-day retention**. No trusted host was reached and the
+collector-stage private directory expired with the test job.
+
+**First failures:**
+1. Initial test attempted to run Stage R source absent from the stacked
+   custody PR. Corrected with pinned, separate checkout rather than
+   duplicated source.
+2. Initial pinned v4 download-by-artifact-ID placed files one directory
+   deeper than the collector expected. Corrected by pinning the
+   official `actions/download-artifact` v8.0.2 commit
+   `9000827ccba6bdab643e8b6fd33ac0654aef8333`,
+   which also fails on artifact digest mismatch by default.
+
+Independent connected GitHub Actions artifact listing confirmed both
+IDs, that they belonged to native run 40562713367, and that they were
+unexpired at collection. This is a **real GitHub transport acceptance
+receipt**, not a retained private research corpus.
+
 ## Composition
 
 The private research supervisor freezes an authenticated assignment
