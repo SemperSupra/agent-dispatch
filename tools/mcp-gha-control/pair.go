@@ -29,6 +29,7 @@ type PairPlan struct {
  RunID string `json:"run_id"`
  RunAttempt string `json:"run_attempt"`
  SourceSHA string `json:"source_sha"`
+ WorkflowSourceSHA string `json:"workflow_source_sha,omitempty"`
  ProviderImageDigest string `json:"provider_image_digest"`
  ConfigSHA256 string `json:"config_sha256"`
  Arms []PairArm `json:"arms"`
@@ -55,8 +56,19 @@ func readPairPlan(path string)(PairPlan,error){
  if e=dec.Decode(&extra);e!=io.EOF{return p,errors.New("trailing manifest JSON")}
  return p,nil
 }
+const qualificationWorkflow = ".github/workflows/mcp-gha-artifact-lifecycle-qualification.yml"
+const syntheticCollectorSource = "330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa"
 func validatePairPlan(p PairPlan)error{
- if p.Schema!="mcp-gha-private-pair-preflight/v1"||p.Repository!=repo||p.Workflow!=workflow||
+ sourceContractOK:=false
+ switch p.Schema {
+ case "mcp-gha-private-pair-preflight/v1":
+  sourceContractOK=p.Workflow==workflow&&p.WorkflowSourceSHA==""
+ case "mcp-gha-private-pair-preflight/v2":
+  // Deliberately narrow: public synthetic transport only. No other
+  // composite-source executions are admitted or scientifically trusted.
+  sourceContractOK=p.Workflow==qualificationWorkflow&&hex40.MatchString(p.WorkflowSourceSHA)&&p.SourceSHA==syntheticCollectorSource
+ }
+ if !sourceContractOK||p.Repository!=repo||
  !digits.MatchString(p.RunID)||!digits.MatchString(p.RunAttempt)||!hex40.MatchString(p.SourceSHA)||
  !pinnedSearxImage.MatchString(p.ProviderImageDigest)||!hex64.MatchString(p.ConfigSHA256)||
  len(p.AssignmentID)<3||len(p.AssignmentID)>96||len(p.Arms)!=2 {
