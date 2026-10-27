@@ -26,7 +26,7 @@ The Go tests fail closed on stale source/run/attempt, wrong signals, fabricated 
 2. Verify Jules connected Source, free/quota-safe execution, caller and target/admission rights and **one-use owner-authorized** CreateSession. Reuse existing governed Jules integration; no ad hoc adapter, label bypass or secret-bearing PR action.
 3. Observe and persist native Jules session ID, source/base, lifecycle and ChangeSet via existing observer. Ambiguous create/response is UNKNOWN with no automatic retry.
 4. Independently review any proposed correction on a controller-owned immutable candidate. A fresh public GHA run is separately admitted by the trusted controller.
-5. Return real native session/run/job/artifact IDs, first failures and outcomes to **private** DLE #700.
+5. Return real native session/run/job/artifact IDs, first failures and outcomes to the protected project-native DLE.
 
 ## Holds
 
