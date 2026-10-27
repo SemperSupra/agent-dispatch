@@ -252,7 +252,7 @@ func describe()map[string]any {
 }
 func emit(x any)error {e:=json.NewEncoder(os.Stdout);e.SetIndent("","  ");return e.Encode(x)}
 func main(){
- if len(os.Args)<2{fmt.Fprintln(os.Stderr,"usage: mcp-gha-control describe|status|verify-receipt|stage-pair");os.Exit(2)}
+ if len(os.Args)<2{fmt.Fprintln(os.Stderr,"usage: mcp-gha-control describe|status|verify-receipt|verify-native-pair|stage-pair");os.Exit(2)}
  switch os.Args[1]{
  case "describe":if len(os.Args)!=2{os.Exit(2)};_ = emit(describe())
  case "status":
@@ -262,6 +262,16 @@ func main(){
   obs,err:=observe(context.Background(),client,apiBase,*id)
   if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
   _=emit(obs)
+ case "verify-native-pair":
+  fs:=flag.NewFlagSet("verify-native-pair",flag.ExitOnError)
+  manifest:=fs.String("manifest","","independently admitted exact source/arm manifest")
+  _=fs.Parse(os.Args[2:])
+  if *manifest==""{fmt.Fprintln(os.Stderr,"manifest required");os.Exit(2)}
+  plan,err:=readPairPlan(*manifest)
+  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
+  observation,err:=checkNativePairMetadata(context.Background(),&http.Client{Timeout:15*time.Second},plan)
+  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
+  _=emit(observation)
  case "stage-pair":
   fs:=flag.NewFlagSet("stage-pair",flag.ExitOnError)
   manifest:=fs.String("manifest","","frozen pair manifest JSON")
