@@ -94,3 +94,20 @@ func TestStagePairExistingSymlinkTargetDenied(t *testing.T){
  if err:=os.Symlink(another,target);err!=nil{t.Fatal(err)}
  if _,err:=stagePair(manifest,inbox,root);err==nil{t.Fatal("symlink target admitted")}
 }
+
+func TestStagePairRejectsUnexpectedFilesAndOversize(t *testing.T) {
+ manifest,inbox,plan:=pairedFixture(t)
+ root:=filepath.Join(t.TempDir(),"protected")
+ if err:=os.Mkdir(root,0700);err!=nil{t.Fatal(err)}
+ if _,err:=stagePair(manifest,inbox,root);err!=nil{t.Fatal(err)}
+ target:=filepath.Join(root,plan.AssignmentID+"--"+plan.RunID+"--"+plan.RunAttempt)
+ extra:=filepath.Join(target,"cpe","unexpected-source.txt")
+ if err:=os.WriteFile(extra,[]byte("should not be accepted"),0600);err!=nil{t.Fatal(err)}
+ if _,err:=stagePair(manifest,inbox,root);err==nil{t.Fatal("unexpected extra staged file accepted")}
+ if err:=os.Remove(extra);err!=nil{t.Fatal(err)}
+ cipher:=filepath.Join(target,"cpe","result.age")
+ file,err:=os.OpenFile(cipher,os.O_WRONLY|os.O_APPEND,0600);if err!=nil{t.Fatal(err)}
+ if _,err=file.Write([]byte("tampered byte"));err!=nil{t.Fatal(err)}
+ if err=file.Close();err!=nil{t.Fatal(err)}
+ if _,err:=stagePair(manifest,inbox,root);err==nil{t.Fatal("modified retained artifact accepted")}
+}
