@@ -1,7 +1,8 @@
 # MCP GHA — protected pair collection contract
 
-**Status:** public-safe source-only implementation in draft PR #556.
-This is a specification for the trusted private ingester, not a deployment.
+**Status:** public-safe source-only read-only preflight. This is a
+specification for the trusted private ingester, not a deployment or
+authorization to activate private ingestion.
 
 ## Distinct responsibilities
 
@@ -87,7 +88,8 @@ Keep the private age identity in an approved vault/sovereign host;
 never send it through GitHub comments, public Actions inputs/logs,
 PRs, this public repo or ChatGPT messages.
 
-**Activation hold:** PRs #555 and #556 remain draft; the production
-`/mcp gha sweep pilot` source path is not merged. No persistent
+**Activation hold:** the broader workcell PR #555 remains draft; the production
+`/mcp gha sweep pilot` source path is not merged. The read-only verifier's
+presence on main does not activate a private ingester. No persistent
 recipient has been verified here and no actual CPE-generated paired
 experiment or private artifact decryption has been performed.
