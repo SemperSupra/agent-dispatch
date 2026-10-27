@@ -1,0 +1,226 @@
+name: MCP GHA Synthetic Artifact Lifecycle Qualification
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mcp-gha-artifact-lifecycle-qualification.yml
+      - tools/mcp-gha-control/**
+      - tools/concept-sweep/**
+      - pilot/arms/**
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  synthetic-arm:
+    name: Synthetic sealed ${{ matrix.arm }} GHA arm
+    if: github.event.pull_request.head.repo.full_name == 'SemperSupra/agent-dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [reference, cpe]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout fixed shared collector and only this synthetic arm plan
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools/concept-sweep/go.mod
+            tools/concept-sweep/main.go
+            tools/concept-sweep/arm.go
+            tools/concept-sweep/run_sealed_arm.sh
+            tools/concept-sweep/searxng.settings.yml
+            pilot/arms/${{ matrix.arm }}/plan.json
+          sparse-checkout-cone-mode: false
+      - name: Install age and create an arm-local disposable test recipient
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+          umask 077
+          age-keygen -o "${RUNNER_TEMP}/disposable-private-age-key" >/dev/null 2>&1
+          echo "MCP_GHA_AGE_RECIPIENT=$(age-keygen -y "${RUNNER_TEMP}/disposable-private-age-key")" >> "$GITHUB_ENV"
+      - name: Exercise real local SearXNG and seal this arm
+        shell: bash
+        env:
+          MCP_GHA_ARM: ${{ matrix.arm }}
+          MCP_GHA_SEALED_OUT: ${{ runner.temp }}/synthetic-sealed
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          bash tools/concept-sweep/run_sealed_arm.sh
+          test -s "${MCP_GHA_SEALED_OUT}/result.age"
+          test -s "${MCP_GHA_SEALED_OUT}/receipt.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["MCP_GHA_SEALED_OUT"])
+          d=json.loads((p/"receipt.json").read_text())
+          assert d["schema"]=="mcp-gha-sealed-arm-receipt/v1"
+          assert d["arm"]==os.environ["MCP_GHA_ARM"]
+          assert d["research_status"]=="SYNTHETIC_TRANSPORT_ONLY_NOT_BLIND_RESEARCH"
+          assert d["attempted"]==3
+          PY
+      - name: Upload only this arm's ciphertext and sanitized receipt
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mcp-gha-artifact-test-${{ matrix.arm }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/synthetic-sealed/result.age
+            ${{ runner.temp }}/synthetic-sealed/receipt.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Declare bounded artifact metadata, never scientific status
+        shell: bash
+        env:
+          ARM: ${{ matrix.arm }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          test -n "$ARTIFACT_ID"
+          echo "MCP_GHA_${ARM}_SYNTHETIC_ARTIFACT_UPLOADED"
+
+  retrieve-and-stage:
+    name: Re-download two native artifacts and stage ciphertext (synthetic only)
+    needs: [synthetic-arm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout offline Go evidence and ciphertext staging
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools/mcp-gha-control
+          sparse-checkout-cone-mode: true
+      - name: Resolve two artifact IDs and completed native jobs from GitHub API
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          set +x
+          python3 - <<'PY'
+          import json,os,urllib.request,pathlib
+          root="https://api.github.com/repos/SemperSupra/agent-dispatch/actions/runs/"+os.environ["GITHUB_RUN_ID"]
+          headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}
+          def fetch(path):
+              req=urllib.request.Request(root+path,headers=headers)
+              with urllib.request.urlopen(req,timeout=15) as resp:
+                  assert resp.status==200
+                  return json.load(resp)
+          jobs=fetch("/jobs?per_page=100")
+          artifacts=fetch("/artifacts?per_page=100")
+          assert jobs["total_count"]==len(jobs["jobs"]) and len(jobs["jobs"])<=100
+          assert artifacts["total_count"]==len(artifacts["artifacts"]) and len(artifacts["artifacts"])<=100
+          discovered={}
+          for arm in ("reference","cpe"):
+              expected="mcp-gha-artifact-test-"+arm+"-"+os.environ["GITHUB_RUN_ID"]+"-"+os.environ["GITHUB_RUN_ATTEMPT"]
+              match=[a for a in artifacts["artifacts"] if a["name"]==expected]
+              assert len(match)==1 and not match[0]["expired"] and match[0]["size_in_bytes"]>0
+              job=[j for j in jobs["jobs"] if j["name"]=="Synthetic sealed "+arm+" GHA arm"]
+              assert len(job)==1 and job[0]["status"]=="completed" and job[0]["conclusion"]=="success"
+              assert job[0]["run_id"]==int(os.environ["GITHUB_RUN_ID"])
+              assert job[0]["run_attempt"]==int(os.environ["GITHUB_RUN_ATTEMPT"])
+              discovered[arm]={"artifact_id":match[0]["id"],"job_id":job[0]["id"]}
+          assert discovered["reference"]["artifact_id"]!=discovered["cpe"]["artifact_id"]
+          assert discovered["reference"]["job_id"]!=discovered["cpe"]["job_id"]
+          pathlib.Path(os.environ["RUNNER_TEMP"],"native-artifact-identities.json").write_text(json.dumps(discovered))
+          with open(os.environ["GITHUB_OUTPUT"],"a") as out:
+              for arm in ("reference","cpe"):
+                  print(arm+"_id="+str(discovered[arm]["artifact_id"]),file=out)
+          print("MCP_GHA_REAL_NATIVE_TWO_ARM_JOB_ARTIFACT_IDS_RESOLVED")
+          PY
+      - name: Download immutable reference artifact by exact GitHub artifact ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.reference_id }}
+          path: ${{ runner.temp }}/synthetic-pair/reference
+      - name: Download immutable CPE-labelled artifact by exact GitHub artifact ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.cpe_id }}
+          path: ${{ runner.temp }}/synthetic-pair/cpe
+      - name: Precommit typed synthetic manifest with separately resolved native IDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          inbox=root/"synthetic-pair"
+          ids=json.loads((root/"native-artifact-identities.json").read_text())
+          receipts={arm:json.loads((inbox/arm/"receipt.json").read_text()) for arm in ("reference","cpe")}
+          a,b=receipts["reference"],receipts["cpe"]
+          assert a["source_sha"]==b["source_sha"] and a["run_attempt"]==b["run_attempt"]==os.environ["GITHUB_RUN_ATTEMPT"]
+          assert a["run_id"]==b["run_id"]==os.environ["GITHUB_RUN_ID"]
+          assert a["provider_image_digest"]==b["provider_image_digest"] and a["config_sha256"]==b["config_sha256"]
+          assert a["plan_sha256"]!=b["plan_sha256"]
+          manifest={
+           "schema":"mcp-gha-private-pair-preflight/v1",
+           "assignment_id":"public-synthetic-artifact-lifecycle",
+           "repository":"SemperSupra/agent-dispatch",
+           "workflow":".github/workflows/mcp-gha-worker.yml",
+           "run_id":os.environ["GITHUB_RUN_ID"],
+           "run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],
+           "source_sha":a["source_sha"],
+           "provider_image_digest":a["provider_image_digest"],
+           "config_sha256":a["config_sha256"],
+           "arms":[{
+             "arm":arm,
+             "job_id":str(ids[arm]["job_id"]),
+             "artifact_id":str(ids[arm]["artifact_id"]),
+             "plan_sha256":receipts[arm]["plan_sha256"],
+             "receipt_sha256":hashlib.sha256((inbox/arm/"receipt.json").read_bytes()).hexdigest(),
+           } for arm in ("reference","cpe")],
+          }
+          (root/"synthetic-pair-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
+          print("MCP_GHA_REAL_ARTIFACT_PAIR_MANIFEST_BYTE_CONSISTENT")
+          PY
+      - name: Stage and repeat idempotently with pure Go (local test only)
+        shell: bash
+        working-directory: tools/mcp-gha-control
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go build -trimpath -o "${RUNNER_TEMP}/mcp-gha-control" .
+          mkdir -m 0700 "${RUNNER_TEMP}/private-synthetic-stage"
+          "${RUNNER_TEMP}/mcp-gha-control" stage-pair \
+            --manifest "${RUNNER_TEMP}/synthetic-pair-manifest.json" \
+            --inbox "${RUNNER_TEMP}/synthetic-pair" \
+            --destination "${RUNNER_TEMP}/private-synthetic-stage" \
+            | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["State"]=="CIPHERTEXT_ONLY_NOT_INGESTED"'
+          "${RUNNER_TEMP}/mcp-gha-control" stage-pair \
+            --manifest "${RUNNER_TEMP}/synthetic-pair-manifest.json" \
+            --inbox "${RUNNER_TEMP}/synthetic-pair" \
+            --destination "${RUNNER_TEMP}/private-synthetic-stage" \
+            | python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["State"]=="IDEMPOTENT_CIPHERTEXT_ALREADY_STAGED"'
+          echo "MCP_GHA_GENUINE_GITHUB_ARTIFACT_DOWNLOAD_AND_CIPHERTEXT_STAGE_PASS"
+          {
+            echo '### MCP GHA synthetic artifact lifecycle'
+            echo
+            echo '| Property | Native observation |'
+            echo '|---|---|'
+            echo '| Execution | Two separate GitHub-hosted workers |'
+            echo '| Artifacts | Two immutable native artifact IDs resolved and downloaded |'
+            echo '| Bytes | Per-arm ciphertext SHA256 and receipt hashes verified |'
+            echo '| Local custody | Atomically staged; identical replay idempotent |'
+            echo '| Durable private ingestion | NOT EXECUTED |'
+            echo '| Protected decryption | NOT EXECUTED |'
+            echo '| True CPE scientific validation | NOT EXECUTED |'
+            echo
+            echo 'Test-only disposable age keys were never uploaded. Artifacts contain PUBLIC SYNTHETIC ciphertext only and expire after one day.'
+          } >> "$GITHUB_STEP_SUMMARY"
