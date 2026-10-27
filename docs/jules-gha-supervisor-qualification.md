@@ -1,6 +1,6 @@
 # Jules supervises public GHA: synthetic interview and native qualification
 
-Status: **public synthetic contract staged; real Jules is not yet invoked or qualified.** Originating authority: private Agent Dispatch [#700](https://github.com/SemperSupra/agent-dispatch-private/issues/700), parents #87, #485, #110; reuse existing governed Jules #69/#81. This public repo contains only public-safe execution mechanics, not private project or provider decisions.
+Status: **public synthetic contract staged; real Jules is not yet invoked or qualified.** Originating authority is held in the protected project-native DLE; reuse existing governed Jules and public-runner adapters without additional permissions. This public repo contains only public-safe execution mechanics, not private project or provider decisions.
 
 ## Experiment
 
@@ -14,7 +14,7 @@ A passing GHA job does not imply Jules executed or that any generated fix is acc
 
 ## Human / automation / agent interface
 
-- **Human:** draft PR checks, run/job/artifact links, first failures and private DLE #700 verdicts.
+- **Human:** draft PR checks, run/job/artifact links, first failures and protected project-native DLE verdicts.
 - **Automation:** run Go tests/race/vet from tools/jules-gha-interview. Four commands (arm, prepare, mock-answer, judge) accept bounded flags and return JSON. No API key or provider token.
 - **Agent:** consume the emitted jules-gha-interview/v1 packet, propose a **fix only**, and return jules-gha-answer/v1 with exact source/run/attempt, grounded evidence and auto_dispatch=false, accept_candidate=false.
 
@@ -22,8 +22,8 @@ The Go tests fail closed on stale source/run/attempt, wrong signals, fabricated 
 
 ## Native Jules interview (separate admission)
 
-1. Reconcile #700/#87/#485 and select an existing, unclaimed bounded Agent Dispatch assignment. Freeze public source commit and evidence packet.
-2. Verify Jules connected Source, free/quota-safe execution, caller and target/admission rights and **one-use owner-authorized** CreateSession. Reuse #69/#81; no ad hoc adapter, label bypass or secret-bearing PR action.
+1. Reconcile protected project-native authority and select an existing, unclaimed bounded Agent Dispatch assignment. Freeze public source commit and evidence packet.
+2. Verify Jules connected Source, free/quota-safe execution, caller and target/admission rights and **one-use owner-authorized** CreateSession. Reuse existing governed Jules integration; no ad hoc adapter, label bypass or secret-bearing PR action.
 3. Observe and persist native Jules session ID, source/base, lifecycle and ChangeSet via existing observer. Ambiguous create/response is UNKNOWN with no automatic retry.
 4. Independently review any proposed correction on a controller-owned immutable candidate. A fresh public GHA run is separately admitted by the trusted controller.
 5. Return real native session/run/job/artifact IDs, first failures and outcomes to **private** DLE #700.
