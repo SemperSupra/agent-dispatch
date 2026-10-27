@@ -65,12 +65,19 @@ func checkNativePairMetadataAt(ctx context.Context,c *http.Client,apiURL string,
  attempt,e:=strconv.Atoi(p.RunAttempt);if e!=nil||attempt<1{return result,errors.New("invalid native run attempt")}
  root:=strings.TrimSuffix(apiURL,"/")
  if root==""{return result,errors.New("missing native read origin")}
+ workflowSource:=p.SourceSHA
+ expectedEvent:=""
+ if p.Schema=="mcp-gha-private-pair-preflight/v2"{
+  workflowSource=p.WorkflowSourceSHA
+  expectedEvent="pull_request"
+ }
  var run APIRun
  if e=requestPublicJSON(ctx,c,root+"/actions/runs/"+p.RunID,&run);e!=nil{return result,e}
- if run.ID!=runID||run.Repository.FullName!=repo||run.Path!=workflow||
- run.HeadSHA!=p.SourceSHA||run.RunAttempt!=attempt||
+ if run.ID!=runID||run.Repository.FullName!=repo||run.Path!=p.Workflow||
+ run.HeadSHA!=workflowSource||run.RunAttempt!=attempt||
  run.Status!="completed"||run.Conclusion==nil||*run.Conclusion!="success"||
- (run.Event!="issue_comment"&&run.Event!="workflow_dispatch") {
+ (expectedEvent==""&&(run.Event!="issue_comment"&&run.Event!="workflow_dispatch"))||
+ (expectedEvent!=""&&run.Event!=expectedEvent) {
   return result,errors.New("native workflow run is not an accepted completed sweep")
  }
  var jobs nativeJobs
@@ -94,11 +101,15 @@ func checkNativePairMetadataAt(ctx context.Context,c *http.Client,apiURL string,
   aid,e:=strconv.ParseInt(arm.ArtifactID,10,64);if e!=nil{return result,e}
   expectedJob:="Sealed "+arm.Arm+" Stage-R independent GHA workcell"
   expectedArtifact:="mcp-gha-"+arm.Arm+"-sealed-"+p.RunID+"-"+p.RunAttempt
+  if p.Schema=="mcp-gha-private-pair-preflight/v2" {
+   expectedJob="Synthetic sealed "+arm.Arm+" GHA arm"
+   expectedArtifact="mcp-gha-artifact-test-"+arm.Arm+"-"+p.RunID+"-"+p.RunAttempt
+  }
   jobCount:=0
   for _,j:=range jobs.Jobs{
    if j.ID!=jid{continue}
    if j.RunID!=runID||j.RunAttempt!=attempt||j.Name!=expectedJob||
-    j.HeadSHA!=p.SourceSHA||j.Status!="completed"||
+    j.HeadSHA!=workflowSource||j.Status!="completed"||
     j.Conclusion==nil||*j.Conclusion!="success"{
     return result,fmt.Errorf("native %s workcell job mismatch",arm.Arm)
    }
@@ -109,7 +120,7 @@ func checkNativePairMetadataAt(ctx context.Context,c *http.Client,apiURL string,
   for _,a:=range artifacts.Artifacts{
    if a.ID!=aid{continue}
    if a.Name!=expectedArtifact||a.Expired||a.Size<=0||
-    a.WorkflowRun.ID!=runID||a.WorkflowRun.HeadSHA!=p.SourceSHA{
+    a.WorkflowRun.ID!=runID||a.WorkflowRun.HeadSHA!=workflowSource{
     return result,fmt.Errorf("native %s sealed mailbox mismatch",arm.Arm)
    }
    artifactCount++
