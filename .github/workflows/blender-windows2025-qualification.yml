@@ -1,0 +1,85 @@
+name: Blender 4.5.15 Windows2025 CPU qualification
+on:
+  push:
+    branches: [exp/runner-blender-windows2025-20261027]
+    paths:
+      - ".github/workflows/blender-windows2025-qualification.yml"
+      - "experiments/runner-blender-ubuntu24/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: blender-windows2025-cpu
+  cancel-in-progress: true
+jobs:
+  windows-2025-blender:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout public synthetic source only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download and verify official Blender 4.5.15 Windows x64 ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name='blender-4.5.15-windows-x64.zip'
+          $base='https://download.blender.org/release/Blender4.5'
+          $bundle=Join-Path $env:RUNNER_TEMP 'blender-bundle'
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          $zip=Join-Path $bundle $name
+          $sha=Join-Path $bundle 'release.sha256'
+          curl.exe --fail --location --retry 2 --connect-timeout 15 --max-time 360 "$base/$name" -o $zip
+          if ($LASTEXITCODE -ne 0) { throw 'Blender ZIP download failed' }
+          curl.exe --fail --location --retry 2 --connect-timeout 15 --max-time 45 "$base/blender-4.5.15.sha256" -o $sha
+          if ($LASTEXITCODE -ne 0) { throw 'Blender checksum file unavailable' }
+          $matchesList=@(Get-Content $sha | Where-Object { $_.Contains($name) -and $_ -match '\b[a-fA-F0-9]{64}\b' })
+          if ($matchesList.Count -ne 1) { throw 'Official sha256 not unique' }
+          $expected=[regex]::Match($matchesList[0],'[a-fA-F0-9]{64}').Value.ToLowerInvariant()
+          $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw 'Blender official SHA256 mismatch' }
+          Write-Output "windows_blender_archive_sha256=$actual"
+          Expand-Archive -Path $zip -DestinationPath (Join-Path $bundle 'unpacked') -Force
+          $bin=Get-ChildItem -Path (Join-Path $bundle 'unpacked') -Filter blender.exe -File -Recurse | Select-Object -First 1
+          if (-not $bin) { throw 'Official Blender binary not found after extract' }
+          $bin.FullName | Set-Content -Path (Join-Path $bundle 'blender-path.txt')
+          & $bin.FullName --version
+          if ($LASTEXITCODE -ne 0) { throw 'Blender --version failed' }
+      - name: Native Cycles CPU animated rig scene and independent oracle
+        shell: pwsh
+        env:
+          RUNNER_LABEL: windows-2025
+        run: |
+          $ErrorActionPreference='Stop'
+          $bundle=Join-Path $env:RUNNER_TEMP 'blender-bundle'
+          $bin=(Get-Content (Join-Path $bundle 'blender-path.txt') -Raw).Trim()
+          $out=Join-Path $env:RUNNER_TEMP 'blender-smoke'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & $bin --background --factory-startup --disable-autoexec --python-exit-code 5 --python experiments/runner-blender-ubuntu24/rig_render.py -- --output $out
+          if ($LASTEXITCODE -ne 0) { throw "Blender render failed exit $LASTEXITCODE" }
+          $r=(Get-Content (Join-Path $out 'receipt.json') -Raw | ConvertFrom-Json)
+          if ($r.result -ne 'PASS' -or $r.compute_device -ne 'CPU' -or $r.native_bones -ne 2) { throw 'invalid render receipt' }
+          if (-not ($r.blender_version.Contains('4.5.15'))) { throw 'Blender version changed' }
+          if ($r.max_evaluated_vertex_displacement_m -le 0.20) { throw 'No skinned geometry movement' }
+          if (@($r.pixel_sha256 | Sort-Object -Unique).Count -ne 3) { throw 'Repeated pixels/frames' }
+          foreach($frame in @(1,9,17)){
+            $png=Join-Path $out ('frame_{0:d4}.png' -f $frame)
+            if (-not (Test-Path $png)) { throw 'Missing PNG frame' }
+            $hash=(Get-FileHash $png -Algorithm SHA256).Hash.ToLowerInvariant()
+            $position=([array]@(1,9,17)).IndexOf($frame)
+            if ($hash -ne $r.pixel_sha256[$position]) { throw 'Independent PNG hash mismatch' }
+          }
+          if (-not (Test-Path (Join-Path $out 'synthetic_rig.blend'))) { throw 'Missing editable scene' }
+          Write-Output 'windows_blender_native_cpu_independent_oracle=PASS'
+      - name: Preserve public synthetic Blender evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-windows2025-cpu-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/blender-smoke/receipt.json
+            ${{ runner.temp }}/blender-smoke/synthetic_rig.blend
+            ${{ runner.temp }}/blender-smoke/frame_*.png
+          retention-days: 7
+          if-no-files-found: error

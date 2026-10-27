@@ -1,0 +1,1 @@
+Blender Windows 2025 CPU: reuse public Linux PASS original synthetic 2-bone rig. Official Blender 4.5.15 x64 ZIP SHA256 checked, headless Cycles CPU 3-frame render, editable .blend and independent PowerShell SHA checks. No proprietary assets or private Actions minutes; no merge/release.
