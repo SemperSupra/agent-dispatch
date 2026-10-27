@@ -131,6 +131,7 @@ def reduce_matrix(doc):
             require(isinstance(case, dict)
                     and set(case) == {"input_n", "target_rva", "verdict"}
                     and case["target_rva"] == intervals[3]["start_rva"]
+                    and type(case["verdict"]) is str
                     and case["verdict"] in { "NATIVE_PC_WITNESS", "NOT_OBSERVED_SAMPLE"},
                     "second native replay target/status inconsistent")
         rdi = p.get("rdi_intervention")
@@ -160,7 +161,8 @@ def reduce_matrix(doc):
                         and type(status.get("target_delta_from_entry")) is int
                         and status.get("target_delta_from_entry")
                         == intervals[i]["start_rva"] - sym
-                        and status.get("status") in ALLOWED_STATUS,
+                        and type(status.get("status")) is str
+                        and status["status"] in ALLOWED_STATUS,
                         "status identity, target PC, or offset mismatch")
                 value = status["status"]
                 if i == 0:
