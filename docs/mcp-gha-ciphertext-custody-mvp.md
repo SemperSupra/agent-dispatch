@@ -133,6 +133,39 @@ recipient/key, durable evidence ingester, signed private admission,
 actual CPE projection or independent Stage P adjudication has been
 verified.
 
+## One-off Go native client acceptance and cleanup
+
+The `verify-native-pair --manifest ...` Go command was exercised from a
+**real public GitHub-hosted Actions job** against a *previously completed*
+GitHub run, rather than only fake HTTP test doubles.
+
+- Native proof: [run 40590048518](https://github.com/SemperSupra/agent-dispatch/actions/runs/40590048518), `MCP_GHA_REAL_COMPLETED_COMPOSITE_NATIVE_GO_API_PASS`.
+  The client queried official GitHub REST run, jobs and artifacts for
+  completed synthetic run 40588967670 using an Actions-read token scoped to
+  GitHub's fixed API origin; required exactly two successful synthetic arm
+  jobs, distinct matching unexpired artifacts, and the approved v2
+  collector/head-source relationship.
+- First failure: [run 40589822149](https://github.com/SemperSupra/agent-dispatch/actions/runs/40589822149) discovered that the
+  command emitted `workflow_source_sha` where the new consumer expected
+  `workflow_head_sha`. The API check returned evidence, but the JSON
+  consumer rejected its mislabeled field. Fixed the field and added
+  `TestCompositeNativeJSONHeadFieldIsUnambiguous` to native Go CI.
+- The one-off hardcoded manifest/CI test was **removed after successful
+  qualification**, so ordinary workflows do not depend on historic
+  artifacts that expire after one day. There is no persistent fixture
+  masquerading as a supported data source.
+- After cleanup, native read-only contract
+  [run 40590327775](https://github.com/SemperSupra/agent-dispatch/actions/runs/40590327775) **SUCCESS**, and
+  two-arm artifact
+  [run 40590327866](https://github.com/SemperSupra/agent-dispatch/actions/runs/40590327866)
+  **3/3 JOBS SUCCESS** (reference, synthetic CPE, ID-based download and
+  idempotent local staging).
+
+The test validates that the Go client can successfully read *actual*
+GitHub metadata for a completed public synthetic run; it still does not
+prove an independently authorized request, private-host ingestion,
+cryptographic source signature, private-key custody, or semantic findings.
+
 ## Composition
 
 The private research supervisor freezes an authenticated assignment
