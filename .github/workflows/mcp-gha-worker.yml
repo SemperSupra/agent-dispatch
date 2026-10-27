@@ -1,6 +1,7 @@
 name: Public MCP Ephemeral Worker
 # Deterministic title consumed by existing Agent Dispatch Sidecar run observer.
-run-name: "sidecar:${{ inputs.workset_id || 'mcp-gha-public' }}:${{ inputs.delegation_id || 'wake-request' }}:${{ inputs.assignment_id || format('comment-{0}', github.event.comment.id) || 'pr-smoke' }}"
+# A comment wake is not an Agent Dispatch Sidecar authorization.
+run-name: "${{ github.event_name == 'issue_comment' && format('comment-wake:{0}', github.event.comment.id) || format('sidecar:{0}:{1}:{2}', inputs.workset_id || 'mcp-gha-public-smoke', inputs.delegation_id || 'ci', inputs.assignment_id || 'pr-smoke') }}"
 
 on:
   # The repository has Issues disabled. This exact PR discussion is the
