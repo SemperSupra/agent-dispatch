@@ -28,7 +28,32 @@ func hashRegularFile(path string)(string,error){
  if copied!=info.Size(){return "",errors.New("file mutated while hashing")}
  return hex.EncodeToString(h.Sum(nil)),nil
 }
+func exactStageLayout(root string)error{
+ expected:=map[string]bool{"manifest.json":true,"reference":true,"cpe":true}
+ entries,err:=os.ReadDir(root);if err!=nil{return err}
+ if len(entries)!=len(expected){return errors.New("unexpected staged top-level files")}
+ for _,e:=range entries{
+  if !expected[e.Name()]{return errors.New("unrecognized staged file")}
+ }
+ for _,arm:=range []string{"reference","cpe"}{
+  path:=filepath.Join(root,arm)
+  stat,err:=os.Lstat(path);if err!=nil{return err}
+  if !stat.IsDir()||stat.Mode()&os.ModeSymlink!=0{return errors.New("arm is not a real directory")}
+  sub,err:=os.ReadDir(path);if err!=nil{return err}
+  if len(sub)!=2{return errors.New("unexpected arm file count")}
+  for _,e:=range sub{
+   if e.Name()!="result.age"&&e.Name()!="receipt.json"{return errors.New("unexpected arm data")}
+  }
+ }
+ return nil
+}
+func syncStageDir(dir string)error{
+ d,err:=os.Open(dir);if err!=nil{return err}
+ defer d.Close()
+ return d.Sync()
+}
 func comparePairFiles(manifest,inbox,target string)(bool,error){
+ if err:=exactStageLayout(target);err!=nil{return false,err}
  files:=[]string{"manifest.json","reference/result.age","reference/receipt.json","cpe/result.age","cpe/receipt.json"}
  for _,relative:=range files{
   input:=filepath.Join(inbox,relative)
@@ -87,6 +112,10 @@ func stagePair(manifest,inbox,destination string)(PairStage,error){
  same,err:=comparePairFiles(manifest,inbox,tmp)
  if err!=nil||!same{return PairStage{},errors.New("staged content mismatch")}
  if _,err=pairPreflight(filepath.Join(tmp,"manifest.json"),tmp);err!=nil{return PairStage{},err}
+ for _,arm:=range []string{"reference","cpe"}{
+  if err=syncStageDir(filepath.Join(tmp,arm));err!=nil{return PairStage{},err}
+ }
+ if err=syncStageDir(tmp);err!=nil{return PairStage{},err}
  if err=os.Rename(tmp,target);err!=nil{
   // Concurrent identical requests converge on the first committed directory.
   // A conflicting target can never be silently overwritten.
@@ -100,5 +129,8 @@ func stagePair(manifest,inbox,destination string)(PairStage,error){
   return PairStage{},err
  }
  committed=true
+ if err=syncStageDir(root);err!=nil{
+  return PairStage{},errors.New("rename committed but destination sync failed; reconcile before retry")
+ }
  return out,nil
 }
