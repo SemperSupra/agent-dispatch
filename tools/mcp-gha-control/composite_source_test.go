@@ -107,3 +107,17 @@ func TestNativeCompositeSourceGitHubWorkflowVsCollector(t *testing.T){
  artifacts.Artifacts[0].WorkflowRun.HeadSHA=p.SourceSHA;test("false-artifact-workflow-sha",false);artifacts.Artifacts[0].WorkflowRun.HeadSHA=p.WorkflowHeadSHA
  artifacts.Artifacts[1].Name="mcp-gha-cpe-sealed-"+p.RunID+"-"+p.RunAttempt;test("production-artifact-in-synthetic",false)
 }
+
+func TestCompositeNativeJSONHeadFieldIsUnambiguous(t *testing.T){
+ observed:=NativePairCheck{Schema:"mcp-gha-native-pair-metadata/v1",
+  WorkflowSHA:strings.Repeat("a",40),CollectorSHA:syntheticCollectorSource,
+  SourceMode:"mcp-gha-private-pair-preflight/v2"}
+ data,e:=json.Marshal(observed);if e!=nil{t.Fatal(e)}
+ var fields map[string]any
+ if e=json.Unmarshal(data,&fields);e!=nil{t.Fatal(e)}
+ if fields["workflow_head_sha"]!=observed.WorkflowSHA ||
+  fields["collector_source_sha"]!=observed.CollectorSHA {
+  t.Fatalf("missing dual-source native output fields: %s",data)
+ }
+ if _,exists:=fields["workflow_source_sha"];exists{t.Fatal("ambiguous prior JSON field accepted")}
+}
