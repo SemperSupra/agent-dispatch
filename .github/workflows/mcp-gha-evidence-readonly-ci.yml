@@ -46,3 +46,14 @@ jobs:
           "${RUNNER_TEMP}/mcp-gha-evidence-readonly" status --run-id 40448376152 |
             python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["run_id"]==40448376152; assert x["control_state"]=="EXECUTOR_COMPLETE_EVIDENCE_NOT_VALIDATED"; assert x["science_state"]=="UNJUDGED_NEEDS_TRUSTED_PRIVATE_INGEST"'
           echo 'MCP_GHA_READONLY_NATIVE_OBSERVATION_PASS'
+
+      - name: Temporary real completed GitHub pair API probe
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/mcp-gha-evidence-readonly" verify-native-pair \
+            --manifest tools/mcp-gha-control/testdata/one-time-completed-native.json |
+            python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["state"]=="NATIVE_GITHUB_METADATA_MATCH_ONLY_NOT_DECRYPTED"; assert x["arm_jobs_matched"]==2 and x["arm_artifacts_matched"]==2; assert x["workflow_head_sha"]=="67796b083d50adfeb98a694b379995ce5dfae0c1"; assert x["collector_source_sha"]=="330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa"; assert x["scientific_status"]=="SYNTHETIC_ONLY_NOT_VALIDATED"'
+          echo MCP_GHA_REAL_COMPLETED_COMPOSITE_NATIVE_GO_API_PASS
