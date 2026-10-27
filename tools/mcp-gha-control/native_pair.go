@@ -42,7 +42,7 @@ type NativePairCheck struct {
  State string `json:"state"`
  ArmJobsMatched int `json:"arm_jobs_matched"`
  ArmArtifactsMatched int `json:"arm_artifacts_matched"`
- WorkflowSHA string `json:"workflow_source_sha"`
+ WorkflowSHA string `json:"workflow_head_sha"`
  CollectorSHA string `json:"collector_source_sha"`
  SourceMode string `json:"source_mode"`
  ScientificStatus string `json:"scientific_status"`
