@@ -55,7 +55,10 @@ func stagePair(manifest,inbox,destination string)(PairStage,error){
  name:=plan.AssignmentID+"--"+plan.RunID+"--"+plan.RunAttempt
  target:=filepath.Join(root,name)
  out=PairStage{AssignmentID:plan.AssignmentID,RunID:plan.RunID,State:"CIPHERTEXT_ONLY_NOT_INGESTED"}
- if _,err:=os.Lstat(target);err==nil{
+ if targetInfo,err:=os.Lstat(target);err==nil{
+  if !targetInfo.IsDir()||targetInfo.Mode()&os.ModeSymlink!=0{
+   return PairStage{},errors.New("staging target is not a real directory")
+  }
   same,err:=comparePairFiles(manifest,inbox,target)
   if err!=nil{return PairStage{},err}
   if !same{return PairStage{},errors.New("conflicting immutable replay")}
@@ -78,7 +81,18 @@ func stagePair(manifest,inbox,destination string)(PairStage,error){
  same,err:=comparePairFiles(manifest,inbox,tmp)
  if err!=nil||!same{return PairStage{},errors.New("staged content mismatch")}
  if _,err=pairPreflight(filepath.Join(tmp,"manifest.json"),tmp);err!=nil{return PairStage{},err}
- if err=os.Rename(tmp,target);err!=nil{return PairStage{},err}
+ if err=os.Rename(tmp,target);err!=nil{
+  // Concurrent identical requests converge on the first committed directory.
+  // A conflicting target can never be silently overwritten.
+  if st,statErr:=os.Lstat(target);statErr==nil&&st.IsDir()&&st.Mode()&os.ModeSymlink==0 {
+   same,compareErr:=comparePairFiles(manifest,inbox,target)
+   if compareErr==nil&&same {
+    out.State="IDEMPOTENT_CIPHERTEXT_ALREADY_STAGED"
+    return out,nil
+   }
+  }
+  return PairStage{},err
+ }
  committed=true
  return out,nil
 }
