@@ -1,6 +1,10 @@
 import copy
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,6 +99,42 @@ class IntervalSetTests(unittest.TestCase):
                     x["events"][0][field] = ["instruction" if field == "kind" else "guest"]
                 with self.assertRaises(M.V1.ContractError):
                     M.correlate(x)
+
+    def test_v2_strict_json_prevents_interval_and_load_shadowing(self):
+        # A last-wins JSON parser could transform disjoint code into a
+        # different function or rewrite a module load while retaining schema.
+        raw = json.dumps(fixture())
+        cases = (
+            ("duplicate interval", raw.replace(
+                '"rva": 256', '"rva": 999, "rva": 256', 1)),
+            ("duplicate module load", raw.replace(
+                '"base_va": 5242880',
+                '"base_va": 0, "base_va": 5242880', 1)),
+            ("duplicate event id", raw.replace(
+                '"id": "entry"', '"id": "spoofed", "id": "entry"', 1)),
+            ("nonstandard positive infinity", raw.replace(
+                '"mode": "synthetic"', '"mode": Infinity', 1)),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            for label, malformed in cases:
+                with self.subTest(label=label):
+                    with self.assertRaises(M.V1.ContractError):
+                        M.V1.strict_loads(malformed)
+                    source, answer = folder / "in.json", folder / "out.json"
+                    source.write_text(malformed, encoding="utf-8")
+                    answer.unlink(missing_ok=True)
+                    cmd = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts" /
+                                             "reversing_evidence_correlate_v2.py"),
+                         "--input", str(source), "--output", str(answer)],
+                        capture_output=True, text=True, check=False,
+                        timeout=10)
+                    self.assertNotEqual(cmd.returncode, 0)
+                    self.assertNotIn("Traceback", cmd.stderr)
+                    self.assertFalse(answer.exists())
+        valid = M.correlate(M.V1.strict_loads(raw))
+        self.assertEqual(valid, M.correlate(fixture()))
 
     def test_empty_collection_has_no_false_observations(self):
         x=fixture(); x["events"]=[]
