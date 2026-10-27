@@ -81,7 +81,9 @@ def reduce_matrix(doc):
                 and b.get("classification") == "EXACT_OBJDUMP_NONNOP_INTERVALS"
                 and b.get("ghidra_interval_count") == 4
                 and b.get("objdump_nonnop_interval_count") == 4
+                and type(b.get("missing_nonnop_bytes")) is int
                 and b.get("missing_nonnop_bytes") == 0
+                and type(b.get("extra_nonoracle_bytes")) is int
                 and b.get("extra_nonoracle_bytes") == 0,
                 "independent static structure not exact")
         edge = p.get("independent_signed_branch_oracle")
@@ -155,8 +157,12 @@ def reduce_matrix(doc):
                     nonhit.append(i)
                 else:
                     raise BenchmarkError("non-entry status claimed entry")
-            require(row.get("observed_indices") == observed
-                    and row.get("not_observed_indices") == nonhit,
+            require(isinstance(row.get("observed_indices"), list)
+                    and all(type(x) is int for x in row["observed_indices"])
+                    and row["observed_indices"] == observed
+                    and isinstance(row.get("not_observed_indices"), list)
+                    and all(type(x) is int for x in row["not_observed_indices"])
+                    and row["not_observed_indices"] == nonhit,
                     "native indices contradict their detailed evidence")
             target_status = statuses[3]["status"]
             verdict = "NATIVE_PC_WITNESS" if target_status == NATIVE_HIT else "NOT_OBSERVED_SAMPLE"
