@@ -105,7 +105,9 @@ def reduce_matrix(doc):
                 "second native replay not bound to same file/PC/experiment")
         replay_cases = replay.get("cases")
         require(isinstance(replay_cases, list) and len(replay_cases) == 2
-                and [x.get("input_n") for x in replay_cases if isinstance(x, dict)] == [0, 1],
+                and all(isinstance(x, dict) and type(x.get("input_n")) is int
+                        for x in replay_cases)
+                and [x["input_n"] for x in replay_cases] == [0, 1],
                 "second native replay inputs incomplete or ambiguous")
         for case in replay_cases:
             require(isinstance(case, dict)
@@ -121,8 +123,9 @@ def reduce_matrix(doc):
                 "native RDI experiment scope changed")
         samples = rdi.get("arguments")
         require(isinstance(samples, list) and len(samples) == 6
-                and [r.get("argument_n") for r in samples if isinstance(r, dict)]
-                == [1, 4, 8, 12, 0, -1], "unexpected or missing bounded inputs")
+                and all(isinstance(r, dict) and type(r.get("argument_n")) is int
+                        for r in samples)
+                and [r["argument_n"] for r in samples] == [1, 4, 8, 12, 0, -1], "unexpected or missing bounded inputs")
         rows = {row["argument_n"]: row for row in samples}
         for n in ARGS:
             row = rows[n]
@@ -134,7 +137,9 @@ def reduce_matrix(doc):
             nonhit = []
             for i, status in enumerate(statuses):
                 require(isinstance(status, dict)
-                        and status.get("interval_index") == i
+                        and type(status.get("interval_index")) is int
+                        and status["interval_index"] == i
+                        and type(status.get("target_delta_from_entry")) is int
                         and status.get("target_delta_from_entry")
                         == intervals[i]["start_rva"] - sym
                         and status.get("status") in ALLOWED_STATUS,
