@@ -145,6 +145,25 @@ class PublicSyntheticBenchmarkTests(unittest.TestCase):
                 with self.assertRaises(B.BenchmarkError):
                     B.reduce_matrix(a)
 
+    def test_refuse_boolean_aliases_in_numeric_evidence(self):
+        # Python bool subclasses int: True == 1 and False == 0.
+        # Numeric evidence identifiers must use exact JSON integer semantics.
+        mutations = (
+            ("replay zero", lambda p: p["native_second_replay"]["cases"][0].update(input_n=False)),
+            ("replay one", lambda p: p["native_second_replay"]["cases"][1].update(input_n=True)),
+            ("argument zero", lambda p: p["rdi_intervention"]["arguments"][4].update(argument_n=False)),
+            ("argument one", lambda p: p["rdi_intervention"]["arguments"][0].update(argument_n=True)),
+            ("interval zero", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][0].update(interval_index=False)),
+            ("interval one", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][1].update(interval_index=True)),
+            ("entry offset zero", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][0].update(target_delta_from_entry=False)),
+        )
+        for label, mutate in mutations:
+            with self.subTest(case=label):
+                payload = matrix()
+                mutate(payload["profiles"][1])
+                with self.assertRaises(B.BenchmarkError):
+                    B.reduce_matrix(payload)
+
     def test_refuse_replay_artifact_mismatch(self):
         a=matrix()
         a["profiles"][1]["native_second_replay"]["artifact_sha256"]="f"*64
