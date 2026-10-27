@@ -51,6 +51,47 @@ IDs, that they belonged to native run 40562713367, and that they were
 unexpired at collection. This is a **real GitHub transport acceptance
 receipt**, not a retained private research corpus.
 
+## Composite-source qualification contract (v2, synthetic only)
+
+The actual GHA artifact lifecycle workflow in stacked draft PR #557 and
+the Stage R collector in draft PR #555 currently have **different**
+Git revisions. The original v1 single-source validator correctly refuses
+to treat a public PR merge workflow revision as if it were the Stage R
+collector revision. The correction is an explicit, **synthetic-only** v2
+contract, not a relaxation of production authority.
+
+| Field | Meaning | Source check |
+| --- | --- | --- |
+| `workflow_head_sha` | GitHub's PR-head SHA for the qualifying run | Native GitHub run/job/artifact `head_sha` |
+| `source_sha` | Stage R collector revision actually checked out | Exact pinned collector commit `330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa` and `git rev-parse HEAD` |
+| `workflow` | Allowed synthetic artifact-lifecycle workflow path | Exact `.github/workflows/mcp-gha-artifact-lifecycle-qualification.yml` |
+| `schema` | Explicit synthetic or single-source contract | v2 composite only for this synthetic suite; v1 remains single-source |
+
+A PR **head SHA is not necessarily the executed workflow merge SHA**.
+In a `pull_request` event, GitHub can execute against a generated
+merge ref. Therefore this native v2 receipt proves compatibility with
+the GitHub-reported head identity and a separately pinned checked-out
+collector; it is **not a cryptographic proof of the executed workflow
+bytes or of an independent trusted precommit**. Review the pinned
+workflow file and exact PR merger before production admission.
+
+The Go command `verify-native-pair --manifest ...` is source-staged
+as a read-only GitHub-native run/job/artifact check. It pins the official
+GitHub API origin; no arbitrary endpoint is accepted by the CLI, and
+`GITHUB_TOKEN` is used only on this fixed Actions origin. The
+underlying Go test helper accepts a local mock endpoint for negative
+cases. A production private host must independently authorize the
+manifest and bind its source authority; the Go command does not grant
+that authorization by itself.
+
+The v2 validator admits only the named **public synthetic** workflow,
+the fixed collector SHA and `pull_request` event. Its expected arm
+labels are `Synthetic sealed reference GHA arm` and
+`Synthetic sealed cpe GHA arm`, and its artifacts use the
+`mcp-gha-artifact-test-<arm>-<run>-<attempt>` convention.
+The v1 validator continues to require the fixed MCP GHA production
+workflow, a single source SHA, and owner-authorized workflow events.
+
 ## Composition
 
 The private research supervisor freezes an authenticated assignment
