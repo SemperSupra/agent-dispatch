@@ -77,7 +77,7 @@ func checkNativePairMetadataAt(ctx context.Context,c *http.Client,apiURL string,
  workflowSource:=p.SourceSHA
  expectedEvent:=""
  if p.Schema=="mcp-gha-private-pair-preflight/v2"{
-  workflowSource=p.WorkflowSourceSHA
+  workflowSource=p.WorkflowHeadSHA
   expectedEvent="pull_request"
  }
  var run APIRun
