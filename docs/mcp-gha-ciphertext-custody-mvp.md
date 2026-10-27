@@ -92,6 +92,47 @@ labels are `Synthetic sealed reference GHA arm` and
 The v1 validator continues to require the fixed MCP GHA production
 workflow, a single source SHA, and owner-authorized workflow events.
 
+## Verified v2 composite-source native evidence
+
+Native Go race/vet/build regression:
+[Actions 40588967608](https://github.com/SemperSupra/agent-dispatch/actions/runs/40588967608)
+**SUCCESS**. This included v1 preservation, v2 source-role isolation,
+mock-GitHub negative tests for incorrect head/job/artifact/event, ciphertext
+preflight, staging replay and symlink controls.
+
+Real pinned-source synthetic artifact lifecycle:
+[Actions 40588967670](https://github.com/SemperSupra/agent-dispatch/actions/runs/40588967670)
+**3/3 jobs SUCCESS**, including both isolated source-checked collectors and
+independent ID-based collection into ephemeral ciphertext-only storage.
+Connected GitHub Actions API was separately queried after run completion:
+
+| Role | Native job ID | Native artifact ID | GitHub artifact state |
+| --- | ---: | ---: | --- |
+| Reference | 122487875033 | 12773980261 | 24,055 bytes, unexpired at observation |
+| CPE-labelled | 122487874657 | 12772922821 | 23,320 bytes, unexpired at observation |
+
+Native workflow path:
+`.github/workflows/mcp-gha-artifact-lifecycle-qualification.yml`;
+GitHub-reported PR-head SHA `67796b083d50adfeb98a694b379995ce5dfae0c1`;
+separately checked-out collector SHA
+`330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa`.
+Workflow run attempt **1**, event `pull_request`, terminal
+`completed/success`, each arm's native job `completed/success`.
+Both native artifacts belonged to the same run and reported the GitHub
+head SHA. These are **distinct** source roles, not a single revision.
+
+This checked real GitHub native API data after completion; the new
+`verify-native-pair` Go CLI has compiled and passed mocked HTTP negative
+tests but was not separately invoked against this completed live run.
+Do not claim such a Go-CLI production qualification.
+
+The artifact candidates have **one-day retention** in this synthetic
+workflow. Stage output was inside a disposable GHA runner and was
+discarded after job completion. No owner-controlled private age
+recipient/key, durable evidence ingester, signed private admission,
+actual CPE projection or independent Stage P adjudication has been
+verified.
+
 ## Composition
 
 The private research supervisor freezes an authenticated assignment
