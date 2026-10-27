@@ -49,3 +49,5 @@ questions, plaintext results or private keys. This PR is *read-only
 evidence qualification*, not production activation. The main application
 still runs only the previously accepted `/mcpgha start smoke` trigger
 until the independent runner/sweep activation PRs are reviewed and merged.
+Merging this verifier alone grants no Actions-write, private ingest, or
+scientific adjudication capability.
