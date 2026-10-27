@@ -1,0 +1,216 @@
+name: Public MCP Ephemeral Worker
+# Deterministic title consumed by existing Agent Dispatch Sidecar run observer.
+# A comment wake is not an Agent Dispatch Sidecar authorization.
+run-name: "${{ github.event_name == 'issue_comment' && format('comment-wake:{0}', github.event.comment.id) || format('sidecar:{0}:{1}:{2}', inputs.workset_id || 'mcp-gha-public-smoke', inputs.delegation_id || 'ci', inputs.assignment_id || 'pr-smoke') }}"
+
+on:
+  # The repository has Issues disabled. This exact PR discussion is the
+  # temporary one-use wake command entrypoint. No generic comment execution.
+  issue_comment:
+    types: [created]
+  pull_request:
+    paths:
+      - .github/workflows/mcp-gha-worker.yml
+      - tools/mcp-gha-worker/**
+  workflow_dispatch:
+    inputs:
+      workset_id:
+        description: "Opaque public-safe durable workset correlation ID"
+        required: true
+        type: string
+      delegation_id:
+        description: "Opaque public-safe admitted delegation ID"
+        required: true
+        type: string
+      assignment_id:
+        description: "Unique one-use dispatch ID for correlated native run"
+        required: true
+        type: string
+      mode:
+        description: "smoke is credential-free; live opens a temporary approved tunnel from main"
+        required: true
+        type: choice
+        options: [smoke, live]
+        default: smoke
+      lease_seconds:
+        description: "Maximum tunnel runtime (live only)"
+        required: true
+        type: choice
+        options: ['120', '300', '600']
+        default: '120'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-mcp-worker-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: MCP protocol and pinned official tunnel runtime (no credentials)
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (
+        github.repository == 'SemperSupra/agent-dispatch' &&
+        github.event.action == 'created' &&
+        github.event.issue.number == 553 &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.id == 1854350 &&
+        (
+          github.event.comment.body == '/mcpgha start smoke' ||
+          github.event.comment.body == '/mcpgha start live'
+        )
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Validate Sidecar dispatch correlation on workflow requests
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          WORKSET_ID: ${{ inputs.workset_id }}
+          DELEGATION_ID: ${{ inputs.delegation_id }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        run: |
+          set -euo pipefail
+          for value in "$WORKSET_ID" "$DELEGATION_ID" "$ASSIGNMENT_ID"; do
+            [[ "$value" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}$ ]] || {
+              echo 'INVALID_PUBLIC_DISPATCH_IDENTITY' >&2
+              exit 2
+            }
+          done
+      - name: Checkout exact public source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify Go source, race tests and binary
+        working-directory: tools/mcp-gha-worker
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)"
+          go test -race -count=3 ./...
+          go vet ./...
+          go build -trimpath -o "${RUNNER_TEMP}/public-mcp-worker" .
+      - name: Probe live local MCP HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/public-mcp-worker" --listen 127.0.0.1:18765 >"${RUNNER_TEMP}/mcp-worker.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18765/healthz >/dev/null; then break; fi
+            sleep 0.25
+          done
+          curl -fsS http://127.0.0.1:18765/healthz >/dev/null
+          curl -fsS -H 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"worker_ping","arguments":{}}}' \
+            http://127.0.0.1:18765/mcp \
+            | python3 -c 'import sys,json; x=json.load(sys.stdin); assert x["result"]["content"][0]["text"]=="PUBLIC_SYNTHETIC_MCP_WORKER_OK"'
+          echo 'MCP_HTTP_SYNTHETIC_PASS'
+      - name: Inspect official pinned tunnel-client without credentials
+        shell: bash
+        env:
+          TUNNEL_IMAGE: ghcr.io/openai/tunnel-client:v0.0.13@sha256:4c6b1441a6ca2506ce04231c1022e6ada32ec488f41d300a4f29f7675cfb4337
+        run: |
+          set -euo pipefail
+          docker pull "$TUNNEL_IMAGE" >/dev/null
+          docker image inspect "$TUNNEL_IMAGE" >/dev/null
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges "$TUNNEL_IMAGE" --help >/dev/null
+          echo 'TUNNEL_RUNTIME_IMAGE_PINNED_PASS'
+
+  live:
+    name: Time-bounded tunnel (manual main-only request)
+    needs: smoke
+    if: >-
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.mode == 'live' &&
+        github.ref == 'refs/heads/main' &&
+        github.repository == 'SemperSupra/agent-dispatch'
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.repository == 'SemperSupra/agent-dispatch' &&
+        github.event.action == 'created' &&
+        github.event.issue.number == 553 &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.id == 1854350 &&
+        github.event.comment.body == '/mcpgha start live'
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: mcp-ephemeral-live
+    steps:
+      - name: Checkout reviewed public source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify bounded live dispatch identity
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          WORKSET_ID: ${{ inputs.workset_id }}
+          DELEGATION_ID: ${{ inputs.delegation_id }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        run: |
+          set -euo pipefail
+          for value in "$WORKSET_ID" "$DELEGATION_ID" "$ASSIGNMENT_ID"; do
+            [[ "$value" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}$ ]] || exit 2
+          done
+      - name: Run bounded local MCP and official outbound tunnel
+        working-directory: tools/mcp-gha-worker
+        shell: bash
+        env:
+          CONTROL_PLANE_API_KEY: ${{ secrets.OPENAI_TUNNEL_RUNTIME_KEY }}
+          CONTROL_PLANE_TUNNEL_ID: ${{ secrets.OPENAI_GHA_MCP_TUNNEL_ID }}
+          MCP_SERVER_URL: http://127.0.0.1:18765/mcp
+          LEASE_SECONDS: ${{ inputs.lease_seconds }}
+          TUNNEL_IMAGE: ghcr.io/openai/tunnel-client:v0.0.13@sha256:4c6b1441a6ca2506ce04231c1022e6ada32ec488f41d300a4f29f7675cfb4337
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          set +x
+          if [[ -z "$CONTROL_PLANE_API_KEY" || -z "$CONTROL_PLANE_TUNNEL_ID" ]]; then
+            echo 'MISSING_APPROVED_TUNNEL_RUNTIME_SECRETS' >&2
+            exit 2
+          fi
+          [[ "$CONTROL_PLANE_TUNNEL_ID" =~ ^tunnel_[a-zA-Z0-9]+$ ]] || { echo 'INVALID_TUNNEL_ID_FORMAT' >&2; exit 2; }
+          case "$LEASE_SECONDS" in 120|300|600) ;; *) echo 'UNAPPROVED_LEASE' >&2; exit 2;; esac
+          go build -trimpath -o "${RUNNER_TEMP}/public-mcp-worker" .
+          container=''
+          worker_pid=''
+          cleanup() {
+            if [[ -n "$container" ]]; then docker rm -f "$container" >/dev/null 2>&1 || true; fi
+            if [[ -n "$worker_pid" ]]; then kill "$worker_pid" >/dev/null 2>&1 || true; wait "$worker_pid" 2>/dev/null || true; fi
+          }
+          trap cleanup EXIT INT TERM
+          "${RUNNER_TEMP}/public-mcp-worker" --listen 127.0.0.1:18765 >"${RUNNER_TEMP}/mcp-worker.log" 2>&1 &
+          worker_pid=$!
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18765/healthz >/dev/null; then break; fi
+            sleep 0.25
+          done
+          curl -fsS http://127.0.0.1:18765/healthz >/dev/null
+          docker pull "$TUNNEL_IMAGE" >/dev/null
+          # Only variable NAMES are passed on the Docker command line.
+          container=$(docker run --detach --rm --network host --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 128 --tmpfs /tmp:rw,nosuid,noexec,size=16m \
+            --env CONTROL_PLANE_API_KEY --env CONTROL_PLANE_TUNNEL_ID \
+            --env MCP_SERVER_URL "$TUNNEL_IMAGE")
+          sleep 5
+          [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == 'true' ]] || { echo 'TUNNEL_PROCESS_EXITED' >&2; exit 1; }
+          echo 'TUNNEL_PROCESS_ALIVE_NOT_YET_CHATGPT_ACCEPTED'
+          sleep "$LEASE_SECONDS"
+          [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == 'true' ]] || { echo 'TUNNEL_PROCESS_EXITED_DURING_LEASE' >&2; exit 1; }
+          echo 'BOUNDED_TUNNEL_PROCESS_LIFETIME_COMPLETE'
