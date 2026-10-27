@@ -86,9 +86,12 @@ def correlate(doc):
     result["interval_counts"] = [{"function_id": fid, "count": members[fid]}
                                  for fid in sorted(members)]
     result["legacy_projection_sha256"] = result["input_sha256"]
-    result["input_sha256"] = sha256(json.dumps(
-        doc, sort_keys=True, ensure_ascii=True,
-        separators=(",", ":")).encode()).hexdigest()
+    try:
+        canonical = json.dumps(doc, sort_keys=True, ensure_ascii=True,
+                               separators=(",", ":"), allow_nan=False).encode()
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise V1.ContractError("noncanonical interval-set evidence") from exc
+    result["input_sha256"] = sha256(canonical).hexdigest()
     result["interpretation"]["function_identity"] = (
         "ALL_DISJOINT_RANGES_BELONG_TO_ONE_STATIC_FUNCTION")
     result["interpretation"]["gaps"] = (
@@ -104,7 +107,7 @@ def main():
     if args.input.is_symlink() or not args.input.is_file() or args.input.stat().st_size > 1048576:
         p.error("ordinary <=1MiB input required")
     try:
-        result = correlate(json.loads(args.input.read_text(encoding="utf-8")))
+        result = correlate(V1.strict_loads(args.input.read_text(encoding="utf-8")))
     except (ValueError, UnicodeError) as exc:
         p.error(str(exc))
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")

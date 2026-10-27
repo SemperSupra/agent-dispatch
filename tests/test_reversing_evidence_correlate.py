@@ -1,6 +1,10 @@
 import copy
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "reversing_evidence_correlate.py"
@@ -129,6 +133,40 @@ class CorrelationTests(unittest.TestCase):
                     x["events"][0][field] = ["instruction" if field == "kind" else "guest"]
                 with self.assertRaises(MOD.ContractError):
                     MOD.correlate(x)
+
+    def test_strict_json_prevents_shadowed_runtime_evidence(self):
+        # Reject last-wins duplicate keys before the v1 correlation engine
+        # can silently rewrite a function range or executable event identity.
+        raw = json.dumps(fixture())
+        cases = (
+            ("duplicate schema", raw.replace(
+                '"schema": ', '"schema": "forged", "schema": ', 1)),
+            ("duplicate function address", raw.replace(
+                '"rva": 256', '"rva": 257, "rva": 256', 1)),
+            ("duplicate event identity", raw.replace(
+                '"id": "i1"', '"id": "decoy", "id": "i1"', 1)),
+            ("not JSON NaN", raw.replace(
+                '"mode": "synthetic"', '"mode": NaN', 1)),
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for label, malformed in cases:
+                with self.subTest(label=label):
+                    with self.assertRaises(MOD.ContractError):
+                        MOD.strict_loads(malformed)
+                    inp, out = folder / "claim.json", folder / "result.json"
+                    inp.write_text(malformed, encoding="utf-8")
+                    out.unlink(missing_ok=True)
+                    result = subprocess.run(
+                        [sys.executable, str(SCRIPT), "--input", str(inp),
+                         "--output", str(out)],
+                        capture_output=True, text=True, timeout=10,
+                        check=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertFalse(out.exists())
+        valid = MOD.correlate(MOD.strict_loads(raw))
+        self.assertEqual(valid, MOD.correlate(fixture()))
 
     def test_digest_is_deterministic(self):
         x = fixture()

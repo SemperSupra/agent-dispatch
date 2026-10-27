@@ -41,6 +41,10 @@ SIGNEDSPEC = importlib.util.spec_from_file_location(
     "reversing_signed_branch", ROOT / "scripts" / "reversing_signed_branch_oracle.py")
 SIGNED = importlib.util.module_from_spec(SIGNEDSPEC)
 SIGNEDSPEC.loader.exec_module(SIGNED)
+REPLAYSPEC = importlib.util.spec_from_file_location(
+    "reversing_benchmark_replay", ROOT / "scripts" / "reversing_benchmark_native_replay.py")
+REPLAY = importlib.util.module_from_spec(REPLAYSPEC)
+REPLAYSPEC.loader.exec_module(REPLAY)
 SOURCE = r'''
 volatile long branch_seed = 3;
 __attribute__((noinline,used)) long fixture_target(long n) {
@@ -291,6 +295,16 @@ def observe(ghidra_home, profile):
             rdi_intervention = {
                 "status": "NOT_RUN_STATIC_PRECONDITION_NOT_EXACT",
                 "interpretation": "NO_GUESSED_PC_OR_RDI_INTERVENTION"}
+        if boundary_assessment["classification"] == "EXACT_OBJDUMP_NONNOP_INTERVALS" and profile.startswith("O2"):
+            try:
+                second_replay = REPLAY.replay_fixed_stripped(
+                    stripped, sym, independent_nonnop[3][0], image_base,
+                    immutable_before, run_program)
+            except REPLAY.ReplayError as exc:
+                raise MatrixError("separate fixed-synthetic native replay did not qualify") from exc
+        else:
+            second_replay = {"schema": "reversing-native-second-replay/v1",
+                             "status": "NOT_APPLICABLE_OR_STATIC_PRECONDITION_NOT_EXACT"}
         immutable_after = sha256(stripped.read_bytes()).hexdigest()
         if immutable_before != immutable_after:
             raise MatrixError("synthetic stripped binary modified across GDB runs")
@@ -320,6 +334,7 @@ def observe(ghidra_home, profile):
                 "stripped_original_text_sha256": text_sha256,
                 "native_gdb_island_observations": runtime_islands,
                 "rdi_intervention": rdi_intervention,
+                "native_second_replay": second_replay,
                 "rdi_binary_unchanged_sha256": immutable_after}
 
 
@@ -346,6 +361,7 @@ def main():
                          "seed-contrast-separate-synthetic-builds-not-path-coverage",
                          "RDI-intervention-samples-separate-runs-not-control-flow-completeness",
                          "signed-direct-branch-in-original-bytecode-still-needs-native-witness",
+                         "second-GDB-replay-is-same-runner-and-not-sealed-independent-attestation",
                          "no-VM-or-external-sensors",
                          "no-Windows-Android-or-FRITZ", "no-source-equivalence-proof"]
     }
@@ -373,6 +389,12 @@ def main():
         print("MEASURED_SIGNED_EDGE=" + item["profile"] + ":" + edge["status"] +
               ":index=" + str(edge.get("interval_index", "UNKNOWN")) +
               ":target_rva=" + str(edge.get("target_rva", "UNKNOWN")))
+        replay = item["native_second_replay"]
+        if replay.get("cases"):
+            for case in replay["cases"]:
+                print("MEASURED_SECOND_REPLAY=" + item["profile"] +
+                      ":n=" + str(case["input_n"]) + ":" + case["verdict"] +
+                      ":target_rva=" + str(case["target_rva"]))
         intervention = item["rdi_intervention"]
         if intervention["status"] == "RDI_INTERVENTION_ISLAND_SAMPLES_MEASURED":
             for row in intervention["arguments"]:

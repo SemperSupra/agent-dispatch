@@ -1,0 +1,49 @@
+name: Public reversing parallel qualification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reversing-public-parallel.yml'
+      - 'scripts/reversing_evidence_correlate.py'
+      - 'scripts/reversing_evidence_correlate_v2.py'
+      - 'scripts/reversing_benchmark_p0.py'
+      - 'scripts/reversing_benchmark_native_replay.py'
+      - 'tests/test_reversing_evidence_correlate.py'
+      - 'tests/test_reversing_evidence_correlate_v2.py'
+      - 'tests/test_reversing_benchmark_p0.py'
+      - 'tests/test_reversing_benchmark_native_replay.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reversing-parallel-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  source-known-synthetic:
+    name: ${{ matrix.lane }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - lane: correlation-v1-contract
+            test_file: tests/test_reversing_evidence_correlate.py
+          - lane: interval-set-v2-contract
+            test_file: tests/test_reversing_evidence_correlate_v2.py
+          - lane: p0-matrix-and-projections
+            test_file: tests/test_reversing_benchmark_p0.py
+          - lane: fixed-native-replay-parser
+            test_file: tests/test_reversing_benchmark_native_replay.py
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run public synthetic negative and positive controls
+        env:
+          TEST_FILE: ${{ matrix.test_file }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest -v "$TEST_FILE"
