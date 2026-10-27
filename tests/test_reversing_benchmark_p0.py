@@ -168,6 +168,33 @@ class PublicSyntheticBenchmarkTests(unittest.TestCase):
                 with self.assertRaises(B.BenchmarkError):
                     B.reduce_matrix(payload)
 
+    def test_strict_evidence_json_refuses_duplicate_keys(self):
+        # Standard json.loads silently uses the last value of duplicate keys.
+        # A nested replay record can otherwise overwrite its own identity.
+        for malformed in (
+            '{"schema":"forged","schema":"reversing-stripped-contrast/v1"}',
+            '{"outer":{"input_n":false,"input_n":0}}',
+            '{"outer":{"artifact_sha256":"wrong","artifact_sha256":"right"}}',
+        ):
+            with self.subTest(body=malformed), self.assertRaisesRegex(
+                    B.BenchmarkError, "duplicate JSON object field"):
+                B.strict_json_loads(malformed)
+        # No regression for a properly formed synthetic source matrix.
+        self.assertEqual(len(B.reduce_matrix(B.strict_json_loads(json.dumps(matrix())))["cases"]), 4)
+
+    def test_refuse_nonstandard_nonfinite_json_evidence(self):
+        for token in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(token=token), self.assertRaisesRegex(
+                    B.BenchmarkError, "nonstandard nonfinite"):
+                B.strict_json_loads('{"unused_auxiliary":' + token + '}')
+        # In-memory callers must also fail before hashing nonfinite evidence.
+        for value in (float("nan"), float("inf"), -float("inf")):
+            with self.subTest(value=str(value)), self.assertRaisesRegex(
+                    B.BenchmarkError, "noncanonical evidence"):
+                payload = matrix()
+                payload["profiles"][0]["untrusted_auxiliary"] = value
+                B.reduce_matrix(payload)
+
     def test_refuse_replay_artifact_mismatch(self):
         a=matrix()
         a["profiles"][1]["native_second_replay"]["artifact_sha256"]="f"*64
