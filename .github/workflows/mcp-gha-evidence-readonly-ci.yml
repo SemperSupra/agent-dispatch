@@ -1,0 +1,48 @@
+name: MCP GHA Read-only Evidence Controller Qualification
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mcp-gha-evidence-readonly-ci.yml
+      - tools/mcp-gha-control/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-contract:
+    name: Fixed public read-only observer and sealed arm evidence validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed public source without persisting credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify read-only Go controller, including negative evidence tests
+        shell: bash
+        working-directory: tools/mcp-gha-control
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          test ! -e cancel.go
+          ! grep -q 'requestCancellation(' main.go
+          go test -race -count=3 ./...
+          go vet ./...
+          go build -trimpath -o "${RUNNER_TEMP}/mcp-gha-evidence-readonly" .
+          "${RUNNER_TEMP}/mcp-gha-evidence-readonly" describe |
+            python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["audiences"]==["human","automation","agent"]; assert x["artifact_contract"]=="mcp-gha-sealed-arm-receipt/v1"'
+          echo 'MCP_GHA_READONLY_EVIDENCE_CONTRACT_PASS'
+      - name: Prove actual native GitHub Actions observation without science promotion
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/mcp-gha-evidence-readonly" status --run-id 40448376152 |
+            python3 -c 'import json,sys; x=json.load(sys.stdin); assert x["run_id"]==40448376152; assert x["control_state"]=="EXECUTOR_COMPLETE_EVIDENCE_NOT_VALIDATED"; assert x["science_state"]=="UNJUDGED_NEEDS_TRUSTED_PRIVATE_INGEST"'
+          echo 'MCP_GHA_READONLY_NATIVE_OBSERVATION_PASS'
