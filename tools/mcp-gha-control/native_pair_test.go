@@ -66,7 +66,7 @@ func TestNativePairMetadataAndNegativeControls(t *testing.T){
  defer testSrv.Close()
  expect:=func(name string,valid bool){
   t.Helper()
-  r,e:=checkNativePairMetadata(context.Background(),testSrv.Client(),testSrv.URL,p)
+  r,e:=checkNativePairMetadataAt(context.Background(),testSrv.Client(),testSrv.URL,p)
   if valid{
    if e!=nil||r.ArmJobsMatched!=2||r.ArmArtifactsMatched!=2||r.State!="NATIVE_GITHUB_METADATA_MATCH_ONLY_NOT_DECRYPTED"{t.Fatalf("%s: %+v, %v",name,r,e)}
   }else if e==nil{t.Fatalf("%s accepted invalid metadata: %+v",name,r)}
