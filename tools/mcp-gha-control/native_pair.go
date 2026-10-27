@@ -53,7 +53,12 @@ func requestPublicJSON(ctx context.Context,c *http.Client,target string,out any)
  if len(b)>maxJSON{return errors.New("native response exceeds bounded payload")}
  return json.Unmarshal(b,out)
 }
-func checkNativePairMetadata(ctx context.Context,c *http.Client,apiURL string,p PairPlan)(NativePairCheck,error){
+// The production entrypoint pins the official GitHub REST origin.
+func checkNativePairMetadata(ctx context.Context,c *http.Client,p PairPlan)(NativePairCheck,error){
+ return checkNativePairMetadataAt(ctx,c,"https://api.github.com/repos/SemperSupra/agent-dispatch",p)
+}
+// The injectable endpoint is for local HTTP test doubles only.
+func checkNativePairMetadataAt(ctx context.Context,c *http.Client,apiURL string,p PairPlan)(NativePairCheck,error){
  var result NativePairCheck
  if err:=validatePairPlan(p);err!=nil{return result,err}
  runID,e:=strconv.ParseInt(p.RunID,10,64);if e!=nil{return result,e}
