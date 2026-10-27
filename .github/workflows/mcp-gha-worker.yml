@@ -1,5 +1,6 @@
 name: Public MCP Ephemeral Worker
-run-name: "MCP workcell · ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke' }}"
+# Deterministic title consumed by existing Agent Dispatch Sidecar run observer.
+run-name: "sidecar:${{ inputs.workset_id || 'mcp-gha-public-smoke' }}:${{ inputs.delegation_id || 'ci' }}:${{ inputs.assignment_id || 'pr-smoke' }}"
 
 on:
   pull_request:
@@ -8,6 +9,18 @@ on:
       - tools/mcp-gha-worker/**
   workflow_dispatch:
     inputs:
+      workset_id:
+        description: "Opaque public-safe durable workset correlation ID"
+        required: true
+        type: string
+      delegation_id:
+        description: "Opaque public-safe admitted delegation ID"
+        required: true
+        type: string
+      assignment_id:
+        description: "Unique one-use dispatch ID for correlated native run"
+        required: true
+        type: string
       mode:
         description: "smoke is credential-free; live opens a temporary approved tunnel from main"
         required: true
@@ -34,6 +47,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
+      - name: Validate Sidecar dispatch correlation on workflow requests
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          WORKSET_ID: ${{ inputs.workset_id }}
+          DELEGATION_ID: ${{ inputs.delegation_id }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        run: |
+          set -euo pipefail
+          for value in "$WORKSET_ID" "$DELEGATION_ID" "$ASSIGNMENT_ID"; do
+            [[ "$value" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}$ ]] || {
+              echo 'INVALID_PUBLIC_DISPATCH_IDENTITY' >&2
+              exit 2
+            }
+          done
       - name: Checkout exact public source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -96,6 +124,17 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Verify bounded live dispatch identity
+        shell: bash
+        env:
+          WORKSET_ID: ${{ inputs.workset_id }}
+          DELEGATION_ID: ${{ inputs.delegation_id }}
+          ASSIGNMENT_ID: ${{ inputs.assignment_id }}
+        run: |
+          set -euo pipefail
+          for value in "$WORKSET_ID" "$DELEGATION_ID" "$ASSIGNMENT_ID"; do
+            [[ "$value" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{2,79}$ ]] || exit 2
+          done
       - name: Run bounded local MCP and official outbound tunnel
         working-directory: tools/mcp-gha-worker
         shell: bash
