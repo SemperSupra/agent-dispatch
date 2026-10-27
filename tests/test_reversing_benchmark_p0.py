@@ -3,6 +3,9 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 PATH = Path(__file__).resolve().parents[1] / "scripts" / "reversing_benchmark_p0.py"
@@ -194,6 +197,35 @@ class PublicSyntheticBenchmarkTests(unittest.TestCase):
                 payload = matrix()
                 payload["profiles"][0]["untrusted_auxiliary"] = value
                 B.reduce_matrix(payload)
+
+    def test_malformed_native_status_refused_cleanly_for_all_audiences(self):
+        # Untrusted JSON containers must not trigger uncaught TypeError when
+        # checked against a set of allowed native verdict/status strings.
+        mutations = (
+            ("replay verdict list", lambda p: p["native_second_replay"]["cases"][0].update(verdict=[])),
+            ("replay verdict map", lambda p: p["native_second_replay"]["cases"][1].update(verdict={"forged": 1})),
+            ("primary status list", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][3].update(status=[])),
+            ("primary status map", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][3].update(status={"forged": 1})),
+        )
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for label, mutate in mutations:
+                with self.subTest(case=label):
+                    payload = matrix()
+                    mutate(payload["profiles"][1])
+                    with self.assertRaisesRegex(B.BenchmarkError,
+                                                "status|target/status"):
+                        B.reduce_matrix(payload)
+                    source = root / "candidate.json"
+                    source.write_text(json.dumps(payload), encoding="utf-8")
+                    p = subprocess.run(
+                        [sys.executable, str(PATH), "--input", str(source),
+                         "--json-output", str(root / "answer.json"),
+                         "--markdown-output", str(root / "answer.md")],
+                        capture_output=True, text=True, timeout=10, check=False)
+                    self.assertNotEqual(p.returncode, 0)
+                    self.assertIn("evidence refused:", p.stderr)
+                    self.assertNotIn("Traceback", p.stderr)
 
     def test_refuse_replay_artifact_mismatch(self):
         a=matrix()
