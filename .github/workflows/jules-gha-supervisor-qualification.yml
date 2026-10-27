@@ -1,0 +1,125 @@
+name: Jules-GHA Supervisor Contract Qualification (public synthetic)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/jules-gha-supervisor-qualification.yml'
+      - 'tools/jules-gha-interview/**'
+      - 'docs/jules-gha-supervisor-qualification.md'
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-arms:
+    name: Public synthetic ${{ matrix.arm }} arm
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        arm: [reference, fault]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Check exact PR-head source and Go toolchain
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          go version
+      - name: Run offline contract tests race detector and vet
+        working-directory: tools/jules-gha-interview
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go test -race -count=2 ./...
+          go vet ./...
+      - name: Generate one native-identity-bound synthetic arm
+        working-directory: tools/jules-gha-interview
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARM: ${{ matrix.arm }}
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go run . arm --arm "$ARM" --sha "$HEAD_SHA" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --out "$RUNNER_TEMP/arm.json"
+      - name: Upload one-day public synthetic artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jules-gha-arm-${{ matrix.arm }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arm.json
+          if-no-files-found: error
+          retention-days: 1
+
+  interview-contract:
+    name: Join native artifacts and interview mock, not Jules
+    needs: evidence-arms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Download native reference artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: jules-gha-arm-reference-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reference
+      - name: Download native synthetic fault artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: jules-gha-arm-fault-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fault
+      - name: Make packet and verify both mock and provider-unverified dispositions
+        working-directory: tools/jules-gha-interview
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/interview"
+          go run . prepare --reference "$RUNNER_TEMP/reference/arm.json" \
+            --fault "$RUNNER_TEMP/fault/arm.json" --out "$RUNNER_TEMP/interview/packet.json"
+          go run . mock-answer --packet "$RUNNER_TEMP/interview/packet.json" \
+            --out "$RUNNER_TEMP/interview/mock-answer.json"
+          go run . judge --mode synthetic --packet "$RUNNER_TEMP/interview/packet.json" \
+            --answer "$RUNNER_TEMP/interview/mock-answer.json" \
+            --out "$RUNNER_TEMP/interview/synthetic-verdict.json"
+          go run . judge --mode provider --packet "$RUNNER_TEMP/interview/packet.json" \
+            --answer "$RUNNER_TEMP/interview/mock-answer.json" \
+            --out "$RUNNER_TEMP/interview/provider-verdict.json"
+          python3 - <<'PY'
+          import json, os
+          p=os.environ['RUNNER_TEMP']+'/interview/'
+          a=json.load(open(p+'synthetic-verdict.json'))
+          b=json.load(open(p+'provider-verdict.json'))
+          assert a['status']=='SYNTHETIC_CONTRACT_PASS' and not a['provider_observed']
+          assert b['status']=='PROVIDER_ATTESTATION_REQUIRED' and not b['provider_observed']
+          print('PUBLIC_SYNTHETIC_INTERVIEW_PASS_JULES_NOT_INVOKED')
+          PY
+      - name: Preserve bounded public evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: jules-gha-interview-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/interview/*.json
+          if-no-files-found: ignore
+          retention-days: 1
