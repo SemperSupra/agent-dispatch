@@ -20,6 +20,11 @@ func TestWakeCommandIsLimitedToExactAuthenticatedPRComment(t *testing.T) {
 		"github.event.issue.number == 553",
 		"github.event.issue.pull_request != null",
 		"github.event.comment.user.id == 1854350",
+		"github.event.comment.body == '/mcp gha start smoke'",
+		"github.event.comment.body == '/mcp gha start live'",
+		"github.event.comment.body == '/mcp gha sweep pilot'",
+		"vars.MCP_GHA_AGE_RECIPIENT",
+		"name: MCP GHA Ephemeral MCP Worker",
 		"github.event.comment.body == '/mcpgha start smoke'",
 		"github.event.comment.body == '/mcpgha start live'",
 		"format('comment-wake:{0}', github.event.comment.id)",
@@ -31,6 +36,8 @@ func TestWakeCommandIsLimitedToExactAuthenticatedPRComment(t *testing.T) {
 		"secrets.OPENAI_GHA_MCP_TUNNEL_ID",
 		"permissions:\n  contents: read",
 		"cancel-in-progress: false",
+		"request-cancel:",
+		"startsWith(github.event.comment.body, '/mcp gha cancel ')",
 	}
 	for _, clause := range required {
 		if !strings.Contains(s, clause) {
@@ -43,10 +50,25 @@ func TestWakeCommandIsLimitedToExactAuthenticatedPRComment(t *testing.T) {
 		"repository_dispatch:",
 		"secrets.OPENAI_ADMIN_KEY",
 		"permissions: write-all",
-		"actions: write",
 	} {
 		if strings.Contains(s, forbidden) {
 			t.Errorf("disallowed wake authority %q", forbidden)
 		}
+	}
+	// Scope Actions-write authority to the single cancel job, never the
+	// public smoke, live MCP tunnel, or sealed-research jobs.
+	sections := strings.Split(s, "  request-cancel:")
+	if len(sections) != 2 {
+		t.Fatal("missing or duplicated cancel job")
+	}
+	if strings.Contains(sections[0], "actions: write") {
+		t.Fatal("Actions write leaked into general workflow permissions")
+	}
+	if strings.Count(sections[1], "actions: write") != 1 {
+		t.Fatal("cancellation job must independently scope Actions write")
+	}
+	if !strings.Contains(sections[1], "github.event.comment.user.id == 1854350") ||
+		!strings.Contains(sections[1], "github.event.issue.number == 553") {
+		t.Fatal("cancel authority not bound to fixed authenticated owner and PR")
 	}
 }
