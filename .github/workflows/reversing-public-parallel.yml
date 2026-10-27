@@ -38,6 +38,14 @@ jobs:
             test_file: tests/test_reversing_benchmark_p0.py
           - lane: fixed-native-replay-parser
             test_file: tests/test_reversing_benchmark_native_replay.py
+          - lane: fixed-stripped-contrast-contract
+            test_file: tests/test_reversing_stripped_contrast_probe.py
+          - lane: code-interval-boundary-oracle
+            test_file: tests/test_reversing_interval_boundary_oracle.py
+          - lane: static-signed-branch-oracle
+            test_file: tests/test_reversing_signed_branch_oracle.py
+          - lane: gdb-island-observation-contract
+            test_file: tests/test_reversing_gdb_island_observation.py
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
