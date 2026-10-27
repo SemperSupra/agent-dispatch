@@ -25,6 +25,8 @@ func TestWakeCommandIsLimitedToExactAuthenticatedPRComment(t *testing.T) {
 		"format('comment-wake:{0}', github.event.comment.id)",
 		"github.ref == 'refs/heads/main'",
 		"environment: mcp-ephemeral-live",
+		"LEASE_SECONDS: ${{ inputs.lease_seconds || '600' }}",
+		"^tunnel_([a-z0-9]{32}|[a-z0-9]{4}_[a-z0-9]{32})$",
 		"secrets.OPENAI_TUNNEL_RUNTIME_KEY",
 		"secrets.OPENAI_GHA_MCP_TUNNEL_ID",
 		"permissions:\n  contents: read",
