@@ -9,6 +9,26 @@ The public workflow `.github/workflows/mcp-gha-worker.yml` has two paths:
 - **Public PR / manual smoke:** Go formatting, race tests, vet, actual local MCP HTTP probe, and pull/inspect/help of the digest-pinned official OpenAI tunnel-client image **without credentials**. No private GHA minutes.
 - **Explicit manual live (reviewed default branch only):** Starts a loopback MCP canary and an outbound official tunnel runtime for **120, 300, or 600 seconds** and then stops. The runtime is detached inside a restricted container, no public inbound MCP listener. This proves temporary process lifecycle only until a separate ChatGPT plugin invokes it and evidence is independently correlated.
 
+## On-demand wake from ordinary ChatGPT
+
+The normal GitHub connector can post a PR conversation comment. This repository currently has **Issues disabled**, so the narrowly scoped GitHub Actions `issue_comment` wake event is bound to the **existing PR #553 only**, using immutable GitHub author ID **1854350**, event type `created`, and the exact comment body:
+
+```text
+/mcpgha start smoke
+```
+
+For a **separately approved** time-bounded OpenAI tunnel (requires protected GitHub Environment credentials and owner review), use:
+
+```text
+/mcpgha start live
+```
+
+Example ChatGPT request once this workflow is merged into `main`: *"Post exactly `/mcpgha start smoke` as a new comment on SemperSupra/agent-dispatch PR #553, then observe the new public Actions run."* ChatGPT uses its connected GitHub account—there is no GitHub token or OpenAI key in the chat. The worker run is addressed by the public GitHub comment ID and its native Actions run ID, **not** by a fabricated worker handle.
+
+**Control limitation:** the public repo's Issues feature is disabled (GitHub API 410), so the PR conversation is a provisional wake surface rather than a dedicated operations issue. This does not authorize public user comments, review comments, forks, arbitrary workflow selection, shell arguments, code publication or new cloud resources. Non-owner comments, wrong PRs and other text must produce **zero work**. The `issue_comment` workflow must be on the default branch before the trigger can function. Do not assume this works until a real comment-induced GitHub Actions run is observed. Moving to a permanent issue later requires enabling Issues and reviewing the exact issue/author gate.
+
+**Governed Sidecar alternative:** the existing always-on Agent Dispatch Sidecar can independently call GitHub `workflow_dispatch` using its installed GitHub App. The public workflow now accepts the native `workset_id`, `delegation_id`, `assignment_id` identity fields and emits Sidecar-compatible run names. Separate exact caller/workset/assignment admissions and a narrow runtime target binding are prerequisites; the comment wake is *not* represented as a Sidecar-authorized dispatch. The Sidecar path is the preferred mission/assignment and observation authority.
+
 ## Credentials: references only; no values
 
 For a dedicated, separately admitted **temporary** tunnel, configure the GitHub Environment `mcp-ephemeral-live` with branch restrictions, a human reviewer, and two secrets:
