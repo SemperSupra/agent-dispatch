@@ -9,6 +9,7 @@ import (
  "fmt"
  "io"
  "net/http"
+ "os"
  "strconv"
  "strings"
 )
@@ -41,12 +42,20 @@ type NativePairCheck struct {
  State string `json:"state"`
  ArmJobsMatched int `json:"arm_jobs_matched"`
  ArmArtifactsMatched int `json:"arm_artifacts_matched"`
+ WorkflowSHA string `json:"workflow_source_sha"`
+ CollectorSHA string `json:"collector_source_sha"`
+ SourceMode string `json:"source_mode"`
  ScientificStatus string `json:"scientific_status"`
 }
 func requestPublicJSON(ctx context.Context,c *http.Client,target string,out any)error{
  req,e:=http.NewRequestWithContext(ctx,"GET",target,nil);if e!=nil{return e}
  req.Header.Set("Accept","application/vnd.github+json")
  req.Header.Set("X-GitHub-Api-Version","2022-11-28")
+ // Only attach the GitHub Actions read token to the fixed official
+ // repository Actions API; never to injected HTTP test hosts.
+ if strings.HasPrefix(target,"https://api.github.com/repos/SemperSupra/agent-dispatch/actions/runs/"){
+  if token:=os.Getenv("GITHUB_TOKEN");token!=""{req.Header.Set("Authorization","Bearer "+token)}
+ }
  resp,e:=c.Do(req);if e!=nil{return e};defer resp.Body.Close()
  if resp.StatusCode!=200{return fmt.Errorf("GitHub native read HTTP %d",resp.StatusCode)}
  b,e:=io.ReadAll(io.LimitReader(resp.Body,maxJSON+1));if e!=nil{return e}
@@ -131,6 +140,8 @@ func checkNativePairMetadataAt(ctx context.Context,c *http.Client,apiURL string,
   Schema:"mcp-gha-native-pair-metadata/v1",AssignmentID:p.AssignmentID,RunID:p.RunID,
   State:"NATIVE_GITHUB_METADATA_MATCH_ONLY_NOT_DECRYPTED",
   ArmJobsMatched:2,ArmArtifactsMatched:2,
+  WorkflowSHA:workflowSource,CollectorSHA:p.SourceSHA,
+  SourceMode:p.Schema,
   ScientificStatus:"SYNTHETIC_ONLY_NOT_VALIDATED",
  },nil
 }
