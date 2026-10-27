@@ -57,9 +57,11 @@ jobs:
         run: |
           set -euo pipefail
           test -f collector-snapshot/tools/concept-sweep/run_sealed_arm.sh
-          # The declared collector source SHA is its exact pinned commit,
-          # distinct from the current qualification-workflow PR commit.
-          GITHUB_SHA=330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa \
+          collector_sha="$(git -C collector-snapshot rev-parse HEAD)"
+          test "$collector_sha" = 330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa
+          # GitHub API run head and executed PR merge checkout may differ.
+          # This receipt binds only the exact separately checked-out collector.
+          GITHUB_SHA="$collector_sha" \
             bash collector-snapshot/tools/concept-sweep/run_sealed_arm.sh
           test -s "${MCP_GHA_SEALED_OUT}/result.age"
           test -s "${MCP_GHA_SEALED_OUT}/receipt.json"
@@ -160,7 +162,7 @@ jobs:
       - name: Assemble synthetic evidence candidate with both pinned source roles
         shell: bash
         env:
-          WORKFLOW_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -183,7 +185,7 @@ jobs:
            "assignment_id":"public-synthetic-artifact-lifecycle",
            "repository":"SemperSupra/agent-dispatch",
            "workflow":".github/workflows/mcp-gha-artifact-lifecycle-qualification.yml",
-           "workflow_source_sha":os.environ["WORKFLOW_SOURCE_SHA"],
+           "workflow_head_sha":os.environ["WORKFLOW_HEAD_SHA"],
            "run_id":os.environ["GITHUB_RUN_ID"],
            "run_attempt":os.environ["GITHUB_RUN_ATTEMPT"],
            "source_sha":a["source_sha"],
@@ -198,8 +200,8 @@ jobs:
            } for arm in ("reference","cpe")],
           }
           (root/"synthetic-pair-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
-          assert len(os.environ["WORKFLOW_SOURCE_SHA"])==40
-          assert manifest["workflow_source_sha"]!=manifest["source_sha"]
+          assert len(os.environ["WORKFLOW_HEAD_SHA"])==40
+          assert manifest["workflow_head_sha"]!=manifest["source_sha"]
           print("MCP_GHA_COMPOSITE_SOURCE_SYNTHETIC_V2_MANIFEST_TWO_ROLES_BOUND")
           PY
       - name: Stage and repeat idempotently with pure Go (local test only)
