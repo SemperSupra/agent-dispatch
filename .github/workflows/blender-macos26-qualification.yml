@@ -1,0 +1,100 @@
+name: Blender 4.5.15 macOS26 CPU and Metal qualification
+on:
+  push:
+    branches: [exp/runner-blender-macos26-20261027]
+    paths:
+      - ".github/workflows/blender-macos26-qualification.yml"
+      - "experiments/runner-blender-macos26/**"
+      - "experiments/runner-blender-ubuntu24/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: blender-macos26-cpu-metal
+  cancel-in-progress: true
+jobs:
+  macos-26-blender:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout only public original synthetic fixture
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch official Blender macOS ARM64, verify published SHA, mount signed DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          base=https://download.blender.org/release/Blender4.5
+          name=blender-4.5.15-macos-arm64.dmg
+          mkdir -p "$RUNNER_TEMP/blender-download" "$RUNNER_TEMP/blender-mount"
+          cd "$RUNNER_TEMP/blender-download"
+          curl -fLSs --retry 2 --connect-timeout 15 --max-time 300 "$base/$name" -o "$name"
+          curl -fLSs --retry 2 --connect-timeout 15 --max-time 45 "$base/blender-4.5.15.sha256" -o release.sha256
+          python3 - <<'PY'
+          import hashlib,pathlib,re
+          name="blender-4.5.15-macos-arm64.dmg"
+          lines=pathlib.Path("release.sha256").read_text().splitlines()
+          matches=[re.search(r"(?i)\b[a-f0-9]{64}\b",line).group().lower() for line in lines if name in line and re.search(r"(?i)\b[a-f0-9]{64}\b",line)]
+          assert len(matches)==1,"Ambiguous official sha256"
+          with open(name,"rb") as f: actual=hashlib.file_digest(f,"sha256").hexdigest()
+          assert actual==matches[0],"Official Blender DMG checksum mismatch"
+          print("macos_blender_archive_sha256="+actual)
+          PY
+          hdiutil attach "$name" -mountpoint "$RUNNER_TEMP/blender-mount" -nobrowse -readonly -quiet
+          test -x "$RUNNER_TEMP/blender-mount/Blender.app/Contents/MacOS/Blender"
+          "$RUNNER_TEMP/blender-mount/Blender.app/Contents/MacOS/Blender" --version | head -n 3
+      - name: Native Blender Cycles CPU and articulated rig oracle
+        shell: bash
+        env:
+          RUNNER_LABEL: macos-26
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/blender-cpu"
+          "$RUNNER_TEMP/blender-mount/Blender.app/Contents/MacOS/Blender" --background --factory-startup --disable-autoexec --python-exit-code 5 --python experiments/runner-blender-ubuntu24/rig_render.py -- --output "$RUNNER_TEMP/blender-cpu"
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"blender-cpu"
+          r=json.loads((p/"receipt.json").read_text())
+          assert r["result"]=="PASS" and r["compute_device"]=="CPU" and r["native_bones"]==2
+          assert "4.5.15" in r["blender_version"]
+          assert r["max_evaluated_vertex_displacement_m"]>0.20
+          assert len(set(r["pixel_sha256"]))==3
+          assert (p/"synthetic_rig.blend").stat().st_size>1000
+          print("independent_macos_blender_cpu_oracle=PASS")
+          PY
+      - name: Observe optional Blender Cycles Metal GPU capability separately
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/blender-metal"
+          python3 - <<'PY'
+          import json,os,pathlib,subprocess
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          cmd=[str(root/"blender-mount/Blender.app/Contents/MacOS/Blender"),"--background","--factory-startup","--disable-autoexec","--python-exit-code","5","--python","experiments/runner-blender-macos26/metal_probe.py","--",str(root/"blender-cpu/synthetic_rig.blend"),str(root/"blender-metal")]
+          try:
+              p=subprocess.run(cmd,timeout=180,check=False)
+              status=p.returncode
+          except subprocess.TimeoutExpired:
+              status=124
+          dest=root/"blender-metal/metal_probe.json"
+          if not dest.is_file():
+              dest.write_text(json.dumps({"schema":"github-runner-blender-metal/v1","result":"INCONCLUSIVE_GPU_PROCESS_EXIT","exit_code":status},sort_keys=True)+"\n")
+          r=json.loads(dest.read_text())
+          print("blender_metal_process_exit="+str(status))
+          print("blender_metal_observation="+r["result"])
+          PY
+      - name: Upload public synthetic artifacts and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-macos26-native-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/blender-cpu/receipt.json
+            ${{ runner.temp }}/blender-cpu/synthetic_rig.blend
+            ${{ runner.temp }}/blender-cpu/frame_*.png
+            ${{ runner.temp }}/blender-metal/metal_probe.json
+            ${{ runner.temp }}/blender-metal/metal_frame_0009.png
+          if-no-files-found: warn
+          retention-days: 7
