@@ -18,6 +18,22 @@ MODES = {"stock", "instrumented", "synthetic"}
 class ContractError(ValueError):
     pass
 
+def _unique_json_members(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ContractError("duplicate JSON evidence member")
+        obj[key] = value
+    return obj
+
+def _forbid_nonstandard_json_constant(value):
+    raise ContractError("nonstandard JSON numeric constant")
+
+def strict_loads(text):
+    """Keep v1/v2 evidence unambiguous before projecting identity and ranges."""
+    return json.loads(text, object_pairs_hook=_unique_json_members,
+                      parse_constant=_forbid_nonstandard_json_constant)
+
 def keys(x, mandatory, optional=()):
     if not isinstance(x, dict) or not set(mandatory).issubset(x) or set(x) - set(mandatory) - set(optional):
         raise ContractError("missing or forbidden fields")
@@ -146,7 +162,11 @@ def correlate(doc):
                           "function_id": mapped[cause_id]["function_id"],
                           "basis": "CALLER_ASSERTED_SAME_RUN_EDGE_UNVERIFIED"})
             x["status"] = "ASSERTED_CAUSE_UNVERIFIED"
-    canonical = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    try:
+        canonical = json.dumps(doc, sort_keys=True, separators=(",", ":"),
+                               ensure_ascii=True, allow_nan=False).encode()
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ContractError("noncanonical correlation evidence") from exc
     return {
         "schema": RESULT_SCHEMA, "run_id": doc["run_id"], "mode": doc["mode"],
         "artifact_sha256": doc["artifact_sha256"],
@@ -171,7 +191,7 @@ def main():
     if a.input.is_symlink() or not a.input.is_file() or a.input.stat().st_size > 1048576:
         p.error("input must be ordinary file <=1MiB")
     try:
-        result = correlate(json.loads(a.input.read_text(encoding="utf-8")))
+        result = correlate(strict_loads(a.input.read_text(encoding="utf-8")))
     except (ValueError, UnicodeError) as exc:
         p.error(str(exc))
     a.output.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
