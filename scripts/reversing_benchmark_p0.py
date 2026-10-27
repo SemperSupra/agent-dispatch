@@ -23,6 +23,22 @@ ALLOWED_STATUS = {NATIVE_HIT, NONHIT, "ENTRY_PC_OBSERVED_AND_RDI_ATTESTED"}
 class BenchmarkError(ValueError):
     pass
 
+def _reject_duplicate_json_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise BenchmarkError("duplicate JSON object field")
+        result[key] = value
+    return result
+
+def _reject_nonfinite_json_constant(value):
+    raise BenchmarkError("nonstandard nonfinite JSON constant")
+
+def strict_json_loads(text):
+    """Refuse ambiguous or nonstandard evidence before semantic reduction."""
+    return json.loads(text, object_pairs_hook=_reject_duplicate_json_fields,
+                      parse_constant=_reject_nonfinite_json_constant)
+
 def require(ok, msg):
     if not ok:
         raise BenchmarkError(msg)
@@ -187,7 +203,11 @@ def reduce_matrix(doc):
     require(selected[PROFILES[0]]["stripped_original_text_sha256"]
             == selected[PROFILES[1]]["stripped_original_text_sha256"],
             "the two optimized seed variants do not share identical .text bytes")
-    canonical = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    try:
+        canonical = json.dumps(doc, sort_keys=True, separators=(",", ":"),
+                               ensure_ascii=True, allow_nan=False)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise BenchmarkError("noncanonical evidence cannot be hashed") from exc
     return {
         "schema": SCHEMA,
         "work_id": "RE-BENCH-P0",
@@ -243,7 +263,7 @@ def main():
     if args.input.is_symlink() or not args.input.is_file() or args.input.stat().st_size > 2_097_152:
         ap.error("ordinary bounded matrix JSON required")
     try:
-        result = reduce_matrix(json.loads(args.input.read_text(encoding="utf-8")))
+        result = reduce_matrix(strict_json_loads(args.input.read_text(encoding="utf-8")))
     except (ValueError, UnicodeError) as exc:
         ap.error("evidence refused: " + str(exc))
     args.json_output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
