@@ -172,7 +172,8 @@ jobs:
           CONTROL_PLANE_API_KEY: ${{ secrets.OPENAI_TUNNEL_RUNTIME_KEY }}
           CONTROL_PLANE_TUNNEL_ID: ${{ secrets.OPENAI_GHA_MCP_TUNNEL_ID }}
           MCP_SERVER_URL: http://127.0.0.1:18765/mcp
-          LEASE_SECONDS: ${{ inputs.lease_seconds }}
+          # issue_comment events do not carry workflow_dispatch inputs.
+          LEASE_SECONDS: ${{ inputs.lease_seconds || '600' }}
           TUNNEL_IMAGE: ghcr.io/openai/tunnel-client:v0.0.13@sha256:4c6b1441a6ca2506ce04231c1022e6ada32ec488f41d300a4f29f7675cfb4337
           GOTOOLCHAIN: local
           GOPROXY: 'off'
@@ -184,7 +185,7 @@ jobs:
             echo 'MISSING_APPROVED_TUNNEL_RUNTIME_SECRETS' >&2
             exit 2
           fi
-          [[ "$CONTROL_PLANE_TUNNEL_ID" =~ ^tunnel_[a-zA-Z0-9]+$ ]] || { echo 'INVALID_TUNNEL_ID_FORMAT' >&2; exit 2; }
+          [[ "$CONTROL_PLANE_TUNNEL_ID" =~ ^tunnel_([a-z0-9]{32}|[a-z0-9]{4}_[a-z0-9]{32})$ ]] || { echo 'INVALID_TUNNEL_ID_FORMAT' >&2; exit 2; }
           case "$LEASE_SECONDS" in 120|300|600) ;; *) echo 'UNAPPROVED_LEASE' >&2; exit 2;; esac
           go build -trimpath -o "${RUNNER_TEMP}/public-mcp-worker" .
           container=''
