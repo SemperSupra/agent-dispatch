@@ -156,6 +156,10 @@ class PublicSyntheticBenchmarkTests(unittest.TestCase):
             ("interval zero", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][0].update(interval_index=False)),
             ("interval one", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][1].update(interval_index=True)),
             ("entry offset zero", lambda p: p["rdi_intervention"]["arguments"][4]["statuses"][0].update(target_delta_from_entry=False)),
+            ("observed index zero", lambda p: p["rdi_intervention"]["arguments"][4]["observed_indices"].__setitem__(0, False)),
+            ("nonhit index one", lambda p: p["rdi_intervention"]["arguments"][4]["not_observed_indices"].__setitem__(0, True)),
+            ("zero missing bytes", lambda p: p["independent_objdump_boundary_oracle"].update(missing_nonnop_bytes=False)),
+            ("zero extra bytes", lambda p: p["independent_objdump_boundary_oracle"].update(extra_nonoracle_bytes=False)),
         )
         for label, mutate in mutations:
             with self.subTest(case=label):
