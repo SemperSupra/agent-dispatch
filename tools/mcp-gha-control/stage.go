@@ -16,10 +16,16 @@ type PairStage struct {
 }
 func hashRegularFile(path string)(string,error){
  if err:=noSymlinkFile(path);err!=nil{return "",err}
+ info,err:=os.Lstat(path);if err!=nil{return "",err}
+ if info.Size()<1||info.Size()>maxCiphertext+32768 {
+  return "",errors.New("staged file outside bounded size")
+ }
  f,err:=os.Open(path);if err!=nil{return "",err}
  defer f.Close()
  h:=sha256.New()
- if _,err=io.Copy(h,io.LimitReader(f,maxCiphertext+32769));err!=nil{return "",err}
+ copied,err:=io.Copy(h,f)
+ if err!=nil{return "",err}
+ if copied!=info.Size(){return "",errors.New("file mutated while hashing")}
  return hex.EncodeToString(h.Sum(nil)),nil
 }
 func comparePairFiles(manifest,inbox,target string)(bool,error){
