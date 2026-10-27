@@ -252,7 +252,7 @@ func describe()map[string]any {
 }
 func emit(x any)error {e:=json.NewEncoder(os.Stdout);e.SetIndent("","  ");return e.Encode(x)}
 func main(){
- if len(os.Args)<2{fmt.Fprintln(os.Stderr,"usage: mcp-gha-control describe|status|verify-receipt");os.Exit(2)}
+ if len(os.Args)<2{fmt.Fprintln(os.Stderr,"usage: mcp-gha-control describe|status|verify-receipt|stage-pair");os.Exit(2)}
  switch os.Args[1]{
  case "describe":if len(os.Args)!=2{os.Exit(2)};_ = emit(describe())
  case "status":
@@ -262,6 +262,16 @@ func main(){
   obs,err:=observe(context.Background(),client,apiBase,*id)
   if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
   _=emit(obs)
+ case "stage-pair":
+  fs:=flag.NewFlagSet("stage-pair",flag.ExitOnError)
+  manifest:=fs.String("manifest","","frozen pair manifest JSON")
+  inbox:=fs.String("inbox","","local arm inbox")
+  destination:=fs.String("destination","","owner-only local staging root")
+  _=fs.Parse(os.Args[2:])
+  if *manifest==""||*inbox==""||*destination==""{fmt.Fprintln(os.Stderr,"manifest, inbox and destination required");os.Exit(2)}
+  result,err:=stagePair(*manifest,*inbox,*destination)
+  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
+  _=emit(result)
  case "verify-receipt":
   flags:=flag.NewFlagSet("verify-receipt",flag.ExitOnError)
   r:=flags.String("receipt","","sanitized receipt JSON")
