@@ -29,7 +29,7 @@ type PairPlan struct {
  RunID string `json:"run_id"`
  RunAttempt string `json:"run_attempt"`
  SourceSHA string `json:"source_sha"`
- WorkflowSourceSHA string `json:"workflow_source_sha,omitempty"`
+ WorkflowHeadSHA string `json:"workflow_head_sha,omitempty"`
  ProviderImageDigest string `json:"provider_image_digest"`
  ConfigSHA256 string `json:"config_sha256"`
  Arms []PairArm `json:"arms"`
@@ -62,11 +62,11 @@ func validatePairPlan(p PairPlan)error{
  sourceContractOK:=false
  switch p.Schema {
  case "mcp-gha-private-pair-preflight/v1":
-  sourceContractOK=p.Workflow==workflow&&p.WorkflowSourceSHA==""
+  sourceContractOK=p.Workflow==workflow&&p.WorkflowHeadSHA==""
  case "mcp-gha-private-pair-preflight/v2":
   // Deliberately narrow: public synthetic transport only. No other
   // composite-source executions are admitted or scientifically trusted.
-  sourceContractOK=p.Workflow==qualificationWorkflow&&hex40.MatchString(p.WorkflowSourceSHA)&&p.SourceSHA==syntheticCollectorSource
+  sourceContractOK=p.Workflow==qualificationWorkflow&&hex40.MatchString(p.WorkflowHeadSHA)&&p.SourceSHA==syntheticCollectorSource
  }
  if !sourceContractOK||p.Repository!=repo||
  !digits.MatchString(p.RunID)||!digits.MatchString(p.RunAttempt)||!hex40.MatchString(p.SourceSHA)||
