@@ -24,7 +24,8 @@ func compositeFixture(t *testing.T)(string,string,PairPlan){
  for i,arm:=range p.Arms {
   name:=filepath.Join(inbox,arm.Arm,"receipt.json")
   var receipt Receipt
-  if _,e:=readJSON(name,&receipt);e!=nil{t.Fatal(e)}
+  raw,e:=os.ReadFile(name);if e!=nil{t.Fatal(e)}
+  if e=json.Unmarshal(raw,&receipt);e!=nil{t.Fatal(e)}
   receipt.SourceSHA=p.SourceSHA
   saveReceipt(t,name,receipt)
   contents,e:=os.ReadFile(name);if e!=nil{t.Fatal(e)}
