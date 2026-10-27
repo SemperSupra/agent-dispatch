@@ -23,10 +23,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Checkout fixed shared collector and only this synthetic arm plan
+      - name: Checkout pinned, independent, source-only Stage R collector candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: 330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa
+          path: collector-snapshot
           sparse-checkout: |
             tools/concept-sweep/go.mod
             tools/concept-sweep/main.go
@@ -54,7 +56,11 @@ jobs:
           GOSUMDB: 'off'
         run: |
           set -euo pipefail
-          bash tools/concept-sweep/run_sealed_arm.sh
+          test -f collector-snapshot/tools/concept-sweep/run_sealed_arm.sh
+          # The declared collector source SHA is its exact pinned commit,
+          # distinct from the current qualification-workflow PR commit.
+          GITHUB_SHA=330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa \
+            bash collector-snapshot/tools/concept-sweep/run_sealed_arm.sh
           test -s "${MCP_GHA_SEALED_OUT}/result.age"
           test -s "${MCP_GHA_SEALED_OUT}/receipt.json"
           python3 - <<'PY'
@@ -162,7 +168,11 @@ jobs:
           ids=json.loads((root/"native-artifact-identities.json").read_text())
           receipts={arm:json.loads((inbox/arm/"receipt.json").read_text()) for arm in ("reference","cpe")}
           a,b=receipts["reference"],receipts["cpe"]
-          assert a["source_sha"]==b["source_sha"] and a["run_attempt"]==b["run_attempt"]==os.environ["GITHUB_RUN_ATTEMPT"]
+          # Composite source R&D: nested pinned Stage R source differs from
+          # this test workflow's head. Production attestation must reject such
+          # a mismatch unless separately admitted and fully bound.
+          assert a["source_sha"]==b["source_sha"]=="330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa"
+          assert a["run_attempt"]==b["run_attempt"]==os.environ["GITHUB_RUN_ATTEMPT"]
           assert a["run_id"]==b["run_id"]==os.environ["GITHUB_RUN_ID"]
           assert a["provider_image_digest"]==b["provider_image_digest"] and a["config_sha256"]==b["config_sha256"]
           assert a["plan_sha256"]!=b["plan_sha256"]
@@ -185,7 +195,7 @@ jobs:
            } for arm in ("reference","cpe")],
           }
           (root/"synthetic-pair-manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
-          print("MCP_GHA_REAL_ARTIFACT_PAIR_MANIFEST_BYTE_CONSISTENT")
+          print("MCP_GHA_REAL_ARTIFACT_PAIR_MANIFEST_BYTE_CONSISTENT_COMPOSITE_SOURCE_NOT_PRODUCTION_ATTESTED")
           PY
       - name: Stage and repeat idempotently with pure Go (local test only)
         shell: bash
