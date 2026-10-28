@@ -44,6 +44,7 @@ func (g *WebhookGate)Observe(secret []byte, expectedRepo,expectedWorkflow,expect
  provided,e:=hex.DecodeString(signature[7:]);if e!=nil||len(provided)!=sha256.Size{return fail()}
  mac:=hmac.New(sha256.New,secret);_,_=mac.Write(payload)
  if !hmac.Equal(mac.Sum(nil),provided){return fail()}
+ if rejectAmbiguousJSON(payload)!=nil{return fail()}
  var p webhookPayload
  d:=json.NewDecoder(bytes.NewReader(payload))
  if e:=d.Decode(&p);e!=nil{return fail()}

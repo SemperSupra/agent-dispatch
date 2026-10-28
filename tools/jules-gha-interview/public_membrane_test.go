@@ -149,3 +149,23 @@ func TestMembraneAllowsExplicitlySignedPublicWorkflow(t *testing.T){
   t.Fatalf("explicit public workflow denied: %v",e)
  }
 }
+
+// Valid release signatures do not make ambiguous JSON canonical. Reject both
+// outer and nested duplicate keys even when the last value is valid.
+func TestMembraneRejectsSignedDuplicateJSONKeys(t *testing.T) {
+ root,b,_,pub,priv:=projectionFixture(t)
+ cases:=[]struct{name,needle,replacement string}{
+  {"outer-schema",`"schema":`,`"schema":"unexpected","schema":`},
+  {"nested-path",`"path":`,`"path":"synthetic/other.txt","path":`},
+  {"nested-class",`"class":`,`"class":"V2","class":`},
+  {"nested-size",`"size":`,`"size":9999,"size":`},
+ }
+ for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
+  changed:=strings.Replace(string(b),tc.needle,tc.replacement,1)
+  if changed==string(b){t.Fatal("fixture anchor absent")}
+  raw:=[]byte(changed)
+  if e:=verifyProjection(root,raw,ed25519.Sign(priv,raw),pub);e==nil{
+   t.Fatal("signed ambiguous duplicate-key manifest accepted")
+  }
+ })}
+}

@@ -31,6 +31,52 @@ type ProjectionManifest struct {
  CapsuleDigest string "json:\"capsule_digest\""
  Files []ProjectionFile "json:\"files\""
 }
+
+// rejectAmbiguousJSON prevents first-key/last-key parser disagreement at trust
+// boundaries. It rejects duplicate keys in *all* nested objects and bounds
+// nesting before the ordinary typed schema checks; it grants no release rights.
+func rejectAmbiguousJSON(raw []byte) error {
+ d := json.NewDecoder(bytes.NewReader(raw))
+ var scan func(int) error
+ scan = func(depth int) error {
+  if depth > 32 { return errors.New("JSON nesting exceeds bound") }
+  tok, err := d.Token()
+  if err != nil { return err }
+  delim, ok := tok.(json.Delim)
+  if !ok { return nil }
+  switch delim {
+  case '{':
+   seen := make(map[string]struct{})
+   for d.More() {
+    keyToken, err := d.Token()
+    if err != nil { return err }
+    key, ok := keyToken.(string)
+    if !ok { return errors.New("non-string JSON object key") }
+    if _, exists := seen[key]; exists { return errors.New("duplicate JSON object key") }
+    seen[key] = struct{}{}
+    if err := scan(depth+1); err != nil { return err }
+   }
+   end, err := d.Token()
+   if err != nil { return err }
+   if end != json.Delim('}') { return errors.New("malformed JSON object") }
+   return nil
+  case '[':
+   for d.More() {
+    if err := scan(depth+1); err != nil { return err }
+   }
+   end, err := d.Token()
+   if err != nil { return err }
+   if end != json.Delim(']') { return errors.New("malformed JSON array") }
+   return nil
+  default:
+   return errors.New("unexpected JSON delimiter")
+  }
+ }
+ if err := scan(0); err != nil { return err }
+ if _, err := d.Token(); err != io.EOF { return errors.New("trailing JSON value") }
+ return nil
+}
+
 var safeProjectionPath=regexp.MustCompile("^[a-zA-Z0-9.][a-zA-Z0-9._/-]*$")
 var sha256Hex=regexp.MustCompile("^[a-f0-9]{64}$")
 
@@ -40,6 +86,7 @@ func verifyProjection(root string, rawManifest,signature []byte,pinnedKey ed2551
  if len(pinnedKey)!=ed25519.PublicKeySize{return errors.New("missing pinned trusted key")}
  if len(rawManifest)==0||len(rawManifest)>65536||len(signature)!=ed25519.SignatureSize{return errors.New("invalid manifest/signature bounds")}
  if !ed25519.Verify(pinnedKey,rawManifest,signature){return errors.New("trusted release signature mismatch")}
+ if err:=rejectAmbiguousJSON(rawManifest);err!=nil{return err}
  d:=json.NewDecoder(bytes.NewReader(rawManifest));d.DisallowUnknownFields()
  var m ProjectionManifest
  if e:=d.Decode(&m);e!=nil{return e}

@@ -65,3 +65,26 @@ func TestWebhookDenyWrongWorkflowAndDuplicateAttempt(t *testing.T){
   t.Fatal("duplicate run/attempt via new delivery ID accepted")
  }
 }
+
+// Even with a correct HMAC, a duplicate-key payload must not be parsed by
+// conflicting first-value/last-value consumers.
+func TestWebhookRejectsAuthenticatedDuplicateJSONKeys(t *testing.T) {
+ original,_:=makeWebhook()
+ cases:=[]struct{name,needle,replacement string}{
+  {"outer-action",`"action":`,`"action":"queued","action":`},
+  {"nested-run-id",`"id":10001`,`"id":-9,"id":10001`},
+  {"nested-origin",`"full_name":`,`"full_name":"synthetic-other/fixture","full_name":`},
+ }
+ for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
+  changed:=strings.Replace(string(original),tc.needle,tc.replacement,1)
+  if changed==string(original){t.Fatal("fixture anchor absent")}
+  raw:=[]byte(changed)
+  mac:=hmac.New(sha256.New,[]byte(webhookSecret))
+  _,_=mac.Write(raw)
+  signature:="sha256="+hex.EncodeToString(mac.Sum(nil))
+  if _,e:=new(WebhookGate).Observe([]byte(webhookSecret),webhookRepository,webhookWorkflow,
+   "pull_request","workflow_run",webhookDelivery,signature,raw);e==nil{
+   t.Fatal("authenticated ambiguous duplicate-key webhook accepted")
+  }
+ })}
+}
