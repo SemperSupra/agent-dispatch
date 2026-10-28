@@ -1,0 +1,78 @@
+name: RE Candidate Paired Androguard Trial
+on:
+  pull_request:
+    paths:
+      - .github/workflows/re-tool-androguard-parity.yml
+      - scripts/re_tool_androguard_parity.py
+      - scripts/re_tool_d8_realistic.py
+      - scripts/re_tool_r8_smoke.py
+      - scripts/re_tool_androguard_xref.py
+      - scripts/re_tool_dex_strict_adapter.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fetch published sources at exact commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone -q --filter=blob:none --no-checkout https://github.com/MG1937/ASC.git "$RUNNER_TEMP/asc"
+          git -C "$RUNNER_TEMP/asc" sparse-checkout set droidasc dadguard tests
+          git -C "$RUNNER_TEMP/asc" checkout -q --detach 464f9fef0db41099c4cf3f55c78b33f2606780d2
+          git clone -q --filter=blob:none --no-checkout https://github.com/androguard/androguard.git "$RUNNER_TEMP/ag"
+          git -C "$RUNNER_TEMP/ag" checkout -q --detach d594fd39beb934e438a5bf8089b206d5800d81e0
+      - name: Build isolated third-party environment and run exact class oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-input "$RUNNER_TEMP/ag"
+          mkdir -p "$RUNNER_TEMP/evidence"
+          "$RUNNER_TEMP/venv/bin/pip" freeze --all > "$RUNNER_TEMP/evidence/installed.txt"
+          "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_dex_strict_adapter.py --asc "$RUNNER_TEMP/asc" --and-source "$RUNNER_TEMP/ag" --out "$RUNNER_TEMP/evidence/result.json"
+          "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_androguard_xref.py --asc "$RUNNER_TEMP/asc" --out "$RUNNER_TEMP/evidence/xref.json"
+      - name: Compile authored Java and qualify real D8 DEX reference extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$RUNNER_TEMP/asc" "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_d8_realistic.py "$RUNNER_TEMP/evidence/d8-realistic.json"
+      - name: Qualify pinned R8 optimizer on synthetic conditional and exception cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$RUNNER_TEMP/asc" "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_r8_smoke.py
+          PYTHONPATH="$RUNNER_TEMP/asc" "$RUNNER_TEMP/venv/bin/python" scripts/re_tool_r8_smoke.py --obfuscate
+      - name: Reuse existing Android SDK capability inventory
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python3 scripts/github_runner_android_setup.py --label ubuntu-24.04 --out "$RUNNER_TEMP/evidence/android-sdk-inventory.json"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path(os.environ.get("ANDROID_HOME") or "/usr/local/lib/android/sdk")
+          found=[]
+          for f in sorted(root.glob("build-tools/*/d8")):
+              if f.is_file():
+                  found.append({"path":str(f), "sha256":hashlib.sha256(f.read_bytes()).hexdigest()})
+          r={"classification":"PINNABLE_PREINSTALLED_D8" if found else "D8_NOT_FOUND",
+             "build_tools":found,"source":"existing Android runner inventory plus executable byte hash"}
+          (Path(os.environ["RUNNER_TEMP"])/"evidence"/"d8-census.json").write_text(json.dumps(r,indent=2)+"\n")
+          print("D8_CENSUS",json.dumps(r))
+          PY
+      - name: Retain comparator receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: requal-androguard-parity
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 7
+          if-no-files-found: warn
