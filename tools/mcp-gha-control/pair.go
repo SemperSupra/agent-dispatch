@@ -48,8 +48,7 @@ type PairPreflight struct {
 }
 func readPairPlan(path string)(PairPlan,error){
  var p PairPlan
- f,e:=os.Open(path);if e!=nil{return p,e};defer f.Close()
- b,e:=readBounded(f,32768);if e!=nil{return p,e}
+ b,e:=readPinnedRegular(path,32768);if e!=nil{return p,e}
  dec:=json.NewDecoder(strings.NewReader(string(b)));dec.DisallowUnknownFields()
  if e=dec.Decode(&p);e!=nil{return p,e}
  var extra any
@@ -114,10 +113,8 @@ func pairPreflight(manifest,inbox string)(PairPreflight,error){
   if !stat.IsDir()||stat.Mode()&os.ModeSymlink!=0{return out,errors.New("arm path must be directory")}
   rfile:=filepath.Join(dir,"receipt.json")
   cfile:=filepath.Join(dir,"result.age")
-  if e=noSymlinkFile(rfile);e!=nil{return out,e}
+  rbytes,e:=readPinnedRegular(rfile,32768);if e!=nil{return out,e}
   if e=noSymlinkFile(cfile);e!=nil{return out,e}
-  rbytes,e:=os.ReadFile(rfile);if e!=nil{return out,e}
-  if len(rbytes)>32768{return out,errors.New("receipt too large")}
   rdigest:=sha256.Sum256(rbytes)
   if hex.EncodeToString(rdigest[:])!=a.ReceiptSHA256{return out,fmt.Errorf("%s receipt digest conflicts with precommitted manifest",a.Arm)}
   v,e:=verifyBound(rfile,cfile,p.RunID,a.Arm)
