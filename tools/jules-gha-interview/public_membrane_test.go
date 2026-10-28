@@ -133,3 +133,19 @@ func TestMembraneRejectsSignedNestedHiddenFileDespiteValidDigest(t *testing.T){
   t.Fatal("nested hidden path accepted despite real file, exact digest and valid signature")
  }
 }
+
+func TestMembraneAllowsExplicitlySignedPublicWorkflow(t *testing.T){
+ root,b,_,pub,priv:=projectionFixture(t)
+ var m ProjectionManifest
+ if e:=json.Unmarshal(b,&m);e!=nil{t.Fatal(e)}
+ path:=filepath.Join(root,".github","workflows")
+ if e:=os.MkdirAll(path,0700);e!=nil{t.Fatal(e)}
+ if e:=os.Rename(filepath.Join(root,"src","demo.txt"),filepath.Join(path,"test.yml"));e!=nil{t.Fatal(e)}
+ if e:=os.Remove(filepath.Join(root,"src"));e!=nil{t.Fatal(e)}
+ m.Files[0].Path=".github/workflows/test.yml"
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if e:=verifyProjection(root,b,ed25519.Sign(priv,b),pub);e!=nil{
+  t.Fatalf("explicit public workflow denied: %v",e)
+ }
+}
