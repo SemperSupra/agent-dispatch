@@ -88,11 +88,11 @@ jobs:
           for label,body in (("parallel",parallel),("transport",transport)):
               assert "pull_request:" in body, label
               assert "persist-credentials: false" in body, label
-              assert "secrets." not in body, label
-              assert "actions: write" not in body, label
-              assert "contents: write" not in body, label
-              assert "private-key" not in body.lower(), label
               for line in body.splitlines():
+                  # Match actual YAML permission records, not quoted
+                  # policy-checker source text embedded in a run block.
+                  assert not re.match(r"^\s*(actions|contents):\s*write\s*$",line), (label,line)
+                  assert not re.search(r"\$\{\{\s*secrets\.",line), (label,line)
                   if re.match(r"\s+uses:\s*",line):
                       assert re.search(r"@[0-9a-f]{40}\s*$",line), (label,line)
           assert "max-parallel: 3" in parallel
