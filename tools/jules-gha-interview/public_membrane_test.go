@@ -4,6 +4,7 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "fmt"
  "os"
  "path/filepath"
  "strings"
@@ -16,8 +17,10 @@ func projectionFixture(t *testing.T)(string,[]byte,[]byte,ed25519.PublicKey,ed25
  data:=[]byte("public synthetic source fixture\n")
  if e:=os.WriteFile(filepath.Join(root,"src","demo.txt"),data,0600);e!=nil{t.Fatal(e)}
  digest:=sha256.Sum256(data)
+ file:=ProjectionFile{Path:"src/demo.txt",Class:"V1",SHA256:hex.EncodeToString(digest[:]),Size:int64(len(data))}
+ capsule:=sha256.Sum256([]byte(fmt.Sprintf("%s\\x00%s\\x00%s\\x00%d\\n",file.Path,file.Class,file.SHA256,file.Size)))
  m:=ProjectionManifest{Schema:publicProjectionSchema,PolicyDigest:strings.Repeat("a",64),
-  CapsuleDigest:strings.Repeat("b",64),Files:[]ProjectionFile{{Path:"src/demo.txt",Class:"V1",SHA256:hex.EncodeToString(digest[:]),Size:int64(len(data))}}}
+  CapsuleDigest:hex.EncodeToString(capsule[:]),Files:[]ProjectionFile{file}}
  b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
  seed:=sha256.Sum256([]byte("PUBLIC SYNTHETIC NON-PRODUCTION SIGNER ONLY"))
  priv:=ed25519.NewKeyFromSeed(seed[:]);pub:=priv.Public().(ed25519.PublicKey)
@@ -43,6 +46,9 @@ func TestMembraneRejectsExtraMissingAndSymlink(t *testing.T){
  if e:=os.WriteFile(filepath.Join(root,"src","leak.txt"),[]byte("synthetic-restricted"),0600);e!=nil{t.Fatal(e)}
  if verifyProjection(root,b,sig,pub)==nil{t.Fatal("unmanifested output accepted")}
  if e:=os.Remove(filepath.Join(root,"src","leak.txt"));e!=nil{t.Fatal(e)}
+ if e:=os.Mkdir(filepath.Join(root,"empty-secret-dir"),0700);e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,sig,pub)==nil{t.Fatal("extra empty directory accepted")}
+ if e:=os.Remove(filepath.Join(root,"empty-secret-dir"));e!=nil{t.Fatal(e)}
  if e:=os.Symlink("demo.txt",filepath.Join(root,"src","link"));e!=nil{t.Fatal(e)}
  if verifyProjection(root,b,sig,pub)==nil{t.Fatal("symlink accepted")}
  if e:=os.Remove(filepath.Join(root,"src","link"));e!=nil{t.Fatal(e)}
