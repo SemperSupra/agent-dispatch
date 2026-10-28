@@ -96,7 +96,7 @@ jobs:
             webhook) go test -race -count=2 -run '^TestWebhook' ./... ;;
             *) exit 2 ;;
           esac
-          echo "PUBLIC_SYNTHETIC_BOUNDARY_$TRACK_PASS"
+          printf "PUBLIC_SYNTHETIC_BOUNDARY_%s_PASS\n" "$TRACK"
 
   interview-contract:
     name: Join native artifacts and interview mock, not Jules
