@@ -112,7 +112,7 @@ func stagePair(manifest,inbox,destination string)(PairStage,error){
   if err=syncStageDir(filepath.Join(tmp,arm));err!=nil{return PairStage{},err}
  }
  if err=syncStageDir(tmp);err!=nil{return PairStage{},err}
- if err=os.Rename(tmp,target);err!=nil{
+ if err=renameDirectoryNoReplace(tmp,target);err!=nil{
   // Concurrent identical requests converge on the first committed directory.
   // A conflicting target can never be silently overwritten.
   if st,statErr:=os.Lstat(target);statErr==nil&&st.IsDir()&&st.Mode()&os.ModeSymlink==0 {
