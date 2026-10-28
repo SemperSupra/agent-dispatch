@@ -4,6 +4,7 @@ package main
 // File descriptors are opened O_NOFOLLOW + O_NONBLOCK and inspected before
 // reading, so symlink and FIFO substitution cannot change what we consume.
 import (
+ "bytes"
  "errors"
  "io"
  "os"
@@ -53,4 +54,14 @@ func copyPinnedBytes(dst io.Writer,source *os.File,info os.FileInfo)(int64,error
  if err!=nil{return 0,err}
  if n!=info.Size(){return 0,errors.New("input length changed during read")}
  return n,nil
+}
+
+func readPinnedRegular(path string,limit int64)([]byte,error){
+ file,info,err:=openPinnedRegular(path,limit)
+ if err!=nil{return nil,err}
+ defer file.Close()
+ var buffer bytes.Buffer
+ if _,err=copyPinnedBytes(&buffer,file,info);err!=nil{return nil,err}
+ if err=pinnedFileUnchanged(path,file,info);err!=nil{return nil,err}
+ return buffer.Bytes(),nil
 }
