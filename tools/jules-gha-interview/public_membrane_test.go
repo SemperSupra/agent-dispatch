@@ -14,7 +14,7 @@ import (
 func independentlyEncodedFileSetDigest(files []ProjectionFile) string{
  var canonical bytes.Buffer
  for _,f:=range files{
-  fmt.Fprintf(&canonical,"%s\\x00%s\\x00%s\\x00%d\\n",f.Path,f.Class,f.SHA256,f.Size)
+  fmt.Fprintf(&canonical,"%s\x00%s\x00%s\x00%d\n",f.Path,f.Class,f.SHA256,f.Size)
  }
  sum:=sha256.Sum256(canonical.Bytes())
  return hex.EncodeToString(sum[:])
