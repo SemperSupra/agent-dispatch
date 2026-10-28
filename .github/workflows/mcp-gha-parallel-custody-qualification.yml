@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 12
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 4
       matrix:
         include:
           - workstream: arm-and-pair-admission
@@ -29,6 +29,9 @@ jobs:
             repetitions: 12
           - workstream: github-native-and-composite-provenance
             tests: '^Test(Native|Composite)'
+            repetitions: 12
+          - workstream: fd-bound-symlink-fifo-swap-denials
+            tests: '^TestPinned'
             repetitions: 12
     steps:
       - name: Source-only checkout without persisted credentials
@@ -95,10 +98,10 @@ jobs:
                   assert not re.search(r"\$\{\{\s*secrets\.",line), (label,line)
                   if re.match(r"\s+uses:\s*",line):
                       assert re.search(r"@[0-9a-f]{40}\s*$",line), (label,line)
-          assert "max-parallel: 3" in parallel
+          assert "max-parallel: 4" in parallel
           assert "fail-fast: false" in parallel
           assert "go test -race" in parallel
-          assert 'max-parallel: 3' in parallel
+          assert 'max-parallel: 4' in parallel
           assert "retention-days: 1" in transport
           assert "artifact-ids:" in transport
           assert "mcp-gha-private-pair-preflight/v2" in transport
