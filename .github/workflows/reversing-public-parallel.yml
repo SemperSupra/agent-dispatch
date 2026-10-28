@@ -12,6 +12,8 @@ on:
       - 'tests/test_reversing_evidence_correlate_v2.py'
       - 'tests/test_reversing_benchmark_p0.py'
       - 'tests/test_reversing_benchmark_native_replay.py'
+      - 'tests/reversing_public_compiler_roundtrip.sh'
+      - 'tests/reversing_public_shift_type_contrast.sh'
 
 permissions:
   contents: read
@@ -38,12 +40,67 @@ jobs:
             test_file: tests/test_reversing_benchmark_p0.py
           - lane: fixed-native-replay-parser
             test_file: tests/test_reversing_benchmark_native_replay.py
+          - lane: fixed-stripped-contrast-contract
+            test_file: tests/test_reversing_stripped_contrast_probe.py
+          - lane: code-interval-boundary-oracle
+            test_file: tests/test_reversing_interval_boundary_oracle.py
+          - lane: static-signed-branch-oracle
+            test_file: tests/test_reversing_signed_branch_oracle.py
+          - lane: gdb-island-observation-contract
+            test_file: tests/test_reversing_gdb_island_observation.py
+          - lane: native-gcc-o0-unsigned
+            test_file: __native__
+            compiler: gcc
+            optimization: O0
+          - lane: native-gcc-o2-unsigned
+            test_file: __native__
+            compiler: gcc
+            optimization: O2
+          - lane: native-clang-o0-unsigned
+            test_file: __native__
+            compiler: clang
+            optimization: O0
+          - lane: native-clang-o2-unsigned
+            test_file: __native__
+            compiler: clang
+            optimization: O2
+          - lane: native-gcc-o0-signedness
+            test_file: __signedness__
+            compiler: gcc
+            optimization: O0
+          - lane: native-gcc-o2-signedness
+            test_file: __signedness__
+            compiler: gcc
+            optimization: O2
+          - lane: native-clang-o0-signedness
+            test_file: __signedness__
+            compiler: clang
+            optimization: O0
+          - lane: native-clang-o2-signedness
+            test_file: __signedness__
+            compiler: clang
+            optimization: O2
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - name: Run public synthetic negative and positive controls
+        if: matrix.test_file != '__native__' && matrix.test_file != '__signedness__'
         env:
           TEST_FILE: ${{ matrix.test_file }}
           PYTHONDONTWRITEBYTECODE: '1'
         run: python3 -m unittest -v "$TEST_FILE"
+      - name: Native source-known compiler, strip, and independent behavior oracle
+        if: matrix.test_file == '__native__'
+        env:
+          COMPILER: ${{ matrix.compiler }}
+          OPT_LEVEL: ${{ matrix.optimization }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: bash tests/reversing_public_compiler_roundtrip.sh
+      - name: Native C signedness contrast with implementation-defined label
+        if: matrix.test_file == '__signedness__'
+        env:
+          COMPILER: ${{ matrix.compiler }}
+          OPT_LEVEL: ${{ matrix.optimization }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: bash tests/reversing_public_shift_type_contrast.sh
