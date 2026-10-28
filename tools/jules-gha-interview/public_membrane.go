@@ -52,6 +52,7 @@ func verifyProjection(root string, rawManifest,signature []byte,pinnedKey ed2551
  digest:=sha256.New()
  for i,f:=range m.Files {
   if !safeProjectionPath.MatchString(f.Path)||filepath.IsAbs(f.Path)||filepath.Clean(f.Path)!=f.Path||strings.Contains(f.Path,"\\")||strings.HasPrefix(f.Path,".")||strings.Contains("/"+f.Path+"/","/../")||strings.Contains("/"+f.Path+"/","/./")||strings.Contains("/"+f.Path+"/","/.git/")||f.Path==".git" {return fmt.Errorf("invalid public path item %d",i)}
+  for _,part:=range strings.Split(f.Path,"/"){if strings.HasPrefix(part,"."){return errors.New("hidden segment in projected path")}}
   if i>0&&f.Path<=last{return errors.New("paths not sorted and unique")};last=f.Path
   if f.Class!="V0"&&f.Class!="V1"&&f.Class!="V4"{return errors.New("unapproved value class")}
   if !sha256Hex.MatchString(f.SHA256)||f.Size<0||f.Size>8<<20{return errors.New("invalid file digest or size")}
