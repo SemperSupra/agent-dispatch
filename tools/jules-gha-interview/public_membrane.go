@@ -15,6 +15,7 @@ import (
  "os"
  "path/filepath"
  "regexp"
+ "strconv"
  "strings"
 )
 const publicProjectionSchema = "public-projection-boundary/v1"
@@ -48,21 +49,31 @@ func verifyProjection(root string, rawManifest,signature []byte,pinnedKey ed2551
  allowed:=make(map[string]ProjectionFile,len(m.Files))
  var last string
  var total int64
+ digest:=sha256.New()
  for i,f:=range m.Files {
   if !safeProjectionPath.MatchString(f.Path)||filepath.IsAbs(f.Path)||filepath.Clean(f.Path)!=f.Path||strings.Contains(f.Path,"\\")||strings.HasPrefix(f.Path,".")||strings.Contains("/"+f.Path+"/","/../")||strings.Contains("/"+f.Path+"/","/./")||strings.Contains("/"+f.Path+"/","/.git/")||f.Path==".git" {return fmt.Errorf("invalid public path item %d",i)}
   if i>0&&f.Path<=last{return errors.New("paths not sorted and unique")};last=f.Path
   if f.Class!="V0"&&f.Class!="V1"&&f.Class!="V4"{return errors.New("unapproved value class")}
   if !sha256Hex.MatchString(f.SHA256)||f.Size<0||f.Size>8<<20{return errors.New("invalid file digest or size")}
   total+=f.Size;if total>16<<20{return errors.New("projection exceeds size bound")}
+  _,_=io.WriteString(digest,f.Path+"\x00"+f.Class+"\x00"+f.SHA256+"\x00"+strconv.FormatInt(f.Size,10)+"\n")
   allowed[f.Path]=f
  }
+ if hex.EncodeToString(digest.Sum(nil))!=m.CapsuleDigest{return errors.New("capsule manifest digest mismatch")}
  seen:=map[string]bool{}
  err:=filepath.WalkDir(root,func(path string,entry fs.DirEntry,walkErr error)error{
   if walkErr!=nil{return walkErr}
   rel,e:=filepath.Rel(root,path);if e!=nil{return e};if rel=="."{return nil}
   rel=filepath.ToSlash(rel)
   if entry.Type()&os.ModeSymlink!=0{return errors.New("symlink in projection")}
-  if entry.IsDir(){if rel==".git"||strings.HasPrefix(rel,".git/")||strings.HasPrefix(rel,".") {return errors.New("hidden/metadata directory")};return nil}
+  if entry.IsDir(){
+   if rel==".git"||strings.HasPrefix(rel,".git/")||strings.HasPrefix(rel,".") {return errors.New("hidden/metadata directory")}
+   expectedPrefix:=rel+"/"
+   found:=false
+   for listed:=range allowed{if strings.HasPrefix(listed,expectedPrefix){found=true;break}}
+   if !found{return errors.New("unmanifested directory")}
+   return nil
+  }
   if !entry.Type().IsRegular(){return errors.New("non-regular projection entry")}
   expected,ok:=allowed[rel];if !ok{return errors.New("unmanifested output: "+rel)}
   finfo,e:=entry.Info();if e!=nil{return e};if finfo.Size()!=expected.Size{return errors.New("size mismatch: "+rel)}
