@@ -31,7 +31,40 @@ type ProjectionManifest struct {
  CapsuleDigest string "json:\"capsule_digest\""
  Files []ProjectionFile "json:\"files\""
 }
-var safeProjectionPath=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
+var safeProjectionPath=regexp.MustCompile(`^[a-zA-Z0-9.][a-zA-Z0-9._/-]*package main
+
+// Public-side independent verification of a *previously authorized* constructive
+// projection. This code does not classify private source or grant declassification.
+import (
+ "bytes"
+ "crypto/ed25519"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "io/fs"
+ "os"
+ "path/filepath"
+ "regexp"
+ "strconv"
+ "strings"
+)
+const publicProjectionSchema = "public-projection-boundary/v1"
+type ProjectionFile struct {
+ Path string "json:\"path\""
+ Class string "json:\"class\""
+ SHA256 string "json:\"sha256\""
+ Size int64 "json:\"size\""
+}
+type ProjectionManifest struct {
+ Schema string "json:\"schema\""
+ PolicyDigest string "json:\"policy_digest\""
+ CapsuleDigest string "json:\"capsule_digest\""
+ Files []ProjectionFile "json:\"files\""
+}
+var safeProjectionPath=)
 var sha256Hex=regexp.MustCompile("^[a-f0-9]{64}$")
 
 // Verify against the controller's independently configured, pinned trusted
