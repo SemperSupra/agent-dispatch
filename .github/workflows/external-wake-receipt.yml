@@ -1,0 +1,28 @@
+name: External Clock Receipt (not executor)
+run-name: external-clock:${{ github.run_id }}
+
+on:
+  repository_dispatch:
+    types: [agent-dispatch-wake-v1]
+
+permissions: {}
+
+jobs:
+  validate-event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate opaque correlation and emit receipt only
+        env:
+          EXTERNAL_WAKE_PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: python3 scripts/external_wake_receipt.py
+      - name: Upload public-safe event receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-wake-${{ github.run_id }}
+          path: external-wake-receipt.json
+          if-no-files-found: error
+          retention-days: 3
