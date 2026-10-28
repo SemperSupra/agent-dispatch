@@ -72,7 +72,9 @@ func TestWebhookRejectsAuthenticatedDuplicateJSONKeys(t *testing.T) {
  original,_:=makeWebhook()
  cases:=[]struct{name,needle,replacement string}{
   {"outer-action",`"action":`,`"action":"queued","action":`},
+  {"outer-action-alias",`"action":`,`"action":"queued","Action":`},
   {"nested-run-id",`"id":10001`,`"id":-9,"id":10001`},
+  {"nested-run-id-alias",`"id":10001`,`"id":-9,"ID":10001`},
   {"nested-origin",`"full_name":`,`"full_name":"synthetic-other/fixture","full_name":`},
  }
  for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){

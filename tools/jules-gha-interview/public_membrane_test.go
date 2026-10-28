@@ -156,7 +156,9 @@ func TestMembraneRejectsSignedDuplicateJSONKeys(t *testing.T) {
  root,b,_,pub,priv:=projectionFixture(t)
  cases:=[]struct{name,needle,replacement string}{
   {"outer-schema",`"schema":`,`"schema":"unexpected","schema":`},
+  {"outer-schema-alias",`"schema":`,`"schema":"unexpected","Schema":`},
   {"nested-path",`"path":`,`"path":"synthetic/other.txt","path":`},
+  {"nested-path-alias",`"path":`,`"path":"synthetic/other.txt","Path":`},
   {"nested-class",`"class":`,`"class":"V2","class":`},
   {"nested-size",`"size":`,`"size":9999,"size":`},
  }

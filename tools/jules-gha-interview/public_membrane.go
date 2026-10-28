@@ -52,8 +52,11 @@ func rejectAmbiguousJSON(raw []byte) error {
     if err != nil { return err }
     key, ok := keyToken.(string)
     if !ok { return errors.New("non-string JSON object key") }
-    if _, exists := seen[key]; exists { return errors.New("duplicate JSON object key") }
-    seen[key] = struct{}{}
+    // Typed Go decoders match JSON struct fields case-insensitively; reject
+    // aliases as well as exact duplicates before decoding the signed payload.
+    folded := strings.ToLower(key)
+    if _, exists := seen[folded]; exists { return errors.New("duplicate JSON object key or case-variant alias") }
+    seen[folded] = struct{}{}
     if err := scan(depth+1); err != nil { return err }
    }
    end, err := d.Token()
