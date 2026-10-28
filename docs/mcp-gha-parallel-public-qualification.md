@@ -121,6 +121,69 @@ persistent recipient/key setup, rights admission, genuine CPE authority
 or blinded Stage P. A retained GitHub one-day artifact is not a
 durable private record.
 
+## 2026-10-28 parallel correction: atomic no-replace and hostile native collector
+
+Two distinct public-only defects/risk cases were qualified instead of
+repeating only the already-green happy path.
+
+**Immutable stage destination race:** Previous local Go `stagePair()`
+checked whether the target directory was absent, then used ordinary
+`os.Rename(tmp,target)`. On Linux this is atomic *movement*, but can
+replace an existing **empty** target directory if another writer races
+between check and rename. The new `renameDirectoryNoReplace()`
+uses Linux `renameat2(RENAME_NOREPLACE)` with explicit qualified
+`amd64` and `arm64` syscall numbers and no unsafe fallback.
+Unsupported Linux architectures fail closed. Negative tests prove
+that an existing empty directory is never overwritten and a 12-way
+race between distinct source directories commits **exactly one**
+winner. The real `stagePair()` still tests identical replay and
+rejects occupied/conflicting target identities. This is local
+Linux-filesystem atomicity, not a private-host deployment acceptance.
+
+**Real native ID-based hostile re-intake:** The existing synthetic
+artifact collector now runs as a two-element independent matrix:
+`accept` and `tamper`. Both start *after* the two isolated
+reference/CPE-labelled retrieval jobs finish, but neither depends on
+the other. Both independently read native GitHub job/artifact IDs and
+download `result.age`/`receipt.json`. The accept worker exercises
+exactly-once staging and idempotent replay; the hostile worker
+changes a byte of the CPE ciphertext and requires the Go stage to
+return failure with **no** retained stage output.
+
+- [Native Go 40730068479](https://github.com/SemperSupra/agent-dispatch/actions/runs/40730068479):
+  5/5 public independent race/policy jobs SUCCESS at the
+  newly introduced `renameat2` test revision.
+- [Native Go 40730068478](https://github.com/SemperSupra/agent-dispatch/actions/runs/40730068478):
+  read-only controller PASS, and
+  [artifact lifecycle 40730068720](https://github.com/SemperSupra/agent-dispatch/actions/runs/40730068720):
+  3/3 happy-path native jobs PASS.
+- **Final combined exact tested source**
+  `f7f747f9d48cfaf4ef25f3a0f0d6383023c852de`:
+  [parallel 40730371641](https://github.com/SemperSupra/agent-dispatch/actions/runs/40730371641)
+  5/5 PASS;
+  [read-only controller 40730371627](https://github.com/SemperSupra/agent-dispatch/actions/runs/40730371627)
+  1/1 PASS;
+  [actual two-arm plus **two independent native collector cases**
+  40730371605](https://github.com/SemperSupra/agent-dispatch/actions/runs/40730371605)
+  **4/4 PASS**, including hostile ciphertext tampering denied
+  without staging. Positive marker:
+  `MCP_GHA_NATIVE_ARTIFACT_CIPHERTEXT_TAMPER_FAIL_CLOSED`.
+  Native reference job 122964736044, CPE-labelled job 122964736660,
+  tamper collector 122965426719, accept collector 122965426820.
+  GitHub retained short-lived encrypted synthetic artifacts
+  12834688346 (reference) and 12834288490 (CPE-labelled);
+  both unexpired at verification, one-day policy.
+  
+**Boundary:** All Actions use public synthetic inputs and disposable
+age identities. This is source-only $0 public runner qualification,
+not confidential computing, owner-approved immutable assignment,
+trusted private host, persistent key custody, true CPE projection,
+blinded Stage P or scientific `VALIDATED`. Public PR #557 stays
+DRAFT/UNMERGED. Separate private #701's eight focused tests are
+still not selected by its legacy green conformance workflow;
+do not route its private code through these public matrix jobs or
+circumvent the private Sidecar/CoS admission hold.
+
 ## Next execution choices
 
 1. Keep the existing parallel branches and source-only tests; do **not**
