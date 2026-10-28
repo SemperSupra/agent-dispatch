@@ -47,6 +47,18 @@ python3 - "$work/original" "$work/stripped" "$work/mutant" "$COMPILER" "$OPT_LEV
 import hashlib, json, pathlib, re, struct, subprocess, sys
 unstripped, stripped, mutant = map(pathlib.Path, sys.argv[1:4])
 compiler, opt = sys.argv[4:6]
+source = unstripped.with_name('fixture.c')
+assert source.is_file(), 'missing exact generated C fixture'
+source_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+def tool_version(tool):
+    proc = subprocess.run([tool, '--version'], capture_output=True, text=True,
+                          check=True, timeout=5)
+    first = proc.stdout.splitlines()[0].strip()
+    assert first and len(first) <= 200 and all(32 <= ord(c) < 127 for c in first), 'unbounded toolchain version'
+    return first
+compiler_version = tool_version(compiler)
+strip_version = tool_version('strip')
+objdump_version = tool_version('objdump')
 for path in (unstripped, stripped, mutant):
     b = path.read_bytes()
     assert len(b) < (1 << 20), 'oversized fixture'
@@ -76,6 +88,8 @@ for inp in ('4294967296', '-1', 'not-a-number', ''):
     bad = subprocess.run([str(stripped), inp], capture_output=True, text=True, timeout=3)
     assert bad.returncode != 0 and bad.stdout == '', 'invalid command input accepted'
 receipt = {'kind':'PUBLIC_SOURCE_KNOWN_UNSIGNED_ORACLE_V1', 'compiler':compiler, 'optimization':opt,
+           'source_sha256':source_sha256,
+           'compiler_version':compiler_version,'strip_version':strip_version,'objdump_version':objdump_version,
            'input_count':len(values),'behavior_checks':len(values)*2,
            'mutant_rejections':len(values),'argument_rejections':4,
            'original_sha256':hashlib.sha256(unstripped.read_bytes()).hexdigest(),
