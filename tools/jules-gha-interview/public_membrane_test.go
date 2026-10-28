@@ -18,7 +18,7 @@ func projectionFixture(t *testing.T)(string,[]byte,[]byte,ed25519.PublicKey,ed25
  if e:=os.WriteFile(filepath.Join(root,"src","demo.txt"),data,0600);e!=nil{t.Fatal(e)}
  digest:=sha256.Sum256(data)
  file:=ProjectionFile{Path:"src/demo.txt",Class:"V1",SHA256:hex.EncodeToString(digest[:]),Size:int64(len(data))}
- capsule:=sha256.Sum256([]byte(fmt.Sprintf("%s\\x00%s\\x00%s\\x00%d\\n",file.Path,file.Class,file.SHA256,file.Size)))
+ capsule:=sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%d\n",file.Path,file.Class,file.SHA256,file.Size)))
  m:=ProjectionManifest{Schema:publicProjectionSchema,PolicyDigest:strings.Repeat("a",64),
   CapsuleDigest:hex.EncodeToString(capsule[:]),Files:[]ProjectionFile{file}}
  b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
