@@ -85,7 +85,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Run public synthetic negative and positive controls
-        if: matrix.test_file != '__native__'
+        if: matrix.test_file != '__native__' && matrix.test_file != '__signedness__'
         env:
           TEST_FILE: ${{ matrix.test_file }}
           PYTHONDONTWRITEBYTECODE: '1'
