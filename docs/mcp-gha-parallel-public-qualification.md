@@ -63,6 +63,64 @@ encrypting outbound artifacts.
 | Automation | `go test -race`, typed Go `describe`, `verify-receipt`, `stage-pair`, `verify-native-pair` | Fail closed on mismatch, never auto-promote evidence |
 | Agent | Authorized Agent Dispatch DLE assignments, GitHub native run/artifact observation, next baton | Private host admission/decrypt/source-rights/Stage P remain distinct gates |
 
+## 2026-10-28 second wave: file-descriptor custody hardening
+
+Exact public source tested: `1ac6f0808ad570bf93d6f1fc01daaddd1d1bc6b9`.
+
+**First observation:** In draft PR #557, the Go custody stage used
+`Lstat()` or `noSymlinkFile()` and later reopened paths through
+`os.Open()`/`os.ReadFile()`. A hostile file writer might substitute a
+symlink, FIFO, hardlink, altered file or changed pathname between the
+check and read, compromising integrity or blocking ingestion.
+
+**Corrective action:** Added `safe_regular.go` shared source:
+`O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC` fd open; regular-file and single-link
+check, bounded initial size, `SameFile` pathname/FD identity comparison;
+bounded exact-length copy; post-read FD inode/size/mtime/ctime and
+pathname validation. Applied the primitive across ciphertext hashing,
+ciphertext stage copy, manifest reads, receipt reads, and the isolated
+ciphertext verifier. No dependency, elevated token, or secret is added.
+Linux-only filesystem controls are for the existing `ubuntu-24.04` GHA
+and separately gated Linux/TrueNAS trusted-host qualification.
+These checks reduce but **do not provide an authenticated source signature,
+an immutable external filesystem, or race-proof authorization**.
+
+**New native negative tests:** `TestPinned*` rejects symlinks,
+named FIFOs without blocking, hardlinks, oversize files, changed inode,
+append/same-length mutation, lost pathname, unsafe ciphertext
+and receipt/manifest substitution. Added a **fourth** separate
+`go test -race -count=12` matrix workcell dedicated to these
+primitives; the existing three independent race/negative jobs and
+the separate policy auditor remain.
+
+All corrected source head native receipts are **SUCCESS**:
+- [Parallel five-job public race/policy qualification
+  40643819633](https://github.com/SemperSupra/agent-dispatch/actions/runs/40643819633):
+  **5/5 jobs success**;
+- [Read-only Go controller full native race/vet/build and observation
+  40643819591](https://github.com/SemperSupra/agent-dispatch/actions/runs/40643819591):
+  **1/1 success**;
+- [Actual public synthetic two-arm run and ID-based ciphertext
+  collection 40643819606](https://github.com/SemperSupra/agent-dispatch/actions/runs/40643819606):
+  **3/3 jobs success**. Native artifact IDs:
+  reference **12796711806**, CPE-labelled **12795684839**
+  (both unexpired at observation; one-day retention).
+
+**Separate private workstream:** Private Agent Dispatch draft PR #701
+at `f40f57fb2599be47530c6525a49a9d7e91b0a09a` has its own
+host-only inner-packet verifier with additional fd checks. It is
+*not included* in these public runners; its exact-head eight-case
+private test suite remains **NOT_RUN** until an authorized private
+executor placement exists. Its older green conformance checks do not
+qualify the new suite. Public source/host separation and key custody
+remain unchanged.
+
+**Review gate:** PR #557 stays DRAFT/UNMERGED. Green public synthetic
+transport and Go FD checks are insufficient for private ingestion,
+persistent recipient/key setup, rights admission, genuine CPE authority
+or blinded Stage P. A retained GitHub one-day artifact is not a
+durable private record.
+
 ## Next execution choices
 
 1. Keep the existing parallel branches and source-only tests; do **not**
