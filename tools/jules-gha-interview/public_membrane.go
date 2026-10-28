@@ -64,7 +64,7 @@ type ProjectionManifest struct {
  CapsuleDigest string "json:\"capsule_digest\""
  Files []ProjectionFile "json:\"files\""
 }
-var safeProjectionPath=)
+var safeProjectionPath=regexp.MustCompile("^[a-zA-Z0-9.][a-zA-Z0-9._/-]*$")
 var sha256Hex=regexp.MustCompile("^[a-f0-9]{64}$")
 
 // Verify against the controller's independently configured, pinned trusted
