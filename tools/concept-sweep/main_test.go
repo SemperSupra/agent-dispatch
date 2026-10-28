@@ -44,6 +44,24 @@ func TestNetworkFailureIsNotMadeUpEvidence(t *testing.T){
  if result.State!="SOURCE_EXECUTOR_GAP"||result.Succeeded!=0||result.Failed!=6{t.Fatalf("fabricated success %+v",result)}
  for _,a:=range result.Attempts {if a.State!="FAILED_PROVIDER"||len(a.Hits)>0{t.Fatalf("fabricated evidence %+v",a)}}
 }
+func TestProviderRedirectCannotSendQueryToAnotherOrigin(t *testing.T){
+ p,c,pb,cb:=fixture()
+ redirected:=0
+ target:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){redirected++;w.WriteHeader(200)}))
+ defer target.Close()
+ local:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  http.Redirect(w,r,target.URL+"/search",http.StatusFound)
+ }))
+ defer local.Close()
+ result,err:=run(context.Background(),p,c,pb,cb,local.URL,local.Client())
+ if err!=nil{t.Fatal(err)}
+ if redirected!=0||result.State!="SOURCE_EXECUTOR_GAP"||result.Succeeded!=0||result.Failed!=6{
+  t.Fatalf("redirect escaped admitted origin: redirected=%d result=%+v",redirected,result)
+ }
+ for _,a:=range result.Attempts {
+  if a.State!="FAILED_PROVIDER"||a.HTTPStatus!=http.StatusFound||len(a.Hits)!=0{t.Fatalf("redirect accepted: %+v",a)}
+ }
+}
 func TestWrongPinnedCPEBytesFailBeforeNetwork(t *testing.T){
  p,c,pb,cb:=fixture()
  p.CPEProjectionSHA256=strings.Repeat("0",64)

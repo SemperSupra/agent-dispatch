@@ -147,7 +147,11 @@ func search(ctx context.Context,client *http.Client,endpoint string,track string
  u.RawQuery=v.Encode()
  req,e:=http.NewRequestWithContext(ctx,"GET",u.String(),nil)
  if e!=nil{a.State="FAILED_PROVIDER";return a}
- resp,e:=client.Do(req)
+ // The admitted endpoint is one loopback origin. Never follow a provider
+ // redirect, even when a caller supplies the default redirecting client.
+ boundedClient:=*client
+ boundedClient.CheckRedirect=func(*http.Request,[]*http.Request) error{return http.ErrUseLastResponse}
+ resp,e:=boundedClient.Do(req)
  if e!=nil{a.State="FAILED_PROVIDER";return a}
  defer resp.Body.Close();a.HTTPStatus=resp.StatusCode
  if resp.StatusCode!=200{a.State="FAILED_PROVIDER";return a}
