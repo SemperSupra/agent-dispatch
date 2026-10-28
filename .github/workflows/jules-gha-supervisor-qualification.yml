@@ -66,6 +66,38 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  boundary-contracts:
+    name: Synthetic ${{ matrix.track }} boundary negative cases
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        track: [membrane, webhook]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout exact immutable public PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Offline red/blue boundary interview
+        shell: bash
+        working-directory: tools/jules-gha-interview
+        env:
+          TRACK: ${{ matrix.track }}
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          case "$TRACK" in
+            membrane) go test -race -count=2 -run '^TestMembrane' ./... ;;
+            webhook) go test -race -count=2 -run '^TestWebhook' ./... ;;
+            *) exit 2 ;;
+          esac
+          echo "PUBLIC_SYNTHETIC_BOUNDARY_$TRACK_PASS"
+
   interview-contract:
     name: Join native artifacts and interview mock, not Jules
     needs: evidence-arms
