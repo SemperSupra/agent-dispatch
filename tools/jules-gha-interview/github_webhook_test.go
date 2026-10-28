@@ -25,14 +25,14 @@ func TestWebhookAuthenticatedObservation(t *testing.T){
 func TestWebhookRejectsBadSignatureRepoAndBody(t *testing.T){
  b,s:=makeWebhook()
  cases:=[]struct{name,repo,event,id,sig string;body []byte;secret string}{
-  {"wrong-secret",webhookRepository,webhookWorkflow,"pull_request","workflow_run",webhookDelivery,s,b,"not-the-same-synthetic-secret"},
+  {"wrong-secret",webhookRepository,"workflow_run",webhookDelivery,s,b,"not-the-same-synthetic-secret"},
   {"wrong-repo","other-public/fixture","workflow_run",webhookDelivery,s,b,webhookSecret},
   {"wrong-event",webhookRepository,"issue_comment",webhookDelivery,s,b,webhookSecret},
-  {"bad-id",webhookRepository,webhookWorkflow,"pull_request","workflow_run","123",s,b,webhookSecret},
-  {"bad-signature",webhookRepository,webhookWorkflow,"pull_request","workflow_run",webhookDelivery,"sha256="+strings.Repeat("0",64),b,webhookSecret},
-  {"too-large",webhookRepository,webhookWorkflow,"pull_request","workflow_run",webhookDelivery,s,[]byte(strings.Repeat("z",65537)),webhookSecret},
-  {"unsupported-action",webhookRepository,webhookWorkflow,"pull_request","workflow_run",webhookDelivery,s,[]byte(strings.Replace(string(b),"completed","queued",1)),webhookSecret},
-  {"wrong-sha",webhookRepository,webhookWorkflow,"pull_request","workflow_run",webhookDelivery,s,[]byte(strings.Replace(string(b),sampleSHA,"",1)),webhookSecret},
+  {"bad-id",webhookRepository,"workflow_run","123",s,b,webhookSecret},
+  {"bad-signature",webhookRepository,"workflow_run",webhookDelivery,"sha256="+strings.Repeat("0",64),b,webhookSecret},
+  {"too-large",webhookRepository,"workflow_run",webhookDelivery,s,[]byte(strings.Repeat("z",65537)),webhookSecret},
+  {"unsupported-action",webhookRepository,"workflow_run",webhookDelivery,s,[]byte(strings.Replace(string(b),"completed","queued",1)),webhookSecret},
+  {"wrong-sha",webhookRepository,"workflow_run",webhookDelivery,s,[]byte(strings.Replace(string(b),sampleSHA,"",1)),webhookSecret},
  }
  for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
   g:=new(WebhookGate)
