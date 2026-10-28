@@ -31,3 +31,22 @@ The Go tests fail closed on stale source/run/attempt, wrong signals, fabricated 
 ## Holds
 
 No private GitHub-hosted Actions minutes, paid runners, private payload projection, new secrets, unrestricted GHA actuation, automatic PR/merge/release, private-workcell materialization or second scheduler/controller. PR code runs with a read-only token. Protected existing Jules environments are **not** exposed to this PR. A successful synthetic workflow is evidence of the substrate and interview contract only.
+
+
+## Source membrane / webhook / reasoning extension — synthetic qualification
+
+The real private→public source membrane MUST be enforced **before** this repository or any public runner sees source. Its existing private constructive projector and Concept Membrane/CPE authority are upstream systems, not implementations provided by this lab. For this public experiment, the original private source remains out of scope. This lab supplies independent **public-side challenge/verification only**.
+
+The Go synthetic signed-projection verifier checks exact listed file bytes, size, sorted unique paths, V0/V1/V4 class allowlist, absence of extra files and symlinks, valid release-manifest syntax and a signature from a **trusted key pinned independently of the candidate**. The signing key in the unit tests is an explicitly synthetic, non-production fixture. It does **not** prove upstream private classification, source history safety, semantic leak detection, aggregation safety, authorization of the signer, trusted key provisioning or actual materialization. The manifest's capsule digest is a correlation field; this verifier does not validate a separate archive. Always perform the actual private-side classification/constructive export, scanner/independent validation and release gate before public staging. A public runner cannot grant release just because its own tests are green.
+
+The pure Go webhook contract accepts only an HMAC SHA-256 signed, exact-repository-bound GitHub workflow_run **completed** observation with bounded JSON, positive run/attempt and exact source SHA. It rejects forged, changed, unknown, wrong-repository and duplicate deliveries. The in-memory duplicate map is **only an offline test primitive**: a durable controller must use native delivery/run/attempt identities or project DLE for crash-safe replay prevention. It does not expose a listening HTTP endpoint, host a public tunnel, obtain GitHub webhook credentials, or dispatch a job.
+
+Parallel GitHub Actions matrix lanes independently test the webhook and membrane negative cases on standard public runners without secrets. The original two-arm runner + join remains independent. Nothing here creates a source-publication actuator.
+
+### Optional transport and reasoning placement
+
+Use GitHub-native workflow_run and authenticated GitHub App webhooks for durable triggers. An accountless Cloudflare Quick Tunnel may be used to probe a **low-consequence, unprivileged, ephemeral** webhook receiver, with signature validation, strict path/event allowlisting, rate and payload bounds. Quick Tunnel URLs change and have no uptime guarantee; never make their presence a durability assumption. Do not expose Sidecar/admin credentials through a tunnel. A named tunnel or a trusted edge endpoint is a separate persistent service choice.
+
+Reasoning models (Jules or free inference API) consume only an already-approved public packet in the public lane; private reasoning remains on an authorized private side. An agent's declassification recommendation is **untrusted** and cannot replace a mechanically verified projection or controller-owned promotion decision. Cross-check model diagnosis against deterministic independent oracle; compare costs, retry rate and first-pass correctness, and retain native provider IDs before concluding qualification.
+
+No new provider key, tunnel, webhook registration, listener, public-private transfer, release certificate or trusted signer is deployed by this experiment.
