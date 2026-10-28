@@ -4,7 +4,6 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "errors"
- "io"
  "os"
  "path/filepath"
 )
@@ -15,17 +14,12 @@ type PairStage struct {
  State string
 }
 func hashRegularFile(path string)(string,error){
- if err:=noSymlinkFile(path);err!=nil{return "",err}
- info,err:=os.Lstat(path);if err!=nil{return "",err}
- if info.Size()<1||info.Size()>maxCiphertext+32768 {
-  return "",errors.New("staged file outside bounded size")
- }
- f,err:=os.Open(path);if err!=nil{return "",err}
+ f,info,err:=openPinnedRegular(path,maxCiphertext+32768)
+ if err!=nil{return "",err}
  defer f.Close()
  h:=sha256.New()
- copied,err:=io.Copy(h,f)
- if err!=nil{return "",err}
- if copied!=info.Size(){return "",errors.New("file mutated while hashing")}
+ if _,err=copyPinnedBytes(h,f,info);err!=nil{return "",err}
+ if err=pinnedFileUnchanged(path,f,info);err!=nil{return "",err}
  return hex.EncodeToString(h.Sum(nil)),nil
 }
 func exactStageLayout(root string)error{
@@ -65,11 +59,13 @@ func comparePairFiles(manifest,inbox,target string)(bool,error){
  return true,nil
 }
 func copyPairFile(src,dst string)error{
- if err:=noSymlinkFile(src);err!=nil{return err}
- input,err:=os.Open(src);if err!=nil{return err};defer input.Close()
+ input,info,err:=openPinnedRegular(src,maxCiphertext+32768)
+ if err!=nil{return err}
+ defer input.Close()
  output,err:=os.OpenFile(dst,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
  if err!=nil{return err}
- _,err=io.Copy(output,io.LimitReader(input,maxCiphertext+32769))
+ _,err=copyPinnedBytes(output,input,info)
+ if err==nil{err=pinnedFileUnchanged(src,input,info)}
  if err==nil{err=output.Sync()}
  cerr:=output.Close()
  if err!=nil{return err}
