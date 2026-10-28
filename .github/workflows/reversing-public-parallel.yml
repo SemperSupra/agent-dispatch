@@ -13,6 +13,7 @@ on:
       - 'tests/test_reversing_benchmark_p0.py'
       - 'tests/test_reversing_benchmark_native_replay.py'
       - 'tests/reversing_public_compiler_roundtrip.sh'
+      - 'tests/reversing_public_shift_type_contrast.sh'
 
 permissions:
   contents: read
@@ -63,6 +64,22 @@ jobs:
             test_file: __native__
             compiler: clang
             optimization: O2
+          - lane: native-gcc-o0-signedness
+            test_file: __signedness__
+            compiler: gcc
+            optimization: O0
+          - lane: native-gcc-o2-signedness
+            test_file: __signedness__
+            compiler: gcc
+            optimization: O2
+          - lane: native-clang-o0-signedness
+            test_file: __signedness__
+            compiler: clang
+            optimization: O0
+          - lane: native-clang-o2-signedness
+            test_file: __signedness__
+            compiler: clang
+            optimization: O2
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -80,3 +97,10 @@ jobs:
           OPT_LEVEL: ${{ matrix.optimization }}
           PYTHONDONTWRITEBYTECODE: '1'
         run: bash tests/reversing_public_compiler_roundtrip.sh
+      - name: Native C signedness contrast with implementation-defined label
+        if: matrix.test_file == '__signedness__'
+        env:
+          COMPILER: ${{ matrix.compiler }}
+          OPT_LEVEL: ${{ matrix.optimization }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: bash tests/reversing_public_shift_type_contrast.sh
