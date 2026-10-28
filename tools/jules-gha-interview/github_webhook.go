@@ -23,6 +23,7 @@ type WebhookObservation struct{
 }
 type webhookPayload struct{
  Action string "json:\"action\""
+ Repository struct {FullName string "json:\"full_name\""} "json:\"repository\""
  WorkflowRun struct{
   ID int64 "json:\"id\""
   RunAttempt int64 "json:\"run_attempt\""
@@ -32,7 +33,7 @@ type webhookPayload struct{
 }
 type WebhookGate struct{ mu sync.Mutex; seen map[string]struct{} }
 var deliveryIDOK=regexp.MustCompile("^[a-fA-F0-9-]{30,40}$")
-func (g *WebhookGate)Observe(secret []byte, event,deliveryID,signature string,payload []byte)(WebhookObservation,error){
+func (g *WebhookGate)Observe(secret []byte, expectedRepo,event,deliveryID,signature string,payload []byte)(WebhookObservation,error){
  fail:=func() (WebhookObservation,error){return WebhookObservation{},errors.New("unauthorized or malformed webhook")}
  if len(secret)<24||len(payload)==0||len(payload)>65536||event!="workflow_run"||
   !deliveryIDOK.MatchString(deliveryID)||len(signature)!=71||signature[:7]!="sha256="{return fail()}
@@ -43,7 +44,7 @@ func (g *WebhookGate)Observe(secret []byte, event,deliveryID,signature string,pa
  d:=json.NewDecoder(bytes.NewReader(payload))
  if e:=d.Decode(&p);e!=nil{return fail()}
  var v any;if d.Decode(&v)!=io.EOF{return fail()}
- if p.Action!="completed"||p.WorkflowRun.ID<=0||p.WorkflowRun.RunAttempt<=0||
+ if expectedRepo==""||p.Repository.FullName!=expectedRepo||p.Action!="completed"||p.WorkflowRun.ID<=0||p.WorkflowRun.RunAttempt<=0||
   !shaOK.MatchString(p.WorkflowRun.HeadSHA)||
   (p.WorkflowRun.Conclusion!="success"&&p.WorkflowRun.Conclusion!="failure"&&p.WorkflowRun.Conclusion!="cancelled"){
   return fail()
