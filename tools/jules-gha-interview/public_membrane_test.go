@@ -4,12 +4,21 @@ import (
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
+ "bytes"
  "fmt"
  "os"
  "path/filepath"
  "strings"
  "testing"
 )
+func independentlyEncodedFileSetDigest(files []ProjectionFile) string{
+ var canonical bytes.Buffer
+ for _,f:=range files{
+  fmt.Fprintf(&canonical,"%s\\x00%s\\x00%s\\x00%d\\n",f.Path,f.Class,f.SHA256,f.Size)
+ }
+ sum:=sha256.Sum256(canonical.Bytes())
+ return hex.EncodeToString(sum[:])
+}
 func projectionFixture(t *testing.T)(string,[]byte,[]byte,ed25519.PublicKey,ed25519.PrivateKey){
  t.Helper()
  root:=t.TempDir()
@@ -18,9 +27,9 @@ func projectionFixture(t *testing.T)(string,[]byte,[]byte,ed25519.PublicKey,ed25
  if e:=os.WriteFile(filepath.Join(root,"src","demo.txt"),data,0600);e!=nil{t.Fatal(e)}
  digest:=sha256.Sum256(data)
  file:=ProjectionFile{Path:"src/demo.txt",Class:"V1",SHA256:hex.EncodeToString(digest[:]),Size:int64(len(data))}
- capsule:=sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%d\n",file.Path,file.Class,file.SHA256,file.Size)))
+ capsuleDigest:=independentlyEncodedFileSetDigest([]ProjectionFile{file})
  m:=ProjectionManifest{Schema:publicProjectionSchema,PolicyDigest:strings.Repeat("a",64),
-  CapsuleDigest:hex.EncodeToString(capsule[:]),Files:[]ProjectionFile{file}}
+  CapsuleDigest:capsuleDigest,Files:[]ProjectionFile{file}}
  b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
  seed:=sha256.Sum256([]byte("PUBLIC SYNTHETIC NON-PRODUCTION SIGNER ONLY"))
  priv:=ed25519.NewKeyFromSeed(seed[:]);pub:=priv.Public().(ed25519.PublicKey)
@@ -72,8 +81,9 @@ func TestMembraneRejectsDeniedOrUnsafeClassesAndPaths(t *testing.T){
  }
  for _,tc:=range cases {t.Run(tc.name,func(t *testing.T){
   m:=ProjectionManifest{Schema:publicProjectionSchema,PolicyDigest:strings.Repeat("a",64),
-   CapsuleDigest:strings.Repeat("b",64),Files:[]ProjectionFile{{Path:tc.path,Class:tc.class,
+   Files:[]ProjectionFile{{Path:tc.path,Class:tc.class,
     SHA256:hex.EncodeToString(hash[:]),Size:int64(len(original))}}}
+  m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
   b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
   if verifyProjection(root,b,ed25519.Sign(priv,b),pub)==nil{t.Fatal("unsafe signed manifest accepted")}
  })}
@@ -82,9 +92,11 @@ func TestMembraneRejectsDuplicateAndUnsorted(t *testing.T){
  root,b,_,pub,priv:=projectionFixture(t)
  var m ProjectionManifest
  if e:=json.Unmarshal(b,&m);e!=nil{t.Fatal(e)}
+ emptyHash:=sha256.Sum256(nil)
+ if e:=os.WriteFile(filepath.Join(root,"z.txt"),nil,0600);e!=nil{t.Fatal(e)}
  for _,pair:=range [][]ProjectionFile{{m.Files[0],m.Files[0]},
- {{Path:"z.txt",Class:"V1",SHA256:strings.Repeat("0",64),Size:0},m.Files[0]}}{
-  m.Files=pair;b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ {{Path:"z.txt",Class:"V1",SHA256:hex.EncodeToString(emptyHash[:]),Size:0},m.Files[0]}}{
+  m.Files=pair;m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files);b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
   if verifyProjection(root,b,ed25519.Sign(priv,b),pub)==nil{t.Fatal("duplicate/unsorted accepted")}
  }
 }
@@ -94,4 +106,19 @@ func TestMembraneNoDeclassificationBySelfSignedCandidate(t *testing.T){
  seed:=sha256.Sum256([]byte("ATTACKER SUPPLIED KEY"))
  priv:=ed25519.NewKeyFromSeed(seed[:])
  if verifyProjection(root,b,ed25519.Sign(priv,b),nil)==nil{t.Fatal("candidate key accepted")}
+}
+
+func TestMembraneRejectsSignedNestedHiddenFileDespiteValidDigest(t *testing.T){
+ root,b,_,pub,priv:=projectionFixture(t)
+ var m ProjectionManifest
+ if e:=json.Unmarshal(b,&m);e!=nil{t.Fatal(e)}
+ old:=filepath.Join(root,"src","demo.txt")
+ hidden:=filepath.Join(root,"src",".hidden")
+ if e:=os.Rename(old,hidden);e!=nil{t.Fatal(e)}
+ m.Files[0].Path="src/.hidden"
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,ed25519.Sign(priv,b),pub)==nil{
+  t.Fatal("nested hidden path accepted despite real file, exact digest and valid signature")
+ }
 }
