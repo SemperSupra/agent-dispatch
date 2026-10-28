@@ -50,7 +50,7 @@ class ContainerPreB4Tests(unittest.TestCase):
         dataset = f"rdtepool/.truenas_containers/containers/{name}"
         self.assertEqual(
             probe.derive_rootfs_mountpoint(doc, "rdtepool", name, dataset),
-            f"/.truenas_containers/rdtepool/containers/{name}",
+            f"/mnt/.truenas_containers/rdtepool/containers/{name}",
         )
         with self.assertRaises(probe.ProbeError):
             probe.derive_rootfs_mountpoint(
