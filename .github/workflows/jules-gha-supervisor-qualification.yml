@@ -100,7 +100,7 @@ jobs:
 
   interview-contract:
     name: Join native artifacts and interview mock, not Jules
-    needs: evidence-arms
+    needs: [evidence-arms, boundary-contracts]
     runs-on: ubuntu-24.04
     timeout-minutes: 6
     steps:
