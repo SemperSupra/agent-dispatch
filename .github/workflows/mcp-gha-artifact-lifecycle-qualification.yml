@@ -95,8 +95,12 @@ jobs:
           echo "MCP_GHA_${ARM}_SYNTHETIC_ARTIFACT_UPLOADED"
 
   retrieve-and-stage:
-    name: Re-download two native artifacts and stage ciphertext (synthetic only)
+    name: Native-ID ciphertext join ${{ matrix.case }} (synthetic)
     needs: [synthetic-arm]
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [accept, tamper]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -204,10 +208,11 @@ jobs:
           assert manifest["workflow_head_sha"]!=manifest["source_sha"]
           print("MCP_GHA_COMPOSITE_SOURCE_SYNTHETIC_V2_MANIFEST_TWO_ROLES_BOUND")
           PY
-      - name: Stage and repeat idempotently with pure Go (local test only)
+      - name: Stage or reject on independent collector VM
         shell: bash
         working-directory: tools/mcp-gha-control
         env:
+          ARTIFACT_CASE: ${{ matrix.case }}
           GOTOOLCHAIN: local
           GOPROXY: 'off'
           GOSUMDB: 'off'
@@ -215,6 +220,30 @@ jobs:
           set -euo pipefail
           go build -trimpath -o "${RUNNER_TEMP}/mcp-gha-control" .
           mkdir -m 0700 "${RUNNER_TEMP}/private-synthetic-stage"
+          if [[ "$ARTIFACT_CASE" == tamper ]]; then
+            # Post-download adversary changes one age ciphertext byte.
+            # The precommitted receipt/manifest must block ALL staging.
+            python3 - <<'PY'
+          import os,pathlib
+          path=pathlib.Path(os.environ["RUNNER_TEMP"])/"synthetic-pair/cpe/result.age"
+          data=bytearray(path.read_bytes())
+          assert len(data)>16
+          data[len(data)//2]^=0x01
+          path.write_bytes(data)
+          PY
+            if "${RUNNER_TEMP}/mcp-gha-control" stage-pair \
+              --manifest "${RUNNER_TEMP}/synthetic-pair-manifest.json" \
+              --inbox "${RUNNER_TEMP}/synthetic-pair" \
+              --destination "${RUNNER_TEMP}/private-synthetic-stage" \
+              >"${RUNNER_TEMP}/expected-denial.json" 2>&1; then
+              echo "BROKEN_TAMPERED_AGE_CIPHERTEXT_WAS_STAGED"
+              exit 1
+            fi
+            test -z "$(find "${RUNNER_TEMP}/private-synthetic-stage" -mindepth 1 -maxdepth 1 -print -quit)"
+            echo "MCP_GHA_NATIVE_ARTIFACT_CIPHERTEXT_TAMPER_FAIL_CLOSED"
+            exit 0
+          fi
+          test "$ARTIFACT_CASE" = accept
           "${RUNNER_TEMP}/mcp-gha-control" stage-pair \
             --manifest "${RUNNER_TEMP}/synthetic-pair-manifest.json" \
             --inbox "${RUNNER_TEMP}/synthetic-pair" \
@@ -235,6 +264,7 @@ jobs:
             echo '| Artifacts | Two immutable native artifact IDs resolved and downloaded |'
             echo '| Bytes | Per-arm ciphertext SHA256 and receipt hashes verified |'
             echo '| Local custody | Atomically staged; identical replay idempotent |'
+            echo '| Independent negative collector | Separate tamper runner rejects altered ciphertext with no retained output |'
             echo '| Durable private ingestion | NOT EXECUTED |'
             echo '| Protected decryption | NOT EXECUTED |'
             echo '| True CPE scientific validation | NOT EXECUTED |'
