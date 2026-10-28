@@ -79,3 +79,41 @@ func TestPinnedCopyRejectsPathChangeAfterRead(t *testing.T){
  if err:=pinnedFileUnchanged(source,f,info);err==nil{t.Fatal("disappeared source accepted")}
 }
 var _ = errors.Is
+
+func TestPinnedReceiptVerifierRejectsCipherFIFOAndSymlink(t *testing.T){
+ for _,kind:=range []string{"fifo","symlink"}{
+  t.Run(kind,func(t *testing.T){
+   receipt,cipher,r:=armFixture(t)
+   original:=cipher+".original"
+   if err:=os.Rename(cipher,original);err!=nil{t.Fatal(err)}
+   switch kind{
+   case "fifo":
+    if err:=syscall.Mkfifo(cipher,0600);err!=nil{t.Fatal(err)}
+   case "symlink":
+    if err:=os.Symlink(original,cipher);err!=nil{t.Fatal(err)}
+   }
+   if _,err:=verifyBound(receipt,cipher,r.RunID,r.Arm);err==nil{
+    t.Fatal("unsafe ciphertext input accepted")
+   }
+  })
+ }
+}
+func TestPinnedManifestAndReceiptRejectHardlinkOrFIFO(t *testing.T){
+ for _,kind:=range []string{"manifest-hardlink","receipt-fifo"}{
+  t.Run(kind,func(t *testing.T){
+   manifest,inbox,_:=pairedFixture(t)
+   switch kind {
+   case "manifest-hardlink":
+    other:=manifest+".hardlink"
+    if err:=os.Link(manifest,other);err!=nil{t.Fatal(err)}
+   case "receipt-fifo":
+    path:=filepath.Join(inbox,"reference","receipt.json")
+    if err:=os.Remove(path);err!=nil{t.Fatal(err)}
+    if err:=syscall.Mkfifo(path,0600);err!=nil{t.Fatal(err)}
+   }
+   if _,err:=pairPreflight(manifest,inbox);err==nil{
+    t.Fatal("unsafe manifest or receipt accepted")
+   }
+  })
+ }
+}
