@@ -20,6 +20,7 @@ on:
       - 'scripts/truenas_single_capsule_adapter.py'
       - 'scripts/truenas_session_state.py'
       - 'scripts/truenas_session_runner.py'
+      - 'scripts/truenas_foundry_artifact_gate.py'
       - 'scripts/truenas_existing_probe_capsule_executor.py'
       - 'scripts/truenas_middleware_*.py'
       - 'tests/test_gha_kvm_system_rdte.py'
@@ -31,6 +32,7 @@ on:
       - 'tests/test_truenas_single_capsule_adapter.py'
       - 'tests/test_truenas_session_state.py'
       - 'tests/test_truenas_session_runner.py'
+      - 'tests/test_truenas_foundry_artifact_gate.py'
       - 'tests/test_truenas_existing_probe_capsule_executor.py'
   workflow_dispatch:
 
@@ -61,6 +63,7 @@ jobs:
           tests=(
             tests/test_gha_kvm_system_rdte.py
             tests/test_truenas_future_protocols.py
+            tests/test_truenas_foundry_artifact_gate.py
           )
           if [[ -f tests/test_truenas_t6_litellm_control.py ]]; then
             tests+=(tests/test_truenas_t6_litellm_control.py)
