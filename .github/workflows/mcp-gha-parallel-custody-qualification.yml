@@ -1,0 +1,113 @@
+name: MCP GHA Parallel Custody Qualification (public synthetic)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mcp-gha-parallel-custody-qualification.yml
+      - tools/mcp-gha-control/**
+      - .github/workflows/mcp-gha-artifact-lifecycle-qualification.yml
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-go-qualifications:
+    name: Public isolated ${{ matrix.workstream }} (race and negative controls)
+    if: github.event.pull_request.head.repo.full_name == 'SemperSupra/agent-dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - workstream: arm-and-pair-admission
+            tests: '^Test(PerArmMailbox|PairPreflight|PairManifest)'
+            repetitions: 12
+          - workstream: ciphertext-custody-replay-and-races
+            tests: '^TestStage'
+            repetitions: 12
+          - workstream: github-native-and-composite-provenance
+            tests: '^Test(Native|Composite)'
+            repetitions: 12
+    steps:
+      - name: Source-only checkout without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools/mcp-gha-control
+          sparse-checkout-cone-mode: true
+      - name: Race-test isolated workstream with no network or private input
+        shell: bash
+        working-directory: tools/mcp-gha-control
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          TEST_RE: ${{ matrix.tests }}
+          TEST_COUNT: ${{ matrix.repetitions }}
+          WORKSTREAM: ${{ matrix.workstream }}
+        run: |
+          set -euo pipefail
+          test ! -e cancel.go
+          ! grep -q 'requestCancellation(' main.go
+          go test -race -count="$TEST_COUNT" -run "$TEST_RE" ./...
+          echo "MCP_GHA_PARALLEL_${WORKSTREAM}_RACE_NEGATIVE_PASS"
+          {
+            echo "### $WORKSTREAM"
+            echo "Separate GitHub-hosted runner; Go race detector and $TEST_COUNT repeated negative-control passes."
+            echo "No CPE source, private data, age identity or GitHub token."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  independent-policy-gate:
+    name: Independent public-only workflow boundary check
+    if: github.event.pull_request.head.repo.full_name == 'SemperSupra/agent-dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout only public workflow source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/workflows/mcp-gha-parallel-custody-qualification.yml
+            .github/workflows/mcp-gha-artifact-lifecycle-qualification.yml
+          sparse-checkout-cone-mode: false
+      - name: Enforce source-only public workcell contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,re
+          base=pathlib.Path(".github/workflows")
+          parallel=(base/"mcp-gha-parallel-custody-qualification.yml").read_text()
+          transport=(base/"mcp-gha-artifact-lifecycle-qualification.yml").read_text()
+          for label,body in (("parallel",parallel),("transport",transport)):
+              assert "pull_request:" in body, label
+              assert "persist-credentials: false" in body, label
+              assert "secrets." not in body, label
+              assert "actions: write" not in body, label
+              assert "contents: write" not in body, label
+              assert "private-key" not in body.lower(), label
+              for line in body.splitlines():
+                  if re.match(r"\s+uses:\s*",line):
+                      assert re.search(r"@[0-9a-f]{40}\s*$",line), (label,line)
+          assert "max-parallel: 3" in parallel
+          assert "fail-fast: false" in parallel
+          assert "go test -race" in parallel
+          assert 'max-parallel: 3' in parallel
+          assert "retention-days: 1" in transport
+          assert "artifact-ids:" in transport
+          assert "mcp-gha-private-pair-preflight/v2" in transport
+          assert "Synthetic sealed" in transport
+          assert "mcp-gha-parallel-custody" in parallel
+          print("MCP_GHA_PARALLEL_PUBLIC_SOURCE_PRIVILEGE_AND_RIGHTS_BOUNDARY_PASS")
+          PY
+          {
+            echo '### Independent public-only review'
+            echo 'Read-only checkout, pinned Actions, fixed source roles, no external credential or protected-data admission.'
+            echo 'This is static workflow policy validation, NOT a confidentiality attestation.'
+          } >> "$GITHUB_STEP_SUMMARY"
