@@ -92,13 +92,24 @@ func TestMembraneRejectsDuplicateAndUnsorted(t *testing.T){
  root,b,_,pub,priv:=projectionFixture(t)
  var m ProjectionManifest
  if e:=json.Unmarshal(b,&m);e!=nil{t.Fatal(e)}
+ original:=m.Files[0]
+ m.Files=[]ProjectionFile{original,original}
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ duplicate,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if verifyProjection(root,duplicate,ed25519.Sign(priv,duplicate),pub)==nil{t.Fatal("duplicate accepted with exact file set")}
+
  emptyHash:=sha256.Sum256(nil)
+ second:=ProjectionFile{Path:"z.txt",Class:"V1",SHA256:hex.EncodeToString(emptyHash[:]),Size:0}
  if e:=os.WriteFile(filepath.Join(root,"z.txt"),nil,0600);e!=nil{t.Fatal(e)}
- for _,pair:=range [][]ProjectionFile{{m.Files[0],m.Files[0]},
- {{Path:"z.txt",Class:"V1",SHA256:hex.EncodeToString(emptyHash[:]),Size:0},m.Files[0]}}{
-  m.Files=pair;m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files);b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
-  if verifyProjection(root,b,ed25519.Sign(priv,b),pub)==nil{t.Fatal("duplicate/unsorted accepted")}
- }
+ m.Files=[]ProjectionFile{original,second}
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ valid,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if e:=verifyProjection(root,valid,ed25519.Sign(priv,valid),pub);e!=nil{t.Fatalf("sorted valid control rejected: %v",e)}
+
+ m.Files=[]ProjectionFile{second,original}
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ unsorted,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if verifyProjection(root,unsorted,ed25519.Sign(priv,unsorted),pub)==nil{t.Fatal("unsorted two-file manifest accepted")}
 }
 func TestMembraneNoDeclassificationBySelfSignedCandidate(t *testing.T){
  root,b,_,_,_:=projectionFixture(t)
