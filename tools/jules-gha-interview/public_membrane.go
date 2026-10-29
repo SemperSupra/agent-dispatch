@@ -130,10 +130,9 @@ func verifyProjection(root string, rawManifest,signature []byte,pinnedKey ed2551
   }
   if !entry.Type().IsRegular(){return errors.New("non-regular projection entry")}
   expected,ok:=allowed[rel];if !ok{return errors.New("unmanifested output: "+rel)}
-  finfo,e:=entry.Info();if e!=nil{return e};if finfo.Size()!=expected.Size{return errors.New("size mismatch: "+rel)}
-  f,e:=os.Open(path);if e!=nil{return e};h:=sha256.New();n,copyErr:=io.Copy(h,io.LimitReader(f,expected.Size+1));closeErr:=f.Close()
-  if copyErr!=nil{return copyErr};if closeErr!=nil{return closeErr}
-  if n!=expected.Size||hex.EncodeToString(h.Sum(nil))!=expected.SHA256{return errors.New("content mismatch: "+rel)}
+  // Pin the root/ancestor chain and file inode, never follow symlink/FIFO
+  // substitutions between WalkDir and the actual signed-byte read.
+  if e:=verifyPinnedProjectionFile(root,rel,expected);e!=nil{return fmt.Errorf("projected file %q: %w",rel,e)}
   seen[rel]=true;return nil
  })
  if err!=nil{return err}
