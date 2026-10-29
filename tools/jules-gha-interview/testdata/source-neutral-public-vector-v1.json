@@ -1,0 +1,34 @@
+{
+  "contents_base64": {
+    ".github/workflows/synthetic.yml": "bmFtZTogcHVibGljLXN5bnRoZXRpYwo=",
+    "README.md": "cHVibGljIGNvbnRyYWN0IGZpeHR1cmUK",
+    "src/empty.txt": ""
+  },
+  "manifest": {
+    "capsule_digest": "ad85714b560aea25183d00f93013c9c133a56e887297df89c3828c2ad7f6a4d3",
+    "files": [
+      {
+        "class": "V0",
+        "path": ".github/workflows/synthetic.yml",
+        "sha256": "df73917a4273013252b2481deb5de34b0c50ceb667b94327ac4f75705bd81aad",
+        "size": 23
+      },
+      {
+        "class": "V1",
+        "path": "README.md",
+        "sha256": "951c4745245b2c32b9b3a9e27e8464b169f0ed64f09907aaa1f05b06dc09f6ab",
+        "size": 24
+      },
+      {
+        "class": "V0",
+        "path": "src/empty.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      }
+    ],
+    "policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "schema": "public-projection-boundary/v1"
+  },
+  "schema": "public-projection-vector/v1",
+  "science_status": "SYNTHETIC_ONLY_NOT_RELEASE_AUTHORITY"
+}
