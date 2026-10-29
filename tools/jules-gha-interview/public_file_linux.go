@@ -17,12 +17,54 @@ import (
  "syscall"
 )
 
+// openPinnedProjectionRoot refuses symlink ancestors in the absolute root
+// path, pins the root directory inode and returns its initial identity.
+// This does not make an otherwise mutable directory tree an atomic snapshot.
+func openPinnedProjectionRoot(root string) (*os.File,os.FileInfo,error) {
+ abs,err:=filepath.Abs(root)
+ if err!=nil{return nil,nil,err}
+ cur,err:=syscall.Open("/",syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
+ if err!=nil{return nil,nil,errors.New("projected root ancestor unavailable")}
+ for _,part:=range strings.Split(strings.TrimPrefix(abs,"/"),"/") {
+  if part==""{continue}
+  if part=="."||part==".."{
+   _ = syscall.Close(cur)
+   return nil,nil,errors.New("projected root contains traversing ancestor")
+  }
+  next,e:=syscall.Openat(cur,part,syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
+  _ = syscall.Close(cur)
+  if e!=nil{return nil,nil,errors.New("projected root contains unsafe ancestor")}
+  cur=next
+ }
+ handle:=os.NewFile(uintptr(cur),abs)
+ info,err:=handle.Stat()
+ if err!=nil||!info.IsDir(){handle.Close();return nil,nil,errors.New("projected root not a real directory")}
+ observed,err:=os.Lstat(abs)
+ if err!=nil||!observed.IsDir()||!os.SameFile(info,observed){
+  handle.Close();return nil,nil,errors.New("projected root differs from pinned inode")
+ }
+ return handle,info,nil
+}
+
+func verifyPinnedProjectionRoot(root string,handle *os.File,original os.FileInfo) error {
+ after,err:=handle.Stat()
+ if err!=nil||!os.SameFile(original,after)||!after.IsDir(){
+  return errors.New("projected root inode changed during verification")
+ }
+ current,err:=os.Lstat(root)
+ if err!=nil||!current.IsDir()||!os.SameFile(after,current){
+  return errors.New("projected root path replaced during verification")
+ }
+ return nil
+}
+
 func verifyPinnedProjectionFile(root, relative string, expected ProjectionFile) error {
  parts:=strings.Split(relative,"/")
  if len(parts)==0 {return errors.New("empty projected path")}
- rootFD,err:=syscall.Open(root,syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
- if err!=nil{return errors.New("projected root is not a real directory")}
- defer syscall.Close(rootFD)
+ rootFile,_,err:=openPinnedProjectionRoot(root)
+ if err!=nil{return err}
+ defer rootFile.Close()
+ rootFD:=int(rootFile.Fd())
  current:=rootFD
  defer func(){if current!=rootFD{_ = syscall.Close(current)}}()
  for i,part:=range parts[:len(parts)-1]{

@@ -64,3 +64,34 @@ func TestMembranePinnedSyntheticFileCases(t *testing.T) {
   if e:=verifyPinnedProjectionFile(root,rel,file);e==nil{t.Fatal("FIFO accepted")}
  })
 }
+
+
+// An untrusted ancestor or a replacement directory can silently redirect
+// otherwise correctly signed reads unless the *whole root chain* is pinned.
+func TestMembranePinnedProjectionRootParentSymlinkDenied(t *testing.T) {
+ home:=t.TempDir()
+ real:=filepath.Join(home,"real")
+ if err:=os.Mkdir(real,0700);err!=nil{t.Fatal(err)}
+ original:=filepath.Join(real,"approved")
+ if err:=os.Mkdir(original,0700);err!=nil{t.Fatal(err)}
+ link:=filepath.Join(home,"alias")
+ if err:=os.Symlink(real,link);err!=nil{t.Fatal(err)}
+ if f,_,err:=openPinnedProjectionRoot(filepath.Join(link,"approved"));err==nil{
+  f.Close();t.Fatal("symlinked ancestor accepted")
+ }
+}
+
+func TestMembranePinnedProjectionRootReplacementDenied(t *testing.T) {
+ home:=t.TempDir()
+ root:=filepath.Join(home,"approved")
+ if err:=os.Mkdir(root,0700);err!=nil{t.Fatal(err)}
+ pinned,initial,err:=openPinnedProjectionRoot(root)
+ if err!=nil{t.Fatal(err)}
+ defer pinned.Close()
+ if err:=verifyPinnedProjectionRoot(root,pinned,initial);err!=nil{t.Fatal(err)}
+ if err:=os.Rename(root,root+"-old");err!=nil{t.Fatal(err)}
+ if err:=os.Mkdir(root,0700);err!=nil{t.Fatal(err)}
+ if err:=verifyPinnedProjectionRoot(root,pinned,initial);err==nil{
+  t.Fatal("replaced projected root inode accepted")
+ }
+}

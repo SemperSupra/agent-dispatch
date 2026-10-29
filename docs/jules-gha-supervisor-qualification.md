@@ -67,3 +67,8 @@ The opt-in `verifyProjectionForPolicy` entrypoint accepts an independently confi
 ### Unambiguous downloaded-artifact JSON
 
 The public interview CLI `read` path now applies the same bounded, Unicode simple-fold aware, recursive duplicate-key rejection as the signed-manifest and authenticated-webhook boundaries before decoding downloaded arms/packets/answers. Synthetic tests include exact duplicates, ASCII aliases, U+017F aliases and nested conflicting values. A passing parser test is not evidence of provider identity, durable webhook replay control, actual Jules invocation, or protected source custody.
+
+
+### Bounded root/ancestor custody guard
+
+The Linux signed-byte verifier now opens the complete absolute root directory chain using nofollow directory descriptors, pins the root inode throughout the walk, and rejects a symlinked ancestor or a renamed/replaced root. The caller **still** must own a protected immutable release snapshot: namespace/mount attacks, transient swaps within a check window, and true classification are not attested by a Go filesystem walk. The test is public synthetic and introduces no private files or authority.

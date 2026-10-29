@@ -138,6 +138,11 @@ func verifyProjection(root string, rawManifest,signature []byte,pinnedKey ed2551
   allowed[f.Path]=f
  }
  if hex.EncodeToString(digest.Sum(nil))!=m.CapsuleDigest{return errors.New("capsule manifest digest mismatch")}
+ // Pin the caller-specified root inode and reject symlinked root ancestors.
+ // The caller must still supply a protected, immutable release directory.
+ rootHandle,rootInfo,rootErr:=openPinnedProjectionRoot(root)
+ if rootErr!=nil{return rootErr}
+ defer rootHandle.Close()
  seen:=map[string]bool{}
  err:=filepath.WalkDir(root,func(path string,entry fs.DirEntry,walkErr error)error{
   if walkErr!=nil{return walkErr}
@@ -160,6 +165,7 @@ func verifyProjection(root string, rawManifest,signature []byte,pinnedKey ed2551
   seen[rel]=true;return nil
  })
  if err!=nil{return err}
+ if e:=verifyPinnedProjectionRoot(root,rootHandle,rootInfo);e!=nil{return e}
  if len(seen)!=len(allowed){return errors.New("required public file missing")}
  return nil
 }
