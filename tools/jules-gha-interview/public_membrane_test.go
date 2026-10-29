@@ -1,0 +1,234 @@
+package main
+import (
+ "crypto/ed25519"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "bytes"
+ "fmt"
+ "os"
+ "path/filepath"
+ "strings"
+ "testing"
+)
+func independentlyEncodedFileSetDigest(files []ProjectionFile) string{
+ var canonical bytes.Buffer
+ for _,f:=range files{
+  fmt.Fprintf(&canonical,"%s\x00%s\x00%s\x00%d\n",f.Path,f.Class,f.SHA256,f.Size)
+ }
+ sum:=sha256.Sum256(canonical.Bytes())
+ return hex.EncodeToString(sum[:])
+}
+func projectionFixture(t *testing.T)(string,[]byte,[]byte,ed25519.PublicKey,ed25519.PrivateKey){
+ t.Helper()
+ root:=t.TempDir()
+ if e:=os.Mkdir(filepath.Join(root,"src"),0700);e!=nil{t.Fatal(e)}
+ data:=[]byte("public synthetic source fixture\n")
+ if e:=os.WriteFile(filepath.Join(root,"src","demo.txt"),data,0600);e!=nil{t.Fatal(e)}
+ digest:=sha256.Sum256(data)
+ file:=ProjectionFile{Path:"src/demo.txt",Class:"V1",SHA256:hex.EncodeToString(digest[:]),Size:int64(len(data))}
+ capsuleDigest:=independentlyEncodedFileSetDigest([]ProjectionFile{file})
+ m:=ProjectionManifest{Schema:publicProjectionSchema,PolicyDigest:strings.Repeat("a",64),
+  CapsuleDigest:capsuleDigest,Files:[]ProjectionFile{file}}
+ b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ seed:=sha256.Sum256([]byte("PUBLIC SYNTHETIC NON-PRODUCTION SIGNER ONLY"))
+ priv:=ed25519.NewKeyFromSeed(seed[:]);pub:=priv.Public().(ed25519.PublicKey)
+ return root,b,ed25519.Sign(priv,b),pub,priv
+}
+func TestMembraneSyntheticSignedProjectionPass(t *testing.T){
+ root,b,sig,pub,_:=projectionFixture(t)
+ if e:=verifyProjection(root,b,sig,pub);e!=nil{t.Fatal(e)}
+}
+func TestMembraneRejectsTamperedSignatureAndOutput(t *testing.T){
+ root,b,sig,pub,_:=projectionFixture(t)
+ other:=append([]byte(nil),sig...);other[0]^=1
+ if verifyProjection(root,b,other,pub)==nil{t.Fatal("forged signature accepted")}
+ swapped:=append([]byte(nil),b...);swapped[4]^=1
+ if verifyProjection(root,swapped,sig,pub)==nil{t.Fatal("tampered manifest accepted")}
+ fakePub:=append([]byte(nil),pub...);fakePub[0]^=1
+ if verifyProjection(root,b,sig,fakePub)==nil{t.Fatal("wrong trusted key accepted")}
+ if e:=os.WriteFile(filepath.Join(root,"src","demo.txt"),[]byte("changed"),0600);e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,sig,pub)==nil{t.Fatal("changed output accepted")}
+}
+func TestMembraneRejectsExtraMissingAndSymlink(t *testing.T){
+ root,b,sig,pub,_:=projectionFixture(t)
+ if e:=os.WriteFile(filepath.Join(root,"src","leak.txt"),[]byte("synthetic-restricted"),0600);e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,sig,pub)==nil{t.Fatal("unmanifested output accepted")}
+ if e:=os.Remove(filepath.Join(root,"src","leak.txt"));e!=nil{t.Fatal(e)}
+ if e:=os.Mkdir(filepath.Join(root,"empty-secret-dir"),0700);e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,sig,pub)==nil{t.Fatal("extra empty directory accepted")}
+ if e:=os.Remove(filepath.Join(root,"empty-secret-dir"));e!=nil{t.Fatal(e)}
+ if e:=os.Symlink("demo.txt",filepath.Join(root,"src","link"));e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,sig,pub)==nil{t.Fatal("symlink accepted")}
+ if e:=os.Remove(filepath.Join(root,"src","link"));e!=nil{t.Fatal(e)}
+ if e:=os.Remove(filepath.Join(root,"src","demo.txt"));e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,sig,pub)==nil{t.Fatal("missing output accepted")}
+}
+func TestMembraneRejectsDeniedOrUnsafeClassesAndPaths(t *testing.T){
+ root,_,_,pub,priv:=projectionFixture(t)
+ original:=[]byte("public synthetic source fixture\n")
+ hash:=sha256.Sum256(original)
+ cases:=[]struct{name,path,class string}{
+  {"denied-V2","src/demo.txt","V2"},
+  {"denied-V3","src/demo.txt","V3"},
+  {"unknown","src/demo.txt","UNKNOWN"},
+  {"dotdot","../demo.txt","V1"},
+  {"dot-segment","src/./demo.txt","V1"},
+  {"metadata",".git/config","V1"},
+  {"windows-escape","src\\demo.txt","V1"},
+  {"absolute","/tmp/demo.txt","V1"},
+  {"hidden",".hidden","V1"},
+ }
+ for _,tc:=range cases {t.Run(tc.name,func(t *testing.T){
+  m:=ProjectionManifest{Schema:publicProjectionSchema,PolicyDigest:strings.Repeat("a",64),
+   Files:[]ProjectionFile{{Path:tc.path,Class:tc.class,
+    SHA256:hex.EncodeToString(hash[:]),Size:int64(len(original))}}}
+  m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+  b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+  if verifyProjection(root,b,ed25519.Sign(priv,b),pub)==nil{t.Fatal("unsafe signed manifest accepted")}
+ })}
+}
+func TestMembraneRejectsDuplicateAndUnsorted(t *testing.T){
+ root,b,_,pub,priv:=projectionFixture(t)
+ var m ProjectionManifest
+ if e:=json.Unmarshal(b,&m);e!=nil{t.Fatal(e)}
+ original:=m.Files[0]
+ m.Files=[]ProjectionFile{original,original}
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ duplicate,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if verifyProjection(root,duplicate,ed25519.Sign(priv,duplicate),pub)==nil{t.Fatal("duplicate accepted with exact file set")}
+
+ emptyHash:=sha256.Sum256(nil)
+ second:=ProjectionFile{Path:"z.txt",Class:"V1",SHA256:hex.EncodeToString(emptyHash[:]),Size:0}
+ if e:=os.WriteFile(filepath.Join(root,"z.txt"),nil,0600);e!=nil{t.Fatal(e)}
+ m.Files=[]ProjectionFile{original,second}
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ valid,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if e:=verifyProjection(root,valid,ed25519.Sign(priv,valid),pub);e!=nil{t.Fatalf("sorted valid control rejected: %v",e)}
+
+ m.Files=[]ProjectionFile{second,original}
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ unsorted,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if verifyProjection(root,unsorted,ed25519.Sign(priv,unsorted),pub)==nil{t.Fatal("unsorted two-file manifest accepted")}
+}
+func TestMembraneNoDeclassificationBySelfSignedCandidate(t *testing.T){
+ root,b,_,_,_:=projectionFixture(t)
+ // No trusted pinned key: candidate cannot authorize itself by bringing its own key.
+ seed:=sha256.Sum256([]byte("ATTACKER SUPPLIED KEY"))
+ priv:=ed25519.NewKeyFromSeed(seed[:])
+ if verifyProjection(root,b,ed25519.Sign(priv,b),nil)==nil{t.Fatal("candidate key accepted")}
+}
+
+func TestMembraneRejectsSignedNestedHiddenFileDespiteValidDigest(t *testing.T){
+ root,b,_,pub,priv:=projectionFixture(t)
+ var m ProjectionManifest
+ if e:=json.Unmarshal(b,&m);e!=nil{t.Fatal(e)}
+ old:=filepath.Join(root,"src","demo.txt")
+ hidden:=filepath.Join(root,"src",".hidden")
+ if e:=os.Rename(old,hidden);e!=nil{t.Fatal(e)}
+ m.Files[0].Path="src/.hidden"
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if verifyProjection(root,b,ed25519.Sign(priv,b),pub)==nil{
+  t.Fatal("nested hidden path accepted despite real file, exact digest and valid signature")
+ }
+}
+
+func TestMembraneAllowsExplicitlySignedPublicWorkflow(t *testing.T){
+ root,b,_,pub,priv:=projectionFixture(t)
+ var m ProjectionManifest
+ if e:=json.Unmarshal(b,&m);e!=nil{t.Fatal(e)}
+ path:=filepath.Join(root,".github","workflows")
+ if e:=os.MkdirAll(path,0700);e!=nil{t.Fatal(e)}
+ if e:=os.Rename(filepath.Join(root,"src","demo.txt"),filepath.Join(path,"test.yml"));e!=nil{t.Fatal(e)}
+ if e:=os.Remove(filepath.Join(root,"src"));e!=nil{t.Fatal(e)}
+ m.Files[0].Path=".github/workflows/test.yml"
+ m.CapsuleDigest=independentlyEncodedFileSetDigest(m.Files)
+ b,e:=json.Marshal(m);if e!=nil{t.Fatal(e)}
+ if e:=verifyProjection(root,b,ed25519.Sign(priv,b),pub);e!=nil{
+  t.Fatalf("explicit public workflow denied: %v",e)
+ }
+}
+
+// Valid release signatures do not make ambiguous JSON canonical. Reject both
+// outer and nested duplicate keys even when the last value is valid.
+func TestMembraneRejectsSignedDuplicateJSONKeys(t *testing.T) {
+ root,b,_,pub,priv:=projectionFixture(t)
+ cases:=[]struct{name,needle,replacement string}{
+  {"outer-schema",`"schema":`,`"schema":"unexpected","schema":`},
+  {"outer-schema-alias",`"schema":`,`"schema":"unexpected","Schema":`},
+  {"unicode-simple-fold-schema",`"schema":`,`"ſchema":"unexpected","schema":`},
+  {"nested-path",`"path":`,`"path":"synthetic/other.txt","path":`},
+  {"nested-path-alias",`"path":`,`"path":"synthetic/other.txt","Path":`},
+  {"nested-class",`"class":`,`"class":"V2","class":`},
+  {"nested-size",`"size":`,`"size":9999,"size":`},
+ }
+ for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
+  changed:=strings.Replace(string(b),tc.needle,tc.replacement,1)
+  if changed==string(b){t.Fatal("fixture anchor absent")}
+  raw:=[]byte(changed)
+  if e:=verifyProjection(root,raw,ed25519.Sign(priv,raw),pub);e==nil{
+   t.Fatal("signed ambiguous duplicate-key manifest accepted")
+  }
+ })}
+}
+
+// The Go struct decoder folds Unicode long-s to ASCII s, unlike ToLower.
+// A legitimately signed canonical-looking last value still must fail closed.
+func TestMembraneRejectsSignedUnicodeSimpleFoldAlias(t *testing.T) {
+ root, original, _, pub, priv := projectionFixture(t)
+ changed := strings.Replace(string(original), `"schema":`, `"ſchema":"unsafe","schema":`, 1)
+ if changed == string(original) { t.Fatal("fixture anchor missing") }
+ raw := []byte(changed)
+ var baseline ProjectionManifest
+ if err := json.Unmarshal(raw, &baseline); err != nil || baseline.Schema != publicProjectionSchema {
+  t.Fatalf("negative control did not demonstrate Go Unicode alias fallback: %v",err)
+ }
+ if !strings.EqualFold("schema","ſchema") || strings.ToLower("schema")==strings.ToLower("ſchema") {
+  t.Fatal("Unicode simple-fold differential unavailable in this Go runtime")
+ }
+ if err := verifyProjection(root,raw,ed25519.Sign(priv,raw),pub); err == nil {
+  t.Fatal("signed Unicode simple-fold duplicate accepted")
+ }
+}
+
+func TestMembraneRejectsSignedExcessObjectKeys(t *testing.T) {
+ root, original, _, pub, priv := projectionFixture(t)
+ extra := strings.Repeat(`"synthetic":"value",`,65)
+ changed := strings.Replace(string(original),`"schema":`,extra+`"schema":`,1)
+ if changed == string(original) { t.Fatal("fixture anchor missing") }
+ raw := []byte(changed)
+ if err := verifyProjection(root,raw,ed25519.Sign(priv,raw),pub); err == nil {
+  t.Fatal("signed excessive-key object accepted")
+ }
+}
+
+// A signed and byte-identical candidate is not authorized for a different
+// controller-pinned policy context. This is an opt-in gate, not owner approval.
+func TestMembranePinnedPolicyIdentitySyntheticReplay(t *testing.T) {
+ root,b,sig,pub,priv:=projectionFixture(t)
+ trusted:=strings.Repeat("a",64)
+ if e:=verifyProjectionForPolicy(root,b,sig,pub,trusted);e!=nil{
+  t.Fatalf("signed current-policy positive rejected: %v",e)
+ }
+ for _,tc:=range []struct{name, expected string}{
+  {"missing",""},{"malformed","not-a-digest"},{"wrong-valid",strings.Repeat("b",64)},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   if e:=verifyProjectionForPolicy(root,b,sig,pub,tc.expected);e==nil{
+    t.Fatal("missing or mismatched independently pinned policy accepted")
+   }
+  })
+ }
+ swapped:=bytes.Replace(b,[]byte(strings.Repeat("a",64)),[]byte(strings.Repeat("b",64)),1)
+ if bytes.Equal(swapped,b) {t.Fatal("fixture policy anchor missing")}
+ if e:=verifyProjection(root,swapped,ed25519.Sign(priv,swapped),pub);e!=nil{
+  t.Fatalf("format-only positive control should accept newly signed syntactically valid digest: %v",e)
+ }
+ if e:=verifyProjectionForPolicy(root,swapped,ed25519.Sign(priv,swapped),pub,trusted);e==nil{
+  t.Fatal("valid signer replayed alternate policy digest")
+ }
+ if e:=verifyProjectionForPolicy(root,b,ed25519.Sign(priv,swapped),pub,trusted);e==nil{
+  t.Fatal("unbound signature accepted")
+ }
+}
