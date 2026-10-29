@@ -148,8 +148,7 @@ func observe(ctx context.Context, client *http.Client, endpoint string,id string
  return Observation{Schema:"mcp-gha-control-observation/v1",RunID:x.ID,Repository:repo,NativeRunStatus:x.Status,NativeConclusion:concl,ControlState:state,ScienceState:"UNJUDGED_NEEDS_TRUSTED_PRIVATE_INGEST",Event:x.Event,SourceSHA:x.HeadSHA,RunAttempt:x.RunAttempt,RunURL:x.URL},nil
 }
 func loadReceipt(path string) (Receipt,error) {
- f,err:=os.Open(path);if err!=nil{return Receipt{},err};defer f.Close()
- b,err:=readBounded(f,32768);if err!=nil{return Receipt{},err}
+ b,err:=readPinnedRegular(path,32768);if err!=nil{return Receipt{},err}
  d:=json.NewDecoder(strings.NewReader(string(b)));d.DisallowUnknownFields()
  var r Receipt
  if err:=d.Decode(&r);err!=nil{return Receipt{},err}
@@ -214,11 +213,14 @@ func verifyBound(receiptPath, cipherPath, expectedRunID, expectedArm string)(Ver
  if r.TerminalState=="SOURCE_EXECUTOR_GAP"&&r.Succeeded!=0{
   return Verification{},errors.New("source executor gap conflicts with provider success")
  }
- f,err:=os.Open(filepath.Clean(cipherPath));if err!=nil{return Verification{},err}
+ f,info,err:=openPinnedRegular(filepath.Clean(cipherPath),maxCiphertext)
+ if err!=nil{return Verification{},err}
  defer f.Close()
  h:=sha256.New()
- n,err:=io.Copy(h,io.LimitReader(f,maxCiphertext+1));if err!=nil{return Verification{},err}
- if n!=r.CiphertextBytes||n>maxCiphertext||hex.EncodeToString(h.Sum(nil))!=r.CiphertextSHA256 {
+ n,err:=copyPinnedBytes(h,f,info)
+ if err!=nil{return Verification{},err}
+ if err=pinnedFileUnchanged(filepath.Clean(cipherPath),f,info);err!=nil{return Verification{},err}
+ if n!=r.CiphertextBytes||hex.EncodeToString(h.Sum(nil))!=r.CiphertextSHA256 {
   return Verification{},errors.New("ciphertext size or SHA256 mismatch")
  }
  return Verification{
@@ -252,7 +254,7 @@ func describe()map[string]any {
 }
 func emit(x any)error {e:=json.NewEncoder(os.Stdout);e.SetIndent("","  ");return e.Encode(x)}
 func main(){
- if len(os.Args)<2{fmt.Fprintln(os.Stderr,"usage: mcp-gha-control describe|status|verify-receipt");os.Exit(2)}
+ if len(os.Args)<2{fmt.Fprintln(os.Stderr,"usage: mcp-gha-control describe|status|verify-receipt|verify-native-pair|stage-pair");os.Exit(2)}
  switch os.Args[1]{
  case "describe":if len(os.Args)!=2{os.Exit(2)};_ = emit(describe())
  case "status":
@@ -262,6 +264,26 @@ func main(){
   obs,err:=observe(context.Background(),client,apiBase,*id)
   if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
   _=emit(obs)
+ case "verify-native-pair":
+  fs:=flag.NewFlagSet("verify-native-pair",flag.ExitOnError)
+  manifest:=fs.String("manifest","","independently admitted exact source/arm manifest")
+  _=fs.Parse(os.Args[2:])
+  if *manifest==""{fmt.Fprintln(os.Stderr,"manifest required");os.Exit(2)}
+  plan,err:=readPairPlan(*manifest)
+  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
+  observation,err:=checkNativePairMetadata(context.Background(),&http.Client{Timeout:15*time.Second},plan)
+  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
+  _=emit(observation)
+ case "stage-pair":
+  fs:=flag.NewFlagSet("stage-pair",flag.ExitOnError)
+  manifest:=fs.String("manifest","","frozen pair manifest JSON")
+  inbox:=fs.String("inbox","","local arm inbox")
+  destination:=fs.String("destination","","owner-only local staging root")
+  _=fs.Parse(os.Args[2:])
+  if *manifest==""||*inbox==""||*destination==""{fmt.Fprintln(os.Stderr,"manifest, inbox and destination required");os.Exit(2)}
+  result,err:=stagePair(*manifest,*inbox,*destination)
+  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
+  _=emit(result)
  case "verify-receipt":
   flags:=flag.NewFlagSet("verify-receipt",flag.ExitOnError)
   r:=flags.String("receipt","","sanitized receipt JSON")

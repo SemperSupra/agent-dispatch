@@ -29,6 +29,7 @@ type PairPlan struct {
  RunID string `json:"run_id"`
  RunAttempt string `json:"run_attempt"`
  SourceSHA string `json:"source_sha"`
+ WorkflowHeadSHA string `json:"workflow_head_sha,omitempty"`
  ProviderImageDigest string `json:"provider_image_digest"`
  ConfigSHA256 string `json:"config_sha256"`
  Arms []PairArm `json:"arms"`
@@ -47,16 +48,27 @@ type PairPreflight struct {
 }
 func readPairPlan(path string)(PairPlan,error){
  var p PairPlan
- f,e:=os.Open(path);if e!=nil{return p,e};defer f.Close()
- b,e:=readBounded(f,32768);if e!=nil{return p,e}
+ b,e:=readPinnedRegular(path,32768);if e!=nil{return p,e}
+ if e=rejectAmbiguousPairJSON(b);e!=nil{return p,e}
  dec:=json.NewDecoder(strings.NewReader(string(b)));dec.DisallowUnknownFields()
  if e=dec.Decode(&p);e!=nil{return p,e}
  var extra any
  if e=dec.Decode(&extra);e!=io.EOF{return p,errors.New("trailing manifest JSON")}
  return p,nil
 }
+const qualificationWorkflow = ".github/workflows/mcp-gha-artifact-lifecycle-qualification.yml"
+const syntheticCollectorSource = "330c65f4701a3a1e9aa25ad4dc60d06c1477a4fa"
 func validatePairPlan(p PairPlan)error{
- if p.Schema!="mcp-gha-private-pair-preflight/v1"||p.Repository!=repo||p.Workflow!=workflow||
+ sourceContractOK:=false
+ switch p.Schema {
+ case "mcp-gha-private-pair-preflight/v1":
+  sourceContractOK=p.Workflow==workflow&&p.WorkflowHeadSHA==""
+ case "mcp-gha-private-pair-preflight/v2":
+  // Deliberately narrow: public synthetic transport only. No other
+  // composite-source executions are admitted or scientifically trusted.
+  sourceContractOK=p.Workflow==qualificationWorkflow&&hex40.MatchString(p.WorkflowHeadSHA)&&p.SourceSHA==syntheticCollectorSource
+ }
+ if !sourceContractOK||p.Repository!=repo||
  !digits.MatchString(p.RunID)||!digits.MatchString(p.RunAttempt)||!hex40.MatchString(p.SourceSHA)||
  !pinnedSearxImage.MatchString(p.ProviderImageDigest)||!hex64.MatchString(p.ConfigSHA256)||
  len(p.AssignmentID)<3||len(p.AssignmentID)>96||len(p.Arms)!=2 {
@@ -102,10 +114,8 @@ func pairPreflight(manifest,inbox string)(PairPreflight,error){
   if !stat.IsDir()||stat.Mode()&os.ModeSymlink!=0{return out,errors.New("arm path must be directory")}
   rfile:=filepath.Join(dir,"receipt.json")
   cfile:=filepath.Join(dir,"result.age")
-  if e=noSymlinkFile(rfile);e!=nil{return out,e}
+  rbytes,e:=readPinnedRegular(rfile,32768);if e!=nil{return out,e}
   if e=noSymlinkFile(cfile);e!=nil{return out,e}
-  rbytes,e:=os.ReadFile(rfile);if e!=nil{return out,e}
-  if len(rbytes)>32768{return out,errors.New("receipt too large")}
   rdigest:=sha256.Sum256(rbytes)
   if hex.EncodeToString(rdigest[:])!=a.ReceiptSHA256{return out,fmt.Errorf("%s receipt digest conflicts with precommitted manifest",a.Arm)}
   v,e:=verifyBound(rfile,cfile,p.RunID,a.Arm)
