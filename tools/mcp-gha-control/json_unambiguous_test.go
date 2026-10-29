@@ -1,6 +1,8 @@
 package main
 
 import (
+ "encoding/json"
+ "fmt"
  "os"
  "path/filepath"
  "strings"
@@ -42,4 +44,28 @@ func TestPairManifestRejectsDeepAndTrailingJSON(t *testing.T){
 func TestPairManifestAcceptsNormalNestedStructure(t *testing.T){
  valid:=`{"arms":[{"arm":"reference","metadata":{"author":"x","ids":[1,2,3]}},{"arm":"cpe","metadata":{}}],"count":2}`
  if err:=rejectAmbiguousPairJSON([]byte(valid));err!=nil{t.Fatal(err)}
+}
+
+func TestPairManifestUnicodeSimpleFoldDifferential(t *testing.T){
+ // Standard Go typed JSON accepts long-s as equivalent to ASCII s in
+ // a struct field name. ToLower alone does not detect this alias.
+ raw:=[]byte(`{"schema":"safe","ſchema":"swapped"}`)
+ if strings.ToLower("schema")==strings.ToLower("ſchema"){
+  t.Fatal("test would not discriminate lowercasing from EqualFold")
+ }
+ if !strings.EqualFold("schema","ſchema"){
+  t.Fatal("Go unicode folding precondition changed")
+ }
+ var ordinary struct{Schema string `json:"schema"`}
+ if err:=json.Unmarshal(raw,&ordinary);err!=nil||ordinary.Schema!="swapped"{
+  t.Fatalf("typed decoder not vulnerable to alias in test environment: %+v %v",ordinary,err)
+ }
+ if err:=rejectAmbiguousPairJSON(raw);err==nil{t.Fatal("Unicode simple-fold duplicate accepted")}
+}
+
+func TestPairManifestRejectsExcessObjectKeys(t *testing.T){
+ parts:=make([]string,0,65)
+ for i:=0;i<65;i++{parts=append(parts,fmt.Sprintf(`"k%d":%d`,i,i))}
+ raw:="{"+strings.Join(parts,",")+"}"
+ if err:=rejectAmbiguousPairJSON([]byte(raw));err==nil{t.Fatal("oversized JSON object key count accepted")}
 }
