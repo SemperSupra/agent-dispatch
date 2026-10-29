@@ -49,6 +49,7 @@ type PairPreflight struct {
 func readPairPlan(path string)(PairPlan,error){
  var p PairPlan
  b,e:=readPinnedRegular(path,32768);if e!=nil{return p,e}
+ if e=rejectAmbiguousPairJSON(b);e!=nil{return p,e}
  dec:=json.NewDecoder(strings.NewReader(string(b)));dec.DisallowUnknownFields()
  if e=dec.Decode(&p);e!=nil{return p,e}
  var extra any
