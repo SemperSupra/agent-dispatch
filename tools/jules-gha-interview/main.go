@@ -98,6 +98,10 @@ func judge(p Packet,a Answer,mode string)Verdict{
 func read(path string,to any)error{
  f,e:=os.Open(path);if e!=nil{return e};defer f.Close()
  b,e:=io.ReadAll(io.LimitReader(f,32769));if e!=nil{return e};if len(b)>32768{return errors.New("oversize JSON")}
+ // Artifact packets and provider answers are untrusted even if downloaded by
+ // a trusted workflow. Reject duplicate and Unicode simple-fold aliases
+ // before encoding/json's case-insensitive struct decode selects a last value.
+ if e:=rejectAmbiguousJSON(b);e!=nil{return e}
  d:=json.NewDecoder(bytes.NewReader(b));d.DisallowUnknownFields()
  if e=d.Decode(to);e!=nil{return e}
  var other any;if d.Decode(&other)!=io.EOF{return errors.New("trailing JSON")}

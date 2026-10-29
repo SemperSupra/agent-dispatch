@@ -75,3 +75,22 @@ func TestStandaloneCLI(t *testing.T){
  var x Verdict;if e:=read(v,&x);e!=nil{t.Fatal(e)}
  if x.Status!="SYNTHETIC_CONTRACT_PASS"{t.Fatal(x)}
 }
+
+
+// The public runner's downloaded arm/packet/answer JSON must not have
+// incompatible first-vs-last field interpretations. No provider is invoked.
+func TestReadRejectsDuplicateAndUnicodeAliasPackets(t *testing.T) {
+ path:=filepath.Join(t.TempDir(),"untrusted.json")
+ cases:=[]struct{name,raw string}{
+  {"exact-duplicate",`{"schema":"public-synthetic","schema":"public-synthetic"}`},
+  {"ascii-case-alias",`{"schema":"public-synthetic","Schema":"public-synthetic"}`},
+  {"unicode-fold-alias",`{"schema":"public-synthetic","ſchema":"public-synthetic"}`},
+  {"nested-duplicate",`{"packet":{"source_sha":"x","source_sha":"y"}}`},
+  {"nested-unicode-alias",`{"packet":{"schema":"x","ſchema":"y"}}`},
+ }
+ for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
+  if e:=os.WriteFile(path,[]byte(tc.raw),0600);e!=nil{t.Fatal(e)}
+  var packet map[string]any
+  if e:=read(path,&packet);e==nil{t.Fatal("ambiguous artifact JSON accepted")}
+ })}
+}

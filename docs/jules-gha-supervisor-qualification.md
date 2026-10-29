@@ -62,3 +62,8 @@ No new provider key, tunnel, webhook registration, listener, public-private tran
 ### Pinned policy-context synthetic gate
 
 The opt-in `verifyProjectionForPolicy` entrypoint accepts an independently configured exact 64-lowerhex expected policy digest, independently pinned Ed25519 key, and already signed public manifest. It rejects a validly signed, byte-identical manifest for a different policy identity, including deliberate signer-valid policy substitution; the original `verifyProjection` remains a **format/byte verifier only**. These tests do not demonstrate the existence, integrity or owner approval of an upstream CCG policy, source right, destination, purpose, signing grant, or private release. Do not activate the release path until a trusted policy digest is bound to an accepted owner decision.
+
+
+### Unambiguous downloaded-artifact JSON
+
+The public interview CLI `read` path now applies the same bounded, Unicode simple-fold aware, recursive duplicate-key rejection as the signed-manifest and authenticated-webhook boundaries before decoding downloaded arms/packets/answers. Synthetic tests include exact duplicates, ASCII aliases, U+017F aliases and nested conflicting values. A passing parser test is not evidence of provider identity, durable webhook replay control, actual Jules invocation, or protected source custody.
