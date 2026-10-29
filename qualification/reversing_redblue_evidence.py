@@ -311,5 +311,111 @@ class BatchProperties(unittest.TestCase):
         self.assertEqual(r["unresolved_observations"][0]["reason"], "FOREIGN_RUN")
 
 
+class DifferentialReferenceProperties(unittest.TestCase):
+    """Independent byte-set truth, not a second copy of v2's projection."""
+
+    def test_sixteen_seed_byte_level_oracle_4096_observations(self):
+        import random
+        for seed in range(16):
+            with self.subTest(seed=seed):
+                rng = random.Random(0xD1FF + seed)
+                functions = [
+                    {"id": f"F{i}", "intervals": [
+                        {"rva": 8 + j * 80 + ((i * 17 + seed * 11 + j * 3) % 36),
+                         "size": 1 + ((seed + i + j) % 13)}
+                        for j in range(3)]}
+                    for i in range(8)
+                ]
+                # Ranges within one function are disjoint by construction;
+                # overlaps across functions are intentionally possible.
+                events = [
+                    {"id": f"byte-{rva}", "kind": "instruction",
+                     "sensor": "independent-byte-oracle", "vantage": "guest",
+                     "run_id": RUN, "time_domain": "synthetic-reference",
+                     "module_load_id": "load", "va": BASE + rva}
+                    for rva in range(256)
+                ]
+                rng.shuffle(functions)
+                rng.shuffle(events)
+                x = sample()
+                x["functions"], x["events"] = functions, events
+                actual = CORR.correlate(x)
+                matches = {m["event_id"]: m for m in actual["matched_instructions"]}
+                unresolved = {u["event_id"]: u for u in actual["unresolved_observations"]}
+                self.assertEqual(len(matches) + len(unresolved), 256)
+                unique_owners = set()
+                for rva in range(256):
+                    eid = f"byte-{rva}"
+                    owners = [
+                        fun["id"] for fun in functions
+                        if any(interval["rva"] <= rva <
+                               interval["rva"] + interval["size"]
+                               for interval in fun["intervals"])
+                    ]
+                    if len(owners) == 1:
+                        unique_owners.add(owners[0])
+                        self.assertEqual(matches[eid]["function_id"], owners[0])
+                        self.assertEqual(matches[eid]["rva"], rva)
+                        self.assertNotIn(eid, unresolved)
+                        function = next(f for f in functions if f["id"] == owners[0])
+                        indices = [idx for idx, interval in enumerate(function["intervals"])
+                                   if interval["rva"] <= rva <
+                                   interval["rva"] + interval["size"]]
+                        self.assertEqual(indices, [matches[eid]["interval_index"]])
+                    else:
+                        self.assertNotIn(eid, matches)
+                        self.assertEqual(
+                            unresolved[eid]["reason"],
+                            "AMBIGUOUS_FUNCTION" if owners else "NO_FUNCTION")
+                        self.assertEqual(unresolved[eid]["candidate_ids"],
+                                         sorted(owners))
+                self.assertEqual(actual["static_functions_not_observed"],
+                                 sorted(set(f["id"] for f in functions) - unique_owners))
+                self.assertEqual(actual["interpretation"]["semantic_equivalence"],
+                                 "NOT_PROVEN")
+
+    def test_cross_module_load_hash_does_not_leak_identity(self):
+        x = sample()
+        x["events"] = [copy.deepcopy(x["events"][1])]
+        x["module_loads"].append({
+            "id": "wrong-image-same-address",
+            "artifact_sha256": "b" * 64,
+            "base_va": BASE, "size": 0x1000,
+        })
+        x["events"].append({
+            **copy.deepcopy(x["events"][0]),
+            "id": "wrong-image-pc",
+            "module_load_id": "wrong-image-same-address",
+            "va": BASE + 0x100,
+        })
+        got = CORR.correlate(x)
+        self.assertEqual([m["event_id"] for m in got["matched_instructions"]],
+                         ["pc-100"])
+        self.assertEqual(got["unresolved_observations"][0],
+                         {"event_id": "wrong-image-pc",
+                          "reason": "ARTIFACT_MISMATCH"})
+
+    def test_json_exponent_overflow_never_becomes_accepted_evidence(self):
+        raw = json.dumps(sample(), sort_keys=True)
+        mutated = raw.replace('"base_va": 4194304',
+                              '"base_va": 1e309', 1)
+        self.assertNotEqual(raw, mutated)
+        try:
+            decoded = CORR.V1.strict_loads(mutated)
+        except CORR.V1.ContractError:
+            pass  # A stricter parser is acceptable.
+        else:
+            with self.assertRaises(CORR.V1.ContractError):
+                CORR.correlate(decoded)
+
+    def test_json_escaped_duplicate_key_is_rejected(self):
+        raw = json.dumps(sample(), sort_keys=True)
+        self.assertIn('"id": "A"', raw)
+        duplicate = raw.replace('"id": "A"',
+                                r'"\u0069d": "forged", "id": "A"', 1)
+        with self.assertRaises(CORR.V1.ContractError):
+            CORR.V1.strict_loads(duplicate)
+
+
 if __name__ == "__main__":
     unittest.main()
