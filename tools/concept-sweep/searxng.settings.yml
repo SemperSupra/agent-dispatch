@@ -1,0 +1,10 @@
+# Public-safe disposable qualification profile.
+# The container receives a fresh runtime secret via SEARXNG_SECRET, never Git.
+use_default_settings: true
+search:
+  formats:
+    - html
+    - json
+server:
+  limiter: false
+  public_instance: false

@@ -20,6 +20,11 @@ func TestWakeCommandIsLimitedToExactAuthenticatedPRComment(t *testing.T) {
 		"github.event.issue.number == 553",
 		"github.event.issue.pull_request != null",
 		"github.event.comment.user.id == 1854350",
+		"github.event.comment.body == '/mcp gha start smoke'",
+		"github.event.comment.body == '/mcp gha start live'",
+		"github.event.comment.body == '/mcp gha sweep pilot'",
+		"vars.MCP_GHA_AGE_RECIPIENT",
+		"name: MCP GHA Ephemeral MCP Worker",
 		"github.event.comment.body == '/mcpgha start smoke'",
 		"github.event.comment.body == '/mcpgha start live'",
 		"format('comment-wake:{0}', github.event.comment.id)",
@@ -43,6 +48,8 @@ func TestWakeCommandIsLimitedToExactAuthenticatedPRComment(t *testing.T) {
 		"repository_dispatch:",
 		"secrets.OPENAI_ADMIN_KEY",
 		"permissions: write-all",
+		"request-cancel:",
+		"/mcp gha cancel ",
 		"actions: write",
 	} {
 		if strings.Contains(s, forbidden) {
