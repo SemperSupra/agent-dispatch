@@ -198,5 +198,118 @@ class ProvenanceProperties(unittest.TestCase):
         self.assertIn("NOT_EXHAUSTIVE", result["interpretation"]["coverage"])
 
 
+class BatchProperties(unittest.TestCase):
+    """Single batch reuses bounded fixtures to test many adversarial cases."""
+
+    def test_forty_aslr_and_event_order_permutations(self):
+        baseline = sample()
+        expected = ownership(CORR.correlate(baseline))
+        for iteration in range(40):
+            with self.subTest(iteration=iteration):
+                probe = copy.deepcopy(baseline)
+                delta = (iteration + 1) * 0x10000
+                probe["module_loads"][0]["base_va"] += delta
+                for event in probe["events"]:
+                    event["va"] += delta
+                if iteration % 2:
+                    probe["functions"].reverse()
+                    probe["events"].reverse()
+                actual = CORR.correlate(probe)
+                self.assertEqual(ownership(actual), expected)
+                self.assertEqual(len(actual["matched_instructions"]), 4)
+                self.assertEqual(len(actual["unresolved_observations"]), 6)
+                self.assertNotEqual(actual["input_sha256"],
+                                    CORR.correlate(baseline)["input_sha256"])
+
+    def test_twenty_address_boundary_oracle(self):
+        x = sample()
+        x["functions"] = [
+            {"id": "A", "intervals": [{"rva": 8, "size": 4}]},
+            {"id": "B", "intervals": [{"rva": 10, "size": 4}]},
+        ]
+        x["events"] = [
+            {"id": f"r-{i}", "kind": "instruction", "sensor": "bounded",
+             "vantage": "guest", "run_id": RUN, "time_domain": "synthetic",
+             "module_load_id": "load", "va": BASE + i}
+            for i in range(20)
+        ]
+        yes, no = ownership(CORR.correlate(x))
+        self.assertEqual(yes, {"r-8": "A", "r-9": "A",
+                               "r-12": "B", "r-13": "B"})
+        self.assertEqual(no, {
+            f"r-{i}": ("AMBIGUOUS_FUNCTION" if 10 <= i < 12 else "NO_FUNCTION")
+            for i in range(20) if i not in (8, 9, 12, 13)
+        })
+
+    def test_nested_duplicate_member_mutation_batch(self):
+        valid = json.dumps(sample(), sort_keys=True)
+        edits = (
+            ('"id": "A"', '"id": "forged", "id": "A"'),
+            ('"rva": 256', '"rva": 999, "rva": 256'),
+            ('"module_load_id": "load"',
+             '"module_load_id": "missing", "module_load_id": "load"'),
+            ('"time_domain": "fictional-run-clock"',
+             '"time_domain": "forged", "time_domain": "fictional-run-clock"'),
+        )
+        for original, mutation in edits:
+            with self.subTest(member=original):
+                self.assertIn(original, valid)
+                with self.assertRaises(CORR.V1.ContractError):
+                    CORR.V1.strict_loads(valid.replace(original, mutation, 1))
+
+    def test_event_array_budget_1024_accepted_1025_refused(self):
+        x = sample()
+        template = copy.deepcopy(x["events"][1])
+        x["events"] = [{**template, "id": f"sample-{i}"} for i in range(1024)]
+        output = CORR.correlate(x)
+        self.assertEqual(len(output["matched_instructions"]), 1024)
+        self.assertEqual({v["function_id"] for v in output["matched_instructions"]},
+                         {"A"})
+        x["events"].append({**template, "id": "sample-1024"})
+        with self.assertRaises(CORR.V1.ContractError):
+            CORR.correlate(x)
+
+    def test_overflow_and_same_function_overlap_rejected(self):
+        x = sample()
+        x["functions"][0]["intervals"][1]["rva"] = 0x107
+        with self.assertRaises(CORR.V1.ContractError):
+            CORR.correlate(x)
+        x = sample()
+        x["functions"][0]["intervals"][0]["rva"] = CORR.V1.U64
+        with self.assertRaises(CORR.V1.ContractError):
+            CORR.correlate(x)
+        x = sample()
+        x["module_loads"][0]["base_va"] = CORR.V1.U64
+        with self.assertRaises(CORR.V1.ContractError):
+            CORR.correlate(x)
+
+    def test_unknown_or_unresolved_cause_never_creates_edge(self):
+        x = sample()
+        x["events"] = [x["events"][0], {
+            "id": "file", "kind": "file", "sensor": "strace",
+            "vantage": "host", "run_id": RUN, "time_domain": "host",
+            "cause_event_id": "absent",
+        }]
+        r = CORR.correlate(x)
+        self.assertFalse(r["causal_links"])
+        self.assertEqual(r["unresolved_links"][0]["reason"], "UNKNOWN_CAUSE")
+        x["events"][1]["cause_event_id"] = "pc-ff"
+        r = CORR.correlate(x)
+        self.assertFalse(r["causal_links"])
+        self.assertEqual(r["unresolved_links"][0]["reason"], "UNRESOLVED_CAUSE")
+
+    def test_foreign_external_does_not_gain_cross_run_link(self):
+        x = sample()
+        x["events"] = [x["events"][1], {
+            "id": "foreign-file", "kind": "file", "sensor": "strace",
+            "vantage": "host", "run_id": "different-run",
+            "time_domain": "host", "cause_event_id": "pc-100",
+        }]
+        r = CORR.correlate(x)
+        self.assertFalse(r["external_events"])
+        self.assertFalse(r["causal_links"])
+        self.assertEqual(r["unresolved_observations"][0]["reason"], "FOREIGN_RUN")
+
+
 if __name__ == "__main__":
     unittest.main()
