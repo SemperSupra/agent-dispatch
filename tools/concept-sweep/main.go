@@ -101,7 +101,7 @@ func digest(b []byte) string { s:=sha256.Sum256(b); return hex.EncodeToString(s[
 // Neither digest authenticates a source or establishes source-native identity.
 func digestHitV2(url,title,snippet string) string {
  h:=sha256.New()
- _,_=h.Write([]byte("mcp-gha-hit/v2\\x00"))
+ _,_=h.Write([]byte("mcp-gha-hit/v2\x00"))
  for _,part:=range []string{url,title,snippet} {
   value:=[]byte(part)
   var size [4]byte
