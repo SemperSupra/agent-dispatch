@@ -15,7 +15,7 @@ func TestPairManifestRejectsRecursiveDuplicateAndCaseAlias(t *testing.T) {
  for _,tc:=range []struct{name string;old string;rewrite string}{
   {"duplicate-schema",`"schema":`,`"schema":"mcp-gha-private-pair-preflight/v2","schema":`},
   {"case-alias-schema",`"schema":`,`"Schema":"mcp-gha-private-pair-preflight/v2","schema":`},
-  {"unicode-escaped-alias",`"schema":`,`"sch\\u0065ma":"mcp-gha-private-pair-preflight/v2","schema":`},
+  {"unicode-escaped-alias",`"schema":`,`"sch\u0065ma":"mcp-gha-private-pair-preflight/v2","schema":`},
   {"nested-job-alias",`"job_id":`,`"Job_ID":"123","job_id":`},
   {"nested-plan-duplicate",`"plan_sha256":`,`"plan_sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","plan_sha256":`},
   {"nested-arm-alias",`"arm":`,`"Arm":"cpe","arm":`},
