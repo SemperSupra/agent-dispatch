@@ -1,6 +1,13 @@
 name: GitHub Runner Frontier Oracles
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/github-runner-frontier.yml'
+      - 'scripts/reversing_evidence_correlate.py'
+      - 'tests/test_reversing_evidence_correlate.py'
+      - 'fixtures/reversing-correlation-synthetic-v1.json'
+      - 'docs/reversing-correlation-experiment.md'
   workflow_dispatch:
 
 permissions:
@@ -16,3 +23,25 @@ jobs:
           persist-credentials: false
       - name: Test frontier oracle semantics
         run: python3 -m unittest -v tests/test_github_runner_frontier.py
+      - name: Test reversing correlation and adversarial oracle semantics
+        run: python3 -m unittest -v tests/test_reversing_evidence_correlate.py
+      - name: Exercise synthetic correlated report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/reversing_evidence_correlate.py \
+            --input fixtures/reversing-correlation-synthetic-v1.json \
+            --output "${RUNNER_TEMP}/reversing-evidence.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          r = json.loads((Path(os.environ["RUNNER_TEMP"]) / "reversing-evidence.json").read_text())
+          assert r["schema"] == "reversing-correlation-result/v1"
+          assert len(r["matched_instructions"]) == 1
+          assert len(r["causal_links"]) == 1
+          assert len(r["unresolved_observations"]) == 1
+          assert len(r["static_functions_not_observed"]) == 1
+          assert r["mode"] == "synthetic"
+          print("SYNTHETIC_CONTRACT_PASS")
+          PY
