@@ -202,3 +202,33 @@ func TestMembraneRejectsSignedExcessObjectKeys(t *testing.T) {
   t.Fatal("signed excessive-key object accepted")
  }
 }
+
+// A signed and byte-identical candidate is not authorized for a different
+// controller-pinned policy context. This is an opt-in gate, not owner approval.
+func TestMembranePinnedPolicyIdentitySyntheticReplay(t *testing.T) {
+ root,b,sig,pub,priv:=projectionFixture(t)
+ trusted:=strings.Repeat("a",64)
+ if e:=verifyProjectionForPolicy(root,b,sig,pub,trusted);e!=nil{
+  t.Fatalf("signed current-policy positive rejected: %v",e)
+ }
+ for _,tc:=range []struct{name, expected string}{
+  {"missing",""},{"malformed","not-a-digest"},{"wrong-valid",strings.Repeat("b",64)},
+ }{
+  t.Run(tc.name,func(t *testing.T){
+   if e:=verifyProjectionForPolicy(root,b,sig,pub,tc.expected);e==nil{
+    t.Fatal("missing or mismatched independently pinned policy accepted")
+   }
+  })
+ }
+ swapped:=bytes.Replace(b,[]byte(strings.Repeat("a",64)),[]byte(strings.Repeat("b",64)),1)
+ if bytes.Equal(swapped,b) {t.Fatal("fixture policy anchor missing")}
+ if e:=verifyProjection(root,swapped,ed25519.Sign(priv,swapped),pub);e!=nil{
+  t.Fatalf("format-only positive control should accept newly signed syntactically valid digest: %v",e)
+ }
+ if e:=verifyProjectionForPolicy(root,swapped,ed25519.Sign(priv,swapped),pub,trusted);e==nil{
+  t.Fatal("valid signer replayed alternate policy digest")
+ }
+ if e:=verifyProjectionForPolicy(root,b,ed25519.Sign(priv,swapped),pub,trusted);e==nil{
+  t.Fatal("unbound signature accepted")
+ }
+}

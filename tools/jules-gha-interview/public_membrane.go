@@ -88,6 +88,30 @@ var sha256Hex=regexp.MustCompile("^[a-f0-9]{64}$")
 
 // Verify against the controller's independently configured, pinned trusted
 // public key. NEVER accept a public key supplied by the candidate itself.
+// verifyProjectionForPolicy is the post-release byte verifier's policy-identity
+// admission seam. Its expected digest must come from independently trusted
+// owner/controller configuration, NEVER from the candidate manifest. A matching
+// digest is not, by itself, CCG approval or source-release authorization.
+func verifyProjectionForPolicy(root string, rawManifest, signature []byte, pinnedKey ed25519.PublicKey, expectedPolicyDigest string) error {
+ if !sha256Hex.MatchString(expectedPolicyDigest) {return errors.New("missing trusted pinned policy digest")}
+ if len(pinnedKey)!=ed25519.PublicKeySize||len(rawManifest)==0||len(rawManifest)>65536||len(signature)!=ed25519.SignatureSize {
+  return errors.New("invalid trusted policy verification envelope")
+ }
+ if !ed25519.Verify(pinnedKey,rawManifest,signature){return errors.New("trusted release signature mismatch")}
+ if e:=rejectAmbiguousJSON(rawManifest);e!=nil{return e}
+ d:=json.NewDecoder(bytes.NewReader(rawManifest))
+ d.DisallowUnknownFields()
+ var m ProjectionManifest
+ if e:=d.Decode(&m);e!=nil{return e}
+ var trailing any
+ if e:=d.Decode(&trailing);e!=io.EOF{return errors.New("trailing signed manifest data")}
+ if m.Schema!=publicProjectionSchema||m.PolicyDigest!=expectedPolicyDigest {
+  return errors.New("signed release policy identity differs from independently pinned policy")
+ }
+ // Existing exact file-set, digest, path and byte checks remain authoritative.
+ return verifyProjection(root,rawManifest,signature,pinnedKey)
+}
+
 func verifyProjection(root string, rawManifest,signature []byte,pinnedKey ed25519.PublicKey)error{
  if len(pinnedKey)!=ed25519.PublicKeySize{return errors.New("missing pinned trusted key")}
  if len(rawManifest)==0||len(rawManifest)>65536||len(signature)!=ed25519.SignatureSize{return errors.New("invalid manifest/signature bounds")}
