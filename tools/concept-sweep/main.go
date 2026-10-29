@@ -6,6 +6,7 @@ import (
  "bytes"
  "context"
  "crypto/sha256"
+ "encoding/binary"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -56,6 +57,7 @@ type Hit struct {
  Title string `json:"title"`
  Snippet string `json:"snippet"`
  DerivedHash string `json:"derived_hash"`
+ DerivedHashV2 string `json:"derived_hash_v2,omitempty"`
  Engine string `json:"engine"`
 }
 type Attempt struct {
@@ -92,6 +94,23 @@ var hex64=regexp.MustCompile(`^[a-f0-9]{64}$`)
 var imageRE=regexp.MustCompile(`^ghcr.io/searxng/searxng:[a-zA-Z0-9.-]+@sha256:[a-f0-9]{64}$`)
 
 func digest(b []byte) string { s:=sha256.Sum256(b); return hex.EncodeToString(s[:]) }
+
+// digestHitV2 is domain-separated and length-prefixed so distinct field
+// tuples cannot share preimage bytes merely by moving ":" delimiters.
+// It supplements the historical v1 metadata hash, never rewrites it.
+// Neither digest authenticates a source or establishes source-native identity.
+func digestHitV2(url,title,snippet string) string {
+ h:=sha256.New()
+ _,_=h.Write([]byte("mcp-gha-hit/v2\\x00"))
+ for _,part:=range []string{url,title,snippet} {
+  value:=[]byte(part)
+  var size [4]byte
+  binary.BigEndian.PutUint32(size[:],uint32(len(value)))
+  _,_=h.Write(size[:])
+  _,_=h.Write(value)
+ }
+ return hex.EncodeToString(h.Sum(nil))
+}
 func decodeStrict(b []byte, dst any) error {
  d:=json.NewDecoder(bytes.NewReader(b));d.DisallowUnknownFields()
  if err:=d.Decode(dst);err!=nil{return err}
@@ -168,7 +187,7 @@ func search(ctx context.Context,client *http.Client,endpoint string,track string
   urlStr:=entry.URL
   title:=truncate(entry.Title,320)
   snippet:=truncate(entry.Content,600)
-  a.Hits=append(a.Hits,Hit{EvidenceID:fmt.Sprintf("%s:%03d:%02d",track,i,n),URL:urlStr,Title:title,Snippet:snippet,DerivedHash:digest([]byte(urlStr+":"+title+":"+snippet)),Engine:truncate(entry.Engine,80)})
+  a.Hits=append(a.Hits,Hit{EvidenceID:fmt.Sprintf("%s:%03d:%02d",track,i,n),URL:urlStr,Title:title,Snippet:snippet,DerivedHash:digest([]byte(urlStr+":"+title+":"+snippet)),DerivedHashV2:digestHitV2(urlStr,title,snippet),Engine:truncate(entry.Engine,80)})
  }
  for _,x:=range parsed.Unresponsive {if len(x)>0{if s,ok:=x[0].(string);ok {a.UnresponsiveEngines=append(a.UnresponsiveEngines,truncate(s,80))}}}
  sort.Strings(a.UnresponsiveEngines)
