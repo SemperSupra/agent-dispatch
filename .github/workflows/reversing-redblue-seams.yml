@@ -1,0 +1,34 @@
+name: Reversing red-blue evidence seam controls
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reversing-redblue-seams.yml'
+      - 'qualification/reversing_redblue_evidence.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reversing-redblue-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  source-known-contract:
+    name: redblue-${{ matrix.suite }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        suite: [GeometryProperties, ProvenanceProperties]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute independent geometry or provenance properties
+        env:
+          TEST_CLASS: ${{ matrix.suite }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest -v "qualification.reversing_redblue_evidence.${TEST_CLASS}"
