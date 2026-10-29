@@ -58,7 +58,7 @@ func TestMembraneSourceNeutralPythonVector(t *testing.T) {
   t.Fatalf("independent Python vector rejected by signed Go verifier: %v",e)
  }
  // Re-signing an otherwise valid byte set does not authorize extra metadata.
- changed:=strings.TrimSuffix(string(publicManifest),"}")+,"source_ref":"private/denied"}
+ changed:=strings.TrimSuffix(string(publicManifest),"}")+",\"source_ref\":\"private/denied\"}"
  hostile:=[]byte(changed)
  if e=verifyProjection(root,hostile,ed25519.Sign(signer,hostile),pinned);e==nil{
   t.Fatal("signed private-provenance field accepted")
