@@ -96,8 +96,9 @@ func judge(p Packet,a Answer,mode string)Verdict{
  v.Reason="UNSUPPORTED_MODE";return v
 }
 func read(path string,to any)error{
- f,e:=os.Open(path);if e!=nil{return e};defer f.Close()
- b,e:=io.ReadAll(io.LimitReader(f,32769));if e!=nil{return e};if len(b)>32768{return errors.New("oversize JSON")}
+ // A native artifact may be untrusted even when downloaded by the fixed
+ // public workflow: reject symlink/FIFO/hardlink path substitution up front.
+ b,e:=readPinnedArtifactJSON(path,32768);if e!=nil{return e}
  // Artifact packets and provider answers are untrusted even if downloaded by
  // a trusted workflow. Reject duplicate and Unicode simple-fold aliases
  // before encoding/json's case-insensitive struct decode selects a last value.

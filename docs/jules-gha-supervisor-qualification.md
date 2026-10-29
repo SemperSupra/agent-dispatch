@@ -72,3 +72,8 @@ The public interview CLI `read` path now applies the same bounded, Unicode simpl
 ### Bounded root/ancestor custody guard
 
 The Linux signed-byte verifier now opens the complete absolute root directory chain using nofollow directory descriptors, pins the root inode throughout the walk, and rejects a symlinked ancestor or a renamed/replaced root. The caller **still** must own a protected immutable release snapshot: namespace/mount attacks, transient swaps within a check window, and true classification are not attested by a Go filesystem walk. The test is public synthetic and introduces no private files or authority.
+
+
+### Pinned JSON artifact ingress (public synthetic)
+
+The public runner interview's downloaded-arm/packet/answer/verdict JSON ingress now reads through a bounded Linux descriptor, not `os.Open(path)`: root and ancestors must be real directories, leaf regular and one-link, reads bounded to 32 KiB, content checked twice against inode/path/metadata. Negative fixtures cover symlink leaf/parent, FIFO, hardlink and empty/oversized files. The separate recursive duplicate/Unicode-key check remains before typed JSON parsing. The non-Linux build refuses ingress rather than dropping this security gate. It neither authenticates GitHub job/artifact identity nor grants private publication, Jules execution, decryption or owner acceptance.
