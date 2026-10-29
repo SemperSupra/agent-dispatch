@@ -157,6 +157,7 @@ func TestMembraneRejectsSignedDuplicateJSONKeys(t *testing.T) {
  cases:=[]struct{name,needle,replacement string}{
   {"outer-schema",`"schema":`,`"schema":"unexpected","schema":`},
   {"outer-schema-alias",`"schema":`,`"schema":"unexpected","Schema":`},
+  {"unicode-simple-fold-schema",`"schema":`,`"ſchema":"unexpected","schema":`},
   {"nested-path",`"path":`,`"path":"synthetic/other.txt","path":`},
   {"nested-path-alias",`"path":`,`"path":"synthetic/other.txt","Path":`},
   {"nested-class",`"class":`,`"class":"V2","class":`},
@@ -170,4 +171,34 @@ func TestMembraneRejectsSignedDuplicateJSONKeys(t *testing.T) {
    t.Fatal("signed ambiguous duplicate-key manifest accepted")
   }
  })}
+}
+
+// The Go struct decoder folds Unicode long-s to ASCII s, unlike ToLower.
+// A legitimately signed canonical-looking last value still must fail closed.
+func TestMembraneRejectsSignedUnicodeSimpleFoldAlias(t *testing.T) {
+ root, original, _, pub, priv := projectionFixture(t)
+ changed := strings.Replace(string(original), `"schema":`, `"ſchema":"unsafe","schema":`, 1)
+ if changed == string(original) { t.Fatal("fixture anchor missing") }
+ raw := []byte(changed)
+ var baseline ProjectionManifest
+ if err := json.Unmarshal(raw, &baseline); err != nil || baseline.Schema != publicProjectionSchema {
+  t.Fatalf("negative control did not demonstrate Go Unicode alias fallback: %v",err)
+ }
+ if !strings.EqualFold("schema","ſchema") || strings.ToLower("schema")==strings.ToLower("ſchema") {
+  t.Fatal("Unicode simple-fold differential unavailable in this Go runtime")
+ }
+ if err := verifyProjection(root,raw,ed25519.Sign(priv,raw),pub); err == nil {
+  t.Fatal("signed Unicode simple-fold duplicate accepted")
+ }
+}
+
+func TestMembraneRejectsSignedExcessObjectKeys(t *testing.T) {
+ root, original, _, pub, priv := projectionFixture(t)
+ extra := strings.Repeat(`"synthetic":"value",`,65)
+ changed := strings.Replace(string(original),`"schema":`,extra+`"schema":`,1)
+ if changed == string(original) { t.Fatal("fixture anchor missing") }
+ raw := []byte(changed)
+ if err := verifyProjection(root,raw,ed25519.Sign(priv,raw),pub); err == nil {
+  t.Fatal("signed excessive-key object accepted")
+ }
 }

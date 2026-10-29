@@ -46,17 +46,20 @@ func rejectAmbiguousJSON(raw []byte) error {
   if !ok { return nil }
   switch delim {
   case '{':
-   seen := make(map[string]struct{})
+   // encoding/json matches struct fields using Unicode simple-fold,
+   // not strings.ToLower (e.g. U+017F long s aliases ASCII 's').
+   // Cap per-object keys before pairwise EqualFold comparison to bound work.
+   seen := make([]string,0,8)
    for d.More() {
+    if len(seen)>=64 { return errors.New("JSON object key bound exceeded") }
     keyToken, err := d.Token()
     if err != nil { return err }
     key, ok := keyToken.(string)
     if !ok { return errors.New("non-string JSON object key") }
-    // Typed Go decoders match JSON struct fields case-insensitively; reject
-    // aliases as well as exact duplicates before decoding the signed payload.
-    folded := strings.ToLower(key)
-    if _, exists := seen[folded]; exists { return errors.New("duplicate JSON object key or case-variant alias") }
-    seen[folded] = struct{}{}
+    for _,previous := range seen {
+     if strings.EqualFold(previous,key) { return errors.New("duplicate JSON object key or Unicode case-fold alias") }
+    }
+    seen=append(seen,key)
     if err := scan(depth+1); err != nil { return err }
    }
    end, err := d.Token()
