@@ -50,7 +50,8 @@ class FakeReadOnly:
         if method == "system.version":return self.version
         if method == "app.query":
             assert params[0][0][2] == CONTROL["data"]["app_name"]
-            return self.app
+            assert params == [[["id", "=", CONTROL["data"]["app_name"]]]]
+            return [self.app] if self.app is not None else []
         if method == "app.config":return self.compose
         if method == "pool.dataset.query":
             name=params[0][0][2]
@@ -161,6 +162,31 @@ class NativeShapeTests(unittest.TestCase):
             else:f.datasets["rdtepool/takeout-t6-state"]["mountpoint"]="/mnt/foreign"
             with self.assertRaises(m.ObservationBlocked):
                 observe(f)
+
+    def test_native_query_list_form_is_required_for_deleted_app(self):
+        f = FakeReadOnly("AFTER_NATIVE_APP_DELETE")
+        observe(f, stage="AFTER_NATIVE_APP_DELETE")
+        query = next(params for method, params in f.calls if method == "app.query")
+        self.assertEqual(query, [[["id", "=", CONTROL["data"]["app_name"]]]])
+
+    def test_native_query_rejects_duplicate_and_foreign_results(self):
+        for records in (
+            [{"id": CONTROL["data"]["app_name"]}] * 2,
+            [{"id": "other"}],
+            {"id": CONTROL["data"]["app_name"]},
+            None,
+            [None],
+        ):
+            with self.subTest(records=records):
+                f = FakeReadOnly("AFTER_NATIVE_APP_DELETE")
+                base = f.__call__
+                def query(method, params):
+                    if method == "app.query":
+                        return records
+                    return base(method, params)
+                with self.assertRaisesRegex(m.ObservationBlocked,
+                                            "NATIVE_APP_QUERY_AMBIGUOUS"):
+                    observe(query, stage="AFTER_NATIVE_APP_DELETE")
 
     def test_delete_not_absent(self):
         f=FakeReadOnly("AFTER_NATIVE_APP_DELETE")
