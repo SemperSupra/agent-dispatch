@@ -1,0 +1,24 @@
+name: EAC-TM official-source transport census (public metadata only)
+on:
+  push:
+    branches: [experiment/eac-tm-public-source-transport-20261101]
+    paths:
+      - .github/workflows/eac-tm-public-source-transport.yml
+      - tools/experiments/eac_tm_public_transport.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  official-source-census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Synthetic parser preflight (not original source)
+        run: python3 tools/experiments/eac_tm_public_transport.py --self-test
+      - name: Official HTTPS archive transport and source-role metadata only
+        run: python3 tools/experiments/eac_tm_public_transport.py
+      - name: Independent DOM validator synthetic self-test
+        run: python3 tools/experiments/eac_tm_independent_validator.py --self-test
+      - name: Independent official-source exact-hash DOM census
+        run: python3 tools/experiments/eac_tm_independent_validator.py
