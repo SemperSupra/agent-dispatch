@@ -52,7 +52,14 @@ def observe(call: Callable, control: dict, *, stage: str,
         raise ObservationBlocked("NATIVE_VERSION_UNAVAILABLE") from None
     require(version == "TrueNAS-25.04.2.6", "NATIVE_SYSTEM_VERSION_MISMATCH")
     try:
-        app = call("app.query", [[["id", "=", app_name]], {"get": True}])
+        # The list form returns [] after app.delete; get:true may throw
+        # InstanceNotFound for a correctly removed application.
+        matches = call("app.query", [[["id", "=", app_name]]])
+        require(isinstance(matches, list) and len(matches) <= 1 and
+                all(isinstance(item, dict) and item.get("id") == app_name
+                    for item in matches),
+                "NATIVE_APP_QUERY_AMBIGUOUS")
+        app = matches[0] if matches else None
         ds_data = []
         for name, path in datasets:
             found = call("pool.dataset.query", [[["id", "=", name]]])
@@ -114,8 +121,7 @@ def observe(call: Callable, control: dict, *, stage: str,
                 "independent_file_bytes_verified": False,
                 "docker_read_required": False, "physical_apply": "HOLD"}
     else:
-        require(app is None or app == [] or app == {},
-                "NATIVE_APP_STILL_PRESENT_AFTER_DELETE")
+        require(app is None, "NATIVE_APP_STILL_PRESENT_AFTER_DELETE")
         require(exact_compose is None, "POST_DELETE_COMPOSE_NOT_ALLOWED")
         return {"classification": "NATIVE_APP_ABSENCE_SHAPE_ONLY",
                 "stage": stage, "app": app_name,
