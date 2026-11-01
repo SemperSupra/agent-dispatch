@@ -18,3 +18,7 @@ jobs:
         run: python3 tools/experiments/eac_tm_public_transport.py --self-test
       - name: Official HTTPS archive transport and source-role metadata only
         run: python3 tools/experiments/eac_tm_public_transport.py
+      - name: Independent DOM validator synthetic self-test
+        run: python3 tools/experiments/eac_tm_independent_validator.py --self-test
+      - name: Independent official-source exact-hash DOM census
+        run: python3 tools/experiments/eac_tm_independent_validator.py
