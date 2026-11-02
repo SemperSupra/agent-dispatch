@@ -93,7 +93,7 @@ class NativeShapeTests(unittest.TestCase):
 
     def test_wrong_app_identity(self):
         f=FakeReadOnly("BEFORE_NATIVE_APP_DELETE");f.app["id"]="foreign"
-        with self.assertRaisesRegex(m.ObservationBlocked, "NATIVE_APP_NOT_STOPPED"):
+        with self.assertRaisesRegex(m.ObservationBlocked, "NATIVE_APP_QUERY_AMBIGUOUS"):
             observe(f)
 
     def test_app_still_running_fails(self):
