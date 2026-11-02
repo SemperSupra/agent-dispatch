@@ -1,0 +1,71 @@
+name: Colab Embodiment Boundary Check
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/colab-embodiment/**'
+      - '.github/workflows/colab-embodiment-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  colab-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Check Colab embodiment planning boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/experiments/colab-embodiment/evidence"
+          mkdir -p "$out"
+
+          sha256sum \
+            experiments/colab-embodiment/colab_embodiment_actuator.py \
+            experiments/colab-embodiment/check_colab_embodiment_actuator.py \
+            experiments/colab-embodiment/check_requester_neutral_embodiment.py \
+            experiments/agent-dispatch-gha-embodiment/agent_dispatch_gha_actuator.py \
+            experiments/embodiment-control/embodiment_control.py \
+            experiments/embodiment-control/embodiment_semantics.py \
+            > "$out/source-sha256.txt"
+
+          (
+            cd experiments/colab-embodiment
+            python3 check_colab_embodiment_actuator.py
+            python3 check_requester_neutral_embodiment.py
+          ) | tee "$out/colab-boundary.log"
+
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "experiments" / "colab-embodiment" / "evidence"
+          receipt = {
+              "schema": "colab-embodiment-boundary-check/v1",
+              "public_safe": True,
+              "source_authority": "mark-e-deyoung/personal-ops#97/#98",
+              "source": {
+                  "workflow_sha": os.environ.get("GITHUB_SHA", ""),
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              },
+              "result": {
+                  "boundary_contract_passed": True,
+                  "requester_neutral_composition_passed": True,
+              },
+          }
+          (out / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Upload Colab boundary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: colab-embodiment-boundary-check
+          path: experiments/colab-embodiment/evidence/
+          if-no-files-found: error
+          retention-days: 7

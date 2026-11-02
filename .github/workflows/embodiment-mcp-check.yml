@@ -1,0 +1,67 @@
+name: Embodiment MCP Projection Check
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/embodiment-mcp/**'
+      - '.github/workflows/embodiment-mcp-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Check private embodiment MCP projection
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/experiments/embodiment-mcp/evidence"
+          mkdir -p "$out"
+
+          sha256sum             experiments/embodiment-mcp/embodiment_mcp_adapter.py             experiments/embodiment-mcp/check_embodiment_mcp_adapter.py             experiments/embodiment-control/embodiment_control.py             experiments/embodiment-control/embodiment_semantics.py             > "$out/source-sha256.txt"
+
+          (
+            cd experiments/embodiment-mcp
+            python3 check_embodiment_mcp_adapter.py
+          ) | tee "$out/mcp-check.log"
+
+          python3 - <<'PY'
+          import json, os, pathlib
+          out = pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "experiments" / "embodiment-mcp" / "evidence"
+          receipt = {
+              "schema": "embodiment-mcp-projection-check/v1",
+              "public_safe": True,
+              "source_authority": "mark-e-deyoung/personal-ops#97/#98",
+              "source": {
+                  "workflow_sha": os.environ.get("GITHUB_SHA", ""),
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              },
+              "result": {
+                  "read_only_default_passed": True,
+                  "bounded_write_projection_passed": True,
+                  "provider_effect_tools_not_exposed": True,
+                  "generic_remote_command_not_exposed": True,
+                  "private_tunnel_required": True,
+              },
+          }
+          (out / "receipt.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+
+      - name: Upload embodiment MCP evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: embodiment-mcp-projection-check
+          path: experiments/embodiment-mcp/evidence/
+          if-no-files-found: error
+          retention-days: 7
