@@ -20,7 +20,13 @@ jobs:
       - name: Checkout exact review head (no retained GitHub credentials)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Assert exact checked-out source revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Compile native observer and tests
         run: python3 -m py_compile scripts/observe_takeout_t6_native_app.py tests/test_observe_takeout_t6_native_app.py
       - name: Execute independent native API shape and negative controls
