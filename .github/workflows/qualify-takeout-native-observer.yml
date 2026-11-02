@@ -1,0 +1,30 @@
+name: Takeout native observer source-only qualification
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/observe_takeout_t6_native_app.py'
+      - 'tests/test_observe_takeout_t6_native_app.py'
+      - 'config/takeout-synthetic-guest-control-candidate.json'
+      - '.github/workflows/qualify-takeout-native-observer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observer-source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact review head (no retained GitHub credentials)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile native observer and tests
+        run: python3 -m py_compile scripts/observe_takeout_t6_native_app.py tests/test_observe_takeout_t6_native_app.py
+      - name: Execute independent native API shape and negative controls
+        run: python3 -m unittest discover -s tests -p 'test_observe_takeout_t6_native_app.py' -v
+      - name: State evidence boundary
+        run: |
+          printf '%s\n' 'SOURCE_ONLY: no TrueNAS guest, native app lifecycle, ZFS byte verification, Google authorization, DOCKER_READ or physical APPLY performed.'
