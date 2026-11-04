@@ -93,6 +93,9 @@ class Tests(unittest.TestCase):
         c["consumer"].update({"data_outcome_observer": "CI_QUALIFIED",
                               "native_app_observation": "ACCEPTED",
                               "zfs_retention": "ACCEPTED"})
+        # This test exercises the *hypothetical* absence of static blockers,
+        # not actual historical image freshness or admission.
+        c["producer"]["oci_artifact_expires"] = "2999-12-31T23:59:59Z"
         c["execution"]["fresh_takeout_run_request"] = "tn-unique-takeout-001"
         c["execution"]["exclusive_lane_release"] = "authority:approved"
         r = classify(candidate=c,
@@ -108,6 +111,31 @@ class Tests(unittest.TestCase):
         c = copy.deepcopy(C)
         c["producer"]["oci_artifact_expires"] = "EXPIRED"
         self.assertIn("OCI_ARTIFACT_EXPIRED", classify(candidate=c)["blockers"])
+
+    def test_historical_oci_timestamp_expired_without_marker(self):
+        c = copy.deepcopy(C)
+        self.assertEqual(c["producer"]["oci_artifact_expires"],
+                         "2026-10-22T16:42:25Z")
+        self.assertIn("OCI_ARTIFACT_EXPIRED",
+                      classify(candidate=c)["blockers"])
+
+    def test_missing_or_unqualified_expiry_refused(self):
+        for expiry in (None, "", "not-a-date", "2026-10-22T16:42:25",
+                       20261022, "2026-13-99T99:99:99Z"):
+            with self.subTest(expiry=expiry):
+                c = copy.deepcopy(C)
+                c["producer"]["oci_artifact_expires"] = expiry
+                self.assertIn("OCI_ARTIFACT_EXPIRY_INVALID",
+                              classify(candidate=c)["blockers"])
+
+    def test_future_expiry_never_grants_execution(self):
+        c = copy.deepcopy(C)
+        c["producer"]["oci_artifact_expires"] = "2999-12-31T23:59:59Z"
+        r = classify(candidate=c)
+        self.assertNotIn("OCI_ARTIFACT_EXPIRED", r["blockers"])
+        self.assertEqual(r["status"], "BLOCKED")
+        self.assertFalse(r["guest_started"])
+        self.assertEqual(r["physical_apply"], "HOLD")
 
     def test_unqualified_foundry_observer_blocks(self):
         self.assertIn("FOUNDRY_DATA_OUTCOME_OBSERVER_NOT_QUALIFIED",
