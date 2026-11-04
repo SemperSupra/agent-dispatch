@@ -1,0 +1,35 @@
+name: Synthetic OCI artifact integrity preflight
+
+on:
+  pull_request:
+    paths:
+      - "scripts/verify_takeout_synthetic_oci_artifact.py"
+      - "tests/test_verify_takeout_synthetic_oci_artifact.py"
+      - ".github/workflows/qualify-takeout-oci-artifact.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-oci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Checkout exact proposed source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Exercise bounded OCI synthetic positive and negative oracles
+        run: python3 -m unittest discover -s tests -p test_verify_takeout_synthetic_oci_artifact.py -v
+      - name: Confirm no site executor, download or mutation is present
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("scripts/verify_takeout_synthetic_oci_artifact.py").read_text()
+          assert "docker run" not in text and "subprocess" not in text
+          assert "urllib" not in text and "requests" not in text
+          assert "TRUENAS" not in text
+          print("STATIC_OFFLINE_BOUNDARY_PASS")
+          PY

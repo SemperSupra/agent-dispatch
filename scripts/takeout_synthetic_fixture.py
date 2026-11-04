@@ -160,7 +160,7 @@ def halt_oracle(base, server, status):
         raise ValueError("halt did not stop admission")
 
 
-def run(output, state_dir=None):
+def run(output, state_dir=None, completion_operation=None):
     if output.is_symlink():
         raise ValueError("unowned output")
     output.mkdir(parents=True, exist_ok=True)
@@ -206,6 +206,16 @@ def run(output, state_dir=None):
     if state_path is not None and not state_path.exists():
         with state_path.open("x", encoding="utf-8") as stream:
             json.dump(state, stream, sort_keys=True)
+    if completion_operation is not None:
+        if state_dir is None:
+            raise ValueError("completion receipt requires separate state")
+        # Report is the LAST successful write. Independent consumers must
+        # separately rehash all archive files and bind a fresh operation ID.
+        from takeout_application_completion import publish
+        expected = {name: {"bytes": len(data), "sha256": sha(data)}
+                    for name, data in {**FILES, "retained-sentinel.txt": SENTINEL}.items()}
+        publish(state_dir, output, operation_id=completion_operation,
+                expected=expected, expected_source="takeout-synthetic-fixture/v1")
     return {"schema": "takeout-synthetic-fixture/v1", "classification": "SUPPORTED",
             "scope": "synthetic-local-http-only", "files": inventory(),
             "outcomes": outcomes, "noop": True, "halt_403": True, "halt_429": True,
@@ -218,9 +228,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--state", type=Path, help="separate owned temporary state directory")
+    parser.add_argument("--completion-operation", help="fresh host-assigned operation ID; optional")
     args = parser.parse_args()
     try:
-        print(json.dumps(run(args.output, args.state), sort_keys=True))
+        print(json.dumps(run(args.output, args.state, args.completion_operation), sort_keys=True))
         return 0
     except Exception:
         print(json.dumps({"classification": "ORACLE_FAILURE", "guest_qualified": False}))
