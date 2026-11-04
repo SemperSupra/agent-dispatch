@@ -34,6 +34,24 @@ jobs:
           ref: 2376961b4c5d2bb79843046774249cca02dc6888
           path: nested-runner
           persist-credentials: false
+      - name: Fail closed if deferred Docker-events or expired-transport workflow resurfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            .github/workflows/qualify-takeout-docker-event-live.yml \
+            .github/workflows/qualify-takeout-hosted-compose.yml \
+            scripts/truenas_takeout_docker_event_oracle.py \
+            tests/test_truenas_takeout_docker_event_oracle.py; do
+            if test -e "$path"; then
+              echo "::error title=Deferred capability reintroduced::$path"
+              exit 1
+            fi
+          done
+          test -f scripts/truenas_takeout_terminal_diagnostic.py
+          test -f .github/workflows/qualify-takeout-foundry-receipt.yml
+          echo "PASS_NO_R9_DOCKER_EVENTS_OR_STALE_HOSTED_TRANSPORT"
+
       - name: Exercise 13 fail-closed source tests
         run: python3 -m unittest discover -s tests -p 'test_qualify_takeout_t6_admission.py' -v
       - name: Exercise source-pinned OCI layer count plus legacy negative controls
