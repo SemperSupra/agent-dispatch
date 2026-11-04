@@ -8,6 +8,7 @@ success from a hosted Docker run. Report all blockers without private data.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -125,8 +126,24 @@ def check(candidate: dict, providers: dict, run_request: dict,
         blockers.append("NATIVE_APP_OBSERVER_NOT_QUALIFIED")
     if consumer.get("zfs_retention") != "ACCEPTED":
         blockers.append("NATIVE_ZFS_RETENTION_NOT_QUALIFIED")
-    if product.get("oci_artifact_expires") == "EXPIRED":
+    # Never trust an unparsed timestamp to stand for a fresh OCI artifact.
+    # The historical producer receipt expires on a fixed date, independently
+    # of source/guest admission. This preflight cannot renew it or fetch bytes.
+    expiry = product.get("oci_artifact_expires")
+    if expiry == "EXPIRED":
         blockers.append("OCI_ARTIFACT_EXPIRED")
+    elif not isinstance(expiry, str):
+        blockers.append("OCI_ARTIFACT_EXPIRY_INVALID")
+    else:
+        try:
+            parsed = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("timezone required")
+        except ValueError:
+            blockers.append("OCI_ARTIFACT_EXPIRY_INVALID")
+        else:
+            if parsed <= datetime.now(timezone.utc):
+                blockers.append("OCI_ARTIFACT_EXPIRED")
     # Never emit READY from static claims; readiness requires a separate
     # admission issuer and one-use native executor, not untrusted JSON flags.
     return {"schema": "takeout-t6-static-preflight/v1",
