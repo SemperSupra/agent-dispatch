@@ -107,10 +107,21 @@ def observe(call: Callable, control: dict, *, stage: str,
                 str(worker.get("user")) in ("10001", "10001:10001") and
                 not worker.get("ports") and not worker.get("privileged"),
                 "NATIVE_WORKER_SECURITY_DRIFT")
-        require(any(profile["archive_host_path"] in str(v) and "/archive" in str(v)
-                    for v in worker.get("volumes", [])) and
-                any(profile["state_host_path"] in str(v) and "/state" in str(v)
-                    for v in worker.get("volumes", [])),
+        # Never infer mount identity from a string dump: an unrelated field
+        # could contain the expected source and target while the actual bind
+        # points at foreign data. Require exactly two explicit bind mounts.
+        mounts = worker.get("volumes")
+        expected = {
+            (profile["archive_host_path"], "/archive"),
+            (profile["state_host_path"], "/state"),
+        }
+        require(isinstance(mounts, list) and len(mounts) == 2 and
+                all(isinstance(v, dict) and v.get("type") == "bind" and
+                    isinstance(v.get("source"), str) and
+                    isinstance(v.get("target"), str) and
+                    v.get("read_only") in (None, False)
+                    for v in mounts) and
+                {(v["source"], v["target"]) for v in mounts} == expected,
                 "NATIVE_DATA_MOUNT_MISMATCH")
         return {"classification": "NATIVE_APP_READBACK_SHAPE_ONLY",
                 "stage": stage, "app": app_name,
