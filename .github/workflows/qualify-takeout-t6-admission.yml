@@ -75,31 +75,19 @@ jobs:
           print(json.dumps(d,sort_keys=True))
           PY
 
-      - name: Independently inspect the actual six-layer public receipt-enabled transport
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Prove historical OCI artifact expiration remains a BLOCKED source-only gate
         run: |
-          set -euo pipefail
-          gh api --method GET -H "Accept: application/vnd.github+json" \
-            "repos/SemperSupra/agent-dispatch/actions/artifacts/11991297351/zip" \
-            > "$RUNNER_TEMP/takeout-receipt-enabled.zip"
-          python3 scripts/verify_takeout_synthetic_oci_artifact.py \
-            "$RUNNER_TEMP/takeout-receipt-enabled.zip" \
-            --artifact-digest sha256:293ed237e714aafe6b8f991ae6409005cafc2f89e65da4e6c83fb46afee8869f \
-            --image-digest sha256:32d6d63f5534bac350fcc89dee9b3b03d086ab20d3526e3263fb686193579c8c \
-            --source-sha 96f814785217404963e06cbbf75b9a443c7688e8 \
-            > "$RUNNER_TEMP/takeout-oci-audit.json"
           python3 - <<'PY'
-          import json,os,pathlib
-          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'takeout-oci-audit.json'
-          v=json.loads(p.read_text())
-          assert v['status']=='PASS' and v['layers']==6
-          assert v['docker_archive_layers']==6
-          assert v['docker_archive_import_receipt']=='PASS'
-          assert v['truenas_guest']=='NOT_RUN' and v['physical_apply']=='HOLD'
-          print(json.dumps({'classification':'PUBLIC_REPORT_IMAGE_ARTIFACT_CROSS_FORMAT_PASS',
-                            'image_config_in_archive':v['docker_config_digest'],
-                            'oci_layers':v['layers'],'docker_layers':v['docker_archive_layers'],
-                            'guest':'NOT_RUN','physical_apply':'HOLD'},sort_keys=True))
+          import json
+          from pathlib import Path
+          from scripts.qualify_takeout_t6_admission import check
+          c=json.loads(Path("config/takeout-t6-admission-candidate.json").read_text())
+          assert c["producer"]["oci_artifact_expires"] == "2026-10-22T16:42:25Z"
+          # Targeted negative check: old October receipt cannot be re-admitted
+          # by the continued presence of its SHA and artifact ID in source.
+          import datetime
+          expiry=datetime.datetime.fromisoformat(c["producer"]["oci_artifact_expires"].replace("Z","+00:00"))
+          assert expiry < datetime.datetime.now(datetime.timezone.utc)
+          assert c["decision"] == "HOLD" and not c["execution"]["run_dispatched"]
+          print("EXPIRED_OCI_REQUIRES_FRESH_BYTES_AND_REQUALIFICATION: HOLD")
           PY
