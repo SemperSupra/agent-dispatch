@@ -150,6 +150,54 @@ class NativeShapeTests(unittest.TestCase):
         with self.assertRaisesRegex(m.ObservationBlocked,"NATIVE_DATA_MOUNT_MISMATCH"):
             observe(f,compose=value)
 
+    def test_bind_identity_cannot_be_laundered_through_metadata(self):
+        f=FakeReadOnly("BEFORE_NATIVE_APP_DELETE")
+        value=copy.deepcopy(COMPOSE)
+        value["services"]["takeoutsynthetic"]["volumes"][0] = {
+            "type": "bind", "source": "/mnt/foreign", "target": "/arbitrary",
+            "comment": "/mnt/rdtepool/takeout-t6-archives /archive",
+        }
+        f.compose=value
+        with self.assertRaisesRegex(m.ObservationBlocked, "NATIVE_DATA_MOUNT_MISMATCH"):
+            observe(f,compose=value)
+
+    def test_extra_or_duplicate_mount_not_accepted(self):
+        for mount in (
+            {"type": "bind", "source": "/mnt/foreign", "target": "/foreign"},
+            copy.deepcopy(COMPOSE["services"]["takeoutsynthetic"]["volumes"][0]),
+        ):
+            with self.subTest(mount=mount):
+                f=FakeReadOnly("BEFORE_NATIVE_APP_DELETE")
+                value=copy.deepcopy(COMPOSE)
+                value["services"]["takeoutsynthetic"]["volumes"].append(mount)
+                f.compose=value
+                with self.assertRaisesRegex(m.ObservationBlocked, "NATIVE_DATA_MOUNT_MISMATCH"):
+                    observe(f,compose=value)
+
+    def test_swapped_bind_targets_not_accepted(self):
+        f=FakeReadOnly("BEFORE_NATIVE_APP_DELETE")
+        value=copy.deepcopy(COMPOSE)
+        mounts=value["services"]["takeoutsynthetic"]["volumes"]
+        mounts[0]["target"],mounts[1]["target"]=mounts[1]["target"],mounts[0]["target"]
+        f.compose=value
+        with self.assertRaisesRegex(m.ObservationBlocked, "NATIVE_DATA_MOUNT_MISMATCH"):
+            observe(f,compose=value)
+
+    def test_unstructured_or_read_only_bind_not_accepted(self):
+        for replacement in (
+            "/mnt/rdtepool/takeout-t6-archives:/archive",
+            {"type": "bind", "source": "/mnt/rdtepool/takeout-t6-archives",
+             "target": "/archive", "read_only": True},
+            None,
+        ):
+            with self.subTest(replacement=replacement):
+                f=FakeReadOnly("BEFORE_NATIVE_APP_DELETE")
+                value=copy.deepcopy(COMPOSE)
+                value["services"]["takeoutsynthetic"]["volumes"][0]=replacement
+                f.compose=value
+                with self.assertRaisesRegex(m.ObservationBlocked, "NATIVE_DATA_MOUNT_MISMATCH"):
+                    observe(f,compose=value)
+
     def test_state_dataset_not_owned(self):
         f=FakeReadOnly("BEFORE_NATIVE_APP_DELETE");f.stats["/mnt/rdtepool/takeout-t6-state"]["uid"]=0
         with self.assertRaisesRegex(m.ObservationBlocked,"HOSTPATH_OWNERSHIP_MISMATCH"):
