@@ -27,6 +27,8 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          printf "CHECKED_OUT_COMMIT=%s\n" "$(git rev-parse HEAD)"
+          printf "TREE_SHA=%s\n" "$(git rev-parse HEAD^{tree})"
       - name: Compile native observer and tests
         run: python3 -m py_compile scripts/observe_takeout_t6_native_app.py tests/test_observe_takeout_t6_native_app.py
       - name: Execute independent native API shape and negative controls
