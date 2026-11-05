@@ -56,12 +56,26 @@ def check(candidate: dict, providers: dict, run_request: dict,
     consumer = candidate.get("consumer")
     require(isinstance(product, dict) and isinstance(consumer, dict),
             "PROVENANCE_MISSING")
+    # Pinned independent public cross-run receipt. These static identifiers
+    # qualify only the public transport, never a native Apps import or slot.
     require(product.get("repository") == "SemperSupra/agent-dispatch" and
-            product.get("pr") == 480 and product.get("hosted_receipt_workflow") == 38771167004 and
-            isinstance(product.get("source_commit"), str) and
-            SHA.fullmatch(product["source_commit"]) and
-            isinstance(product.get("oci_artifact_zip_sha256"), str) and
-            DIGEST.fullmatch(product["oci_artifact_zip_sha256"]),
+            product.get("pr") == 480 and
+            product.get("source_commit") ==
+            "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0" and
+            product.get("cross_run_public_source_sha") == product.get("source_commit") and
+            product.get("hosted_receipt_workflow") == 41905075905 and
+            type(product.get("oci_artifact_id")) is int and
+            product["oci_artifact_id"] == 13358599085 and
+            product.get("oci_artifact_zip_sha256") ==
+            "sha256:dcc0b35035163f0b5a1cbd73603070c40017d86c13817ca6cd7a3441c898506e" and
+            product.get("oci_manifest_sha256") ==
+            "sha256:dc4bd461467e15d5cd50152d17cc673383c86998ca61700ed7d57881dcea868e" and
+            product.get("loaded_image_config_sha256") ==
+            "sha256:2a42d2262e4f8d86bf9f07de64145b5bcf68cb1b491cf34b3f39126b1c054eed" and
+            product.get("portable_oci_cross_format_workflow") == 41955695340 and
+            product.get("artifact_independent_byte_audit") ==
+            "PASS_PUBLIC_CROSS_RUN_2026-11-05" and
+            product.get("native_guest_import_qualified") is False,
             "SOURCE_PROVENANCE_DRIFT")
     require(consumer.get("repository") == "SemperSupra/truenas-app-foundry" and
             consumer.get("pr") == 144 and isinstance(consumer.get("source_commit"), str) and
@@ -72,7 +86,7 @@ def check(candidate: dict, providers: dict, run_request: dict,
             receipt.get("process_exit_required") is False and
             receipt.get("docker_read_required") is False and
             receipt.get("application_self_report_is_sufficient") is False and
-            receipt.get("verified_hosted_workflow") == 38771167004,
+            receipt.get("verified_hosted_workflow") == 41905075905,
             "COMPLETION_CONTRACT_DRIFT")
     execution = candidate.get("execution")
     require(isinstance(execution, dict) and
@@ -120,6 +134,10 @@ def check(candidate: dict, providers: dict, run_request: dict,
         blockers.append("LANE_480_RELEASE_MISSING")
     if not isinstance(execution.get("fresh_takeout_run_request"), str) or not execution["fresh_takeout_run_request"]:
         blockers.append("UNIQUE_REQUEST_EDGE_NOT_RECORDED")
+    # Public transport receipt is independent of native import. Even an
+    # exact, unexpired ZIP must never suppress the guest import gate.
+    if product.get("native_guest_import_qualified") is not True:
+        blockers.append("NATIVE_OCI_IMPORT_NOT_QUALIFIED")
     if consumer.get("data_outcome_observer") != "CI_QUALIFIED":
         blockers.append("FOUNDRY_DATA_OUTCOME_OBSERVER_NOT_QUALIFIED")
     if consumer.get("native_app_observation") != "ACCEPTED":
