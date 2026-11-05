@@ -111,11 +111,12 @@ jobs:
             --mount "type=bind,src=$archive,dst=/archive" \
             --mount "type=bind,src=$state,dst=/state" \
             takeout-synthetic:local > "$RUNNER_TEMP/independent.json"
-          sudo python3 - <<'PY'
-          import json,os
+          # sudo strips RUNNER_TEMP: pass the bounded scratch path as argv.
+          sudo python3 - "$RUNNER_TEMP" <<'PY'
+          import json,sys
           from pathlib import Path
           from scripts.takeout_synthetic_fixture import FILES,SENTINEL
-          root=Path(os.environ['RUNNER_TEMP'])
+          root=Path(sys.argv[1])
           actual={p.name:p.read_bytes() for p in (root/'cross-run-archive').iterdir()}
           expected={**FILES,'retained-sentinel.txt':SENTINEL}
           assert actual==expected,'ARCHIVE_MATERIALIZATION_MISMATCH'
