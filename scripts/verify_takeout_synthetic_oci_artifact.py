@@ -24,10 +24,13 @@ DOCKER_TRANSPORT = "fixture.docker.tar.gz"
 MAX_SMALL = 256 * 1024
 # The receipt module adds one image layer at the independently pinned source.
 REPORT_SOURCE_SHA = "96f814785217404963e06cbbf75b9a443c7688e8"
+# Same report-capable Dockerfile/fixture payload at the later consolidation
+# commit; cleanup changed only workflows and deferred Docker-event files.
+CURRENT_REPORT_SOURCE_SHA = "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0"
 
 
 def source_layer_count(source_sha: str) -> int:
-    return 6 if source_sha == REPORT_SOURCE_SHA else 5
+    return 6 if source_sha in {REPORT_SOURCE_SHA, CURRENT_REPORT_SOURCE_SHA} else 5
 
 
 class Blocked(ValueError):
