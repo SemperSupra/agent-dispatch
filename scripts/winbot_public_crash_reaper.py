@@ -122,14 +122,25 @@ def classify(manifest_path):
     need(ds is not None and ds.get("file")==str(overlay) and
          df is not None and df.get("type")=="qcow2","wrong overlay source")
     backs=d.findall("backingStore")
-    need(len(backs)==1 and backs[0].get("type")=="file","ambiguous native backing chain")
-    bs=backs[0].find("source");bf=backs[0].find("format")
-    need(bs is not None and bs.get("file")==str(master) and
-         bf is not None and bf.get("type")=="qcow2",
-         "backing source does not bind owned synthetic master")
-    tail=backs[0].findall("backingStore")
-    need(len(tail)==1 and not tail[0].attrib and not list(tail[0]),
-         "not a terminated two-image chain")
+    state=virsh("domstate",uid)
+    need(state.returncode==0,"native owned VM state unreadable")
+    stopped=state.stdout.strip().lower()=="shut off"
+    # libvirt may omit runtime-resolved backing metadata from dumpxml once a
+    # guest has stopped. NEVER accept an omitted chain for a running guest.
+    # Even for a stopped guest, the independent QEMU backing-chain inspection
+    # below MUST still prove exactly overlay -> owned synthetic master.
+    if len(backs)==0:
+        need(stopped,"running guest missing native backing proof")
+    else:
+        need(len(backs)==1 and backs[0].get("type")=="file",
+             "ambiguous native backing chain")
+        bs=backs[0].find("source");bf=backs[0].find("format")
+        need(bs is not None and bs.get("file")==str(master) and
+             bf is not None and bf.get("type")=="qcow2",
+             "backing source does not bind owned synthetic master")
+        tail=backs[0].findall("backingStore")
+        need(len(tail)==1 and not tail[0].attrib and not list(tail[0]),
+             "not a terminated two-image chain")
     nic=xml.findall("./devices/interface")
     need(len(nic)==1 and nic[0].get("type")=="network" and
          nic[0].find("source") is not None and
