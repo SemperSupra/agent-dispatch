@@ -103,7 +103,8 @@ class Tests(unittest.TestCase):
                      request={"schema": "gha-kvm-truenas-run-request/v1",
                               "product": "takeout-synthetic", "request_id": "tn-unique-takeout-001"},
                      workflow=WORKFLOW + ' "takeout-synthetic"', probe=True, artifact=True)
-        self.assertEqual(r["status"], "EXTERNAL_ADMISSION_STILL_REQUIRED")
+        self.assertEqual(r["status"], "BLOCKED")
+        self.assertIn("NATIVE_OCI_IMPORT_NOT_QUALIFIED", r["blockers"])
         self.assertFalse(r["already_dispatched"])
         self.assertFalse(r["guest_started"])
 
@@ -114,8 +115,7 @@ class Tests(unittest.TestCase):
 
     def test_historical_oci_timestamp_expired_without_marker(self):
         c = copy.deepcopy(C)
-        self.assertEqual(c["producer"]["oci_artifact_expires"],
-                         "2026-10-22T16:42:25Z")
+        c["producer"]["oci_artifact_expires"] = "2026-10-22T16:42:25Z"
         self.assertIn("OCI_ARTIFACT_EXPIRED",
                       classify(candidate=c)["blockers"])
 
@@ -136,6 +136,34 @@ class Tests(unittest.TestCase):
         self.assertEqual(r["status"], "BLOCKED")
         self.assertFalse(r["guest_started"])
         self.assertEqual(r["physical_apply"], "HOLD")
+
+    def test_current_cross_run_public_transport_does_not_admit_guest(self):
+        r = classify()
+        self.assertEqual(C["producer"]["oci_artifact_id"], 13358599085)
+        self.assertEqual(C["producer"]["portable_oci_cross_format_workflow"],
+                         41955695340)
+        self.assertEqual(C["producer"]["native_guest_import_qualified"], False)
+        self.assertIn("NATIVE_OCI_IMPORT_NOT_QUALIFIED", r["blockers"])
+        self.assertEqual(r["status"], "BLOCKED")
+        self.assertFalse(r["guest_started"])
+        self.assertEqual(r["physical_apply"], "HOLD")
+
+    def test_transport_receipt_substitution_and_native_promotion_refused(self):
+        for key, value in (
+            ("oci_artifact_id", 11991297351),
+            ("oci_artifact_zip_sha256", "sha256:" + "f" * 64),
+            ("source_commit", "0" * 40),
+            ("oci_manifest_sha256", "sha256:" + "a" * 64),
+            ("loaded_image_config_sha256", "sha256:" + "a" * 64),
+            ("portable_oci_cross_format_workflow", 38771167004),
+            ("native_guest_import_qualified", True),
+        ):
+            with self.subTest(key=key):
+                c = copy.deepcopy(C)
+                c["producer"][key] = value
+                with self.assertRaisesRegex(v.AdmissionError,
+                                            "SOURCE_PROVENANCE_DRIFT"):
+                    classify(candidate=c)
 
     def test_unqualified_foundry_observer_blocks(self):
         self.assertIn("FOUNDRY_DATA_OUTCOME_OBSERVER_NOT_QUALIFIED",
