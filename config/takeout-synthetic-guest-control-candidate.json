@@ -1,0 +1,106 @@
+{
+  "schema": "takeout-synthetic-guest-control-candidate/v1",
+  "classification": "PRODUCT_NATIVE_GUEST_PLAN_ONLY",
+  "authority": {
+    "producer": "SemperSupra/agent-dispatch-private#642",
+    "foundry": "SemperSupra/truenas-app-foundry-private#327",
+    "heavyweight_lane": "SemperSupra/agent-dispatch-private#480"
+  },
+  "target": {
+    "version": "25.04.2.6",
+    "middleware_commit": "244b717370fe35fb9eefc3096acfbc25f12b57b6",
+    "runner_source": "2376961b4c5d2bb79843046774249cca02dc6888",
+    "guest_only": true,
+    "pool": "rdtepool",
+    "pool_data_disks": 2
+  },
+  "source": {
+    "synthetic_producer_commit": "96f814785217404963e06cbbf75b9a443c7688e8",
+    "foundry_template_commit": "70cd8dc02d32dfba1943ff196a4df405945a88d3",
+    "upstream_apps_commit": "532236882212e8c5e51d5b49cfe2c6ce3dd5675e"
+  },
+  "image": {
+    "transport": "PUBLIC_GHA_ARTIFACT_GUEST_IMPORT_UNQUALIFIED",
+    "artifact_id": 11991297351,
+    "zip_sha256": "sha256:293ed237e714aafe6b8f991ae6409005cafc2f89e65da4e6c83fb46afee8869f",
+    "oci_manifest_sha256": "sha256:32d6d63f5534bac350fcc89dee9b3b03d086ab20d3526e3263fb686193579c8c",
+    "docker_image_config_sha256": "sha256:de4a72662de5e91d3a72fe4e8b27e984a760150f0df60d492ec547807dcb0ae2",
+    "docker_save_gzip_sha256": "sha256:8e19aaf612336aae0dd66c34e195e73a37a8035c5e386de3998f787295687687",
+    "docker_layers": 6,
+    "tag": "takeout-synthetic:local",
+    "expires_at": "2026-10-22T16:42:25Z",
+    "registry_published": false
+  },
+  "data": {
+    "app_name": "rdte-t6-takeout-synthetic",
+    "archive_dataset": "rdtepool/takeout-t6-archives",
+    "state_dataset": "rdtepool/takeout-t6-state",
+    "archive_host_path": "/mnt/rdtepool/takeout-t6-archives",
+    "state_host_path": "/mnt/rdtepool/takeout-t6-state",
+    "worker_user": "10001:10001",
+    "network_mode": "none",
+    "restart": "no",
+    "rootfs_read_only": true,
+    "external_auto_permissions": false,
+    "public_ports": [],
+    "source_fixture_only": true
+  },
+  "completion": {
+    "schema": "takeout-application-completion/v1",
+    "scope": "synthetic-local-only",
+    "expected_manifest": {
+      "part-001.zip": {
+        "bytes": 132,
+        "sha256": "0672ad5284db40d900ae07238fe3954eb3652aa31a1fdca9ac704b4d41d41d8c"
+      },
+      "part-002.bin": {
+        "bytes": 28,
+        "sha256": "b9003892787a29135a21a43f382711802b1a63c3262eb8fe30809530dbee43a1"
+      },
+      "part-003.zip": {
+        "bytes": 390,
+        "sha256": "c7450ea93a3b5f8bd145efc93d7116f82204bf9206a94a3b8e3279596e8b08dc"
+      },
+      "retained-sentinel.txt": {
+        "bytes": 39,
+        "sha256": "dd5d8e2d898fe7c8e520535160d30ee0e440402834a86332f8f5710590336225"
+      }
+    },
+    "expected_manifest_sha256": "sha256:b182a90bc4f6bfee1c5a39224b6ddd1d1537570cc768d62e6af91a9d09ff98a3",
+    "operation_id": null,
+    "issuer": "GUEST_EXECUTOR_APPROVED_FRESH_ONLY",
+    "application_receipt_trusted_alone": false,
+    "verification_phase": [
+      "BEFORE_NATIVE_APP_DELETE",
+      "AFTER_NATIVE_APP_DELETE"
+    ],
+    "expected_count": 4,
+    "process_exit_required": false,
+    "docker_read_required": false
+  },
+  "gates": {
+    "source_hosted": true,
+    "portable_artifact_integrity": true,
+    "guest_image_import": false,
+    "native_foundry_materialization": false,
+    "native_app_create_readback": false,
+    "host_zfs_dataset_ownership": false,
+    "independent_retention": false,
+    "post_native_app_delete_rehash": false,
+    "zero_residue": false,
+    "product_provider_registered": false,
+    "new_unique_run_request": false,
+    "heavyweight_slot_granted": false
+  },
+  "execution": {
+    "classification": "HOLD_NO_EXECUTOR",
+    "control_artifact_qualified": false,
+    "guest_launched": false,
+    "physical_trueNAS": false,
+    "real_google_data": false,
+    "private_github_minutes": false,
+    "permission_expansion": false,
+    "allow_dispatch": false
+  },
+  "decision": "HOLD"
+}
