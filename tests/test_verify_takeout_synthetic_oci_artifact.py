@@ -89,6 +89,16 @@ def make_artifact(path, *, corrupt_layer=False, user="10001:10001",
     return blob(manifest)
 
 
+class CurrentSourceIdentityTests(unittest.TestCase):
+    def test_exact_current_report_source_retains_six_layers(self):
+        self.assertEqual(v.source_layer_count(
+            "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0"), 6)
+        self.assertEqual(v.source_layer_count(v.REPORT_SOURCE_SHA), 6)
+
+    def test_unknown_source_cannot_inherit_report_layer_profile(self):
+        self.assertEqual(v.source_layer_count("a" * 40), 5)
+
+
 class VerifyTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
