@@ -1,0 +1,37 @@
+name: Runner environment profile contract
+
+on:
+  pull_request:
+    paths:
+      - 'config/runner-environment-profiles.json'
+      - 'scripts/runner_environment_profiles.py'
+      - 'tests/test_runner_environment_profiles.py'
+      - 'docs/local-runner-environment-equivalence.md'
+      - '.github/workflows/runner-environment-profiles.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'config/runner-environment-profiles.json'
+      - 'scripts/runner_environment_profiles.py'
+      - 'tests/test_runner_environment_profiles.py'
+      - 'docs/local-runner-environment-equivalence.md'
+      - '.github/workflows/runner-environment-profiles.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate runner environment registry
+        run: |
+          set -euo pipefail
+          python3 scripts/runner_environment_profiles.py
+          python3 -m unittest -v tests/test_runner_environment_profiles.py
