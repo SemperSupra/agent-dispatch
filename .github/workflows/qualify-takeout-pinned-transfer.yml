@@ -1,0 +1,127 @@
+name: Takeout pinned public OCI cross-run transport qualification
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify_takeout_synthetic_oci_artifact.py'
+      - 'tests/test_verify_takeout_synthetic_oci_artifact.py'
+      - '.github/workflows/qualify-takeout-pinned-transfer.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  cross-run-public-transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARTIFACT_ID: '13358599085'
+      ARTIFACT_ZIP: 'sha256:dcc0b35035163f0b5a1cbd73603070c40017d86c13817ca6cd7a3441c898506e'
+      IMAGE_MANIFEST: 'sha256:dc4bd461467e15d5cd50152d17cc673383c86998ca61700ed7d57881dcea868e'
+      IMAGE_CONFIG: 'sha256:2a42d2262e4f8d86bf9f07de64145b5bcf68cb1b491cf34b3f39126b1c054eed'
+      SOURCE_SHA: '7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0'
+      EXPIRY_UTC: '2026-11-11T20:17:17Z'
+    steps:
+      - name: Checkout the exact public review head, without retained credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Qualify source identity and enforce hard expiry before transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from datetime import datetime, timezone
+          import os
+          from scripts.verify_takeout_synthetic_oci_artifact import source_layer_count
+          expiry=datetime.fromisoformat(os.environ['EXPIRY_UTC'].replace('Z','+00:00'))
+          assert datetime.now(timezone.utc) < expiry, 'ARTIFACT_EXPIRED_HOLD'
+          assert source_layer_count(os.environ['SOURCE_SHA']) == 6
+          print('PINNED_PUBLIC_REPORT_SOURCE_6_LAYERS_AND_FRESHNESS_GATE_PASS')
+          PY
+      - name: Execute offline OCI regression tests before independent transport
+        run: python3 -m unittest discover -s tests -p 'test_verify_takeout_synthetic_oci_artifact.py' -v
+      - name: Retrieve exactly one pinned prior GHA public artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET -H 'Accept: application/vnd.github+json' \
+            "repos/SemperSupra/agent-dispatch/actions/artifacts/$ARTIFACT_ID/zip" \
+            > "$RUNNER_TEMP/pinned-takeout.zip"
+          test -s "$RUNNER_TEMP/pinned-takeout.zip"
+          python3 - <<'PY'
+          import os, hashlib
+          from pathlib import Path
+          target=Path(os.environ['RUNNER_TEMP'])/'pinned-takeout.zip'
+          with target.open('rb') as f:
+              digest='sha256:'+hashlib.file_digest(f,'sha256').hexdigest()
+          assert digest == os.environ['ARTIFACT_ZIP'], 'ARTIFACT_TRANSPORT_DIGEST_MISMATCH'
+          print('PINNED_PUBLIC_ARTIFACT_ZIP_SHA256_PASS')
+          PY
+      - name: Rehash OCI manifest layers and independent Docker archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_takeout_synthetic_oci_artifact.py \
+            "$RUNNER_TEMP/pinned-takeout.zip" \
+            --artifact-digest "$ARTIFACT_ZIP" \
+            --image-digest "$IMAGE_MANIFEST" \
+            --source-sha "$SOURCE_SHA" > "$RUNNER_TEMP/validated.json"
+          python3 - <<'PY'
+          import os,json
+          from pathlib import Path
+          r=json.loads((Path(os.environ['RUNNER_TEMP'])/'validated.json').read_text())
+          assert r['status']=='PASS' and r['classification']=='OCI_ARTIFACT_INTEGRITY_ONLY'
+          assert r['layers']==6 and r['docker_archive_layers']==6
+          assert r['docker_archive_transferred'] is True
+          assert r['docker_archive_import_receipt']=='PASS'
+          assert r['docker_config_digest']==os.environ['IMAGE_CONFIG']
+          assert r['truenas_guest']=='NOT_RUN' and r['physical_apply']=='HOLD'
+          print('PUBLIC_CROSS_RUN_OCI_AND_DOCKER_LAYER_INTEGRITY_PASS_GUEST_NOT_RUN')
+          PY
+      - name: Independently load transferred Docker archive and exercise nonroot synthetic NOOP
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/cross-run-archive"
+          state="$RUNNER_TEMP/cross-run-state"
+          sudo install -d -m 0700 -o 10001 -g 10001 "$archive" "$state"
+          cleanup() {
+            sudo rm -rf -- "$archive" "$state"
+            docker image rm takeout-synthetic:local >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          python3 - <<'PY'
+          import os,zipfile
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          with zipfile.ZipFile(root/'pinned-takeout.zip') as z, \
+               z.open('fixture.docker.tar.gz') as source, \
+               (root/'pinned-docker-save.tar.gz').open('wb') as output:
+              while chunk:=source.read(4*1024*1024):
+                  output.write(chunk)
+          PY
+          docker load --input "$RUNNER_TEMP/pinned-docker-save.tar.gz" >/dev/null
+          test "$(docker image inspect takeout-synthetic:local --format '{{.Id}}')" = "$IMAGE_CONFIG"
+          timeout 60s docker run --rm --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$archive,dst=/archive" \
+            --mount "type=bind,src=$state,dst=/state" \
+            takeout-synthetic:local > "$RUNNER_TEMP/independent.json"
+          sudo python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          from scripts.takeout_synthetic_fixture import FILES,SENTINEL
+          root=Path(os.environ['RUNNER_TEMP'])
+          actual={p.name:p.read_bytes() for p in (root/'cross-run-archive').iterdir()}
+          expected={**FILES,'retained-sentinel.txt':SENTINEL}
+          assert actual==expected,'ARCHIVE_MATERIALIZATION_MISMATCH'
+          assert not list((root/'cross-run-archive').glob('*.part'))
+          outcome=json.loads((root/'independent.json').read_text())
+          assert outcome['uid']==10001 and outcome['fixture_server_closed'] is True
+          assert (root/'cross-run-state'/'state.json').is_file()
+          print('CROSS_RUN_PUBLIC_DOCKER_LOAD_RUN_AND_RETAINED_BYTES_PASS_NATIVE_GUEST_NOT_RUN')
+          PY
