@@ -52,7 +52,7 @@ jobs:
           test -f .github/workflows/qualify-takeout-foundry-receipt.yml
           echo "PASS_NO_R9_DOCKER_EVENTS_OR_STALE_HOSTED_TRANSPORT"
 
-      - name: Exercise 13 fail-closed source tests
+      - name: Exercise 18 fail-closed source tests
         run: python3 -m unittest discover -s tests -p 'test_qualify_takeout_t6_admission.py' -v
       - name: Exercise source-pinned OCI layer count plus legacy negative controls
         run: python3 -m unittest discover -s tests -p 'test_verify_takeout_synthetic_oci_artifact.py' -v
@@ -89,23 +89,26 @@ jobs:
                   'FRESH_TAKEOUT_RUN_REQUEST_MISSING',
                   'LANE_480_RELEASE_MISSING',
                   'FOUNDRY_DATA_OUTCOME_OBSERVER_NOT_QUALIFIED',
-                  'NATIVE_ZFS_RETENTION_NOT_QUALIFIED'} <= blockers
+                  'NATIVE_ZFS_RETENTION_NOT_QUALIFIED',
+                  'NATIVE_OCI_IMPORT_NOT_QUALIFIED'} <= blockers
           print(json.dumps(d,sort_keys=True))
           PY
 
-      - name: Prove historical OCI artifact expiration remains a BLOCKED source-only gate
+      - name: Qualify pinned public transport evidence without native guest promotion
         run: |
           python3 - <<'PY'
           import json
+          from datetime import datetime, timezone
           from pathlib import Path
-          from scripts.qualify_takeout_t6_admission import check
           c=json.loads(Path("config/takeout-t6-admission-candidate.json").read_text())
-          assert c["producer"]["oci_artifact_expires"] == "2026-10-22T16:42:25Z"
-          # Targeted negative check: old October receipt cannot be re-admitted
-          # by the continued presence of its SHA and artifact ID in source.
-          import datetime
-          expiry=datetime.datetime.fromisoformat(c["producer"]["oci_artifact_expires"].replace("Z","+00:00"))
-          assert expiry < datetime.datetime.now(datetime.timezone.utc)
-          assert c["decision"] == "HOLD" and not c["execution"]["run_dispatched"]
-          print("EXPIRED_OCI_REQUIRES_FRESH_BYTES_AND_REQUALIFICATION: HOLD")
+          p=c["producer"]
+          assert p["oci_artifact_id"] == 13358599085
+          assert p["source_commit"] == "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0"
+          assert p["oci_artifact_zip_sha256"] == "sha256:dcc0b35035163f0b5a1cbd73603070c40017d86c13817ca6cd7a3441c898506e"
+          assert p["portable_oci_cross_format_workflow"] == 41955695340
+          expiry=datetime.fromisoformat(p["oci_artifact_expires"].replace("Z","+00:00"))
+          assert expiry.tzinfo is not None
+          assert c["decision"] == "HOLD" and c["execution"]["run_dispatched"] is False
+          assert p["native_guest_import_qualified"] is False
+          print("FRESH_PUBLIC_TRANSPORT_EVIDENCE_ONLY; native import/guest HOLD; expires", expiry.isoformat())
           PY
