@@ -16,18 +16,19 @@
   "producer": {
     "repository": "SemperSupra/agent-dispatch",
     "pr": 480,
-    "source_commit": "96f814785217404963e06cbbf75b9a443c7688e8",
-    "hosted_receipt_workflow": 38771167004,
-    "oci_artifact_id": 11991297351,
-    "oci_artifact_zip_sha256": "sha256:293ed237e714aafe6b8f991ae6409005cafc2f89e65da4e6c83fb46afee8869f",
-    "oci_artifact_expires": "2026-10-22T16:42:25Z",
-    "oci_manifest_sha256": "sha256:32d6d63f5534bac350fcc89dee9b3b03d086ab20d3526e3263fb686193579c8c",
-    "loaded_image_config_sha256": "sha256:de4a72662de5e91d3a72fe4e8b27e984a760150f0df60d492ec547807dcb0ae2",
-    "docker_archive_sha256": "sha256:8e19aaf612336aae0dd66c34e195e73a37a8035c5e386de3998f787295687687",
-    "artifact_independent_byte_audit": "PASS_2026-10-19",
+    "source_commit": "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0",
+    "hosted_receipt_workflow": 41905075905,
+    "oci_artifact_id": 13358599085,
+    "oci_artifact_zip_sha256": "sha256:dcc0b35035163f0b5a1cbd73603070c40017d86c13817ca6cd7a3441c898506e",
+    "oci_artifact_expires": "2026-11-11T20:17:17Z",
+    "oci_manifest_sha256": "sha256:dc4bd461467e15d5cd50152d17cc673383c86998ca61700ed7d57881dcea868e",
+    "loaded_image_config_sha256": "sha256:2a42d2262e4f8d86bf9f07de64145b5bcf68cb1b491cf34b3f39126b1c054eed",
+    "artifact_independent_byte_audit": "PASS_PUBLIC_CROSS_RUN_2026-11-05",
     "docker_archive_layer_count": 6,
-    "portable_oci_cross_format_workflow": 39245979100,
-    "guest_control_source_workflow": 39246668887
+    "portable_oci_cross_format_workflow": 41955695340,
+    "guest_control_source_workflow": 41906153217,
+    "cross_run_public_source_sha": "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0",
+    "native_guest_import_qualified": false
   },
   "consumer": {
     "repository": "SemperSupra/truenas-app-foundry",
@@ -42,7 +43,7 @@
     "process_exit_required": false,
     "docker_read_required": false,
     "application_self_report_is_sufficient": false,
-    "verified_hosted_workflow": 38771167004
+    "verified_hosted_workflow": 41905075905
   },
   "execution": {
     "provider_id": "takeout-synthetic-t6",
@@ -59,8 +60,8 @@
     "guest_control_candidate": "config/takeout-synthetic-guest-control-candidate.json",
     "native_app_observer_source": "scripts/observe_takeout_t6_native_app.py",
     "native_app_observer_tests": "tests/test_observe_takeout_t6_native_app.py",
-    "native_app_observer_exact_head": "873c5a47eea7d14d3868011446c9ccec6f00a88d",
-    "native_app_observer_hosted_ci": "NOT_RUN_WORKFLOW_UPDATE_BLOCKED"
+    "native_app_observer_exact_head": "29846903c01ba7c83459618fb3cda4c3738726d8",
+    "native_app_observer_hosted_ci": "SOURCE_ONLY_PASS_41955695429"
   },
   "constraints": {
     "allow_real_google_data": false,
