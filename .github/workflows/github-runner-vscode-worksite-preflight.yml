@@ -1,0 +1,76 @@
+name: GitHub Runner vscode.dev Worksite Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/github_runner_vscode_worksite_preflight.sh'
+      - 'tests/test_github_runner_vscode_worksite.py'
+      - '.github/workflows/github-runner-vscode-worksite-preflight.yml'
+      - 'docs/github-runner-vscode-worksite.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Run dependency-free contract tests
+        run: python3 -m unittest -v tests/test_github_runner_vscode_worksite.py
+
+      - name: Validate shell syntax
+        run: bash -n scripts/github_runner_vscode_worksite_preflight.sh
+
+  preflight:
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Exercise credential-free vscode.dev worksite preflight
+        shell: bash
+        env:
+          RECEIPT_PATH: ${{ runner.temp }}/vscode-worksite/receipt.txt
+        run: |
+          set -euo pipefail
+          bash scripts/github_runner_vscode_worksite_preflight.sh
+
+      - name: Observe receipt presence
+        if: always()
+        id: receipt
+        shell: bash
+        run: |
+          if [[ -f "${RUNNER_TEMP}/vscode-worksite/receipt.txt" ]]; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Publish public-safe receipt summary
+        if: always() && steps.receipt.outputs.exists == 'true'
+        shell: bash
+        run: |
+          {
+            echo "### vscode.dev worksite preflight"
+            echo '~~~text'
+            cat "${RUNNER_TEMP}/vscode-worksite/receipt.txt"
+            echo '~~~'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload public-safe preflight receipt
+        if: always() && steps.receipt.outputs.exists == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vscode-worksite-preflight-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/vscode-worksite/receipt.txt
+          if-no-files-found: error
+          retention-days: 7
