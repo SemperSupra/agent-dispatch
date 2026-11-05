@@ -1,0 +1,59 @@
+name: WRT3200ACM Stock/Public W8964 Boundary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  characterize-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Confirm required tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v curl
+      - name: Test boundary tooling
+        run: python3 -m unittest -v tests/test_wrt3200acm_stock_public_boundary.py
+      - name: Acquire pinned stock and public firmware
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-boundary/evidence"
+          curl -fL --retry 3 --retry-all-errors             https://downloads.linksys.com/support/assets/firmware/FW_WRT3200ACM_1.0.9.211585_prod.img             -o "$RUNNER_TEMP/wrt-boundary/stock.img"
+          echo "4c4cdeec1f4c3eb15ae597b225dd75874eff1893dbe0fafc67ddd0b03e17198c  $RUNNER_TEMP/wrt-boundary/stock.img" | sha256sum -c -
+          tail -c +6291457 "$RUNNER_TEMP/wrt-boundary/stock.img" > "$RUNNER_TEMP/wrt-boundary/rootfs.jffs2"
+          python3 scripts/jffs2_target_extract.py "$RUNNER_TEMP/wrt-boundary/rootfs.jffs2" \
+            --path /lib/modules/3.10.70/W8964.bin \
+            --output "$RUNNER_TEMP/wrt-boundary/stock-W8964.bin" \
+            --metadata "$RUNNER_TEMP/wrt-boundary/evidence/stock-W8964-replay.json"
+          echo "ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751  $RUNNER_TEMP/wrt-boundary/stock-W8964.bin" | sha256sum -c -
+          curl -fL --retry 3 --retry-all-errors             https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin             -o "$RUNNER_TEMP/wrt-boundary/public-W8964.bin"
+          echo "ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751  $RUNNER_TEMP/wrt-boundary/public-W8964.bin" | sha256sum -c -
+      - name: Characterize representation boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_stock_public_boundary.py             "$RUNNER_TEMP/wrt-boundary/stock-W8964.bin"             "$RUNNER_TEMP/wrt-boundary/public-W8964.bin"             --out "$RUNNER_TEMP/wrt-boundary/evidence/stock-public-boundary.json"
+      - name: Verify metadata-only mailbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-boundary/evidence" -type f \( -name '*.bin' -o -name '*.img' -o -name '*.elf' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+      - name: Upload boundary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-stock-public-boundary-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-boundary/evidence
+          if-no-files-found: warn
+          retention-days: 7

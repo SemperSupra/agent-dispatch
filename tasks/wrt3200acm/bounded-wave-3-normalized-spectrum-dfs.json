@@ -1,0 +1,51 @@
+{
+  "schema": "wrt3200acm-bounded-wave/v1",
+  "wave_id": "wave-3-normalized-spectrum-dfs",
+  "objective": "Prove or falsify exact local dispatcher normalization equations for W8964 SET_SPECTRUM_MGMT 0x1128 and 802_11H_DETECT_RADAR 0x0120 before any handler-semantic descent.",
+  "admission": {
+    "wave2_integrated": true,
+    "governor_qualified": true,
+    "prior_finding": "SemperSupra/wrt3200acm-recovery-private@main:evidence/findings/fw.88w8964.spectrum-dfs-wave2.json",
+    "prior_finding_commit": "3d755d11fa39ff7ceae3a50cbe311feb64101652"
+  },
+  "resource_policy": {
+    "max_jobs": 1,
+    "max_firmware_bearing_jobs": 1,
+    "target_runner_minutes": 8,
+    "retry_limit": 1,
+    "no_unchanged_green_reruns": true,
+    "broad_regression": false
+  },
+  "proof_rule": "Accept mapping only when the compared register's last local definition is normalized_reg = r12 - exact_constant_base, the equality comparison has exact constant delta provenance, and base+delta reconstructs the exact host command.",
+  "targets": [
+    {
+      "id": "0x1128",
+      "name": "HOSTCMD_CMD_SET_SPECTRUM_MGMT",
+      "expected_family_hint": "0x1101 + 0x27"
+    },
+    {
+      "id": "0x0120",
+      "name": "HOSTCMD_CMD_802_11H_DETECT_RADAR",
+      "expected_family_hint": "unknown; prove rather than assume"
+    }
+  ],
+  "exclusions": [
+    "no low-byte/prefix heuristic promotion",
+    "no handler semantic analysis in this wave",
+    "no broad ABI rescan",
+    "no Ghidra",
+    "no Unicorn",
+    "no RF/HIL",
+    "no calibration mutation"
+  ],
+  "interpretation_policy": [
+    "unresolved is valid evidence",
+    "no semantic promotion without exact normalization proof",
+    "only infrastructure/parser failures are CI failures"
+  ],
+  "retry": {
+    "attempt": 2,
+    "reason": "Attempt 1 was epistemically inconclusive because the strict matcher had not qualified itself against already-accepted normalized dispatcher mappings. Public commit 95f334bb045ad03794d0902f6f5fda2a46086643 adds self-qualification against UPDATE_ENCRYPTION 0x1122 -> 0x37b84, GET_SEQNO 0x1143 -> 0x36ff0, and SET_RF_CHANNEL 0x010a -> 0x37984.",
+    "policy": "single allowed retry for diagnosed evidence-harness defect; no further retry without redesign"
+  }
+}

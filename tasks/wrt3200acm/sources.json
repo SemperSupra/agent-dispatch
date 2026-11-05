@@ -1,0 +1,75 @@
+{
+  "schema": "wrt3200acm-public-sources/v1",
+  "target": "Linksys WRT3200ACM v1 / rango",
+  "mwlwifi_commit": "db97edf20fadea2617805006f5230665fadc6a8c",
+  "sources": [
+    {
+      "id": "linksys-oem-1.0.9.211585",
+      "kind": "oem-firmware",
+      "url": "https://downloads.linksys.com/support/assets/firmware/FW_WRT3200ACM_1.0.9.211585_prod.img",
+      "filename": "FW_WRT3200ACM_1.0.9.211585_prod.img",
+      "required": true
+    },
+    {
+      "id": "linksys-gpl-1.0.8.199531",
+      "kind": "gpl-source-archive",
+      "url": "https://downloads.linksys.com/support/assets/gpl/WRT3200ACM_v1.0.8.199531.tgz",
+      "filename": "WRT3200ACM_v1.0.8.199531.tgz",
+      "required": true
+    },
+    {
+      "id": "openwrt-25.12.5-factory",
+      "kind": "openwrt-image",
+      "url": "https://downloads.openwrt.org/releases/25.12.5/targets/mvebu/cortexa9/openwrt-25.12.5-mvebu-cortexa9-linksys_wrt3200acm-squashfs-factory.img",
+      "filename": "openwrt-25.12.5-mvebu-cortexa9-linksys_wrt3200acm-squashfs-factory.img",
+      "required": true
+    },
+    {
+      "id": "mwlwifi-88w8864",
+      "kind": "related-radio-firmware",
+      "url": "https://raw.githubusercontent.com/kaloz/mwlwifi/db97edf20fadea2617805006f5230665fadc6a8c/bin/firmware/88W8864.bin",
+      "filename": "88W8864.bin",
+      "required": true
+    },
+    {
+      "id": "mwlwifi-88w8897",
+      "kind": "related-radio-firmware",
+      "url": "https://raw.githubusercontent.com/kaloz/mwlwifi/db97edf20fadea2617805006f5230665fadc6a8c/bin/firmware/88W8897.bin",
+      "filename": "88W8897.bin",
+      "required": true
+    },
+    {
+      "id": "mwlwifi-88w8964",
+      "kind": "target-radio-firmware",
+      "url": "https://raw.githubusercontent.com/kaloz/mwlwifi/db97edf20fadea2617805006f5230665fadc6a8c/bin/firmware/88W8964.bin",
+      "filename": "88W8964.bin",
+      "required": true
+    },
+    {
+      "id": "mwlwifi-88w8997",
+      "kind": "related-radio-firmware",
+      "url": "https://raw.githubusercontent.com/kaloz/mwlwifi/db97edf20fadea2617805006f5230665fadc6a8c/bin/firmware/88W8997.bin",
+      "filename": "88W8997.bin",
+      "required": true
+    },
+    {
+      "id": "linux-firmware-sd8887",
+      "kind": "third-radio-firmware",
+      "url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/main/mrvl/sd8887_uapsta.bin",
+      "filename": "sd8887_uapsta.bin",
+      "required": false
+    }
+  ],
+  "repositories": [
+    {
+      "id": "mwlwifi",
+      "url": "https://github.com/kaloz/mwlwifi.git",
+      "ref": "db97edf20fadea2617805006f5230665fadc6a8c"
+    },
+    {
+      "id": "ps4_wifi_bt",
+      "url": "https://github.com/x0rloser/ps4_wifi_bt.git",
+      "ref": "master"
+    }
+  ]
+}

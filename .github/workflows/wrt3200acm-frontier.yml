@@ -1,0 +1,92 @@
+name: WRT3200ACM Recovery Frontier
+
+on:
+  push:
+    branches:
+      - recovery/wrt3200acm-cloud-v1
+    paths:
+      - 'tasks/wrt3200acm/full-regression-request.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install bounded recovery tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-arm-linux-gnueabi curl >/dev/null
+          python3 -m pip install --disable-pip-version-check --no-cache-dir unicorn==2.1.4 >/dev/null
+          python3 - <<'PY'
+          import unicorn
+          assert unicorn.__version__ == "2.1.4"
+          print("unicorn",unicorn.__version__)
+          PY
+
+      - name: Run semantic model tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest -v tests/test_wrt3200acm_gethwspec_semantics.py
+          python3 -m unittest -v tests/test_wrt3200acm_memaddr_semantics.py
+
+      - name: Acquire and reconstruct pinned W8964 once
+        shell: bash
+        env:
+          FW_URL: https://raw.githubusercontent.com/kaloz/mwlwifi/b0aeee507f1534ae40fab9d2420a6319e1f33de5/bin/firmware/88W8964.bin
+          FW_SHA256: ca23f5bb730fde399359a716481651c120e09c299d4e6bbec6fe718c6e87e751
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-frontier/evidence"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/wrt-frontier/88W8964.bin"
+          echo "$FW_SHA256  $RUNNER_TEMP/wrt-frontier/88W8964.bin" | sha256sum -c -
+          python3 scripts/wrt3200acm_fw_to_elf.py \
+            "$RUNNER_TEMP/wrt-frontier/88W8964.bin" \
+            "$RUNNER_TEMP/wrt-frontier/88W8964.elf" \
+            "$RUNNER_TEMP/wrt-frontier/evidence/elf-map.json"
+
+      - name: Recover GET_HW_SPEC semantics and execute recovered field block
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_gethwspec_semantics.py --elf "$RUNNER_TEMP/wrt-frontier/88W8964.elf" --out "$RUNNER_TEMP/wrt-frontier/evidence"
+          python3 scripts/wrt3200acm_gethwspec_unicorn.py --elf "$RUNNER_TEMP/wrt-frontier/88W8964.elf" --out "$RUNNER_TEMP/wrt-frontier/evidence"
+
+      - name: Recover and execute all MEM_ADDR_ACCESS selector paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_memaddr_semantics.py --elf "$RUNNER_TEMP/wrt-frontier/88W8964.elf" --out "$RUNNER_TEMP/wrt-frontier/evidence"
+          python3 scripts/wrt3200acm_memaddr_unicorn.py --elf "$RUNNER_TEMP/wrt-frontier/88W8964.elf" --out "$RUNNER_TEMP/wrt-frontier/evidence"
+
+      - name: Verify derived-only evidence mailbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-frontier/evidence" -type f \( -name '*.bin' -o -name '*.elf' -o -name '*.img' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+          python3 -m json.tool "$RUNNER_TEMP/wrt-frontier/evidence/mem-addr-access-semantics.json" >/dev/null
+          python3 -m json.tool "$RUNNER_TEMP/wrt-frontier/evidence/memaddr-unicorn-differential.json" >/dev/null
+          python3 -m json.tool "$RUNNER_TEMP/wrt-frontier/evidence/get-hw-spec-semantics.json" >/dev/null
+          python3 -m json.tool "$RUNNER_TEMP/wrt-frontier/evidence/gethwspec-unicorn-differential.json" >/dev/null
+
+      - name: Upload frontier evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-frontier-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-frontier/evidence
+          if-no-files-found: warn
+          retention-days: 7

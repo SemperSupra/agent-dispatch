@@ -1,0 +1,67 @@
+name: WRT3200ACM Stock File Metadata
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-stock-radio-stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Install metadata tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq kmod file binutils curl >/dev/null
+
+      - name: Unit-test selected-file metadata tooling
+        run: python3 -m unittest -v tests/test_wrt3200acm_stock_file_metadata.py
+
+      - name: Acquire pinned stock image and isolate rootfs
+        shell: bash
+        env:
+          FW_URL: https://downloads.linksys.com/support/assets/firmware/FW_WRT3200ACM_1.0.9.211585_prod.img
+          FW_SHA256: 4c4cdeec1f4c3eb15ae597b225dd75874eff1893dbe0fafc67ddd0b03e17198c
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wrt-stock/evidence" "$RUNNER_TEMP/wrt-stock/work"
+          curl -fL --retry 3 --retry-all-errors "$FW_URL" -o "$RUNNER_TEMP/wrt-stock/stock.img"
+          echo "$FW_SHA256  $RUNNER_TEMP/wrt-stock/stock.img" | sha256sum -c -
+          tail -c +6291457 "$RUNNER_TEMP/wrt-stock/stock.img" > "$RUNNER_TEMP/wrt-stock/rootfs.jffs2"
+          printf 'rootfs_size=%s\n' "$(stat -c %s "$RUNNER_TEMP/wrt-stock/rootfs.jffs2")"
+
+      - name: Hash selected stock radio-stack files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/wrt3200acm_stock_file_metadata.py \
+            "$RUNNER_TEMP/wrt-stock/rootfs.jffs2" \
+            --work "$RUNNER_TEMP/wrt-stock/work" \
+            --out "$RUNNER_TEMP/wrt-stock/evidence/stock-selected-file-metadata.json"
+          python3 -m json.tool "$RUNNER_TEMP/wrt-stock/evidence/stock-selected-file-metadata.json" >/dev/null
+
+      - name: Verify metadata-only mailbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find "$RUNNER_TEMP/wrt-stock/evidence" -type f \( -name '*.bin' -o -name '*.ko' -o -name '*.img' -o -name '*.jffs2' -o -name '*.so' \) | grep -q .; then
+            echo "firmware-bearing file leaked into evidence mailbox" >&2
+            exit 1
+          fi
+
+      - name: Upload selected-file metadata
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wrt3200acm-stock-file-metadata-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/wrt-stock/evidence
+          if-no-files-found: warn
+          retention-days: 7
