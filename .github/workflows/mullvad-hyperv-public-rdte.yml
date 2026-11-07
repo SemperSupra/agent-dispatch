@@ -1,0 +1,171 @@
+name: Public Mullvad-Linux synthetic RDTE
+
+# Public synthetic-only tests: no secrets, private checkouts, provider mutations,
+# arbitrary inputs, privileged network operations or operational traffic.
+on:
+  pull_request:
+    paths:
+      # Documentation-only updates must not consume public Windows/ISO jobs.
+      - 'experiments/mullvad-hyperv-public-rdte/oracles/**'
+      - 'experiments/mullvad-hyperv-public-rdte/tests/**'
+      - 'experiments/mullvad-hyperv-public-rdte/tools/**'
+      - '.github/workflows/mullvad-hyperv-public-rdte.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-policy:
+    name: Policy/epoch red-blue model
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Execute policy mutation/negative-control tests
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_policy.py' -v
+
+  provider-mock:
+    name: Geography/device/telemetry mock
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Execute provider negative controls
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_provider.py' -v
+
+  linklocal-dns:
+    name: DHCP/NDP/DNS role and egress red-blue model
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Execute gateway role-scope and DNS confinement negatives
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_linklocal.py' -v
+
+  linux-census:
+    name: Read-only Linux feature census
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Verify NetVSC channel/readback parser negatives
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_capabilities.py' -v
+      - name: Read-only feature survey (not a nested Alpine guest proof)
+        run: python3 experiments/mullvad-hyperv-public-rdte/tools/capabilities.py
+
+  linux-native-nft-packet-witness:
+    name: Isolated Linux kernel nftables dual-stack packet witnesses
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Static shell syntax preflight
+        run: bash -n experiments/mullvad-hyperv-public-rdte/tools/netns_packet_witness.sh
+      - name: Run read-only host / isolated namespace nft kernel observations
+        run: bash experiments/mullvad-hyperv-public-rdte/tools/netns_packet_witness.sh
+
+  alpine-virt-manifest:
+    name: Public Alpine virt image SHA256 manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Validate manifest substitution and injection negatives
+        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_alpine_manifest.py' -v
+      - name: Verify official manifest remains pinned
+        run: python3 experiments/mullvad-hyperv-public-rdte/tools/alpine_manifest.py --fetch
+      - name: Check actual ISO SHA256 and Alpine detached GPG signature
+        run: bash experiments/mullvad-hyperv-public-rdte/tools/verify_alpine_signature.sh
+
+  windows-hyperv-census:
+    name: Windows 2025 Hyper-V read-only census
+    runs-on: windows-2025
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - name: Parse and preflight fixed Alpine H1 SOURCE ONLY
+        shell: pwsh
+        run: |
+          $scriptPath = 'experiments/mullvad-hyperv-public-rdte/tools/h1_alpine_nested_hyperv.ps1'
+          $tokens = $null
+          $parseErrors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) { throw 'Fixed H1 source parse failed' }
+          & $scriptPath -Mode Preflight
+      - name: Red-team refusal of unadmitted H1 execution (no VM created)
+        shell: pwsh
+        run: |
+          $scriptPath = 'experiments/mullvad-hyperv-public-rdte/tools/h1_alpine_nested_hyperv.ps1'
+          if ($env:GITHUB_EVENT_NAME -ne 'pull_request') { throw 'refusal test requires PR-only execution' }
+          $vm = 'rdte-h1-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT
+          $sw = 'rdte-private-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT
+          if ((Get-VM -Name $vm -ErrorAction SilentlyContinue) -or
+              (Get-VMSwitch -Name $sw -ErrorAction SilentlyContinue)) {
+            throw 'pre-existing resource means refusal test is invalid'
+          }
+          $response = & pwsh -NoProfile -NonInteractive -File $scriptPath -Mode Execute
+          $rc = $LASTEXITCODE
+          if ($rc -ne 1) { throw 'unadmitted H1 execution did not fail closed' }
+          $result = $response | Select-Object -Last 1 | ConvertFrom-Json
+          if ($result.FailureClass -ne 'ADMISSION_DENIED' -or
+              $result.GuestBoot -ne 'NOT_RUN' -or $result.Cleanup -ne 'PASS') {
+            throw 'unadmitted H1 refusal classification invalid'
+          }
+          if ((Get-VM -Name $vm -ErrorAction SilentlyContinue) -or
+              (Get-VMSwitch -Name $sw -ErrorAction SilentlyContinue)) {
+            throw 'unadmitted H1 created a VM or switch'
+          }
+          # The child exit 1 is the EXPECTED refusal; clear inherited status
+          # only after verifying the refusal code and absence of resources.
+          $global:LASTEXITCODE = 0
+          Write-Output 'PUBLIC_H1_UNADMITTED_REFUSAL=PASS;GUEST_BOOT=NOT_RUN'
+      - name: Read-only Windows feature probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $cmd = Get-Command Get-VM -ErrorAction SilentlyContinue
+          $feature = Get-WindowsOptionalFeature -Online -FeatureName 'Microsoft-Hyper-V-Hypervisor' -ErrorAction SilentlyContinue
+          $vmHost = Get-VMHost -ErrorAction SilentlyContinue
+          # Command *presence* only, no VM/switch enumeration or mutation.
+          $candidateCommands = @(
+            'New-VM', 'New-VMSwitch', 'Get-VMSwitch',
+            'Set-VMNetworkAdapter', 'Set-VMNetworkAdapterVlan',
+            'Add-VMNetworkAdapterExtendedAcl', 'Get-VMNetworkAdapterExtendedAcl',
+            'Add-VMNetworkAdapterAcl', 'Set-VMNetworkAdapterIsolation',
+            'Set-VMProcessor', 'Set-VMMemory', 'Set-VMFirmware',
+            'Get-VMHostSupportedVersion',
+            'Get-NetFirewallHyperVProfile', 'Get-NetFirewallHyperVRule',
+            'New-NetFirewallHyperVRule'
+          )
+          $commandInventory = [ordered]@{}
+          foreach ($candidate in $candidateCommands) {
+            $commandInventory[$candidate] = [bool](Get-Command $candidate -ErrorAction SilentlyContinue)
+          }
+          $capacity = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+          [pscustomobject]@{
+            EvidenceClass = 'PUBLIC_WINDOWS_READONLY'
+            HyperVCmdletsPresent = [bool]$cmd
+            HypervisorFeatureState = if ($feature) { [string]$feature.State } else { 'UNAVAILABLE' }
+            HyperVHostQuerySucceeded = [bool]$vmHost
+            AvailableCommands = $commandInventory
+            LogicalProcessors = if ($capacity) { [int]$capacity.NumberOfLogicalProcessors } else { 0 }
+            TotalRAMMiB = if ($capacity) { [int][math]::Floor($capacity.TotalPhysicalMemory / 1MB) } else { 0 }
+            GuestBoot = 'NOT_RUN'
+            VSwitchPacketPath = 'NOT_RUN'
+            ProductSafety = 'NOT_RUN'
+          } | ConvertTo-Json -Depth 5 -Compress | Write-Output
