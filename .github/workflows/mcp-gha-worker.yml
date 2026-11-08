@@ -215,3 +215,64 @@ jobs:
           sleep "$LEASE_SECONDS"
           [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == 'true' ]] || { echo 'TUNNEL_PROCESS_EXITED_DURING_LEASE' >&2; exit 1; }
           echo 'BOUNDED_TUNNEL_PROCESS_LIFETIME_COMPLETE'
+
+  public-wow-colocation:
+    name: Public-safe MCP + WOW co-location (no credentials or tunnel)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact public Agent Dispatch candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Checkout immutable public WOW Sidecar source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/wow-sidecar
+          ref: 9e56fd93876a5cfeb40262b608f9d03d1c3cb7e2
+          path: wow-public
+          persist-credentials: false
+      - name: Use pinned Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.24.13'
+          check-latest: false
+      - name: Build both public-safe processes
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          WOW_REV: 9e56fd93876a5cfeb40262b608f9d03d1c3cb7e2
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l tools/mcp-gha-worker/*.go)"
+          (cd tools/mcp-gha-worker && go test -race ./... && go build -trimpath -o "$RUNNER_TEMP/mcp-synthetic" .)
+          (cd wow-public && go build -mod=readonly -trimpath -buildvcs=false \
+            -ldflags="-s -w -X main.sourceRevision=$WOW_REV -X main.buildVersion=0.0.0-ci" \
+            -o "$RUNNER_TEMP/wow-public" ./cmd/wow-sidecar)
+          "$RUNNER_TEMP/wow-public" version | python3 -c 'import json,os,sys; assert json.load(sys.stdin)["source_revision"] == os.environ["WOW_REV"]'
+          python3 -m py_compile tools/mcp-gha-worker/qualify_wow_colocation.py
+      - name: Exercise co-located read-only MCP and WOW with denied actuators
+        shell: bash
+        env:
+          WOW_REV: 9e56fd93876a5cfeb40262b608f9d03d1c3cb7e2
+        run: |
+          set -euo pipefail
+          python3 tools/mcp-gha-worker/qualify_wow_colocation.py \
+            --mcp-binary "$RUNNER_TEMP/mcp-synthetic" \
+            --wow-binary "$RUNNER_TEMP/wow-public" \
+            --wow-revision "$WOW_REV" \
+            --receipt "$RUNNER_TEMP/mcp-wow-colocation.json"
+          python3 -c 'import json,os,pathlib; x=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"mcp-wow-colocation.json").read_text()); assert x["status"]=="PASS" and x["cleanup"]=="PASS" and not x["credential_used"] and not x["openai_tunnel_used"]'
+      - name: Retain bounded public-synthetic receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-mcp-wow-colocation-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mcp-wow-colocation.json
+          if-no-files-found: ignore
+          retention-days: 3
