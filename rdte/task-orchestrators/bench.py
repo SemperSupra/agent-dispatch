@@ -133,6 +133,9 @@ def benchmark(backend):
             try:
                 if backend == "baseline":
                     run_baseline(root)
+                elif backend == "baseline_inprocess":
+                    for step in STEPS:
+                        action(root, step)
                 elif backend == "dagu":
                     run_dagu(root)
                 elif backend == "dbos":
@@ -150,7 +153,7 @@ def benchmark(backend):
             "architecture": os.uname().machine,
             "step_graph": "prepare -> [branch_a,branch_b] -> verify",
             "qualified": len(data) == N and not errors,
-            "comparison_scope": "execution-graph" if backend != "dbos" else "sequential-durable-workflow",
+            "comparison_scope": ("sequential-inprocess" if backend == "baseline_inprocess" else "sequential-durable-workflow" if backend == "dbos" else "parallel-subprocess-graph"),
             "process_rss_kib": proc_rss_kib(),
             "db_file_bytes": dbpath.stat().st_size if dbpath and dbpath.exists() else None,
             "error": errors,
@@ -164,7 +167,7 @@ def benchmark(backend):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("backend", choices=["baseline", "dagu", "dbos", "step"])
+    parser.add_argument("backend", choices=["baseline", "baseline_inprocess", "dagu", "dbos", "step"])
     parser.add_argument("path", nargs="?")
     parser.add_argument("step_name", nargs="?")
     args = parser.parse_args()
