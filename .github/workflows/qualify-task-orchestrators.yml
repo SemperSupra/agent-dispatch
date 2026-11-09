@@ -33,11 +33,23 @@ jobs:
         run: |
           set -Eeuo pipefail
           bash rdte/task-orchestrators/run.sh "$CANDIDATE" 2>&1 | tee "$RUNNER_TEMP/task-bakeoff.log"
+      - name: R2 dependency failure / duplicate activation / ambiguous-write probe
+        if: matrix.candidate == 'baseline' || matrix.candidate == 'dagu'
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export PATH="$RUNNER_TEMP/bakeoff-bin:$PATH"
+          export DAGU_HOME="$RUNNER_TEMP/bakeoff-data"
+          python3 rdte/task-orchestrators/fault_probe.py "$CANDIDATE" 2>&1 | tee "$RUNNER_TEMP/task-fault.log"
       - name: Archive sanitized synthetic result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: task-orchestrator-${{ matrix.candidate }}
-          path: ${{ runner.temp }}/task-bakeoff.log
+          path: |
+            ${{ runner.temp }}/task-bakeoff.log
+            ${{ runner.temp }}/task-fault.log
           retention-days: 7
           if-no-files-found: warn
