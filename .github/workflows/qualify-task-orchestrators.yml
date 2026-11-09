@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        candidate: [baseline, dagu, dbos, restate, hatchet]
+        candidate: [baseline, baseline_inprocess, dagu, dbos, restate, hatchet]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
