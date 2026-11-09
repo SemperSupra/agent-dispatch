@@ -147,6 +147,25 @@ def probe(mode: str, base: Path):
     (root / "release").write_text("manual-safe-release\n")
     ret = subprocess.run(["dagu", "retry", "--run-id", run_id, str(dag)],
                          capture_output=True, text=True, timeout=70)
+    attempts = [{"phase": "immediate", "exit": ret.returncode,
+                 "tail": (ret.stdout + ret.stderr)[-300:]}]
+    if ret.returncode and "already running" in (ret.stdout + ret.stderr):
+        # Test-only accelerated liveness (3s proc stale threshold configured
+        # by the runner), NOT the production 90s default.
+        time.sleep(5)
+        repaired = subprocess.run(
+            ["dagu", "status", "--run-id", run_id, str(dag)],
+            capture_output=True, text=True, timeout=18)
+        result["after_stale_status_exit"] = repaired.returncode
+        result["after_stale_status_tail"] = (repaired.stdout + repaired.stderr)[-450:]
+        # We already independently proved B had no effect. ONE governed
+        # synthetic retry after liveness readback is within this fixture's
+        # narrow safe authority; no further automatic attempts.
+        ret = subprocess.run(["dagu", "retry", "--run-id", run_id, str(dag)],
+                             capture_output=True, text=True, timeout=70)
+        attempts.append({"phase": "after-test-ttl-and-status", "exit": ret.returncode,
+                         "tail": (ret.stdout + ret.stderr)[-450:]})
+    result["resume_attempts"] = attempts
     final = events(root)
     counts = {s: sum(e["step"] == s for e in final) for s in STEPS}
     result.update({
@@ -166,7 +185,8 @@ def main():
         base = Path(temp)
         results = [probe("pre-effect", base), probe("post-effect", base)]
         res = {
-            "schema": "task-orchestrator-process-kill/v1",
+            "schema": "task-orchestrator-process-kill/v2",
+            "test_stale_threshold_sec": os.getenv("DAGU_PROC_STALE_THRESHOLD", "default"),
             "candidate": "dagu-2.26.0",
             "architecture": os.uname().machine,
             "two_modes_completed": len(results) == 2,
