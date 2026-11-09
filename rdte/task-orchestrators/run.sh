@@ -51,6 +51,8 @@ restate)
    report_boot UNQUALIFIED "$(( $(date +%s%3N) - t0 ))" "Pinned Restate ARM64 image unavailable"; exit 0
  fi
  if ! docker run --detach --name restate-bakeoff --memory=2g --cpus=2 \
+    --add-host=host.docker.internal:host-gateway \
+    --publish 127.0.0.1:8080:8080 \
     --publish 127.0.0.1:9070:9070 --publish 127.0.0.1:9071:9071 "$image" >/dev/null; then
    report_boot UNQUALIFIED "$(( $(date +%s%3N) - t0 ))" "Docker startup failed"; exit 0
  fi
@@ -59,10 +61,38 @@ restate)
    if docker ps --format '{{.Names}}' | grep -qx restate-bakeoff && curl --silent --max-time 2 http://127.0.0.1:9070/health >/dev/null; then ok=1; break; fi
    sleep 2
  done
- docker stats --no-stream --format 'BAKEOFF_DOCKER_MEM {{.Name}} {{.MemUsage}} {{.CPUPerc}}' restate-bakeoff || true
+ docker stats --no-stream --format 'BAKEOFF_DOCKER_MEM_IDLE {{.Name}} {{.MemUsage}} {{.CPUPerc}}' restate-bakeoff || true
  docker image inspect --format 'BAKEOFF_IMAGE_DIGEST {{index .RepoDigests 0}}' "$image" || true
- docker logs --tail 20 restate-bakeoff 2>&1 | tail -20 || true
- report_boot "$([ "$ok" -eq 1 ] && echo BOOTED || echo UNQUALIFIED)" "$(( $(date +%s%3N) - t0 ))" "Service-only; no registered handler or workflow"
+ if [ "$ok" -ne 1 ]; then
+   docker logs --tail 25 restate-bakeoff || true
+   report_boot UNQUALIFIED "$(( $(date +%s%3N) - t0 ))" "Server did not answer health"; docker rm -f restate-bakeoff >/dev/null; exit 0
+ fi
+ python3 -m venv "$RUNNER_TEMP/restate-venv"
+ "$RUNNER_TEMP/restate-venv/bin/pip" install --quiet --disable-pip-version-check "restate-sdk[serve]==1.4.1" "hypercorn==0.17.3"
+ PYTHONPATH="$root" "$RUNNER_TEMP/restate-venv/bin/python" -m hypercorn restate_app:app --bind 0.0.0.0:9080 > "$RUNNER_TEMP/restate-asgi.log" 2>&1 &
+ apppid=$!
+ registered=0
+ for i in $(seq 1 25); do
+   if curl --silent --fail --show-error --max-time 4 \
+     --header 'Content-Type: application/json' \
+     --data '{"uri":"http://host.docker.internal:9080"}' \
+     http://127.0.0.1:9070/deployments > "$RUNNER_TEMP/restate-register.json" 2>/dev/null; then
+       registered=1; break
+   fi
+   if ! kill -0 "$apppid" 2>/dev/null; then break; fi
+   sleep 2
+ done
+ if [ "$registered" -eq 1 ]; then
+   python3 "$root/bench.py" restate
+   docker stats --no-stream --format 'BAKEOFF_DOCKER_MEM_ACTIVE {{.Name}} {{.MemUsage}} {{.CPUPerc}}' restate-bakeoff || true
+   ps -o rss= -p "$apppid" | awk '{print "BAKEOFF_HANDLER_RSS_KIB " $1}' || true
+ else
+   tail -35 "$RUNNER_TEMP/restate-asgi.log" || true
+   cat "$RUNNER_TEMP/restate-register.json" || true
+   report_boot UNQUALIFIED "$(( $(date +%s%3N) - t0 ))" "Server booted but native handler registration failed"
+ fi
+ kill "$apppid" 2>/dev/null || true
+ wait "$apppid" 2>/dev/null || true
  docker rm --force restate-bakeoff >/dev/null || true ;;
 hatchet)
  version="0.114.2"
