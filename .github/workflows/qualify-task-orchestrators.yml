@@ -1,0 +1,79 @@
+name: Task orchestrator bakeoff (public ARM64, synthetic)
+
+on:
+  pull_request:
+    paths:
+      - 'rdte/task-orchestrators/**'
+      - '.github/workflows/qualify-task-orchestrators.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task-orchestrator-rdte-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  arm64-bakeoff:
+    name: ARM64 / ${{ matrix.candidate }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [baseline, baseline_inprocess, dagu, dbos, restate, hatchet]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Run bounded disposable synthetic probe
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash rdte/task-orchestrators/run.sh "$CANDIDATE" 2>&1 | tee "$RUNNER_TEMP/task-bakeoff.log"
+      - name: R2 dependency failure / duplicate activation / ambiguous-write probe
+        if: matrix.candidate == 'baseline' || matrix.candidate == 'dagu'
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export PATH="$RUNNER_TEMP/bakeoff-bin:$PATH"
+          export DAGU_HOME="$RUNNER_TEMP/bakeoff-data"
+          python3 rdte/task-orchestrators/fault_probe.py "$CANDIDATE" 2>&1 | tee "$RUNNER_TEMP/task-fault.log"
+      - name: R5 native subprocess SIGKILL and test-TTL recovery
+        if: matrix.candidate == 'dagu'
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+          DAGU_PROC_HEARTBEAT_INTERVAL: 1s
+          DAGU_PROC_STALE_THRESHOLD: 3s
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export PATH="$RUNNER_TEMP/bakeoff-bin:$PATH"
+          export DAGU_HOME="$RUNNER_TEMP/bakeoff-data"
+          python3 rdte/task-orchestrators/crash_probe.py probe 2>&1 | tee "$RUNNER_TEMP/task-crash.log"
+      - name: R6 independent concurrency and same-run-ID stress
+        if: matrix.candidate == 'baseline' || matrix.candidate == 'dagu'
+        shell: bash
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+        run: |
+          set -Eeuo pipefail
+          export PATH="$RUNNER_TEMP/bakeoff-bin:$PATH"
+          export DAGU_HOME="$RUNNER_TEMP/bakeoff-data"
+          python3 rdte/task-orchestrators/concurrency_probe.py "$CANDIDATE" 2>&1 | tee "$RUNNER_TEMP/task-concurrency.log"
+      - name: Archive sanitized synthetic result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: task-orchestrator-${{ matrix.candidate }}
+          path: |
+            ${{ runner.temp }}/task-bakeoff.log
+            ${{ runner.temp }}/task-fault.log
+            ${{ runner.temp }}/task-crash.log
+            ${{ runner.temp }}/task-concurrency.log
+          retention-days: 7
+          if-no-files-found: warn
