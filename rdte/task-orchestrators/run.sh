@@ -26,15 +26,16 @@ baseline)
  python3 "$root/bench.py" baseline ;;
 dagu)
  version="2.26.0"
- archive="dagu_"$version"_linux_arm64.tar.gz"
- url="https://github.com/dagucloud/dagu/releases/download/v$version/$archive"
- curl --fail --location --retry 2 --max-time 120 --silent --show-error "$url" -o "$RUNNER_TEMP/$archive"
- curl --fail --location --retry 2 --max-time 30 --silent --show-error "https://github.com/dagucloud/dagu/releases/download/v$version/checksums.txt" -o "$RUNNER_TEMP/checksums.txt"
- (cd "$RUNNER_TEMP" && grep "$archive" checksums.txt | sha256sum --check --status)
- tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bakeoff-bin"
- if [ ! -x "$RUNNER_TEMP/bakeoff-bin/dagu" ]; then
-   find "$RUNNER_TEMP/bakeoff-bin" -type f -name dagu -exec cp {} "$RUNNER_TEMP/bakeoff-bin/dagu" \;
+ image="ghcr.io/dagucloud/dagu:$version"
+ if ! timeout 160 docker pull "$image"; then
+   report_boot UNQUALIFIED 0 "Pinned Dagu multiarch container unavailable"; exit 0
  fi
+ docker image inspect --format 'BAKEOFF_IMAGE {{.Size}} {{index .RepoDigests 0}}' "$image" || true
+ binpath="$(docker run --rm --entrypoint sh "$image" -c 'command -v dagu')"
+ echo "BAKEOFF_DAGU_BINARY $binpath"
+ cid="$(docker create "$image")"
+ docker cp "$cid:$binpath" "$RUNNER_TEMP/bakeoff-bin/dagu"
+ docker rm "$cid" >/dev/null
  chmod +x "$RUNNER_TEMP/bakeoff-bin/dagu"
  python3 "$root/bench.py" dagu ;;
 dbos)
