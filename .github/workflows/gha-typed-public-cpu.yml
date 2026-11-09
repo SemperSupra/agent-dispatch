@@ -39,6 +39,7 @@ on:
       - 'tests/test_gha_assignment_execution.py'
       - 'tests/test_gha_workload_request.py'
       - 'tests/public_media_contract_test.go'
+      - 'tests/public_gallerydl_pin.py'
       - 'scripts/provider_packet_contract.py'
       - 'tests/test_provider_packet_contract.py'
       - 'scripts/microsoft_devproxy_contract.py'
@@ -81,6 +82,7 @@ jobs:
           go version
           GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 tests/public_media_contract_test.go
           GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet tests/public_media_contract_test.go
+          python3 tests/public_gallerydl_pin.py
 
   devproxy-mock-only:
     if: github.event_name == 'pull_request'
