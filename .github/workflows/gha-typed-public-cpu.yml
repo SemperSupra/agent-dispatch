@@ -38,6 +38,10 @@ on:
       - 'scripts/verify_gha_assignment_receipt.py'
       - 'tests/test_gha_assignment_execution.py'
       - 'tests/test_gha_workload_request.py'
+      - 'tests/public_media_contract_test.go'
+      - 'tests/public_gallerydl_pin.py'
+      - 'tests/public_endpoint_discovery.py'
+      - 'tests/public_endpoint_followup.py'
       - 'scripts/provider_packet_contract.py'
       - 'tests/test_provider_packet_contract.py'
       - 'scripts/microsoft_devproxy_contract.py'
@@ -77,6 +81,12 @@ jobs:
           python3 -m unittest -v tests/test_azurite_dispatch_profile.py
           python3 tests/test_verify_gha_typed_receipt.py -v
           python3 tests/test_gha_assignment_execution.py -v
+          go version
+          GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 tests/public_media_contract_test.go
+          GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet tests/public_media_contract_test.go
+          python3 tests/public_gallerydl_pin.py
+          python3 tests/public_endpoint_discovery.py
+          python3 tests/public_endpoint_followup.py
 
   devproxy-mock-only:
     if: github.event_name == 'pull_request'
