@@ -14,7 +14,7 @@ import sys
 
 from gha_workload_request import Denied, plan
 
-PR_PATH = re.compile(r"^requests/gha/pr-[a-z0-9][a-z0-9-]{2,60}\\.json$")
+PR_PATH = re.compile(r"^requests/gha/pr-[a-z0-9][a-z0-9-]{2,60}\.json$")
 
 
 def select_changed(entries, planner=plan):
@@ -56,7 +56,7 @@ def native_changed_files():
         raise Denied("PR_GIT_DIFF_UNAVAILABLE") from exc
     if len(diff.stdout) > 65536:
         raise Denied("PR_DIFF_UNBOUNDED")
-    fields = diff.stdout.decode("utf-8", errors="strict").split("\\x00")
+    fields = diff.stdout.decode("utf-8", errors="strict").split("\x00")
     if fields[-1] == "":
         fields.pop()
     if len(fields) % 2:
@@ -73,10 +73,10 @@ def main():
         result = {"selected": selected is not None, **(selected or {})}
         if args.github_output:
             with open(args.github_output, "a", encoding="utf-8") as fh:
-                fh.write("selected=" + str(result["selected"]).lower() + "\\n")
+                fh.write("selected=" + str(result["selected"]).lower() + "\n")
                 if selected:
                     for key, value in selected.items():
-                        fh.write(key + "=" + value + "\\n")
+                        fh.write(key + "=" + value + "\n")
         print(json.dumps(result, sort_keys=True))
         return 0
     except (Denied, ValueError, OSError):
