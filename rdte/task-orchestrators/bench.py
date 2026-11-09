@@ -14,6 +14,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import urllib.request
 import time
 
 STEPS = ("prepare", "branch_a", "branch_b", "verify")
@@ -141,6 +142,11 @@ def benchmark(backend):
                     run_dagu(root)
                 elif backend == "dbos":
                     workflow(str(root))
+                elif backend == "restate":
+                    req = urllib.request.Request("http://127.0.0.1:8080/bakeoff/run", data=json.dumps(str(root)).encode(), headers={"Content-Type":"application/json"}, method="POST")
+                    with urllib.request.urlopen(req, timeout=30) as response:
+                        if response.status != 200 or json.loads(response.read()) != "verified":
+                            raise RuntimeError("unexpected Restate result")
                 else:
                     raise ValueError(backend)
                 verify(root)
@@ -152,9 +158,9 @@ def benchmark(backend):
             "schema": "task-orchestrator-bakeoff/v1",
             "candidate": backend,
             "architecture": os.uname().machine,
-            "step_graph": "prepare -> branch_a -> branch_b -> verify" if backend in ("baseline_inprocess", "dbos") else "prepare -> [branch_a,branch_b] -> verify",
+            "step_graph": "prepare -> branch_a -> branch_b -> verify" if backend in ("baseline_inprocess", "dbos", "restate") else "prepare -> [branch_a,branch_b] -> verify",
             "qualified": len(data) == N and not errors,
-            "comparison_scope": ("sequential-inprocess" if backend == "baseline_inprocess" else "sequential-durable-workflow" if backend == "dbos" else "parallel-subprocess-graph"),
+            "comparison_scope": ("sequential-inprocess" if backend == "baseline_inprocess" else "sequential-durable-workflow" if backend == "dbos" else "single-restate-handler-over-http" if backend == "restate" else "parallel-subprocess-graph"),
             "process_rss_kib": proc_rss_kib(),
             "child_max_rss_kib": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
             "executable_bytes": Path(shutil.which("dagu")).stat().st_size if backend == "dagu" else None,
@@ -170,7 +176,7 @@ def benchmark(backend):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("backend", choices=["baseline", "baseline_inprocess", "dagu", "dbos", "step"])
+    parser.add_argument("backend", choices=["baseline", "baseline_inprocess", "dagu", "dbos", "restate", "step"])
     parser.add_argument("path", nargs="?")
     parser.add_argument("step_name", nargs="?")
     args = parser.parse_args()
