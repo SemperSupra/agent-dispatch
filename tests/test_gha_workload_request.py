@@ -244,3 +244,64 @@ class DynamicAssignmentContractTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+# #747 source-only PR selector contract; native pull_request wiring is separate.
+sys.path.insert(0, str(ROOT / "scripts"))
+import gha_pr_request as pr
+
+
+class PublicPRManifestSelectorTests(unittest.TestCase):
+    PATH = "requests/gha/pr-fixture-one.json"
+
+    def fixture_plan(self, path):
+        self.assertEqual(path, self.PATH)
+        return {
+            "runner": "ubuntu-24.04",
+            "data_class": "public-synthetic",
+            "workload": "arithmetic-oracle",
+            "max_attempts": 1,
+            "max_cost_usd": 0,
+            "request_sha256": "a" * 64,
+            "assignment_id": "public-fixture-001",
+        }
+
+    def test_one_new_isolated_manifest_selected(self):
+        selected = pr.select_changed([("A", self.PATH)], self.fixture_plan)
+        self.assertEqual(selected["request_path"], self.PATH)
+        self.assertEqual(selected["request_sha256"], "a" * 64)
+        self.assertEqual(selected["runner"], "ubuntu-24.04")
+
+    def test_unrelated_pr_is_noop(self):
+        self.assertIsNone(pr.select_changed([("M", "README.md")], self.fixture_plan))
+
+    def test_request_with_code_or_second_request_is_denied(self):
+        for entries in (
+            [("A", self.PATH), ("M", "scripts/gha_workload_request.py")],
+            [("A", self.PATH), ("A", "requests/gha/pr-second.json")],
+            [("M", self.PATH)],
+            [("D", self.PATH)],
+            [("R100", self.PATH)],
+        ):
+            with self.subTest(entries=entries), self.assertRaises(m.Denied):
+                pr.select_changed(entries, self.fixture_plan)
+
+    def test_unapproved_runner_workload_budget_denied(self):
+        for change in (
+            {"runner": "ubuntu-24.04-arm"},
+            {"workload": "azurite-blob-transport"},
+            {"data_class": "private"},
+            {"max_attempts": 2},
+            {"max_cost_usd": 1},
+        ):
+            def bad_plan(path):
+                doc = self.fixture_plan(path)
+                doc.update(change)
+                return doc
+            with self.subTest(change=change), self.assertRaises(m.Denied):
+                pr.select_changed([("A", self.PATH)], bad_plan)
+
+    def test_path_boundary_and_native_event_gate(self):
+        self.assertIsNone(pr.select_changed([("A", "requests/gha/../pr-fixture-one.json")], self.fixture_plan))
+        with patch.dict(pr.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}):
+            with self.assertRaisesRegex(m.Denied, "NATIVE_PR_EVENT_REQUIRED"):
+                pr.native_changed_files()
