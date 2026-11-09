@@ -24,6 +24,8 @@ PY
 case "$candidate" in
 baseline)
  python3 "$root/bench.py" baseline ;;
+baseline_inprocess)
+ python3 "$root/bench.py" baseline_inprocess ;;
 dagu)
  version="2.26.0"
  image="ghcr.io/dagucloud/dagu:$version"
