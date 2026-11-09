@@ -55,6 +55,16 @@ jobs:
           export PATH="$RUNNER_TEMP/bakeoff-bin:$PATH"
           export DAGU_HOME="$RUNNER_TEMP/bakeoff-data"
           python3 rdte/task-orchestrators/crash_probe.py probe 2>&1 | tee "$RUNNER_TEMP/task-crash.log"
+      - name: R6 independent concurrency and same-run-ID stress
+        if: matrix.candidate == 'baseline' || matrix.candidate == 'dagu'
+        shell: bash
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+        run: |
+          set -Eeuo pipefail
+          export PATH="$RUNNER_TEMP/bakeoff-bin:$PATH"
+          export DAGU_HOME="$RUNNER_TEMP/bakeoff-data"
+          python3 rdte/task-orchestrators/concurrency_probe.py "$CANDIDATE" 2>&1 | tee "$RUNNER_TEMP/task-concurrency.log"
       - name: Archive sanitized synthetic result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -64,5 +74,6 @@ jobs:
             ${{ runner.temp }}/task-bakeoff.log
             ${{ runner.temp }}/task-fault.log
             ${{ runner.temp }}/task-crash.log
+            ${{ runner.temp }}/task-concurrency.log
           retention-days: 7
           if-no-files-found: warn
