@@ -1,0 +1,11 @@
+{
+  "schema": "gha-workload-request/v1",
+  "assignment_id": "pr-cpu-20261109-deny",
+  "runner": "ubuntu-24.04",
+  "workload": "arithmetic-oracle",
+  "timeout_seconds": 30,
+  "data_class": "public-synthetic",
+  "max_attempts": 1,
+  "max_cost_usd": 0,
+  "command": "UNAUTHORIZED_COMMAND_FIELD_SHOULD_REJECT"
+}
