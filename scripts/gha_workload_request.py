@@ -33,6 +33,16 @@ class Denied(ValueError):
     pass
 
 
+def _reject_duplicate_request_pairs(pairs):
+    """Fail closed on duplicate JSON members, including nested objects."""
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise Denied("DUPLICATE_REQUEST_FIELD")
+        obj[key] = value
+    return obj
+
+
 def read_request(name: str) -> tuple[dict, str]:
     if not SAFE_PATH.fullmatch(name):
         raise Denied("REQUEST_PATH_NOT_ALLOWED")
@@ -43,7 +53,9 @@ def read_request(name: str) -> tuple[dict, str]:
     if len(raw) < 10 or len(raw) > MAX_BYTES:
         raise Denied("REQUEST_BYTES_OUT_OF_BOUNDS")
     try:
-        obj = json.loads(raw)
+        obj = json.loads(raw, object_pairs_hook=_reject_duplicate_request_pairs)
+    except Denied:
+        raise
     except (ValueError, UnicodeDecodeError) as exc:
         raise Denied("REQUEST_JSON_INVALID") from exc
     if not isinstance(obj, dict) or set(obj) != FIELDS or obj.get("schema") != SCHEMA:
