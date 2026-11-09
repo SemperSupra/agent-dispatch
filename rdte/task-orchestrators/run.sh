@@ -117,6 +117,8 @@ hatchet)
  done
  docker ps --format 'BAKEOFF_DOCKER {{.Names}} {{.Image}} {{.Status}}' || true
  docker stats --no-stream --format 'BAKEOFF_DOCKER_MEM {{.Name}} {{.MemUsage}} {{.CPUPerc}}' || true
+  docker image inspect --format 'BAKEOFF_HATCHET_DEV_IMAGE {{.Size}} {{index .RepoDigests 0}}' ghcr.io/hatchet-dev/hatchet/hatchet-lite-dev:latest || true
+  echo 'BAKEOFF_HATCHET_WARNING: dev image is mutable :latest; NOT a pinned production candidate'
  tail -25 "$RUNNER_TEMP/hatchet.log" | sed -E 's/(token|password|secret)=[^ ]+/\1=[REDACTED]/gi' || true
  report_boot "$([ "$ok" -eq 1 ] && echo BOOTED || echo UNQUALIFIED)" "$(( $(date +%s%3N) - t0 ))" "Development service only; no workflow or security qualification"
  kill "$pid" 2>/dev/null || true
