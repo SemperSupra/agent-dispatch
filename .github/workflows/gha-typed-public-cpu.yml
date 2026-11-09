@@ -78,6 +78,56 @@ jobs:
           python3 tests/test_verify_gha_typed_receipt.py -v
           python3 tests/test_gha_assignment_execution.py -v
 
+  # #747: PR-only, read-only, public-synthetic request. No dynamic runner or command.
+  pr-manifest-admission:
+    if: github.event_name == 'pull_request'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          # The selector verifies native two-parent merge ancestry. Depth 1 hides it.
+          fetch-depth: 2
+      - name: Admit isolated new public-synthetic PR request
+        id: selected
+        shell: bash
+        run: python3 scripts/gha_pr_request.py --github-output "$GITHUB_OUTPUT"
+      - name: Execute only the fixed admitted x64 workload
+        if: steps.selected.outputs.selected == 'true'
+        shell: bash
+        env:
+          REQUEST: ${{ steps.selected.outputs.request_path }}
+          DIGEST: ${{ steps.selected.outputs.request_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 scripts/gha_workload_request.py --action run \
+            --request "$REQUEST" --digest "$DIGEST" \
+            --receipt ".gha-pr-request/receipt.json"
+      - name: Independently verify native PR workload receipt
+        if: steps.selected.outputs.selected == 'true'
+        shell: bash
+        env:
+          REQUEST: ${{ steps.selected.outputs.request_path }}
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum .gha-pr-request/receipt.json | cut -d' ' -f1)
+          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+            --receipt .gha-pr-request/receipt.json --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --runner ubuntu-24.04 \
+            --sha256 "$sha" --out .gha-pr-request/verified.json
+      - name: Retain bounded public-synthetic PR receipt
+        if: always() && steps.selected.outputs.selected == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gha-pr-typed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .gha-pr-request/receipt.json
+            .gha-pr-request/verified.json
+          if-no-files-found: ignore
+          retention-days: 3
+
   devproxy-mock-only:
     if: github.event_name == 'pull_request'
     needs: contract
