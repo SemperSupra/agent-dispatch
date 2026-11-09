@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import resource
+import shutil
 import statistics
 import subprocess
 import sys
@@ -151,10 +152,12 @@ def benchmark(backend):
             "schema": "task-orchestrator-bakeoff/v1",
             "candidate": backend,
             "architecture": os.uname().machine,
-            "step_graph": "prepare -> [branch_a,branch_b] -> verify",
+            "step_graph": "prepare -> branch_a -> branch_b -> verify" if backend in ("baseline_inprocess", "dbos") else "prepare -> [branch_a,branch_b] -> verify",
             "qualified": len(data) == N and not errors,
             "comparison_scope": ("sequential-inprocess" if backend == "baseline_inprocess" else "sequential-durable-workflow" if backend == "dbos" else "parallel-subprocess-graph"),
             "process_rss_kib": proc_rss_kib(),
+            "child_max_rss_kib": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+            "executable_bytes": Path(shutil.which("dagu")).stat().st_size if backend == "dagu" else None,
             "db_file_bytes": dbpath.stat().st_size if dbpath and dbpath.exists() else None,
             "error": errors,
         }
