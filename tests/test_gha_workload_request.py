@@ -65,6 +65,20 @@ class TypedWorkRequestTests(unittest.TestCase):
                     with self.assertRaises(m.Denied):
                         m.plan("requests/gha/cpu-test.json")
 
+    def test_duplicate_json_member_denied_before_workload(self):
+        source, _ = m.read_request(X64)
+        # Duplicate member must not silently use the last JSON value.
+        raw = ('{"workload":"arithmetic-oracle","workload":"sealed-contract-native",'
+               + json.dumps(source, sort_keys=True)[1:])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dest = root / "requests" / "gha"
+            dest.mkdir(parents=True)
+            (dest / "cpu-test.json").write_text(raw, encoding="utf-8")
+            with patch.object(m, "ROOT", root), patch.object(m, "REQUEST_DIR", dest):
+                with self.assertRaisesRegex(m.Denied, "DUPLICATE_REQUEST_FIELD"):
+                    m.plan("requests/gha/cpu-test.json")
+
     def test_digest_bind_rejects_drift(self):
         result = m.plan(X64)
         with self.assertRaisesRegex(m.Denied,"REQUEST_DIGEST_CHANGED"):
