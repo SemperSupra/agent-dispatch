@@ -38,6 +38,8 @@ on:
       - 'scripts/verify_gha_assignment_receipt.py'
       - 'tests/test_gha_assignment_execution.py'
       - 'tests/test_gha_workload_request.py'
+      - 'scripts/gha_pr_request.py'
+      - 'tests/test_gha_pr_request.py'
       - 'scripts/provider_packet_contract.py'
       - 'tests/test_provider_packet_contract.py'
       - 'scripts/microsoft_devproxy_contract.py'
@@ -70,6 +72,7 @@ jobs:
       - name: Validate public request and authority contracts
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
+          python3 -m unittest -v tests/test_gha_pr_request.py
           python3 -m unittest -v tests/test_provider_packet_contract.py
           python3 -m unittest -v tests/test_microsoft_devproxy_contract.py
           python3 -m unittest -v tests/test_microsoft_dispatch_profile.py
@@ -315,3 +318,49 @@ jobs:
             .gha-typed/verified.json
           if-no-files-found: error
           retention-days: 7
+
+  pr-public-synthetic-request:
+    # One PR-opened event is the actuator. No synchronize/reopen/rerun.
+    if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.run_attempt == 1
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exactly one new public-safe manifest from PR merge parents
+        id: admission
+        shell: bash
+        run: python3 scripts/gha_pr_request.py --action plan --github-output "$GITHUB_OUTPUT"
+      - name: Run already-reviewed fixed CPU profile
+        if: steps.admission.outputs.admitted == 'true'
+        shell: bash
+        env:
+          DIGEST: ${{ steps.admission.outputs.request_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 scripts/gha_pr_request.py --action run --digest "$DIGEST" \
+            --receipt "$RUNNER_TEMP/public-pr/receipt.json"
+      - name: Independently verify provider-bound public CPU receipt
+        if: steps.admission.outputs.admitted == 'true'
+        shell: bash
+        env:
+          REQUEST: ${{ steps.admission.outputs.request_path }}
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum "$RUNNER_TEMP/public-pr/receipt.json" | cut -d' ' -f1)
+          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+            --receipt "$RUNNER_TEMP/public-pr/receipt.json" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --runner ubuntu-24.04 --sha256 "$sha" \
+            --out "$RUNNER_TEMP/public-pr/verified.json"
+      - name: Retain short-lived public synthetic receipts
+        if: steps.admission.outputs.admitted == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-pr-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/public-pr/*.json
+          if-no-files-found: error
+          retention-days: 3
