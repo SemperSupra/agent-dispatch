@@ -43,10 +43,12 @@ jobs:
           export PATH="$RUNNER_TEMP/bakeoff-bin:$PATH"
           export DAGU_HOME="$RUNNER_TEMP/bakeoff-data"
           python3 rdte/task-orchestrators/fault_probe.py "$CANDIDATE" 2>&1 | tee "$RUNNER_TEMP/task-fault.log"
-      - name: R4 native subprocess SIGKILL and persisted-run recovery
+      - name: R5 native subprocess SIGKILL and test-TTL recovery
         if: matrix.candidate == 'dagu'
         env:
           CANDIDATE: ${{ matrix.candidate }}
+          DAGU_PROC_HEARTBEAT_INTERVAL: 1s
+          DAGU_PROC_STALE_THRESHOLD: 3s
         shell: bash
         run: |
           set -Eeuo pipefail
