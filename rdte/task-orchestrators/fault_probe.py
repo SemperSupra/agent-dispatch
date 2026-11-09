@@ -34,6 +34,11 @@ def perform(root: Path, step: str, mode: str):
         raise RuntimeError("cannot join incomplete branches")
     if step == "branch_b" and mode == "before":
         raise RuntimeError("injected before-effect branch failure")
+    if step == "branch_b" and mode == "once_before":
+        once = root / "fault-once-marker"
+        if not once.exists():
+            once.write_text("failed before effect once\n", encoding="utf-8")
+            raise RuntimeError("injected transient before-effect branch failure")
     # Synthetic external side effect: fsync'd append-only event. Deliberately
     # non-idempotent to detect whether a native start fences replay by itself.
     fd = os.open(root / "effects.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
@@ -66,7 +71,7 @@ def bare(root: Path, mode: str):
     return invoke("verify").returncode
 
 
-def dagu(root: Path, mode: str):
+def dagu(root: Path, mode: str, *, retry=False, run_id=None):
     path = root.parent / (root.name + ".yaml")
     lines = ["type: graph", "steps:"]
     for name, depends in (
@@ -79,8 +84,11 @@ def dagu(root: Path, mode: str):
             lines.append(f"    depends: {depends}")
         lines.append(f"    run: {command}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    proc = subprocess.run(["dagu", "start", str(path)],
-                          capture_output=True, text=True, timeout=100)
+    argv = ["dagu", "retry" if retry else "start"]
+    if run_id is not None:
+        argv += ["--run-id", run_id]
+    argv.append(str(path))
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=100)
     if proc.returncode:
         print("EXPECTED_NATIVE_FAILURE=" + json.dumps({
             "mode": mode, "exit": proc.returncode,
@@ -132,13 +140,42 @@ def test(backend: str):
         }
         assert code != 0 and not (after / "done-verify").exists()
         assert sum(e["step"] == "branch_b" for e in after_events) == 1
+
+        # Distinct R3 rep: fail once *before* B's effect and explicitly
+        # resume the SAME Dagu run ID. Bare control must restart its graph.
+        # This is not an authorized owner-effect retry.
+        resume = base / "resume"
+        if backend == "dagu":
+            first_retryable = dagu(resume, "once_before", run_id="synthetic-recovery-001")
+        else:
+            first_retryable = bare(resume, "once_before")
+        initial = effects(resume)
+        assert first_retryable != 0 and not (resume / "done-verify").exists()
+        assert sum(e["step"] == "branch_b" for e in initial) == 0
+        if backend == "dagu":
+            second_retryable = dagu(resume, "once_before", retry=True, run_id="synthetic-recovery-001")
+        else:
+            second_retryable = bare(resume, "once_before")
+        resumed = effects(resume)
+        counts = {s: sum(e["step"] == s for e in resumed) for s in STEPS}
+        reused = all(counts[s] == 1 for s in STEPS)
+        observed["transient_before_effect_recovery"] = {
+            "initial_exit": first_retryable, "resume_exit": second_retryable,
+            "first_effects": len(initial), "after_resume_effects": len(resumed),
+            "effect_counts": counts,
+            "completed_steps_not_reexecuted": reused,
+            "mechanism": "dagu same-run-id retry" if backend == "dagu" else "bare fresh graph replay"
+        }
+        # A working retry is required for task-continuation qualification,
+        # but non-reuse is recorded rather than concealed by forcing a PASS.
+        assert second_retryable == 0 and (resume / "done-verify").exists()
         # NEVER blindly replay a post-effect error. This test deliberately
         # stops and preserves UNKNOWN, with no second attempt.
         result = {
             "schema": "task-orchestrator-fault-probe/v1",
             "candidate": backend,
             "architecture": os.uname().machine,
-            "test_cases": 3,
+            "test_cases": 4,
             "synthetic_oracle_pass": True,
             "owner_admission_qualified": False,
             "external_effect_idempotency_qualified": False,
