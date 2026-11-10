@@ -1,0 +1,16 @@
+# Synthetic authorization RDTE. No private refs, keys or customer data.
+# Linux amd64+arm64 native Podman Quadlet; distribution tags are captured at run time.
+[Unit]
+Description=OPA policy decision benchmark (synthetic)
+[Container]
+Image=docker.io/openpolicyagent/opa:latest
+ContainerName=policy-bakeoff-opa
+Network=policy-bakeoff.network
+PublishPort=127.0.0.1:8181:8181
+Volume=/run/policy-bakeoff/policy.rego:/policies/policy.rego:ro
+Exec=run --server --addr=0.0.0.0:8181 /policies/policy.rego
+[Service]
+Restart=on-failure
+TimeoutStartSec=120
+[Install]
+WantedBy=multi-user.target
