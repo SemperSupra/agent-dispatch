@@ -7,8 +7,7 @@ Image=docker.io/openpolicyagent/opa:latest
 ContainerName=policy-bakeoff-opa
 Network=policy-bakeoff.network
 PublishPort=127.0.0.1:8181:8181
-Volume=/run/policy-bakeoff/policy.rego:/policies/policy.rego:ro
-Exec=run --server --addr=0.0.0.0:8181 /policies/policy.rego
+Exec=run --server --addr=0.0.0.0:8181
 [Service]
 Restart=on-failure
 TimeoutStartSec=120
