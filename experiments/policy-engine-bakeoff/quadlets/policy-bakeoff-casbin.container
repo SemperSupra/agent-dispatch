@@ -1,0 +1,14 @@
+# Synthetic authorization RDTE. No private refs, keys or customer data.
+# Linux amd64+arm64 native Podman Quadlet; distribution tags are captured at run time.
+[Unit]
+Description=Casbin embedded-Go HTTP adapter synthetic evaluator
+[Container]
+Image=localhost/policy-bakeoff-casbin:rdte
+ContainerName=policy-bakeoff-casbin
+Network=policy-bakeoff.network
+PublishPort=127.0.0.1:8090:8090
+[Service]
+Restart=on-failure
+TimeoutStartSec=120
+[Install]
+WantedBy=multi-user.target
