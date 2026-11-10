@@ -1,0 +1,61 @@
+name: Synthetic policy engine Quadlet bakeoff (public runners)
+run-name: policy-bakeoff-${{ github.sha }}
+on:
+  push:
+    branches: [rdte/policy-engines-quadlet-bakeoff-20261110]
+    paths: ['.github/workflows/policy-engine-quadlet-bakeoff.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-quadlet:
+    name: "${{ matrix.engine }} / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - { engine: opa, runner: ubuntu-24.04, arch: amd64 }
+          - { engine: opa, runner: ubuntu-24.04-arm, arch: arm64 }
+          - { engine: openfga, runner: ubuntu-24.04, arch: amd64 }
+          - { engine: openfga, runner: ubuntu-24.04-arm, arch: arm64 }
+          - { engine: spicedb, runner: ubuntu-24.04, arch: amd64 }
+          - { engine: spicedb, runner: ubuntu-24.04-arm, arch: arm64 }
+          - { engine: casbin, runner: ubuntu-24.04, arch: amd64 }
+          - { engine: casbin, runner: ubuntu-24.04-arm, arch: arm64 }
+          - { engine: opal, runner: ubuntu-24.04, arch: amd64 }
+          - { engine: opal, runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        if: matrix.engine == 'casbin'
+        with:
+          go-version: stable
+          cache: false
+      - name: Confirm native runner and synthetic-only source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "engine=${{ matrix.engine }} expected=${{ matrix.arch }} actual=$(uname -m)"
+          case "${{ matrix.arch }}:$(uname -m)" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          test "${{ github.ref }}" = "refs/heads/rdte/policy-engines-quadlet-bakeoff-20261110"
+      - name: Install Podman and test native Quadlet deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/policy-engine-bakeoff/run.sh "${{ matrix.engine }}"
+      - name: Upload exact-run metrics and operator receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: policy-quadlet-${{ matrix.engine }}-${{ matrix.arch }}-${{ github.run_id }}
+          path: policy-bakeoff-evidence/
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,4 @@
+# Synthetic authorization RDTE. No private refs, keys or customer data.
+# Linux amd64+arm64 native Podman Quadlet; distribution tags are captured at run time.
+[Network]
+NetworkName=policy-bakeoff

@@ -1,0 +1,21 @@
+# Synthetic authorization RDTE. No private refs, keys or customer data.
+# Linux amd64+arm64 native Podman Quadlet; distribution tags are captured at run time.
+[Unit]
+Description=OPAL policy distribution server synthetic
+After=policy-bakeoff-opal-broadcast.service
+Requires=policy-bakeoff-opal-broadcast.service
+[Container]
+Image=docker.io/permitio/opal-server:latest
+ContainerName=policy-bakeoff-opal-server
+Network=policy-bakeoff.network
+PublishPort=127.0.0.1:7002:7002
+Environment=OPAL_BROADCAST_URI=postgres://postgres:synthetic-not-a-secret@policy-bakeoff-broadcast:5432/postgres
+Environment=UVICORN_NUM_WORKERS=1
+Environment=OPAL_POLICY_REPO_URL=https://github.com/permitio/opal-example-policy-repo
+Environment=OPAL_POLICY_REPO_POLLING_INTERVAL=30
+Environment=OPAL_LOG_FORMAT_INCLUDE_PID=true
+[Service]
+Restart=on-failure
+TimeoutStartSec=180
+[Install]
+WantedBy=multi-user.target
