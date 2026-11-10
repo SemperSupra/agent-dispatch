@@ -1,0 +1,16 @@
+# Synthetic authorization RDTE. No private refs, keys or customer data.
+# Linux amd64+arm64 native Podman Quadlet; distribution tags are captured at run time.
+[Unit]
+Description=SpiceDB synthetic in-memory evaluator
+[Container]
+Image=ghcr.io/authzed/spicedb:v1.57.0
+ContainerName=policy-bakeoff-spicedb
+Network=policy-bakeoff.network
+PublishPort=127.0.0.1:8443:8443
+Environment=SPICEDB_TELEMETRY_ENDPOINT=
+Exec=serve --http-enabled --datastore-engine=memory --grpc-preshared-key=synthetic-test-only-no-privilege --skip-release-check
+[Service]
+Restart=on-failure
+TimeoutStartSec=180
+[Install]
+WantedBy=multi-user.target
