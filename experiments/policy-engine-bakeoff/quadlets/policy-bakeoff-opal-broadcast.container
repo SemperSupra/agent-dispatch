@@ -1,0 +1,16 @@
+# Synthetic authorization RDTE. No private refs, keys or customer data.
+# Linux amd64+arm64 native Podman Quadlet; distribution tags are captured at run time.
+[Unit]
+Description=OPAL PostgreSQL broadcast dependency synthetic only
+[Container]
+Image=docker.io/library/postgres:16-alpine
+ContainerName=policy-bakeoff-broadcast
+Network=policy-bakeoff.network
+Environment=POSTGRES_USER=postgres
+Environment=POSTGRES_PASSWORD=synthetic-not-a-secret
+Environment=POSTGRES_DB=postgres
+[Service]
+Restart=on-failure
+TimeoutStartSec=180
+[Install]
+WantedBy=multi-user.target
