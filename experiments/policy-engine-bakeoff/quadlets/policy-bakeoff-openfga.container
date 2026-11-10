@@ -1,0 +1,17 @@
+# Synthetic authorization RDTE. No private refs, keys or customer data.
+# Linux amd64+arm64 native Podman Quadlet; distribution tags are captured at run time.
+[Unit]
+Description=OpenFGA synthetic in-memory evaluator
+[Container]
+Image=docker.io/openfga/openfga:latest
+ContainerName=policy-bakeoff-openfga
+Network=policy-bakeoff.network
+PublishPort=127.0.0.1:8080:8080
+Environment=OPENFGA_DATASTORE_ENGINE=memory
+Environment=OPENFGA_PLAYGROUND_ENABLED=false
+Exec=run
+[Service]
+Restart=on-failure
+TimeoutStartSec=180
+[Install]
+WantedBy=multi-user.target
