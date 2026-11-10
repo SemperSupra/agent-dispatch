@@ -1,0 +1,5 @@
+FROM scratch
+COPY casbin-pdp /casbin-pdp
+USER 65532:65532
+EXPOSE 8090
+ENTRYPOINT ["/casbin-pdp"]
