@@ -38,7 +38,8 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--service",required=True)
     parser.add_argument("--port",required=True,type=int)
+    parser.add_argument("--bind",default="127.0.0.1")
     a=parser.parse_args()
-    h=ThreadingHTTPServer(("127.0.0.1",a.port),Handler);h.service=a.service
+    h=ThreadingHTTPServer((a.bind,a.port),Handler);h.service=a.service
     h.serve_forever()
 if __name__=="__main__":main()
