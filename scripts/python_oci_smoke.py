@@ -157,7 +157,7 @@ def run_public_qualification(receipt_path: Path) -> dict:
             "--root", "/external", "--scratch", "/scratch",
         ]
         crash = _subprocess(image_call + ["--phase", "prepare", "--crash"], 30)
-        if crash.returncode != 75 or list((root / "outputs").iterdir()) == [] is False:
+        if crash.returncode != 75 or list((root / "outputs").iterdir()):
             raise Rejected("forced termination oracle failed")
         shutil.rmtree(scratch)
         scratch.mkdir(mode=0o700)
