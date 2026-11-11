@@ -42,9 +42,10 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--port",type=int,required=True)
+    p.add_argument("--bind",default="127.0.0.1")
     p.add_argument("--label",choices=["alpha","beta"],required=True)
     a=p.parse_args()
-    server=ThreadingHTTPServer(("127.0.0.1",a.port),Handler)
+    server=ThreadingHTTPServer((a.bind,a.port),Handler)
     server.label=a.label
     server.serve_forever()
 if __name__=="__main__":main()
