@@ -3,8 +3,9 @@
 
 The fixture uses public, read-only echo operations only. It does not qualify AAA.
 """
-import json,sys,time,urllib.request,urllib.error
-URL="http://127.0.0.1:39200/mcp"
+import json,sys,time,urllib.request,urllib.error,os
+URL=os.environ.get("MCP_PROBE_URL","http://127.0.0.1:39200/mcp")
+TOKEN=os.environ.get("MCP_PROBE_TOKEN")
 SESSION=None
 def rpc(i,method,params=None):
     global SESSION
@@ -14,6 +15,7 @@ def rpc(i,method,params=None):
              "Accept":"application/json, text/event-stream",
              "MCP-Protocol-Version":"2025-06-18"}
     if SESSION: headers["Mcp-Session-Id"]=SESSION
+    if TOKEN: headers["Authorization"]="Bearer "+TOKEN
     req=urllib.request.Request(URL,data=json.dumps(msg).encode(),headers=headers)
     try:
         r=urllib.request.urlopen(req,timeout=15)
@@ -27,7 +29,7 @@ def rpc(i,method,params=None):
             if not events:raise ValueError("empty SSE: "+body[:400])
             return json.loads(events[-1])
         return json.loads(body)
-receipt={"schema":"public-safe-actual-mcp-fanout-v1","target":"agentgateway-v1.7.0",
+receipt={"schema":"public-safe-actual-mcp-fanout-v1","target":os.environ.get("MCP_PROBE_TARGET","agentgateway-v1.7.0"),
          "results":[],"passed":False}
 try:
     init=rpc(1,"initialize",{"protocolVersion":"2025-06-18",
