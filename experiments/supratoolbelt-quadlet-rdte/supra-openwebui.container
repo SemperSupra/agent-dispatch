@@ -1,0 +1,23 @@
+# Synthetic RDTE reference. Application is disposable, database is external.
+[Unit]
+Description=SupraToolbelt Open WebUI RDTE client
+Documentation=https://github.com/SemperSupra/mcp-projection-dev/issues/170
+
+[Container]
+Image=ghcr.io/open-webui/open-webui@sha256:85d0453be8ca086896ddcc496190ad5a78f79d6e15f4be8c0fb80e4a9aaba2b0
+ContainerName=supra-webui-rdte
+PublishPort=127.0.0.1:33080:8080
+Volume=supra-webui-data.volume:/app/backend/data
+EnvironmentFile=%h/.config/supratoolbelt/webui.env
+DropCapability=all
+NoNewPrivileges=true
+Memory=2g
+PidsLimit=256
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=240
+
+[Install]
+WantedBy=default.target
