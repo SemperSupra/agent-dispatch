@@ -1,0 +1,98 @@
+name: M1 authenticated per-session Tool Belt target condition qualification
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mcp-belt-target-conditions.yml
+      - experiments/mcp-jwt-authz/profiles.py
+  push:
+    branches: [rdte/mcp-belt-target-conditions-20261111]
+    paths:
+      - .github/workflows/mcp-belt-target-conditions.yml
+      - experiments/mcp-jwt-authz/profiles.py
+permissions:
+  contents: read
+jobs:
+  profile-conditions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Ephemeral issuer and loopback upstreams
+        run: |
+          python3 experiments/mcp-jwt-authz/make_issuer.py
+          chmod 600 private.pem token-*.txt
+          python3 experiments/mcp-jwt-authz/fixture.py --serve --label alpha --port 39101 &
+          python3 experiments/mcp-jwt-authz/fixture.py --serve --label beta --port 39102 &
+          for port in 39101 39102; do
+            for i in $(seq 1 20); do
+              curl -fsS "http://127.0.0.1:$port/health" && break || sleep 1
+            done
+          done
+      - name: Policy-admitted upstream target selection via signed belt claim
+        run: |
+          cat > config.yaml <<'YAML'
+          binds:
+          - port: 39200
+            listeners:
+            - routes:
+              - matches:
+                - path:
+                    exact: /mcp
+                policies:
+                  mcpAuthentication:
+                    mode: strict
+                    issuer: https://issuer.invalid/m1
+                    audiences: [m1-synthetic-client]
+                    jwks:
+                      file: /keys/jwks.json
+                    resourceMetadata:
+                      resource: http://127.0.0.1:39200/mcp
+                      scopesSupported: [read:all]
+                      bearerMethodsSupported: [header]
+                  mcpAuthorization:
+                    rules:
+                    - 'jwt.sub == "alpha" && mcp.tool.name == "echo"'
+                backends:
+                - mcp:
+                    targets:
+                    - name: alpha
+                      condition: 'jwt.belt == "research"'
+                      mcp:
+                        host: http://127.0.0.1:39101/mcp
+                    - name: beta
+                      condition: 'jwt.belt == "engineering"'
+                      mcp:
+                        host: http://127.0.0.1:39102/mcp
+          YAML
+      - name: Launch pinned gateway
+        run: |
+          docker pull cr.agentgateway.dev/agentgateway:v1.7.0
+          docker inspect --format '{{index .RepoDigests 0}}' cr.agentgateway.dev/agentgateway:v1.7.0 > image-digest.txt
+          docker run -d --name m1-profile --network host \
+            --mount "type=bind,source=$PWD/config.yaml,target=/config.yaml,readonly" \
+            --mount "type=bind,source=$PWD/jwks.json,target=/keys/jwks.json,readonly" \
+            cr.agentgateway.dev/agentgateway:v1.7.0 -f /config.yaml
+          for i in $(seq 1 30); do
+            curl -s --max-time 2 http://127.0.0.1:39200/mcp >/dev/null && exit 0 || true
+            sleep 1
+          done
+          docker logs m1-profile || true
+          exit 1
+      - name: Execute multiple authenticated session profile changes and deny other targets
+        run: python3 experiments/mcp-jwt-authz/profiles.py
+      - name: Cleanup synthetic keys and runtime
+        if: always()
+        run: |
+          docker rm -f m1-profile >/dev/null 2>&1 || true
+          rm -f private.pem token-*.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-signed-belt-target-condition
+          path: |
+            profile-receipt.json
+            issuer-evidence.json
+            config.yaml
+            image-digest.txt
