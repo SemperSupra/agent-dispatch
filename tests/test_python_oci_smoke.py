@@ -91,8 +91,25 @@ class PublicPythonOCIProbeTests(unittest.TestCase):
             with self.assertRaises(m.Rejected):
                 m.run_public_qualification(Path(self.tmp.name) / "receipt.json")
 
+    def test_mutable_or_mismatched_image_identity_denied_before_execution(self):
+        expected = m.IMAGE_CANDIDATE
+        self.assertRegex(expected, r"^python@sha256:[a-f0-9]{64}$")
+        pull_ok = m.subprocess.CompletedProcess(["docker", "pull"], 0, stdout="", stderr="")
+        wrong = m.subprocess.CompletedProcess(["docker", "inspect"], 0,
+                                              stdout="python@sha256:" + "0" * 64 + "\n", stderr="")
+        with mock.patch.dict(m.os.environ, {"GITHUB_REPOSITORY": "SemperSupra/agent-dispatch",
+                                            "RUNNER_ARCH": "X64"}), \
+             mock.patch.object(m.platform, "machine", return_value="x86_64"), \
+             mock.patch.object(m.shutil, "which", return_value="/usr/bin/docker"), \
+             mock.patch.object(m.os, "getuid", return_value=1000), \
+             mock.patch.object(m, "_subprocess", side_effect=[pull_ok, wrong]) as calls:
+            with self.assertRaisesRegex(m.Rejected, "identity mismatch"):
+                m.run_public_qualification(Path(self.tmp.name) / "receipt.json")
+            self.assertEqual(calls.call_count, 2)
+            self.assertEqual(calls.call_args_list[0].args[0][2], expected)
+
     def test_fixed_image_and_no_dynamic_shell(self):
-        self.assertEqual(m.IMAGE_CANDIDATE, "python:3.14.10-slim")
+        self.assertEqual(m.IMAGE_CANDIDATE, "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f")
         source = (ROOT / "scripts/python_oci_smoke.py").read_text()
         self.assertNotIn("shell=True", source)
         self.assertNotIn("eval(", source)
