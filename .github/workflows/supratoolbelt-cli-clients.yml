@@ -1,0 +1,69 @@
+name: SupraToolbelt free-cloud CLI client installation and configuration bakeoff
+on:
+  push:
+    branches: [rdte/supratoolbelt-cli-clients-20261111]
+    paths:
+      - .github/workflows/supratoolbelt-cli-clients.yml
+      - experiments/supratoolbelt-client-bakeoff/**
+  pull_request:
+    paths:
+      - .github/workflows/supratoolbelt-cli-clients.yml
+      - experiments/supratoolbelt-client-bakeoff/**
+permissions:
+  contents: read
+concurrency:
+  group: supra-cli-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  cli-config:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        # OpenCode V2 has an independent, source-directed cold-start workcell in PR #603.
+        # Avoid rerunning unstable nested-worktree bootstrap as part of Qwen C0.
+        client: [qwen]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Resolve exact public package and install into disposable runner temp
+        env:
+          CLIENT: ${{ matrix.client }}
+        run: |
+          set -euo pipefail
+          package=@opencode/cli
+          if [ "$CLIENT" = qwen ]; then package=@qwen-code/qwen-code; fi
+          version="$(npm view "$package" version)"
+          integrity="$(npm view "$package@$version" dist.integrity)"
+          printf '{"package":"%s","version":"%s","registryIntegrity":"%s"}\n' \
+            "$package" "$version" "$integrity" > package-receipt.json
+          npm install --prefix "$RUNNER_TEMP/supra-cli" --no-audit --no-fund "$package@$version"
+          echo "$RUNNER_TEMP/supra-cli/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Start local synthetic MCP for actual client discovery
+        run: |
+          python3 experiments/supratoolbelt-client-bakeoff/synthetic_mcp.py &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:39200/health; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Qualify actual CLI with independent temporary config contexts
+        env:
+          CLIENT: ${{ matrix.client }}
+        run: |
+          python3 experiments/supratoolbelt-client-bakeoff/qualify_cli.py --client "$CLIENT"
+      - name: Guarantee test state disposal
+        if: always()
+        run: |
+          rm -rf rdte-client-contexts "$RUNNER_TEMP/rdte-client-contexts" "$RUNNER_TEMP/supra-cli"
+          test ! -e rdte-client-contexts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: supra-cli-${{ matrix.client }}-${{ matrix.runner }}
+          path: |
+            package-receipt.json
+            client-rdte-receipt.json
