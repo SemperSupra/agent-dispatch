@@ -33,6 +33,8 @@ on:
   pull_request:
     paths:
       - 'scripts/gha_workload_request.py'
+      - 'scripts/python_oci_smoke.py'
+      - 'tests/test_python_oci_smoke.py'
       - 'scripts/gha_assignment_contract.py'
       - 'scripts/gha_assignment_execute.py'
       - 'scripts/verify_gha_assignment_receipt.py'
