@@ -36,12 +36,16 @@ try:
                "capabilities":{},"clientInfo":{"name":"public-safe-bakeoff","version":"1.0"}})
     receipt["results"].append({"stage":"initialize","result":init})
     time.sleep(0.2)
-    tools=rpc(2,"tools/list")
-    receipt["results"].append({"stage":"tools/list","result":tools})
-    names=[str(t.get("name")) for t in tools.get("result",{}).get("tools",[])]
+    retries=int(os.environ.get("MCP_PROBE_DISCOVERY_RETRIES","1"))
+    for attempt in range(retries):
+        tools=rpc(2+attempt,"tools/list")
+        names=[str(t.get("name")) for t in tools.get("result",{}).get("tools",[])]
+        if len(names)>=2:break
+        if attempt+1<retries:time.sleep(2)
+    receipt["results"].append({"stage":"tools/list","attempts":attempt+1,"result":tools})
     if len(names)<2 or len(set(names))!=len(names):raise ValueError("tool aggregation/namespacing failed: "+str(names))
     sources=set()
-    for i,name in enumerate(names,3):
+    for i,name in enumerate(names,1000):
         reply=rpc(i,"tools/call",{"name":name,"arguments":{"text":"qualification"}})
         receipt["results"].append({"stage":"tools/call","tool":name,"result":reply})
         text=json.dumps(reply)
