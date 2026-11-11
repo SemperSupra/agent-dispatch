@@ -60,6 +60,18 @@ jobs:
           }
           pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(data))
           pathlib.Path("ephemeral-token.txt").write_text(token)
+          scopes={}
+          for scope in ("alpha","beta"):
+            key=secrets.token_urlsafe(36)
+            scopes[scope]=key
+            data["bearerKeys"].append({
+              "id":secrets.token_hex(16),"name":"synthetic-"+scope,
+              "tokenHash":hashlib.sha256(key.encode()).hexdigest(),
+              "tokenPrefix":key[:12],"enabled":True,"kind":"system",
+              "accessType":"servers","allowedGroups":[],"allowedServers":[scope]
+            })
+          pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(data))
+          pathlib.Path("ephemeral-scope-tokens.json").write_text(json.dumps(scopes))
           PY
           chmod 600 ephemeral-token.txt candidate-data/mcp_settings.json
       - name: Start MCPHub on loopback only
@@ -106,6 +118,8 @@ jobs:
           MCP_PROBE_DISCOVERY_RETRIES=30 \
           MCP_PROBE_TOKEN="$(cat ephemeral-token.txt)" \
           python3 experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - name: Prove scoped MCP tool access for two separate synthetic principals
+        run: python3 experiments/mcp-toolbelt-bakeoff/probe_scopes.py
       - name: Capture bounded evidence, destroy synthetic runtime and key
         if: always()
         run: |
@@ -113,7 +127,7 @@ jobs:
           docker stats --no-stream --format '{{json .}}' mcp-mcphub >> mcphub-runtime.txt || true
           docker logs --tail 40 mcp-mcphub 2>&1 | sed -E 's/(token|secret|password)[=:][^ ]+/\1=[REDACTED]/Ig' >> mcphub-runtime.txt || true
           docker rm -f mcp-mcphub mcp-alpha mcp-beta >/dev/null 2>&1 || true
-          rm -f ephemeral-token.txt
+          rm -f ephemeral-token.txt ephemeral-scope-tokens.json
           docker network rm mcp-bakeoff-net >/dev/null 2>&1 || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -123,6 +137,7 @@ jobs:
             functional-receipt.json
             startup.txt
             auth-receipt.txt
+            scope-receipt.json
             mcphub-runtime.txt
             connector-diagnostics.txt
             mcphub-image-digest.txt
