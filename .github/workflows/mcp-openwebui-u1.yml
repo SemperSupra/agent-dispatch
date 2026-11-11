@@ -1,0 +1,78 @@
+name: M1 Open WebUI actual native MCP administrator integration U1
+on:
+  push:
+    branches: [rdte/supratoolbelt-openwebui-mcp-u1-20261111]
+    paths: [.github/workflows/mcp-openwebui-u1.yml, experiments/mcp-toolbelt-bakeoff/probe_openwebui_u1.py]
+  pull_request:
+    paths: [.github/workflows/mcp-openwebui-u1.yml, experiments/mcp-toolbelt-bakeoff/probe_openwebui_u1.py]
+permissions:
+  contents: read
+jobs:
+  openwebui-native-u1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Launch public-safe five-tool synthetic upstream on isolated container network
+        run: |
+          set -euo pipefail
+          docker network create supra-mcp-rdte-net
+          docker pull python:3.12-alpine
+          docker image inspect --format '{{index .RepoDigests 0}}' python:3.12-alpine > fixture-image-digest.txt
+          docker run -d --name supra-mcp-fixture --network supra-mcp-rdte-net \
+            --mount "type=bind,source=$PWD/experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py,target=/fixture.py,readonly" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            python:3.12-alpine python /fixture.py --service synthetic --port 39101 --bind 0.0.0.0
+      - name: Start real Open WebUI using disposable administrator enrollment and volume
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/open-webui/open-webui@sha256:85d0453be8ca086896ddcc496190ad5a78f79d6e15f4be8c0fb80e4a9aaba2b0
+          docker volume create supra-webui-u1
+          umask 077
+          printf 'WEBUI_SECRET_KEY=%s\n' "$(openssl rand -hex 32)" > webui-u1.env
+          cat >> webui-u1.env <<'ENV'
+          WEBUI_AUTH=true
+          ENABLE_SIGNUP=false
+          ENABLE_INITIAL_ADMIN_SIGNUP=true
+          ENABLE_PERSISTENT_CONFIG=true
+          ENABLE_TOOL_SERVERS=true
+          ENABLE_OLLAMA_API=false
+          ENABLE_OPENAI_API=false
+          ENV
+          docker run -d --name supra-webui-u1 --network supra-mcp-rdte-net \
+            --publish 127.0.0.1:33080:8080 \
+            --mount type=volume,source=supra-webui-u1,target=/app/backend/data \
+            --env-file webui-u1.env --cap-drop ALL --security-opt no-new-privileges \
+            --memory 2g --cpus 2 \
+            ghcr.io/open-webui/open-webui@sha256:85d0453be8ca086896ddcc496190ad5a78f79d6e15f4be8c0fb80e4a9aaba2b0
+          for i in $(seq 1 85);do
+            code=$(curl --silent --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:33080/health || true)
+            if [ "$code" = 200 ];then exit 0;fi
+            if [ "$(docker inspect --format '{{.State.Running}}' supra-webui-u1)" != true ];then
+              docker logs --tail 30 supra-webui-u1 | tail -20
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs --tail 40 supra-webui-u1 | tail -20
+          exit 1
+      - name: Qualify real admin-authenticated MCP registration, catalog and anonymous denial
+        run: |
+          python3 experiments/mcp-toolbelt-bakeoff/probe_openwebui_u1.py
+      - name: Destroy all ephemeral identities, app data, service and network
+        if: always()
+        run: |
+          docker rm -f supra-webui-u1 supra-mcp-fixture >/dev/null 2>&1 || true
+          docker volume rm -f supra-webui-u1 >/dev/null 2>&1 || true
+          docker network rm supra-mcp-rdte-net >/dev/null 2>&1 || true
+          rm -f webui-u1.env
+          test ! -e webui-u1.env
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: supra-openwebui-native-mcp-u1
+          path: |
+            fixture-image-digest.txt
+            openwebui-u1-receipt.json
