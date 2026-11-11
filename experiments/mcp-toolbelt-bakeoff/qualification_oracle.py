@@ -16,12 +16,12 @@ TOOLS = ("search", "read", "observe", "write", "admin")
 BELTS = {
     "research": {"research.search", "research.read", "github.read", "docs.search", "docs.read"},
     "engineering": {"github.read", "dispatch.observe", "inventory.read", "diagnostics.observe"},
-    "operations": {"operations.read", "operations.observe", "metrics.read", "automation.observe"},
+    "operations": {"operations.read", "operations.observe", "operations.write", "metrics.read", "automation.observe"},
 }
 GRANTS = {
     "agent:alpha": {"research": {"read", "search"}, "github": {"read"}, "docs": {"read", "search"},
                     "dispatch": {"observe"}, "inventory": {"read"}, "diagnostics": {"observe"}},
-    "agent:beta": {"operations": {"read", "observe"}, "metrics": {"read"},
+    "agent:beta": {"operations": {"read", "observe", "write"}, "metrics": {"read"},
                    "automation": {"observe"}},
     "agent:revoked": {},
 }
@@ -54,6 +54,8 @@ def vectors():
     add("alpha-research-read","agent:alpha","research","research.search","research",True)
     add("alpha-github-read","agent:alpha","research","github.read","research",True)
     add("beta-ops-read","agent:beta","operations","metrics.read","operations",True)
+    add("beta-privileged-audited","agent:beta","operations","operations.write","operations",True,audit=True)
+    add("beta-privileged-audit-outage","agent:beta","operations","operations.write","operations",False,audit=False)
     add("alpha-not-beta","agent:alpha","operations","metrics.read","operations",False)
     add("beta-not-alpha","agent:beta","research","research.search","research",False)
     add("unauthorized-direct","agent:alpha","research","operations.admin","research",False)
@@ -78,17 +80,12 @@ def mutation_checks(items):
             args.update({k:case[k] for k in ("verified","health","native","audit") if k in case})
             if evaluate(**args,mutate=kind) != (case["expected"]=="ALLOW"):
                 probes[kind]+=1
-    # Ensure audit mutation cannot pass merely by having no privileged granted vectors.
-    probes["ignore_audit"] = int(
-        evaluate("agent:alpha","research","research.write","research",audit=False,mutate="ignore_audit")
-        != evaluate("agent:alpha","research","research.write","research",audit=False)
-    )
-    # Dedicated synthetic privileged fixture with explicit selection and authorization.
-    if not probes["ignore_audit"]:
-        def permitted_write_with_audit(audit_on, broken):
-            grant=True; selected=True; native=True
-            return grant and selected and native and (audit_on or broken)
-        probes["ignore_audit"]=int(permitted_write_with_audit(False,True)!=permitted_write_with_audit(False,False))
+    for case in items:
+        args={k:case[k] for k in ("principal","belt","tool")}
+        args["selected"]=case["activeBelt"]
+        args.update({k:case[k] for k in ("verified","health","native","audit") if k in case})
+        if evaluate(**args,mutate="ignore_audit") != (case["expected"]=="ALLOW"):
+            probes["ignore_audit"]+=1
     return probes
 def main():
     parser=argparse.ArgumentParser()
