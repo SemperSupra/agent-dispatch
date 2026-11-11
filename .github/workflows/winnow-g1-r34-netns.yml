@@ -54,8 +54,15 @@ jobs:
           fi
           HOST_NS="$(readlink /proc/self/ns/net)"
           echo "R34_TEMPORARY_NAMESPACES_ALLOWED"
+          # GitHub's checkout hierarchy is not readable by uid 65534. Stage
+          # ONLY this public synthetic script in a random world-readable
+          # temporary directory, then drop privileges inside the netns.
+          PROBE_DIR="$(mktemp -d /tmp/winnow-r34.XXXXXX)"
+          trap 'rm -rf -- "$PROBE_DIR"' EXIT
+          chmod 0755 "$PROBE_DIR"
+          install -m 0644 experiments/winnow-g1-r34-netns/netns_probe.py "$PROBE_DIR/netns_probe.py"
           sudo -n unshare --net -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
-            python3 experiments/winnow-g1-r34-netns/netns_probe.py "$HOST_NS" \
+            python3 "$PROBE_DIR/netns_probe.py" "$HOST_NS" \
             | tee winnow-g1-r34-evidence/result.txt
           grep -F -- "R34_EPHEMERAL_NETWORK_NAMESPACE_DENIAL_PASS" winnow-g1-r34-evidence/result.txt
           echo "R34_OS_NETWORK_DENIAL_PASS=$GITHUB_SHA"
