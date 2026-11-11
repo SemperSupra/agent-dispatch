@@ -1,0 +1,13 @@
+{
+  "schema": "m1.disposable.execution/v1",
+  "id": "reject-global-install",
+  "phase": "test",
+  "tooling": {
+    "mode": "local_disposable_fallback",
+    "install_scope": "project/.local",
+    "cache_scope": "project/.local",
+    "cleanup_declared": true,
+    "global_install": true,
+    "unmanaged_host_writes": false
+  }
+}
