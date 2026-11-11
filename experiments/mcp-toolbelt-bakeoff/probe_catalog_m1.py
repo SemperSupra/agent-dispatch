@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Actual MCP 12x5 aggregation assertion against an ephemeral synthetic gateway."""
-import hashlib,json,sys,os,urllib.request,urllib.error
+import hashlib,json,sys,os,time,urllib.request,urllib.error
 from pathlib import Path
 NAMES=("research","github","dispatch","operations","calendar","files","models","automation","diagnostics","inventory","docs","metrics")
 TOOLS=("search","read","observe","write","admin")
@@ -28,8 +28,13 @@ def main():
     try:
         init=call(1,"initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"m1-test","version":"1"}})
         if "error" in init:raise ValueError("initialization error")
-        inventory=call(2,"tools/list")
-        advertised={x["name"]:x for x in inventory["result"]["tools"]}
+        retries=int(os.getenv("MCP_DISCOVERY_RETRIES","1"))
+        for attempt in range(retries):
+            inventory=call(2+attempt,"tools/list")
+            advertised={x["name"]:x for x in inventory["result"]["tools"]}
+            if len(advertised)==60:break
+            if attempt+1<retries:time.sleep(2)
+        outcome["discoveryAttempts"]=attempt+1
         expected={service+SEPARATOR+tool for service in NAMES for tool in TOOLS}
         outcome["distinctTools"]=len(advertised)
         outcome["advertisedToolHash"]=hashlib.sha256("\n".join(sorted(advertised)).encode()).hexdigest()
