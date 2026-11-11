@@ -96,6 +96,41 @@ class IndependentReceiptTests(unittest.TestCase):
             with self.subTest(case=patch_data), self.assertRaises(v.VerdictError):
                 check(raw2)
 
+    def test_python_oci_candidate_is_not_promotable(self):
+        for manifest in ("requests/gha/cpu-x64-python-oci-v1.json",
+                         "requests/gha/cpu-arm64-python-oci-v1.json"):
+            with self.subTest(manifest=manifest):
+                p = m.plan(manifest)
+                image = "python@sha256:" + "b" * 64
+                result = {
+                    "classification": "PASS_CANDIDATE_ONLY",
+                    "oracle_verified": True,
+                    "resolved_image_ref": image,
+                    "receipt_sha256": "a" * 64,
+                    "production_promotable": False,
+                }
+                doc = {
+                    "schema": m.RECEIPT, "assignment_id": p["assignment_id"],
+                    "data_class": "public-synthetic",
+                    "observed_architecture": p["expected_machine"], "qualified": True,
+                    "request_path": manifest, "request_sha256": p["request_sha256"],
+                    "requested_runner": p["runner"], "result": result,
+                    "run_attempt": "1", "run_id": RUN, "shape_verified": True,
+                    "source_sha": SHA, "workload": p["workload"],
+                }
+                raw = (json.dumps(doc, sort_keys=True) + "\n").encode()
+                self.assertEqual(check(raw, manifest=manifest)["classification"], "PASS")
+                for bad in ({"classification": "PASS"},
+                            {"production_promotable": True},
+                            {"resolved_image_ref": "python:3.14.10-slim"},
+                            {"receipt_sha256": "bogus"},
+                            {"oracle_verified": False}):
+                    with self.subTest(bad=bad):
+                        wrong = dict(doc, result=dict(result, **bad))
+                        corrupted = (json.dumps(wrong, sort_keys=True) + "\n").encode()
+                        with self.assertRaises(v.VerdictError):
+                            check(corrupted, manifest=manifest)
+
     def test_extra_and_duplicate_fields_fail(self):
         d,raw=built()
         d["free_form_shell"]="echo token"
