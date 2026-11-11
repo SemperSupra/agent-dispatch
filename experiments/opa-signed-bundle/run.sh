@@ -45,11 +45,11 @@ opa() {
   sudo podman run --rm -v "$root:/work:rw" "$image" "$@"
 }
 opa check /work/allow/authz/policy.rego > "$out/policy-check.txt"
-opa build --bundle --signing-key /work/private.pem --verification-key /work/public.pem \
-  --verification-key-id synthetic --scope read --revision synthetic-allow-001 \
+opa build --bundle --signing-key /work/private.pem \
+  --verification-key-id synthetic --revision synthetic-allow-001 \
   --output /work/allow.tar.gz /work/allow >>"$out/build.log" 2>&1
-opa build --bundle --signing-key /work/private.pem --verification-key /work/public.pem \
-  --verification-key-id synthetic --scope read --revision synthetic-deny-002 \
+opa build --bundle --signing-key /work/private.pem \
+  --verification-key-id synthetic --revision synthetic-deny-002 \
   --output /work/deny.tar.gz /work/deny >>"$out/build.log" 2>&1
 opa build --bundle --revision synthetic-unsigned --output /work/unsigned.tar.gz \
   /work/deny >>"$out/build.log" 2>&1
@@ -74,7 +74,6 @@ bundles:
       max_delay_seconds: 2
     signing:
       keyid: synthetic
-      scope: read
 keys:
   synthetic:
     algorithm: RS256
