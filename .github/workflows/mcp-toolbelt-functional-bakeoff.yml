@@ -4,11 +4,13 @@ on:
     branches: [rdte/mcp-toolbelt-bakeoff-20261111]
     paths:
       - .github/workflows/mcp-toolbelt-functional-bakeoff.yml
-      - experiments/mcp-toolbelt-bakeoff/**
+      - experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py
   pull_request:
     paths:
       - .github/workflows/mcp-toolbelt-functional-bakeoff.yml
-      - experiments/mcp-toolbelt-bakeoff/**
+      - experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py
 permissions:
   contents: read
 jobs:
