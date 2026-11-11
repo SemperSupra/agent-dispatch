@@ -21,10 +21,11 @@ jobs:
           persist-credentials: false
       - name: Start isolated synthetic MCPs
         run: |
-          docker network create mcp-bakeoff-net
+          docker network create --subnet 172.28.84.0/24 mcp-bakeoff-net
           for name in alpha beta; do
             port=39101; if [ "$name" = beta ]; then port=39102; fi
-            docker run -d --name mcp-$name --network mcp-bakeoff-net \
+            ip=172.28.84.2; if [ "$name" = beta ]; then ip=172.28.84.3; fi
+            docker run -d --name mcp-$name --network mcp-bakeoff-net --ip "$ip" \
               --mount "type=bind,source=$PWD/experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py,target=/synthetic_mcp.py,readonly" \
               python:3.12-alpine python /synthetic_mcp.py --bind 0.0.0.0 --port "$port" --label "$name"
           done
@@ -48,7 +49,8 @@ jobs:
                       "protocolNegotiation":"legacy","visibility":"public"}
             },
             "systemConfig":{"routing":{"enableGlobalRoute":True,"enableBearerAuth":True},
-                            "activityLog":{"storeToolPayload":False}},
+                            "activityLog":{"storeToolPayload":False},
+                            "network":{"allowedCidrs":["172.28.84.2/32","172.28.84.3/32"]}},
             "bearerKeys":[{
               "id":"11111111-2222-4333-8444-555555555555","name":"synthetic-eval",
               "tokenHash":hashlib.sha256(token.encode()).hexdigest(),
