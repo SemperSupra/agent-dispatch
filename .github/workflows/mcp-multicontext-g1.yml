@@ -1,0 +1,119 @@
+name: M1 concurrent signed Tool Belt contexts and restart test
+on:
+  push:
+    branches: [rdte/mcp-multicontext-g1-20261111]
+    paths:
+      - experiments/mcp-jwt-authz/concurrent_profiles.py
+      - .github/workflows/mcp-multicontext-g1.yml
+  pull_request:
+    paths:
+      - experiments/mcp-jwt-authz/concurrent_profiles.py
+      - .github/workflows/mcp-multicontext-g1.yml
+permissions:
+  contents: read
+jobs:
+  concurrent-contexts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Issue synthetic P256 signing key and launch loopback upstreams
+        run: |
+          python3 experiments/mcp-jwt-authz/make_issuer.py
+          chmod 600 private.pem token-*.txt
+          python3 experiments/mcp-jwt-authz/fixture.py --serve --label alpha --port 39101 &
+          python3 experiments/mcp-jwt-authz/fixture.py --serve --label beta --port 39102 &
+          for port in 39101 39102; do
+            for i in $(seq 1 25); do
+              if curl -fsS "http://127.0.0.1:$port/health"; then break; fi
+              sleep 1
+            done
+          done
+      - name: Configure strict signed profiles and per-target policy
+        run: |
+          cat > config.yaml <<'YAML'
+          binds:
+          - port: 39200
+            listeners:
+            - routes:
+              - matches:
+                - path:
+                    exact: /mcp
+                policies:
+                  mcpAuthentication:
+                    mode: strict
+                    issuer: https://issuer.invalid/m1
+                    audiences: [m1-synthetic-client]
+                    jwks:
+                      file: /keys/jwks.json
+                    resourceMetadata:
+                      resource: http://127.0.0.1:39200/mcp
+                      scopesSupported: [read:all]
+                      bearerMethodsSupported: [header]
+                  mcpAuthorization:
+                    rules:
+                    - 'jwt.sub == "alpha" && mcp.tool.name == "echo"'
+                backends:
+                - mcp:
+                    targets:
+                    - name: alpha
+                      condition: 'jwt.belt == "research"'
+                      mcp:
+                        host: http://127.0.0.1:39101/mcp
+                    - name: beta
+                      condition: 'jwt.belt == "engineering"'
+                      mcp:
+                        host: http://127.0.0.1:39102/mcp
+          YAML
+      - name: Pull digest-pinned gateway and declare start procedure
+        run: |
+          docker pull cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
+          cat > start-gateway.sh <<'SH'
+          #!/bin/sh
+          set -eu
+          docker run -d --name m1-contexts --network host --read-only --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --mount "type=bind,source=$PWD/config.yaml,target=/config.yaml,readonly" \
+            --mount "type=bind,source=$PWD/jwks.json,target=/keys/jwks.json,readonly" \
+            cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b -f /config.yaml
+          for i in $(seq 1 30); do
+            code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:39200/mcp || true)
+            if [ "$code" = 401 ] || [ "$code" = 403 ] || [ "$code" = 405 ]; then exit 0; fi
+            if ! docker ps --filter name=m1-contexts --format '{{.Names}}' | grep -qx m1-contexts; then docker logs m1-contexts;exit 1;fi
+            sleep 1
+          done
+          docker logs m1-contexts || true
+          exit 1
+          SH
+          chmod +x start-gateway.sh
+          ./start-gateway.sh
+      - name: Concurrent four-context qualification with independent signed claims
+        run: |
+          python3 experiments/mcp-jwt-authz/concurrent_profiles.py --rounds 12 --out concurrent-before-restart.json
+      - name: Recreate gateway without persisted login-context state
+        run: |
+          docker rm -f m1-contexts
+          ./start-gateway.sh
+      - name: Concurrent requalification using SAME context tokens after restart
+        run: |
+          python3 experiments/mcp-jwt-authz/concurrent_profiles.py \
+            --rounds 12 --reuse-tokens --out concurrent-after-restart.json
+      - name: Remove synthetic signing authority, tokens, and runtime
+        if: always()
+        run: |
+          docker inspect --format 'status={{.State.Status}} image={{.Image}}' m1-contexts > gateway-state.txt 2>/dev/null || true
+          docker rm -f m1-contexts >/dev/null 2>&1 || true
+          rm -rf private.pem token-*.txt synthetic-contexts start-gateway.sh
+          test ! -e private.pem
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-concurrent-contexts-and-restart
+          path: |
+            concurrent-before-restart.json
+            concurrent-after-restart.json
+            gateway-state.txt
+            config.yaml
+            issuer-evidence.json
