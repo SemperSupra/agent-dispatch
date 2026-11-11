@@ -1,0 +1,87 @@
+name: M1 MCPHub saved group CRUD and routed tool qualification
+on:
+  push:
+    branches: [rdte/mcp-mcphub-groups-g1-20261111]
+    paths:
+      - .github/workflows/mcp-mcphub-group-crud.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_group_crud.py
+  pull_request:
+    paths:
+      - .github/workflows/mcp-mcphub-group-crud.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_group_crud.py
+permissions:
+  contents: read
+jobs:
+  groups-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start two disposable synthetic isolated MCP services
+        run: |
+          docker network create --subnet 172.28.84.0/24 mcp-bakeoff-net
+          for name in alpha beta; do
+            port=39101; ip=172.28.84.2
+            if [ "$name" = beta ]; then port=39102;ip=172.28.84.3;fi
+            docker run -d --name mcp-$name --network mcp-bakeoff-net --ip "$ip" \
+              --mount "type=bind,source=$PWD/experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py,target=/fixture.py,readonly" \
+              python:3.12-alpine python /fixture.py --bind 0.0.0.0 --port "$port" --label "$name"
+          done
+      - name: Generate disposable admin password, bearer token and bounded config
+        run: |
+          mkdir -p candidate-data
+          python3 - <<'PY'
+          import hashlib,json,pathlib,secrets
+          password=secrets.token_urlsafe(36)
+          token=secrets.token_urlsafe(36)
+          config={"mcpServers":{
+             "alpha":{"type":"streamable-http","url":"http://mcp-alpha:39101/mcp","protocolNegotiation":"legacy","visibility":"public"},
+             "beta":{"type":"streamable-http","url":"http://mcp-beta:39102/mcp","protocolNegotiation":"legacy","visibility":"public"}},
+             "systemConfig":{"routing":{"enableGlobalRoute":True,"enableBearerAuth":True},
+               "activityLog":{"storeToolPayload":False},
+               "network":{"allowedCidrs":["172.28.84.2/32","172.28.84.3/32"]}},
+             "bearerKeys":[{"id":"11111111-2222-4333-8444-555555555555","name":"public-synthetic",
+               "tokenHash":hashlib.sha256(token.encode()).hexdigest(),
+               "tokenPrefix":token[:12],"enabled":True,"kind":"system","accessType":"all",
+               "allowedGroups":[],"allowedServers":[]}],"users":[],"prompts":[],"resources":[]}
+          pathlib.Path("synthetic-admin-password.txt").write_text(password)
+          pathlib.Path("ephemeral-token.txt").write_text(token)
+          pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(config))
+          PY
+          chmod 600 synthetic-admin-password.txt ephemeral-token.txt candidate-data/mcp_settings.json
+      - name: Start MCPHub with pinned image, local-only HTTP and synthetic credentials
+        run: |
+          docker pull samanhappy/mcphub@sha256:a6fb457b1218948cc79c9865baa5fa0c7f689f5af50a2369eea249cf5dd508cf
+          docker run -d --name m1-group-hub --network mcp-bakeoff-net \
+            --publish 127.0.0.1:3300:3000 \
+            --mount "type=bind,source=$PWD/candidate-data,target=/app/data" \
+            -e ADMIN_PASSWORD="$(cat synthetic-admin-password.txt)" \
+            -e DISABLE_WEB=true \
+            samanhappy/mcphub@sha256:a6fb457b1218948cc79c9865baa5fa0c7f689f5af50a2369eea249cf5dd508cf
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3300/mcp || true)
+            if [ "$code" != 000 ]; then exit 0;fi
+            if [ "$(docker inspect --format '{{.State.Running}}' m1-group-hub)" != true ];then docker logs --tail 40 m1-group-hub;exit 1;fi
+            sleep 1
+          done
+          exit 1
+      - name: Exercise real group create/list/route/update/delete operations
+        run: python3 experiments/mcp-toolbelt-bakeoff/probe_group_crud.py
+      - name: Collect bounded evidence, destroy all test state
+        if: always()
+        run: |
+          docker inspect --format 'state={{.State.Status}} exit={{.State.ExitCode}}' m1-group-hub > runtime.txt 2>/dev/null || true
+          docker stats --no-stream --format '{{json .}}' m1-group-hub >> runtime.txt 2>/dev/null || true
+          docker rm -f m1-group-hub mcp-alpha mcp-beta >/dev/null 2>&1 || true
+          docker network rm mcp-bakeoff-net >/dev/null 2>&1 || true
+          rm -f synthetic-admin-password.txt ephemeral-token.txt
+          rm -rf candidate-data
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-mcphub-group-crud
+          path: |
+            group-crud-receipt.json
+            runtime.txt
