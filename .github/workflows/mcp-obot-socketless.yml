@@ -19,12 +19,11 @@ jobs:
           docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/obot-platform/obot:latest > obot-image-digest.txt
       - name: Start without host socket, no public ingress, with disposable state
         run: |
-          mkdir -p obot-test-data
-          chmod 777 obot-test-data
+          docker volume create obot-rdte-data
           docker run -d --name obot-rdte \
             --publish 127.0.0.1:38080:8080 \
-            --mount "type=bind,source=$PWD/obot-test-data,target=/data" \
-            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=volume,source=obot-rdte-data,target=/data" \
+            --security-opt no-new-privileges \
             -e OBOT_SERVER_ENABLE_AUTHENTICATION=true \
             -e OBOT_BOOTSTRAP_TOKEN=Public-Synthetic-Only-2026 \
             ghcr.io/obot-platform/obot:latest
@@ -47,7 +46,7 @@ jobs:
           docker stats --no-stream --format '{{json .}}' obot-rdte >> runtime.txt 2>/dev/null || true
           docker logs --tail 60 obot-rdte 2>&1 | sed -E 's/([Tt]oken|[Ss]ecret|[Pp]assword)[=:][^ ]+/\1=[REDACTED]/g' > runtime-log.txt || true
           docker rm -f obot-rdte >/dev/null 2>&1 || true
-          rm -rf obot-test-data
+          docker volume rm -f obot-rdte-data >/dev/null 2>&1 || true
           if grep -q /var/run/docker.sock runtime.txt; then echo "FORBIDDEN_SOCKET_MOUNT" >> runtime.txt;exit 1;fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
