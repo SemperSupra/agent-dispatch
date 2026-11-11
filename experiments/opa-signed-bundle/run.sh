@@ -33,6 +33,8 @@ grep -F 'Version: 1.22.3' "$out/opa-version.txt" >/dev/null
 sudo install -d -m 0755 "$root"
 sudo chown "$(id -u):$(id -g)" "$root"
 mkdir -p "$root"/allow/authz "$root"/deny/authz
+printf '{"roots":["authz"]}\n' > "$root/allow/.manifest"
+printf '{"roots":["authz"]}\n' > "$root/deny/.manifest"
 cp "$base/policy.rego" "$root/allow/authz/policy.rego"
 cp "$base/policy.rego" "$root/deny/authz/policy.rego"
 printf '{"enabled":true}\n' > "$root/allow/authz/data.json"
@@ -44,17 +46,17 @@ chmod 0600 "$root/private.pem"
 opa() {
   # Build-only container is root so it can read the chmod-0600 EPHEMERAL key.
   # Runtime OPA Quadlet remains unprivileged and has NO private-key mount.
-  sudo podman run --rm --user 0 -v "$root:/work:rw" "$image" "$@"
+  sudo podman run --rm --user 0 --workdir /work -v "$root:/work:rw" "$image" "$@"
 }
-opa check /work/allow/authz/policy.rego > "$out/policy-check.txt"
+opa check allow/authz/policy.rego > "$out/policy-check.txt"
 opa build --bundle --signing-key /work/private.pem \
   --verification-key-id synthetic --revision synthetic-allow-001 \
-  --output /work/allow.tar.gz /work/allow >>"$out/build.log" 2>&1
+  --output /work/allow.tar.gz allow >>"$out/build.log" 2>&1
 opa build --bundle --signing-key /work/private.pem \
   --verification-key-id synthetic --revision synthetic-deny-002 \
-  --output /work/deny.tar.gz /work/deny >>"$out/build.log" 2>&1
+  --output /work/deny.tar.gz deny >>"$out/build.log" 2>&1
 opa build --bundle --revision synthetic-unsigned --output /work/unsigned.tar.gz \
-  /work/deny >>"$out/build.log" 2>&1
+  deny >>"$out/build.log" 2>&1
 tar tzf "$root/allow.tar.gz" > "$out/allow-members.txt"
 tar tzf "$root/deny.tar.gz" > "$out/deny-members.txt"
 grep -F '.signatures.json' "$out/allow-members.txt" >/dev/null
