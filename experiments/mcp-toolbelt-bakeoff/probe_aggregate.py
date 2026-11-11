@@ -5,14 +5,22 @@ The fixture uses public, read-only echo operations only. It does not qualify AAA
 """
 import json,sys,time,urllib.request,urllib.error
 URL="http://127.0.0.1:39200/mcp"
+SESSION=None
 def rpc(i,method,params=None):
+    global SESSION
     msg={"jsonrpc":"2.0","id":i,"method":method}
     if params is not None:msg["params"]=params
-    req=urllib.request.Request(URL,data=json.dumps(msg).encode(),
-       headers={"Content-Type":"application/json",
-                "Accept":"application/json, text/event-stream",
-                "MCP-Protocol-Version":"2025-06-18"})
-    with urllib.request.urlopen(req,timeout=15) as r:
+    headers={"Content-Type":"application/json",
+             "Accept":"application/json, text/event-stream",
+             "MCP-Protocol-Version":"2025-06-18"}
+    if SESSION: headers["Mcp-Session-Id"]=SESSION
+    req=urllib.request.Request(URL,data=json.dumps(msg).encode(),headers=headers)
+    try:
+        r=urllib.request.urlopen(req,timeout=15)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code} for {method}: {e.read(4096).decode(errors='replace')}") from e
+    with r:
+        SESSION=r.headers.get("Mcp-Session-Id") or SESSION
         body=r.read(100000).decode()
         if "text/event-stream" in r.headers.get("Content-Type",""):
             events=[line[5:].strip() for line in body.splitlines() if line.startswith("data:")]
