@@ -20,7 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-        client: [opencode]
+        # OpenCode V2 has an independent, source-directed cold-start workcell in PR #603.
+        # Avoid rerunning unstable nested-worktree bootstrap as part of Qwen C0.
+        client: [qwen]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
