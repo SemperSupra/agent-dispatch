@@ -1,0 +1,13 @@
+{
+  "schema": "m1.disposable.execution/v1",
+  "id": "reject-cache-spill",
+  "phase": "build",
+  "tooling": {
+    "mode": "local_disposable_fallback",
+    "install_scope": "project/.local",
+    "cache_scope": "~/.cache",
+    "cleanup_declared": true,
+    "global_install": false,
+    "unmanaged_host_writes": false
+  }
+}
