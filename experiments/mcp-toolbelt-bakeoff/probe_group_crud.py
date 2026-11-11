@@ -75,7 +75,7 @@ def main():
   status,result=api("GET","/api/groups",token=jwt)
   names={x.get("name") for x in result.get("data",[])}
   check("persist-other-delete-one",status==200 and "research" not in names and "engineering" in names,{"groups":sorted(names)})
-  out["passed"]=len(out["checks"])==10 and all(x["passed"] for x in out["checks"])
+  out["passed"]=len(out["checks"])==11 and all(x["passed"] for x in out["checks"])
  except Exception as e:out["error"]=repr(e)
  pathlib.Path("group-crud-receipt.json").write_text(json.dumps(out,indent=2,sort_keys=True)+"\n")
  print(json.dumps(out,indent=2,sort_keys=True))
