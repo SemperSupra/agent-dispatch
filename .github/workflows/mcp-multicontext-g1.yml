@@ -79,7 +79,8 @@ jobs:
             --mount "type=bind,source=$PWD/jwks.json,target=/keys/jwks.json,readonly" \
             cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b -f /config.yaml
           for i in $(seq 1 30); do
-            if curl -fsS --max-time 2 http://127.0.0.1:39200/mcp >/dev/null 2>&1; then exit 0; fi
+            code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:39200/mcp || true)
+            if [ "$code" = 401 ] || [ "$code" = 403 ] || [ "$code" = 405 ]; then exit 0; fi
             if ! docker ps --filter name=m1-contexts --format '{{.Names}}' | grep -qx m1-contexts; then docker logs m1-contexts;exit 1;fi
             sleep 1
           done
