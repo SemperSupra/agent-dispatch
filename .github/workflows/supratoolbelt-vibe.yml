@@ -1,0 +1,48 @@
+name: SupraToolbelt Vibe CLI native MCP client RDTE
+on:
+  push:
+    branches: [rdte/supratoolbelt-vibe-client-20261111]
+    paths: [.github/workflows/supratoolbelt-vibe.yml, experiments/supratoolbelt-vibe/**]
+  pull_request:
+    paths: [.github/workflows/supratoolbelt-vibe.yml, experiments/supratoolbelt-vibe/**]
+permissions:
+  contents: read
+jobs:
+  vibe-config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install versioned Vibe in isolated temporary uv tool directory
+        run: |
+          set -euo pipefail
+          if ! command -v uv >/dev/null; then
+            python3 -m venv "$RUNNER_TEMP/uvboot"
+            "$RUNNER_TEMP/uvboot/bin/pip" install --no-cache-dir uv
+            echo "$RUNNER_TEMP/uvboot/bin" >> "$GITHUB_PATH"
+            export PATH="$RUNNER_TEMP/uvboot/bin:$PATH"
+          fi
+          VERSION=$(curl -fsSL https://pypi.org/pypi/mistral-vibe/json |
+            python3 -c 'import json,sys;print(json.load(sys.stdin)["info"]["version"])')
+          printf '{"package":"mistral-vibe","version":"%s"}\n' "$VERSION" > vibe-package.json
+          export UV_TOOL_DIR="$RUNNER_TEMP/vibe-tools"
+          export UV_TOOL_BIN_DIR="$RUNNER_TEMP/vibe-bin"
+          uv tool install --python python3.12 "mistral-vibe==$VERSION"
+          echo "$RUNNER_TEMP/vibe-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/vibe-bin/vibe" --version
+      - name: Exercise real Vibe MCP add/remove and isolated profiles
+        run: python3 experiments/supratoolbelt-vibe/qualify_vibe.py
+      - name: Delete all ephemeral client installation and config state
+        if: always()
+        run: |
+          rm -rf vibe-test-homes "$RUNNER_TEMP/vibe-tools" "$RUNNER_TEMP/vibe-bin" "$RUNNER_TEMP/uvboot"
+          test ! -e vibe-test-homes
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: vibe-cli-synthetic-mcp-config
+          path: |
+            vibe-package.json
+            vibe-client-receipt.json
