@@ -1,0 +1,52 @@
+name: M1 OpenCode V2 source-directed cold MCP registry diagnostic
+on:
+  push:
+    branches: [rdte/supratoolbelt-opencode-coldstart-20261111]
+    paths:
+      - .github/workflows/mcp-opencode-coldstart.yml
+      - experiments/supratoolbelt-client-bakeoff/diagnose_opencode.py
+  pull_request:
+    paths:
+      - .github/workflows/mcp-opencode-coldstart.yml
+      - experiments/supratoolbelt-client-bakeoff/diagnose_opencode.py
+permissions:
+  contents: read
+jobs:
+  opencode-coldstart:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install recorded OpenCode V2 exact version into disposable prefix
+        run: |
+          set -euo pipefail
+          VERSION=2.2.7
+          printf '{"package":"@opencode/cli","version":"%s","integrity":"%s"}\n' \
+            "$VERSION" "$(npm view "@opencode/cli@$VERSION" dist.integrity)" > opencode-package.json
+          npm install --prefix "$RUNNER_TEMP/supra-opencode-pkg" \
+            --no-audit --no-fund "@opencode/cli@$VERSION"
+          echo "$RUNNER_TEMP/supra-opencode-pkg/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Launch one public-safe synthetic loopback MCP server
+        run: |
+          python3 experiments/supratoolbelt-client-bakeoff/synthetic_mcp.py &
+          for i in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:39200/health && exit 0 || sleep 1
+          done
+          exit 1
+      - name: Diagnose actual native V2 workspace config versus cold registry
+        run: |
+          python3 experiments/supratoolbelt-client-bakeoff/diagnose_opencode.py
+      - name: Destroy isolated binary, data, and client configs
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/supra-opencode-pkg" "$RUNNER_TEMP/supra-opencode-diagnostic"
+          test ! -d "$RUNNER_TEMP/supra-opencode-diagnostic"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: opencode-v2-coldstart
+          path: |
+            opencode-package.json
+            opencode-diagnostic-receipt.json
