@@ -1,0 +1,52 @@
+name: Winnow G1 public-safe extractor packaging bakeoff
+run-name: winnow-g1-${{ github.sha }}
+on:
+  push:
+    branches: [rdte/winnow-extractor-public-safe-20261111]
+    paths: ['.github/workflows/winnow-g1-public-extractors.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  native-package-contract:
+    name: "${{ matrix.candidate }} / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { candidate: gallery, runner: ubuntu-24.04, arch: amd64 }
+          - { candidate: gallery, runner: ubuntu-24.04-arm, arch: arm64 }
+          - { candidate: parth, runner: ubuntu-24.04, arch: amd64 }
+          - { candidate: parth, runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Verify public-only event and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          test "${{ github.ref }}" = "refs/heads/rdte/winnow-extractor-public-safe-20261111"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo 'native architecture mismatch'; exit 1 ;;
+          esac
+          echo "PUBLIC_SAFE_WHEEL_CHECK arch=$(uname -m) candidate=${{ matrix.candidate }}"
+      - name: Fetch verified public PyPI wheel and run synthetic no-login checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/winnow-g1-extractors/run.sh "${{ matrix.candidate }}"
+      - name: Publish sanitized offline evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: winnow-g1-${{ matrix.candidate }}-${{ matrix.arch }}-${{ github.run_id }}
+          path: winnow-g1-evidence/
+          if-no-files-found: warn
+          retention-days: 7
