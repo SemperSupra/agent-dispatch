@@ -14,8 +14,13 @@ def request(token,url,method,index):
                "Accept":"application/json, text/event-stream","MCP-Protocol-Version":"2025-06-18"})
   try:
     with urllib.request.urlopen(req,timeout=15) as r:
-      payload=json.loads(r.read(65000))
-      return r.status, payload
+      body=r.read(65000).decode(errors="replace")
+      if not body.strip(): return r.status,{"empty_body":True}
+      if "text/event-stream" in r.headers.get("Content-Type",""):
+        events=[line[5:].strip() for line in body.splitlines() if line.startswith("data:")]
+        return r.status, (json.loads(events[-1]) if events else {"sse_without_data":body[:240]})
+      try: return r.status,json.loads(body)
+      except json.JSONDecodeError: return r.status,{"unparsed_body":body[:240]}
   except urllib.error.HTTPError as e:
     return e.code,{"error":e.read(500).decode(errors="replace")}
 for name in ("alpha","beta"):
@@ -28,7 +33,7 @@ for name in ("alpha","beta"):
   passed=(status==200 and tools_status==200 and len(tools)==1 and
           all(name in x for x in tools) and cross_status in (401,403) and
           global_status in (401,403))
-  results.append({"principal":name,"own_status":status,"own_list_status":tools_status,
+  results.append({"principal":name,"own_status":status,"init_reply":init,"own_list_status":tools_status,
                   "own_tools":tools,"cross_status":cross_status,
                   "global_status":global_status,"passed":passed})
 receipt={"schema":"public-safe-mcphub-principal-scope-v1",
