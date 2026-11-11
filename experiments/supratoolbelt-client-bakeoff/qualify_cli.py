@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 URL = "http://127.0.0.1:39200/mcp"
 CONTEXTS = {
@@ -61,16 +62,14 @@ def check_opencode(home, workspace, envname):
     }
     target = workspace / "opencode.json"
     target.write_text(json.dumps(manifest, indent=2) + "\n")
-    out = cli("opencode", home, workspace, "mcp", "list")
-    fallback_used = False
-    if "supra-toolbelt" not in out.lower():
-        # The real CLI may ignore project config in a nested Git checkout.
-        # Qualify the CLI-owned global registration in this disposable HOME.
-        cli("opencode", home, workspace, "mcp", "add", "supra-toolbelt",
-            "--global", "--url", URL,
-            "--header", "Authorization=Bearer {env:" + envname + "}")
+    debug = cli("opencode", home, workspace, "debug", "config")
+    assert "supra-toolbelt" in debug, "OpenCode did not parse its native project config"
+    readiness_reps = 0
+    for readiness_reps in range(1, 8):
         out = cli("opencode", home, workspace, "mcp", "list")
-        fallback_used = True
+        if "supra-toolbelt" in out.lower() and "connected" in out.lower():
+            break
+        time.sleep(2)
     saved = json.loads(target.read_text())
     actual = saved["mcp"]["servers"]["supra-toolbelt"]
     assert actual["type"] == "remote" and actual["url"] == URL
@@ -80,7 +79,7 @@ def check_opencode(home, workspace, envname):
     assert "connected" in out.lower(), "real CLI did not establish synthetic MCP connection: " + repr(out[:250])
     return {"nativeConfig": "opencode.json", "registered": True,
             "protocol": "legacy", "connectedToLoopbackSynthetic": True,
-            "cliGlobalFallback": fallback_used}
+            "coldStartListAttempts": readiness_reps}
 
 def check_qwen(home, workspace, envname):
     # Qwen uses mcpServers under project .qwen/settings.json; no token is supplied.
@@ -101,7 +100,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", choices=["opencode", "qwen"], required=True)
     args = parser.parse_args()
-    root = Path("rdte-client-contexts").absolute()
+    root = (Path(os.environ.get("RUNNER_TEMP", ".")) / "rdte-client-contexts").absolute()
     root.mkdir(parents=True, exist_ok=True)
     receipt = {
         "schema": "m1-supratoolbelt-cli-config-rdte-v1",
