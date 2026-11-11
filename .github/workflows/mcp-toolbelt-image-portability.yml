@@ -1,0 +1,71 @@
+name: MCP Tool Belt public image portability and privilege inventory
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mcp-toolbelt-image-portability.yml
+  push:
+    branches: [rdte/mcp-toolbelt-supplychain-20261111]
+    paths:
+      - .github/workflows/mcp-toolbelt-image-portability.yml
+permissions:
+  contents: read
+jobs:
+  image-inventory:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        candidate: [mcphub, agentgateway]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - name: Resolve candidate image in isolated free hosted runner
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+        run: |
+          if [ "$CANDIDATE" = mcphub ]; then
+            image=samanhappy/mcphub:latest
+          else
+            image=cr.agentgateway.dev/agentgateway:v1.7.0
+          fi
+          echo "$image" > image-ref.txt
+          docker pull "$image"
+          docker inspect --type image --format '{{json .}}' "$image" > image-inspect.json
+          docker image ls "$image" --format '{{.Size}}' > image-size-human.txt
+          uname -m > host-arch.txt
+      - name: Write bounded architecture and privilege receipt
+        if: always()
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+          RUNNER_LABEL: ${{ matrix.runner }}
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib,sys
+          x=pathlib.Path("image-inspect.json")
+          if x.exists():
+              d=json.loads(x.read_text())
+              c=d.get("Config") or {}
+              receipt={"candidate":os.environ["CANDIDATE"],"runner":os.environ["RUNNER_LABEL"],
+               "imageDigest":d.get("RepoDigests"),"imageId":d.get("Id"),
+               "platform":{"os":d.get("Os"),"architecture":d.get("Architecture")},
+               "configuredUser":c.get("User",""),"workingDir":c.get("WorkingDir"),
+               "entrypoint":c.get("Entrypoint"),"imageBytes":d.get("Size"),
+               "privilegeFinding":"root-default-or-unspecified" if c.get("User","") in ("","0","root") else "nonroot-configured",
+               "limits":["image configuration only","not a rootless podman acceptance test",
+                         "not proof of runtime behavior, CVE status, or default-deny policy"]}
+          else:
+              receipt={"candidate":os.environ["CANDIDATE"],"runner":os.environ["RUNNER_LABEL"],
+                       "error":"image-pull-or-inspection-failed","qualified":False}
+          pathlib.Path("image-receipt.json").write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: image-${{ matrix.candidate }}-${{ matrix.runner }}
+          path: |
+            image-ref.txt
+            image-inspect.json
+            image-size-human.txt
+            image-receipt.json
+            host-arch.txt
