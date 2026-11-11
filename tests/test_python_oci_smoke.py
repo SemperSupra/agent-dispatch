@@ -106,7 +106,7 @@ class PublicPythonOCIProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(m.Rejected, "identity mismatch"):
                 m.run_public_qualification(Path(self.tmp.name) / "receipt.json")
             self.assertEqual(calls.call_count, 2)
-            self.assertEqual(calls.call_args_list[0].args[0][2], expected)
+            self.assertEqual(calls.call_args_list[0].args[0][3], expected)
 
     def test_fixed_image_and_no_dynamic_shell(self):
         self.assertEqual(m.IMAGE_CANDIDATE, "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f")
