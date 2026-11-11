@@ -23,6 +23,8 @@ PROFILES = {
 def cmd(home, *args):
     env = dict(os.environ)
     env["CODEX_HOME"] = str(home)
+    for key in PROFILES.values():
+        env[key] = "synthetic-secret-would-never-be-written-" + key
     result = subprocess.run(["codex", *args], env=env, text=True, capture_output=True, timeout=50)
     if result.returncode:
         # CLI diagnostic only. No tokens are ever given on its arguments or in its config.
@@ -59,7 +61,7 @@ def verify():
         if candidate.get("bearer_token_env_var") != env_name:
             raise AssertionError(f"{profile}: incorrect environment binding")
         if "synthetic-secret-would-never-be-written" in config_text:
-            raise AssertionError("secret content leaked to config")
+            raise AssertionError("synthetic environment token value leaked to config")
         if not listed or not got:
             raise AssertionError(f"{profile}: list/get returned empty")
         receipt["profiles"][profile] = {
