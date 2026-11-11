@@ -1,0 +1,54 @@
+name: Winnow G1 R36 public pinned real CLI netns qualification
+run-name: winnow-g1-r36-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-g1-r36-real-cli-contained-20261111
+    paths:
+      - '.github/workflows/winnow-g1-r36-real-cli.yml'
+      - 'experiments/winnow-g1-r36-real-cli/**'
+permissions:
+  contents: read
+jobs:
+  native-pinned-cli:
+    name: "${{ matrix.candidate }} / ${{ matrix.arch }} confined startup"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64, candidate: gallery }
+          - { runner: ubuntu-24.04-arm, arch: arm64, candidate: gallery }
+          - { runner: ubuntu-24.04, arch: amd64, candidate: parth }
+          - { runner: ubuntu-24.04-arm, arch: arm64, candidate: parth }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Confirm public test branch, native arch and source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          test "${{ github.ref }}" = "refs/heads/rdte/winnow-g1-r36-real-cli-contained-20261111"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo 'R36_ARCH_MISMATCH'; exit 1 ;;
+          esac
+          echo "R36_EXACT_SOURCE_SHA=$GITHUB_SHA arch=${{ matrix.arch }} candidate=${{ matrix.candidate }}"
+      - name: Verify package pins and real CLI version inside no-network netns
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/winnow-g1-r36-real-cli/run.sh "${{ matrix.candidate }}"
+      - name: Preserve sanitized receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-g1-r36-${{ matrix.candidate }}-${{ matrix.arch }}-${{ github.run_id }}
+          path: winnow-g1-r36-evidence/
+          if-no-files-found: warn
+          retention-days: 7
