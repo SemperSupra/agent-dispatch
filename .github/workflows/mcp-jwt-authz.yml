@@ -43,15 +43,20 @@ jobs:
                 - path:
                     exact: /mcp
                 policies:
-                  jwtAuth:
-                    issuer: m1-synthetic-issuer
+                  mcpAuthentication:
+                    mode: strict
+                    issuer: https://issuer.invalid/m1
                     audiences: [m1-synthetic-client]
                     jwks:
                       file: /keys/jwks.json
+                    resourceMetadata:
+                      resource: http://127.0.0.1:39200/mcp
+                      scopesSupported: [read:all]
+                      bearerMethodsSupported: [header]
                   mcpAuthorization:
                     rules:
-                    - 'jwt.sub == "alpha" && mcp.tool.name == "alpha_echo"'
-                    - 'jwt.sub == "beta" && mcp.tool.name == "beta_echo"'
+                    - 'jwt.sub == "alpha" && mcp.tool.target == "alpha" && mcp.tool.name == "echo"'
+                    - 'jwt.sub == "beta" && mcp.tool.target == "beta" && mcp.tool.name == "echo"'
                 backends:
                 - mcp:
                     targets:
