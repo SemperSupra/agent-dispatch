@@ -80,6 +80,15 @@ jobs:
           done
           docker logs --tail 80 mcp-mcphub || true
           exit 1
+      - name: Record public-safe startup connector diagnostics
+        run: |
+          docker logs mcp-mcphub 2>&1 | grep -Ei 'alpha|beta|connected|disconnected|failed|error|config|server' | tail -n 120 > connector-diagnostics.txt || true
+          python3 - <<'PY'
+          import json
+          c=json.load(open("candidate-data/mcp_settings.json"))
+          print("configured_synthetic_upstreams:",sorted(c.get("mcpServers",{})))
+          PY
+          cat connector-diagnostics.txt
       - name: Verify anonymous MCP call rejected
         run: |
           status=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
@@ -113,4 +122,5 @@ jobs:
             startup.txt
             auth-receipt.txt
             mcphub-runtime.txt
+            connector-diagnostics.txt
             mcphub-image-digest.txt
