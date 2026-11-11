@@ -1,0 +1,103 @@
+name: M1 actual JWT and CEL per-tool authorization qualification
+on:
+  push:
+    branches: [rdte/mcp-jwt-authz-20261111]
+    paths:
+      - experiments/mcp-jwt-authz/**
+      - .github/workflows/mcp-jwt-authz.yml
+  pull_request:
+    paths:
+      - experiments/mcp-jwt-authz/**
+      - .github/workflows/mcp-jwt-authz.yml
+permissions:
+  contents: read
+jobs:
+  jwt-cel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Generate disposable P256 issuer and 3 synthetic principals
+        run: |
+          python3 experiments/mcp-jwt-authz/make_issuer.py
+          chmod 600 private.pem token-*.txt
+      - name: Start two synthetic loopback-only MCP upstreams
+        run: |
+          python3 experiments/mcp-jwt-authz/fixture.py --serve --label alpha --port 39101 &
+          python3 experiments/mcp-jwt-authz/fixture.py --serve --label beta --port 39102 &
+          for port in 39101 39102; do
+            for i in $(seq 1 30); do
+              curl -fsS "http://127.0.0.1:$port/health" && break || sleep 1
+            done
+          done
+      - name: Build explicit JWT + per-tool allowlist policies
+        run: |
+          cat > config.yaml <<'YAML'
+          binds:
+          - port: 39200
+            listeners:
+            - routes:
+              - matches:
+                - path:
+                    exact: /mcp
+                policies:
+                  mcpAuthentication:
+                    mode: strict
+                    issuer: https://issuer.invalid/m1
+                    audiences: [m1-synthetic-client]
+                    jwks:
+                      file: /keys/jwks.json
+                    resourceMetadata:
+                      resource: http://127.0.0.1:39200/mcp
+                      scopesSupported: [read:all]
+                      bearerMethodsSupported: [header]
+                  mcpAuthorization:
+                    rules:
+                    - 'jwt.sub == "alpha" && mcp.tool.target == "alpha" && mcp.tool.name == "echo"'
+                    - 'jwt.sub == "beta" && mcp.tool.target == "beta" && mcp.tool.name == "echo"'
+                backends:
+                - mcp:
+                    targets:
+                    - name: alpha
+                      mcp:
+                        host: http://127.0.0.1:39101/mcp
+                    - name: beta
+                      mcp:
+                        host: http://127.0.0.1:39102/mcp
+          YAML
+      - name: Start tested gateway with strict policy, no public ingress
+        run: |
+          docker pull cr.agentgateway.dev/agentgateway:v1.7.0
+          docker inspect --format '{{index .RepoDigests 0}}' cr.agentgateway.dev/agentgateway:v1.7.0 > image-digest.txt
+          docker run -d --name m1-jwt --network host \
+            --mount "type=bind,source=$PWD/config.yaml,target=/config.yaml,readonly" \
+            --mount "type=bind,source=$PWD/jwks.json,target=/keys/jwks.json,readonly" \
+            cr.agentgateway.dev/agentgateway:v1.7.0 -f /config.yaml
+          for i in $(seq 1 30); do
+            if curl -s --max-time 2 http://127.0.0.1:39200/mcp >/dev/null; then exit 0; fi
+            if ! docker ps --filter name=m1-jwt --format '{{.Names}}' | grep -qx m1-jwt; then
+              docker logs m1-jwt || true;exit 1
+            fi
+            sleep 1
+          done
+          docker logs m1-jwt || true
+          exit 1
+      - name: Verify anonymous deny and per-principal discover/invoke parity
+        run: python3 experiments/mcp-jwt-authz/fixture.py
+      - name: Preserve bounded evidence, destroy issuer and runtime
+        if: always()
+        run: |
+          docker rm -f m1-jwt >/dev/null 2>&1 || true
+          rm -f private.pem token-*.txt
+          test ! -e private.pem
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-jwt-cel-authz
+          path: |
+            issuer-evidence.json
+            image-digest.txt
+            authz-receipt.json
+            config.yaml
