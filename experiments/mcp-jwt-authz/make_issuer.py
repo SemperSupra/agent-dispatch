@@ -26,9 +26,9 @@ def main():
  pathlib.Path("jwks.json").write_text(json.dumps(jwk))
  now=int(time.time())
  for principal in ["alpha","beta","revoked"]:
-  token=sign({"iss":"m1-synthetic-issuer","aud":"m1-synthetic-client","sub":principal,"iat":now,"exp":now+600})
+  token=sign({"iss":"https://issuer.invalid/m1","aud":"m1-synthetic-client","sub":principal,"iat":now,"exp":now+600})
   pathlib.Path("token-"+principal+".txt").write_text(token)
- pathlib.Path("issuer-evidence.json").write_text(json.dumps({"issuer":"m1-synthetic-issuer","aud":"m1-synthetic-client",
+ pathlib.Path("issuer-evidence.json").write_text(json.dumps({"issuer":"https://issuer.invalid/m1","aud":"m1-synthetic-client",
   "tokenSubjects":["alpha","beta","revoked"],"publicJWKHash":hashlib.sha256(pathlib.Path("jwks.json").read_bytes()).hexdigest(),
   "note":"ephemeral generated public-safe issuer; never upload private.pem or token files"},indent=2))
 if __name__=="__main__":main()
