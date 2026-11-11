@@ -1,4 +1,8 @@
 # Synthetic RDTE reference, NOT approved deployment. Rootless user Quadlet.
+# ZERO-TAINT HARD GATE: use this unit ONLY inside an ephemeral disposable VM/user instance.
+# Never install Quadlets/Podman or copy this source to a persistent control host.
+# Runtime paths use user runtime dir (%t) and are lost at cell destruction.
+# For real Open WebUI persistence, externalize DB/blob/keys beyond the VM.
 [Unit]
 Description=SupraToolbelt Agentgateway RDTE data plane
 Documentation=https://github.com/SemperSupra/mcp-projection-dev/issues/170
@@ -7,7 +11,7 @@ Documentation=https://github.com/SemperSupra/mcp-projection-dev/issues/170
 Image=cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
 ContainerName=supra-toolbelt-rdte
 PublishPort=127.0.0.1:39200:39200
-Volume=%h/.local/share/supratoolbelt/current/gateway.yaml:/config.yaml:ro
+Volume=%t/supratoolbelt/current/gateway.yaml:/config.yaml:ro
 Exec=-f /config.yaml
 User=65532
 ReadOnly=true
