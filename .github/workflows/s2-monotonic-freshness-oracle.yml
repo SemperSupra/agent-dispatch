@@ -1,0 +1,42 @@
+name: S2 synthetic monotonic freshness oracle native reps
+on:
+  push:
+    branches: [rdte/s2-monotonic-freshness-oracle-20261111]
+    paths:
+      - ".github/workflows/s2-monotonic-freshness-oracle.yml"
+      - "experiments/opa-signed-bundle/synthetic_freshness_oracle_test.py"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  oracle:
+    name: "synthetic-${{ matrix.arch }}-rep-${{ matrix.rep }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-24.04, rep: 1}
+          - {arch: amd64, runner: ubuntu-24.04, rep: 2}
+          - {arch: amd64, runner: ubuntu-24.04, rep: 3}
+          - {arch: arm64, runner: ubuntu-24.04-arm, rep: 1}
+          - {arch: arm64, runner: ubuntu-24.04-arm, rep: 2}
+          - {arch: arm64, runner: ubuntu-24.04-arm, rep: 3}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Confirm expected public synthetic repository and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          case "${{ matrix.arch }}:$(uname -m)" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+      - name: Run synthetic S2 antirollback and freshness oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B experiments/opa-signed-bundle/synthetic_freshness_oracle_test.py
+          echo "SYNTHETIC_CONTRACT_PASS only; OPA/Sidecar integrated acceptance NOT_RUN"
