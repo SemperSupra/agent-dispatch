@@ -139,6 +139,38 @@ def security_parth():
     if "response.read()" in extractor:
         finding("UNBOUNDED_METADATA_BODY",
                 "Extractor reads unbounded response body (and may gzip decompress); enforce independent resource/effect limits.")
+    # Exercise the actual published downloader on a fake 3-child collection:
+    # all filesystem writes are intercepted, and `info` is injected, so no
+    # Instagram/CDN request is ever issued. Winnow requires child 2 ONLY.
+    from parth_dl.core import InstagramDownloader
+    with __import__("tempfile").TemporaryDirectory(prefix="winnow-g1-") as td:
+        entries = [
+            {"kind": "image", "id": f"child-{i}", "formats": [
+                {"url": f"https://i.cdninstagram.com/synthetic-{i}.jpg",
+                 "width": 1, "height": 1, "has_audio": False}
+            ]}
+            for i in range(1, 4)
+        ]
+        info = {"id": "synthetic-post", "uploader": "synthetic", "type": "carousel",
+                "entries": entries}
+        calls = []
+        d = InstagramDownloader(quiet=True, rate_limit=False)
+        def fake_download(url, output_path, show_progress=True):
+            calls.append(url)
+            Path(output_path).write_bytes(b"synthetic-not-a-real-JPEG")
+        d._download_file = fake_download
+        d.get_info = lambda url: (_ for _ in ()).throw(
+            RuntimeError("unexpected real metadata lookup"))
+        d.download("https://www.instagram.com/p/FAKE001/",
+                   output_path=td, output_mode="directory", info=info)
+        # A caller asking for ONLY child 2 has no per-entry parameter here.
+        only_selected = len(calls)==1 and calls[0].endswith("synthetic-2.jpg")
+        check("selected_child_2_only_downloaded", only_selected,
+              f"actual_download_calls={len(calls)}; candidate_downloads_all_entries",
+              "security")
+        if not only_selected:
+            finding("PARTH_ACQUIRES_WHOLE_CAROUSEL",
+                    "Synthetic real download() invoked for all 3 child entries; no native selected-child-only parameter.")
 
 def security_gallery():
     import gallery_dl.extractor as ex
