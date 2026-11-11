@@ -4,11 +4,11 @@ on:
     branches: [rdte/mcp-toolbelt-bakeoff-20261111]
     paths:
       - .github/workflows/mcp-toolbelt-free-tier-bakeoff.yml
-      - experiments/mcp-toolbelt-bakeoff/**
+      - experiments/mcp-toolbelt-bakeoff/qualify_source.py
   pull_request:
     paths:
       - .github/workflows/mcp-toolbelt-free-tier-bakeoff.yml
-      - experiments/mcp-toolbelt-bakeoff/**
+      - experiments/mcp-toolbelt-bakeoff/qualify_source.py
 permissions:
   contents: read
 concurrency:
