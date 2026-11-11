@@ -31,9 +31,11 @@ jobs:
       - name: Generate exact rootless user units from checked-in pinned Quadlets
         run: |
           set -euo pipefail
+          status=0
           QUADLET_UNIT_DIRS="$PWD/experiments/supratoolbelt-quadlet-rdte" \
-            "$(cat generator-path.txt)" --user --dryrun > quadlet-dryrun.txt 2>&1
+            "$(cat generator-path.txt)" --user --dryrun > quadlet-dryrun.txt 2>&1 || status=$?
           cat quadlet-dryrun.txt
+          test "$status" -eq 0
           grep -q 'supra-toolbelt.service' quadlet-dryrun.txt
           grep -q 'supra-openwebui.service' quadlet-dryrun.txt
           grep -q 'supra-webui-data-volume.service' quadlet-dryrun.txt
