@@ -42,7 +42,9 @@ openssl pkey -in "$root/private.pem" -pubout -out "$root/public.pem" >/dev/null 
 chmod 0600 "$root/private.pem"
 # The only signing key is an EPHEMERAL synthetic test key, never a product key.
 opa() {
-  sudo podman run --rm -v "$root:/work:rw" "$image" "$@"
+  # Build-only container is root so it can read the chmod-0600 EPHEMERAL key.
+  # Runtime OPA Quadlet remains unprivileged and has NO private-key mount.
+  sudo podman run --rm --user 0 -v "$root:/work:rw" "$image" "$@"
 }
 opa check /work/allow/authz/policy.rego > "$out/policy-check.txt"
 opa build --bundle --signing-key /work/private.pem \
