@@ -94,7 +94,8 @@ func Evaluate(m Manifest) Receipt {
   if rt.WritableHostMount {reject("runtime.writable_host_mount")}
   switch rt.State {
   case "external_durable","intentional_discard","none":
-  case "local_named_volume":reject("runtime.local_volume_not_off_node")
+  case "local_named_volume":
+   if rt.DurableStateRequired {reject("runtime.local_volume_not_off_node")}
   default:reject("runtime.state_unknown")
   }
   if rt.DurableStateRequired && rt.State!="external_durable" {reject("runtime.durability_requires_external_state")}
