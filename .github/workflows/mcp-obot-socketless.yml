@@ -1,0 +1,60 @@
+name: M1 Obot socketless free-cloud gateway startup feasibility
+on:
+  push:
+    branches: [rdte/mcp-obot-socketless-20261111]
+    paths: [.github/workflows/mcp-obot-socketless.yml]
+  pull_request:
+    paths: [.github/workflows/mcp-obot-socketless.yml]
+permissions:
+  contents: read
+jobs:
+  socketless-startup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Pull public image and record exact identity
+        run: |
+          docker pull ghcr.io/obot-platform/obot:latest
+          docker image inspect ghcr.io/obot-platform/obot:latest > obot-image-inspect.json
+          docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/obot-platform/obot:latest > obot-image-digest.txt
+      - name: Start without host socket, no public ingress, with disposable state
+        run: |
+          docker volume create obot-rdte-data
+          docker run -d --name obot-rdte \
+            --publish 127.0.0.1:38080:8080 \
+            --mount "type=volume,source=obot-rdte-data,target=/data" \
+            --security-opt no-new-privileges \
+            -e OBOT_SERVER_ENABLE_AUTHENTICATION=true \
+            -e OBOT_BOOTSTRAP_TOKEN=Public-Synthetic-Only-2026 \
+            ghcr.io/obot-platform/obot:latest
+          for i in $(seq 1 75); do
+            code=$(curl --max-time 2 --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:38080/ || true)
+            if [ "$code" != "000" ]; then echo "http_status=$code" > startup-receipt.txt;exit 0;fi
+            if [ "$(docker inspect --format '{{.State.Running}}' obot-rdte)" != true ]; then
+              echo container_exited > startup-receipt.txt
+              exit 1
+            fi
+            sleep 1
+          done
+          echo startup_timeout > startup-receipt.txt
+          exit 1
+      - name: Verify socket is absent and collect bounded resource evidence
+        if: always()
+        run: |
+          docker inspect --format 'state={{.State.Status}} exit={{.State.ExitCode}}' obot-rdte > runtime.txt 2>/dev/null || true
+          docker inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' obot-rdte >> runtime.txt 2>/dev/null || true
+          docker stats --no-stream --format '{{json .}}' obot-rdte >> runtime.txt 2>/dev/null || true
+          docker logs --tail 60 obot-rdte 2>&1 | sed -E 's/([Tt]oken|[Ss]ecret|[Pp]assword)[=:][^ ]+/\1=[REDACTED]/g' > runtime-log.txt || true
+          docker rm -f obot-rdte >/dev/null 2>&1 || true
+          docker volume rm -f obot-rdte-data >/dev/null 2>&1 || true
+          if grep -q /var/run/docker.sock runtime.txt; then echo "FORBIDDEN_SOCKET_MOUNT" >> runtime.txt;exit 1;fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: obot-no-host-socket-feasibility
+          path: |
+            obot-image-digest.txt
+            obot-image-inspect.json
+            startup-receipt.txt
+            runtime.txt
+            runtime-log.txt
