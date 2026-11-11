@@ -3,7 +3,9 @@ run-name: winnow-g1-${{ github.sha }}
 on:
   push:
     branches: [rdte/winnow-extractor-public-safe-20261111]
-    paths: ['.github/workflows/winnow-g1-public-extractors.yml']
+    paths:
+      - '.github/workflows/winnow-g1-public-extractors.yml'
+      - 'experiments/winnow-g1-extractors/**'
   workflow_dispatch:
 permissions:
   contents: read
