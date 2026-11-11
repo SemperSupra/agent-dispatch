@@ -72,7 +72,7 @@ jobs:
               "localToolingFallbackAccepted":True,
               "claim":"executable declaration checks only; not deployment or VM teardown proof",
               "passed":True
-          },indent=2)+"\\n")
+          },indent=2))
           print("4 permitted + 5 denied fixture decisions checked, no runner secrets")
           PY
       - name: Confirm binaries and all tool caches remain in disposable runner scope
