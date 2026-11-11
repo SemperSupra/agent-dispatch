@@ -1,0 +1,25 @@
+# Synthetic RDTE reference, NOT approved deployment. Rootless user Quadlet.
+[Unit]
+Description=SupraToolbelt Agentgateway RDTE data plane
+Documentation=https://github.com/SemperSupra/mcp-projection-dev/issues/170
+
+[Container]
+Image=cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
+ContainerName=supra-toolbelt-rdte
+PublishPort=127.0.0.1:39200:39200
+Volume=%h/.local/share/supratoolbelt/current/gateway.yaml:/config.yaml:ro
+Exec=-f /config.yaml
+User=65532
+ReadOnly=true
+DropCapability=all
+NoNewPrivileges=true
+Memory=512m
+PidsLimit=128
+
+[Service]
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target
