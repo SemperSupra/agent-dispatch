@@ -1,0 +1,74 @@
+name: Winnow R45 public aggregate tmpfs stage capacity
+run-name: winnow-r45-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-r45-public-tmpfs-disk-quota-20261111
+    paths:
+      - '.github/workflows/winnow-r45-public-tmpfs.yml'
+      - 'experiments/winnow-r45-tmpfs-aggregate-quota/**'
+permissions:
+  contents: read
+jobs:
+  quota-capability:
+    name: "aggregate tmpfs quota / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Verify public scope and exact native runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          test "${{ github.ref }}" = "refs/heads/rdte/winnow-r45-public-tmpfs-disk-quota-20261111"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo R45_ARCH_MISMATCH; exit 1 ;;
+          esac
+          echo "R45_EXACT_SOURCE_SHA=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Qualify kernel aggregate quota inside private mount and net namespaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p winnow-r45-evidence
+          for binary in sudo unshare setpriv python3 mount; do
+            if ! command -v "$binary" >/dev/null; then
+              echo "R45_SETUP_BLOCKED missing=$binary"; exit 2
+            fi
+          done
+          TMP="$(mktemp -d /tmp/winnow-r45.XXXXXX)"
+          trap 'rm -rf -- "$TMP"' EXIT
+          chmod 0755 "$TMP"
+          mkdir "$TMP/stage"
+          chmod 0755 "$TMP/stage"
+          install -m 0644 experiments/winnow-r45-tmpfs-aggregate-quota/probe.py "$TMP/probe.py"
+          HOST_MNT="$(readlink /proc/self/ns/mnt)"
+          HOST_NET="$(readlink /proc/self/ns/net)"
+          sudo -n unshare --mount --net --propagation private -- /bin/bash -c '
+            set -euo pipefail
+            mount -t tmpfs -o size=256k,mode=1777,nosuid,nodev,noexec tmpfs "$1/stage"
+            exec /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+              python3 "$1/probe.py" "$2" "$3" "$1/stage"
+          ' _ "$TMP" "$HOST_MNT" "$HOST_NET" | tee winnow-r45-evidence/result.txt
+          grep -F 'R45_KERNEL_TMPFS_AGGREGATE_QUOTA_PASS' winnow-r45-evidence/result.txt
+          test -z "$(ls -A "$TMP/stage")"
+          echo "R45_PUBLIC_OS_AGGREGATE_QUOTA_PASS=$GITHUB_SHA"
+      - name: Publish sanitized ephemeral quota evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-r45-quota-${{ matrix.arch }}-${{ github.run_id }}
+          path: winnow-r45-evidence/result.txt
+          if-no-files-found: warn
+          retention-days: 7
