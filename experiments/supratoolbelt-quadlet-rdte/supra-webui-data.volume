@@ -1,0 +1,6 @@
+# External durable state. Do not remove when replacing the app container.
+[Unit]
+Description=SupraToolbelt Open WebUI RDTE persistent test state
+
+[Volume]
+VolumeName=supra-webui-data

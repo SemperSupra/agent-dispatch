@@ -1,0 +1,105 @@
+name: M1 Rootless Quadlet deployment blueprint syntax and hardening gate
+on:
+  push:
+    branches: [rdte/supratoolbelt-quadlet-blueprint-20261111]
+    paths: [.github/workflows/mcp-quadlet-blueprint.yml, experiments/supratoolbelt-quadlet-rdte/**]
+  pull_request:
+    paths: [.github/workflows/mcp-quadlet-blueprint.yml, experiments/supratoolbelt-quadlet-rdte/**]
+permissions:
+  contents: read
+jobs:
+  quadlet-generator:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install distribution Podman and discover real systemd generator
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test -n "$RUNNER_TEMP"
+          if ! command -v podman >/dev/null;then
+            sudo apt-get update -qq && sudo apt-get install -y -qq podman
+          fi
+          podman --version > podman-generator-version.txt
+          GEN=/usr/lib/systemd/system-generators/podman-system-generator
+          if [ ! -x "$GEN" ];then
+            GEN=$(find /usr/lib /usr/libexec -name 'podman-system-generator' -type f -executable 2>/dev/null | head -1)
+          fi
+          test -n "$GEN"
+          printf '%s\n' "$GEN" > generator-path.txt
+      - name: Generate exact rootless user units from checked-in pinned Quadlets
+        run: |
+          set -euo pipefail
+          status=0
+          QUADLET_UNIT_DIRS="$PWD/experiments/supratoolbelt-quadlet-rdte" \
+            "$(cat generator-path.txt)" --user --dryrun > quadlet-dryrun.txt 2>&1 || status=$?
+          cat quadlet-dryrun.txt
+          test "$status" -eq 0
+          grep -q 'supra-toolbelt.service' quadlet-dryrun.txt
+          grep -q 'supra-openwebui.service' quadlet-dryrun.txt
+          grep -q 'supra-webui-data-volume.service' quadlet-dryrun.txt
+      - name: Independently check immutable digests, no public ingress and no granted privileges
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import configparser,json,re
+          root=Path("experiments/supratoolbelt-quadlet-rdte")
+          result={"schema":"m1-quadlet-generator-v1","units":{},"passed":False}
+          for name,port,digest in [
+              ("supra-toolbelt.container","127.0.0.1:39200:39200",
+               "sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b"),
+              ("supra-openwebui.container","127.0.0.1:33080:8080",
+               "sha256:85d0453be8ca086896ddcc496190ad5a78f79d6e15f4be8c0fb80e4a9aaba2b0")]:
+            p=configparser.ConfigParser(interpolation=None)
+            p.read(root/name)
+            cfg=p["Container"]
+            assert digest in cfg.get("Image","")
+            assert cfg["PublishPort"] == port
+            assert cfg.get("DropCapability")=="all"
+            assert cfg.get("NoNewPrivileges")=="true"
+            assert p["Service"].get("MemoryMax")
+            assert p["Service"].get("CPUQuota")
+            assert cfg.get("PidsLimit")
+            assert p["Service"].get("Restart")=="on-failure"
+            assert p["Install"].get("WantedBy")=="default.target"
+            result["units"][name]={"immutableImage":True,"loopbackOnly":True,
+                    "capDropAll":True,"noNewPrivileges":True,"budgeted":True}
+          # Neither user service may depend on mutable persistent host HOME.
+          gateway=(root/"supra-toolbelt.container").read_text()
+          webui=(root/"supra-openwebui.container").read_text()
+          assert "Volume=%t/supratoolbelt/current/gateway.yaml:/config.yaml:ro" in gateway
+          assert "EnvironmentFile=%t/supratoolbelt/webui.env" in webui
+          assert "%h/" not in gateway and "%h/" not in webui
+          assert (root/"supra-webui-data.volume").is_file()
+          assert "Volume=supra-webui-data.volume:/app/backend/data" in (root/"supra-openwebui.container").read_text()
+          assert "ReadOnly=true" in (root/"supra-toolbelt.container").read_text()
+          txt=Path("quadlet-dryrun.txt").read_text()
+          # Generator output must preserve actual security restrictions and loopback exposure.
+          assert "127.0.0.1:39200:39200" in txt
+          assert "127.0.0.1:33080:8080" in txt
+          assert "--cap-drop" in txt
+          assert "--security-opt" in txt or "--security-opt=no-new-privileges" in txt
+          result["passed"]=True
+          result["limitations"]=["unit generator qualification only",
+            "no live systemctl --user lifecycle, host admission or permission issuance",
+            "no production credential file or Git reconciler",
+            "runtime rootless and recovery evidence is from separate GHA workcells"]
+          Path("quadlet-blueprint-receipt.json").write_text(json.dumps(result,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(result,indent=2,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-rootless-quadlet-generator-${{ matrix.runner }}
+          path: |
+            generator-path.txt
+            podman-generator-version.txt
+            quadlet-blueprint-receipt.json
+            quadlet-dryrun.txt
