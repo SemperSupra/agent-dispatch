@@ -1,0 +1,101 @@
+name: SupraToolbelt Open WebUI rootless Podman RDTE deployment feasibility
+on:
+  push:
+    branches: [rdte/supratoolbelt-openwebui-rootless-20261111]
+    paths: [.github/workflows/supratoolbelt-openwebui-rootless.yml]
+  pull_request:
+    paths: [.github/workflows/supratoolbelt-openwebui-rootless.yml]
+permissions:
+  contents: read
+jobs:
+  rootless-webui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Verify unprivileged runner and Podman availability
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          if ! command -v podman >/dev/null;then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          podman info --format '{{.Host.Security.Rootless}}' | grep -x true
+          podman --version > rootless-version.txt
+      - name: Pin official image and use disposable state and secret
+        run: |
+          set -euo pipefail
+          IMAGE=ghcr.io/open-webui/open-webui@sha256:85d0453be8ca086896ddcc496190ad5a78f79d6e15f4be8c0fb80e4a9aaba2b0
+          podman pull "$IMAGE"
+          printf '%s\n' "$IMAGE" > rootless-image-ref.txt
+          podman volume create supra-webui-rootless
+          umask 077
+          printf 'WEBUI_SECRET_KEY=%s\n' "$(openssl rand -hex 32)" > webui.env
+          cat >> webui.env <<'ENV'
+          WEBUI_AUTH=true
+          ENABLE_SIGNUP=false
+          ENABLE_OLLAMA_API=false
+          ENABLE_OPENAI_API=false
+          ENABLE_PERSISTENT_CONFIG=false
+          ENABLE_TOOL_SERVERS=true
+          ENV
+      - name: Run rootless WebUI with loopback port and bounded resources
+        run: |
+          set -euo pipefail
+          podman run -d --name supra-rootless-webui \
+            --publish 127.0.0.1:33080:8080 \
+            --mount type=volume,source=supra-webui-rootless,target=/app/backend/data \
+            --env-file webui.env \
+            --cap-drop ALL --security-opt=no-new-privileges \
+            --memory 2g --cpus 2 --pids-limit 256 \
+            "$(cat rootless-image-ref.txt)"
+          for attempt in $(seq 1 75);do
+            code=$(curl --silent --max-time 2 --output /dev/null \
+              --write-out '%{http_code}' http://127.0.0.1:33080/health || true)
+            if [ "$code" = 200 ];then echo "$code" > rootless-health.txt;exit 0;fi
+            if ! podman ps --format '{{.Names}}' | grep -qx supra-rootless-webui;then
+              podman logs --tail 30 supra-rootless-webui | tail -25
+              exit 1
+            fi
+            sleep 2
+          done
+          podman logs --tail 40 supra-rootless-webui | tail -30
+          exit 1
+      - name: Verify app database is externalized and process is rootless
+        run: |
+          set -euo pipefail
+          podman exec supra-rootless-webui test -s /app/backend/data/webui.db
+          podman inspect supra-rootless-webui > runtime-inspect.json
+          python3 - <<'PY'
+          import json,pathlib
+          data=json.load(open("runtime-inspect.json"))[0]
+          host=data["HostConfig"]
+          assert not host["Privileged"]
+          assert "ALL" in host["CapDrop"]
+          assert any(m["Destination"]=="/app/backend/data" for m in data["Mounts"])
+          assert pathlib.Path("rootless-health.txt").read_text().strip()=="200"
+          result={"schema":"m1-openwebui-rootless-v1","passed":True,
+             "rootlessHostUser":True,"httpHealth":200,"image":pathlib.Path("rootless-image-ref.txt").read_text().strip(),
+             "capDrop":host["CapDrop"],"dataExternalized":True,
+             "limitations":["Not proof of ChatUI native MCP registration, OAuth or user isolation",
+                "Persistent volume state is intentionally external to disposable container",
+                "No multi-arch Podman or systemd Quadlet qualification"]}
+          pathlib.Path("rootless-receipt.json").write_text(json.dumps(result,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Cleanup rootless runtime and all state
+        if: always()
+        run: |
+          podman rm -f supra-rootless-webui >/dev/null 2>&1 || true
+          podman volume rm -f supra-webui-rootless >/dev/null 2>&1 || true
+          rm -f webui.env runtime-inspect.json
+          test ! -e webui.env
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: supra-openwebui-rootless
+          path: |
+            rootless-version.txt
+            rootless-image-ref.txt
+            rootless-health.txt
+            rootless-receipt.json
