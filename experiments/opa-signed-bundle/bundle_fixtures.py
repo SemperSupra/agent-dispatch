@@ -14,8 +14,17 @@ with tarfile.open(root / "deny.tar.gz", "r:gz") as source:
 with tarfile.open(root / "tampered.tar.gz", "w:gz") as dest:
     changed = 0
     for member, data in entries:
-        if member.isfile() and member.name.lstrip("./").endswith("authz/data.json"):
-            data = b'{"enabled":true}\n'
+        if member.isfile() and member.name.lstrip("./").endswith("data.json"):
+            parsed = json.loads(data)
+            if "authz" in parsed:
+                if parsed["authz"].get("enabled") is not False:
+                    raise RuntimeError("signed deny data is not false")
+                parsed["authz"]["enabled"] = True
+            elif parsed.get("enabled") is False:
+                parsed["enabled"] = True
+            else:
+                raise RuntimeError("unknown bundle data layout")
+            data = (json.dumps(parsed, sort_keys=True) + "\n").encode()
             member.size = len(data)
             changed += 1
         dest.addfile(member, io.BytesIO(data) if data is not None else None)
