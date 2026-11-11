@@ -38,7 +38,7 @@ def main():
             home=root/name
             home.mkdir()
             cli(home,"mcp","add","supra-toolbelt","--transport","http",
-                "--url",URL,"--api-key-env",envref,"--no-login")
+                "--url",URL,"--api-key-env",envref)
             config=home/".vibe"/"config.toml"
             if not config.exists():raise AssertionError("Vibe config not written")
             s=config.read_text()
