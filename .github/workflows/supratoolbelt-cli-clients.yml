@@ -56,7 +56,7 @@ jobs:
       - name: Guarantee test state disposal
         if: always()
         run: |
-          rm -rf rdte-client-contexts "$RUNNER_TEMP/supra-cli"
+          rm -rf rdte-client-contexts "$RUNNER_TEMP/rdte-client-contexts" "$RUNNER_TEMP/supra-cli"
           test ! -e rdte-client-contexts
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
