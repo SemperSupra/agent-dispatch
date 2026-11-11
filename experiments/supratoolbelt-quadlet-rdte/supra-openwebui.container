@@ -11,10 +11,11 @@ Volume=supra-webui-data.volume:/app/backend/data
 EnvironmentFile=%h/.config/supratoolbelt/webui.env
 DropCapability=all
 NoNewPrivileges=true
-Memory=2g
 PidsLimit=256
 
 [Service]
+MemoryMax=2G
+CPUQuota=200%
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=240
