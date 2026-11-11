@@ -1,0 +1,76 @@
+name: M1 Agentgateway rootless Podman hardened CLI smoke
+on:
+  push:
+    branches: [rdte/mcp-toolbelt-rootless-20261111]
+    paths: [.github/workflows/mcp-toolbelt-rootless-podman.yml]
+  pull_request:
+    paths: [.github/workflows/mcp-toolbelt-rootless-podman.yml]
+permissions:
+  contents: read
+jobs:
+  rootless-agentgateway:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - name: Prepare rootless Podman on disposable free runner
+        run: |
+          if ! command -v podman; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          podman --version
+          id -u
+          podman info --format json > podman-info.json
+      - name: Pull observed candidate digest, run with no network/capabilities/write access
+        run: |
+          set +e
+          podman pull cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b > pull-output.txt 2>&1
+          pull_rc=$?
+          if [ "$pull_rc" -eq 0 ]; then
+            timeout 25 podman run --rm --network none --read-only --cap-drop=ALL \
+              --security-opt=no-new-privileges \
+              cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b \
+              --help > cli-output.txt 2>&1
+            run_rc=$?
+          else
+            run_rc=99
+          fi
+          echo "pull_exit=$pull_rc" > exit-codes.txt
+          echo "run_exit=$run_rc" >> exit-codes.txt
+          cat exit-codes.txt
+          set -e
+          test "$pull_rc" -eq 0 -a "$run_rc" -eq 0
+      - name: Build bounded security smoke receipt
+        if: always()
+        env:
+          RUNNER_LABEL: ${{ matrix.runner }}
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,os
+          p=pathlib.Path("exit-codes.txt")
+          codes=dict(x.split("=",1) for x in p.read_text().splitlines()) if p.exists() else {}
+          data={"schema":"m1-rootless-cli-v1","runner":os.environ["RUNNER_LABEL"],
+                "image":"cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b",
+                "rootlessHostUser":os.getuid()!=0,"pulled":codes.get("pull_exit")=="0",
+                "cliSmokePassed":codes.get("run_exit")=="0",
+                "runtimeRestrictions":["no network","read-only root filesystem",
+                    "capabilities dropped","no new privileges"],
+                "limitations":["only CLI startup; not serving MCP","no Quadlet, AAA, audit, or upgrade tests",
+                               "rootless Podman runtime only, not production deployment"]}
+          pathlib.Path("rootless-receipt.json").write_text(json.dumps(data,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(data,indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rootless-${{ matrix.runner }}
+          path: |
+            rootless-receipt.json
+            exit-codes.txt
+            podman-info.json
+            pull-output.txt
+            cli-output.txt
