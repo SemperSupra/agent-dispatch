@@ -4,16 +4,20 @@ import json, urllib.request, urllib.error, pathlib,sys
 BASE="http://127.0.0.1:3300/mcp"
 tokens=json.loads(pathlib.Path("ephemeral-scope-tokens.json").read_text())
 results=[]
+sessions={}
 def request(token,url,method,index):
   data={"jsonrpc":"2.0","id":index,"method":method}
   if method=="initialize":
     data["params"]={"protocolVersion":"2025-06-18","capabilities":{},
                     "clientInfo":{"name":"bounded-scope-test","version":"1.0"}}
-  req=urllib.request.Request(url,data=json.dumps(data).encode(),
-      headers={"Authorization":"Bearer "+token,"Content-Type":"application/json",
-               "Accept":"application/json, text/event-stream","MCP-Protocol-Version":"2025-06-18"})
+  headers={"Authorization":"Bearer "+token,"Content-Type":"application/json",
+           "Accept":"application/json, text/event-stream","MCP-Protocol-Version":"2025-06-18"}
+  if (token,url) in sessions: headers["Mcp-Session-Id"]=sessions[(token,url)]
+  req=urllib.request.Request(url,data=json.dumps(data).encode(),headers=headers)
   try:
     with urllib.request.urlopen(req,timeout=15) as r:
+      sid=r.headers.get("Mcp-Session-Id")
+      if sid:sessions[(token,url)]=sid
       body=r.read(65000).decode(errors="replace")
       if not body.strip(): return r.status,{"empty_body":True}
       if "text/event-stream" in r.headers.get("Content-Type",""):
@@ -33,7 +37,7 @@ for name in ("alpha","beta"):
   passed=(status==200 and tools_status==200 and len(tools)==1 and
           all(name in x for x in tools) and cross_status in (401,403) and
           global_status in (401,403))
-  results.append({"principal":name,"own_status":status,"init_reply":init,"own_list_status":tools_status,
+  results.append({"principal":name,"own_status":status,"init_reply":init,"own_list_status":tools_status,"list_reply":listing,
                   "own_tools":tools,"cross_status":cross_status,
                   "global_status":global_status,"passed":passed})
 receipt={"schema":"public-safe-mcphub-principal-scope-v1",
