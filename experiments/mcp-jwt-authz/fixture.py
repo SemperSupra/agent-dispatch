@@ -47,6 +47,10 @@ def main():
   init={"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"synthetic-auth-test","version":"1"}}
   status,body,_=call("initialize",1,params=init)
   check("anonymous-denied",status in (401,403),{"status":status})
+  for bad in ("wrong-audience","wrong-issuer","expired","forged"):
+   token=pathlib.Path("token-"+bad+".txt").read_text()
+   status,body,_=call("initialize",10,token=token,params=init)
+   check(bad+"-token-denied",status in (401,403),{"status":status})
   for subject in ("alpha","beta","revoked"):
    token=pathlib.Path("token-"+subject+".txt").read_text()
    status,body,session=call("initialize",2,token=token,params=init)
@@ -65,7 +69,7 @@ def main():
    else:
     status,body,session=call("tools/call",6,token,session,{"name":"alpha_echo","arguments":{"text":"forbidden"}})
     check("revoked-direct-denied",not permitted(status,body,"alpha:forbidden"),{"status":status})
-  out["passed"]=len(out["checks"])==12 and all(x["passed"] for x in out["checks"])
+  out["passed"]=len(out["checks"])==16 and all(x["passed"] for x in out["checks"])
  except Exception as e:out["error"]=repr(e)
  pathlib.Path("authz-receipt.json").write_text(json.dumps(out,indent=2,sort_keys=True)+"\n")
  print(json.dumps(out,indent=2,sort_keys=True))
