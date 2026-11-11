@@ -1,0 +1,48 @@
+name: M1 Codex CLI SupraToolbelt MCP RDTE client qualification
+on:
+  push:
+    branches: [rdte/mcp-codex-cli-20261111]
+    paths:
+      - .github/workflows/mcp-codex-cli-rdte.yml
+      - experiments/mcp-codex-cli-rdte/**
+  pull_request:
+    paths:
+      - .github/workflows/mcp-codex-cli-rdte.yml
+      - experiments/mcp-codex-cli-rdte/**
+permissions:
+  contents: read
+jobs:
+  codex-mcp-config:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install traceable public Codex CLI package (no account login)
+        run: |
+          set -euo pipefail
+          version="$(npm view @openai/codex version)"
+          integrity="$(npm view "@openai/codex@$version" dist.integrity)"
+          printf '{"name":"@openai/codex","version":"%s","npmIntegrity":"%s"}\n' "$version" "$integrity" > codex-package.json
+          npm install --global --no-audit --no-fund "@openai/codex@$version"
+          codex --version
+      - name: Exercise actual MCP add/list/get/remove with three independent CODEX_HOME contexts
+        run: |
+          python3 experiments/mcp-codex-cli-rdte/qualify_codex_config.py
+      - name: Ensure no test secrets or CLI state are uploaded
+        if: always()
+        run: |
+          rm -rf codex-rdte-contexts
+          test ! -d codex-rdte-contexts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: codex-mcp-rdte-${{ matrix.runner }}
+          path: |
+            codex-package.json
+            codex-rdte-receipt.json
