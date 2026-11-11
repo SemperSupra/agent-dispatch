@@ -71,7 +71,7 @@ jobs:
           data=json.load(open("runtime-inspect.json"))[0]
           host=data["HostConfig"]
           assert not host["Privileged"]
-          assert "ALL" in host["CapDrop"]
+          assert "all" in [str(x).lower() for x in host["CapDrop"]]
           assert any(m["Destination"]=="/app/backend/data" for m in data["Mounts"])
           assert pathlib.Path("rootless-health.txt").read_text().strip()=="200"
           result={"schema":"m1-openwebui-rootless-v1","passed":True,
