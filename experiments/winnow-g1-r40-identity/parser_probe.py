@@ -60,16 +60,21 @@ def gallery_parse(post):
     # expose different Instagram parsing method names in initial R40 run.
     module_file = Path(inspect.getfile(InstagramExtractor))
     available = sorted(n for n in dir(InstagramExtractor) if "parse_post" in n)
-    method = getattr(p, "_parse_post_rest", None)
-    if method is None:
-        actual = getattr(p, "_parse_post", None)
-        print("R40_PINNED_WHEEL_PARSER_METHOD_DRIFT", json.dumps({
-            "methods": available,
-            "installed_source_sha256": hashlib.sha256(module_file.read_bytes()).hexdigest(),
-            "fallback_signature": str(inspect.signature(actual)) if actual else "MISSING",
-            "fallback_start_line": inspect.getsourcelines(actual)[1] if actual else None,
-        }, sort_keys=True), flush=True)
-        raise RuntimeError("R40_PINNED_WHEEL_REST_PARSER_DRIFT_REVIEW_REQUIRED")
+    installed_hash = hashlib.sha256(module_file.read_bytes()).hexdigest()
+    # This pinned public wheel has a different parser method from the GitHub
+    # v1.32.19 tagged file retrieved separately. Restrict this observational
+    # test to the exact installed source bytes seen on BOTH native runners,
+    # not a guessed generic alternate.
+    expected_wheel_file_hash = "9c26314b08c53467819ed5641dc3291a71bbca05d4f7bdef233e2fe28268f070"
+    method = getattr(p, "_parse_post", None)
+    if installed_hash != expected_wheel_file_hash or available != ["_parse_post"] or method is None:
+        raise RuntimeError("R40_UNKNOWN_WHEEL_PARSER_BYTES_OR_METHOD")
+    print("R40_WHEEL_SOURCE_DRIFT_ACKNOWLEDGED", json.dumps({
+        "method": "_parse_post",
+        "actual_source_sha256": installed_hash,
+        "signature": str(inspect.signature(method)),
+        "upstream_tag_source_equivalence_proven": False,
+    }, sort_keys=True), flush=True)
     data = method(post)
     return [
         {"id": str(child.get("media_id", "")),
