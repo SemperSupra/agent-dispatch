@@ -20,6 +20,9 @@ DENIED = {
     errno.EACCES,
     errno.EPERM,
     errno.EADDRNOTAVAIL,
+    errno.EAFNOSUPPORT,
+    errno.EPROTONOSUPPORT,
+    errno.ENETDOWN,
 }
 
 
@@ -32,7 +35,10 @@ def no_ipv4_default():
 
 
 def no_ipv6_default():
-    lines = pathlib.Path("/proc/net/ipv6_route").read_text().splitlines()
+    route = pathlib.Path("/proc/net/ipv6_route")
+    if not route.exists():
+        return True
+    lines = route.read_text().splitlines()
     return all(
         len(fields) < 2 or fields[0] != "0" * 32 or fields[1] != "00000000"
         for fields in (line.split() for line in lines)
@@ -40,9 +46,12 @@ def no_ipv6_default():
 
 
 def denied_connect(family, address):
-    with socket.socket(family, socket.SOCK_STREAM) as stream:
-        stream.settimeout(0.75)
-        result = stream.connect_ex((address, 443))
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as stream:
+            stream.settimeout(0.75)
+            result = stream.connect_ex((address, 443))
+    except OSError as exc:
+        result = exc.errno or 0
     if result not in DENIED:
         raise RuntimeError("R34_OUTBOUND_DENIAL_CANARY_FAILED: errno=%d" % result)
     return {"address_class": "documentation-only", "errno": result, "denied": True}
