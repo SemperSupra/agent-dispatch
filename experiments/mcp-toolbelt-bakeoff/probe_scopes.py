@@ -35,7 +35,7 @@ for name in ("alpha","beta"):
   cross_status,_=request(t,BASE+"/"+("beta" if name=="alpha" else "alpha"),"tools/list",3)
   global_status,_=request(t,BASE,"tools/list",4)
   passed=(status==200 and tools_status==200 and len(tools)==1 and
-          all(name in x for x in tools) and cross_status in (401,403) and
+          tools==["echo"] and listing.get("result",{}).get("tools",[{}])[0].get("description","").endswith(name) and cross_status in (401,403) and
           global_status in (401,403))
   results.append({"principal":name,"own_status":status,"init_reply":init,"own_list_status":tools_status,"list_reply":listing,
                   "own_tools":tools,"cross_status":cross_status,
