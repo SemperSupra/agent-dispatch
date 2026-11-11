@@ -1,0 +1,22 @@
+{
+  "schema": "m1.disposable.execution/v1",
+  "id": "ephemeral-synthetic-volume",
+  "phase": "deployment",
+  "tooling": {
+    "mode": "preferred_cell",
+    "install_scope": "cell",
+    "cache_scope": "cell",
+    "cleanup_declared": true,
+    "global_install": false,
+    "unmanaged_host_writes": false
+  },
+  "runtime": {
+    "kind": "ephemeral_container",
+    "replaceable": true,
+    "privileged": false,
+    "host_runtime_socket": false,
+    "writable_host_mount": false,
+    "state": "local_named_volume",
+    "durable_state_required": false
+  }
+}
