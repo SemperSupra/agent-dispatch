@@ -28,6 +28,10 @@ def cli(executable, home, workspace, *args):
     env["CI"] = "true"
     env["NO_COLOR"] = "1"
     env["OPENCODE_DISABLE_AUTOUPDATE"] = "true"
+    if executable == "opencode" and (workspace / "opencode.json").exists():
+        # Nested worktrees can resolve a different Git root; force the exact
+        # independent per-login manifest instead of relying on discovery.
+        env["OPENCODE_CONFIG"] = str(workspace / "opencode.json")
     env["QWEN_CODE_NO_RELAUNCH"] = "1"
     for name in CONTEXTS.values():
         env[name] = "synthetic-not-an-auth-token-" + name
