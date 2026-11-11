@@ -49,7 +49,7 @@ def run():
         check("initial-admin-created",status==200 and isinstance(token,str) and len(token)>20,status)
         connection={"url":TARGET,"path":"/mcp","type":"mcp",
           "auth_type":"none","headers":{},"key":"",
-          "config":{},"info":{"id":"supra-fixture","name":"SupraToolbelt Synthetic",
+          "config":{"enable":True},"info":{"id":"supra-fixture","name":"SupraToolbelt Synthetic",
           "description":"Synthetic five-tool MCP fixture only"}}
         status,data=request("POST","/api/v1/configs/tool_servers",
                             {"TOOL_SERVER_CONNECTIONS":[connection]},token)
