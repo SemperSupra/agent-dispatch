@@ -11,16 +11,20 @@ permissions:
   contents: read
 jobs:
   signed-bundle-quadlet:
-    name: "native-${{ matrix.arch }}"
+    name: "native-${{ matrix.arch }} / rep-${{ matrix.rep }}"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 3
       matrix:
         include:
-          - { arch: amd64, runner: ubuntu-24.04 }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { arch: amd64, runner: ubuntu-24.04, rep: 1 }
+          - { arch: amd64, runner: ubuntu-24.04, rep: 2 }
+          - { arch: amd64, runner: ubuntu-24.04, rep: 3 }
+          - { arch: arm64, runner: ubuntu-24.04-arm, rep: 1 }
+          - { arch: arm64, runner: ubuntu-24.04-arm, rep: 2 }
+          - { arch: arm64, runner: ubuntu-24.04-arm, rep: 3 }
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -37,11 +41,29 @@ jobs:
         run: |
           set -euo pipefail
           bash experiments/opa-signed-bundle/run.sh
+      - name: Record deterministic independent repetition identity
+        if: always()
+        shell: bash
+        env:
+          RDTE_REP: ${{ matrix.rep }}
+          RDTE_ARCH: ${{ matrix.arch }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path("opa-signed-bundle-evidence/result.json")
+          if p.is_file():
+              obj=json.loads(p.read_text())
+              obj["rep"]=int(os.environ["RDTE_REP"])
+              obj["architecture_expected"]=os.environ["RDTE_ARCH"]
+              obj["workflow_sha"]=os.environ["GITHUB_SHA"]
+              p.write_text(json.dumps(obj, sort_keys=True, indent=2)+"\n")
+          PY
       - name: Retain sanitized proof and first failure
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: opa-signed-quadlet-${{ matrix.arch }}-${{ github.run_id }}
+          name: opa-signed-quadlet-${{ matrix.arch }}-rep-${{ matrix.rep }}-${{ github.run_id }}
           path: opa-signed-bundle-evidence/
           if-no-files-found: warn
           retention-days: 7
