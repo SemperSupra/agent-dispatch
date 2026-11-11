@@ -1,0 +1,116 @@
+name: M1 Open WebUI rootless effective-capabilities and recreate forensic
+on:
+  push:
+    branches: [rdte/supratoolbelt-rootless-forensic-20261111]
+    paths: [.github/workflows/supratoolbelt-rootless-forensic.yml]
+  pull_request:
+    paths: [.github/workflows/supratoolbelt-rootless-forensic.yml]
+permissions:
+  contents: read
+jobs:
+  rootless-forensic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Verify a nonroot host and rootless Podman
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          if ! command -v podman >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          podman info --format '{{.Host.Security.Rootless}}' | grep -x true
+          podman --version > podman-version.txt
+      - name: Prepare immutable image and intentionally externalized synthetic state
+        run: |
+          set -euo pipefail
+          echo ghcr.io/open-webui/open-webui@sha256:85d0453be8ca086896ddcc496190ad5a78f79d6e15f4be8c0fb80e4a9aaba2b0 > image.txt
+          podman pull "$(cat image.txt)"
+          podman volume create supra-webui-forensic
+          umask 077
+          printf 'WEBUI_SECRET_KEY=%s\n' "$(openssl rand -hex 32)" > webui.env
+          cat >> webui.env <<'ENV'
+          WEBUI_AUTH=true
+          ENABLE_SIGNUP=false
+          ENABLE_OLLAMA_API=false
+          ENABLE_OPENAI_API=false
+          ENABLE_PERSISTENT_CONFIG=false
+          ENABLE_TOOL_SERVERS=true
+          ENV
+          cat > launch.sh <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          podman run -d --name supra-webui-forensic \
+            --publish 127.0.0.1:33080:8080 \
+            --mount type=volume,source=supra-webui-forensic,target=/app/backend/data \
+            --env-file webui.env --cap-drop=all --security-opt=no-new-privileges \
+            --memory 2g --cpus 2 --pids-limit 256 "$(cat image.txt)"
+          for n in $(seq 1 85); do
+            code=$(curl --silent --max-time 2 --output /dev/null \
+              --write-out '%{http_code}' http://127.0.0.1:33080/health || true)
+            if [ "$code" = 200 ]; then return 0 2>/dev/null || exit 0; fi
+            if ! podman ps --format '{{.Names}}' | grep -qx supra-webui-forensic; then
+              podman logs --tail 25 supra-webui-forensic
+              exit 1
+            fi
+            sleep 2
+          done
+          podman logs --tail 25 supra-webui-forensic
+          exit 1
+          SH
+          chmod +x launch.sh
+      - name: Start unprivileged WebUI and capture real process capabilities
+        run: |
+          ./launch.sh
+          podman exec supra-webui-forensic test -s /app/backend/data/webui.db
+          podman exec supra-webui-forensic sh -c 'printf "recreated\n" > /app/backend/data/.rdte-recovery'
+          podman exec supra-webui-forensic cat /proc/1/status |
+            grep '^Cap' > actual-capabilities.txt
+          podman inspect supra-webui-forensic > inspect.json
+      - name: Recreate process and verify complete external state persistence
+        run: |
+          podman rm -f supra-webui-forensic
+          ./launch.sh
+          podman exec supra-webui-forensic test -s /app/backend/data/webui.db
+          podman exec supra-webui-forensic test -f /app/backend/data/.rdte-recovery
+      - name: Classify rootless security from actual process rather than Podman metadata alone
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,re,subprocess
+          status=pathlib.Path("actual-capabilities.txt").read_text()
+          caps=dict(re.findall(r"^(Cap\w+):\s*([0-9a-fA-F]+)",status,re.M))
+          assert {"CapEff","CapPrm","CapBnd"} <= set(caps),caps
+          actual={k:int(caps[k],16) for k in ("CapEff","CapPrm","CapBnd")}
+          inspect=json.load(open("inspect.json"))[0]
+          host=inspect["HostConfig"]
+          meta=host.get("CapDrop")
+          state={"schema":"m1-openwebui-rootless-capabilities-v2",
+                 "actualKernelCapabilities":actual,
+                 "podmanInspectCapDrop":meta,
+                 "privileged":host.get("Privileged",False),
+                 "externalVolume":any(x["Destination"]=="/app/backend/data" for x in inspect["Mounts"]),
+                 "rootlessHost":True,"loopbackOnly":True,"processRecreated":True,
+                 "dataSurvivedProcessRecreation":True,
+                 "modelCalls":0,"realMCPRegistration":False}
+          state["passed"]=all(value==0 for value in actual.values()) and not state["privileged"] and state["externalVolume"]
+          pathlib.Path("rootless-forensic-receipt.json").write_text(json.dumps(state,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(state,indent=2,sort_keys=True))
+          assert state["passed"]
+          PY
+      - name: Destroy all private synthetic state, container, test key and logs
+        if: always()
+        run: |
+          podman rm -f supra-webui-forensic >/dev/null 2>&1 || true
+          podman volume rm -f supra-webui-forensic >/dev/null 2>&1 || true
+          rm -f webui.env launch.sh inspect.json
+          test ! -e webui.env
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: openwebui-rootless-forensic
+          path: |
+            image.txt
+            podman-version.txt
+            actual-capabilities.txt
+            rootless-forensic-receipt.json
