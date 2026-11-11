@@ -21,7 +21,7 @@ import sys
 import tempfile
 
 PYTHON_PATCH = (3, 14, 10)
-IMAGE_CANDIDATE = "python:3.14.10-slim"
+IMAGE_CANDIDATE = "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f"
 FIXTURE = b"PUBLIC-SYNTHETIC-FIXTURE-NO-PRIVATE-DATA\n"
 RECEIPT_SCHEMA = "public-python-oci-qualification/v1"
 IMAGE_REF = re.compile(r"^[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}$")
@@ -133,8 +133,8 @@ def run_public_qualification(receipt_path: Path) -> dict:
     inspect = _subprocess(["docker", "image", "inspect", "--format",
                            "{{index .RepoDigests 0}}", IMAGE_CANDIDATE], 15)
     image_ref = inspect.stdout.strip()
-    if inspect.returncode or not IMAGE_REF.fullmatch(image_ref):
-        raise Rejected("immutable image identity unavailable")
+    if inspect.returncode or not IMAGE_REF.fullmatch(image_ref) or image_ref != IMAGE_CANDIDATE:
+        raise Rejected("immutable image identity mismatch")
     with tempfile.TemporaryDirectory(prefix="public-python-oci-") as td:
         base = Path(td)
         root, scratch = base / "external", base / "scratch"
