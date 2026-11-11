@@ -33,6 +33,7 @@ RESULT_FIELDS = {
     "sealed-contract-native": {"classification", "oracle_verified"},
     "microsoft-devproxy-mock": {"classification", "oracle_verified", "mock_only", "provider_access_verified", "verdict_sha256"},
     "azurite-blob-transport": {"classification", "oracle_verified", "emulator_only", "provider_access_verified", "verdict_sha256"},
+    "python-oci-runtime": {"classification", "oracle_verified", "resolved_image_ref", "receipt_sha256", "production_promotable"},
 }
 MAX_RECEIPT = 8192
 
@@ -96,8 +97,18 @@ def evaluate(
     result = doc["result"]
     if not isinstance(result, dict) or set(result) != RESULT_FIELDS[p["workload"]]:
         raise VerdictError("WORKLOAD_RESULT_FIELDS_UNTRUSTED")
-    if result["classification"] != "PASS" or result["oracle_verified"] is not True:
+    expected_classification = ("PASS_CANDIDATE_ONLY" if p["workload"] == "python-oci-runtime"
+                               else "PASS")
+    if result["classification"] != expected_classification or result["oracle_verified"] is not True:
         raise VerdictError("WORKLOAD_ORACLE_NOT_VERIFIED")
+    if p["workload"] == "python-oci-runtime":
+        image = result.get("resolved_image_ref")
+        if (result.get("production_promotable") is not False
+                or not isinstance(image, str)
+                or re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}", image) is None
+                or not isinstance(result.get("receipt_sha256"), str)
+                or not HEX64.fullmatch(result["receipt_sha256"])):
+            raise VerdictError("OCI_CANDIDATE_RECEIPT_DENIED")
     if p["workload"] == "microsoft-devproxy-mock":
         if (result.get("mock_only") is not True or
                 result.get("provider_access_verified") is not False or
