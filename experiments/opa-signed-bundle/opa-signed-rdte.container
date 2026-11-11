@@ -1,0 +1,21 @@
+# Synthetic S2 security RDTE on disposable public GitHub Actions runners ONLY.
+# Rootful systemd generation here does NOT qualify target rootless Podman.
+[Unit]
+Description=OPA signed bundle security and update test
+After=network-online.target
+[Container]
+Image=docker.io/openpolicyagent/opa:1.22.3
+ContainerName=opa-signed-rdte
+Network=host
+Volume=/run/opa-signed-rdte/opa.yaml:/config.yaml:ro
+Exec=run --server --addr=127.0.0.1:8181 --config-file=/config.yaml --log-level=info
+NoNewPrivileges=true
+ReadOnly=true
+User=65532
+[Service]
+Restart=on-failure
+TimeoutStartSec=120
+MemoryMax=256M
+TasksMax=128
+[Install]
+WantedBy=multi-user.target
