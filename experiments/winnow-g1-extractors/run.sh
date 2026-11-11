@@ -22,9 +22,23 @@ python -m pip --disable-pip-version-check download \
     --only-binary=:all: --no-deps --index-url https://pypi.org/simple \
     --dest "$tmp/wheels" "$dist" > "$OUT/pip-fetch.txt"
 printf '%s  %s\n' "$hash" "$tmp/wheels/$wheel" | sha256sum -c - | tee "$OUT/wheel-sha256.txt"
-# Offline installation: no dependency resolution, build, auto-update or scripts.
+# gallery-dl declares requests>=2.11. Fetch requests and its public wheel
+# closure. Extra features/plugins are not loaded. This is an RDTE receipt,
+# not a production lockfile for the transitive dependencies.
+if [[ "$candidate" == gallery ]]; then
+  python -m pip --disable-pip-version-check download \
+      --only-binary=:all: --index-url https://pypi.org/simple \
+      --dest "$tmp/wheels" "requests==2.32.5" >> "$OUT/pip-fetch.txt"
+fi
+(cd "$tmp/wheels" && sha256sum -- * > "$OUT/all-wheels-sha256.txt")
+# Install exclusively from previously retrieved wheels.
+if [[ "$candidate" == gallery ]]; then
+  python -m pip --disable-pip-version-check install --no-index \
+      --find-links "$tmp/wheels" "requests==2.32.5" > "$OUT/install.txt"
+fi
 python -m pip --disable-pip-version-check install --no-index --no-deps \
-    --find-links "$tmp/wheels" "$dist" > "$OUT/install.txt"
+    --find-links "$tmp/wheels" "$dist" >> "$OUT/install.txt"
+python -m pip freeze > "$OUT/resolved-closure.txt"
 # No live Instagram URL is passed to either candidate.
 python "$BASE/verify.py" "$candidate" "$OUT" "$tmp/wheels/$wheel"
 python - "$OUT/result.json" <<'PY'
