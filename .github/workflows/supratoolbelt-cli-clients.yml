@@ -40,6 +40,14 @@ jobs:
             "$package" "$version" "$integrity" > package-receipt.json
           npm install --prefix "$RUNNER_TEMP/supra-cli" --no-audit --no-fund "$package@$version"
           echo "$RUNNER_TEMP/supra-cli/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Start local synthetic MCP for actual client discovery
+        run: |
+          python3 experiments/supratoolbelt-client-bakeoff/synthetic_mcp.py &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:39200/health; then exit 0; fi
+            sleep 1
+          done
+          exit 1
       - name: Qualify actual CLI with independent temporary config contexts
         env:
           CLIENT: ${{ matrix.client }}
