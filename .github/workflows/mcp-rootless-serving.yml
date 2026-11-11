@@ -1,0 +1,91 @@
+name: M1 Rootless Podman live MCP serving qualification
+on:
+  push:
+    branches: [rdte/mcp-rootless-serving-20261111]
+    paths:
+      - experiments/mcp-rootless-serving/**
+      - .github/workflows/mcp-rootless-serving.yml
+  pull_request:
+    paths:
+      - experiments/mcp-rootless-serving/**
+      - .github/workflows/mcp-rootless-serving.yml
+permissions:
+  contents: read
+jobs:
+  rootless-serving:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install Podman if absent and start two synthetic loopback upstreams
+        run: |
+          if ! command -v podman >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq podman
+          fi
+          python3 experiments/mcp-rootless-serving/fixture.py --serve --label alpha --port 39101 &
+          python3 experiments/mcp-rootless-serving/fixture.py --serve --label beta --port 39102 &
+          for port in 39101 39102; do
+            for i in $(seq 1 20); do
+              curl -fsS "http://127.0.0.1:$port/health" && break || sleep 1
+            done
+          done
+          cat > candidate-config.yaml <<'YAML'
+          binds:
+          - listeners:
+            - routes:
+              - backends:
+                - mcp:
+                    targets:
+                    - name: alpha
+                      mcp:
+                        host: http://127.0.0.1:39101/mcp
+                    - name: beta
+                      mcp:
+                        host: http://127.0.0.1:39102/mcp
+                matches:
+                - path:
+                    exact: /mcp
+            port: 39200
+          YAML
+      - name: Launch pinned Gateway as rootless runtime with read-only root and no privileges
+        run: |
+          podman pull cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
+          podman run -d --name m1-serving --network host --read-only --cap-drop ALL \
+            --security-opt=no-new-privileges \
+            --mount "type=bind,source=$PWD/candidate-config.yaml,target=/config.yaml,readonly" \
+            cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b \
+            -f /config.yaml
+          for i in $(seq 1 30); do
+            curl -s --max-time 1 http://127.0.0.1:39200/mcp >/dev/null && exit 0 || true
+            if ! podman ps --format '{{.Names}}' | grep -qx m1-serving; then podman logs m1-serving;exit 1;fi
+            sleep 1
+          done
+          podman logs m1-serving
+          exit 1
+      - name: Verify two actual routed MCP tool calls
+        run: python3 experiments/mcp-rootless-serving/fixture.py --out rootless-serving-receipt.json
+      - name: Read back security restrictions and remove runtime
+        if: always()
+        run: |
+          podman inspect m1-serving > runtime-inspect.json 2>/dev/null || true
+          podman logs --tail 20 m1-serving > runtime-log.txt 2>&1 || true
+          podman rm -f m1-serving >/dev/null 2>&1 || true
+          podman ps -a --format '{{.Names}}' > leftover-containers.txt
+          test ! -s leftover-containers.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: rootless-serving-${{ matrix.runner }}
+          path: |
+            rootless-serving-receipt.json
+            runtime-inspect.json
+            runtime-log.txt
+            leftover-containers.txt
+            candidate-config.yaml
