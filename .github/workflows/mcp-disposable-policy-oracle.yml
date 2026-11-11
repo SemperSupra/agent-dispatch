@@ -1,0 +1,90 @@
+name: M1 disposable execution and local tooling fallback decision oracle
+on:
+  push:
+    branches: [rdte/supratoolbelt-disposable-policy-oracle-20261111]
+    paths: [.github/workflows/mcp-disposable-policy-oracle.yml, experiments/mcp-disposable-policy/**]
+  pull_request:
+    paths: [.github/workflows/mcp-disposable-policy-oracle.yml, experiments/mcp-disposable-policy/**]
+permissions:
+  contents: read
+jobs:
+  policy-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: experiments/mcp-disposable-policy
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Assert one-job public hosted runner and temporary Go tool state
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          echo "GOCACHE=$RUNNER_TEMP/supra-gocache" >> "$GITHUB_ENV"
+          echo "GOPATH=$RUNNER_TEMP/supra-gopath" >> "$GITHUB_ENV"
+          echo "GOMODCACHE=$RUNNER_TEMP/supra-gopath/pkg/mod" >> "$GITHUB_ENV"
+          go version | tee go-version.txt
+      - name: Actual stdlib Go race tests for preferred and permitted fallback policy
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -v ./... | tee policy-unit-tests.txt
+          go build -trimpath -o "$RUNNER_TEMP/supra-policy-check" ./cmd/validate
+      - name: Real executable positive and negative manifest matrix
+        run: |
+          set -euo pipefail
+          mkdir -p receipts
+          for f in fixtures/accept-*.json; do
+            name=$(basename "$f" .json)
+            "$RUNNER_TEMP/supra-policy-check" "$f" > "receipts/$name.json"
+          done
+          for f in fixtures/reject-*.json; do
+            name=$(basename "$f" .json)
+            if "$RUNNER_TEMP/supra-policy-check" "$f" > "receipts/$name.json"; then
+              echo "Invalid policy was accepted: $f"
+              exit 1
+            fi
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          r=Path("receipts")
+          accepted=sorted(r.glob("accept-*.json"))
+          rejected=sorted(r.glob("reject-*.json"))
+          assert len(accepted)==4 and len(rejected)==5
+          for p in accepted:
+              data=json.loads(p.read_text())
+              assert data["accepted"] is True and data["evidence_level"]=="declaration_only",p
+          for p in rejected:
+              data=json.loads(p.read_text())
+              assert data["accepted"] is False and data["rejections"] and data["evidence_level"]=="declaration_only",p
+          fallback=json.loads((r/"accept-local-fallback.json").read_text())
+          assert fallback["preferred"] is False
+          r.joinpath("summary.json").write_text(json.dumps({
+              "schema":"m1.disposable.policy.fixture-summary/v1",
+              "acceptedFixtures":len(accepted),
+              "rejectedFixtures":len(rejected),
+              "localToolingFallbackAccepted":True,
+              "claim":"executable declaration checks only; not deployment or VM teardown proof",
+              "passed":True
+          },indent=2)+"\\n")
+          print("4 permitted + 5 denied fixture decisions checked, no runner secrets")
+          PY
+      - name: Confirm binaries and all tool caches remain in disposable runner scope
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/supra-policy-check" "$RUNNER_TEMP/supra-gocache" "$RUNNER_TEMP/supra-gopath"
+          test ! -e "$RUNNER_TEMP/supra-policy-check"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: disposable-policy-${{ matrix.runner }}
+          path: |
+            experiments/mcp-disposable-policy/receipts/
+            experiments/mcp-disposable-policy/policy-unit-tests.txt
+            experiments/mcp-disposable-policy/go-version.txt
