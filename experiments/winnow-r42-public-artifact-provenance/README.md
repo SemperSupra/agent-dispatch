@@ -1,0 +1,9 @@
+# R42 — gallery-dl 1.32.19 public source-versus-wheel provenance
+
+**Issue:** the prior R40 native wheel probe observed installed `gallery_dl/extractor/instagram.py` with method `_parse_post`, while the GitHub mirror source at tag `v1.32.19` exposed `_parse_post_rest`. This difference should not be attributed to a malicious supply chain without byte-level comparison.
+
+**Procedure:** Download only two publicly published PyPI release artifacts for gallery-dl 1.32.19 (exact wheel and source distribution) plus the GitHub tag's public source file, inspect the installed archive member `gallery_dl/extractor/instagram.py`, and compare SHA-256, size, parser method presence. Verify each PyPI artifact against the per-file digests served by PyPI; compare the wheel against frozen `f6b1eb5e9a7409a988b754335d99dbb1873e130d133ed5d164d32e5e645d1c50`. Best-effort fetch canonical Codeberg tag source file, reporting `FETCH_OR_SHAPE_UNVERIFIED` if blocked. No private code, personal data, real Instagram URLs or acquired media are involved.
+
+**Receipt:** exact source SHA and platform public-runner architecture, JSON digest matrix and observed method names. Treat different files as a **source-to-distribution mismatch requiring explanation**, not as proof of compromise. Even equal bytes do not prove a reproducible build or establish a signed source tag. The final status is always `release_qualified:false`; **G1 acquisition/release holds remain in force**.
+
+**Operational boundaries:** isolated public GHA branch, one small AMD64 job, no Agent Dispatch scheduling or private checkout. Only PyPI, GitHub source mirror and optional Codeberg source endpoints may be requested. No direct-URL Instagram, auth, credentials, private media, source acceptance, production deployment or merge. Do not delete other active R40/R41 draft work.

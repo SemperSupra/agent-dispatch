@@ -1,0 +1,52 @@
+name: Winnow R42 public gallery wheel source-file provenance
+run-name: winnow-r42-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-r42-public-wheel-source-audit-20261111
+    paths:
+      - '.github/workflows/winnow-r42-public-wheel-provenance.yml'
+      - 'experiments/winnow-r42-public-artifact-provenance/**'
+permissions:
+  contents: read
+jobs:
+  artifact-file-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Verify public scope and exact source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          test "${{ github.ref }}" = "refs/heads/rdte/winnow-r42-public-wheel-source-audit-20261111"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "R42_EXACT_PUBLIC_SHA=$GITHUB_SHA"
+      - name: Compare PyPI wheel/sdist to public tagged source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p winnow-r42-public-evidence
+          python3 experiments/winnow-r42-public-artifact-provenance/audit.py winnow-r42-public-evidence/result.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('winnow-r42-public-evidence/result.json'))
+          assert r['schema_version'] == 1
+          assert not r['release_qualified'] and r['no_private_winnow_code']
+          assert len(r['artifacts']) == 2
+          assert 'codeberg_fetch_status' in r['remote_sources']
+          assert all(isinstance(v,bool) for v in r['compare'].values() if isinstance(v,bool))
+          print('R42_PUBLIC_BYTE_MATRIX_RECORDED release=HOLD')
+          PY
+          echo "R42_PUBLIC_PROVENANCE_RECEIPT_SHA=$GITHUB_SHA"
+      - name: Publish sanitized source-hash receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-r42-public-source-hashes-${{ github.run_id }}
+          path: winnow-r42-public-evidence/result.json
+          if-no-files-found: warn
+          retention-days: 7
