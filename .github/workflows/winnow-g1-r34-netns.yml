@@ -1,0 +1,69 @@
+name: Winnow G1 R34 public ephemeral network namespace qualification
+run-name: winnow-g1-r34-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-g1-r34-os-egress-sandbox-20261111
+    paths:
+      - '.github/workflows/winnow-g1-r34-netns.yml'
+      - 'experiments/winnow-g1-r34-netns/**'
+permissions:
+  contents: read
+jobs:
+  native-os-isolation:
+    name: "netns synthetic denial / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Verify only expected public branch and runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          test "${{ github.ref }}" = "refs/heads/rdte/winnow-g1-r34-os-egress-sandbox-20261111"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo 'R34_ARCH_MISMATCH'; exit 1 ;;
+          esac
+          echo "R34_EXACT_SOURCE_SHA=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Qualify ephemeral route-less network namespace with no credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p winnow-g1-r34-evidence
+          for cmd in unshare setpriv readlink python3 sudo; do
+            if ! command -v "$cmd" >/dev/null; then
+              echo "R34_SETUP_BLOCKED missing=$cmd"
+              exit 2
+            fi
+          done
+          if ! sudo -n unshare --net -- /bin/true; then
+            echo "R34_SETUP_BLOCKED unshare=NOT_PERMITTED"
+            exit 2
+          fi
+          HOST_NS="$(readlink /proc/self/ns/net)"
+          echo "R34_TEMPORARY_NAMESPACES_ALLOWED"
+          sudo -n unshare --net -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+            python3 experiments/winnow-g1-r34-netns/netns_probe.py "$HOST_NS" \
+            | tee winnow-g1-r34-evidence/result.txt
+          grep -F -- "R34_EPHEMERAL_NETWORK_NAMESPACE_DENIAL_PASS" winnow-g1-r34-evidence/result.txt
+          echo "R34_OS_NETWORK_DENIAL_PASS=$GITHUB_SHA"
+      - name: Preserve sanitized containment result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-g1-r34-netns-${{ matrix.arch }}-${{ github.run_id }}
+          path: winnow-g1-r34-evidence/
+          if-no-files-found: warn
+          retention-days: 7
