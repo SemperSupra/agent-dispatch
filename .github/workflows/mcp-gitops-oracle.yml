@@ -1,0 +1,71 @@
+name: M1 GitOps stateless-belt contract and pinned revisions
+on:
+  push:
+    branches: [rdte/mcp-gitops-oracle-20261111]
+    paths:
+      - .github/workflows/mcp-gitops-oracle.yml
+      - experiments/mcp-gitops-m1/**
+  pull_request:
+    paths:
+      - .github/workflows/mcp-gitops-oracle.yml
+      - experiments/mcp-gitops-m1/**
+permissions:
+  contents: read
+jobs:
+  stateless-gitops:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: experiments/mcp-gitops-m1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Go stdlib-only race and authorization mutation qualification
+        run: |
+          go version
+          go test -race -count=1 -v ./... | tee go-test-log.txt
+      - name: Create two actual immutable synthetic Git revisions
+        run: |
+          mkdir -p synthetic-repo receipts
+          cd synthetic-repo
+          git init -q
+          git config user.name "Synthetic M1 Oracle"
+          git config user.email "synthetic@example.invalid"
+          printf '%s\n' '{"schema":"m1.gitops.synthetic/v1","catalog":["alpha.read","beta.read"],"belts":{"research":{"owner":"shared","tools":["alpha.read"]},"engineering":{"owner":"shared","tools":["beta.read"]}}}' > saved.json
+          git add saved.json
+          git commit -qm "synthetic old belt snapshot"
+          old_commit=$(git rev-parse HEAD)
+          printf '%s\n' '{"schema":"m1.gitops.synthetic/v1","catalog":["alpha.read","beta.read"],"belts":{"research":{"owner":"shared","tools":["beta.read"]},"engineering":{"owner":"shared","tools":["beta.read"]}}}' > saved.json
+          git add saved.json
+          git commit -qm "synthetic revised belt snapshot"
+          new_commit=$(git rev-parse HEAD)
+          git show "$old_commit:saved.json" > ../receipts/pinned-old.json
+          git show "$new_commit:saved.json" > ../receipts/pinned-new.json
+          printf '{"oldCommit":"%s","newCommit":"%s"}\n' "$old_commit" "$new_commit" > ../receipts/git-revisions.json
+          test "$old_commit" != "$new_commit"
+      - name: Verify pinned manifests independently of current Git HEAD
+        run: |
+          go run ./cmd/validate receipts/pinned-old.json > receipts/old-verified.json
+          go run ./cmd/validate receipts/pinned-new.json > receipts/new-verified.json
+          python3 - <<'PY'
+          import json
+          old=json.load(open("receipts/old-verified.json"))
+          new=json.load(open("receipts/new-verified.json"))
+          assert old["snapshotDigest"] != new["snapshotDigest"]
+          assert old["beltCount"] == new["beltCount"] == 2
+          assert old["catalogCount"] == new["catalogCount"] == 2
+          print("Immutable pinned revisions verified as distinct; no session database")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: gitops-stateless-${{ matrix.runner }}
+          path: |
+            experiments/mcp-gitops-m1/receipts/
+            experiments/mcp-gitops-m1/go-test-log.txt
