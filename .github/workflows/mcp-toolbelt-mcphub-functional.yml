@@ -92,6 +92,7 @@ jobs:
         run: |
           MCP_PROBE_URL=http://127.0.0.1:3300/mcp \
           MCP_PROBE_TARGET=mcphub-current \
+          MCP_PROBE_DISCOVERY_RETRIES=30 \
           MCP_PROBE_TOKEN="$(cat ephemeral-token.txt)" \
           python3 experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
       - name: Capture bounded evidence, destroy synthetic runtime and key
