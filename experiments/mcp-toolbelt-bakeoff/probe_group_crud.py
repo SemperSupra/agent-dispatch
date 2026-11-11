@@ -58,18 +58,19 @@ def main():
    status,result=api("POST","/api/groups",{"name":name,"servers":[service]},jwt)
    check("create-"+name,status in (200,201) and result.get("success") is True,{"http":status})
   status,result=api("GET","/api/groups",token=jwt)
-  names={x.get("name") for x in result.get("data",[])}
-  check("list-saved",status==200 and {"research","engineering"}<=names,{"groups":sorted(names)})
+  groups={x.get("name"):x.get("id") for x in result.get("data",[])}
+  names=set(groups)
+  check("list-saved",status==200 and {"research","engineering"}<=names and bool(groups.get("research")),{"groups":sorted(names)})
   for name,service in (("research","alpha"),("engineering","beta")):
    try:check("invoke-"+name,True,probe(name,service,service_token))
    except Exception as e:check("invoke-"+name,False,{"reason":repr(e)})
-  status,result=api("PUT","/api/groups/research",{"servers":["beta"]},jwt)
+  status,result=api("PUT","/api/groups/"+str(groups["research"]),{"servers":["beta"]},jwt)
   check("update-research",status==200 and result.get("success") is True,{"http":status})
   try:check("updated-route",True,probe("research","beta",service_token))
   except Exception as e:check("updated-route",False,{"reason":repr(e)})
   try:check("unmodified-other-group",True,probe("engineering","beta",service_token))
   except Exception as e:check("unmodified-other-group",False,{"reason":repr(e)})
-  status,result=api("DELETE","/api/groups/research",token=jwt)
+  status,result=api("DELETE","/api/groups/"+str(groups["research"]),token=jwt)
   check("delete-research",status==200 and result.get("success") is True,{"http":status})
   status,result=api("GET","/api/groups",token=jwt)
   names={x.get("name") for x in result.get("data",[])}
