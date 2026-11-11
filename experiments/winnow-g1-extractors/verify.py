@@ -153,7 +153,8 @@ def security_gallery():
             if recognized != expected:
                 finding("GALLERY_"+name.upper(), "Unexpected offline URL dispatcher classification")
         except Exception as e:
-            check(name, False, type(e).__name__, "security")
+            check(name, False, f"{type(e).__name__}: {e}", "gate")
+            finding("GALLERY_IMPORT_OR_RUNTIME_SETUP", "Offline module dispatch raised an import/runtime exception; check declared dependency closure before attributing a source defect.")
     finding("GALLERY_RANGE_IDENTITY_UNPROVEN",
             "Documented --range indexes extraction order; no stable cross-request selected-child identity or real byte equivalence proven.")
     finding("GALLERY_DEFAULT_CONFIG_RISK",
