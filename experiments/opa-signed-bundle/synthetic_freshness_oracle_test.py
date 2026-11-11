@@ -48,7 +48,7 @@ class GenerationFloor:
                 os.unlink(p)
 
 def effective_allow(*, raw_opa_allow, generation, expiry, now, principal, workset,
-                    operation, verified, floor, emergency_deny=False,
+                    operation, verified, floor, approved_generation, emergency_deny=False,
                     publisher_available=True, freshness_required=True):
     """Raw OPA ALLOW is necessary, never sufficient. No fallback on errors."""
     try:
@@ -57,7 +57,8 @@ def effective_allow(*, raw_opa_allow, generation, expiry, now, principal, workse
         return False
     if emergency_deny or not verified or not raw_opa_allow:
         return False
-    if type(generation) is not int or generation < trusted_floor:
+    if (type(generation) is not int or type(approved_generation) is not int
+            or generation != approved_generation or generation < trusted_floor):
         return False
     if type(expiry) not in (float, int) or type(now) not in (float, int) or now >= expiry:
         return False
@@ -75,12 +76,17 @@ class SyntheticContract(unittest.TestCase):
         self.args = dict(raw_opa_allow=True, generation=2, expiry=200,
                          now=100, principal="synthetic-worker",
                          workset="synthetic-workset", operation="observe",
-                         verified=True, floor=self.floor)
+                         verified=True, floor=self.floor, approved_generation=2)
 
     def test_current_approved_allow(self):
         self.assertTrue(effective_allow(**self.args))
     def test_older_valid_signed_allow_after_deny(self):
         self.assertFalse(effective_allow(**(self.args | {"generation": 1})))
+    def test_unapproved_future_generation_is_not_authority(self):
+        # A signed-looking candidate with higher revision than the local floor
+        # is not automatically approved by the independent owner.
+        self.assertFalse(effective_allow(**(self.args | {"generation": 99})))
+        self.assertFalse(effective_allow(**(self.args | {"approved_generation": 99})))
     def test_raw_opa_deny(self):
         self.assertFalse(effective_allow(**(self.args | {"raw_opa_allow": False})))
     def test_unverified_bundle(self):
@@ -105,7 +111,7 @@ class SyntheticContract(unittest.TestCase):
         self.floor.commit(3)
         self.assertEqual(GenerationFloor(self.path).read(), 3)
         self.assertFalse(effective_allow(**self.args))
-        self.assertTrue(effective_allow(**(self.args | {"generation": 3})))
+        self.assertTrue(effective_allow(**(self.args | {"generation": 3, "approved_generation": 3})))
         with self.assertRaises(UnknownAuthority):
             self.floor.commit(2)
         self.assertEqual(GenerationFloor(self.path).read(), 3)
