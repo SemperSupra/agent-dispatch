@@ -86,6 +86,7 @@ jobs:
           MCP_PROBE_URL=http://127.0.0.1:3300/mcp \
           MCP_PROBE_TOKEN="$(cat m1-ephemeral-token.txt)" \
           MCP_EXPECT_SEPARATOR=- \
+          MCP_DISCOVERY_RETRIES=30 \
           MCP_GATEWAY=mcphub-v1.2.2 \
           python3 experiments/mcp-toolbelt-bakeoff/probe_catalog_m1.py
       - name: Preserve synthetic receipt and clean up
