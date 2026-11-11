@@ -28,6 +28,12 @@ def main():
  for principal in ["alpha","beta","revoked"]:
   token=sign({"iss":"https://issuer.invalid/m1","aud":"m1-synthetic-client","sub":principal,"iat":now,"exp":now+600})
   pathlib.Path("token-"+principal+".txt").write_text(token)
+ pathlib.Path("token-wrong-audience.txt").write_text(sign({"iss":"https://issuer.invalid/m1","aud":"wrong-client","sub":"alpha","iat":now,"exp":now+600}))
+ pathlib.Path("token-wrong-issuer.txt").write_text(sign({"iss":"https://other-issuer.invalid/","aud":"m1-synthetic-client","sub":"alpha","iat":now,"exp":now+600}))
+ pathlib.Path("token-expired.txt").write_text(sign({"iss":"https://issuer.invalid/m1","aud":"m1-synthetic-client","sub":"alpha","iat":now-1200,"exp":now-600}))
+ good=pathlib.Path("token-alpha.txt").read_text()
+ prefix,sig=good.rsplit(".",1)
+ pathlib.Path("token-forged.txt").write_text(prefix+"."+("A" if sig[0]!="A" else "B")+sig[1:])
  pathlib.Path("issuer-evidence.json").write_text(json.dumps({"issuer":"https://issuer.invalid/m1","aud":"m1-synthetic-client",
   "tokenSubjects":["alpha","beta","revoked"],"publicJWKHash":hashlib.sha256(pathlib.Path("jwks.json").read_bytes()).hexdigest(),
   "note":"ephemeral generated public-safe issuer; never upload private.pem or token files"},indent=2))
