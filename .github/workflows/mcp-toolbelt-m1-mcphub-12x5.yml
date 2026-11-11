@@ -1,0 +1,111 @@
+name: M1 MCPHub 12 upstream 60 tool scoped real qualification
+on:
+  push:
+    branches: [rdte/mcp-toolbelt-bakeoff-20261111]
+    paths:
+      - .github/workflows/mcp-toolbelt-m1-mcphub-12x5.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_catalog_m1.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py
+  pull_request:
+    paths:
+      - .github/workflows/mcp-toolbelt-m1-mcphub-12x5.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_catalog_m1.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py
+permissions:
+  contents: read
+jobs:
+  mcphub-12x5:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start 12 isolated public-safe upstreams
+        run: |
+          docker network create --subnet 172.28.85.0/24 m1-net
+          python3 - <<'PY'
+          import subprocess
+          names=("research","github","dispatch","operations","calendar","files","models",
+                 "automation","diagnostics","inventory","docs","metrics")
+          for i,name in enumerate(names):
+              subprocess.run(["docker","run","-d","--name","m1-"+name,"--network","m1-net",
+                  "--ip","172.28.85."+str(i+2),
+                  "--mount","type=bind,source="+__import__("os").getcwd()+"/experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py,target=/synthetic_catalog_mcp.py,readonly",
+                  "python:3.12-alpine","python","/synthetic_catalog_mcp.py",
+                  "--service",name,"--port",str(39101+i),"--bind","0.0.0.0"],check=True,stdout=subprocess.DEVNULL)
+          PY
+      - name: Create minimal protected aggregated configuration
+        run: |
+          mkdir -p candidate-data
+          python3 - <<'PY'
+          import json,secrets,hashlib,pathlib
+          names=("research","github","dispatch","operations","calendar","files","models",
+                 "automation","diagnostics","inventory","docs","metrics")
+          token=secrets.token_urlsafe(32)
+          data={"mcpServers":{},"systemConfig":{"routing":{"enableGlobalRoute":True,
+              "enableBearerAuth":True},"activityLog":{"storeToolPayload":False},
+              "network":{"allowedCidrs":[]}},"bearerKeys":[{"id":"11111111-2222-4333-8444-555555555555",
+              "name":"m1-synthetic","enabled":True,"kind":"system","accessType":"all",
+              "tokenHash":hashlib.sha256(token.encode()).hexdigest(),
+              "tokenPrefix":token[:12],"allowedGroups":[],"allowedServers":[]}],
+              "users":[],"prompts":[],"resources":[]}
+          for i,name in enumerate(names):
+              data["mcpServers"][name]={"type":"streamable-http",
+                  "url":"http://m1-"+name+":"+str(39101+i)+"/mcp",
+                  "protocolNegotiation":"legacy","visibility":"public"}
+              data["systemConfig"]["network"]["allowedCidrs"].append("172.28.85."+str(i+2)+"/32")
+          pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(data))
+          pathlib.Path("m1-ephemeral-token.txt").write_text(token)
+          PY
+          chmod 600 candidate-data/mcp_settings.json m1-ephemeral-token.txt
+      - name: Run MCPHub against 12 synthetic services
+        run: |
+          docker pull samanhappy/mcphub:latest
+          docker inspect --format '{{index .RepoDigests 0}}' samanhappy/mcphub:latest > m1-image-digest.txt
+          docker run -d --name m1-hub --network m1-net \
+            --publish 127.0.0.1:3300:3000 \
+            --mount "type=bind,source=$PWD/candidate-data,target=/app/data" \
+            -e ADMIN_PASSWORD=PublicSyntheticOnlyNeverReused-2026 \
+            -e DISABLE_WEB=true samanhappy/mcphub:latest
+          for n in $(seq 1 75); do
+            if curl -s --max-time 2 http://127.0.0.1:3300/mcp >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Reject unauthenticated tool discovery
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3300/mcp \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+          echo "anonymous_http=$code" > m1-auth.txt
+          test "$code" = 401 -o "$code" = 403
+      - name: Qualify same 12x5 tool inventory and all 60 actual invocations
+        run: |
+          MCP_PROBE_URL=http://127.0.0.1:3300/mcp \
+          MCP_PROBE_TOKEN="$(cat m1-ephemeral-token.txt)" \
+          MCP_EXPECT_SEPARATOR=- \
+          MCP_DISCOVERY_RETRIES=30 \
+          MCP_GATEWAY=mcphub-v1.2.2 \
+          python3 experiments/mcp-toolbelt-bakeoff/probe_catalog_m1.py
+      - name: Preserve synthetic receipt and clean up
+        if: always()
+        run: |
+          docker inspect --format 'state={{.State.Status}} exit={{.State.ExitCode}}' m1-hub > m1-container.txt 2>/dev/null || true
+          docker stats --no-stream --format '{{json .}}' m1-hub >> m1-container.txt 2>/dev/null || true
+          docker rm -f m1-hub >/dev/null 2>&1 || true
+          for name in research github dispatch operations calendar files models automation diagnostics inventory docs metrics; do
+            docker rm -f "m1-$name" >/dev/null 2>&1 || true
+          done
+          docker network rm m1-net >/dev/null 2>&1 || true
+          rm -f m1-ephemeral-token.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: mcphub-m1-12x5
+          path: |
+            m1-runtime-receipt.json
+            m1-image-digest.txt
+            m1-container.txt
+            m1-auth.txt

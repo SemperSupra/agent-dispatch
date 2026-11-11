@@ -1,0 +1,37 @@
+name: M1 Tool Belt neutral oracle and mutation qualification
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mcp-toolbelt-m1-oracle.yml
+      - experiments/mcp-toolbelt-bakeoff/qualification_oracle.py
+  push:
+    branches: [rdte/mcp-toolbelt-bakeoff-20261111]
+    paths:
+      - .github/workflows/mcp-toolbelt-m1-oracle.yml
+      - experiments/mcp-toolbelt-bakeoff/qualification_oracle.py
+permissions:
+  contents: read
+concurrency:
+  group: mcp-m1-oracle-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  oracle:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute deterministic reference and adversarial mutant checks
+        run: |
+          python3 experiments/mcp-toolbelt-bakeoff/qualification_oracle.py \
+            --check --out "receipts/oracle-${{ matrix.runner }}.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: oracle-${{ matrix.runner }}
+          path: receipts/*.json

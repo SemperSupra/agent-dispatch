@@ -1,0 +1,74 @@
+name: Public-safe MCP Tool Belt source and smoke qualification
+on:
+  push:
+    branches: [rdte/mcp-toolbelt-bakeoff-20261111]
+    paths:
+      - .github/workflows/mcp-toolbelt-free-tier-bakeoff.yml
+      - experiments/mcp-toolbelt-bakeoff/qualify_source.py
+  pull_request:
+    paths:
+      - .github/workflows/mcp-toolbelt-free-tier-bakeoff.yml
+      - experiments/mcp-toolbelt-bakeoff/qualify_source.py
+permissions:
+  contents: read
+concurrency:
+  group: mcp-toolbelt-public-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [mcphub, obot, agentgateway, contextforge]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Static candidate-source qualification
+        run: |
+          python3 experiments/mcp-toolbelt-bakeoff/qualify_source.py \
+            --candidate "${{ matrix.candidate }}" \
+            --out "receipts/${{ matrix.candidate }}-${{ matrix.runner }}.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: source-${{ matrix.candidate }}-${{ matrix.runner }}
+          path: receipts/*.json
+  mcphub-local-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Pull candidate image and record digest
+        run: |
+          docker pull samanhappy/mcphub:latest
+          docker inspect --format '{{index .RepoDigests 0}}' samanhappy/mcphub:latest > candidate-image.txt
+      - name: Start loopback-only synthetic instance
+        run: |
+          docker run -d --name mcp-bakeoff --publish 127.0.0.1:3100:3000 \
+            -e ADMIN_PASSWORD=PublicSyntheticSmokeOnly-2026 \
+            samanhappy/mcphub:latest
+          for i in $(seq 1 60); do
+            if curl --fail --silent --max-time 2 http://127.0.0.1:3100/ >/dev/null; then
+              echo ready > smoke-result.txt
+              exit 0
+            fi
+            sleep 2
+          done
+          echo unavailable > smoke-result.txt
+          exit 1
+      - name: Collect strictly synthetic local evidence
+        if: always()
+        run: |
+          echo "container_state=$(docker inspect --format '{{.State.Status}}' mcp-bakeoff 2>/dev/null || true)" >> smoke-result.txt
+          docker stats --no-stream --format '{{json .}}' mcp-bakeoff >> smoke-result.txt || true
+          docker rm -f mcp-bakeoff >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: mcphub-local-smoke
+          path: |
+            candidate-image.txt
+            smoke-result.txt

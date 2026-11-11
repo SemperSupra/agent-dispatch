@@ -1,0 +1,90 @@
+name: MCP Tool Belt public synthetic multi-upstream runtime qualification
+on:
+  push:
+    branches: [rdte/mcp-toolbelt-bakeoff-20261111]
+    paths:
+      - .github/workflows/mcp-toolbelt-functional-bakeoff.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py
+  pull_request:
+    paths:
+      - .github/workflows/mcp-toolbelt-functional-bakeoff.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py
+permissions:
+  contents: read
+jobs:
+  agentgateway-fanout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start synthetic public-safe MCP upstreams
+        run: |
+          python3 experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py --port 39101 --label alpha &
+          python3 experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py --port 39102 --label beta &
+          for port in 39101 39102; do
+            for i in $(seq 1 40); do
+              if curl --fail --silent "http://127.0.0.1:$port/health" >/dev/null; then break; fi
+              sleep 0.25
+            done
+            curl --fail --silent "http://127.0.0.1:$port/health"
+          done
+      - name: Render isolated aggregation configuration
+        run: |
+          cat > candidate-config.yaml <<'YAML'
+          binds:
+          - listeners:
+            - routes:
+              - backends:
+                - mcp:
+                    targets:
+                    - name: alpha
+                      mcp:
+                        host: http://127.0.0.1:39101/mcp
+                    - name: beta
+                      mcp:
+                        host: http://127.0.0.1:39102/mcp
+                matches:
+                - path:
+                    exact: /mcp
+            port: 39200
+          YAML
+      - name: Pull and launch pinned-release gateway
+        run: |
+          docker pull cr.agentgateway.dev/agentgateway:v1.7.0
+          docker inspect --format '{{index .RepoDigests 0}}' cr.agentgateway.dev/agentgateway:v1.7.0 > image-digest.txt
+          docker run -d --name mcp-agentgateway-rdte --network host \
+            --mount type=bind,source="$PWD/candidate-config.yaml",target=/config.yaml,readonly \
+            cr.agentgateway.dev/agentgateway:v1.7.0 -f /config.yaml
+          for i in $(seq 1 40); do
+            if curl --silent --max-time 2 http://127.0.0.1:39200/mcp >/dev/null; then
+              exit 0
+            fi
+            if ! docker ps --filter name=mcp-agentgateway-rdte --format '{{.Names}}' | grep -q mcp-agentgateway-rdte; then
+              docker logs mcp-agentgateway-rdte || true
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs mcp-agentgateway-rdte || true
+          exit 1
+      - name: Actual MCP protocol aggregation and invoke
+        run: python3 experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - name: Preserve bounded evidence and remove container
+        if: always()
+        run: |
+          docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}}' mcp-agentgateway-rdte > runtime-state.txt 2>/dev/null || true
+          docker stats --no-stream --format '{{json .}}' mcp-agentgateway-rdte >> runtime-state.txt || true
+          docker rm -f mcp-agentgateway-rdte >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: actual-mcp-agentgateway-fanout
+          path: |
+            functional-receipt.json
+            runtime-state.txt
+            image-digest.txt
+            candidate-config.yaml
