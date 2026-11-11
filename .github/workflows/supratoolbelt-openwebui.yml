@@ -71,7 +71,8 @@ jobs:
             busybox:1.36 sh -c 'printf "rdte-check\n" > /data/.rdte-sentinel'
           docker inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' supra-openwebui-rdte |
             grep -q /app/backend/data
-          test "$(docker inspect --format '{{.HostConfig.NetworkMode}}' supra-openwebui-rdte)" = default
+          docker inspect --format '{{json .HostConfig.PortBindings}}' supra-openwebui-rdte |
+            grep -q '127.0.0.1'
           test "$(docker inspect --format '{{.HostConfig.Privileged}}' supra-openwebui-rdte)" = false
           test "$(docker inspect --format '{{.HostConfig.PortBindings}}' supra-openwebui-rdte)" != ""
       - name: Destroy and recreate runtime with SAME external state and secret
