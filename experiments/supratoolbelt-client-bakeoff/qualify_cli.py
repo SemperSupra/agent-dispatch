@@ -49,8 +49,8 @@ def check_opencode(home, workspace, envname):
             "type": "remote",
             "url": URL,
             "oauth": False,
-            "disabled": True,
-            "protocol": "2026-07-28",
+            "disabled": False,
+            "protocol": "legacy",
             "pool": False,
             "headers": {"Authorization": "Bearer {env:" + envname + "}"},
         }}},
@@ -61,11 +61,12 @@ def check_opencode(home, workspace, envname):
     saved = json.loads(target.read_text())
     actual = saved["mcp"]["servers"]["supra-toolbelt"]
     assert actual["type"] == "remote" and actual["url"] == URL
-    assert actual["protocol"] == "2026-07-28"
+    assert actual["protocol"] == "legacy"
     assert actual["headers"]["Authorization"] == "Bearer {env:" + envname + "}"
-    assert "supra-toolbelt" in out.lower(), "real CLI did not recognize configured MCP server"
+    assert "supra-toolbelt" in out.lower(), "real CLI did not recognize configured MCP server: " + repr(out[:250])
+    assert "connected" in out.lower(), "real CLI did not establish synthetic MCP connection: " + repr(out[:250])
     return {"nativeConfig": "opencode.json", "registered": True,
-            "protocol": "2026-07-28", "configuredDisabledToAvoidUnapprovedNetwork": True}
+            "protocol": "legacy", "connectedToLoopbackSynthetic": True}
 
 def check_qwen(home, workspace, envname):
     # Qwen uses mcpServers under project .qwen/settings.json; no token is supplied.
@@ -95,8 +96,8 @@ def main():
         "checks": {},
         "passed": False,
         "limitations": [
-            "C0 configuration and installation qualification only",
-            "No real MCP server connection, LLM inference, OAuth, or live tool calls",
+            "C0/C1 configuration and synthetic MCP discovery only; no model tool use",
+            "Synthetic loopback MCP only; no LLM inference, real OAuth, or live protected service calls",
             "No private repo or auth credentials on GitHub Actions",
             "External per-request gateway authorization is not replaced by CLI config",
         ],
