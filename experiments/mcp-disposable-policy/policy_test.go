@@ -41,6 +41,7 @@ func TestServiceRuntimeMustBeDisposable(t *testing.T){
  m.Runtime=nil
  if r:=Evaluate(m);r.Accepted||!slices.Contains(r.Rejections,"runtime.required_for_deployment"){t.Fatalf("empty runtime accepted %+v",r)}
 }
+func TestDisposableLocalVolumeOnlyWhenDataIsDiscardable(t *testing.T){m:=base();m.Phase="deployment";m.Runtime=&Runtime{Kind:"ephemeral_container",Replaceable:true,State:"local_named_volume"};if r:=Evaluate(m);!r.Accepted{t.Fatal(r)}}
 func TestStatelessExplicitLoss(t *testing.T){m:=base();m.Phase="deployment";m.Runtime=&Runtime{Kind:"ephemeral_container",Replaceable:true,State:"intentional_discard"};if r:=Evaluate(m);!r.Accepted{t.Fatal(r)}}
 func TestStrictParsing(t *testing.T){m:=base();b,_:=json.Marshal(m);if _,e:=Parse(b);e!=nil{t.Fatal(e)};if _,e:=Parse([]byte(string(b)+" {}"));e==nil{t.Fatal("trailing document accepted")};if _,e:=Parse([]byte(strings.Replace(string(b),`"id":"test-001"`,`"id":"test-001","surprise":true`,1)));e==nil{t.Fatal("unknown field accepted")}}
 func TestReceiptsHaveLimitations(t *testing.T){r:=Evaluate(base());if r.Level!="declaration_only"||len(r.Limitations)<2{t.Fatal(r)}}
