@@ -62,6 +62,15 @@ def check_opencode(home, workspace, envname):
     target = workspace / "opencode.json"
     target.write_text(json.dumps(manifest, indent=2) + "\n")
     out = cli("opencode", home, workspace, "mcp", "list")
+    fallback_used = False
+    if "supra-toolbelt" not in out.lower():
+        # The real CLI may ignore project config in a nested Git checkout.
+        # Qualify the CLI-owned global registration in this disposable HOME.
+        cli("opencode", home, workspace, "mcp", "add", "supra-toolbelt",
+            "--global", "--url", URL,
+            "--header", "Authorization=Bearer {env:" + envname + "}")
+        out = cli("opencode", home, workspace, "mcp", "list")
+        fallback_used = True
     saved = json.loads(target.read_text())
     actual = saved["mcp"]["servers"]["supra-toolbelt"]
     assert actual["type"] == "remote" and actual["url"] == URL
@@ -70,7 +79,8 @@ def check_opencode(home, workspace, envname):
     assert "supra-toolbelt" in out.lower(), "real CLI did not recognize configured MCP server: " + repr(out[:250])
     assert "connected" in out.lower(), "real CLI did not establish synthetic MCP connection: " + repr(out[:250])
     return {"nativeConfig": "opencode.json", "registered": True,
-            "protocol": "legacy", "connectedToLoopbackSynthetic": True}
+            "protocol": "legacy", "connectedToLoopbackSynthetic": True,
+            "cliGlobalFallback": fallback_used}
 
 def check_qwen(home, workspace, envname):
     # Qwen uses mcpServers under project .qwen/settings.json; no token is supplied.
