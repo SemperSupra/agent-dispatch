@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "python-oci-runtime"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,48 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "python-oci-runtime":
+        # Fixed public-synthetic OCI capability probe, not a private workload.
+        receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "python-oci-runtime" / "receipt.json"
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/python_oci_smoke.py", "--receipt", str(receipt_path)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            return {"oracle_verified": False, "classification": "FAIL_OCI_TIMEOUT_OR_EXEC"}
+        if cp.returncode or receipt_path.is_symlink() or not receipt_path.is_file():
+            return {"oracle_verified": False, "classification": "FAIL_OCI_PROBE"}
+        try:
+            if receipt_path.stat().st_size > 4096:
+                raise ValueError("receipt too large")
+            raw = receipt_path.read_bytes()
+            doc = json.loads(raw)
+        except (OSError, ValueError, UnicodeError):
+            return {"oracle_verified": False, "classification": "FAIL_OCI_RECEIPT"}
+        image = doc.get("resolved_image_ref") if isinstance(doc, dict) else None
+        accepted = (
+            isinstance(doc, dict)
+            and doc.get("schema") == "public-python-oci-qualification/v1"
+            and doc.get("status") == "CANDIDATE_SMOKE_PASS"
+            and doc.get("public_synthetic") is True
+            and doc.get("production_promotable") is False
+            and doc.get("clinical_qualification") is False
+            and doc.get("python") == "3.14.10"
+            and doc.get("source_sha") == os.environ.get("GITHUB_SHA")
+            and doc.get("run_id") == os.environ.get("GITHUB_RUN_ID")
+            and doc.get("runner_arch") == os.environ.get("RUNNER_ARCH")
+            and doc.get("machine") == platform.machine()
+            and isinstance(image, str)
+            and re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}", image) is not None
+        )
+        return {
+            "oracle_verified": bool(accepted),
+            "classification": "PASS_CANDIDATE_ONLY" if accepted else "FAIL_OCI_RECEIPT",
+            "resolved_image_ref": image if accepted else None,
+            "receipt_sha256": hashlib.sha256(raw).hexdigest() if accepted else None,
+            "production_promotable": False,
+        }
     if workload == "arithmetic-oracle":
         nums = [i*i for i in range(256)]
         ok = sum(nums) == 5559680 and len(nums) == 256
