@@ -70,6 +70,7 @@ jobs:
       - name: Validate public request and authority contracts
         run: |
           python3 -m unittest -v tests/test_gha_workload_request.py
+          python3 -m unittest -v tests/test_python_oci_smoke.py
           python3 -m unittest -v tests/test_provider_packet_contract.py
           python3 -m unittest -v tests/test_microsoft_devproxy_contract.py
           python3 -m unittest -v tests/test_microsoft_dispatch_profile.py
@@ -182,6 +183,10 @@ jobs:
             request: requests/gha/cpu-x64-arithmetic-v1.json
           - runner: ubuntu-24.04-arm
             request: requests/gha/cpu-arm64-contract-v1.json
+          - runner: ubuntu-24.04
+            request: requests/gha/cpu-x64-python-oci-v1.json
+          - runner: ubuntu-24.04-arm
+            request: requests/gha/cpu-arm64-python-oci-v1.json
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
