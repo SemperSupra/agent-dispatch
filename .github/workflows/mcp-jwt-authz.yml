@@ -35,26 +35,32 @@ jobs:
       - name: Build explicit JWT + per-tool allowlist policies
         run: |
           cat > config.yaml <<'YAML'
-          mcp:
-            port: 39200
-            policies:
-              jwtAuth:
-                issuer: m1-synthetic-issuer
-                audiences:
-                - m1-synthetic-client
-                jwks:
-                  file: /keys/jwks.json
-              mcpAuthorization:
-                rules:
-                - 'jwt.sub == "alpha" && mcp.tool.name == "alpha_echo"'
-                - 'jwt.sub == "beta" && mcp.tool.name == "beta_echo"'
-            targets:
-            - name: alpha
-              mcp:
-                host: http://127.0.0.1:39101/mcp
-            - name: beta
-              mcp:
-                host: http://127.0.0.1:39102/mcp
+          binds:
+          - port: 39200
+            listeners:
+            - routes:
+              - matches:
+                - path:
+                    exact: /mcp
+                policies:
+                  jwtAuth:
+                    issuer: m1-synthetic-issuer
+                    audiences: [m1-synthetic-client]
+                    jwks:
+                      file: /keys/jwks.json
+                  mcpAuthorization:
+                    rules:
+                    - 'jwt.sub == "alpha" && mcp.tool.name == "alpha_echo"'
+                    - 'jwt.sub == "beta" && mcp.tool.name == "beta_echo"'
+                backends:
+                - mcp:
+                    targets:
+                    - name: alpha
+                      mcp:
+                        host: http://127.0.0.1:39101/mcp
+                    - name: beta
+                      mcp:
+                        host: http://127.0.0.1:39102/mcp
           YAML
       - name: Start tested gateway with strict policy, no public ingress
         run: |
