@@ -192,8 +192,8 @@ def main():
         raise RuntimeError("R35_SYNTHETIC_FIXTURE_MISSING")
     modes = ["normal", "net", "stdout", "disk", "memory", "cpu", "descendant"]
     results = [run_one(shim, base, mode, 1.25 if mode == "descendant" else LIMIT_WALL_SECONDS) for mode in modes]
-    if [r["mode"] for r in results] != modes or len(list(base.iterdir())) != 1:
-        # base retains only the shim.py, never stage files.
+    if [r["mode"] for r in results] != modes or len(list(base.iterdir())) != 0:
+        # No staged bytes or files survive across test cases.
         raise RuntimeError("R35_POST_BATCH_HYGIENE_FAILED")
     report = {
         "schema_version": 1,
