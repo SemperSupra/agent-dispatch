@@ -58,7 +58,8 @@ jobs:
             assert cfg["PublishPort"] == port
             assert cfg.get("DropCapability")=="all"
             assert cfg.get("NoNewPrivileges")=="true"
-            assert cfg.get("Memory")
+            assert p["Service"].get("MemoryMax")
+            assert p["Service"].get("CPUQuota")
             assert cfg.get("PidsLimit")
             assert p["Service"].get("Restart")=="on-failure"
             assert p["Install"].get("WantedBy")=="default.target"
