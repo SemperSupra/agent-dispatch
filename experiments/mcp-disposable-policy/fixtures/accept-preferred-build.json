@@ -1,0 +1,13 @@
+{
+  "schema": "m1.disposable.execution/v1",
+  "id": "preferred-build",
+  "phase": "build",
+  "tooling": {
+    "mode": "preferred_cell",
+    "install_scope": "cell",
+    "cache_scope": "cell",
+    "cleanup_declared": true,
+    "global_install": false,
+    "unmanaged_host_writes": false
+  }
+}
