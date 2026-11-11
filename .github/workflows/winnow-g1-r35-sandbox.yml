@@ -1,0 +1,76 @@
+name: Winnow G1 R35 public bounded fake extractor sandbox
+run-name: winnow-g1-r35-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-g1-r35-extractor-sandbox-20261111
+    paths:
+      - '.github/workflows/winnow-g1-r35-sandbox.yml'
+      - 'experiments/winnow-g1-r35-sandbox/**'
+permissions:
+  contents: read
+jobs:
+  native-fake-extractor-containment:
+    name: "synthetic extractor sandbox / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Assert public branch, exact head and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ github.repository }}" = "SemperSupra/agent-dispatch"
+          test "${{ github.ref }}" = "refs/heads/rdte/winnow-g1-r35-extractor-sandbox-20261111"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo 'R35_ARCH_MISMATCH'; exit 1 ;;
+          esac
+          echo "R35_EXACT_SOURCE_SHA=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Execute confined synthetic subprocess/descendant/resource negative cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p winnow-g1-r35-evidence
+          for binary in sudo unshare setpriv python3 readlink install; do
+            if ! command -v "$binary" >/dev/null; then
+              echo "R35_SETUP_BLOCKED missing=$binary"
+              exit 2
+            fi
+          done
+          if ! sudo -n unshare --net -- /bin/true; then
+            echo 'R35_SETUP_BLOCKED netns=NOT_AVAILABLE'
+            exit 2
+          fi
+          TMP="$(mktemp -d /tmp/winnow-r35.XXXXXX)"
+          trap 'rm -rf -- "$TMP"' EXIT
+          chmod 0755 "$TMP"
+          install -m 0644 experiments/winnow-g1-r35-sandbox/fake_extractor.py "$TMP/fake_extractor.py"
+          install -m 0644 experiments/winnow-g1-r35-sandbox/sandbox_harness.py "$TMP/sandbox_harness.py"
+          mkdir "$TMP/stages"
+          chmod 0777 "$TMP/stages"
+          HOST_NS="$(readlink /proc/self/ns/net)"
+          sudo -n unshare --net -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+            python3 "$TMP/sandbox_harness.py" "$HOST_NS" "$TMP/fake_extractor.py" "$TMP/stages" \
+            | tee winnow-g1-r35-evidence/result.txt
+          grep -F -- 'R35_FAKE_EXTRACTOR_OS_SANDBOX_PASS' winnow-g1-r35-evidence/result.txt
+          test -z "$(ls -A "$TMP/stages")"
+          echo "R35_SYNTHETIC_OS_SANDBOX_PASS=$GITHUB_SHA"
+      - name: Preserve sanitized offline evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-g1-r35-sandbox-${{ matrix.arch }}-${{ github.run_id }}
+          path: winnow-g1-r35-evidence/
+          if-no-files-found: warn
+          retention-days: 7
