@@ -22,6 +22,8 @@ jobs:
       - name: Install distribution Podman and discover real systemd generator
         run: |
           set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test -n "$RUNNER_TEMP"
           if ! command -v podman >/dev/null;then
             sudo apt-get update -qq && sudo apt-get install -y -qq podman
           fi
@@ -69,6 +71,12 @@ jobs:
             assert p["Install"].get("WantedBy")=="default.target"
             result["units"][name]={"immutableImage":True,"loopbackOnly":True,
                     "capDropAll":True,"noNewPrivileges":True,"budgeted":True}
+          # Neither user service may depend on mutable persistent host HOME.
+          gateway=(root/"supra-toolbelt.container").read_text()
+          webui=(root/"supra-openwebui.container").read_text()
+          assert "Volume=%t/supratoolbelt/current/gateway.yaml:/config.yaml:ro" in gateway
+          assert "EnvironmentFile=%t/supratoolbelt/webui.env" in webui
+          assert "%h/" not in gateway and "%h/" not in webui
           assert (root/"supra-webui-data.volume").is_file()
           assert "Volume=supra-webui-data.volume:/app/backend/data" in (root/"supra-openwebui.container").read_text()
           assert "ReadOnly=true" in (root/"supra-toolbelt.container").read_text()
