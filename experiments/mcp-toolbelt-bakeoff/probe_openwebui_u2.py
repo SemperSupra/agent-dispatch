@@ -56,6 +56,8 @@ def run():
                           {"TOOL_SERVER_CONNECTIONS":connections},admin)
         check("admin-assign-disjoint-mcp-grants",code==200 and
               len(body.get("TOOL_SERVER_CONNECTIONS",[]))==2,code)
+        code,body=request("GET","/api/v1/configs/tool_servers",token=users["research"]["token"])
+        check("ordinary-user-cannot-inspect-admin-server-configuration",code in (401,403),code)
         for actor in ("research","engineering"):
             token=users[actor]["token"]
             code,body=request("GET","/api/v1/tools/",token=token)
@@ -78,7 +80,7 @@ def run():
         check("same-user-second-login",code==200 and bool(token2),code)
         code,body=request("GET","/api/v1/tools/id/server:mcp:engineering/specs",token=token2)
         check("second-login-retains-denial",code==404,code)
-        out["passed"]=len(out["checks"])==14 and all(x["passed"] for x in out["checks"])
+        out["passed"]=len(out["checks"])==15 and all(x["passed"] for x in out["checks"])
     except Exception as e:out["failure"]=repr(e)[:650]
     pathlib.Path("openwebui-u2-receipt.json").write_text(json.dumps(out,indent=2,sort_keys=True)+"\n")
     print(json.dumps(out,indent=2,sort_keys=True))
