@@ -33,7 +33,7 @@ jobs:
                   "--ip","172.28.85."+str(i+2),
                   "--mount","type=bind,source="+__import__("os").getcwd()+"/experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py,target=/synthetic_catalog_mcp.py,readonly",
                   "python:3.12-alpine","python","/synthetic_catalog_mcp.py",
-                  "--service",name,"--port",str(39101+i)],check=True,stdout=subprocess.DEVNULL)
+                  "--service",name,"--port",str(39101+i),"--bind","0.0.0.0"],check=True,stdout=subprocess.DEVNULL)
           PY
       - name: Create minimal protected aggregated configuration
         run: |
