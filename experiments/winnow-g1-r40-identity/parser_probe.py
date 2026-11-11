@@ -55,6 +55,10 @@ def gallery_parse(post):
     p._warn_video = False
     p._static_video = True
     p.videos_dash = False
+    # Timestamp formatting is unrelated to child identity and ordinarily
+    # initialized by gallery-dl's session/base machinery. Do not build a
+    # session or call remote APIs just to parse fictional child dicts.
+    p.parse_timestamp = lambda timestamp: timestamp
     # Fingerprint the *installed pinned wheel* independently of any upstream
     # Git tag. The tagged GitHub tree and installed wheel were observed to
     # expose different Instagram parsing method names in initial R40 run.
