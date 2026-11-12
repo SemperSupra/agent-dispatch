@@ -136,12 +136,18 @@ class IndependentReceiptTests(unittest.TestCase):
                          "requests/gha/cpu-arm64-python-ocr-v1.json"):
             with self.subTest(manifest=manifest):
                 p = m.plan(manifest)
+                versions = {"packages": {"pypdf": "6.0.0", "jsonschema": "4.26.0"},
+                            "tools": {"ghostscript": "10.05.1", "tesseract": "tesseract 5.5.0",
+                                      "poppler": "25.03.0-5"}}
+                version_sha = hashlib.sha256(json.dumps(versions, sort_keys=True,
+                                                       separators=(",", ":")).encode()).hexdigest()
                 result = {
                     "classification": "PASS_CANDIDATE_ONLY",
                     "oracle_verified": True,
                     "candidate_base_ref": "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f",
                     "built_image_id": "sha256:" + "b" * 64,
-                    "toolchain_versions_sha256": "c" * 64,
+                    "toolchain_versions_sha256": version_sha,
+                    "toolchain_versions": versions,
                     "receipt_sha256": "d" * 64,
                     "production_promotable": False,
                 }
@@ -160,6 +166,8 @@ class IndependentReceiptTests(unittest.TestCase):
                                 {"candidate_base_ref": "python:3.14.10-slim"},
                                 {"built_image_id": "sha256:" + "0" * 63},
                                 {"toolchain_versions_sha256": "unknown"},
+                                {"toolchain_versions": {"packages": {"pypdf": "9.0.0", "jsonschema": "4.26.0"},
+                                                        "tools": versions["tools"]}},
                                 {"receipt_sha256": "bogus"},
                                 {"oracle_verified": False}):
                     altered = dict(doc, result=dict(result, **invalid))
