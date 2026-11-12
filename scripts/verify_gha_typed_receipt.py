@@ -35,6 +35,7 @@ RESULT_FIELDS = {
     "azurite-blob-transport": {"classification", "oracle_verified", "emulator_only", "provider_access_verified", "verdict_sha256"},
     "python-oci-runtime": {"classification", "oracle_verified", "resolved_image_ref", "receipt_sha256", "production_promotable"},
     "python-ocr-toolchain": {"classification", "oracle_verified", "candidate_base_ref", "built_image_id", "toolchain_versions_sha256", "toolchain_versions", "receipt_sha256", "production_promotable"},
+    "public-cpap-parser": {"classification", "oracle_verified", "upstream_sha", "license_sha256", "passed_synthetic_tests", "receipt_sha256", "production_promotable"},
 }
 MAX_RECEIPT = 8192
 
@@ -98,10 +99,20 @@ def evaluate(
     result = doc["result"]
     if not isinstance(result, dict) or set(result) != RESULT_FIELDS[p["workload"]]:
         raise VerdictError("WORKLOAD_RESULT_FIELDS_UNTRUSTED")
-    expected_classification = ("PASS_CANDIDATE_ONLY" if p["workload"] in ("python-oci-runtime", "python-ocr-toolchain")
+    expected_classification = ("PASS_CANDIDATE_ONLY" if p["workload"] in ("python-oci-runtime", "python-ocr-toolchain", "public-cpap-parser")
                                else "PASS")
     if result["classification"] != expected_classification or result["oracle_verified"] is not True:
         raise VerdictError("WORKLOAD_ORACLE_NOT_VERIFIED")
+    if p["workload"] == "public-cpap-parser":
+        if (result.get("production_promotable") is not False
+                or result.get("upstream_sha") != "d14acb58012449af75b0c15c0bfb1eb173b60a1f"
+                or type(result.get("passed_synthetic_tests")) is not int
+                or not 20 <= result["passed_synthetic_tests"] <= 500
+                or not isinstance(result.get("license_sha256"), str)
+                or not HEX64.fullmatch(result["license_sha256"])
+                or not isinstance(result.get("receipt_sha256"), str)
+                or not HEX64.fullmatch(result["receipt_sha256"])):
+            raise VerdictError("CPAP_PRIOR_ART_RECEIPT_DENIED")
     if p["workload"] == "python-ocr-toolchain":
         base = result.get("candidate_base_ref")
         built = result.get("built_image_id")
