@@ -131,9 +131,11 @@ def main():
             one_side("direct", 30 + i, token, direct_session)
             one_side("gateway", 40 + i, token, gateway_session)
         pairs = []
+        order_counts = {"direct_first": 0, "gateway_first": 0}
         rng = random.Random(17)
         for i in range(80):
             order = ("gateway", "direct") if rng.random() < 0.5 else ("direct", "gateway")
+            order_counts[order[0] + "_first"] += 1
             sample = {}
             for name in order:
                 sample[name] = one_side(name, 100 + i, token,
@@ -148,10 +150,7 @@ def main():
             "median_added_ms": round(statistics.median(delta), 4),
             "bootstrap_95pct_median_delta_ms": bootstrap_interval(delta),
             "actual_pairs": len(pairs),
-            "alternating_order_counts": {
-                "direct_first": 40,
-                "gateway_first": 40
-            }}
+            "randomized_order_counts": order_counts}
         # Sequential A/B test first, then reverse order for throughput.
         t1 = throughput("gateway", token, gateway_session)
         t2 = throughput("direct", token, direct_session)
