@@ -96,7 +96,7 @@ def trial(root,mode,rep):
             if count<1:raise RuntimeError("R66_PID_KERNEL_EVENT_MISSING")
         else:
             if proc.returncode!=-signal.SIGKILL:
-                raise RuntimeError("R66_MEMORY_NOT_KERNEL_KILLED exit=%s stderr=%s"%(proc.returncode,err.decode(errors="replace")[:120]))
+                raise RuntimeError("R66_MEMORY_NOT_KERNEL_KILLED exit=%s oom_events=%d oom_kill_events=%d stderr=%s"%(proc.returncode,kernel_events(cg,"memory.events","oom"),kernel_events(cg,"memory.events","oom_kill"),err.decode(errors="replace")[:1800]))
             count=kernel_events(cg,"memory.events","oom_kill")
             if count<1:raise RuntimeError("R66_OOM_KILL_EVENT_MISSING")
         return {"mode":mode,"rep":rep,"worker_exit":proc.returncode,
