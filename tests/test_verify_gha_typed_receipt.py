@@ -136,9 +136,14 @@ class IndependentReceiptTests(unittest.TestCase):
                          "requests/gha/cpu-arm64-python-ocr-v1.json"):
             with self.subTest(manifest=manifest):
                 p = m.plan(manifest)
-                versions = {"packages": {"pypdf": "6.0.0", "jsonschema": "4.26.0"},
+                versions = {"packages": {"pypdf": "7.0.1", "jsonschema": "4.26.0"},
                             "tools": {"ghostscript": "10.05.1", "tesseract": "tesseract 5.5.0",
-                                      "poppler": "25.03.0-5"}}
+                                      "poppler": "25.03.0-5+deb13u4"},
+                            "pip_inventory": ["attrs==25.4.0", "jsonschema==4.26.0", "pypdf==7.0.1"],
+                            "debian_inventory": {"ghostscript": "10.05.1~dfsg-1",
+                                                 "poppler-utils": "25.03.0-5+deb13u4",
+                                                 "tesseract-ocr": "5.5.0-1",
+                                                 "tesseract-ocr-eng": "1:4.1.0-2"}}
                 version_sha = hashlib.sha256(json.dumps(versions, sort_keys=True,
                                                        separators=(",", ":")).encode()).hexdigest()
                 result = {
@@ -166,8 +171,8 @@ class IndependentReceiptTests(unittest.TestCase):
                                 {"candidate_base_ref": "python:3.14.10-slim"},
                                 {"built_image_id": "sha256:" + "0" * 63},
                                 {"toolchain_versions_sha256": "unknown"},
-                                {"toolchain_versions": {"packages": {"pypdf": "9.0.0", "jsonschema": "4.26.0"},
-                                                        "tools": versions["tools"]}},
+                                {"toolchain_versions": dict(versions, packages={"pypdf": "9.0.0", "jsonschema": "4.26.0"})},
+                                {"toolchain_versions": dict(versions, pip_inventory=["editable-package @ https://invalid.test"])},
                                 {"receipt_sha256": "bogus"},
                                 {"oracle_verified": False}):
                     altered = dict(doc, result=dict(result, **invalid))
