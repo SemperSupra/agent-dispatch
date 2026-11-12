@@ -107,7 +107,7 @@ def inner_oracle() -> dict:
         "tools": {
             "ghostscript": command(["gs", "--version"]).decode().strip(),
             "tesseract": command(["tesseract", "--version"]).decode().splitlines()[0],
-            "poppler": "pdfinfo+pdftotext+pdftoppm tested",
+            "poppler": command(["dpkg-query", "-W", "-f=${Version}", "poppler-utils"]).decode().strip(),
         },
     }
 
@@ -169,7 +169,9 @@ def outer_candidate(receipt_path: Path) -> dict:
                 or set(versions["packages"]) != {"pypdf", "jsonschema"}
                 or not all(isinstance(v, str) and 0 < len(v) < 128 for v in versions["packages"].values())
                 or not isinstance(versions["tools"], dict)
-                or set(versions["tools"]) != {"ghostscript", "tesseract", "poppler"}):
+                or set(versions["tools"]) != {"ghostscript", "tesseract", "poppler"}
+                or not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+():-]{0,127}", v)
+                           for v in versions["tools"].values())):
             raise Denied("incomplete toolchain inventory")
         version_digest = hashlib.sha256(json.dumps(versions, sort_keys=True,
                                                     separators=(",", ":")).encode()).hexdigest()
@@ -180,6 +182,7 @@ def outer_candidate(receipt_path: Path) -> dict:
             "public_synthetic": True, "runner_arch": arch, "machine": machine,
             "base_image_ref": BASE_REF, "built_image_id": image_id,
             "toolchain_versions_sha256": version_digest,
+            "toolchain_versions": versions,
             "fixture_sha256": FIXTURE_HASH, "python": "3.14.10",
             "production_promotable": False, "clinical_qualification": False,
         }
