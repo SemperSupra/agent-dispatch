@@ -1,0 +1,5 @@
+# R68 public memory cgroup accounting differential
+
+R66's synthetic `bytearray` allocation showed PID limit enforcement but **failed** to demonstrate `memory.max` denial; 512 MiB was touched under a configured 64 MiB memory limit, with zero OOM events. R68 is an independently named, strictly scoped public-only differential using **anonymous mmap**, not a fix to Winnow.
+
+In a newly created empty cgroup v2 with `memory.max=67108864`, a synthetic nonroot worker first verifies it joined the intended cgroup. Three controls map and touch 16 MiB and must exit normally; three negative cases map and touch 192 MiB and must be SIGKILLed with `memory.events oom_kill >= 1`. The root supervisor exists only inside a **disposable GitHub-hosted public runner**, runs in a route-less network namespace, reads kernel counters and memory peak, and removes only the owned child cgroup. Any failure is retained as a CI failure; no silent fallback. It does not prove cgroup CPU/I/O limits or a full secure container. No private source, actual vendor backend, media, credentials, real source requests, target-platform behavior or release.
