@@ -180,14 +180,23 @@ def _execute(workload: str, timeout: int) -> dict:
         version_sha = doc.get("toolchain_versions_sha256") if isinstance(doc, dict) else None
         version_doc = doc.get("toolchain_versions") if isinstance(doc, dict) else None
         version_shape = (
-            isinstance(version_doc, dict) and set(version_doc) == {"packages", "tools"}
-            and isinstance(version_doc.get("packages"), dict)
-            and set(version_doc["packages"]) == {"pypdf", "jsonschema"}
-            and isinstance(version_doc.get("tools"), dict)
-            and set(version_doc["tools"]) == {"ghostscript", "tesseract", "poppler"}
+            isinstance(version_doc, dict)
+            and set(version_doc) == {"packages", "tools", "pip_inventory", "debian_inventory"}
+            and version_doc.get("packages") == {"pypdf": "7.0.1", "jsonschema": "4.26.0"}
+            and version_doc.get("tools") == {"ghostscript": "10.05.1",
+                                              "tesseract": "tesseract 5.5.0",
+                                              "poppler": "25.03.0-5+deb13u4"}
+            and isinstance(version_doc.get("pip_inventory"), list)
+            and 2 <= len(version_doc["pip_inventory"]) <= 64
             and all(isinstance(v, str) and
-                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+():-]{0,127}", v)
-                    for values in version_doc.values() for v in values.values())
+                    re.fullmatch(r"[A-Za-z0-9_.-]+==[A-Za-z0-9._+!:-]+", v)
+                    for v in version_doc["pip_inventory"])
+            and isinstance(version_doc.get("debian_inventory"), dict)
+            and set(version_doc["debian_inventory"]) == {
+                "ghostscript", "poppler-utils", "tesseract-ocr", "tesseract-ocr-eng"}
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
+                    for v in version_doc["debian_inventory"].values())
         )
         computed_version_sha = (
             hashlib.sha256(json.dumps(version_doc, sort_keys=True,
