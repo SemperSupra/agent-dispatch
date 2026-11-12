@@ -109,7 +109,7 @@ def evaluate(
         versions = result.get("toolchain_versions")
         digest_ok = (
             isinstance(versions, dict)
-            and set(versions) == {"packages", "tools", "pip_inventory", "debian_inventory"}
+            and set(versions) == {"packages", "tools", "pip_inventory", "debian_inventory", "wheel_inventory"}
             and versions.get("packages") == {"pypdf": "7.0.1", "jsonschema": "4.26.0"}
             and versions.get("tools") == {"ghostscript": "10.05.1",
                                            "tesseract": "tesseract 5.5.0",
@@ -125,6 +125,15 @@ def evaluate(
             and all(isinstance(v, str) and
                     re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
                     for v in versions["debian_inventory"].values())
+            and isinstance(versions.get("wheel_inventory"), list)
+            and len(versions["wheel_inventory"]) == 6
+            and all(isinstance(w, dict) and set(w) == {"filename", "sha256"}
+                    and isinstance(w["filename"], str)
+                    and re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", w["filename"])
+                    and isinstance(w["sha256"], str)
+                    and re.fullmatch(r"[a-f0-9]{64}", w["sha256"])
+                    for w in versions["wheel_inventory"])
+            and len({w["filename"] for w in versions["wheel_inventory"]}) == 6
             and hashlib.sha256(json.dumps(versions, sort_keys=True,
                                           separators=(",", ":")).encode()).hexdigest() == inventory
         )
