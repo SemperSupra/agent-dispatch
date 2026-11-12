@@ -44,10 +44,13 @@ jobs:
           for b in sudo unshare setpriv python3; do command -v "$b" >/dev/null || { echo "R56_MISSING=$b"; exit 2; }; done
           TMP="$(mktemp -d /tmp/r56.XXXXXX)"
           trap 'rm -rf -- "$TMP"' EXIT
-          chmod 0777 "$TMP"
+          chmod 0755 "$TMP"
+          mkdir "$TMP/work"
+          chmod 0777 "$TMP/work"
+          install -m 0644 experiments/winnow-r56-batch-pointer/probe.py "$TMP/probe.py"
           HN="$(readlink /proc/self/ns/net)"
           sudo -n unshare --net -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
-            python3 -B experiments/winnow-r56-batch-pointer/probe.py "$HN" "$TMP" | tee r56-result.txt
+            python3 -B "$TMP/probe.py" "$HN" "$TMP/work" | tee r56-result.txt
           grep -F "R56_SYNTHETIC_BATCH_POINTER_CRASH_PASS" r56-result.txt
           echo "R56_PUBLIC_NATIVE_PASS=$GITHUB_SHA"
       - name: Preserve sanitized results only
