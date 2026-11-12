@@ -1,0 +1,115 @@
+name: M1 R22 MCPHub actual per-principal group scope and live switch
+on:
+  push:
+    branches: [rdte/m1-r22-mcphub-principal-switch-20261112]
+    paths:
+      - .github/workflows/m1-r22-mcphub-principal-switch.yml
+      - experiments/supratoolbelt-r22-mcphub/**
+permissions:
+  contents: read
+jobs:
+  mcphub-live-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: b30530a236a564182379379ebfc3ed6c720a1d9a
+          path: mcphub-harness
+      - name: Run two isolated disposable MCP upstreams
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create --subnet 172.28.84.0/24 m1-r22-scope-net
+          docker pull python:3.12-alpine
+          docker image inspect python:3.12-alpine --format '{{json .RepoDigests}}' > m1-r22-fixture-image-digests.json
+          for name in alpha beta; do
+            port=39101; ip=172.28.84.2
+            if [ "$name" = beta ]; then port=39102; ip=172.28.84.3; fi
+            docker run -d --name r22-scope-$name --network m1-r22-scope-net --ip "$ip" \
+              --publish 127.0.0.1:$port:$port --read-only --cap-drop ALL \
+              --security-opt=no-new-privileges \
+              --mount "type=bind,source=$PWD/mcphub-harness/experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py,target=/fixture.py,readonly" \
+              python:3.12-alpine python /fixture.py --bind 0.0.0.0 --port "$port" --label "$name"
+          done
+          for port in 39101 39102; do
+            ready=no
+            for n in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:$port/health >/dev/null; then ready=yes;break;fi
+              sleep .4
+            done
+            test "$ready" = yes
+          done
+      - name: Create per-principal hashed synthetic group-bound bearer keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate-data
+          python3 - <<'PY'
+          import hashlib,json,pathlib,secrets,uuid
+          password=secrets.token_urlsafe(32)
+          keys={}
+          cfg={"mcpServers":{
+              "alpha":{"type":"streamable-http","url":"http://r22-scope-alpha:39101/mcp",
+                       "protocolNegotiation":"legacy","visibility":"public"},
+              "beta":{"type":"streamable-http","url":"http://r22-scope-beta:39102/mcp",
+                      "protocolNegotiation":"legacy","visibility":"public"}},
+            "systemConfig":{"routing":{"enableGlobalRoute":True,"enableBearerAuth":True},
+              "activityLog":{"storeToolPayload":False},
+              "network":{"allowedCidrs":["172.28.84.2/32","172.28.84.3/32"]}},
+            "bearerKeys":[],"users":[],"prompts":[],"resources":[]}
+          for principal in ["alice","bob"]:
+            token=secrets.token_urlsafe(36)
+            keys[principal]=token
+            cfg["bearerKeys"].append({"id":str(uuid.uuid4()),"name":"synthetic-"+principal,
+              "tokenHash":hashlib.sha256(token.encode()).hexdigest(),"tokenPrefix":token[:12],
+              "enabled":True,"kind":"system","accessType":"groups",
+              "allowedGroups":[principal],"allowedServers":[]})
+          pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(cfg))
+          pathlib.Path("synthetic-scope-tokens.json").write_text(json.dumps(keys))
+          pathlib.Path("synthetic-admin-password.txt").write_text(password)
+          PY
+          chmod 600 candidate-data/mcp_settings.json synthetic-scope-tokens.json synthetic-admin-password.txt
+      - name: Launch pinned MCPHub image constrained to synthetic network
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull samanhappy/mcphub@sha256:a6fb457b1218948cc79c9865baa5fa0c7f689f5af50a2369eea249cf5dd508cf
+          docker run -d --name r22-scoped-hub --network m1-r22-scope-net \
+            --publish 127.0.0.1:3300:3000 --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt=no-new-privileges --memory 2g --cpus 2 \
+            --pids-limit 256 \
+            --mount "type=bind,source=$PWD/candidate-data,target=/app/data" \
+            -e ADMIN_PASSWORD="$(cat synthetic-admin-password.txt)" -e DISABLE_WEB=true \
+            samanhappy/mcphub@sha256:a6fb457b1218948cc79c9865baa5fa0c7f689f5af50a2369eea249cf5dd508cf
+          ready=no
+          for n in $(seq 1 65); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3300/mcp || true)
+            if [ "$status" != 000 ]; then ready=yes;break;fi
+            sleep 1
+          done
+          if [ "$ready" != yes ]; then
+            docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}}' r22-scoped-hub || true
+            exit 1
+          fi
+      - name: Prove actual scoped isolation, live belt switch and old-tool rejection
+        run: python3 experiments/supratoolbelt-r22-mcphub/probe_scope_switch.py
+      - name: Destroy all disposable synthetic credentials and runtimes
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f r22-scoped-hub r22-scope-alpha r22-scope-beta >/dev/null 2>&1 || true
+          docker network rm m1-r22-scope-net >/dev/null 2>&1 || true
+          rm -rf candidate-data synthetic-scope-tokens.json synthetic-admin-password.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-r22-real-mcphub-group-isolation
+          path: |
+            m1-r22-scope-switch-receipt.json
+            m1-r22-fixture-image-digests.json
+          retention-days: 2
