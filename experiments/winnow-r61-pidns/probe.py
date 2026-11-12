@@ -127,7 +127,7 @@ def trial(root,rep):
         stage.rmdir()
 
 def main():
-    if len(sys.argv)==6 and sys.argv[1]=="init":
+    if len(sys.argv)==5 and sys.argv[1]=="init":
         ns_init(Path(sys.argv[2]),sys.argv[3],sys.argv[4])
         return
     if len(sys.argv)!=2:raise RuntimeError("R61_ARGUMENTS_INVALID")
