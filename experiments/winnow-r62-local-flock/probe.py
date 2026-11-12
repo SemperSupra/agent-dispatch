@@ -91,7 +91,8 @@ def trial(work, mode, rep):
         else:
             if a.wait(timeout=3) != 77:
                 raise RuntimeError("R62_INJECTED_CRASH_MISSING")
-        wait(root / "committed-b", [a,b])
+        # In crash mode A intentionally exited 77; only B remains pending.
+        wait(root / "committed-b", [b])
         if a.wait(timeout=3) != (77 if mode=="crash" else 0) or b.wait(timeout=3) != 0:
             raise RuntimeError("R62_WRITER_EXIT_UNEXPECTED")
         generation, members = visible(root)
