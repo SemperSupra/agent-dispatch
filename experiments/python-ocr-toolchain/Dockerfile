@@ -7,7 +7,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     ghostscript tesseract-ocr tesseract-ocr-eng poppler-utils >/dev/null \
     && rm -rf /var/lib/apt/lists/*
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
-    --only-binary=:all: 'pypdf>=5,<8' 'jsonschema>=4,<5'
+    --only-binary=:all: 'pypdf==7.0.1' 'jsonschema==4.26.0'
 COPY --chown=65532:65532 scripts/python_ocr_toolchain_probe.py /opt/probe.py
 USER 65532:65532
 WORKDIR /tmp
