@@ -106,6 +106,21 @@ def inner_oracle() -> dict:
         name: command(["dpkg-query", "-W", "-f=${Version}", name]).decode().strip()
         for name in debian_names
     }
+    try:
+        wheel_doc = json.loads(Path("/opt/wheel-evidence.json").read_text())
+    except (OSError, ValueError) as exc:
+        raise Denied("candidate wheel inventory missing") from exc
+    wheels = wheel_doc.get("wheels") if isinstance(wheel_doc, dict) else None
+    if (wheel_doc.get("schema") != "public-python-wheel-candidate/v1"
+            or wheel_doc.get("source_kind") != "fixed_public_synthetic_only"
+            or not isinstance(wheels, list) or len(wheels) != 6
+            or not all(isinstance(w, dict) and set(w) == {"filename", "sha256"}
+                       and isinstance(w["filename"], str)
+                       and re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", w["filename"])
+                       and isinstance(w["sha256"], str)
+                       and re.fullmatch(r"[0-9a-f]{64}", w["sha256"]) for w in wheels)
+            or len({w["filename"] for w in wheels}) != len(wheels)):
+        raise Denied("invalid candidate wheel identity")
     return {
         "schema": SCHEMA, "source_kind": "fixed_public_synthetic_only",
         "fixture_sha256": FIXTURE_HASH,
@@ -116,6 +131,7 @@ def inner_oracle() -> dict:
         "packages": {n: importlib.metadata.version(n) for n in ("pypdf", "jsonschema")},
         "pip_inventory": pip_inventory,
         "debian_inventory": debian_inventory,
+        "wheel_inventory": wheels,
         "tools": {
             "ghostscript": command(["gs", "--version"]).decode().strip(),
             "tesseract": command(["tesseract", "--version"]).decode().splitlines()[0],
@@ -180,6 +196,7 @@ def outer_candidate(receipt_path: Path) -> dict:
             "packages": inner.get("packages"), "tools": inner.get("tools"),
             "pip_inventory": inner.get("pip_inventory"),
             "debian_inventory": inner.get("debian_inventory"),
+            "wheel_inventory": inner.get("wheel_inventory"),
         }
         if (not isinstance(versions["packages"], dict)
                 or set(versions["packages"]) != {"pypdf", "jsonschema"}
@@ -200,7 +217,16 @@ def outer_candidate(receipt_path: Path) -> dict:
                 or set(versions["debian_inventory"]) != {
                     "ghostscript", "poppler-utils", "tesseract-ocr", "tesseract-ocr-eng"}
                 or not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
-                           for v in versions["debian_inventory"].values())):
+                           for v in versions["debian_inventory"].values())
+                or not isinstance(versions["wheel_inventory"], list)
+                or len(versions["wheel_inventory"]) != 6
+                or not all(isinstance(w, dict) and set(w) == {"filename", "sha256"}
+                           and isinstance(w["filename"], str)
+                           and re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", w["filename"])
+                           and isinstance(w["sha256"], str)
+                           and re.fullmatch(r"[a-f0-9]{64}", w["sha256"])
+                           for w in versions["wheel_inventory"])
+                or len({w["filename"] for w in versions["wheel_inventory"]}) != 6):
             raise Denied("incomplete toolchain inventory")
         version_digest = hashlib.sha256(json.dumps(versions, sort_keys=True,
                                                     separators=(",", ":")).encode()).hexdigest()
