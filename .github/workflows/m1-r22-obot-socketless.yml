@@ -26,7 +26,8 @@ jobs:
           docker volume create m1-r22-obot-synthetic-data >/dev/null
           bootstrap="$(openssl rand -hex 32)"
           docker run -d --name m1-r22-obot --publish 127.0.0.1:8080:8080 \
-            --cap-drop ALL --security-opt=no-new-privileges \
+            --cap-drop ALL --cap-add CHOWN --cap-add SETUID --cap-add SETGID --cap-add DAC_OVERRIDE \
+            --security-opt=no-new-privileges \
             --memory 4g --cpus 2 --pids-limit 512 \
             --mount type=volume,source=m1-r22-obot-synthetic-data,target=/data \
             -e OBOT_SERVER_ENABLE_AUTHENTICATION=true \
@@ -76,7 +77,7 @@ jobs:
              "httpHealthAfterRestart200":True,"hostDockerSocketMounted":False,
              "ephemeralVolumeForEvaluation":True,"resolvedImageDigests":d,
              "limits":["no MCP server creation, remote registration, principal AAA or tool call proven",
-                       "Docker still runs as host-managed ephemeral evaluation process, NOT rootless Obot",
+                       "Docker host-managed ephemeral process with narrow PostgreSQL-init capabilities added; NOT rootless/cap-drop-only",
                        "state is volume on same node only, NOT off-node durable",
                        "image was pulled by tag then digest recorded; pin before promotion"]}
           pathlib.Path("obot-r22-receipts/receipt.json").write_text(json.dumps(r,indent=2,sort_keys=True)+"\n")
