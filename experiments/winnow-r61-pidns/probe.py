@@ -59,8 +59,11 @@ def ns_init(path,host_pidns,host_netns):
 def await_path(p,spawn):
     deadline=time.monotonic()+4
     while not p.is_file():
-        if time.monotonic()>=deadline or spawn.poll() is not None:
-            raise RuntimeError("R61_INIT_NOT_READY:"+str(spawn.returncode))
+        if spawn.poll() is not None:
+            detail = spawn.stderr.read(2048).decode("utf-8", "replace").strip()
+            raise RuntimeError("R61_INIT_NOT_READY:%s stderr=%s" % (spawn.returncode, detail))
+        if time.monotonic()>=deadline:
+            raise RuntimeError("R61_INIT_NOT_READY_TIMEOUT")
         time.sleep(.015)
 
 def kill_checked(pid):
@@ -70,6 +73,7 @@ def kill_checked(pid):
 def trial(root,rep):
     stage=root/("rep-%d"%rep)
     stage.mkdir(mode=0o777)
+    stage.chmod(0o777)  # os.mkdir respects root umask; namespace uid65534 must write
     host_pidns=os.readlink("/proc/self/ns/pid")
     host_netns=os.readlink("/proc/self/ns/net")
     cmd=["unshare","--mount","--pid","--fork","--mount-proc","--net",
