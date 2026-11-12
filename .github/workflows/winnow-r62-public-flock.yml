@@ -1,0 +1,63 @@
+name: Winnow R62 public synthetic local two-writer flock
+run-name: winnow-r62-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-r62-public-flock-recovery-20261112
+    paths:
+      - '.github/workflows/winnow-r62-public-flock.yml'
+      - 'experiments/winnow-r62-local-flock/**'
+permissions:
+  contents: read
+jobs:
+  local-two-writer:
+    name: "local advisory lock / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Verify exact commit, public branch and native arch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "SemperSupra/agent-dispatch"
+          test "$GITHUB_REF" = "refs/heads/rdte/winnow-r62-public-flock-recovery-20261112"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo R62_ARCH_MISMATCH; exit 1 ;;
+          esac
+          echo "R62_EXACT_HEAD=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Synthetic lock exclusion, crash release and clean scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          for b in sudo unshare setpriv python3; do command -v "$b" >/dev/null || { echo "R62_MISSING=$b"; exit 2; }; done
+          TMP="$(mktemp -d /tmp/winnow-r62.XXXXXX)"
+          trap 'rm -rf -- "$TMP"' EXIT
+          chmod 0755 "$TMP"
+          mkdir "$TMP/work"
+          chmod 0777 "$TMP/work"
+          install -m 0644 experiments/winnow-r62-local-flock/probe.py "$TMP/probe.py"
+          HN="$(readlink /proc/self/ns/net)"
+          sudo -n unshare --net -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+            python3 -B "$TMP/probe.py" "$HN" "$TMP/work" | tee r62-result.txt
+          grep -F 'R62_LOCAL_FLOCK_WRITER_SYNTHETIC_PASS' r62-result.txt
+          echo "R62_PUBLIC_NATIVE_PASS=$GITHUB_SHA"
+      - name: Retain sanitized public-only results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-r62-${{ matrix.arch }}-${{ github.run_id }}
+          path: r62-result.txt
+          if-no-files-found: warn
+          retention-days: 7
