@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "python-oci-runtime", "python-ocr-toolchain"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "python-oci-runtime", "python-ocr-toolchain", "public-cpap-parser"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,57 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "public-cpap-parser":
+        # Fixed MIT-licensed public-source C++ synthetic test bakeoff.
+        receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "cpap-prior-art" / "receipt.json"
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/public_cpap_parser_bakeoff.py", "--receipt", str(receipt_path)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            return {"oracle_verified": False, "classification": "FAIL_CPAP_TIMEOUT_OR_EXEC"}
+        if cp.returncode or receipt_path.is_symlink() or not receipt_path.is_file():
+            return {"oracle_verified": False, "classification": "FAIL_CPAP_EXECUTION"}
+        try:
+            if receipt_path.stat().st_size > 4096:
+                raise ValueError("receipt too large")
+            raw = receipt_path.read_bytes()
+            doc = json.loads(raw)
+        except (OSError, ValueError, UnicodeError):
+            return {"oracle_verified": False, "classification": "FAIL_CPAP_RECEIPT"}
+        suite_names = ["EDFFileTest", "EDFParserHardening", "EveMultiBlock",
+                       "STRFamily", "AirSense11Summary", "EdfRecordCount"]
+        valid = (
+            isinstance(doc, dict)
+            and doc.get("schema") == "public-cpap-format-bakeoff/v1"
+            and doc.get("status") == "CANDIDATE_ONLY"
+            and doc.get("public_synthetic") is True
+            and doc.get("private_source_processed") is False
+            and doc.get("clinical_semantics_qualified") is False
+            and doc.get("production_promotable") is False
+            and doc.get("upstream_sha") == "d14acb58012449af75b0c15c0bfb1eb173b60a1f"
+            and doc.get("upstream_license") == "MIT"
+            and isinstance(doc.get("license_sha256"), str)
+            and re.fullmatch(r"[a-f0-9]{64}", doc["license_sha256"]) is not None
+            and doc.get("source_sha") == os.environ.get("GITHUB_SHA")
+            and doc.get("run_id") == os.environ.get("GITHUB_RUN_ID")
+            and doc.get("runner_arch") == os.environ.get("RUNNER_ARCH")
+            and doc.get("machine") == platform.machine()
+            and doc.get("compiler_family") == "g++/C++17"
+            and doc.get("selected_suites") == suite_names
+            and type(doc.get("passed_synthetic_tests")) is int
+            and 20 <= doc["passed_synthetic_tests"] <= 500
+        )
+        return {
+            "oracle_verified": bool(valid),
+            "classification": "PASS_CANDIDATE_ONLY" if valid else "FAIL_CPAP_RECEIPT",
+            "upstream_sha": doc.get("upstream_sha") if valid else None,
+            "license_sha256": doc.get("license_sha256") if valid else None,
+            "passed_synthetic_tests": doc.get("passed_synthetic_tests") if valid else None,
+            "receipt_sha256": hashlib.sha256(raw).hexdigest() if valid else None,
+            "production_promotable": False,
+        }
     if workload == "python-ocr-toolchain":
         # Public synthetic only: fixed, bounded Docker build/test experiment.
         receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "python-ocr-toolchain" / "receipt.json"
