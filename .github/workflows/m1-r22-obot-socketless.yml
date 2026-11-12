@@ -82,6 +82,40 @@ jobs:
           pathlib.Path("obot-r22-receipts/receipt.json").write_text(json.dumps(r,indent=2,sort_keys=True)+"\n")
           print(json.dumps(r,sort_keys=True))
           PY
+      - name: Classify failed startup without publishing sensitive application logs
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p obot-r22-receipts
+          python3 - <<'PY'
+          import collections,json,pathlib,re,subprocess
+          t=subprocess.run(["docker","logs","m1-r22-obot"],capture_output=True,text=True,timeout=20)
+          data=t.stdout+"\n"+t.stderr
+          masks={
+            "missing-docker-socket":r"docker\.sock|connect.*docker.*daemon|docker daemon",
+            "postgres-database":r"postgres|initdb|pg_hba|database|sqlite",
+            "filesystem-permission":r"permission denied|read.only file|cannot write|operation not permitted",
+            "missing-config":r"required.*(env|config)|missing.*(env|config)|invalid.*(option|config)",
+            "network-egress":r"connection refused|no such host|lookup .* failed|unreachable|i/o timeout",
+            "resource-oom":r"out of memory|cannot allocate memory|signal: killed|oom",
+            "panic-fatal":r"\bpanic\b|\bfatal\b|segmentation fault",
+            "exit-error":r"\berror\b|\bfailed\b",
+          }
+          counts={k:len(re.findall(p,data,re.IGNORECASE)) for k,p in masks.items()}
+          state=json.loads(subprocess.check_output(["docker","inspect",
+               "--format","{{json .State}}","m1-r22-obot"],text=True))
+          output={"schema":"m1-r22-obot-startup-failure-taxonomy-v1",
+                  "containerExitCode":state.get("ExitCode"),
+                  "oomKilled":state.get("OOMKilled"),
+                  "running":state.get("Running"),
+                  "logLineCount":len(data.splitlines()),
+                  "signalCounts":counts,
+                  "rawLogsOmitted":True,
+                  "warning":"Failure taxonomy does not establish root cause by itself"}
+          pathlib.Path("obot-r22-receipts/startup-diagnostic.json").write_text(
+            json.dumps(output,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(output,sort_keys=True))
+          PY
       - name: Remove all temporary Obot runtime, synthetic state, and mounted volumes
         if: always()
         shell: bash
