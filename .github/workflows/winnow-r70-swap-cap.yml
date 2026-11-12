@@ -1,0 +1,53 @@
+name: Winnow R70 public memory cgroup mmap differential
+run-name: winnow-r70-${{ github.sha }}
+on:
+  push:
+    branches: [rdte/winnow-r70-swap-denial-20261112]
+    paths:
+      - '.github/workflows/winnow-r70-swap-cap.yml'
+      - 'experiments/winnow-r70-swap-cap/**'
+permissions:
+  contents: read
+jobs:
+  mmap-denial:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, arch: amd64}
+          - {runner: ubuntu-24.04-arm, arch: arm64}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Exact public SHA and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "SemperSupra/agent-dispatch"
+          test "$GITHUB_REF" = "refs/heads/rdte/winnow-r70-swap-denial-20261112"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo R70_WRONG_ARCH; exit 1 ;;
+          esac
+          echo "R70_EXACT_SHA=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Native cgroup memory kernel-denial differential
+        shell: bash
+        run: |
+          set -euo pipefail
+          HN="$(readlink /proc/self/ns/net)"
+          sudo -n unshare --net -- python3 -B experiments/winnow-r70-swap-cap/probe.py "$HN" | tee r70-result.txt
+          grep -F R70_NATIVE_MEMCG_MMAP_DENIAL_PASS r70-result.txt
+          echo "R70_NATIVE_CI_PASS=$GITHUB_SHA"
+      - name: Sanitized evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r70-${{ matrix.arch }}-${{ github.run_id }}
+          path: r70-result.txt
+          if-no-files-found: warn
+          retention-days: 7
