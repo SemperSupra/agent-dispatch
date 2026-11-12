@@ -1,0 +1,97 @@
+name: M1 R22 Obot socketless remote-only runtime feasibility
+on:
+  push:
+    branches: [rdte/m1-r22-obot-remote-only-20261112]
+    paths:
+      - .github/workflows/m1-r22-obot-socketless.yml
+permissions:
+  contents: read
+jobs:
+  socketless-obot-c0:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Pull exact available Obot image and record digest (initial C0, not yet pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p obot-r22-receipts
+          docker pull ghcr.io/obot-platform/obot:latest
+          docker image inspect ghcr.io/obot-platform/obot:latest --format '{{json .RepoDigests}}' > obot-r22-receipts/image-digests.json
+          docker image inspect ghcr.io/obot-platform/obot:latest --format '{{.Id}}' > obot-r22-receipts/image-id.txt
+      - name: Launch authenticated Obot evaluation runtime WITHOUT host Docker socket
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker volume create m1-r22-obot-synthetic-data >/dev/null
+          bootstrap="$(openssl rand -hex 32)"
+          docker run -d --name m1-r22-obot --publish 127.0.0.1:8080:8080 \
+            --cap-drop ALL --security-opt=no-new-privileges \
+            --memory 4g --cpus 2 --pids-limit 512 \
+            --mount type=volume,source=m1-r22-obot-synthetic-data,target=/data \
+            -e OBOT_SERVER_ENABLE_AUTHENTICATION=true \
+            -e OBOT_BOOTSTRAP_TOKEN="$bootstrap" \
+            -e OBOT_SERVER_DISABLE_UPDATE_CHECK=true \
+            -e OBOT_SERVER_PRODUCT_ANALYTICS_MODE=off \
+            ghcr.io/obot-platform/obot:latest
+          unset bootstrap
+          docker inspect m1-r22-obot --format '{{json .Mounts}}' > obot-r22-receipts/actual-mounts.json
+          python3 - <<'PY'
+          import json
+          mounts=json.load(open("obot-r22-receipts/actual-mounts.json"))
+          assert all("/var/run/docker.sock" not in str(m) for m in mounts)
+          assert any(m.get("Destination")=="/data" for m in mounts)
+          print("Confirmed: no privileged host Docker socket mounted")
+          PY
+      - name: Test actual HTTP health and container restart under finite free-runner budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=not-ready
+          for n in $(seq 1 100); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:8080/api/healthz || true)
+            if [ "$status" = 200 ];then ready=ready;break;fi
+            state=$(docker inspect m1-r22-obot --format '{{.State.Status}}')
+            if [ "$state" != running ];then echo "Obot exited: $state";break;fi
+            sleep 1
+          done
+          echo "$ready" > obot-r22-receipts/first-ready.txt
+          test "$ready" = ready || { echo "C0 boot not qualified";exit 1; }
+          docker restart m1-r22-obot >/dev/null
+          ready=not-ready
+          for n in $(seq 1 90);do
+            status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:8080/api/healthz || true)
+            if [ "$status" = 200 ];then ready=ready;break;fi
+            sleep 1
+          done
+          echo "$ready" > obot-r22-receipts/restart-ready.txt
+          test "$ready" = ready
+          docker stats --no-stream --format '{{json .}}' m1-r22-obot > obot-r22-receipts/one-point-stats.json
+          python3 - <<'PY'
+          import json,pathlib
+          m=json.load(open("obot-r22-receipts/actual-mounts.json"))
+          d=json.load(open("obot-r22-receipts/image-digests.json"))
+          r={"schema":"m1-r22-obot-socketless-c0-v1","passed":True,
+             "authenticatedStartupConfigured":True,"httpHealth200":True,
+             "httpHealthAfterRestart200":True,"hostDockerSocketMounted":False,
+             "ephemeralVolumeForEvaluation":True,"resolvedImageDigests":d,
+             "limits":["no MCP server creation, remote registration, principal AAA or tool call proven",
+                       "Docker still runs as host-managed ephemeral evaluation process, NOT rootless Obot",
+                       "state is volume on same node only, NOT off-node durable",
+                       "image was pulled by tag then digest recorded; pin before promotion"]}
+          pathlib.Path("obot-r22-receipts/receipt.json").write_text(json.dumps(r,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(r,sort_keys=True))
+          PY
+      - name: Remove all temporary Obot runtime, synthetic state, and mounted volumes
+        if: always()
+        shell: bash
+        run: |
+          docker inspect m1-r22-obot --format 'status={{.State.Status}} exit={{.State.ExitCode}}' > obot-r22-receipts/exit-state.txt 2>/dev/null || true
+          docker rm -f m1-r22-obot >/dev/null 2>&1 || true
+          docker volume rm m1-r22-obot-synthetic-data >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-r22-obot-socketless-c0-receipts
+          path: obot-r22-receipts/
+          retention-days: 2
