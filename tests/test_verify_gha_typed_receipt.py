@@ -143,7 +143,9 @@ class IndependentReceiptTests(unittest.TestCase):
                             "debian_inventory": {"ghostscript": "10.05.1~dfsg-1",
                                                  "poppler-utils": "25.03.0-5+deb13u4",
                                                  "tesseract-ocr": "5.5.0-1",
-                                                 "tesseract-ocr-eng": "1:4.1.0-2"}}
+                                                 "tesseract-ocr-eng": "1:4.1.0-2"},
+                            "wheel_inventory": [{"filename": f"package{i}-1.0-py3-none-any.whl",
+                                                 "sha256": f"{i+1:064x}"} for i in range(6)]}
                 version_sha = hashlib.sha256(json.dumps(versions, sort_keys=True,
                                                        separators=(",", ":")).encode()).hexdigest()
                 result = {
@@ -173,6 +175,10 @@ class IndependentReceiptTests(unittest.TestCase):
                                 {"toolchain_versions_sha256": "unknown"},
                                 {"toolchain_versions": dict(versions, packages={"pypdf": "9.0.0", "jsonschema": "4.26.0"})},
                                 {"toolchain_versions": dict(versions, pip_inventory=["editable-package @ https://invalid.test"])},
+                                {"toolchain_versions": dict(versions, wheel_inventory=[
+                                    dict(versions["wheel_inventory"][0], sha256="0" * 64),
+                                    *versions["wheel_inventory"][1:],
+                                ])},
                                 {"receipt_sha256": "bogus"},
                                 {"oracle_verified": False}):
                     altered = dict(doc, result=dict(result, **invalid))
