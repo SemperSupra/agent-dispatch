@@ -57,6 +57,29 @@ class OCRCandidateContractTests(unittest.TestCase):
                 with self.assertRaises(m.Denied):
                     m.outer_candidate(Path(temp) / "receipt.json")
 
+    def test_wheel_inventory_hashes_only_six_bounded_real_files(self):
+        capture = ROOT / "experiments/python-ocr-toolchain/wheel_capture.py"
+        spec = importlib.util.spec_from_file_location("public_wheel_capture", capture)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for i in range(6):
+                (root / f"candidate{i}-1.0-py3-none-any.whl").write_bytes(f"synthetic-wheel-{i}".encode())
+            evidence = mod.index_wheels(root)
+            self.assertEqual(len(evidence), 6)
+            for item in evidence:
+                self.assertEqual(item["sha256"],
+                                 hashlib.sha256((root / item["filename"]).read_bytes()).hexdigest())
+            (root / "candidate0-1.0-py3-none-any.whl").unlink()
+            with self.assertRaises(ValueError):
+                mod.index_wheels(root)
+            target = root / "outside.data"
+            target.write_bytes(b"synthetic")
+            (root / "candidate0-1.0-py3-none-any.whl").symlink_to(target)
+            with self.assertRaises(ValueError):
+                mod.index_wheels(root)
+
     def test_build_nonzero_fails_without_receipt(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / "receipt.json"
