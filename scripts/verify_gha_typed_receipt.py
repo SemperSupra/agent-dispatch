@@ -34,6 +34,7 @@ RESULT_FIELDS = {
     "microsoft-devproxy-mock": {"classification", "oracle_verified", "mock_only", "provider_access_verified", "verdict_sha256"},
     "azurite-blob-transport": {"classification", "oracle_verified", "emulator_only", "provider_access_verified", "verdict_sha256"},
     "python-oci-runtime": {"classification", "oracle_verified", "resolved_image_ref", "receipt_sha256", "production_promotable"},
+    "python-ocr-toolchain": {"classification", "oracle_verified", "candidate_base_ref", "built_image_id", "toolchain_versions_sha256", "receipt_sha256", "production_promotable"},
 }
 MAX_RECEIPT = 8192
 
@@ -97,10 +98,22 @@ def evaluate(
     result = doc["result"]
     if not isinstance(result, dict) or set(result) != RESULT_FIELDS[p["workload"]]:
         raise VerdictError("WORKLOAD_RESULT_FIELDS_UNTRUSTED")
-    expected_classification = ("PASS_CANDIDATE_ONLY" if p["workload"] == "python-oci-runtime"
+    expected_classification = ("PASS_CANDIDATE_ONLY" if p["workload"] in ("python-oci-runtime", "python-ocr-toolchain")
                                else "PASS")
     if result["classification"] != expected_classification or result["oracle_verified"] is not True:
         raise VerdictError("WORKLOAD_ORACLE_NOT_VERIFIED")
+    if p["workload"] == "python-ocr-toolchain":
+        base = result.get("candidate_base_ref")
+        built = result.get("built_image_id")
+        inventory = result.get("toolchain_versions_sha256")
+        receipt_sha = result.get("receipt_sha256")
+        if (result.get("production_promotable") is not False
+                or base != "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f"
+                or not isinstance(built, str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", built) is None
+                or not isinstance(inventory, str) or not HEX64.fullmatch(inventory)
+                or not isinstance(receipt_sha, str) or not HEX64.fullmatch(receipt_sha)):
+            raise VerdictError("OCR_CANDIDATE_RECEIPT_DENIED")
     if p["workload"] == "python-oci-runtime":
         image = result.get("resolved_image_ref")
         if (result.get("production_promotable") is not False
