@@ -53,7 +53,10 @@ def worker(group,mode):
         data=bytearray(512<<20)
         for i in range(0,len(data),4096):
             data[i]=1
-        print("R66_MEMORY_NOT_DENIED",flush=True)
+        print("R66_MEMORY_DIAG uid=%s cgroup=%s memory_max=%s memory_current=%s" %
+              (os.geteuid(),Path("/proc/self/cgroup").read_text().strip(),
+               (group/"memory.max").read_text().strip(),
+               (group/"memory.current").read_text().strip()),flush=True)
         raise RuntimeError("R66_KERNEL_MEMORY_MAX_NOT_ENFORCED")
     raise RuntimeError("R66_BAD_MODE")
 
@@ -96,7 +99,7 @@ def trial(root,mode,rep):
             if count<1:raise RuntimeError("R66_PID_KERNEL_EVENT_MISSING")
         else:
             if proc.returncode!=-signal.SIGKILL:
-                raise RuntimeError("R66_MEMORY_NOT_KERNEL_KILLED exit=%s oom_events=%d oom_kill_events=%d stderr=%s"%(proc.returncode,kernel_events(cg,"memory.events","oom"),kernel_events(cg,"memory.events","oom_kill"),err.decode(errors="replace")[:1800]))
+                raise RuntimeError("R66_MEMORY_NOT_KERNEL_KILLED exit=%s oom_events=%d oom_kill_events=%d stderr=%s"%(proc.returncode,kernel_events(cg,"memory.events","oom"),kernel_events(cg,"memory.events","oom_kill"),(out.decode(errors="replace")[:500]+" / "+err.decode(errors="replace")[:1400])))
             count=kernel_events(cg,"memory.events","oom_kill")
             if count<1:raise RuntimeError("R66_OOM_KILL_EVENT_MISSING")
         return {"mode":mode,"rep":rep,"worker_exit":proc.returncode,
