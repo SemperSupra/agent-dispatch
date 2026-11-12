@@ -108,14 +108,23 @@ def evaluate(
         inventory = result.get("toolchain_versions_sha256")
         versions = result.get("toolchain_versions")
         digest_ok = (
-            isinstance(versions, dict) and set(versions) == {"packages", "tools"}
-            and isinstance(versions.get("packages"), dict)
-            and set(versions["packages"]) == {"pypdf", "jsonschema"}
-            and isinstance(versions.get("tools"), dict)
-            and set(versions["tools"]) == {"ghostscript", "tesseract", "poppler"}
+            isinstance(versions, dict)
+            and set(versions) == {"packages", "tools", "pip_inventory", "debian_inventory"}
+            and versions.get("packages") == {"pypdf": "7.0.1", "jsonschema": "4.26.0"}
+            and versions.get("tools") == {"ghostscript": "10.05.1",
+                                           "tesseract": "tesseract 5.5.0",
+                                           "poppler": "25.03.0-5+deb13u4"}
+            and isinstance(versions.get("pip_inventory"), list)
+            and 2 <= len(versions["pip_inventory"]) <= 64
             and all(isinstance(v, str) and
-                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+():-]{0,127}", v)
-                    for items in versions.values() for v in items.values())
+                    re.fullmatch(r"[A-Za-z0-9_.-]+==[A-Za-z0-9._+!:-]+", v)
+                    for v in versions["pip_inventory"])
+            and isinstance(versions.get("debian_inventory"), dict)
+            and set(versions["debian_inventory"]) == {
+                "ghostscript", "poppler-utils", "tesseract-ocr", "tesseract-ocr-eng"}
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
+                    for v in versions["debian_inventory"].values())
             and hashlib.sha256(json.dumps(versions, sort_keys=True,
                                           separators=(",", ":")).encode()).hexdigest() == inventory
         )
