@@ -53,10 +53,8 @@ def worker(group,mode):
         data=bytearray(512<<20)
         for i in range(0,len(data),4096):
             data[i]=1
-        print("R66_MEMORY_DIAG uid=%s cgroup=%s memory_max=%s memory_current=%s" %
-              (os.geteuid(),Path("/proc/self/cgroup").read_text().strip(),
-               (group/"memory.max").read_text().strip(),
-               (group/"memory.current").read_text().strip()),flush=True)
+        print("R66_MEMORY_DIAG uid=%s cgroup=%s allocation_touched_bytes=%d" %
+              (os.geteuid(),Path("/proc/self/cgroup").read_text().strip(),len(data)),flush=True)
         raise RuntimeError("R66_KERNEL_MEMORY_MAX_NOT_ENFORCED")
     raise RuntimeError("R66_BAD_MODE")
 
@@ -128,7 +126,15 @@ def main():
         raise RuntimeError("R66_CONTROLLER_MISSING")
     if not WANTED.issubset((CGROOT/"cgroup.subtree_control").read_text().split()):
         raise RuntimeError("R66_CONTROLLER_NOT_DELEGATED")
-    results=[trial(CGROOT,mode,rep) for rep in range(3) for mode in ("pids","memory")]
+    # Record every independent PID case before attempting the stricter memory
+    # test, so a blocked memory gate cannot disguise completed PID evidence.
+    results=[]
+    for rep in range(3):
+        item=trial(CGROOT,"pids",rep)
+        results.append(item)
+        print("R66_PIDS_KERNEL_EVENT_PASS rep=%d count=%d"%(rep,item["kernel_denial_events"]),flush=True)
+    for rep in range(3):
+        results.append(trial(CGROOT,"memory",rep))
     if len(results)!=6:raise RuntimeError("R66_REPS_INVALID")
     report={"scope":"PUBLIC_SYNTHETIC_LINUX_CGROUP_V2_PID_MEMORY_KERNEL_DENIAL",
             "arch":os.uname().machine,"reps_per_case":3,"cases":results,
