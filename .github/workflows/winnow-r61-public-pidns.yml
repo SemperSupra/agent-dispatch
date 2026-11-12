@@ -1,0 +1,61 @@
+name: Winnow R61 public PID namespace init teardown synthetic
+run-name: winnow-r61-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-r61-public-pidns-init-teardown-20261112
+    paths:
+      - '.github/workflows/winnow-r61-public-pidns.yml'
+      - 'experiments/winnow-r61-pidns/**'
+permissions:
+  contents: read
+jobs:
+  pidns-teardown:
+    name: "PID namespace teardown / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Assert public exact source and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "SemperSupra/agent-dispatch"
+          test "$GITHUB_REF" = "refs/heads/rdte/winnow-r61-public-pidns-init-teardown-20261112"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo R61_ARCH_MISMATCH; exit 1 ;;
+          esac
+          echo "R61_EXACT_HEAD=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Confirm all PID namespace members exit when namespace init dies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for b in sudo unshare setpriv python3; do command -v "$b" >/dev/null || { echo "R61_MISSING=$b"; exit 2; }; done
+          TMP="$(mktemp -d /tmp/winnow-r61.XXXXXX)"
+          trap 'rm -rf -- "$TMP"' EXIT
+          chmod 0755 "$TMP"
+          mkdir "$TMP/work"
+          chmod 0777 "$TMP/work"
+          install -m 0644 experiments/winnow-r61-pidns/probe.py "$TMP/probe.py"
+          sudo -n python3 -B "$TMP/probe.py" "$TMP/work" | tee r61-result.txt
+          grep -F 'R61_PIDNS_INIT_TEARDOWN_SYNTHETIC_PASS' r61-result.txt
+          echo "R61_PUBLIC_NATIVE_PASS=$GITHUB_SHA"
+      - name: Preserve sanitized offline evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-r61-${{ matrix.arch }}-${{ github.run_id }}
+          path: r61-result.txt
+          if-no-files-found: warn
+          retention-days: 7
