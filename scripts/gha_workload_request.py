@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "python-oci-runtime", "python-ocr-toolchain", "public-cpap-parser"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,184 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "public-cpap-parser":
+        # Fixed MIT-licensed public-source C++ synthetic test bakeoff.
+        receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "cpap-prior-art" / "receipt.json"
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/public_cpap_parser_bakeoff.py", "--receipt", str(receipt_path)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            return {"oracle_verified": False, "classification": "FAIL_CPAP_TIMEOUT_OR_EXEC"}
+        if cp.returncode or receipt_path.is_symlink() or not receipt_path.is_file():
+            return {"oracle_verified": False, "classification": "FAIL_CPAP_EXECUTION"}
+        try:
+            if receipt_path.stat().st_size > 4096:
+                raise ValueError("receipt too large")
+            raw = receipt_path.read_bytes()
+            doc = json.loads(raw)
+        except (OSError, ValueError, UnicodeError):
+            return {"oracle_verified": False, "classification": "FAIL_CPAP_RECEIPT"}
+        suite_names = ["EDFFileTest", "EDFParserHardening", "EveMultiBlock",
+                       "STRFamily", "AirSense11Summary", "EdfRecordCount"]
+        valid = (
+            isinstance(doc, dict)
+            and doc.get("schema") == "public-cpap-format-bakeoff/v1"
+            and doc.get("status") == "CANDIDATE_ONLY"
+            and doc.get("public_synthetic") is True
+            and doc.get("private_source_processed") is False
+            and doc.get("clinical_semantics_qualified") is False
+            and doc.get("production_promotable") is False
+            and doc.get("upstream_sha") == "d14acb58012449af75b0c15c0bfb1eb173b60a1f"
+            and doc.get("upstream_license") == "MIT"
+            and isinstance(doc.get("license_sha256"), str)
+            and re.fullmatch(r"[a-f0-9]{64}", doc["license_sha256"]) is not None
+            and doc.get("source_sha") == os.environ.get("GITHUB_SHA")
+            and doc.get("run_id") == os.environ.get("GITHUB_RUN_ID")
+            and doc.get("runner_arch") == os.environ.get("RUNNER_ARCH")
+            and doc.get("machine") == platform.machine()
+            and doc.get("compiler_family") == "g++/C++17"
+            and doc.get("selected_suites") == suite_names
+            and type(doc.get("passed_synthetic_tests")) is int
+            and 20 <= doc["passed_synthetic_tests"] <= 500
+        )
+        return {
+            "oracle_verified": bool(valid),
+            "classification": "PASS_CANDIDATE_ONLY" if valid else "FAIL_CPAP_RECEIPT",
+            "upstream_sha": doc.get("upstream_sha") if valid else None,
+            "license_sha256": doc.get("license_sha256") if valid else None,
+            "passed_synthetic_tests": doc.get("passed_synthetic_tests") if valid else None,
+            "receipt_sha256": hashlib.sha256(raw).hexdigest() if valid else None,
+            "production_promotable": False,
+        }
+    if workload == "python-ocr-toolchain":
+        # Public synthetic only: fixed, bounded Docker build/test experiment.
+        receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "python-ocr-toolchain" / "receipt.json"
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/python_ocr_toolchain_probe.py",
+                 "--receipt", str(receipt_path)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            return {"oracle_verified": False, "classification": "FAIL_OCR_TIMEOUT_OR_EXEC"}
+        if cp.returncode or receipt_path.is_symlink() or not receipt_path.is_file():
+            return {"oracle_verified": False, "classification": "FAIL_OCR_PROBE"}
+        try:
+            if receipt_path.stat().st_size > 4096:
+                raise ValueError("receipt too large")
+            raw = receipt_path.read_bytes()
+            doc = json.loads(raw)
+        except (OSError, ValueError, UnicodeError):
+            return {"oracle_verified": False, "classification": "FAIL_OCR_RECEIPT"}
+        image = doc.get("base_image_ref") if isinstance(doc, dict) else None
+        image_id = doc.get("built_image_id") if isinstance(doc, dict) else None
+        version_sha = doc.get("toolchain_versions_sha256") if isinstance(doc, dict) else None
+        version_doc = doc.get("toolchain_versions") if isinstance(doc, dict) else None
+        version_shape = (
+            isinstance(version_doc, dict)
+            and set(version_doc) == {"packages", "tools", "pip_inventory", "debian_inventory", "wheel_inventory"}
+            and version_doc.get("packages") == {"pypdf": "7.0.1", "jsonschema": "4.26.0"}
+            and version_doc.get("tools") == {"ghostscript": "10.05.1",
+                                              "tesseract": "tesseract 5.5.0",
+                                              "poppler": "25.03.0-5+deb13u4"}
+            and isinstance(version_doc.get("pip_inventory"), list)
+            and 2 <= len(version_doc["pip_inventory"]) <= 64
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9_.-]+==[A-Za-z0-9._+!:-]+", v)
+                    for v in version_doc["pip_inventory"])
+            and isinstance(version_doc.get("debian_inventory"), dict)
+            and set(version_doc["debian_inventory"]) == {
+                "ghostscript", "poppler-utils", "tesseract-ocr", "tesseract-ocr-eng"}
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
+                    for v in version_doc["debian_inventory"].values())
+            and isinstance(version_doc.get("wheel_inventory"), list)
+            and len(version_doc["wheel_inventory"]) == 6
+            and all(isinstance(w, dict) and set(w) == {"filename", "sha256"}
+                    and isinstance(w["filename"], str)
+                    and re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", w["filename"])
+                    and isinstance(w["sha256"], str)
+                    and re.fullmatch(r"[a-f0-9]{64}", w["sha256"])
+                    for w in version_doc["wheel_inventory"])
+            and len({w["filename"] for w in version_doc["wheel_inventory"]}) == 6
+        )
+        computed_version_sha = (
+            hashlib.sha256(json.dumps(version_doc, sort_keys=True,
+                                     separators=(",", ":")).encode()).hexdigest()
+            if version_shape else None
+        )
+        accepted = (
+            isinstance(doc, dict)
+            and doc.get("schema") == "public-python-ocr-toolchain/v1"
+            and doc.get("status") == "CANDIDATE_SMOKE_PASS"
+            and doc.get("public_synthetic") is True
+            and doc.get("production_promotable") is False
+            and doc.get("clinical_qualification") is False
+            and doc.get("source_sha") == os.environ.get("GITHUB_SHA")
+            and doc.get("run_id") == os.environ.get("GITHUB_RUN_ID")
+            and doc.get("runner_arch") == os.environ.get("RUNNER_ARCH")
+            and doc.get("machine") == platform.machine()
+            and doc.get("python") == "3.14.10"
+            and doc.get("fixture_sha256") == "37e44b8d9054cf8170c30ba7adc963a485be6d25eb4bed669d8149073e665f64"
+            and image == "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f"
+            and isinstance(image_id, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", image_id) is not None
+            and isinstance(version_sha, str) and re.fullmatch(r"[a-f0-9]{64}", version_sha) is not None
+            and version_shape and computed_version_sha == version_sha
+        )
+        return {
+            "oracle_verified": bool(accepted),
+            "classification": "PASS_CANDIDATE_ONLY" if accepted else "FAIL_OCR_RECEIPT",
+            "candidate_base_ref": image if accepted else None,
+            "built_image_id": image_id if accepted else None,
+            "toolchain_versions_sha256": version_sha if accepted else None,
+            "toolchain_versions": version_doc if accepted else None,
+            "receipt_sha256": hashlib.sha256(raw).hexdigest() if accepted else None,
+            "production_promotable": False,
+        }
+    if workload == "python-oci-runtime":
+        # Fixed public-synthetic OCI capability probe, not a private workload.
+        receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "python-oci-runtime" / "receipt.json"
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/python_oci_smoke.py", "--receipt", str(receipt_path)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            return {"oracle_verified": False, "classification": "FAIL_OCI_TIMEOUT_OR_EXEC"}
+        if cp.returncode or receipt_path.is_symlink() or not receipt_path.is_file():
+            return {"oracle_verified": False, "classification": "FAIL_OCI_PROBE"}
+        try:
+            if receipt_path.stat().st_size > 4096:
+                raise ValueError("receipt too large")
+            raw = receipt_path.read_bytes()
+            doc = json.loads(raw)
+        except (OSError, ValueError, UnicodeError):
+            return {"oracle_verified": False, "classification": "FAIL_OCI_RECEIPT"}
+        image = doc.get("resolved_image_ref") if isinstance(doc, dict) else None
+        accepted = (
+            isinstance(doc, dict)
+            and doc.get("schema") == "public-python-oci-qualification/v1"
+            and doc.get("status") == "CANDIDATE_SMOKE_PASS"
+            and doc.get("public_synthetic") is True
+            and doc.get("production_promotable") is False
+            and doc.get("clinical_qualification") is False
+            and doc.get("python") == "3.14.10"
+            and doc.get("source_sha") == os.environ.get("GITHUB_SHA")
+            and doc.get("run_id") == os.environ.get("GITHUB_RUN_ID")
+            and doc.get("runner_arch") == os.environ.get("RUNNER_ARCH")
+            and doc.get("machine") == platform.machine()
+            and isinstance(image, str)
+            and re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}", image) is not None
+        )
+        return {
+            "oracle_verified": bool(accepted),
+            "classification": "PASS_CANDIDATE_ONLY" if accepted else "FAIL_OCI_RECEIPT",
+            "resolved_image_ref": image if accepted else None,
+            "receipt_sha256": hashlib.sha256(raw).hexdigest() if accepted else None,
+            "production_promotable": False,
+        }
     if workload == "arithmetic-oracle":
         nums = [i*i for i in range(256)]
         ok = sum(nums) == 5559680 and len(nums) == 256

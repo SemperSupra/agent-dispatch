@@ -33,6 +33,9 @@ RESULT_FIELDS = {
     "sealed-contract-native": {"classification", "oracle_verified"},
     "microsoft-devproxy-mock": {"classification", "oracle_verified", "mock_only", "provider_access_verified", "verdict_sha256"},
     "azurite-blob-transport": {"classification", "oracle_verified", "emulator_only", "provider_access_verified", "verdict_sha256"},
+    "python-oci-runtime": {"classification", "oracle_verified", "resolved_image_ref", "receipt_sha256", "production_promotable"},
+    "python-ocr-toolchain": {"classification", "oracle_verified", "candidate_base_ref", "built_image_id", "toolchain_versions_sha256", "toolchain_versions", "receipt_sha256", "production_promotable"},
+    "public-cpap-parser": {"classification", "oracle_verified", "upstream_sha", "license_sha256", "passed_synthetic_tests", "receipt_sha256", "production_promotable"},
 }
 MAX_RECEIPT = 8192
 
@@ -96,8 +99,72 @@ def evaluate(
     result = doc["result"]
     if not isinstance(result, dict) or set(result) != RESULT_FIELDS[p["workload"]]:
         raise VerdictError("WORKLOAD_RESULT_FIELDS_UNTRUSTED")
-    if result["classification"] != "PASS" or result["oracle_verified"] is not True:
+    expected_classification = ("PASS_CANDIDATE_ONLY" if p["workload"] in ("python-oci-runtime", "python-ocr-toolchain", "public-cpap-parser")
+                               else "PASS")
+    if result["classification"] != expected_classification or result["oracle_verified"] is not True:
         raise VerdictError("WORKLOAD_ORACLE_NOT_VERIFIED")
+    if p["workload"] == "public-cpap-parser":
+        if (result.get("production_promotable") is not False
+                or result.get("upstream_sha") != "d14acb58012449af75b0c15c0bfb1eb173b60a1f"
+                or type(result.get("passed_synthetic_tests")) is not int
+                or not 20 <= result["passed_synthetic_tests"] <= 500
+                or not isinstance(result.get("license_sha256"), str)
+                or not HEX64.fullmatch(result["license_sha256"])
+                or not isinstance(result.get("receipt_sha256"), str)
+                or not HEX64.fullmatch(result["receipt_sha256"])):
+            raise VerdictError("CPAP_PRIOR_ART_RECEIPT_DENIED")
+    if p["workload"] == "python-ocr-toolchain":
+        base = result.get("candidate_base_ref")
+        built = result.get("built_image_id")
+        inventory = result.get("toolchain_versions_sha256")
+        versions = result.get("toolchain_versions")
+        digest_ok = (
+            isinstance(versions, dict)
+            and set(versions) == {"packages", "tools", "pip_inventory", "debian_inventory", "wheel_inventory"}
+            and versions.get("packages") == {"pypdf": "7.0.1", "jsonschema": "4.26.0"}
+            and versions.get("tools") == {"ghostscript": "10.05.1",
+                                           "tesseract": "tesseract 5.5.0",
+                                           "poppler": "25.03.0-5+deb13u4"}
+            and isinstance(versions.get("pip_inventory"), list)
+            and 2 <= len(versions["pip_inventory"]) <= 64
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9_.-]+==[A-Za-z0-9._+!:-]+", v)
+                    for v in versions["pip_inventory"])
+            and isinstance(versions.get("debian_inventory"), dict)
+            and set(versions["debian_inventory"]) == {
+                "ghostscript", "poppler-utils", "tesseract-ocr", "tesseract-ocr-eng"}
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
+                    for v in versions["debian_inventory"].values())
+            and isinstance(versions.get("wheel_inventory"), list)
+            and len(versions["wheel_inventory"]) == 6
+            and all(isinstance(w, dict) and set(w) == {"filename", "sha256"}
+                    and isinstance(w["filename"], str)
+                    and re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", w["filename"])
+                    and isinstance(w["sha256"], str)
+                    and re.fullmatch(r"[a-f0-9]{64}", w["sha256"])
+                    for w in versions["wheel_inventory"])
+            and len({w["filename"] for w in versions["wheel_inventory"]}) == 6
+            and hashlib.sha256(json.dumps(versions, sort_keys=True,
+                                          separators=(",", ":")).encode()).hexdigest() == inventory
+        )
+        receipt_sha = result.get("receipt_sha256")
+        if (not digest_ok
+                or result.get("production_promotable") is not False
+                or base != "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f"
+                or not isinstance(built, str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", built) is None
+                or not isinstance(inventory, str) or not HEX64.fullmatch(inventory)
+                or not isinstance(receipt_sha, str) or not HEX64.fullmatch(receipt_sha)):
+            raise VerdictError("OCR_CANDIDATE_RECEIPT_DENIED")
+    if p["workload"] == "python-oci-runtime":
+        image = result.get("resolved_image_ref")
+        if (result.get("production_promotable") is not False
+                or not isinstance(image, str)
+                or re.fullmatch(r"[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}", image) is None
+                or not isinstance(result.get("receipt_sha256"), str)
+                or not HEX64.fullmatch(result["receipt_sha256"])):
+            raise VerdictError("OCI_CANDIDATE_RECEIPT_DENIED")
     if p["workload"] == "microsoft-devproxy-mock":
         if (result.get("mock_only") is not True or
                 result.get("provider_access_verified") is not False or

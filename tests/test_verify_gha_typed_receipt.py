@@ -96,6 +96,135 @@ class IndependentReceiptTests(unittest.TestCase):
             with self.subTest(case=patch_data), self.assertRaises(v.VerdictError):
                 check(raw2)
 
+    def test_python_oci_candidate_is_not_promotable(self):
+        for manifest in ("requests/gha/cpu-x64-python-oci-v1.json",
+                         "requests/gha/cpu-arm64-python-oci-v1.json"):
+            with self.subTest(manifest=manifest):
+                p = m.plan(manifest)
+                image = "python@sha256:" + "b" * 64
+                result = {
+                    "classification": "PASS_CANDIDATE_ONLY",
+                    "oracle_verified": True,
+                    "resolved_image_ref": image,
+                    "receipt_sha256": "a" * 64,
+                    "production_promotable": False,
+                }
+                doc = {
+                    "schema": m.RECEIPT, "assignment_id": p["assignment_id"],
+                    "data_class": "public-synthetic",
+                    "observed_architecture": p["expected_machine"], "qualified": True,
+                    "request_path": manifest, "request_sha256": p["request_sha256"],
+                    "requested_runner": p["runner"], "result": result,
+                    "run_attempt": "1", "run_id": RUN, "shape_verified": True,
+                    "source_sha": SHA, "workload": p["workload"],
+                }
+                raw = (json.dumps(doc, sort_keys=True) + "\n").encode()
+                self.assertEqual(check(raw, manifest=manifest)["classification"], "PASS")
+                for bad in ({"classification": "PASS"},
+                            {"production_promotable": True},
+                            {"resolved_image_ref": "python:3.14.10-slim"},
+                            {"receipt_sha256": "bogus"},
+                            {"oracle_verified": False}):
+                    with self.subTest(bad=bad):
+                        wrong = dict(doc, result=dict(result, **bad))
+                        corrupted = (json.dumps(wrong, sort_keys=True) + "\n").encode()
+                        with self.assertRaises(v.VerdictError):
+                            check(corrupted, manifest=manifest)
+
+    def test_ocr_candidate_requires_exact_nonpromotable_digest_evidence(self):
+        for manifest in ("requests/gha/cpu-x64-python-ocr-v1.json",
+                         "requests/gha/cpu-arm64-python-ocr-v1.json"):
+            with self.subTest(manifest=manifest):
+                p = m.plan(manifest)
+                versions = {"packages": {"pypdf": "7.0.1", "jsonschema": "4.26.0"},
+                            "tools": {"ghostscript": "10.05.1", "tesseract": "tesseract 5.5.0",
+                                      "poppler": "25.03.0-5+deb13u4"},
+                            "pip_inventory": ["attrs==25.4.0", "jsonschema==4.26.0", "pypdf==7.0.1"],
+                            "debian_inventory": {"ghostscript": "10.05.1~dfsg-1",
+                                                 "poppler-utils": "25.03.0-5+deb13u4",
+                                                 "tesseract-ocr": "5.5.0-1",
+                                                 "tesseract-ocr-eng": "1:4.1.0-2"},
+                            "wheel_inventory": [{"filename": f"package{i}-1.0-py3-none-any.whl",
+                                                 "sha256": f"{i+1:064x}"} for i in range(6)]}
+                version_sha = hashlib.sha256(json.dumps(versions, sort_keys=True,
+                                                       separators=(",", ":")).encode()).hexdigest()
+                result = {
+                    "classification": "PASS_CANDIDATE_ONLY",
+                    "oracle_verified": True,
+                    "candidate_base_ref": "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f",
+                    "built_image_id": "sha256:" + "b" * 64,
+                    "toolchain_versions_sha256": version_sha,
+                    "toolchain_versions": versions,
+                    "receipt_sha256": "d" * 64,
+                    "production_promotable": False,
+                }
+                doc = {
+                    "schema": m.RECEIPT, "assignment_id": p["assignment_id"],
+                    "data_class": "public-synthetic", "observed_architecture": p["expected_machine"],
+                    "qualified": True, "request_path": manifest,
+                    "request_sha256": p["request_sha256"], "requested_runner": p["runner"],
+                    "result": result, "run_attempt": "1", "run_id": RUN,
+                    "shape_verified": True, "source_sha": SHA, "workload": p["workload"],
+                }
+                raw = (json.dumps(doc, sort_keys=True) + "\n").encode()
+                self.assertEqual(check(raw, manifest=manifest)["classification"], "PASS")
+                for invalid in ({"classification": "PASS"},
+                                {"production_promotable": True},
+                                {"candidate_base_ref": "python:3.14.10-slim"},
+                                {"built_image_id": "sha256:" + "0" * 63},
+                                {"toolchain_versions_sha256": "unknown"},
+                                {"toolchain_versions": dict(versions, packages={"pypdf": "9.0.0", "jsonschema": "4.26.0"})},
+                                {"toolchain_versions": dict(versions, pip_inventory=["editable-package @ https://invalid.test"])},
+                                {"toolchain_versions": dict(versions, wheel_inventory=[
+                                    dict(versions["wheel_inventory"][0], sha256="0" * 64),
+                                    *versions["wheel_inventory"][1:],
+                                ])},
+                                {"receipt_sha256": "bogus"},
+                                {"oracle_verified": False}):
+                    altered = dict(doc, result=dict(result, **invalid))
+                    with self.subTest(invalid=invalid), self.assertRaises(v.VerdictError):
+                        check((json.dumps(altered, sort_keys=True) + "\n").encode(), manifest=manifest)
+
+    def test_pinned_public_cpap_parser_receipt_is_candidate_only(self):
+        for manifest in ("requests/gha/cpu-x64-public-cpap-parser-v1.json",
+                         "requests/gha/cpu-arm64-public-cpap-parser-v1.json"):
+            p = m.plan(manifest)
+            result = {
+                "classification": "PASS_CANDIDATE_ONLY",
+                "oracle_verified": True,
+                "upstream_sha": "d14acb58012449af75b0c15c0bfb1eb173b60a1f",
+                "license_sha256": "a" * 64,
+                "passed_synthetic_tests": 44,
+                "receipt_sha256": "b" * 64,
+                "production_promotable": False,
+            }
+            doc = {
+                "schema": m.RECEIPT, "assignment_id": p["assignment_id"],
+                "data_class": "public-synthetic",
+                "observed_architecture": p["expected_machine"], "qualified": True,
+                "request_path": manifest, "request_sha256": p["request_sha256"],
+                "requested_runner": p["runner"], "result": result,
+                "run_attempt": "1", "run_id": RUN, "shape_verified": True,
+                "source_sha": SHA, "workload": p["workload"],
+            }
+            self.assertEqual(check((json.dumps(doc, sort_keys=True) + "\n").encode(),
+                                   manifest=manifest)["classification"], "PASS")
+            for bad in (
+                    {"production_promotable": True},
+                    {"classification": "PASS"},
+                    {"upstream_sha": "0" * 40},
+                    {"license_sha256": "invalid"},
+                    {"passed_synthetic_tests": 0},
+                    {"passed_synthetic_tests": True},
+                    {"passed_synthetic_tests": 501},
+                    {"receipt_sha256": "bad"},
+                    {"oracle_verified": False}):
+                with self.subTest(manifest=manifest, bad=bad):
+                    altered = dict(doc, result=dict(result, **bad))
+                    with self.assertRaises(v.VerdictError):
+                        check((json.dumps(altered, sort_keys=True) + "\n").encode(),
+                              manifest=manifest)
+
     def test_extra_and_duplicate_fields_fail(self):
         d,raw=built()
         d["free_form_shell"]="echo token"
