@@ -111,7 +111,8 @@ def inner_oracle() -> dict:
     except (OSError, ValueError) as exc:
         raise Denied("candidate wheel inventory missing") from exc
     wheels = wheel_doc.get("wheels") if isinstance(wheel_doc, dict) else None
-    if (wheel_doc.get("schema") != "public-python-wheel-candidate/v1"
+    if (not isinstance(wheel_doc, dict)
+            or wheel_doc.get("schema") != "public-python-wheel-candidate/v1"
             or wheel_doc.get("source_kind") != "fixed_public_synthetic_only"
             or not isinstance(wheels, list) or len(wheels) != 6
             or not all(isinstance(w, dict) and set(w) == {"filename", "sha256"}
