@@ -110,7 +110,9 @@ func main(){
   for _,belt:=range []string{"research","engineering"} {
    if err:=qualify(ctx,phase,"old",belt,true,&out);err!=nil {
     // A hard rejection of an obsolete signed session during connect is still a correct stale-token denial.
-    out.Checks=append(out.Checks,check{"old-"+belt+"-sdk-stale-connection-rejected",true})
+    msg:=strings.ToLower(err.Error())
+    acceptedDeny:=strings.Contains(msg,"401")||strings.Contains(msg,"403")||strings.Contains(msg,"unauthorized")||strings.Contains(msg,"forbidden")
+    out.Checks=append(out.Checks,check{"old-"+belt+"-sdk-stale-connection-rejected",acceptedDeny})
    }
   }
  }
@@ -118,8 +120,7 @@ func main(){
  for _,item:=range out.Checks{out.Passed=out.Passed&&item.Passed}
  os.MkdirAll("runtime-receipts",0700)
  data,_:=json.MarshalIndent(out,"","  ")
- os.WriteFile(filepath.Join("runtime-receipts","official-sdk-"+phase+".json"),append(data,'
-'),0600)
+ os.WriteFile(filepath.Join("runtime-receipts","official-sdk-"+phase+".json"),append(data,byte(10)),0600)
  fmt.Println(string(data))
  if !out.Passed {os.Exit(1)}
 }
