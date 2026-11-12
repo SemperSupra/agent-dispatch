@@ -6,8 +6,16 @@ ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     ghostscript tesseract-ocr tesseract-ocr-eng poppler-utils >/dev/null \
     && rm -rf /var/lib/apt/lists/*
-RUN python -m pip install --no-cache-dir --disable-pip-version-check \
-    --only-binary=:all: 'pypdf==7.0.1' 'jsonschema==4.26.0'
+COPY experiments/python-ocr-toolchain/requirements-candidate.txt /opt/requirements-candidate.txt
+COPY experiments/python-ocr-toolchain/wheel_capture.py /opt/wheel_capture.py
+RUN mkdir -p /opt/wheels \
+    && python -m pip download --disable-pip-version-check --only-binary=:all: \
+         --no-deps --dest /opt/wheels -r /opt/requirements-candidate.txt \
+    && python /opt/wheel_capture.py \
+    && python -m pip install --disable-pip-version-check --no-index --no-deps \
+         --find-links=/opt/wheels -r /opt/requirements-candidate.txt \
+    && python -m pip check \
+    && rm -rf /opt/wheels
 COPY --chown=65532:65532 scripts/python_ocr_toolchain_probe.py /opt/probe.py
 USER 65532:65532
 WORKDIR /tmp
