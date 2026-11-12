@@ -181,7 +181,7 @@ def _execute(workload: str, timeout: int) -> dict:
         version_doc = doc.get("toolchain_versions") if isinstance(doc, dict) else None
         version_shape = (
             isinstance(version_doc, dict)
-            and set(version_doc) == {"packages", "tools", "pip_inventory", "debian_inventory"}
+            and set(version_doc) == {"packages", "tools", "pip_inventory", "debian_inventory", "wheel_inventory"}
             and version_doc.get("packages") == {"pypdf": "7.0.1", "jsonschema": "4.26.0"}
             and version_doc.get("tools") == {"ghostscript": "10.05.1",
                                               "tesseract": "tesseract 5.5.0",
@@ -197,6 +197,15 @@ def _execute(workload: str, timeout: int) -> dict:
             and all(isinstance(v, str) and
                     re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
                     for v in version_doc["debian_inventory"].values())
+            and isinstance(version_doc.get("wheel_inventory"), list)
+            and len(version_doc["wheel_inventory"]) == 6
+            and all(isinstance(w, dict) and set(w) == {"filename", "sha256"}
+                    and isinstance(w["filename"], str)
+                    and re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", w["filename"])
+                    and isinstance(w["sha256"], str)
+                    and re.fullmatch(r"[a-f0-9]{64}", w["sha256"])
+                    for w in version_doc["wheel_inventory"])
+            and len({w["filename"] for w in version_doc["wheel_inventory"]}) == 6
         )
         computed_version_sha = (
             hashlib.sha256(json.dumps(version_doc, sort_keys=True,
