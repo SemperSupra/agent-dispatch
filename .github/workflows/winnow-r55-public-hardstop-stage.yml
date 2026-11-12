@@ -1,0 +1,67 @@
+name: Winnow R55 public hard-stop + tmpfs bounded stage
+run-name: winnow-r55-${{ github.sha }}
+on:
+  push:
+    branches:
+      - rdte/winnow-r55-public-hardstop-stage-20261112
+    paths:
+      - '.github/workflows/winnow-r55-public-hardstop-stage.yml'
+      - 'experiments/winnow-r55-hardstop/**'
+permissions:
+  contents: read
+jobs:
+  hardstop-stage:
+    name: "native hardstop / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Verify exact public source and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "SemperSupra/agent-dispatch"
+          test "$GITHUB_REF" = "refs/heads/rdte/winnow-r55-public-hardstop-stage-20261112"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo "R55_WRONG_ARCH"; exit 1 ;;
+          esac
+          echo "R55_EXACT_SHA=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Execute isolated synthetic noncooperative hard-stop and quota repetitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for b in sudo unshare setpriv mount python3; do command -v "$b" >/dev/null || { echo "R55_MISSING=$b"; exit 2; }; done
+          TMP="$(mktemp -d /tmp/r55.XXXXXX)"
+          trap 'rm -rf -- "$TMP"' EXIT
+          chmod 0755 "$TMP"
+          mkdir "$TMP/stage"
+          install -m 0644 experiments/winnow-r55-hardstop/probe.py "$TMP/probe.py"
+          HM="$(readlink /proc/self/ns/mnt)"
+          HN="$(readlink /proc/self/ns/net)"
+          sudo -n unshare --mount --net --propagation private -- /bin/bash -c '
+            set -euo pipefail
+            mount -t tmpfs -o size=256k,mode=1777,nosuid,nodev,noexec tmpfs "$1/stage"
+            exec /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+              python3 "$1/probe.py" "$2" "$3" "$1/stage"
+          ' _ "$TMP" "$HM" "$HN" | tee r55-result.txt
+          grep -F "R55_HARDSTOP_TMPFS_SYNTHETIC_PASS" r55-result.txt
+          echo "R55_PUBLIC_NATIVE_PASS=$GITHUB_SHA"
+      - name: Preserve sanitized results only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-r55-${{ matrix.arch }}-${{ github.run_id }}
+          path: r55-result.txt
+          if-no-files-found: warn
+          retention-days: 7
