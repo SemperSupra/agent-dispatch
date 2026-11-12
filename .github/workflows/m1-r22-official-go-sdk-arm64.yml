@@ -1,0 +1,139 @@
+name: M1 R22 native ARM64 official Go SDK selected and denied tool invocation
+on:
+  push:
+    branches: [rdte/m1-r22-go-sdk-arm64-20261112]
+    paths: [.github/workflows/m1-r22-official-go-sdk-arm64.yml, experiments/m1-r22-go-sdk/**]
+  pull_request:
+    paths: [.github/workflows/m1-r22-official-go-sdk-arm64.yml, experiments/m1-r22-go-sdk/**]
+permissions:
+  contents: read
+jobs:
+  official-go-sdk-C2:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Immutable approved public reference harness, no private repo admission
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ea198e844e6989fc1a9bea77ab6367725d34ac9a
+          path: jwt-harness
+      - name: Immutable Go GitOps source for schema and manifest digest
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: 32790dbe1a64a4d0ca8e0394447f1803383f0a34
+          path: gitops
+      - name: Create two actual synthetic Git commits, validate manifest digests
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-receipts synthetic-belt-git
+          (
+            cd synthetic-belt-git
+            git init -q
+            git config user.name "M1 Fixture"
+            git config user.email "synthetic@example.invalid"
+            cat > belts.json <<'JSON'
+          {"schema":"m1.gitops.synthetic/v1","catalog":["alpha_echo","beta_echo"],"belts":{"research":{"owner":"shared","tools":["alpha_echo"]},"engineering":{"owner":"shared","tools":["beta_echo"]}}}
+          JSON
+            git add belts.json
+            git commit -qm "synthetic immutable old belt assignments"
+            old=$(git rev-parse HEAD)
+            cat > belts.json <<'JSON'
+          {"schema":"m1.gitops.synthetic/v1","catalog":["alpha_echo","beta_echo"],"belts":{"research":{"owner":"shared","tools":["beta_echo"]},"engineering":{"owner":"shared","tools":["alpha_echo"]}}}
+          JSON
+            git add belts.json
+            git commit -qm "synthetic immutable swapped belt assignments"
+            new=$(git rev-parse HEAD)
+            git show "$old:belts.json" > ../runtime-receipts/old.json
+            git show "$new:belts.json" > ../runtime-receipts/new.json
+            printf '{"oldGitCommit":"%s","newGitCommit":"%s"}\n' "$old" "$new" > ../runtime-receipts/commit-witness.json
+            test "$old" != "$new"
+          )
+          go -C gitops/experiments/mcp-gitops-m1 run ./cmd/validate \
+            "$PWD/runtime-receipts/old.json" > runtime-receipts/old-digest.json
+          go -C gitops/experiments/mcp-gitops-m1 run ./cmd/validate \
+            "$PWD/runtime-receipts/new.json" > runtime-receipts/new-digest.json
+          python3 - <<'PY'
+          import json
+          a=json.load(open("runtime-receipts/old-digest.json"))["snapshotDigest"]
+          b=json.load(open("runtime-receipts/new-digest.json"))["snapshotDigest"]
+          assert a!=b and len(a)==len(b)==64
+          print("Actual Git commits and two different Go-validated snapshots accepted")
+          PY
+      - name: Generate disposable signed JWT issuer and revision-bound login contexts
+        run: |
+          python3 jwt-harness/experiments/mcp-jwt-authz/make_issuer.py
+          chmod 600 private.pem token-*.txt
+          python3 experiments/supratoolbelt-gitops-e2e/probe.py prepare old
+          python3 experiments/supratoolbelt-gitops-e2e/probe.py prepare new
+      - name: Start two public-safe loopback MCP upstreams
+        run: |
+          python3 jwt-harness/experiments/mcp-jwt-authz/fixture.py --serve --label alpha --port 39101 &
+          python3 jwt-harness/experiments/mcp-jwt-authz/fixture.py --serve --label beta --port 39102 &
+          for port in 39101 39102;do
+            for i in $(seq 1 20);do
+              if curl -fsS "http://127.0.0.1:$port/health";then break;fi
+              sleep 1
+            done
+          done
+      - name: Prepare exact digest-pinned rootless-compatible gateway process launch
+        run: |
+          docker pull cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
+          cat > start-gateway.sh <<'SH'
+          #!/bin/sh
+          set -eu
+          stage=$1
+          docker run -d --name supra-gitops-gateway --network host --read-only --cap-drop ALL \
+            --security-opt=no-new-privileges \
+            --mount "type=bind,source=$PWD/runtime-receipts/$stage-config.yaml,target=/config.yaml,readonly" \
+            --mount "type=bind,source=$PWD/jwks.json,target=/keys/jwks.json,readonly" \
+            cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b -f /config.yaml
+          for i in $(seq 1 25);do
+            code=$(curl --silent -o /dev/null --max-time 2 -w '%{http_code}' http://127.0.0.1:39200/mcp || true)
+            if [ "$code" = 401 ] || [ "$code" = 403 ];then exit 0;fi
+            if ! docker ps --filter name=supra-gitops-gateway --format '{{.Names}}' | grep -qx supra-gitops-gateway;then
+              docker logs --tail 35 supra-gitops-gateway;exit 1
+            fi
+            sleep 1
+          done
+          docker logs --tail 35 supra-gitops-gateway
+          exit 1
+          SH
+          chmod +x start-gateway.sh
+      - name: Resolve pinned official Go SDK and checksum-verifiable dependencies in disposable runner
+        run: |
+          set -euo pipefail
+          go -C experiments/m1-r22-go-sdk mod tidy
+          go -C experiments/m1-r22-go-sdk list -m -json all > runtime-receipts/go-sdk-module-versions.json
+          test -s experiments/m1-r22-go-sdk/go.sum
+      - name: Stage old Git snapshot and test real official Go SDK signed client tool calls
+        run: |
+          ./start-gateway.sh old
+          go -C experiments/m1-r22-go-sdk run . old
+      - name: Recreate gateway at new Git snapshot and SDK must reject old signed contexts
+        run: |
+          docker rm -f supra-gitops-gateway
+          ./start-gateway.sh new
+          go -C experiments/m1-r22-go-sdk run . new
+      - name: Destroy all synthetic credentials, runtimes and private working files
+        if: always()
+        run: |
+          docker rm -f supra-gitops-gateway >/dev/null 2>&1 || true
+          rm -rf private.pem jwks.json token-*.txt synthetic-belt-git \
+            runtime-receipts/*.jwt runtime-receipts/*-config.yaml start-gateway.sh
+          test ! -e private.pem
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-r22-arm64-official-go-sdk-actual-invocation
+          path: |
+            runtime-receipts/commit-witness.json
+            runtime-receipts/old-digest.json
+            runtime-receipts/new-digest.json
+            runtime-receipts/official-sdk-old.json
+            runtime-receipts/official-sdk-new.json
+            runtime-receipts/go-sdk-module-versions.json
