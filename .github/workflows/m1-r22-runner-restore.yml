@@ -1,0 +1,180 @@
+name: M1 R22 cross-runner disposable application checkpoint and restore (AMD64 to ARM64)
+on:
+  push:
+    branches: [rdte/m1-r22-runner-handoff-20261112]
+    paths:
+      - ".github/workflows/m1-r22-runner-restore.yml"
+      - "experiments/m1-r22-runner-restore/**"
+  pull_request:
+    paths:
+      - ".github/workflows/m1-r22-runner-restore.yml"
+      - "experiments/m1-r22-runner-restore/**"
+permissions:
+  contents: read
+jobs:
+  source-node-amd64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start actual immutable-source synthetic saved-belt service in disposable node A
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-node runtime-snapshot
+          docker pull python:3.12-alpine
+          docker image inspect python:3.12-alpine --format '{{json .RepoDigests}}' > runtime-snapshot/image-digests-amd64.json
+          docker run -d --name m1-r22-node-A --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --memory 256m --cpus 1 --pids-limit 128 --user "$(id -u):$(id -g)" \
+            --publish 127.0.0.1:38081:38081 \
+            --mount "type=bind,source=$PWD/runtime-node,target=/state" \
+            --mount "type=bind,source=$PWD/experiments/m1-r22-runner-restore/state_service.py,target=/app.py,readonly" \
+            -e STATE_DB=/state/belts.sqlite \
+            python:3.12-alpine python /app.py
+          ok=0
+          for n in $(seq 1 25); do
+            if curl -fsS http://127.0.0.1:38081/health >/dev/null; then ok=1; break; fi
+            sleep .4
+          done
+          test "$ok" = 1
+      - name: Write, read and concurrency-version-deny synthetic state before complete runtime destruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(curl -fsS -H 'Content-Type: application/json' -d '{"id":"research","expected_revision":0,"selected":"alpha"}' http://127.0.0.1:38081/belt)
+          printf '%s\n' "$result" > runtime-snapshot/node-a-response.json
+          curl -fsS 'http://127.0.0.1:38081/belt?id=research' > runtime-snapshot/node-a-read.json
+          status=$(curl -sS -o runtime-snapshot/stale-denial.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' -d '{"id":"research","expected_revision":0,"selected":"beta"}' \
+            http://127.0.0.1:38081/belt)
+          test "$status" = 409
+          python3 - <<'PY'
+          import json
+          a=json.load(open('runtime-snapshot/node-a-read.json'))
+          assert a=={'id':'research','revision':1,'selected':'alpha'},a
+          b=json.load(open('runtime-snapshot/stale-denial.json'))
+          assert b['error']=='stale-write' and b['revision']==1,b
+          PY
+          docker rm -f m1-r22-node-A
+          cp runtime-node/belts.sqlite runtime-snapshot/belts.sqlite
+          (cd runtime-snapshot && sha256sum belts.sqlite > belts.sqlite.sha256)
+          python3 - <<'PY'
+          import json,platform,secrets,os
+          record={"schema":"m1-r22-cross-runner-recovery-v1","phase":"source",
+                  "source_runner_arch":os.getenv("RUNNER_ARCH"),
+                  "source_runtime_type":"actual disposable OCI process on disposable public GHA AMD64 VM",
+                  "source_nonce":secrets.token_hex(16),
+                  "state":{"id":"research","selected":"alpha","revision":1},
+                  "checkpoint_boundary":"artifact uploaded after app process destroyed",
+                  "limitations":["snapshot checkpoint, NOT continuously available off-host live DB",
+                                 "SQLite contains public synthetic belt only, zero provider credentials"]}
+          open("runtime-snapshot/source-receipt.json","w").write(json.dumps(record,indent=2)+"\n")
+          PY
+          rm -rf runtime-node
+      - name: Ensure source container is gone and upload state to external artifact authority
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f m1-r22-node-A >/dev/null 2>&1 || true
+          test -z "$(docker ps -a --filter name=m1-r22-node-A --format '{{.Names}}')"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: m1-r22-synthetic-off-runner-state-checkpoint
+          path: runtime-snapshot/
+          if-no-files-found: error
+          retention-days: 7
+  recovery-node-arm64:
+    needs: source-node-amd64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Materialize immutable external checkpoint on independent native ARM64 runner
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: m1-r22-synthetic-off-runner-state-checkpoint
+          path: restored-snapshot
+      - name: Verify retained SQLite snapshot and negative tamper check before app restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd restored-snapshot && sha256sum --check belts.sqlite.sha256)
+          mkdir -p runtime-node recovery-receipts
+          cp restored-snapshot/belts.sqlite runtime-node/belts.sqlite
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os,secrets
+          original=pathlib.Path('restored-snapshot/belts.sqlite').read_bytes()
+          tampered=bytearray(original)
+          tampered[len(tampered)//2]^=1
+          declared=pathlib.Path('restored-snapshot/belts.sqlite.sha256').read_text().split()[0]
+          assert hashlib.sha256(original).hexdigest()==declared
+          assert hashlib.sha256(tampered).hexdigest()!=declared
+          source=json.loads(pathlib.Path('restored-snapshot/source-receipt.json').read_text())
+          assert source['source_runner_arch'] in ('X64','X86_64')
+          r={"schema":"m1-r22-cross-runner-recovery-v1","phase":"restore",
+             "source_nonce":source['source_nonce'],"restore_nonce":secrets.token_hex(16),
+             "source_arch":source['source_runner_arch'],"recovery_arch":os.getenv('RUNNER_ARCH'),
+             "expected_revision":source['state']['revision'],
+             "checkpoint_sha256":declared,"corruption_rejected":True,
+             "limits":["separate GHA job/runner VM, but GitHub artifact is snapshot not live database",
+                       "No production issuer, durable audit, OAuth, GitOps workset, WebUI encryption keys",
+                       "No real systemd/Quadlet or 24h soak"]}
+          assert r['restore_nonce']!=r['source_nonce']
+          assert r['recovery_arch']=='ARM64'
+          pathlib.Path('recovery-receipts/restore.json').write_text(json.dumps(r,sort_keys=True,indent=2)+'\n')
+          PY
+      - name: Start replacement disposable service on new ARM64 machine and prove restored authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull python:3.12-alpine
+          docker image inspect python:3.12-alpine --format '{{json .RepoDigests}}' > recovery-receipts/image-digests-arm64.json
+          docker run -d --name m1-r22-node-B --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --memory 256m --cpus 1 --pids-limit 128 --user "$(id -u):$(id -g)" \
+            --publish 127.0.0.1:38081:38081 \
+            --mount "type=bind,source=$PWD/runtime-node,target=/state" \
+            --mount "type=bind,source=$PWD/experiments/m1-r22-runner-restore/state_service.py,target=/app.py,readonly" \
+            -e STATE_DB=/state/belts.sqlite \
+            python:3.12-alpine python /app.py
+          ok=0
+          for n in $(seq 1 25); do
+            if curl -fsS http://127.0.0.1:38081/health >/dev/null; then ok=1; break; fi
+            sleep .4
+          done
+          test "$ok" = 1
+          curl -fsS 'http://127.0.0.1:38081/belt?id=research' > recovery-receipts/read-after-restore.json
+          python3 - <<'PY'
+          import json
+          state=json.load(open('recovery-receipts/read-after-restore.json'))
+          assert state=={"id":"research","revision":1,"selected":"alpha"},state
+          PY
+          curl -fsS -H 'Content-Type: application/json' -d '{"id":"research","expected_revision":1,"selected":"beta"}' \
+            http://127.0.0.1:38081/belt > recovery-receipts/updated-after-restore.json
+          python3 - <<'PY'
+          import json,pathlib
+          got=json.load(open('recovery-receipts/updated-after-restore.json'))
+          assert got=={"id":"research","revision":2,"selected":"beta"},got
+          path=pathlib.Path('recovery-receipts/restore.json')
+          r=json.loads(path.read_text());r['restore_validated']=True
+          r['state_before_recovery_write']={"id":"research","revision":1,"selected":"alpha"}
+          r['state_after_recovery_write']=got;r['passed']=True
+          path.write_text(json.dumps(r,sort_keys=True,indent=2)+'\n')
+          PY
+      - name: Destroy replacement node and local restored state
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f m1-r22-node-B >/dev/null 2>&1 || true
+          rm -rf runtime-node restored-snapshot
+          test ! -e runtime-node
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-r22-separate-runner-arm64-recovery-receipt
+          path: recovery-receipts/
+          if-no-files-found: warn
+          retention-days: 7
