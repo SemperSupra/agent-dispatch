@@ -35,6 +35,8 @@ on:
       - 'scripts/gha_workload_request.py'
       - 'scripts/python_oci_smoke.py'
       - 'scripts/python_ocr_toolchain_probe.py'
+      - 'scripts/public_cpap_parser_bakeoff.py'
+      - 'tests/test_public_cpap_parser_bakeoff.py'
       - 'tests/test_python_ocr_toolchain_probe.py'
       - 'experiments/python-ocr-toolchain/**'
       - 'tests/test_python_oci_smoke.py'
@@ -77,6 +79,7 @@ jobs:
           python3 -m unittest -v tests/test_gha_workload_request.py
           python3 -m unittest -v tests/test_python_oci_smoke.py
           python3 -m unittest -v tests/test_python_ocr_toolchain_probe.py
+          python3 -m unittest -v tests/test_public_cpap_parser_bakeoff.py
           python3 -m unittest -v tests/test_provider_packet_contract.py
           python3 -m unittest -v tests/test_microsoft_devproxy_contract.py
           python3 -m unittest -v tests/test_microsoft_dispatch_profile.py
@@ -197,6 +200,10 @@ jobs:
             request: requests/gha/cpu-x64-python-ocr-v1.json
           - runner: ubuntu-24.04-arm
             request: requests/gha/cpu-arm64-python-ocr-v1.json
+          - runner: ubuntu-24.04
+            request: requests/gha/cpu-x64-public-cpap-parser-v1.json
+          - runner: ubuntu-24.04-arm
+            request: requests/gha/cpu-arm64-public-cpap-parser-v1.json
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
