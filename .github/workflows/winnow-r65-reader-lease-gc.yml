@@ -1,0 +1,62 @@
+name: Winnow R65 public local reader lease / generation GC
+run-name: winnow-r65-${{ github.sha }}
+on:
+  push:
+    branches: [rdte/winnow-r65-public-reader-lease-gc-20261112]
+    paths:
+      - '.github/workflows/winnow-r65-reader-lease-gc.yml'
+      - 'experiments/winnow-r65-reader-lease/**'
+permissions:
+  contents: read
+jobs:
+  reader-lease:
+    name: "reader lease + GC / ${{ matrix.arch }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, arch: amd64}
+          - {runner: ubuntu-24.04-arm, arch: arm64}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          persist-credentials: false
+      - name: Verify exact public branch and native architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "SemperSupra/agent-dispatch"
+          test "$GITHUB_REF" = "refs/heads/rdte/winnow-r65-public-reader-lease-gc-20261112"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          case "${{ matrix.arch }}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo R65_ARCH_INVALID; exit 1 ;;
+          esac
+          echo "R65_EXACT_HEAD=$GITHUB_SHA arch=${{ matrix.arch }}"
+      - name: Run synthetic two-reader lease and GC negative cases in isolated netns
+        shell: bash
+        run: |
+          set -euo pipefail
+          for x in sudo unshare setpriv python3; do command -v "$x" >/dev/null || { echo "R65_MISSING=$x"; exit 2; }; done
+          TMP="$(mktemp -d /tmp/winnow-r65.XXXXXX)"
+          trap 'rm -rf -- "$TMP"' EXIT
+          chmod 0755 "$TMP"
+          mkdir "$TMP/work"
+          chmod 0777 "$TMP/work"
+          install -m 0644 experiments/winnow-r65-reader-lease/probe.py "$TMP/probe.py"
+          HOST_NS="$(readlink /proc/self/ns/net)"
+          sudo -n unshare --net -- /usr/bin/setpriv --reuid=65534 --regid=65534 --clear-groups \
+            python3 -B "$TMP/probe.py" "$HOST_NS" "$TMP/work" | tee r65-result.txt
+          grep -F 'R65_LOCAL_READER_GC_LEASE_PASS' r65-result.txt
+          echo "R65_PUBLIC_NATIVE_PASS=$GITHUB_SHA"
+      - name: Preserve only public synthetic results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: winnow-r65-${{ matrix.arch }}-${{ github.run_id }}
+          path: r65-result.txt
+          if-no-files-found: warn
+          retention-days: 7
