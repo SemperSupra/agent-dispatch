@@ -1,0 +1,5 @@
+# R62 — local advisory-lock two-writer serialization
+
+R59 showed deterministic lost updates in a single atomic pointer with two writers. This independent public-native experiment adds `fcntl.flock` for *local filesystem only*, protecting old-state read, new immutable generation creation and pointer update. Three repetitions each of (A then B serialized, both writes visible) and (A crashes while holding lock after staging, B succeeds with no phantom A commit). Expected failure exit 77 for A is deliberate. Local detached/temporary generation files are cleaned by the synthetic harness, not by a deployed retention policy.
+
+Runs on disposable public GitHub Actions AMD64 and ARM64 using only synthetic JSON and stdlib. The net namespace is route-less, execution is unprivileged, zero caps, no private Winnow code or real media. Not a production transaction: do **not** infer multi-host or NFS lock safety, concurrent reader and generation retention/GC, power-loss durability, symlink defense, product implementation or source rights. No merge/release/deploy.
