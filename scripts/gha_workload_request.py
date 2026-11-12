@@ -178,6 +178,22 @@ def _execute(workload: str, timeout: int) -> dict:
         image = doc.get("base_image_ref") if isinstance(doc, dict) else None
         image_id = doc.get("built_image_id") if isinstance(doc, dict) else None
         version_sha = doc.get("toolchain_versions_sha256") if isinstance(doc, dict) else None
+        version_doc = doc.get("toolchain_versions") if isinstance(doc, dict) else None
+        version_shape = (
+            isinstance(version_doc, dict) and set(version_doc) == {"packages", "tools"}
+            and isinstance(version_doc.get("packages"), dict)
+            and set(version_doc["packages"]) == {"pypdf", "jsonschema"}
+            and isinstance(version_doc.get("tools"), dict)
+            and set(version_doc["tools"]) == {"ghostscript", "tesseract", "poppler"}
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+():-]{0,127}", v)
+                    for values in version_doc.values() for v in values.values())
+        )
+        computed_version_sha = (
+            hashlib.sha256(json.dumps(version_doc, sort_keys=True,
+                                     separators=(",", ":")).encode()).hexdigest()
+            if version_shape else None
+        )
         accepted = (
             isinstance(doc, dict)
             and doc.get("schema") == "public-python-ocr-toolchain/v1"
@@ -194,6 +210,7 @@ def _execute(workload: str, timeout: int) -> dict:
             and image == "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f"
             and isinstance(image_id, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", image_id) is not None
             and isinstance(version_sha, str) and re.fullmatch(r"[a-f0-9]{64}", version_sha) is not None
+            and version_shape and computed_version_sha == version_sha
         )
         return {
             "oracle_verified": bool(accepted),
@@ -201,6 +218,7 @@ def _execute(workload: str, timeout: int) -> dict:
             "candidate_base_ref": image if accepted else None,
             "built_image_id": image_id if accepted else None,
             "toolchain_versions_sha256": version_sha if accepted else None,
+            "toolchain_versions": version_doc if accepted else None,
             "receipt_sha256": hashlib.sha256(raw).hexdigest() if accepted else None,
             "production_promotable": False,
         }
