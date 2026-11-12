@@ -96,6 +96,16 @@ def inner_oracle() -> dict:
         ocr = command(["tesseract", str(png), "stdout", "-l", "eng", "--psm", "6"]).decode("utf8")
         if FIXTURE_TEXT not in re.sub("[^A-Z]", "", ocr.upper()):
             raise Denied("Tesseract OCR oracle failed")
+    pip_inventory = command([sys.executable, "-m", "pip", "freeze", "--all"]).decode().splitlines()
+    if (not 2 <= len(pip_inventory) <= 64
+            or not all(re.fullmatch(r"[A-Za-z0-9_.-]+==[A-Za-z0-9._+!:-]+", line)
+                       for line in pip_inventory)):
+        raise Denied("unqualified dependency inventory")
+    debian_names = ("ghostscript", "poppler-utils", "tesseract-ocr", "tesseract-ocr-eng")
+    debian_inventory = {
+        name: command(["dpkg-query", "-W", "-f=${Version}", name]).decode().strip()
+        for name in debian_names
+    }
     return {
         "schema": SCHEMA, "source_kind": "fixed_public_synthetic_only",
         "fixture_sha256": FIXTURE_HASH,
@@ -104,6 +114,8 @@ def inner_oracle() -> dict:
         "python": ".".join(map(str, sys.version_info[:3])),
         "machine": platform.machine(),
         "packages": {n: importlib.metadata.version(n) for n in ("pypdf", "jsonschema")},
+        "pip_inventory": pip_inventory,
+        "debian_inventory": debian_inventory,
         "tools": {
             "ghostscript": command(["gs", "--version"]).decode().strip(),
             "tesseract": command(["tesseract", "--version"]).decode().splitlines()[0],
@@ -164,14 +176,31 @@ def outer_candidate(receipt_path: Path) -> dict:
                                           "poppler-pages", "ghostscript-rewrite", "poppler-raster",
                                           "tesseract-ocr"]):
             raise Denied("toolchain evidence mismatch")
-        versions = {"packages": inner.get("packages"), "tools": inner.get("tools")}
+        versions = {
+            "packages": inner.get("packages"), "tools": inner.get("tools"),
+            "pip_inventory": inner.get("pip_inventory"),
+            "debian_inventory": inner.get("debian_inventory"),
+        }
         if (not isinstance(versions["packages"], dict)
                 or set(versions["packages"]) != {"pypdf", "jsonschema"}
                 or not all(isinstance(v, str) and 0 < len(v) < 128 for v in versions["packages"].values())
                 or not isinstance(versions["tools"], dict)
                 or set(versions["tools"]) != {"ghostscript", "tesseract", "poppler"}
                 or not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+():-]{0,127}", v)
-                           for v in versions["tools"].values())):
+                           for v in versions["tools"].values())
+                or versions["packages"] != {"pypdf": "7.0.1", "jsonschema": "4.26.0"}
+                or versions["tools"] != {"ghostscript": "10.05.1",
+                                           "tesseract": "tesseract 5.5.0",
+                                           "poppler": "25.03.0-5+deb13u4"}
+                or not isinstance(versions["pip_inventory"], list)
+                or not 2 <= len(versions["pip_inventory"]) <= 64
+                or not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_.-]+==[A-Za-z0-9._+!:-]+", v)
+                           for v in versions["pip_inventory"])
+                or not isinstance(versions["debian_inventory"], dict)
+                or set(versions["debian_inventory"]) != {
+                    "ghostscript", "poppler-utils", "tesseract-ocr", "tesseract-ocr-eng"}
+                or not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,127}", v)
+                           for v in versions["debian_inventory"].values())):
             raise Denied("incomplete toolchain inventory")
         version_digest = hashlib.sha256(json.dumps(versions, sort_keys=True,
                                                     separators=(",", ":")).encode()).hexdigest()
