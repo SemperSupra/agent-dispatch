@@ -82,7 +82,7 @@ jobs:
           chmod 600 synthetic-admin-password.txt ephemeral-token.txt candidate-data/mcp_settings.json
           docker pull samanhappy/mcphub@sha256:a6fb457b1218948cc79c9865baa5fa0c7f689f5af50a2369eea249cf5dd508cf
           docker run -d --name m1-three-hub --network m1-r21-three-net \
-            --publish 127.0.0.1:3300:3000 --cap-drop ALL --security-opt=no-new-privileges \
+            --publish 127.0.0.1:3300:3000 --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt=no-new-privileges \
             --memory 2g --cpus 2 --pids-limit 256 \
             --mount "type=bind,source=$PWD/candidate-data,target=/app/data" \
             -e ADMIN_PASSWORD="$(cat synthetic-admin-password.txt)" -e DISABLE_WEB=true \
@@ -93,7 +93,11 @@ jobs:
             if [ "$status" != 000 ]; then ready=1;break;fi
             sleep 1
           done
-          test "$ready" = 1
+          if [ "$ready" != 1 ]; then
+            docker inspect --format 'hub status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' m1-three-hub || true
+            docker logs --tail 60 m1-three-hub 2>&1 | python3 -c 'import pathlib,sys; t=sys.stdin.read(); files=["synthetic-admin-password.txt","ephemeral-token.txt"]; [None for f in files if not pathlib.Path(f).exists()]; [(lambda v:globals().update(t=globals()["t"].replace(v,"[REDACTED]")))(pathlib.Path(f).read_text().strip()) for f in files if pathlib.Path(f).exists()]; print(t[-7000:])'
+            exit 1
+          fi
           python3 - <<'PY'
           import pathlib,sys,time
           sys.path.insert(0,"mcphub-harness/experiments/mcp-toolbelt-bakeoff")
