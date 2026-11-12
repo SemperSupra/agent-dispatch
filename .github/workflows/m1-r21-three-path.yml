@@ -1,4 +1,4 @@
-name: M1 R21 same-host direct Agentgateway and MCPHub measured candidate comparison
+name: M1 R21 ARM64 same-host direct Agentgateway and MCPHub candidate qualification
 on:
   push:
     branches: [rdte/m1-r21-three-path-g3-20261112]
@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   same-host-three-path:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 16
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -150,7 +150,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: m1-r21-same-runner-three-path-receipts
+          name: m1-r21-arm64-same-runner-three-path-receipts
           path: |
             runtime-receipts/old-digest.json
             three-path-receipts/fixture-image-resolved-digest.json
