@@ -62,6 +62,10 @@ def run(receipt_path: Path) -> dict:
         license_text = (src / "LICENSE").read_bytes()
         if b"MIT License" not in license_text[:300] or len(license_text) > 16_000:
             raise NotQualified("upstream license gate failed")
+        # GTest is a test-only OS dependency installed on this disposable runner.
+        # Versions are not pinned here: this bakeoff cannot authorize release.
+        command(["sudo", "apt-get", "update", "-qq"], timeout=50)
+        command(["sudo", "apt-get", "install", "-y", "-qq", "libgtest-dev"], timeout=60)
         # Every tested file is synthetic: in-memory generated EDF, event blocks,
         # STR family labels, AirSense11 protobuf and EDF record-count fixtures.
         # Explicit filters intentionally avoid fixtures from real donor cards.
