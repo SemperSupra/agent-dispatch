@@ -41,7 +41,7 @@ func toolText(result *mcp.CallToolResult) string {
  return string(b)
 }
 func qualify(ctx context.Context, phase,profile,belt string, stale bool, rec *receipt) error {
-  filename:=filepath.Join("runtime-receipts",profile+"-"+belt+".jwt")
+  filename:=filepath.Join("..","..","runtime-receipts",profile+"-"+belt+".jwt")
   secret,err:=os.ReadFile(filename)
   if err!=nil{return fmt.Errorf("token fixture missing: %w",err)}
   token:=strings.TrimSpace(string(secret))
@@ -118,9 +118,9 @@ func main(){
  }
  out.Passed=out.Error==""&&len(out.Checks)>0
  for _,item:=range out.Checks{out.Passed=out.Passed&&item.Passed}
- os.MkdirAll("runtime-receipts",0700)
+ os.MkdirAll(filepath.Join("..","..","runtime-receipts"),0700)
  data,_:=json.MarshalIndent(out,"","  ")
- os.WriteFile(filepath.Join("runtime-receipts","official-sdk-"+phase+".json"),append(data,byte(10)),0600)
+ os.WriteFile(filepath.Join("..","..","runtime-receipts","official-sdk-"+phase+".json"),append(data,byte(10)),0600)
  fmt.Println(string(data))
  if !out.Passed {os.Exit(1)}
 }
