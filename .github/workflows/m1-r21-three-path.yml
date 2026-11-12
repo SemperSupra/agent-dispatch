@@ -1,0 +1,157 @@
+name: M1 R21 same-host direct Agentgateway and MCPHub measured candidate comparison
+on:
+  push:
+    branches: [rdte/m1-r21-three-path-g3-20261112]
+    paths:
+      - ".github/workflows/m1-r21-three-path.yml"
+      - "experiments/supratoolbelt-r21-three-path/**"
+  pull_request:
+    paths:
+      - ".github/workflows/m1-r21-three-path.yml"
+      - "experiments/supratoolbelt-r21-three-path/**"
+permissions:
+  contents: read
+jobs:
+  same-host-three-path:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: b30530a236a564182379379ebfc3ed6c720a1d9a
+          path: mcphub-harness
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ea198e844e6989fc1a9bea77ab6367725d34ac9a
+          path: jwt-harness
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: 32790dbe1a64a4d0ca8e0394447f1803383f0a34
+          path: gitops
+      - name: Actual synthetic upstreams in disposable loopback-published containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p three-path-receipts runtime-receipts candidate-data
+          docker network create --subnet 172.28.84.0/24 m1-r21-three-net
+          docker pull python:3.12-alpine
+          docker image inspect python:3.12-alpine --format '{{json .RepoDigests}}' > three-path-receipts/fixture-image-resolved-digest.json
+          for name in alpha beta; do
+            port=39101; ip=172.28.84.2
+            if [ "$name" = beta ]; then port=39102;ip=172.28.84.3;fi
+            docker run -d --name r21-mcp-$name --network m1-r21-three-net --ip "$ip" \
+              --publish 127.0.0.1:$port:$port --read-only --cap-drop ALL --security-opt=no-new-privileges \
+              --mount "type=bind,source=$PWD/mcphub-harness/experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py,target=/fixture.py,readonly" \
+              python:3.12-alpine python /fixture.py --bind 0.0.0.0 --port "$port" --label "$name"
+          done
+          for port in 39101 39102; do
+            ready=0
+            for n in $(seq 1 30); do
+              if curl -fsS "http://127.0.0.1:$port/health" >/dev/null; then ready=1;break;fi
+              sleep 0.5
+            done
+            test "$ready" = 1
+          done
+      - name: Disposable MCPHub managed-group configuration and ephemeral credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib,secrets
+          p=secrets.token_urlsafe(36); t=secrets.token_urlsafe(36)
+          obj={"mcpServers":{
+             "alpha":{"type":"streamable-http","url":"http://r21-mcp-alpha:39101/mcp","protocolNegotiation":"legacy","visibility":"public"},
+             "beta":{"type":"streamable-http","url":"http://r21-mcp-beta:39102/mcp","protocolNegotiation":"legacy","visibility":"public"}},
+             "systemConfig":{"routing":{"enableGlobalRoute":True,"enableBearerAuth":True},
+               "activityLog":{"storeToolPayload":False},
+               "network":{"allowedCidrs":["172.28.84.2/32","172.28.84.3/32"]}},
+             "bearerKeys":[{"id":"11111111-2222-4333-8444-555555555555","name":"m1-public-synthetic",
+               "tokenHash":hashlib.sha256(t.encode()).hexdigest(),"tokenPrefix":t[:12],
+               "enabled":True,"kind":"system","accessType":"all","allowedGroups":[],"allowedServers":[]}],
+             "users":[],"prompts":[],"resources":[]}
+          pathlib.Path("synthetic-admin-password.txt").write_text(p)
+          pathlib.Path("ephemeral-token.txt").write_text(t)
+          pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(obj))
+          PY
+          chmod 600 synthetic-admin-password.txt ephemeral-token.txt candidate-data/mcp_settings.json
+          docker pull samanhappy/mcphub@sha256:a6fb457b1218948cc79c9865baa5fa0c7f689f5af50a2369eea249cf5dd508cf
+          docker run -d --name m1-three-hub --network m1-r21-three-net \
+            --publish 127.0.0.1:3300:3000 --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt=no-new-privileges \
+            --memory 2g --cpus 2 --pids-limit 256 \
+            --mount "type=bind,source=$PWD/candidate-data,target=/app/data" \
+            -e ADMIN_PASSWORD="$(cat synthetic-admin-password.txt)" -e DISABLE_WEB=true \
+            samanhappy/mcphub@sha256:a6fb457b1218948cc79c9865baa5fa0c7f689f5af50a2369eea249cf5dd508cf
+          ready=0
+          for n in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3300/mcp || true)
+            if [ "$status" != 000 ]; then ready=1;break;fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            docker inspect --format 'hub status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' m1-three-hub || true
+            docker logs --tail 60 m1-three-hub 2>&1 | python3 -c 'import pathlib,sys; t=sys.stdin.read(); files=["synthetic-admin-password.txt","ephemeral-token.txt"]; [None for f in files if not pathlib.Path(f).exists()]; [(lambda v:globals().update(t=globals()["t"].replace(v,"[REDACTED]")))(pathlib.Path(f).read_text().strip()) for f in files if pathlib.Path(f).exists()]; print(t[-7000:])'
+            exit 1
+          fi
+          python3 - <<'PY'
+          import pathlib,sys,time
+          sys.path.insert(0,"mcphub-harness/experiments/mcp-toolbelt-bakeoff")
+          from probe_group_crud import api,probe
+          pw=pathlib.Path("synthetic-admin-password.txt").read_text().strip()
+          bearer=pathlib.Path("ephemeral-token.txt").read_text().strip()
+          status,obj=api("POST","/api/auth/login",{"username":"admin","password":pw})
+          token=obj.get("token")
+          assert status==200 and token,"synthetic management login failed"
+          status,result=api("POST","/api/groups",{"name":"research","servers":["alpha"]},token)
+          assert status in (200,201) and result.get("success") is True,"group creation rejected"
+          result=probe("research","alpha",bearer)
+          print("actual MCPHub group created and routed to",result["source"])
+          PY
+      - name: Same real Git-snapshot and ephemeral JWT used by baseline Agentgateway workcell
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > runtime-receipts/old.json <<'JSON'
+          {"schema":"m1.gitops.synthetic/v1","catalog":["alpha_echo","beta_echo"],"belts":{"research":{"owner":"shared","tools":["alpha_echo"]},"engineering":{"owner":"shared","tools":["beta_echo"]}}}
+          JSON
+          go -C gitops/experiments/mcp-gitops-m1 run ./cmd/validate "$PWD/runtime-receipts/old.json" > runtime-receipts/old-digest.json
+          python3 jwt-harness/experiments/mcp-jwt-authz/make_issuer.py
+          chmod 600 private.pem token-*.txt
+          python3 experiments/supratoolbelt-gitops-e2e/probe.py prepare old
+          docker pull cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
+          docker run -d --name supra-r21-three-gateway --network host --read-only --cap-drop ALL \
+            --security-opt=no-new-privileges --memory 2g --cpus 2 --pids-limit 256 \
+            --mount "type=bind,source=$PWD/runtime-receipts/old-config.yaml,target=/config.yaml,readonly" \
+            --mount "type=bind,source=$PWD/jwks.json,target=/keys/jwks.json,readonly" \
+            cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b -f /config.yaml
+          ready=0
+          for n in $(seq 1 25); do
+            code=$(curl --silent -o /dev/null --max-time 2 -w '%{http_code}' http://127.0.0.1:39200/mcp || true)
+            if [ "$code" = 401 ] || [ "$code" = 403 ];then ready=1;break;fi
+            sleep 1
+          done
+          test "$ready" = 1
+      - name: Paired randomized triplets and ABCCBA throughput sweeps, 3 exact paths
+        run: python3 experiments/supratoolbelt-r21-three-path/bench.py
+      - name: Destroy all runtime state, images remain only in dying hosted runner
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f supra-r21-three-gateway m1-three-hub r21-mcp-alpha r21-mcp-beta >/dev/null 2>&1 || true
+          docker network rm m1-r21-three-net >/dev/null 2>&1 || true
+          rm -f private.pem jwks.json token-*.txt synthetic-admin-password.txt ephemeral-token.txt runtime-receipts/*.jwt runtime-receipts/*-config.yaml
+          rm -rf candidate-data
+          test ! -e private.pem
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-r21-same-runner-three-path-receipts
+          path: |
+            runtime-receipts/old-digest.json
+            three-path-receipts/fixture-image-resolved-digest.json
+            three-path-receipts/three-path.json
