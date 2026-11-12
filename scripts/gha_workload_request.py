@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "python-oci-runtime"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "python-oci-runtime", "python-ocr-toolchain"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,55 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "python-ocr-toolchain":
+        # Public synthetic only: fixed, bounded Docker build/test experiment.
+        receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "python-ocr-toolchain" / "receipt.json"
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/python_ocr_toolchain_probe.py",
+                 "--receipt", str(receipt_path)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+        except (subprocess.TimeoutExpired, OSError):
+            return {"oracle_verified": False, "classification": "FAIL_OCR_TIMEOUT_OR_EXEC"}
+        if cp.returncode or receipt_path.is_symlink() or not receipt_path.is_file():
+            return {"oracle_verified": False, "classification": "FAIL_OCR_PROBE"}
+        try:
+            if receipt_path.stat().st_size > 4096:
+                raise ValueError("receipt too large")
+            raw = receipt_path.read_bytes()
+            doc = json.loads(raw)
+        except (OSError, ValueError, UnicodeError):
+            return {"oracle_verified": False, "classification": "FAIL_OCR_RECEIPT"}
+        image = doc.get("base_image_ref") if isinstance(doc, dict) else None
+        image_id = doc.get("built_image_id") if isinstance(doc, dict) else None
+        version_sha = doc.get("toolchain_versions_sha256") if isinstance(doc, dict) else None
+        accepted = (
+            isinstance(doc, dict)
+            and doc.get("schema") == "public-python-ocr-toolchain/v1"
+            and doc.get("status") == "CANDIDATE_SMOKE_PASS"
+            and doc.get("public_synthetic") is True
+            and doc.get("production_promotable") is False
+            and doc.get("clinical_qualification") is False
+            and doc.get("source_sha") == os.environ.get("GITHUB_SHA")
+            and doc.get("run_id") == os.environ.get("GITHUB_RUN_ID")
+            and doc.get("runner_arch") == os.environ.get("RUNNER_ARCH")
+            and doc.get("machine") == platform.machine()
+            and doc.get("python") == "3.14.10"
+            and doc.get("fixture_sha256") == "37e44b8d9054cf8170c30ba7adc963a485be6d25eb4bed669d8149073e665f64"
+            and image == "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f"
+            and isinstance(image_id, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", image_id) is not None
+            and isinstance(version_sha, str) and re.fullmatch(r"[a-f0-9]{64}", version_sha) is not None
+        )
+        return {
+            "oracle_verified": bool(accepted),
+            "classification": "PASS_CANDIDATE_ONLY" if accepted else "FAIL_OCR_RECEIPT",
+            "candidate_base_ref": image if accepted else None,
+            "built_image_id": image_id if accepted else None,
+            "toolchain_versions_sha256": version_sha if accepted else None,
+            "receipt_sha256": hashlib.sha256(raw).hexdigest() if accepted else None,
+            "production_promotable": False,
+        }
     if workload == "python-oci-runtime":
         # Fixed public-synthetic OCI capability probe, not a private workload.
         receipt_path = Path(os.environ.get("RUNNER_TEMP", "/nonexistent")) / "python-oci-runtime" / "receipt.json"
