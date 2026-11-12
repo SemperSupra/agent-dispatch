@@ -185,6 +185,46 @@ class IndependentReceiptTests(unittest.TestCase):
                     with self.subTest(invalid=invalid), self.assertRaises(v.VerdictError):
                         check((json.dumps(altered, sort_keys=True) + "\n").encode(), manifest=manifest)
 
+    def test_pinned_public_cpap_parser_receipt_is_candidate_only(self):
+        for manifest in ("requests/gha/cpu-x64-public-cpap-parser-v1.json",
+                         "requests/gha/cpu-arm64-public-cpap-parser-v1.json"):
+            p = m.plan(manifest)
+            result = {
+                "classification": "PASS_CANDIDATE_ONLY",
+                "oracle_verified": True,
+                "upstream_sha": "d14acb58012449af75b0c15c0bfb1eb173b60a1f",
+                "license_sha256": "a" * 64,
+                "passed_synthetic_tests": 44,
+                "receipt_sha256": "b" * 64,
+                "production_promotable": False,
+            }
+            doc = {
+                "schema": m.RECEIPT, "assignment_id": p["assignment_id"],
+                "data_class": "public-synthetic",
+                "observed_architecture": p["expected_machine"], "qualified": True,
+                "request_path": manifest, "request_sha256": p["request_sha256"],
+                "requested_runner": p["runner"], "result": result,
+                "run_attempt": "1", "run_id": RUN, "shape_verified": True,
+                "source_sha": SHA, "workload": p["workload"],
+            }
+            self.assertEqual(check((json.dumps(doc, sort_keys=True) + "\n").encode(),
+                                   manifest=manifest)["classification"], "PASS")
+            for bad in (
+                    {"production_promotable": True},
+                    {"classification": "PASS"},
+                    {"upstream_sha": "0" * 40},
+                    {"license_sha256": "invalid"},
+                    {"passed_synthetic_tests": 0},
+                    {"passed_synthetic_tests": True},
+                    {"passed_synthetic_tests": 501},
+                    {"receipt_sha256": "bad"},
+                    {"oracle_verified": False}):
+                with self.subTest(manifest=manifest, bad=bad):
+                    altered = dict(doc, result=dict(result, **bad))
+                    with self.assertRaises(v.VerdictError):
+                        check((json.dumps(altered, sort_keys=True) + "\n").encode(),
+                              manifest=manifest)
+
     def test_extra_and_duplicate_fields_fail(self):
         d,raw=built()
         d["free_form_shell"]="echo token"
