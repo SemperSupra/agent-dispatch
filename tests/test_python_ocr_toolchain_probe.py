@@ -32,6 +32,25 @@ class OCRCandidateContractTests(unittest.TestCase):
         self.assertIn("COPY --chown=65532:65532 scripts/python_ocr_toolchain_probe.py", image)
         self.assertNotIn("COPY . .", image)
 
+    def test_wheel_and_ocr_packages_are_exactly_pinned(self):
+        docker = (ROOT / "experiments/python-ocr-toolchain/Dockerfile").read_text()
+        locked = (ROOT / "experiments/python-ocr-toolchain/requirements-candidate.txt").read_text()
+        self.assertIn("--require-hashes", docker)
+        self.assertEqual(docker.count("--require-hashes"), 2)
+        for dep in ("attrs==26.1.0", "jsonschema==4.26.0",
+                    "jsonschema-specifications==2025.9.1",
+                    "pypdf==7.0.1", "referencing==0.37.0", "rpds-py==2026.9.1"):
+            self.assertIn(dep, locked)
+        self.assertEqual(locked.count("--hash=sha256:"), 7)
+        for sha in ("07deecbfce94c78473018bc7d10b337cc651d12df87a1eb2cb3e4024bc9c33d0",
+                    "eac2f5dbafd585dfe31f86a23ebf0d3ba480a9d49ebc87947267b5608d4ea0cd"):
+            self.assertIn(sha, locked)
+        for pin in ("ghostscript=10.05.1~dfsg-1+deb13u3",
+                    "poppler-utils=25.03.0-5+deb13u4",
+                    "tesseract-ocr=5.5.0-1+b1",
+                    "tesseract-ocr-eng=1:4.1.0-2"):
+            self.assertIn(pin, docker)
+
     def test_source_has_no_shell_or_patient_file_interface(self):
         source = SOURCE.read_text()
         self.assertNotIn("shell=True", source)
