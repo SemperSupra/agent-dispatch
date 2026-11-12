@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "assignment_id": "cpu-arm64-python-ocr-v1",
+  "runner": "ubuntu-24.04-arm",
+  "workload": "python-ocr-toolchain",
+  "timeout_seconds": 240,
+  "data_class": "public-synthetic",
+  "max_attempts": 1,
+  "max_cost_usd": 0
+}
