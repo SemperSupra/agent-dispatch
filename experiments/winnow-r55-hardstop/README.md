@@ -1,0 +1,7 @@
+# R55 — hard-stop and aggregate disk quota, public-only native Linux
+
+Independent public-safe experiment building on the **R45** successful kernel `tmpfs` capability and R35 process-group tests. An intentionally noncooperative **synthetic** child ignores SIGTERM and spawns a descendant. Its supervisor kills the entire process group with SIGKILL, confirms the descendant is no longer executing, and checks staged files are cleaned. An independent synthetic two-file writer must receive kernel `ENOSPC` under a 256 KiB `tmpfs`. A normal small-output case is the positive control. Three repetitions per native architecture; no private code, live requests, media, credentials or vendor downloader.
+
+Runner preflight requires fresh isolated mount and route-less network namespaces, uid/gid 65534, zero capabilities, an actual 256 KiB `tmpfs`, and documentation-IP kernel TCP denial. No runtime dependencies are installed. Each GitHub-hosted runner and its scratch filesystem is disposable.
+
+**Scope limit:** This validates Linux **OS capabilities** on GitHub's Ubuntu runner image only. It does **not** integrate with private Winnow `Backend` or `GalleryDL`, prove container/VM isolation against escapes, full memory or cgroup quotas, signal-compliant orchestration, BigMac/TrueNAS parity, durability, stage dirfd symlink safety, or acquisition/source rights. A passing result must not be promoted to Winnow G1 release acceptance.
