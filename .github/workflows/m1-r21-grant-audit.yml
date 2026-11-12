@@ -1,0 +1,119 @@
+name: M1 R21 real gateway with synthetic current grants and independent audit outage
+on:
+  push:
+    branches: [rdte/m1-r21-native-grant-audit-20261112]
+    paths:
+      - ".github/workflows/m1-r21-grant-audit.yml"
+      - "experiments/supratoolbelt-r21-g2/**"
+  pull_request:
+    paths:
+      - ".github/workflows/m1-r21-grant-audit.yml"
+      - "experiments/supratoolbelt-r21-g2/**"
+permissions:
+  contents: read
+jobs:
+  joined-g2-adversarial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ea198e844e6989fc1a9bea77ab6367725d34ac9a
+          path: jwt-harness
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: 32790dbe1a64a4d0ca8e0394447f1803383f0a34
+          path: gitops
+      - name: Immutable synthetic belt and ephemeral signed login
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-receipts runtime-g2
+          cat > runtime-receipts/old.json <<'JSON'
+          {"schema":"m1.gitops.synthetic/v1","catalog":["alpha_echo","beta_echo"],"belts":{"research":{"owner":"shared","tools":["alpha_echo"]},"engineering":{"owner":"shared","tools":["beta_echo"]}}}
+          JSON
+          go -C gitops/experiments/mcp-gitops-m1 run ./cmd/validate "$PWD/runtime-receipts/old.json" > runtime-receipts/old-digest.json
+          python3 jwt-harness/experiments/mcp-jwt-authz/make_issuer.py
+          chmod 600 private.pem token-*.txt
+          python3 experiments/supratoolbelt-gitops-e2e/probe.py prepare old
+          printf '{"grant":true,"workset_admitted":true}\n' > runtime-g2/state-alpha.json
+          printf '{"grant":true,"workset_admitted":true}\n' > runtime-g2/state-beta.json
+      - name: Launch independent audit and native-workset MOCK upstreams on loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/supratoolbelt-r21-g2/native_mock.py --mode audit --port 39303 &
+          echo $! > runtime-g2/audit.pid
+          python3 experiments/supratoolbelt-r21-g2/native_mock.py --mode upstream --label alpha --port 39101 &
+          echo $! > runtime-g2/alpha.pid
+          python3 experiments/supratoolbelt-r21-g2/native_mock.py --mode upstream --label beta --port 39102 &
+          echo $! > runtime-g2/beta.pid
+          for port in 39101 39102 39303; do
+            found=0
+            for n in $(seq 1 25); do
+              if curl -fsS "http://127.0.0.1:$port/health" >/dev/null; then found=1; break; fi
+              sleep 0.4
+            done
+            test "$found" = 1
+          done
+      - name: Actual digest-pinned gateway, no public ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b
+          docker run -d --name supra-r21-g2 --network host --read-only --cap-drop ALL \
+            --security-opt=no-new-privileges \
+            --mount "type=bind,source=$PWD/runtime-receipts/old-config.yaml,target=/config.yaml,readonly" \
+            --mount "type=bind,source=$PWD/jwks.json,target=/keys/jwks.json,readonly" \
+            cr.agentgateway.dev/agentgateway@sha256:60216aafb03d37f94e952ff3d51d2f630a65b10ecaebdc0a864882f92610c45b -f /config.yaml
+          ready=0
+          for n in $(seq 1 25); do
+            code=$(curl --silent -o /dev/null --max-time 2 -w '%{http_code}' http://127.0.0.1:39200/mcp || true)
+            if [ "$code" = 401 ] || [ "$code" = 403 ]; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+      - name: Signed live calls then current grant and mock workset revocation
+        run: python3 experiments/supratoolbelt-r21-g2/probe.py baseline
+      - name: Real separate audit HTTP process outage must deny privileged invocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          kill "$(cat runtime-g2/audit.pid)"
+          sleep 1
+          python3 experiments/supratoolbelt-r21-g2/probe.py audit-outage
+      - name: Recreate separate audit process and prove controlled recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/supratoolbelt-r21-g2/native_mock.py --mode audit --port 39303 &
+          echo $! > runtime-g2/audit.pid
+          for n in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:39303/health >/dev/null; then break; fi
+            sleep 0.5
+          done
+          python3 experiments/supratoolbelt-r21-g2/probe.py audit-restored
+      - name: Teardown credentials, mock providers and gateway
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f supra-r21-g2 >/dev/null 2>&1 || true
+          for item in runtime-g2/*.pid; do
+            if [ -f "$item" ]; then kill "$(cat "$item")" >/dev/null 2>&1 || true; fi
+          done
+          rm -f private.pem jwks.json token-*.txt runtime-receipts/*.jwt runtime-receipts/*-config.yaml
+          test ! -e private.pem
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-r21-g2-joined-adversarial-synthetic
+          path: |
+            runtime-receipts/old-digest.json
+            runtime-receipts/g2-baseline.json
+            runtime-receipts/g2-audit-outage.json
+            runtime-receipts/g2-audit-restored.json
