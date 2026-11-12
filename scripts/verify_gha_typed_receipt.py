@@ -34,7 +34,7 @@ RESULT_FIELDS = {
     "microsoft-devproxy-mock": {"classification", "oracle_verified", "mock_only", "provider_access_verified", "verdict_sha256"},
     "azurite-blob-transport": {"classification", "oracle_verified", "emulator_only", "provider_access_verified", "verdict_sha256"},
     "python-oci-runtime": {"classification", "oracle_verified", "resolved_image_ref", "receipt_sha256", "production_promotable"},
-    "python-ocr-toolchain": {"classification", "oracle_verified", "candidate_base_ref", "built_image_id", "toolchain_versions_sha256", "receipt_sha256", "production_promotable"},
+    "python-ocr-toolchain": {"classification", "oracle_verified", "candidate_base_ref", "built_image_id", "toolchain_versions_sha256", "toolchain_versions", "receipt_sha256", "production_promotable"},
 }
 MAX_RECEIPT = 8192
 
@@ -106,8 +106,22 @@ def evaluate(
         base = result.get("candidate_base_ref")
         built = result.get("built_image_id")
         inventory = result.get("toolchain_versions_sha256")
+        versions = result.get("toolchain_versions")
+        digest_ok = (
+            isinstance(versions, dict) and set(versions) == {"packages", "tools"}
+            and isinstance(versions.get("packages"), dict)
+            and set(versions["packages"]) == {"pypdf", "jsonschema"}
+            and isinstance(versions.get("tools"), dict)
+            and set(versions["tools"]) == {"ghostscript", "tesseract", "poppler"}
+            and all(isinstance(v, str) and
+                    re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+():-]{0,127}", v)
+                    for items in versions.values() for v in items.values())
+            and hashlib.sha256(json.dumps(versions, sort_keys=True,
+                                          separators=(",", ":")).encode()).hexdigest() == inventory
+        )
         receipt_sha = result.get("receipt_sha256")
-        if (result.get("production_promotable") is not False
+        if (not digest_ok
+                or result.get("production_promotable") is not False
                 or base != "python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f"
                 or not isinstance(built, str)
                 or re.fullmatch(r"sha256:[0-9a-f]{64}", built) is None
