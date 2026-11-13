@@ -4,6 +4,7 @@ package main
 // Fictional-only data. This file is NOT private admission product source.
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -129,5 +130,54 @@ func TestSyntheticUniqueMembersRejectLogicalDuplicateAliases(t *testing.T) {
 				t.Fatalf("unambiguous fictional JSON rejected: %v", err)
 			}
 		})
+	}
+}
+
+
+// This public fixture captures the API-contract hazard of deriving an
+// approved request digest from two different JSON serializations. No private
+// request, authorization, or production source is imported.
+func TestFictionalCrossLanguageRequestBytesAreNotInterchangeable(t *testing.T) {
+	type fictionalAdmission struct {
+		Ref        string `json:"workset_ref"`
+		Delegation string `json:"delegation"`
+		Class      string `json:"caller_class"`
+	}
+	type fictionalRequest struct {
+		ClientID  string             `json:"client_id"`
+		Mode      string             `json:"mode"`
+		Admission fictionalAdmission `json:"admission"`
+	}
+	request := fictionalRequest{
+		ClientID: "fictional-test", Mode: "revoke",
+		Admission: fictionalAdmission{Ref: "fictional-ref", Delegation: "observe", Class: "observe"},
+	}
+	goStructBytes, err := json.Marshal(request)
+	if err != nil { t.Fatal(err) }
+	// Python json.dumps(value,sort_keys=True,separators=(",",":")).
+	pythonSortedBytes := []byte(`{"admission":{"caller_class":"observe","delegation":"observe","workset_ref":"fictional-ref"},"client_id":"fictional-test","mode":"revoke"}`)
+	pyDigest := sha256.Sum256(pythonSortedBytes)
+	goDigest := sha256.Sum256(goStructBytes)
+	if goDigest == pyDigest {
+		t.Fatal("fixture lost intentional cross-language encoding difference")
+	}
+	// A verifier using the wrong canonical encoding fails a legitimate call.
+	if bytes.Equal(goStructBytes, pythonSortedBytes) {
+		t.Fatal("struct and sorted encodings unexpectedly identical")
+	}
+	// Map-based Go encoding matches the sorted JSON for this ASCII-only
+	// fictional specimen, demonstrating a possible shared contract, NOT
+	// proving a stable production canonicalization specification.
+	m := map[string]any{
+		"client_id": "fictional-test", "mode": "revoke",
+		"admission": map[string]any{"workset_ref": "fictional-ref", "delegation": "observe", "caller_class": "observe"},
+	}
+	sortedMapBytes, err := json.Marshal(m)
+	if err != nil { t.Fatal(err) }
+	if !bytes.Equal(sortedMapBytes, pythonSortedBytes) {
+		t.Fatal("synthetic shared ASCII encoding contract mismatch")
+	}
+	if got := sha256.Sum256(sortedMapBytes); got != pyDigest {
+		t.Fatal("synthetic canonical intent digest mismatch")
 	}
 }
