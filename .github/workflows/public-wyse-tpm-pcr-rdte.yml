@@ -58,6 +58,34 @@ jobs:
           echo 'PCR7_MUTATION_NEGATIVE_ORACLE=REFUSED' >> evidence/public/receipt.txt
           cmp evidence/private/recovery-key.txt evidence/private/recovery-key.txt
           echo 'INDEPENDENT_SYNTHETIC_ESCROW_COPY=AVAILABLE' >> evidence/public/receipt.txt
+          # Simulate TPM replacement: different libtpms state, new hierarchy,
+          # re-seal the preserved owner escrow bytes to the replacement TPM.
+          mkdir -p evidence/newstate
+          swtpm socket --tpm2 --tpmstate dir=evidence/newstate \
+            --server type=tcp,port=23281,bindaddr=127.0.0.1 \
+            --ctrl type=tcp,port=23282,bindaddr=127.0.0.1 \
+            --flags not-need-init > evidence/public/swtpm-replaced-log.txt 2>&1 &
+          replacement=swtpm:host=127.0.0.1,port=23281
+          for i in $(seq 1 25); do
+            if tpm2_startup -T "$replacement" -c > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          tpm2_getcap -T "$replacement" properties-fixed > evidence/public/replacement-getcap.txt
+          tpm2_pcrread -T "$replacement" -o evidence/private/replacement-pcr7.bin sha256:7 > /dev/null
+          tpm2_createpolicy -T "$replacement" --policy-pcr -l sha256:7 \
+            -f evidence/private/replacement-pcr7.bin -L evidence/private/replacement-policy.dat > /dev/null
+          tpm2_createprimary -T "$replacement" -C o -G ecc -c evidence/private/replacement-primary.ctx > /dev/null
+          tpm2_create -T "$replacement" -C evidence/private/replacement-primary.ctx \
+            -i evidence/private/recovery-key.txt -L evidence/private/replacement-policy.dat \
+            -u evidence/private/replacement-sealed.pub -r evidence/private/replacement-sealed.priv > /dev/null
+          tpm2_flushcontext -T "$replacement" -t > /dev/null
+          tpm2_load -T "$replacement" -C evidence/private/replacement-primary.ctx \
+            -u evidence/private/replacement-sealed.pub -r evidence/private/replacement-sealed.priv \
+            -c evidence/private/replacement-sealed.ctx > /dev/null
+          tpm2_unseal -T "$replacement" -c evidence/private/replacement-sealed.ctx \
+            -p pcr:sha256:7 -o evidence/private/replacement-unsealed.txt > /dev/null
+          cmp evidence/private/recovery-key.txt evidence/private/replacement-unsealed.txt
+          echo 'TPM_REPLACEMENT_REENROLL_WITH_ESCROW=PASS' >> evidence/public/receipt.txt
           echo 'PHYSICAL_DELL_TPM_AND_LUKS_INTEGRATION=NOT_TESTED' >> evidence/public/receipt.txt
       - name: Upload safe receipts, no keys or TPM state
         if: always()
