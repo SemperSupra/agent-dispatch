@@ -1,0 +1,101 @@
+name: Public synthetic native eMMC guest Linux enumeration
+on:
+  push:
+    branches: [experiment/public-uefi-vtpm-ventoy-r01]
+    paths: [.github/workflows/public-wyse-emmc-linux-guest-rdte.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guest-linux:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 14
+    steps:
+      - name: Install Linux kernel, static BusyBox and QEMU
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y linux-image-virtual busybox-static cpio kmod qemu-system-x86
+      - name: Boot actual Linux kernel and enumerate native emmc plus SATA from guest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence/public evidence/private/ramfs
+          kernel=''
+          kver=''
+          for candidate in /boot/vmlinuz-*; do
+            ver=$(basename "$candidate" | sed 's/^vmlinuz-//')
+            if test -f "$candidate" && test -d "/lib/modules/$ver"; then
+              kernel="$candidate"
+              kver="$ver"
+            fi
+          done
+          test -n "$kernel" && test -n "$kver"
+          echo "KERNEL=$kver" > evidence/public/receipt.txt
+          qemu-system-x86_64 --version | head -1 >> evidence/public/receipt.txt
+          root="$PWD/evidence/private/ramfs"
+          mkdir -p "$root"/bin "$root"/proc "$root"/sys "$root"/dev "$root"/run "$root"/lib/modules
+          cp "$(command -v busybox)" "$root/bin/busybox"
+          ln -s busybox "$root/bin/sh"
+          cp -a "/lib/modules/$kver" "$root/lib/modules/"
+          cat > "$root/init" <<'EOF'
+          #!/bin/sh
+          /bin/busybox mount -t proc proc /proc
+          /bin/busybox mount -t sysfs sysfs /sys
+          /bin/busybox mount -t devtmpfs devtmpfs /dev
+          /bin/busybox --install -s /bin
+          echo GUEST_LINUX_INIT_BOOTED
+          for mod in sdhci_pci sdhci mmc_block ahci libahci sd_mod; do
+            /bin/busybox modprobe "$mod" 2>&1 || echo "MODULE_PROBE_UNAVAILABLE:$mod"
+          done
+          /bin/busybox sleep 5
+          /bin/busybox ls /sys/block
+          mmc=0; sata=0
+          for item in /sys/block/mmcblk*; do
+            [ -d "$item" ] && mmc=1
+          done
+          for item in /sys/block/sd[a-z]*; do
+            [ -d "$item" ] && sata=1
+          done
+          if [ "$mmc" = 1 ]; then echo NATIVE_EMMC_LINUX_SYSFS=PASS; else echo NATIVE_EMMC_LINUX_SYSFS=NOT_OBSERVED; fi
+          if [ "$sata" = 1 ]; then echo AHCI_SATA_LINUX_SYSFS=PASS; else echo AHCI_SATA_LINUX_SYSFS=NOT_OBSERVED; fi
+          /bin/busybox poweroff -f
+          EOF
+          chmod 0755 "$root/init"
+          (cd "$root" && find . -print0 | cpio --null -o -H newc --quiet | gzip -1 > "$GITHUB_WORKSPACE/evidence/private/test-initrd.gz")
+          truncate -s 132M evidence/private/synthetic-emmc.img
+          truncate -s 128M evidence/private/synthetic-sata.img
+          accel=tcg
+          test -w /dev/kvm && accel=kvm
+          timeout 115 qemu-system-x86_64 -machine q35 -accel "$accel" -cpu max -m 1024 -smp 2 \
+            -kernel "$kernel" -initrd evidence/private/test-initrd.gz \
+            -append 'console=ttyS0 rdinit=/init panic=1' \
+            -device ich9-ahci,id=satactl \
+            -drive if=none,id=sata0,format=raw,file=evidence/private/synthetic-sata.img \
+            -device ide-hd,bus=satactl.0,drive=sata0 \
+            -drive if=none,id=emmc0,format=raw,file=evidence/private/synthetic-emmc.img \
+            -device sdhci-pci -device emmc,drive=emmc0,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+            -nographic -no-reboot > evidence/public/guest-serial.txt 2>&1 || true
+          grep -q GUEST_LINUX_INIT_BOOTED evidence/public/guest-serial.txt
+          if grep -q 'NATIVE_EMMC_LINUX_SYSFS=PASS' evidence/public/guest-serial.txt; then
+            echo 'LINUX_EMMC_ENUMERATION=PASS' >> evidence/public/receipt.txt
+          else
+            echo 'LINUX_EMMC_ENUMERATION=UNQUALIFIED' >> evidence/public/receipt.txt
+            exit 1
+          fi
+          if grep -q 'AHCI_SATA_LINUX_SYSFS=PASS' evidence/public/guest-serial.txt; then
+            echo 'LINUX_SATA_ENUMERATION=PASS' >> evidence/public/receipt.txt
+          else
+            echo 'LINUX_SATA_ENUMERATION=UNQUALIFIED' >> evidence/public/receipt.txt
+            exit 1
+          fi
+          echo 'PHYSICAL_WYSE_AND_UEFI_IMAGE=NOT_TESTED' >> evidence/public/receipt.txt
+      - name: Upload sanitized guest serial and probe receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-native-emmc-linux
+          path: evidence/public/
+          if-no-files-found: warn
+          retention-days: 7
