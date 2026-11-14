@@ -47,6 +47,11 @@ jobs:
           tpm2_createprimary -T "$TCTI" -C o -G ecc -c evidence/private/primary.ctx > /dev/null
           for generation in A B; do
             tpm2_create -T "$TCTI" -C evidence/private/primary.ctx -G ecc -u "evidence/private/$generation.pub" -r "evidence/private/$generation.priv" > /dev/null
+            # Raw swtpm TCTI has no resource manager. Flush loaded
+            # transient objects before reloading context-backed keys.
+            tpm2_getcap -T "$TCTI" handles-transient > "evidence/public/handles-before-$generation.txt"
+            tpm2_flushcontext -T "$TCTI" -t > /dev/null
+            tpm2_getcap -T "$TCTI" handles-transient > "evidence/public/handles-after-$generation.txt"
             tpm2_load -T "$TCTI" -C evidence/private/primary.ctx -u "evidence/private/$generation.pub" -r "evidence/private/$generation.priv" -c "evidence/private/$generation.ctx" > /dev/null
             tpm2_sign -T "$TCTI" -c "evidence/private/$generation.ctx" -g sha256 -o "evidence/private/$generation.sig" evidence/private/payload.txt > /dev/null
             tpm2_verifysignature -T "$TCTI" -c "evidence/private/$generation.ctx" -g sha256 -m evidence/private/payload.txt -s "evidence/private/$generation.sig" > /dev/null
