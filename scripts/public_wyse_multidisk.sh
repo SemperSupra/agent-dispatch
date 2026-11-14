@@ -68,8 +68,10 @@ for case in usb-first sata-fallback; do
       -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1
   fi
   if test "$EMMC" != none; then
-    set -- "$@" -drive if=none,id=emmc,format=raw,readonly=on,file=evidence/private/emmc.img \
+    cp evidence/private/emmc.img "evidence/private/$case-emmc-disposable.img"
+    set -- "$@" -drive if=none,id=emmc,format=raw,file="evidence/private/$case-emmc-disposable.img" \
       -device sdhci-pci,id=sdhci -device "$EMMC",drive=emmc
+    echo "$case=EMMC_DEVICE_USES_DISPOSABLE_COPY" >> evidence/public/receipt.txt
   fi
   timeout 32 qemu-system-x86_64 -machine q35 -accel "$accel" -cpu max -m 768 -smp 2 \
     -drive if=pflash,format=raw,readonly=on,file="$code" \
