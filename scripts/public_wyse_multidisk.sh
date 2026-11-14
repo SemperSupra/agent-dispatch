@@ -43,7 +43,7 @@ p=Path("evidence/private")
 allowed=(p/"sata.img").resolve()
 assert all((p/x).resolve()!=allowed for x in ("emmc.img","usb.img","usb-flashed.img"))
 with open(allowed,"r+b") as f:
- f.seek(20*1024*1024)
+ f.seek(200*1024*1024) # beyond the EFI partition; preserve bootloader
  f.write(b"DISPOSABLE_SATA_ONLY")
 PY
 sha256sum -c evidence/private/emmc.sha256
