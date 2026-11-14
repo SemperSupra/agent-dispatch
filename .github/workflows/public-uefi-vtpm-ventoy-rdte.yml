@@ -33,6 +33,10 @@ jobs:
           swtpm socket --tpm2 --tpmstate dir=evidence/state --server type=tcp,port=23251,bindaddr=127.0.0.1 --ctrl type=tcp,port=23252,bindaddr=127.0.0.1 --flags not-need-init > evidence/public/swtpm.log 2>&1 &
           TCTI='swtpm:host=127.0.0.1,port=23251'
           for n in $(seq 1 30); do
+            if tpm2_startup -T "$TCTI" -c > evidence/public/startup.txt 2> evidence/public/startup-error.log; then break; fi
+            sleep 1
+          done
+          for n in $(seq 1 30); do
             if tpm2_getcap -T "$TCTI" properties-fixed > evidence/public/getcap.txt 2> evidence/public/getcap-error.log; then break; fi
             sleep 1
           done
@@ -55,7 +59,9 @@ jobs:
           VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
           if test ! -f "$CODE"; then CODE=/usr/share/OVMF/OVMF_CODE.fd; VARS=/usr/share/OVMF/OVMF_VARS.fd; fi
           cp "$VARS" evidence/private/vars.fd
-          (sleep 8; echo 'info tpm'; sleep 6; echo 'screendump evidence/public/tpm-ovmf.ppm'; sleep 1; echo quit) | timeout 35 qemu-system-x86_64 -machine q35 -accel kvm:tcg -cpu max -m 768 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$CODE" -drive if=pflash,format=raw,file=evidence/private/vars.fd -chardev socket,id=chrtpm,path=evidence/private/q-tpm.sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 -monitor stdio -vga std -display none -serial file:evidence/public/tpm-ovmf-serial.txt -no-reboot > evidence/public/tpm-ovmf-monitor.log 2>&1 || true
+          ACCEL=tcg
+          if test -w /dev/kvm; then ACCEL=kvm; fi
+          (sleep 8; echo 'info tpm'; sleep 6; echo 'screendump evidence/public/tpm-ovmf.ppm'; sleep 1; echo quit) | timeout 35 qemu-system-x86_64 -machine q35 -accel "$ACCEL" -cpu max -m 768 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$CODE" -drive if=pflash,format=raw,file=evidence/private/vars.fd -chardev socket,id=chrtpm,path=evidence/private/q-tpm.sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 -monitor stdio -vga std -display none -serial file:evidence/public/tpm-ovmf-serial.txt -no-reboot > evidence/public/tpm-ovmf-monitor.log 2>&1 || true
           grep -q 'tpm-tis' evidence/public/tpm-ovmf-monitor.log
           echo 'QEMU_TPM_TIS_MODEL=PASS' >> evidence/public/receipt.txt
           echo 'PHYSICAL_TPM_OR_WYSE_VERIFIED=NO' >> evidence/public/receipt.txt
@@ -117,6 +123,8 @@ jobs:
           loop=''
           echo 'PINNED_VENTOY_INSTALLED_SYNTHETIC_GPT=PASS' >> evidence/public/guard.txt
           echo 'STRICT_POLICY_PRESENT=PASS' >> evidence/public/guard.txt
+          ACCEL=tcg
+          if test -w /dev/kvm; then ACCEL=kvm; fi
           for variant in standard secureboot; do
             code=/usr/share/OVMF/OVMF_CODE_4M.fd
             vars=/usr/share/OVMF/OVMF_VARS_4M.fd
@@ -124,7 +132,7 @@ jobs:
             if test "$variant" = secureboot; then code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd; vars=/usr/share/OVMF/OVMF_VARS_4M.ms.fd; machine=q35,smm=on; fi
             if test ! -f "$code" -o ! -f "$vars"; then echo "$variant=FIRMWARE_FILES_MISSING" >> evidence/public/guard.txt; continue; fi
             cp "$vars" "evidence/private/$variant-vars.fd"
-            (sleep 12; echo "screendump evidence/public/$variant-before.ppm"; sleep 4; test "$variant" = standard && echo 'sendkey ret' || true; sleep 12; echo "screendump evidence/public/$variant-after.ppm"; sleep 1; echo quit) | timeout 50 qemu-system-x86_64 -machine "$machine" -accel kvm:tcg -cpu max -m 1024 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$code" -drive if=pflash,format=raw,file="evidence/private/$variant-vars.fd" -drive if=none,id=synthetic,format=raw,readonly=on,file=evidence/private/synthetic-usb.img -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synthetic,bootindex=0 -monitor stdio -vga std -display none -serial "file:evidence/public/$variant-serial.txt" -no-reboot > "evidence/public/$variant-monitor.log" 2>&1 || true
+            (sleep 12; echo "screendump evidence/public/$variant-before.ppm"; sleep 4; test "$variant" = standard && echo 'sendkey ret' || true; sleep 12; echo "screendump evidence/public/$variant-after.ppm"; sleep 1; echo quit) | timeout 50 qemu-system-x86_64 -machine "$machine" -accel "$ACCEL" -cpu max -m 1024 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$code" -drive if=pflash,format=raw,file="evidence/private/$variant-vars.fd" -drive if=none,id=synthetic,format=raw,readonly=on,file=evidence/private/synthetic-usb.img -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synthetic,bootindex=0 -monitor stdio -vga std -display none -serial "file:evidence/public/$variant-serial.txt" -no-reboot > "evidence/public/$variant-monitor.log" 2>&1 || true
             test -s "evidence/public/$variant-before.ppm"
             echo "$variant=FRAME_CAPTURED_NEEDS_BOOT_AND_TRUST_ORACLE" >> evidence/public/guard.txt
           done
