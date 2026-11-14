@@ -1,0 +1,52 @@
+name: Public synthetic native QEMU eMMC device probe
+on:
+  push:
+    branches: [experiment/public-uefi-vtpm-ventoy-r01]
+    paths: [.github/workflows/public-qemu-emmc-probe-rdte.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qemu-emmc:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - name: Install QEMU and probe native eMMC on newer standard free runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y qemu-system-x86
+          mkdir -p evidence
+          qemu-system-x86_64 --version | head -1 | tee evidence/receipt.txt
+          qemu-system-x86_64 -device help > evidence/devices.txt
+          if grep -Eq 'name "emmc"|name emmc' evidence/devices.txt; then
+            echo 'NATIVE_EMMC_MODEL=DISCOVERED' >> evidence/receipt.txt
+            truncate -s 132M evidence/synthetic-emmc-boot0-boot1-rpmb-user.img
+            (printf 'info qtree\n'; sleep 2; printf 'quit\n') | timeout 20 qemu-system-x86_64 \
+              -machine q35 -accel tcg -cpu max -m 256 -S \
+              -drive if=none,id=emmc0,format=raw,file=evidence/synthetic-emmc-boot0-boot1-rpmb-user.img \
+              -device sdhci-pci -device emmc,drive=emmc0,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+              -display none -serial none -monitor stdio > evidence/qtree.txt 2>&1
+            if grep -q 'dev: emmc' evidence/qtree.txt; then
+              echo 'NATIVE_EMMC_BOOT0_BOOT1_RPMB_USER_TOPOLOGY=PASS' >> evidence/receipt.txt
+            else
+              echo 'NATIVE_EMMC_HMP_QTREE_ORACLE=UNVERIFIED' >> evidence/receipt.txt
+              exit 1
+            fi
+          else
+            echo 'NATIVE_EMMC_MODEL=ABSENT_IN_PACKAGE' >> evidence/receipt.txt
+          fi
+          echo 'PHYSICAL_DELL_EMMC=NOT_TESTED' >> evidence/receipt.txt
+          rm -f evidence/synthetic-emmc-boot0-boot1-rpmb-user.img
+          grep -E 'EMMC|QEMU|NOT_TESTED' evidence/receipt.txt
+      - name: Upload public-safe model result only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qemu-emmc-capability-ubuntu26
+          path: |
+            evidence/receipt.txt
+            evidence/qtree.txt
+          if-no-files-found: warn
+          retention-days: 7
