@@ -1,0 +1,69 @@
+name: Public synthetic TPM2 PCR sealed-recovery negative DOE
+on:
+  push:
+    branches: [experiment/public-uefi-vtpm-ventoy-r01]
+    paths: [.github/workflows/public-wyse-tpm-pcr-rdte.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  swtpm-pcr-seal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install TPM2 software emulator and tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y swtpm swtpm-tools tpm2-tools libtss2-tcti-swtpm0
+      - name: Seal synthetic recovery secret to PCR7 and refuse mutated PCR
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence/private evidence/public evidence/state
+          trap 'kill $(jobs -pr) 2>/dev/null || true' EXIT
+          swtpm socket --tpm2 --tpmstate dir=evidence/state \
+            --server type=tcp,port=23271,bindaddr=127.0.0.1 \
+            --ctrl type=tcp,port=23272,bindaddr=127.0.0.1 \
+            --flags not-need-init > evidence/public/swtpm-log.txt 2>&1 &
+          tcti=swtpm:host=127.0.0.1,port=23271
+          for i in $(seq 1 25); do
+            if tpm2_startup -T "$tcti" -c > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          tpm2_getcap -T "$tcti" properties-fixed > evidence/public/getcap.txt
+          tpm2_pcrread -T "$tcti" -o evidence/private/pcr7.bin sha256:7 > evidence/public/pcr-before.txt
+          printf 'SYNTHETIC_ESCROW_NOT_A_REAL_SECRET' > evidence/private/recovery-key.txt
+          tpm2_createpolicy -T "$tcti" --policy-pcr -l sha256:7 \
+            -f evidence/private/pcr7.bin -L evidence/private/policy.dat > /dev/null
+          tpm2_createprimary -T "$tcti" -C o -G ecc -c evidence/private/primary.ctx > /dev/null
+          tpm2_create -T "$tcti" -C evidence/private/primary.ctx -i evidence/private/recovery-key.txt \
+            -L evidence/private/policy.dat -u evidence/private/sealed.pub -r evidence/private/sealed.priv > /dev/null
+          tpm2_flushcontext -T "$tcti" -t > /dev/null
+          tpm2_load -T "$tcti" -C evidence/private/primary.ctx -u evidence/private/sealed.pub \
+            -r evidence/private/sealed.priv -c evidence/private/sealed.ctx > /dev/null
+          tpm2_unseal -T "$tcti" -c evidence/private/sealed.ctx -p pcr:sha256:7 \
+            -o evidence/private/unsealed.txt > /dev/null
+          cmp evidence/private/recovery-key.txt evidence/private/unsealed.txt
+          echo 'PCR7_SEALED_SECRET_UNSEAL=PASS' > evidence/public/receipt.txt
+          tpm2_flushcontext -T "$tcti" -t > /dev/null
+          hash=$(printf 'synthetic-boot-measurement-change' | sha256sum | cut -d' ' -f1)
+          tpm2_pcrextend -T "$tcti" "7:sha256=$hash"
+          tpm2_pcrread -T "$tcti" sha256:7 > evidence/public/pcr-after.txt
+          # Cached policy must no longer authorize unseal after measurement change.
+          if tpm2_unseal -T "$tcti" -c evidence/private/sealed.ctx -p pcr:sha256:7 \
+            -o evidence/private/unsealed-after.txt > evidence/public/pcr-mismatch-failure.txt 2>&1; then
+            echo 'PCR7_MUTATION_NEGATIVE_ORACLE=FAIL_OPEN' >> evidence/public/receipt.txt
+            exit 1
+          fi
+          echo 'PCR7_MUTATION_NEGATIVE_ORACLE=REFUSED' >> evidence/public/receipt.txt
+          cmp evidence/private/recovery-key.txt evidence/private/recovery-key.txt
+          echo 'INDEPENDENT_SYNTHETIC_ESCROW_COPY=AVAILABLE' >> evidence/public/receipt.txt
+          echo 'PHYSICAL_DELL_TPM_AND_LUKS_INTEGRATION=NOT_TESTED' >> evidence/public/receipt.txt
+      - name: Upload safe receipts, no keys or TPM state
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-tpm-pcr-doe
+          path: evidence/public/
+          if-no-files-found: warn
+          retention-days: 7
