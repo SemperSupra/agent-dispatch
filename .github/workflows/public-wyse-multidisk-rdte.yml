@@ -1,0 +1,35 @@
+name: Public synthetic Wyse USB eMMC SATA RDTE
+on:
+  push:
+    branches: [experiment/public-uefi-vtpm-ventoy-r01]
+    paths:
+      - .github/workflows/public-wyse-multidisk-rdte.yml
+      - scripts/public_wyse_multidisk.sh
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-multidisk-rdte
+  cancel-in-progress: true
+jobs:
+  usb-emmc-sata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install UEFI and disk tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin dosfstools gdisk util-linux
+      - name: Flash synthetic USB file then boot through OVMF with SATA and eMMC
+        run: bash scripts/public_wyse_multidisk.sh
+      - name: Preserve public-safe receipts only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-wyse-usb-emmc-sata
+          path: evidence/public/
+          if-no-files-found: warn
+          retention-days: 7
