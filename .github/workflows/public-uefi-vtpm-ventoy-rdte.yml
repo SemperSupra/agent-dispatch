@@ -51,6 +51,8 @@ jobs:
             tpm2_sign -T "$TCTI" -c "evidence/private/$generation.ctx" -g sha256 -o "evidence/private/$generation.sig" evidence/private/payload.txt > /dev/null
             tpm2_verifysignature -T "$TCTI" -c "evidence/private/$generation.ctx" -g sha256 -m evidence/private/payload.txt -s "evidence/private/$generation.sig" > /dev/null
             echo "KEY_GENERATION_$generation=SIGN_VERIFY_PASS" >> evidence/public/receipt.txt
+            tpm2_flushcontext -T "$TCTI" "evidence/private/$generation.ctx" > /dev/null
+            echo "KEY_GENERATION_$generation=TRANSIENT_CONTEXT_RELEASED" >> evidence/public/receipt.txt
           done
           swtpm socket --tpm2 --tpmstate dir=evidence/qstate --ctrl type=unixio,path=evidence/private/q-tpm.sock --flags not-need-init > evidence/public/q-swtpm.log 2>&1 &
           for n in $(seq 1 30); do test -S evidence/private/q-tpm.sock && break; sleep 1; done
@@ -132,9 +134,14 @@ jobs:
             if test "$variant" = secureboot; then code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd; vars=/usr/share/OVMF/OVMF_VARS_4M.ms.fd; machine=q35,smm=on; fi
             if test ! -f "$code" -o ! -f "$vars"; then echo "$variant=FIRMWARE_FILES_MISSING" >> evidence/public/guard.txt; continue; fi
             cp "$vars" "evidence/private/$variant-vars.fd"
-            (sleep 12; echo "screendump evidence/public/$variant-before.ppm"; sleep 4; test "$variant" = standard && echo 'sendkey ret' || true; sleep 12; echo "screendump evidence/public/$variant-after.ppm"; sleep 1; echo quit) | timeout 50 qemu-system-x86_64 -machine "$machine" -accel "$ACCEL" -cpu max -m 1024 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$code" -drive if=pflash,format=raw,file="evidence/private/$variant-vars.fd" -drive if=none,id=synthetic,format=raw,readonly=on,file=evidence/private/synthetic-usb.img -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synthetic,bootindex=0 -monitor stdio -vga std -display none -serial "file:evidence/public/$variant-serial.txt" -no-reboot > "evidence/public/$variant-monitor.log" 2>&1 || true
+            (sleep 12; echo "screendump evidence/public/$variant-before.ppm"; sleep 4; if test "$variant" = standard; then echo 'sendkey ret'; sleep 3; echo 'sendkey ret'; else echo 'sendkey ret'; fi; sleep 12; echo "screendump evidence/public/$variant-after.ppm"; sleep 1; echo quit) | timeout 50 qemu-system-x86_64 -machine "$machine" -accel "$ACCEL" -cpu max -m 1024 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$code" -drive if=pflash,format=raw,file="evidence/private/$variant-vars.fd" -drive if=none,id=synthetic,format=raw,readonly=on,file=evidence/private/synthetic-usb.img -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synthetic,bootindex=0 -monitor stdio -vga std -display none -serial "file:evidence/public/$variant-serial.txt" -no-reboot > "evidence/public/$variant-monitor.log" 2>&1 || true
             test -s "evidence/public/$variant-before.ppm"
             echo "$variant=FRAME_CAPTURED_NEEDS_BOOT_AND_TRUST_ORACLE" >> evidence/public/guard.txt
+            if test "$variant" = standard; then
+              if grep -q 'VENTOY_SYNTHETIC_ISO_BOOT' evidence/public/standard-serial.txt; then echo 'STANDARD_ISO_BOOT_SERIAL_ORACLE=PASS' >> evidence/public/guard.txt; else echo 'STANDARD_ISO_BOOT_SERIAL_ORACLE=UNVERIFIED' >> evidence/public/guard.txt; fi
+            else
+              if grep -q 'Security Violation' evidence/public/secureboot-serial.txt; then echo 'SECUREBOOT_REJECTED_WITH_UNENROLLED_CA=OBSERVED' >> evidence/public/guard.txt; fi
+            fi
           done
           echo 'PHYSICAL_USB_WYSE_BOOT=NOT_TESTED' >> evidence/public/guard.txt
       - name: Upload allowlisted synthetic Ventoy evidence
