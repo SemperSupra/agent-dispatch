@@ -26,7 +26,7 @@ make_disk() {
   sudo umount "evidence/private/$name-mnt"
   sudo losetup -d "$loop"
   sgdisk -v "$disk" > "evidence/public/$name-gpt.txt"
-  echo "$name_IMAGE_SHA256=$(sha256sum "$disk" | cut -d' ' -f1)" >> evidence/public/receipt.txt
+  printf '%s_IMAGE_SHA256=%s\n' "$name" "$(sha256sum "$disk" | cut -d' ' -f1)" >> evidence/public/receipt.txt
 }
 make_disk usb WYSE_RECOVERY_USB_SYNTHETIC_BOOT
 make_disk sata WYSE_SATA_DISPOSABLE_SYNTHETIC_BOOT
