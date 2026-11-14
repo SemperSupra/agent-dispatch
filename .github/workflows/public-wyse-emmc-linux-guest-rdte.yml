@@ -33,6 +33,11 @@ jobs:
           done
           test -n "$kernel" && test -n "$kver"
           echo "KERNEL=$kver" > evidence/public/receipt.txt
+          # GitHub's /boot/vmlinuz can be root-only; copy it to a regular
+          # temporary image readable by QEMU instead of weakening host ACLs.
+          sudo cp "$kernel" evidence/private/vmlinuz
+          sudo chmod 0644 evidence/private/vmlinuz
+          kernel="$PWD/evidence/private/vmlinuz"
           qemu-system-x86_64 --version | head -1 >> evidence/public/receipt.txt
           root="$PWD/evidence/private/ramfs"
           mkdir -p "$root"/bin "$root"/proc "$root"/sys "$root"/dev "$root"/run "$root"/lib/modules
