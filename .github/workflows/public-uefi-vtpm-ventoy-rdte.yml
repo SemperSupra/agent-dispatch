@@ -1,0 +1,139 @@
+name: Public synthetic UEFI TPM2 and Ventoy RDTE
+on:
+  push:
+    branches: [experiment/public-uefi-vtpm-ventoy-r01]
+    paths: [.github/workflows/public-uefi-vtpm-ventoy-rdte.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-uefi-vtpm-ventoy-r01
+  cancel-in-progress: true
+
+jobs:
+  tpm-ovmf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Install synthetic TPM and UEFI packages
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y swtpm swtpm-tools tpm2-tools libtss2-tcti-swtpm0 qemu-system-x86 ovmf
+      - name: Exercise software TPM keys and attach isolated QEMU vTPM
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence/private evidence/public evidence/state evidence/qstate
+          trap 'kill $(jobs -pr) 2>/dev/null || true' EXIT
+          printf 'RUNNER=%s\n' "$RUNNER_NAME" > evidence/public/receipt.txt
+          printf 'HOST_TPM_DEVICE=%s\n' "$(test -e /dev/tpm0 -o -e /dev/tpmrm0 && echo PRESENT || echo NOT_EXPOSED)" >> evidence/public/receipt.txt
+          printf 'HOST_KVM_DEVICE=%s\n' "$(test -c /dev/kvm && echo PRESENT || echo NOT_EXPOSED)" >> evidence/public/receipt.txt
+          swtpm socket --tpm2 --tpmstate dir=evidence/state --server type=tcp,port=23251,bindaddr=127.0.0.1 --ctrl type=tcp,port=23252,bindaddr=127.0.0.1 --flags not-need-init > evidence/public/swtpm.log 2>&1 &
+          TCTI='swtpm:host=127.0.0.1,port=23251'
+          for n in $(seq 1 30); do
+            if tpm2_getcap -T "$TCTI" properties-fixed > evidence/public/getcap.txt 2> evidence/public/getcap-error.log; then break; fi
+            sleep 1
+          done
+          test -s evidence/public/getcap.txt
+          tpm2_getcap -T "$TCTI" pcrs > evidence/public/pcr-banks.txt
+          tpm2_pcrread -T "$TCTI" sha256:0,7,11 > evidence/public/pcr-values.txt
+          echo 'synthetic-key-rotation-test' > evidence/private/payload.txt
+          tpm2_createprimary -T "$TCTI" -C o -G ecc -c evidence/private/primary.ctx > /dev/null
+          for generation in A B; do
+            tpm2_create -T "$TCTI" -C evidence/private/primary.ctx -G ecc -u "evidence/private/$generation.pub" -r "evidence/private/$generation.priv" > /dev/null
+            tpm2_load -T "$TCTI" -C evidence/private/primary.ctx -u "evidence/private/$generation.pub" -r "evidence/private/$generation.priv" -c "evidence/private/$generation.ctx" > /dev/null
+            tpm2_sign -T "$TCTI" -c "evidence/private/$generation.ctx" -g sha256 -o "evidence/private/$generation.sig" evidence/private/payload.txt > /dev/null
+            tpm2_verifysignature -T "$TCTI" -c "evidence/private/$generation.ctx" -g sha256 -m evidence/private/payload.txt -s "evidence/private/$generation.sig" > /dev/null
+            echo "KEY_GENERATION_$generation=SIGN_VERIFY_PASS" >> evidence/public/receipt.txt
+          done
+          swtpm socket --tpm2 --tpmstate dir=evidence/qstate --ctrl type=unixio,path=evidence/private/q-tpm.sock --flags not-need-init > evidence/public/q-swtpm.log 2>&1 &
+          for n in $(seq 1 30); do test -S evidence/private/q-tpm.sock && break; sleep 1; done
+          test -S evidence/private/q-tpm.sock
+          CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+          VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
+          if test ! -f "$CODE"; then CODE=/usr/share/OVMF/OVMF_CODE.fd; VARS=/usr/share/OVMF/OVMF_VARS.fd; fi
+          cp "$VARS" evidence/private/vars.fd
+          (sleep 8; echo 'info tpm'; sleep 6; echo 'screendump evidence/public/tpm-ovmf.ppm'; sleep 1; echo quit) | timeout 35 qemu-system-x86_64 -machine q35 -accel kvm:tcg -cpu max -m 768 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$CODE" -drive if=pflash,format=raw,file=evidence/private/vars.fd -chardev socket,id=chrtpm,path=evidence/private/q-tpm.sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 -monitor stdio -vga std -display none -serial file:evidence/public/tpm-ovmf-serial.txt -no-reboot > evidence/public/tpm-ovmf-monitor.log 2>&1 || true
+          grep -q 'tpm-tis' evidence/public/tpm-ovmf-monitor.log
+          echo 'QEMU_TPM_TIS_MODEL=PASS' >> evidence/public/receipt.txt
+          echo 'PHYSICAL_TPM_OR_WYSE_VERIFIED=NO' >> evidence/public/receipt.txt
+      - name: Upload allowlisted public synthetic TPM evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-tpm-ovmf
+          path: evidence/public/**
+          if-no-files-found: warn
+          retention-days: 7
+
+  ventoy-uefi:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - name: Install synthetic USB and UEFI tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y qemu-system-x86 ovmf xorriso grub-common grub-pc-bin grub-efi-amd64-bin mtools exfatprogs gdisk parted util-linux
+      - name: Verify release and install Ventoy only to a file-backed loop device
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence/public evidence/private evidence/work
+          loop=''
+          cleanup() {
+            if mountpoint -q evidence/private/mnt; then sudo umount evidence/private/mnt || true; fi
+            if test -n "$loop"; then sudo losetup -d "$loop" || true; fi
+          }
+          trap cleanup EXIT
+          version=1.1.18
+          pkg=ventoy-1.1.18-linux.tar.gz
+          sha=d86ff9de63d94c8b8f1f6b14d23c55af4b88e8207bf2893890892a6a97b1ad54
+          curl -fsSL --retry 3 "https://github.com/ventoy/Ventoy/releases/download/v$version/$pkg" -o "evidence/work/$pkg"
+          echo "$sha  evidence/work/$pkg" | sha256sum -c - | tee evidence/public/download.txt
+          tar -xzf "evidence/work/$pkg" -C evidence/work
+          truncate -s 1024M evidence/private/synthetic-usb.img
+          loop="$(sudo losetup --find --partscan --show "$PWD/evidence/private/synthetic-usb.img")"
+          [[ "$loop" =~ ^/dev/loop[0-9]+$ ]] || { echo "UNSAFE_LOOP:$loop"; exit 2; }
+          [[ "$(readlink -f "$(sudo losetup -n -O BACK-FILE "$loop" | xargs)")" == "$(readlink -f evidence/private/synthetic-usb.img)" ]] || { echo UNSAFE_BACKING; exit 2; }
+          [[ "$(lsblk -ndo TYPE "$loop")" == loop ]] || exit 2
+          echo 'LOOP_FILE_ONLY=PASS' > evidence/public/guard.txt
+          (cd "evidence/work/ventoy-$version"; printf 'y\ny\n' | sudo bash Ventoy2Disk.sh -i -g -s "$loop") > evidence/public/install.log 2>&1
+          sudo partprobe "$loop" || true
+          sudo udevadm settle || true
+          lsblk -o NAME,TYPE,FSTYPE,SIZE "$loop" > evidence/public/layout.txt
+          test -b "$loop"p1
+          mkdir -p evidence/private/mnt evidence/work/iso/boot/grub
+          sudo mount "$loop"p1 evidence/private/mnt
+          printf 'serial --unit=0 --speed=115200\nterminal_output console serial\necho VENTOY_SYNTHETIC_ISO_BOOT\nsleep 15\n' > evidence/work/iso/boot/grub/grub.cfg
+          grub-mkrescue -o evidence/work/synthetic.iso evidence/work/iso > evidence/public/grub.log 2>&1
+          sudo cp evidence/work/synthetic.iso evidence/private/mnt/synthetic.iso
+          sudo mkdir -p evidence/private/mnt/ventoy
+          echo '{"control":[{"VTOY_SECURE_BOOT_POLICY":"1"}]}' | sudo tee evidence/private/mnt/ventoy/ventoy.json > evidence/public/strict-policy.json
+          sudo sync
+          sudo umount evidence/private/mnt
+          sudo losetup -d "$loop"
+          loop=''
+          echo 'PINNED_VENTOY_INSTALLED_SYNTHETIC_GPT=PASS' >> evidence/public/guard.txt
+          echo 'STRICT_POLICY_PRESENT=PASS' >> evidence/public/guard.txt
+          for variant in standard secureboot; do
+            code=/usr/share/OVMF/OVMF_CODE_4M.fd
+            vars=/usr/share/OVMF/OVMF_VARS_4M.fd
+            machine=q35
+            if test "$variant" = secureboot; then code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd; vars=/usr/share/OVMF/OVMF_VARS_4M.ms.fd; machine=q35,smm=on; fi
+            if test ! -f "$code" -o ! -f "$vars"; then echo "$variant=FIRMWARE_FILES_MISSING" >> evidence/public/guard.txt; continue; fi
+            cp "$vars" "evidence/private/$variant-vars.fd"
+            (sleep 12; echo "screendump evidence/public/$variant-before.ppm"; sleep 4; test "$variant" = standard && echo 'sendkey ret' || true; sleep 12; echo "screendump evidence/public/$variant-after.ppm"; sleep 1; echo quit) | timeout 50 qemu-system-x86_64 -machine "$machine" -accel kvm:tcg -cpu max -m 1024 -smp 2 -drive if=pflash,format=raw,readonly=on,file="$code" -drive if=pflash,format=raw,file="evidence/private/$variant-vars.fd" -drive if=none,id=synthetic,format=raw,readonly=on,file=evidence/private/synthetic-usb.img -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synthetic,bootindex=0 -monitor stdio -vga std -display none -serial "file:evidence/public/$variant-serial.txt" -no-reboot > "evidence/public/$variant-monitor.log" 2>&1 || true
+            test -s "evidence/public/$variant-before.ppm"
+            echo "$variant=FRAME_CAPTURED_NEEDS_BOOT_AND_TRUST_ORACLE" >> evidence/public/guard.txt
+          done
+          echo 'PHYSICAL_USB_WYSE_BOOT=NOT_TESTED' >> evidence/public/guard.txt
+      - name: Upload allowlisted synthetic Ventoy evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-ventoy-uefi
+          path: evidence/public/**
+          if-no-files-found: warn
+          retention-days: 7
