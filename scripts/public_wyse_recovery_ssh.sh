@@ -126,6 +126,7 @@ if test "$WYSE_R23_SIGNED_EFI" = 1; then
     -keyout "$W/ephemeral-sb.key" -out "$W/ephemeral-sb.crt" \
     > "$W/openssl-build.log" 2>&1
   chmod 0600 "$W/ephemeral-sb.key"
+  cp "$W/efi/EFI/BOOT/BOOTX64.EFI" "$W/unsigned-efi.efi"
   sbsign --key "$W/ephemeral-sb.key" --cert "$W/ephemeral-sb.crt" \
     --output "$W/efi/EFI/BOOT/BOOTX64.EFI.signed" \
     "$W/efi/EFI/BOOT/BOOTX64.EFI" > "$W/sign.log" 2>&1
@@ -183,6 +184,7 @@ if test "${WYSE_R23_ENFORCE_SB:-0}" = 1; then
     --add-db 603b0819-1cf7-46ef-bf6e-0d9c03ac23bb "$W/ephemeral-sb.crt" \
     --no-microsoft --secure-boot
   virt-fw-vars --input "$W/vars.fd" --print > evidence/public/ovmf-keys.txt
+  cp "$W/vars.fd" "$W/vars-for-negative.fd"
   echo 'R23_OVMF_EPHEMERAL_TEST_ROOT_ENROLLED=PASS' >> evidence/public/receipt.txt
 else
   cp /usr/share/OVMF/OVMF_VARS_4M.fd "$W/vars.fd"
@@ -262,4 +264,63 @@ if test "${WYSE_R23_ENFORCE_SB:-0}" = 1; then
   echo 'R23_OVMF_ENROLLED_ROOT_SIGNED_EFI_LINUX_SSH=PASS' >> evidence/public/receipt.txt
   echo 'R23_FIRMWARE_REFUSAL_OF_UNSIGNED_EFI=NOT_TESTED' >> evidence/public/receipt.txt
   echo 'R23_KERNEL_INITRD_SIGNED_CHAIN=NOT_TESTED' >> evidence/public/receipt.txt
+fi
+
+# R23 security-negative: boot the original structurally valid UNSIGNED UKI
+# on a copy of the SAME USB image, firmware and test-enrolled EFI trust
+# database. Require explicit BdsDxe firmware Access Denied on the USB;
+# a hung VM, merely failed sbverify, or failed SSH is not enough.
+if test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1; then
+  test "${WYSE_R23_UKI:-0}" = 1
+  test "${WYSE_R23_ENFORCE_SB:-0}" = 1
+  test -f "$W/unsigned-efi.efi"
+  test -f "$W/vars-for-negative.fd"
+  ukify inspect "$W/unsigned-efi.efi" > evidence/public/unsigned-uki-inspect.txt 2>&1
+  for section in .linux .initrd .cmdline; do
+    grep -Fq "$section" evidence/public/unsigned-uki-inspect.txt || exit 1
+  done
+  if sbverify --cert "$W/ephemeral-sb.crt" "$W/unsigned-efi.efi" > "$W/unsigned-offline-check.txt" 2>&1; then
+    echo 'R23_UNSIGNED_VALID_UKI_SIGNATURE_NEGATIVE=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  cp "$W/usb-copy.img" "$W/unsigned-usb.img"
+  mkdir -p "$W/negative-mnt"
+  negloop=$(sudo losetup --find --partscan --show "$W/unsigned-usb.img")
+  trap 'sudo umount "$W/negative-mnt" 2>/dev/null || :; sudo losetup -d "$negloop" 2>/dev/null || :' EXIT
+  test "$(lsblk -ndo TYPE "$negloop")" = loop
+  negback=$(sudo losetup -n -O BACK-FILE "$negloop" | xargs)
+  test "$(readlink -f "$negback")" = "$(readlink -f "$W/unsigned-usb.img")"
+  sudo udevadm settle
+  sudo mount "$negloop"p1 "$W/negative-mnt"
+  sudo cp "$W/unsigned-efi.efi" "$W/negative-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo sync
+  sudo umount "$W/negative-mnt"
+  sudo losetup -d "$negloop"
+  trap - EXIT
+  cp "$W/emmc-original.img" "$W/emmc-negative.img"
+  cp "$W/vars-for-negative.fd" "$W/vars-negative.fd"
+  timeout -s TERM -k 5 45s qemu-system-x86_64 -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
+    -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
+    -drive if=pflash,format=raw,file="$W/vars-negative.fd" \
+    -drive if=none,id=usb,format=raw,readonly=on,file="$W/unsigned-usb.img" \
+    -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1 \
+    -drive if=none,id=emmc,format=raw,file="$W/emmc-negative.img" \
+    -device sdhci-pci -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+    -device ich9-ahci,id=ahci -drive if=none,id=ssd,format=raw,file="$W/sata.img" \
+    -device ide-hd,bus=ahci.0,drive=ssd,bootindex=2 \
+    -netdev user,id=n -device e1000,netdev=n \
+    -display none -monitor none -serial file:evidence/public/negative-guest-serial.txt -no-reboot \
+    > evidence/public/negative-qemu-log.txt 2>&1 || :
+  if ! grep -Eq "BdsDxe: failed to load Boot[0-9]{4}.*Access Denied" evidence/public/negative-guest-serial.txt; then
+    echo 'R23_UNSIGNED_UKI_FIRMWARE_REJECTION=UNPROVEN' >> evidence/public/receipt.txt
+    tail -n 50 evidence/public/negative-guest-serial.txt
+    exit 1
+  fi
+  if grep -q "WYSE_SYNTHETIC_LINUX_INIT=PASS" evidence/public/negative-guest-serial.txt; then
+    echo 'R23_UNSIGNED_UKI_FIRMWARE_REJECTION=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  sha256sum -c "$W/emmc-sha"
+  echo 'R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
+  echo 'R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
 fi
