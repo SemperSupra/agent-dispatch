@@ -4,6 +4,9 @@
 package modeplan
 
 import (
+  "crypto/sha256"
+  "encoding/hex"
+  "encoding/json"
   "errors"
   "fmt"
   "strings"
@@ -111,6 +114,7 @@ type Plan struct {
  TargetProfile Profile `json:"target_profile"`
  TargetBoot Boot `json:"target_boot"`
  Stage Stage `json:"stage"`
+ IntentSHA256 string `json:"intent_sha256,omitempty"` // local consistency seal, NOT authorization
  SSDDeviceIdentity string `json:"ssd_device_identity"`
  EMMCDeviceIdentity string `json:"emmc_device_identity"`
  ArtifactSHA256 string `json:"artifact_sha256"`
@@ -238,26 +242,70 @@ func HostPreflight(n Node,p Plan) []string {
  if p.NestedRequirement!=NoNested&&!n.HardwareNestedVerified{fail=append(fail,"NESTED_HARDWARE_NOT_QUALIFIED")}
  return fail
 }
+// planIntentDigest is a deterministic *consistency checksum*, not a signature.
+// A real actuator MUST verify an external signed authorization binding this
+// exact digest, device and disk identifiers before changing hardware.
+func planIntentDigest(p Plan) string {
+ b,_:=json.Marshal(struct{
+  DeviceID string
+  ExpectedRevision uint64
+  TargetProfile Profile
+  TargetBoot Boot
+  SSDDeviceIdentity string
+  EMMCDeviceIdentity string
+  ArtifactSHA256 string
+  ArtifactSigned bool
+  RightToInstall bool
+  NestedRequirement Nested
+ }{
+  p.DeviceID,p.ExpectedRevision,p.TargetProfile,p.TargetBoot,
+  p.SSDDeviceIdentity,p.EMMCDeviceIdentity,p.ArtifactSHA256,
+  p.ArtifactSigned,p.RightToInstall,p.NestedRequirement,
+ })
+ sum:=sha256.Sum256(b)
+ return hex.EncodeToString(sum[:])
+}
+
+// AdvanceInstall is a PURE phase planner, not a device actuator. It pins the
+// preflighted intent against accidental retargeting, and revalidates physical
+// trust/recovery before any forward transition. It does not prove an external
+// signature, actual BootNext, guest health, or rollback completion.
 func AdvanceInstall(n Node,p Plan,next Stage) (Plan,[]string){
  if p.Stage==RolledBack||p.Stage==Failed||p.Stage==Committed{return p,[]string{"PLAN_TERMINAL"}}
- if p.Stage==Proposed&&next==Preflighted{
-  if err:=HostPreflight(n,p);len(err)!=0{return p,err}
- }else{
-  allowed:=map[Stage]Stage{Preflighted:Staged,Staged:Verified,Verified:Armed,Armed:BootProbing,BootProbing:Healthy,Healthy:Committed}
-  if next==RolledBack&&p.Stage!=Proposed {
-   p.Stage=RolledBack;return p,nil
-  }
-  if next==Failed {
-   p.Stage=Failed;return p,nil
-  }
-  if allowed[p.Stage]!=next{return p,[]string{"INVALID_INSTALL_PHASE"}}
-  if n.Revision!=p.ExpectedRevision{return p,[]string{"STALE_REVISION"}}
+ if p.Stage==Proposed && next==Preflighted {
+  if failures:=HostPreflight(n,p);len(failures)!=0{return p,failures}
+  p.IntentSHA256=planIntentDigest(p)
+  p.Stage=Preflighted
+  return p,nil
  }
- if next==Armed {
-  if p.ApprovedChangeID==""||!p.SignedMutationGate{return p,[]string{"SIGNED_CHANGE_GATE_REQUIRED"}}
+ if next==Failed {
+  p.Stage=Failed
+  return p,nil
  }
- if next==Healthy {
-  if n.ObservedBoot!=p.TargetBoot||!n.HostHealthy{return p,[]string{"SIGNED_HOST_HEALTH_OR_BOOT_MISMATCH"}}
+ if next==RolledBack && p.Stage!=Proposed {
+  p.Stage=RolledBack
+  return p,nil
+ }
+ allowed:=map[Stage]Stage{Preflighted:Staged,Staged:Verified,Verified:Armed,Armed:BootProbing,BootProbing:Healthy,Healthy:Committed}
+ wanted,ok:=allowed[p.Stage]
+ if !ok||wanted!=next{return p,[]string{"INVALID_INSTALL_PHASE"}}
+ if p.IntentSHA256==""||p.IntentSHA256!=planIntentDigest(p){return p,[]string{"PLAN_INTENT_CHANGED"}}
+ if n.ID!=p.DeviceID{return p,[]string{"DEVICE_ID_MISMATCH"}}
+ if n.Revision!=p.ExpectedRevision{return p,[]string{"STALE_REVISION"}}
+ if n.Enrollment!=Enrolled||!n.TrustVerified{return p,[]string{"DEVICE_TRUST_MISSING"}}
+ if !n.RecoveryVerified{return p,[]string{"RECOVERY_NOT_VERIFIED"}}
+ if n.Presence!=Present||n.Power!=PowerOn{return p,[]string{"HOST_NOT_PRESENT_OR_POWERED"}}
+ // Pre-boot phases must retain the full physical custody/drain and disk
+ // guards. After BootNext the host may transition to READY, so later phases
+ // use identity/revision/trust plus the bound immutable intent.
+ if next==Staged||next==Verified||next==Armed {
+  if failures:=HostPreflight(n,p);len(failures)!=0{return p,failures}
+ }
+ if next==Armed && (p.ApprovedChangeID==""||!p.SignedMutationGate){
+  return p,[]string{"SIGNED_CHANGE_GATE_REQUIRED"}
+ }
+ if next==Healthy && (n.ObservedBoot!=p.TargetBoot||!n.HostHealthy){
+  return p,[]string{"SIGNED_HOST_HEALTH_OR_BOOT_MISMATCH"}
  }
  p.Stage=next
  return p,nil
