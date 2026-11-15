@@ -1,0 +1,32 @@
+name: Public synthetic Wyse verified mTLS RBAC RDTE
+on:
+  push:
+    branches: [experiment/public-wyse-rbac-r01]
+    paths:
+      - tools/wyse-authz-lab/**
+      - .github/workflows/public-wyse-rbac-rdte.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  three-audience-mtls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Unit and actual mutual TLS network negative tests
+        working-directory: tools/wyse-authz-lab
+        run: |
+          set -euo pipefail
+          go version
+          gofmt -d authz
+          test -z "$(gofmt -l authz)"
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'AUTHORIZATION=TLS_VERIFIED_CA_AND_PINNED_CERT_SPKI'
+          echo 'HUMAN_AUTOMATION_AGENT=EXACT_SCOPED_CAPABILITIES'
+          echo 'HEADERS_CANNOT_ESCALATE=PASS_IF_TESTS_GREEN'
+          echo 'REAL_WYSE_AND_PRODUCTION_CONTROLLER=NOT_TESTED'
