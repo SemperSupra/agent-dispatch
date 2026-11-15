@@ -88,7 +88,7 @@ echo 'RECOVERY_NETWORK_READY=PASS'
 /usr/sbin/dropbear -F -E -s -g -p 22 -r /etc/dropbear/dropbear_ed25519_host_key
 INIT
 chmod 0755 "$R/init"
-(cd "$R" && find . -print0 | cpio --null -o -H newc --quiet | gzip -1 > "$W/initrd.gz")
+(cd "$R" && find . -print0 | cpio --null -o -H newc --owner=0:0 --quiet | gzip -1 > "$W/initrd.gz")
 echo "INITRD_BYTES=$(stat -c %s "$W/initrd.gz")" >> evidence/public/receipt.txt
 mkdir -p "$W/efi/EFI/BOOT"
 cat > "$W/grub.cfg" <<'GRUB'
