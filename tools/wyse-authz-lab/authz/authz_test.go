@@ -9,6 +9,7 @@ import (
  "crypto/x509/pkix"
  "encoding/pem"
  "math/big"
+ "net"
  "net/http"
  "net/http/httptest"
  "testing"
@@ -22,7 +23,7 @@ func cert(t *testing.T,ca *x509.Certificate,caKey *ecdsa.PrivateKey,role string,
  t.Helper()
  k:=key(t)
  tmpl:=&x509.Certificate{SerialNumber:serial(t),Subject:pkix.Name{CommonName:role},NotBefore:time.Now().Add(-time.Minute),NotAfter:time.Now().Add(time.Hour),BasicConstraintsValid:true}
- if server{tmpl.DNSNames=[]string{"localhost"};tmpl.IPAddresses=nil;tmpl.ExtKeyUsage=[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}else{tmpl.ExtKeyUsage=[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+ if server{tmpl.DNSNames=[]string{"localhost"};tmpl.IPAddresses=[]net.IP{net.ParseIP("127.0.0.1")};tmpl.ExtKeyUsage=[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}else{tmpl.ExtKeyUsage=[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
  tmpl.KeyUsage=x509.KeyUsageDigitalSignature
  if ca==nil{ca=tmpl;ca.IsCA=true;ca.KeyUsage=x509.KeyUsageCertSign|x509.KeyUsageDigitalSignature;ca.BasicConstraintsValid=true;caKey=k}
  der,err:=x509.CreateCertificate(rand.Reader,tmpl,ca,&k.PublicKey,caKey);if err!=nil{t.Fatal(err)}
