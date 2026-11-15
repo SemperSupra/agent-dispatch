@@ -112,12 +112,22 @@ if test -n "${WYSE_R25_BUILDROOT_CPIO:-}"; then
   mkdir -p "$B/lib/modules" "$B/etc/wyse-ci-fixture"
   cp -a "$R/lib/modules/$version" "$B/lib/modules/"
   cp "$R/sbin/modprobe" "$B/sbin/wyse-ci-modprobe"
-  for libdir in "$R/lib/x86_64-linux-gnu" "$R/lib64"; do
-    if test -d "$libdir"; then
-      mkdir -p "$B$(dirname "${libdir#"$R"}")"
-      cp -a "$libdir" "$B${libdir#"$R"}"
+  # The Ubuntu test-only kmod binary may load from /usr/lib or /lib64,
+  # depending on runner release. Resolve every absolute dynamic dependency
+  # from the exact observed host executable rather than assuming /lib paths.
+  kmodhost=$(command -v modprobe)
+  while IFS= read -r lib; do
+    if test -f "$lib"; then
+      mkdir -p "$B$(dirname "$lib")"
+      cp -L "$lib" "$B$lib"
     fi
-  done
+  done <<EOF
+$(ldd "$kmodhost" 2>/dev/null | grep -oE '/[^[:space:]()]+' | sort -u)
+EOF
+  interp=$(readelf -l "$kmodhost" | sed -n 's/.*Requesting program interpreter: \([^]]*\)\].*/\1/p')
+  test -n "$interp"
+  test -f "$B$interp" || { echo "R25_TEST_MODULE_LOADER_INTERPRETER_MISSING:$interp" >&2; exit 9; }
+  echo 'R25_HOST_TEST_KMOD_DYNAMIC_CLOSURE=PASS' >> evidence/public/receipt.txt
   cp "$W/host_ed25519" "$B/etc/wyse-ci-fixture/ssh_host_ed25519_key"
   cp "$W/id_ed25519.pub" "$B/etc/wyse-ci-fixture/authorized_keys"
   cat > "$B/init" <<'BUILDROOT_INIT'
