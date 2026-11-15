@@ -44,6 +44,11 @@ RESULT_FIELDS = {
         "classification", "oracle_verified", "upstream_commit", "source_blob_sha",
         "evidence_loss_confirmed", "dropped_messages", "dropped_attachments",
         "reader_qualified", "verdict_sha256"},
+    "mail-evidence-go-challenge": {
+        "classification", "oracle_verified", "typed_only", "model_inference",
+        "question_count", "source_occurrences", "attachment_occurrences",
+        "false_merge_count", "cross_tenant_leaks", "restart_verified",
+        "native_pst_qualified", "corpus_sha256", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -121,6 +126,21 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
+    if p["workload"] == "mail-evidence-go-challenge":
+        if (result.get("typed_only") is not True or
+                result.get("model_inference") is not False or
+                result.get("question_count") != 21 or
+                result.get("source_occurrences") != 8 or
+                result.get("attachment_occurrences") != 5 or
+                result.get("false_merge_count") != 0 or
+                result.get("cross_tenant_leaks") != 0 or
+                result.get("restart_verified") is not True or
+                result.get("native_pst_qualified") is not False or
+                not isinstance(result.get("corpus_sha256"), str) or
+                not HEX64.fullmatch(result["corpus_sha256"]) or
+                not isinstance(result.get("verdict_sha256"), str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("GO_EVIDENCE_SCOPE_OR_GOLD_MISMATCH")
     if p["workload"] == "mail-ragmail-loss-witness":
         if (result.get("evidence_loss_confirmed") is not True or
                 result.get("reader_qualified") is not False or

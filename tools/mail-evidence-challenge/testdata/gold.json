@@ -1,0 +1,460 @@
+[
+  {
+    "Question": {
+      "ID": "budget-prior",
+      "Language": "en",
+      "Question": "What was the coast budget before the revision?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "coast",
+      "Key": "budget",
+      "AsOf": "2026-05-02T23:59:59Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "120",
+    "ExpectedIDs": [
+      "a-1"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "budget-revised",
+      "Language": "en",
+      "Question": "What budget was recorded on May 3?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "coast",
+      "Key": "budget",
+      "AsOf": "2026-05-03T12:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "150",
+    "ExpectedIDs": [
+      "b-1"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "budget-not-yet",
+      "Language": "en",
+      "Question": "What was the coast budget before May 1?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "coast",
+      "Key": "budget",
+      "AsOf": "2026-04-30T12:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "ABSTAIN",
+    "ExpectedValue": "",
+    "ExpectedIDs": [],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "approval-de",
+      "Language": "de",
+      "Question": "Wurde der Küstenantrag am 3. Mai genehmigt?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "coast",
+      "Key": "approval",
+      "AsOf": "2026-05-03T17:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "denied",
+    "ExpectedIDs": [
+      "a-3"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "approval-th",
+      "Language": "th",
+      "Question": "สถานะอนุมัติชายฝั่งวันที่ 5 พฤษภาคมคืออะไร",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "coast",
+      "Key": "approval",
+      "AsOf": "2026-05-05T09:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "approved",
+    "ExpectedIDs": [
+      "a-4"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "approval-before",
+      "Language": "en",
+      "Question": "Was it already approved May 1?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "coast",
+      "Key": "approval",
+      "AsOf": "2026-05-01T18:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "ABSTAIN",
+    "ExpectedValue": "",
+    "ExpectedIDs": [],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "release-no-deletion",
+      "Language": "en",
+      "Question": "What is the latest known release status on May 9?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "release",
+      "Key": "status",
+      "AsOf": "2026-05-09T00:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "pending",
+    "ExpectedIDs": [
+      "a-5"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "ferry-collision",
+      "Language": "en",
+      "Question": "When is the ferry scheduled?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "ferry",
+      "Key": "date",
+      "AsOf": "2026-05-09T00:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "Friday",
+    "ExpectedIDs": [
+      "a-2"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "collision-count",
+      "Language": "en",
+      "Question": "How many occurrences share this Message-ID?",
+      "Tenant": "alpha",
+      "Mode": "message-id-collisions",
+      "Group": "",
+      "Key": "<collision@invalid.test>",
+      "AsOf": "",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "4",
+    "ExpectedIDs": [
+      "a-1",
+      "a-2",
+      "b-1",
+      "c-1"
+    ],
+    "ExpectedCitationCount": 4,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "attachment-two",
+      "Language": "en",
+      "Question": "Show all attachments named report.txt on original message.",
+      "Tenant": "alpha",
+      "Mode": "attachment-by-filename",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "a-1",
+      "OtherID": "",
+      "Filename": "report.txt"
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "2",
+    "ExpectedIDs": [
+      "a-1/0",
+      "a-1/1"
+    ],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 2
+  },
+  {
+    "Question": {
+      "ID": "attachment-one",
+      "Language": "de",
+      "Question": "Wie viele Anhänge des neuen Berichts?",
+      "Tenant": "alpha",
+      "Mode": "attachment-by-filename",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "b-1",
+      "OtherID": "",
+      "Filename": "report.txt"
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "1",
+    "ExpectedIDs": [
+      "b-1/0"
+    ],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 1
+  },
+  {
+    "Question": {
+      "ID": "attachment-changed",
+      "Language": "en",
+      "Question": "Did the report change between source observations?",
+      "Tenant": "alpha",
+      "Mode": "attachment-version",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "a-1",
+      "OtherID": "b-1",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "changed",
+    "ExpectedIDs": [
+      "a-1",
+      "b-1"
+    ],
+    "ExpectedCitationCount": 2,
+    "ExpectedAttachmentCount": 3
+  },
+  {
+    "Question": {
+      "ID": "attachment-reacquired",
+      "Language": "en",
+      "Question": "Is repeated acquisition an unchanged document?",
+      "Tenant": "alpha",
+      "Mode": "attachment-version",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "a-1",
+      "OtherID": "c-1",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "unchanged",
+    "ExpectedIDs": [
+      "a-1",
+      "c-1"
+    ],
+    "ExpectedCitationCount": 2,
+    "ExpectedAttachmentCount": 4
+  },
+  {
+    "Question": {
+      "ID": "thread-de",
+      "Language": "de",
+      "Question": "Auf welche ursprüngliche Nachricht antwortet die Ablehnung?",
+      "Tenant": "alpha",
+      "Mode": "thread-parent",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "a-3",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "a-1",
+    "ExpectedIDs": [
+      "a-1",
+      "a-3"
+    ],
+    "ExpectedCitationCount": 2,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "thread-th",
+      "Language": "th",
+      "Question": "ข้อความภาษาไทยตอบกลับข้อความใด",
+      "Tenant": "alpha",
+      "Mode": "thread-parent",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "a-4",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "a-3",
+    "ExpectedIDs": [
+      "a-3",
+      "a-4"
+    ],
+    "ExpectedCitationCount": 2,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "tenant-denied",
+      "Language": "en",
+      "Question": "Show beta-only private ledger.",
+      "Tenant": "alpha",
+      "Mode": "source-by-id",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "beta-1",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "ABSTAIN",
+    "ExpectedValue": "",
+    "ExpectedIDs": [],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "tenant-admitted",
+      "Language": "en",
+      "Question": "Show the private ledger within beta account.",
+      "Tenant": "beta",
+      "Mode": "source-by-id",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "beta-1",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "starling",
+    "ExpectedIDs": [
+      "beta-1"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "unknown-source",
+      "Language": "en",
+      "Question": "Find a source that never existed.",
+      "Tenant": "alpha",
+      "Mode": "source-by-id",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "ghost",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "ABSTAIN",
+    "ExpectedValue": "",
+    "ExpectedIDs": [],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "unknown-fact",
+      "Language": "en",
+      "Question": "What is the unobserved coast insurance rate?",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "coast",
+      "Key": "insurance",
+      "AsOf": "2026-05-05T09:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "ABSTAIN",
+    "ExpectedValue": "",
+    "ExpectedIDs": [],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "missing-message-id",
+      "Language": "en",
+      "Question": "Find release observation without Message-ID.",
+      "Tenant": "alpha",
+      "Mode": "source-by-id",
+      "Group": "",
+      "Key": "",
+      "AsOf": "",
+      "OccurrenceID": "a-5",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "SUPPORTED",
+    "ExpectedValue": "release",
+    "ExpectedIDs": [
+      "a-5"
+    ],
+    "ExpectedCitationCount": 1,
+    "ExpectedAttachmentCount": 0
+  },
+  {
+    "Question": {
+      "ID": "tenant-fact-denied",
+      "Language": "en",
+      "Question": "Find beta secret claim from alpha account.",
+      "Tenant": "alpha",
+      "Mode": "fact-asof",
+      "Group": "starling",
+      "Key": "marker",
+      "AsOf": "2026-05-05T09:00:00Z",
+      "OccurrenceID": "",
+      "OtherID": "",
+      "Filename": ""
+    },
+    "ExpectedClassification": "ABSTAIN",
+    "ExpectedValue": "",
+    "ExpectedIDs": [],
+    "ExpectedCitationCount": 0,
+    "ExpectedAttachmentCount": 0
+  }
+]

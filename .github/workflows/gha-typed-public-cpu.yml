@@ -193,6 +193,9 @@ jobs:
           - runner: ubuntu-24.04
             request: requests/gha/mail-ragmail-loss-v1.json
             artifact_suffix: ragmail-loss
+          - runner: ubuntu-24.04
+            request: requests/gha/mail-evidence-go-v1.json
+            artifact_suffix: mail-go
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:

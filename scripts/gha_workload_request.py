@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,70 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "mail-evidence-go-challenge":
+        # Exact repository-controlled Go source, standard library and immutable
+        # fictional gold. Neither a dynamic command nor a model provider.
+        package_root = ROOT / "tools" / "mail-evidence-challenge"
+        environment = dict(os.environ, GOTOOLCHAIN="local", GOPROXY="off",
+                           GOSUMDB="off", GOFLAGS="-mod=readonly")
+        if not (package_root / "go.mod").is_file():
+            return {"oracle_verified": False, "classification": "FAIL_PACKAGE",
+                    "typed_only": True, "model_inference": False,
+                    "question_count": 0, "source_occurrences": 0,
+                    "attachment_occurrences": 0, "false_merge_count": 0,
+                    "cross_tenant_leaks": 0, "restart_verified": False,
+                    "native_pst_qualified": False, "corpus_sha256": None,
+                    "verdict_sha256": None}
+        try:
+            checked = subprocess.run(
+                ["go", "test", "-count=2", "./..."], cwd=package_root,
+                env=environment, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+            if checked.returncode or len(checked.stdout) > 32768:
+                raise ValueError("GO_TEST_FAILED")
+            run = subprocess.run(
+                ["go", "run", "./cmd/evidence"], cwd=package_root,
+                env=environment, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+            if run.returncode or len(run.stdout) > 8192:
+                raise ValueError("GO_CHALLENGE_FAILED")
+            result = json.loads(run.stdout)
+            accepted = (
+                isinstance(result, dict)
+                and result.get("Schema") == "mail-public-evidence-challenge/v1"
+                and result.get("Classification") == "SYNTHETIC_TYPED_EVIDENCE_ONLY"
+                and result.get("SourceOccurrences") == 8
+                and result.get("AttachmentOccurrences") == 5
+                and result.get("QuestionCount") == 21
+                and result.get("VerifiedQuestions") == 21
+                and result.get("FalseMergeCount") == 0
+                and result.get("CrossTenantLeaks") == 0
+                and result.get("IndependentGold") is True
+                and result.get("PersistenceRecovery") is True
+                and result.get("ModelInference") is False
+                and result.get("NativePSTConformance") == "NOT_TESTED"
+                and isinstance(result.get("CorpusSHA256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", result["CorpusSHA256"]) is not None)
+        except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            accepted = False
+            result = {}
+            run = None
+        return {
+            "oracle_verified": bool(accepted),
+            "classification": "PASS" if accepted else "FAIL_TYPED_GOLD_OR_RUNTIME",
+            "typed_only": True, "model_inference": False,
+            "question_count": result.get("VerifiedQuestions", 0) if accepted else 0,
+            "source_occurrences": result.get("SourceOccurrences", 0) if accepted else 0,
+            "attachment_occurrences": result.get("AttachmentOccurrences", 0) if accepted else 0,
+            "false_merge_count": result.get("FalseMergeCount", 0) if accepted else 0,
+            "cross_tenant_leaks": result.get("CrossTenantLeaks", 0) if accepted else 0,
+            "restart_verified": bool(accepted),
+            "native_pst_qualified": False,
+            "corpus_sha256": result.get("CorpusSHA256") if accepted else None,
+            "verdict_sha256": hashlib.sha256(run.stdout).hexdigest() if accepted else None,
+        }
     if workload == "mail-ragmail-loss-witness":
         # An independent **negative** source-occurrence oracle against public MIT
         # RAG-Mail original code; a PASS proves product-incompatible loss exists.
