@@ -1,0 +1,76 @@
+name: Public Wyse R21 crosslane exact-source integrated replay qualification
+on:
+  push:
+    branches: [experiment/public-wyse-r21-crosslane-qualification]
+    paths:
+      - 'tools/wyse-armgate/**'
+      - '.github/workflows/public-wyse-crosslane-r21.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-crosslane-r21
+  cancel-in-progress: false
+jobs:
+  exact-source-converged:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: integration-src
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 4a512995ba912ad83c6d6b960e09593346dca605
+          path: policy-src
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: f8a6cf8fb76124ea5c319e2fc1def249463053e1
+          path: permit-src
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 81cb94b88ef4ae4c494e24b966cd74e0b0b62847
+          path: nonce-path-src
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 4e70f268b4d591cce5a08b75dfa21c5df426aa13
+          path: witness-src
+          persist-credentials: false
+      - name: Verify pinned independent public heads and materialize byte-exact combination
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C policy-src rev-parse HEAD)" = 4a512995ba912ad83c6d6b960e09593346dca605
+          test "$(git -C permit-src rev-parse HEAD)" = f8a6cf8fb76124ea5c319e2fc1def249463053e1
+          test "$(git -C nonce-path-src rev-parse HEAD)" = 81cb94b88ef4ae4c494e24b966cd74e0b0b62847
+          test "$(git -C witness-src rev-parse HEAD)" = 4e70f268b4d591cce5a08b75dfa21c5df426aa13
+          for spec in 'noncestore_linux.go 74b3074322e3ba4a7a59bc714522493d240695af' 'noncestore_path_r21_test.go 5aeec4a1349c977e388975c6e7d5f8de0d87cb8e'; do
+            set -- $spec
+            file=$1
+            expected=$2
+            test "$(git hash-object "nonce-path-src/tools/wyse-planpermit/$file")" = "$expected"
+            cp "nonce-path-src/tools/wyse-planpermit/$file" "permit-src/tools/wyse-planpermit/$file"
+          done
+          for spec in 'anchored_nonce_r21.go ccfccda31c7fd31a3aa824d3bd1f7de18b5c405f' 'anchored_nonce_r21_test.go 46d11198c464eebc77c168e55c2639e12abc8934'; do
+            set -- $spec
+            file=$1
+            expected=$2
+            test "$(git hash-object "witness-src/tools/wyse-planpermit/$file")" = "$expected"
+            cp "witness-src/tools/wyse-planpermit/$file" "permit-src/tools/wyse-planpermit/$file"
+          done
+          echo 'R21_SOURCE_EXACT_MANIFEST_VERIFIED=PASS'
+      - name: Run Go race, vet, no CGO on converged policy, permit and mTLS arming source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for mod in policy-src/tools/wyse-modeplan permit-src/tools/wyse-planpermit integration-src/tools/wyse-armgate; do
+            (cd "$mod" && go test -race -count=1 -v ./... && go vet ./... && CGO_ENABLED=0 go test -count=1 ./...)
+          done
+          echo 'R21_EXACT_SOURCE_CROSSLANE=PASS'
+          echo 'PRODUCTION_PRIVATE_EXACT_HEAD_BUILD=NOT_TESTED'
+          echo 'EXTERNAL_DURABLE_WITNESS=NOT_TESTED'
+          echo 'PHYSICAL_ACTUATION=NONE'
