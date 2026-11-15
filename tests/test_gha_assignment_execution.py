@@ -55,6 +55,15 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-evidence-go-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "typed_only": True, "model_inference": False, "question_count": 21,
+            "source_occurrences": 8, "attachment_occurrences": 5,
+            "false_merge_count": 0, "cross_tenant_leaks": 0,
+            "restart_verified": True, "native_pst_qualified": False,
+            "corpus_sha256": "f"*64, "verdict_sha256": "e"*64,
+        }
     elif profile_id == "mail-ragmail-loss-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
