@@ -98,7 +98,7 @@ sudo udevadm settle
 sudo mkfs.vfat -F 32 -n WYSETEST "$loop"p1 > /dev/null
 mkdir -p "$W/mnt"
 sudo mount "$loop"p1 "$W/mnt"
-sudo cp -a "$W/efi/EFI" "$W/mnt/"
+sudo cp -r "$W/efi/EFI" "$W/mnt/"
 sudo cp "$W/vmlinuz" "$W/initrd.gz" "$W/mnt/"
 sudo sync
 sudo umount "$W/mnt"
