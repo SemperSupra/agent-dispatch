@@ -107,7 +107,7 @@ trap - EXIT
 dd if="$W/usb.img" of="$W/usb-copy.img" bs=8M status=none
 cmp "$W/usb.img" "$W/usb-copy.img"
 echo 'RAW_USB_WRITE_READBACK=PASS' >> evidence/public/receipt.txt
-truncate -s 256M "$W/emmc-original.img"
+truncate -s 260M "$W/emmc-original.img" # 256MiB user + boot0/boot1 1MiB each + RPMB 2MiB
 truncate -s 128M "$W/sata.img"
 printf 'PROTECTED_EMMC_CANARY' | dd of="$W/emmc-original.img" bs=1 seek=18874368 conv=notrunc status=none
 sha256sum "$W/emmc-original.img" > "$W/emmc-sha"
