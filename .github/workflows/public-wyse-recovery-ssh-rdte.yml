@@ -1,0 +1,46 @@
+name: Public synthetic Wyse UEFI Linux SSH pre-HIL
+on:
+  push:
+    branches: [experiment/public-wyse-recovery-ssh-r01]
+    paths:
+      - scripts/public_wyse_recovery_ssh.sh
+      - .github/workflows/public-wyse-recovery-ssh-rdte.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-recovery-ssh-r01
+  cancel-in-progress: true
+jobs:
+  uefi-usb-linux-ssh:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install free-source QEMU OVMF EFI and recovery prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
+            linux-image-virtual busybox-static dropbear-bin openssh-client \
+            dosfstools gdisk util-linux cpio
+      - name: Write and boot the virtual USB with separate eMMC/SATA, prove key-only SSH
+        shell: bash
+        run: bash scripts/public_wyse_recovery_ssh.sh
+      - name: Preserve only public-safe synthetic boot evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-synthetic-wyse-uefi-linux-ssh
+          path: |
+            evidence/public/receipt.txt
+            evidence/public/guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/qemu-log.txt
+            evidence/public/grub-build.txt
+          if-no-files-found: warn
+          retention-days: 7
