@@ -28,6 +28,20 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertEqual(first, m.plan(X64))
         self.assertEqual(len(first["request_sha256"]), 64)
 
+    def test_mail_synthetic_profile_and_native_negative_oracle(self):
+        plan = m.plan("requests/gha/mail-synthetic-baseline-v1.json")
+        self.assertEqual(plan["runner"], "ubuntu-24.04")
+        self.assertEqual(plan["workload"], "mail-synthetic-baseline")
+        self.assertEqual(plan["max_cost_usd"], 0)
+        self.assertEqual(plan["max_attempts"], 1)
+        verdict = m._execute("mail-synthetic-baseline", 90)
+        self.assertTrue(verdict["oracle_verified"], verdict)
+        self.assertEqual(verdict["classification"], "PASS")
+        self.assertTrue(verdict["retrieval_only"])
+        self.assertFalse(verdict["model_inference"])
+        self.assertEqual(verdict["query_count"], 9)
+        self.assertEqual(len(verdict["fixture_sha256"]), 64)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
