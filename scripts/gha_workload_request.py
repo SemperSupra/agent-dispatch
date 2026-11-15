@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,40 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "mail-synthetic-baseline":
+        # Only the reviewed self-generated fixture + independent negative suite.
+        # Infrastructure and retrieval result only, never semantic LLM success.
+        try:
+            cp = subprocess.run(
+                [sys.executable, "-m", "unittest", "discover",
+                 "-s", "tests", "-p", "test_mail_synthetic_baseline.py"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return {"oracle_verified": False, "classification": "FAIL_TIMEOUT",
+                    "retrieval_only": True, "model_inference": False,
+                    "query_count": 0, "fixture_sha256": None}
+        if cp.returncode:
+            return {"oracle_verified": False, "classification": "FAIL_TESTS",
+                    "retrieval_only": True, "model_inference": False,
+                    "query_count": 0, "fixture_sha256": None}
+        from mail_synthetic_baseline import benchmark
+        result = benchmark()
+        accepted = (
+            result["classification"] == "RETRIEVAL_ONLY_SYNTHETIC"
+            and result["queries"] == 9
+            and result["retrieval_recall_at_3"] == 1
+            and result["no_occurrence_loss"] is True
+            and result["cross_tenant_leakage"] is False
+            and result["unknown_invented"] is False
+            and result["model_inference"] is False
+            and result["native_pst_conformance"] == "NOT_TESTED")
+        return {"oracle_verified": bool(accepted),
+                "classification": "PASS" if accepted else "FAIL_RETRIEVAL_ORACLE",
+                "retrieval_only": True, "model_inference": False,
+                "query_count": result["queries"],
+                "fixture_sha256": result["corpus_sha256"]}
     if workload == "arithmetic-oracle":
         nums = [i*i for i in range(256)]
         ok = sum(nums) == 5559680 and len(nums) == 256
