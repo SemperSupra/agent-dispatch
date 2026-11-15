@@ -1,0 +1,28 @@
+name: Public Wyse R22 independent remote nonce witness TLS transport
+on:
+  push:
+    branches: [experiment/public-wyse-https-witness-r22]
+    paths:
+      - 'tools/wyse-planpermit/**'
+      - '.github/workflows/public-wyse-https-witness-r22.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  remote-witness-transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Test mutually authenticated witness, no retries or redirects
+        working-directory: tools/wyse-planpermit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'R22_MUTUAL_TLS_REMOTE_WITNESS_CLIENT=PASS'
+          echo 'REMOTE_SERVER_DURABILITY_AND_ZFS_POWERFAIL=NOT_TESTED'
+          echo 'LIVE_MUTATION=NONE'
