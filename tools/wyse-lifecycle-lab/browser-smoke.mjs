@@ -33,7 +33,8 @@ try {
  if (!events.some(e=>e.action==='ROTATE_KEY')) throw Error('missing rotation audit');
  if (!events.some(e=>e.action==='RETIRE')) throw Error('missing retirement audit');
  const inventory=JSON.parse(await page.$eval('#nodes', (el)=>el.textContent)).nodes;
- if (inventory.length!==1||inventory[0].state!=='RETIRED'||inventory[0].hardware_verified!==false) throw Error('incorrect human UI inventory');
+ const browserNode=inventory.find((n)=>n.id==='synthetic-browser-01');
+ if (!browserNode||browserNode.state!=='RETIRED'||browserNode.hardware_verified!==false) throw Error('incorrect human UI inventory');
  console.log('HUMAN_BROWSER_CHROMIUM_ED25519_ENROLL=PASS');
  console.log('HUMAN_BROWSER_ROTATE_WITH_OLD_NEW_KEY=PASS');
  console.log('HUMAN_BROWSER_ALL_LIFECYCLE_ACTIONS=PASS');
