@@ -87,8 +87,25 @@ jobs:
             test ! -e "$OUT/target/usr/bin/qemu-system-x86_64"
             test ! -e "$OUT/target/usr/bin/docker"
             sha256sum "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/rootfs-hashes.txt"
+            echo 'EXPECTED_ROOTFS_BASELINE_RUN=43749661644' >> "$E/receipt.txt"
+            echo 'EXPECTED_BASELINE_COMMIT=23cdcf69641969ae19576157a38b8890f1cf47b2' >> "$E/receipt.txt"
             echo 'WYSE_R24_REPRODUCIBLE_CONFIG_BASELINE=RECORDED' >> "$E/receipt.txt"
-            echo 'WYSE_R24_CROSS_RUN_REPRODUCIBILITY=SECOND_CLEAN_RUN_REQUIRED' >> "$E/receipt.txt"
+            # A second clean GitHub-hosted runner must reproduce both exact
+            # compressed images from the first BR2_REPRODUCIBLE=y build.
+            # Compare both outputs, preserve both failures, and never pass
+            # because compilation alone succeeded.
+            set +e
+            printf '%s  %s\n' '1d5e60de5e898b74c9b362df2e1aa7ce9480905c7875d35c84dc07b139329a8d' "$OUT/images/rootfs.cpio" | sha256sum -c - > "$E/cpio-cross-run-check.txt" 2>&1
+            cpio_status=$?
+            printf '%s  %s\n' '63a0a208d1e87052ae291451b0007fd7b94c7dd43296c33c49212bb88acb1102' "$OUT/images/rootfs.squashfs" | sha256sum -c - > "$E/squashfs-cross-run-check.txt" 2>&1
+            squashfs_status=$?
+            set -e
+            if test "$cpio_status" -ne 0 || test "$squashfs_status" -ne 0; then
+              echo 'WYSE_R24_CROSS_RUN_REPRODUCIBILITY=RED_HASH_MISMATCH' >> "$E/receipt.txt"
+              echo 'BR2_REPRODUCIBLE_Y_INSUFFICIENT_FOR_EXACT_IMAGE_REPRODUCIBILITY=TRUE' >> "$E/receipt.txt"
+              exit 5
+            fi
+            echo 'WYSE_R24_CROSS_RUN_REPRODUCIBILITY=PASS_TWO_DISTINCT_CLEAN_RUNS' >> "$E/receipt.txt"
             stat -c '%n %s bytes' "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/rootfs-sizes.txt"
             echo 'WYSE_R24_FULL_PINNED_BUILDROOT_ROOTFS=PASS' >> "$E/receipt.txt"
             echo 'WYSE_R24_PYTHON_DOCKER_QEMU_ABSENT_FROM_CORE=PASS' >> "$E/receipt.txt"
