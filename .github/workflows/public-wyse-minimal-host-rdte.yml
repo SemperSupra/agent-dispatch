@@ -66,13 +66,19 @@ jobs:
           OUT="$RUNNER_TEMP/wyse-rootfs"
           EXTERNAL="$PWD/tools/wyse-buildroot"
           make -C "$SRC" O="$OUT" BR2_EXTERNAL="$EXTERNAL" wyse_minimal_defconfig > evidence/buildroot-config.log 2>&1
+          grep -q '^BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_X86_64_MUSL_STABLE=y' "$OUT/.config"
           grep -q '^BR2_PACKAGE_DROPBEAR=y' "$OUT/.config"
           grep -q '^BR2_PACKAGE_DROPBEAR_SMALL=y' "$OUT/.config"
           grep -q '^# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set' "$OUT/.config"
           grep -q '^# BR2_TARGET_ENABLE_ROOT_LOGIN is not set' "$OUT/.config"
           grep -q '^BR2_TARGET_ROOTFS_CPIO=y' "$OUT/.config"
+          if grep -Eq 'dropbear .*(-w|--disable-root-login)' tools/wyse-buildroot/overlay/etc/init.d/S50dropbear; then
+            echo 'SSH_KEY_ONLY_ROOT=BLOCKED_BY_DROPBEAR_ROOT_DENY' >> evidence/rootfs-receipt.txt
+            exit 1
+          fi
+          echo 'SSH_KEY_ONLY_ROOT_POLICY_SOURCE=PASS' >> evidence/rootfs-receipt.txt
           echo 'PINNED_BUILDROOT_AND_MINIMAL_DEFINITIONS=PASS' >> evidence/rootfs-receipt.txt
-          if timeout 1080 make -C "$SRC" O="$OUT" -j4 > "$RUNNER_TEMP/wyse-buildroot-full.log" 2>&1; then
+          if timeout 930 make -C "$SRC" O="$OUT" -j4 > "$RUNNER_TEMP/wyse-buildroot-full.log" 2>&1; then
             test -f "$OUT/images/rootfs.cpio"
             test -f "$OUT/images/rootfs.squashfs"
             test -x "$OUT/target/etc/init.d/S01wyse-volatile"
