@@ -33,6 +33,9 @@ RESULT_FIELDS = {
     "sealed-contract-native": {"classification", "oracle_verified"},
     "microsoft-devproxy-mock": {"classification", "oracle_verified", "mock_only", "provider_access_verified", "verdict_sha256"},
     "azurite-blob-transport": {"classification", "oracle_verified", "emulator_only", "provider_access_verified", "verdict_sha256"},
+    "mail-synthetic-baseline": {
+        "classification", "oracle_verified", "retrieval_only",
+        "model_inference", "query_count", "fixture_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -110,6 +113,13 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
+    if p["workload"] == "mail-synthetic-baseline":
+        if (result.get("retrieval_only") is not True or
+                result.get("model_inference") is not False or
+                result.get("query_count") != 9 or
+                not isinstance(result.get("fixture_sha256"), str) or
+                not HEX64.fullmatch(result["fixture_sha256"])):
+            raise VerdictError("SYNTHETIC_MAIL_SCOPE_OR_RECEIPT_MISMATCH")
     if p["workload"] == "arithmetic-oracle":
         nums = [i**2 for i in range(256)]
         independent_digest = hashlib.sha256(

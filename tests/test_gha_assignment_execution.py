@@ -55,6 +55,12 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-synthetic-baseline-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "retrieval_only": True, "model_inference": False,
+            "query_count": 9, "fixture_sha256": "e" * 64,
+        }
     elif profile_id == "cpu-x64-arithmetic-v1":
         fixed_result = profile._execute("arithmetic-oracle", 30)
     else:
