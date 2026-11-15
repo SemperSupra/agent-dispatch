@@ -27,7 +27,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
             qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
             linux-image-virtual busybox-static dropbear-bin openssh-client \
-            dosfstools gdisk util-linux cpio
+            dosfstools gdisk util-linux cpio kmod
       - name: Write and boot the virtual USB with separate eMMC/SATA, prove key-only SSH
         shell: bash
         run: bash scripts/public_wyse_recovery_ssh.sh
