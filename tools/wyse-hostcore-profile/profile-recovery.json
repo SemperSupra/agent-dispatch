@@ -1,0 +1,57 @@
+{
+  "schema": "wyse-recovery-host/v1",
+  "buildroot": "2026.08.1",
+  "core": [
+    "signed-boot-policy",
+    "root-integrity",
+    "busybox-init-console",
+    "mmc-ahci-usb-nic",
+    "key-only-lan-ssh",
+    "recoverd-go",
+    "offline-usb-recovery",
+    "safe-boot-mode",
+    "device-identity"
+  ],
+  "optional": [
+    "ssd-overlay",
+    "tpm-sealing",
+    "hardware-watchdog"
+  ],
+  "mode": "recovery",
+  "rootfs": "read-only-verity",
+  "storage": {
+    "emmc": "read-only-ab-authorized-updates",
+    "runtime_writes": "tmpfs",
+    "ssd": "optional-discovered",
+    "ssd_prepared": false,
+    "host_reserve_protected_from_baremetal": false,
+    "raw_disk_changes": false
+  },
+  "network": {
+    "ssh": "trusted-lan-public-key",
+    "web": "headscale-overlay-only",
+    "offline_rescue": true
+  },
+  "hardware": {
+    "watchdog": "unqualified",
+    "watchdog_verified": false,
+    "watchdog_armed": false,
+    "bios_metadata_write": false,
+    "tpm_verified": false
+  },
+  "guest": {
+    "devices": [],
+    "recovery_disk_visible": false,
+    "host_physical_tpm_visible": false,
+    "host_firmware_visible": false
+  },
+  "observability": {
+    "live_host": false,
+    "external_only": false
+  },
+  "audiences": [
+    "human",
+    "automation",
+    "agent"
+  ]
+}
