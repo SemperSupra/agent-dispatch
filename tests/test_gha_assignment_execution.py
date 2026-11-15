@@ -55,6 +55,18 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-openworker-headless-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "upstream_commit": "ecb445490fc054d52b8ea610d97ba947f57033d2",
+            "connector_blob_sha": "7be4e1f9e78e8fd9d1ef81b58bbc86a916c48e76",
+            "headless_blob_sha": "3cadae25bd4a3c90d363ae296522058e578af917",
+            "control_count": 11, "fake_readonly": True,
+            "duplicate_attachments_visible": True,
+            "no_smtp_attempts": True, "isolated_defaults": True,
+            "real_mail": False, "model_inference": False,
+            "headless_engine_run": False, "verdict_sha256": "e"*64,
+        }
     elif profile_id == "mail-evidence-go-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
