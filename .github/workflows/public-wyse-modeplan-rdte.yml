@@ -1,0 +1,33 @@
+name: Public synthetic Wyse profiles and lifecycle policy RDTE
+on:
+  push:
+    branches: [experiment/public-wyse-profile-state-r01]
+    paths:
+      - tools/wyse-modeplan/**
+      - .github/workflows/public-wyse-modeplan-rdte.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  modes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute synthetic remote hypervisor/guest and full lifecycle policy tests
+        working-directory: tools/wyse-modeplan
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          go version
+          gofmt -w modeplan
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'ALL_PROFILE_AND_ENROLLMENT_TRANSITIONS=TESTED'
+          echo 'REMOTE_HYPERVISOR_INSTALL_PLAN_GATE=TESTED'
+          echo 'REMOTE_GUEST_NESTED_AND_ISOLATION_PREFLIGHT=TESTED'
+          echo 'DISENROLL_RETIRE_AND_RECLAIM=TESTED'
+          echo 'NO_FIRMWARE_TPM_DISK_GARM_OR_POWER_ACTUATOR=YES'
