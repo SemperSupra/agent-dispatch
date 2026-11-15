@@ -1,0 +1,33 @@
+name: Public Wyse R21 external antirollback authority contract
+on:
+  push:
+    branches: [experiment/public-wyse-dualdomain-replay-r21]
+    paths:
+      - 'tools/wyse-planpermit/**'
+      - '.github/workflows/public-wyse-dualdomain-replay-r21.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-dualdomain-replay-r21
+  cancel-in-progress: false
+jobs:
+  local-snapshot-counterexample:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Local snapshot rollback counterexample and external witness test double
+        working-directory: tools/wyse-planpermit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'R21_SYNTHETIC_RESTORED_LOCAL_REPLAY_COUNTEREXAMPLE=OBSERVED'
+          echo 'R21_EXTERNAL_WITNESS_TEST_DOUBLE=PASS'
+          echo 'REAL_EXTERNAL_ANCHOR_AND_ZFS_POWERFAIL=NOT_TESTED'
+          echo 'LIVE_MUTATION=NONE'
