@@ -166,7 +166,9 @@ if test "${WYSE_R23_ENFORCE_SB:-0}" = 1; then
   ovmf_machine=q35,smm=on
   test -f "$ovmf_code"
   virt-fw-vars --input /usr/share/OVMF/OVMF_VARS_4M.fd \
-    --output "$W/vars.fd" --enroll-cert "$W/ephemeral-sb.crt" --secure-boot
+    --output "$W/vars.fd" --enroll-cert "$W/ephemeral-sb.crt" \
+    --add-db 603b0819-1cf7-46ef-bf6e-0d9c03ac23bb "$W/ephemeral-sb.crt" \
+    --no-microsoft --secure-boot
   virt-fw-vars --input "$W/vars.fd" --print > evidence/public/ovmf-keys.txt
   echo 'R23_OVMF_EPHEMERAL_TEST_ROOT_ENROLLED=PASS' >> evidence/public/receipt.txt
 else
