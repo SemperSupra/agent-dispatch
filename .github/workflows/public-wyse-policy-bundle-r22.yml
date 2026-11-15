@@ -1,0 +1,34 @@
+name: Public Wyse R22 issuer grant provenance and epoch guard
+on:
+  push:
+    branches: [experiment/public-wyse-policy-bundle-r22]
+    paths:
+      - 'tools/wyse-armgate/**'
+      - '.github/workflows/public-wyse-policy-bundle-r22.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-registry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: integration-src, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: 4a512995ba912ad83c6d6b960e09593346dca605, path: policy-src, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: f8a6cf8fb76124ea5c319e2fc1def249463053e1, path: permit-src, persist-credentials: false}
+      - name: Signed policy roots, rotation, revocation, epoch rollback
+        working-directory: integration-src/tools/wyse-armgate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C ../../../policy-src rev-parse HEAD)" = 4a512995ba912ad83c6d6b960e09593346dca605
+          test "$(git -C ../../../permit-src rev-parse HEAD)" = f8a6cf8fb76124ea5c319e2fc1def249463053e1
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'R22_SIGNED_GRANT_PROVENANCE_POLICY=PASS'
+          echo 'REAL_MONOTONIC_EPOCH_AND_CA_GOVERNANCE=NOT_TESTED'
+          echo 'HARDWARE_OR_GARM_MUTATION=NONE'
