@@ -266,7 +266,7 @@ func AdvanceInstall(n Node,p Plan,next Stage) (Plan,[]string){
 func GuestPreflight(n Node,g Guest) []string {
  var fail []string
  if n.Enrollment!=Enrolled||!n.TrustVerified||n.Presence!=Present{fail=append(fail,"DEVICE_NOT_ADMITTED")}
- if n.Admission!=Ready||n.GARMHold{fail=append(fail,"SCHEDULING_OR_GARM_HOLD")}
+ if n.Admission!=Ready{fail=append(fail,"HOST_NOT_READY")}
  if n.DesiredBoot!=HypervisorSSD||n.ObservedBoot!=HypervisorSSD||!n.ActualHypervisorInstalled||!n.HostHealthy{fail=append(fail,"HYPERVISOR_NOT_HEALTHY")}
  if n.DesiredProfile!=DisposableHosted&&n.DesiredProfile!=ClusterNode{fail=append(fail,"WRONG_HOSTED_PROFILE")}
  if g.GuestID==""||!digest(g.ImageSHA256)||!g.ImageSigned||!g.RightToInstall{fail=append(fail,"GUEST_ARTIFACT_UNQUALIFIED")}
@@ -279,5 +279,7 @@ func GuestPreflight(n Node,g Guest) []string {
 // Admission to the existing GARM/Agent Dispatch provider is separate from
 // successful guest provisioning and is explicitly disabled by a live hold.
 func RunnerAdmission(n Node,g Guest) []string {
- return GuestPreflight(n,g)
+ fail:=GuestPreflight(n,g)
+ if n.GARMHold {fail=append(fail,"GARM_LIVE_HOLD")}
+ return fail
 }
