@@ -257,10 +257,13 @@ func planIntentDigest(p Plan) string {
   ArtifactSigned bool
   RightToInstall bool
   NestedRequirement Nested
+  ApprovedChangeID string
+  SignedMutationGate bool
  }{
   p.DeviceID,p.ExpectedRevision,p.TargetProfile,p.TargetBoot,
   p.SSDDeviceIdentity,p.EMMCDeviceIdentity,p.ArtifactSHA256,
   p.ArtifactSigned,p.RightToInstall,p.NestedRequirement,
+  p.ApprovedChangeID,p.SignedMutationGate,
  })
  sum:=sha256.Sum256(b)
  return hex.EncodeToString(sum[:])
