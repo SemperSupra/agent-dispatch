@@ -1,4 +1,4 @@
-name: Public Wyse R23 OVMF Secure Boot enrollment capability probe
+name: Public Wyse R23 OVMF Secure Boot enrolled-root boot experiment
 on:
   push:
     branches: [experiment/public-wyse-r23-secureboot-enforcement]
@@ -9,23 +9,47 @@ on:
 permissions:
   contents: read
 jobs:
-  secureboot-capability:
+  secureboot-enrolled-root:
     runs-on: ubuntu-26.04
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with: {persist-credentials: false}
-      - name: Probe virtual Secure Boot firmware/enrollment tooling only
+      - name: Install QEMU OVMF, secure variable store tools, signed EFI and Linux recovery dependencies
         shell: bash
         run: |
           set -Eeuo pipefail
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ovmf python3-virt-firmware openssl
-          command -v virt-fw-vars
-          virt-fw-vars --help | grep -E -- '(--enroll-cert|--secure-boot)' | head -8
-          find /usr/share/OVMF -maxdepth 1 -type f -name '*4M*' -print | sort
-          test -f /usr/share/OVMF/OVMF_CODE_4M.secboot.fd
-          test -f /usr/share/OVMF/OVMF_VARS_4M.fd
-          echo 'R23_SECUREBOOT_UEFI_FIRMWARE_AND_ENROLLMENT_CAPABILITY=PASS'
-          echo 'EFI_EXECUTION_ENFORCEMENT=NOT_YET_TESTED'
-          echo 'LIVE_MACHINE_MUTATION=NONE'
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
+            linux-image-virtual busybox-static dropbear-bin openssh-client \
+            dosfstools gdisk util-linux cpio kmod sbsigntool openssl \
+            python3-virt-firmware
+      - name: Boot signed EFI under OVMF with ephemeral enrolled trust root, then Linux key-only SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export WYSE_R23_SIGNED_EFI=1 WYSE_R23_ENFORCE_SB=1
+          bash scripts/public_wyse_recovery_ssh.sh
+          grep -q '^R23_SIGNED_EFI_SIGNATURE_VERIFIED=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_TAMPERED_EFI_SIGNATURE_REFUSAL=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_OVMF_EPHEMERAL_TEST_ROOT_ENROLLED=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_OVMF_ENROLLED_ROOT_SIGNED_EFI_LINUX_SSH=PASS$' evidence/public/receipt.txt
+          grep -q '^UEFI_USB_LINUX_EMMC_SATA_SSH=PASS$' evidence/public/receipt.txt
+          echo 'R23_OVMF_ENROLLED_ROOT_POSITIVE_BOOT=PASS'
+          echo 'FIRMWARE_UNSIGNED_BOOT_DENIAL=NOT_YET_TESTED'
+          echo 'SIGNED_KERNEL_INITRD_AND_OWNER_KEYS=NOT_TESTED'
+      - name: Upload public-safe test receipts only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r23-ovmf-enrolled-root-positive
+          path: |
+            evidence/public/receipt.txt
+            evidence/public/efi-signature-oracle.txt
+            evidence/public/ovmf-keys.txt
+            evidence/public/guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/qemu-log.txt
+          if-no-files-found: warn
+          retention-days: 7
