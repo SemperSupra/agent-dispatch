@@ -182,6 +182,8 @@ jobs:
             request: requests/gha/cpu-x64-arithmetic-v1.json
           - runner: ubuntu-24.04-arm
             request: requests/gha/cpu-arm64-contract-v1.json
+          - runner: ubuntu-24.04
+            request: requests/gha/mail-synthetic-baseline-v1.json
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
@@ -216,12 +218,12 @@ jobs:
         if: always() && hashFiles('.gha-typed/receipt.json') != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: gha-typed-${{ matrix.runner }}-${{ github.run_attempt }}
+          name: gha-typed-${{ matrix.runner }}-${{ matrix.request == 'requests/gha/mail-synthetic-baseline-v1.json' && 'mail-synthetic' || 'existing' }}-${{ github.run_attempt }}
           path: |
             .gha-typed/receipt.json
             .gha-typed/verified.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
   plan:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
