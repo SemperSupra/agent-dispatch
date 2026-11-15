@@ -104,6 +104,34 @@ GRUB
 grub-mkstandalone -O x86_64-efi -o "$W/efi/EFI/BOOT/BOOTX64.EFI" \
   --modules="part_gpt fat search search_label linux serial terminal echo" \
   "boot/grub/grub.cfg=$W/grub.cfg" > evidence/public/grub-build.txt 2>&1
+# R23: Public synthetic EFI signature proof. Ephemeral test key only.
+# OVMF below does NOT enroll this signer. Signature plus boot does not
+# prove Secure Boot firmware enforcement or hardware applicability.
+if test "$WYSE_R23_SIGNED_EFI" = 1; then
+  openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 1 \
+    -subj '/CN=Wyse R23 ephemeral CI EFI signer NOT TRUSTED' \
+    -keyout "$W/ephemeral-sb.key" -out "$W/ephemeral-sb.crt" \
+    > "$W/openssl-build.log" 2>&1
+  chmod 0600 "$W/ephemeral-sb.key"
+  sbsign --key "$W/ephemeral-sb.key" --cert "$W/ephemeral-sb.crt" \
+    --output "$W/efi/EFI/BOOT/BOOTX64.EFI.signed" \
+    "$W/efi/EFI/BOOT/BOOTX64.EFI" > "$W/sign.log" 2>&1
+  mv "$W/efi/EFI/BOOT/BOOTX64.EFI.signed" "$W/efi/EFI/BOOT/BOOTX64.EFI"
+  sbverify --cert "$W/ephemeral-sb.crt" "$W/efi/EFI/BOOT/BOOTX64.EFI" \
+    > evidence/public/efi-signature-oracle.txt 2>&1
+  echo 'R23_SIGNED_EFI_SIGNATURE_VERIFIED=PASS' >> evidence/public/receipt.txt
+  cp "$W/efi/EFI/BOOT/BOOTX64.EFI" "$W/forged-efi.bin"
+  printf X | dd of="$W/forged-efi.bin" bs=1 seek=4096 conv=notrunc status=none
+  if sbverify --cert "$W/ephemeral-sb.crt" "$W/forged-efi.bin" \
+      > "$W/forged-verification.txt" 2>&1; then
+    echo 'R23_TAMPERED_EFI_SIGNATURE_REFUSAL=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  echo 'R23_TAMPERED_EFI_SIGNATURE_REFUSAL=PASS' >> evidence/public/receipt.txt
+  echo "R23_EPHEMERAL_SIGNER_CERT_SHA256=$(openssl x509 -in "$W/ephemeral-sb.crt" -fingerprint -sha256 -noout | cut -d= -f2)" >> evidence/public/receipt.txt
+  rm -f "$W/ephemeral-sb.key"
+fi
+
 truncate -s 768M "$W/usb.img"
 sgdisk --zap-all --clear -n 1:2048:+650M -t 1:ef00 "$W/usb.img" >/dev/null
 loop=$(sudo losetup --find --partscan --show "$W/usb.img")
@@ -184,4 +212,9 @@ done
 echo 'UEFI_USB_LINUX_EMMC_SATA_SSH=PASS' >> evidence/public/receipt.txt
 echo 'EMMC_SOURCE_PRESERVED=PASS' >> evidence/public/receipt.txt
 echo 'SIGNED_PRODUCTION_IMAGE=NOT_TESTED' >> evidence/public/receipt.txt
+if test "$WYSE_R23_SIGNED_EFI" = 1; then
+  echo 'R23_SIGNED_EFI_UEFI_BOOT_LINUX_SSH=PASS' >> evidence/public/receipt.txt
+  echo 'OVMF_SECURE_BOOT_ENFORCEMENT=NOT_TESTED' >> evidence/public/receipt.txt
+  echo 'OWNER_PK_KEK_DB_AND_HARDWARE_SECUREBOOT=NOT_TESTED' >> evidence/public/receipt.txt
+fi
 echo 'DELL_FIRMWARE_AND_PHYSICAL_TPM=NOT_TESTED' >> evidence/public/receipt.txt
