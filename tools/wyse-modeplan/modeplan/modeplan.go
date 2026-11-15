@@ -130,6 +130,7 @@ type Guest struct {
  NoPhysicalTPM bool `json:"no_physical_tpm"`
  NoRecoveryDisk bool `json:"no_recovery_disk"`
  VirtualTPM bool `json:"virtual_tpm"`
+ RequiresVTPM bool `json:"requires_vtpm"`
  NestedRequirement Nested `json:"nested_requirement"`
  ResourceBudgetVerified bool `json:"resource_budget_verified"`
 }
@@ -193,7 +194,7 @@ func AdvanceEnrollment(n Node,action string,freshWitness bool,revoked bool)(Node
   if n.Admission!=Drained&&n.Admission!=Quarantined{return n,errors.New("drain or quarantine before disenrollment")}
   if !revoked{return n,errors.New("external credential revocation receipt required")}
  }
- if action=="reclaim_with_fresh_proof"&&!revoked{return n,errors.New("old credentials must remain revoked before re-claim")}
+ if action=="reclaim_with_fresh_proof"&&(!revoked||n.Presence!=Present){return n,errors.New("re-claim requires present device and old credentials revoked")}
  if action=="retire"&&!revoked{return n,errors.New("revocation receipt required before retirement")}
  n.Enrollment=dest;n.Revision++
  if dest==Disenrolled||dest==Retired {
@@ -267,11 +268,15 @@ func GuestPreflight(n Node,g Guest) []string {
  var fail []string
  if n.Enrollment!=Enrolled||!n.TrustVerified||n.Presence!=Present{fail=append(fail,"DEVICE_NOT_ADMITTED")}
  if n.Admission!=Ready{fail=append(fail,"HOST_NOT_READY")}
+ if n.Power!=PowerOn{fail=append(fail,"HOST_NOT_POWERED")}
+ if n.Network!=OverlayOnline&&n.Network!=LANSSHOnly{fail=append(fail,"TRUSTED_MANAGEMENT_UNREACHABLE")}
+ if !n.RecoveryVerified{fail=append(fail,"RECOVERY_NOT_VERIFIED")}
  if n.DesiredBoot!=HypervisorSSD||n.ObservedBoot!=HypervisorSSD||!n.ActualHypervisorInstalled||!n.HostHealthy{fail=append(fail,"HYPERVISOR_NOT_HEALTHY")}
  if n.DesiredProfile!=DisposableHosted&&n.DesiredProfile!=ClusterNode{fail=append(fail,"WRONG_HOSTED_PROFILE")}
  if g.GuestID==""||!digest(g.ImageSHA256)||!g.ImageSigned||!g.RightToInstall{fail=append(fail,"GUEST_ARTIFACT_UNQUALIFIED")}
  if !g.IsolatedStorage||!g.IsolatedNetwork||!g.NoPhysicalTPM||!g.NoRecoveryDisk{fail=append(fail,"GUEST_ISOLATION_NOT_PROVEN")}
  if !g.ResourceBudgetVerified{fail=append(fail,"GUEST_RESOURCE_BUDGET_MISSING")}
+ if g.RequiresVTPM&&!g.VirtualTPM{fail=append(fail,"REQUIRED_GUEST_VTPM_MISSING")}
  if !knownNested(g.NestedRequirement){fail=append(fail,"UNKNOWN_NESTED_KIND")}
  if g.NestedRequirement!=NoNested&&(!n.HardwareNestedVerified||!n.HostNestedVerified){fail=append(fail,"NESTED_L2_NOT_QUALIFIED")}
  return fail
