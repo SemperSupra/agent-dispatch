@@ -1,0 +1,32 @@
+name: Public Wyse R20 persistent one-use nonce RDTE
+on:
+  push:
+    branches: [experiment/public-wyse-noncefs-r20]
+    paths:
+      - 'tools/wyse-planpermit/**'
+      - '.github/workflows/public-wyse-noncefs-r20.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-noncefs-r20
+  cancel-in-progress: false
+jobs:
+  linux-nonce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Go stdlib durable local filesystem nonce tests
+        working-directory: tools/wyse-planpermit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'R20_NONCE_LOCAL_FILESYSTEM_POLICY=PASS'
+          echo 'ACTUAL_ZFS_AND_POWER_FAILURE_DURABILITY=NOT_TESTED'
+          echo 'LIVE_MUTATION=NONE'
