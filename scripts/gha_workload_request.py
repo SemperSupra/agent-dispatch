@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,59 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "mail-openworker-headless-mail":
+        # Original immutable MIT headless CLI parser and fake IMAP source.
+        # No real login, mail sending, model engine or arbitrary URL input.
+        try:
+            proc = subprocess.run(
+                [sys.executable, "scripts/qualify_openworker_headless_mail.py"],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, timeout=timeout, check=False)
+            if proc.returncode or len(proc.stdout) > 8192:
+                raise ValueError("UPSTREAM_HEADLESS_FAKE_RUNTIME")
+            observed = json.loads(proc.stdout)
+            accepted = (
+                isinstance(observed, dict)
+                and observed.get("schema") == "public-openworker-headless-mail-contract/v1"
+                and observed.get("classification") == "UPSTREAM_HEADLESS_AND_FAKE_IMAP_ONLY"
+                and observed.get("upstream_repository") == "andrewyng/openworker"
+                and observed.get("upstream_commit") ==
+                    "ecb445490fc054d52b8ea610d97ba947f57033d2"
+                and observed.get("connector_blob_sha") ==
+                    "7be4e1f9e78e8fd9d1ef81b58bbc86a916c48e76"
+                and observed.get("headless_blob_sha") ==
+                    "3cadae25bd4a3c90d363ae296522058e578af917"
+                and observed.get("license") == "MIT"
+                and observed.get("qualified") is True
+                and observed.get("control_count") == 11
+                and observed.get("isolated_defaults") is True
+                and observed.get("fake_mail_readonly") is True
+                and observed.get("duplicate_attachments_visible") is True
+                and observed.get("no_smtp_attempts") is True
+                and observed.get("approval_metadata_only") is True
+                and observed.get("headless_engine_run") is False
+                and observed.get("model_inference") is False
+                and observed.get("real_mail") is False)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            accepted = False
+            observed = {}
+            proc = None
+        return {
+            "oracle_verified": bool(accepted),
+            "classification": "PASS" if accepted else "FAIL_UPSTREAM_HEADLESS_MAIL",
+            "upstream_commit": observed.get("upstream_commit") if accepted else None,
+            "connector_blob_sha": observed.get("connector_blob_sha") if accepted else None,
+            "headless_blob_sha": observed.get("headless_blob_sha") if accepted else None,
+            "control_count": 11 if accepted else 0,
+            "fake_readonly": bool(accepted),
+            "duplicate_attachments_visible": bool(accepted),
+            "no_smtp_attempts": bool(accepted),
+            "isolated_defaults": bool(accepted),
+            "real_mail": False,
+            "model_inference": False,
+            "headless_engine_run": False,
+            "verdict_sha256": hashlib.sha256(proc.stdout).hexdigest() if accepted else None,
+        }
     if workload == "mail-evidence-go-challenge":
         # Exact repository-controlled Go source, standard library and immutable
         # fictional gold. Neither a dynamic command nor a model provider.
