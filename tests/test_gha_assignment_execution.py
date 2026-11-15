@@ -61,9 +61,11 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "upstream_commit": "ecb445490fc054d52b8ea610d97ba947f57033d2",
             "connector_blob_sha": "7be4e1f9e78e8fd9d1ef81b58bbc86a916c48e76",
             "headless_blob_sha": "3cadae25bd4a3c90d363ae296522058e578af917",
-            "control_count": 11, "fake_readonly": True,
+            "control_count": 12, "fake_readonly": True,
             "duplicate_attachments_visible": True,
             "no_smtp_attempts": True, "isolated_defaults": True,
+            "same_name_second_unaddressable": True,
+            "attachment_download_occurrence_complete": False,
             "real_mail": False, "model_inference": False,
             "headless_engine_run": False, "verdict_sha256": "e"*64,
         }
