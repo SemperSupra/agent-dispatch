@@ -152,3 +152,26 @@ func TestNoHostToBaremetalFallbackAndNoSideEffects(t *testing.T){
  if ProfileBootCompatible(DisposableHosted,BareMetalSSD){t.Fatal("hosted auto fell back to baremetal")}
  if !ProfileBootCompatible(ClusterNode,BareMetalSSD)||!ProfileBootCompatible(ClusterNode,HypervisorSSD){t.Fatal("cluster substrate should be independent")}
 }
+
+
+func TestBareMetalRunnerSeparateFromHostedGuest(t *testing.T){
+ n:=mkNode()
+ n.DesiredProfile=DisposableBareMetal;n.DesiredBoot=BareMetalSSD
+ n.ObservedBoot=BareMetalSSD;n.Admission=Ready;n.HostHealthy=true;n.GARMHold=false
+ if v:=BareMetalRunnerAdmission(n);len(v)!=0{t.Fatalf("healthy baremetal runner refused: %v",v)}
+ if v:=GuestPreflight(n,guest());!has(v,"HYPERVISOR_NOT_HEALTHY"){t.Fatal("baremetal node misclassified as VM host")}
+ n.GARMHold=true
+ if v:=BareMetalRunnerAdmission(n);!has(v,"GARM_LIVE_HOLD"){t.Fatal("GARM hold ignored on baremetal")}
+ n.GARMHold=false;n.DesiredProfile=ClusterNode
+ if v:=BareMetalRunnerAdmission(n);len(v)!=0{t.Fatalf("cluster-managed baremetal runner rejected %v",v)}
+ cases:=[]struct{fn func(*Node);code string}{
+  {func(n *Node){n.Admission=Quarantined},"HOST_NOT_READY"},
+  {func(n *Node){n.Network=LinkOffline},"TRUSTED_MANAGEMENT_UNREACHABLE"},
+  {func(n *Node){n.Power=PowerNoWOL},"HOST_NOT_POWERED"},
+  {func(n *Node){n.RecoveryVerified=false},"RECOVERY_NOT_VERIFIED"},
+  {func(n *Node){n.ObservedBoot=RecoveryEMMC},"BAREMETAL_OS_NOT_HEALTHY"},
+  {func(n *Node){n.ActiveGuests=1},"ACTIVE_GUESTS_ON_BAREMETAL_PROFILE"},
+  {func(n *Node){n.Enrollment=Disenrolled},"DEVICE_NOT_ADMITTED"},
+ }
+ for _,x:=range cases{nn:=n;x.fn(&nn);if !has(BareMetalRunnerAdmission(nn),x.code){t.Errorf("%s not rejected",x.code)}}
+}
