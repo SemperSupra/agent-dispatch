@@ -6,7 +6,6 @@ import (
  "crypto/rand"
  "encoding/base64"
  "encoding/json"
- "net/http"
  "net/http/httptest"
  "os"
  "path/filepath"
@@ -72,7 +71,6 @@ func TestLifecycleAllThreeAudiencesAndPersistence(t *testing.T) {
  if n.Revision!=7{t.Fatalf("revision %d",n.Revision)}
  invalid,_:=call(s,token,"human","POST","/api/v1/lab/nodes/"+n.ID+"/actions",`{"action":"commission","expected_revision":7}`,"")
  if invalid!=409{t.Fatal("retired device allowed transition")}
- again,_:=newService(file,[]byte(token));if again!=nil{t.Fatal(again)}
  loaded,err:=newService(file,[]byte(token));if err!=nil{t.Fatal(err)}
  code,raw:=call(loaded,token,"agent","GET","/api/v1/lab/nodes","","")
  if code!=200||!bytes.Contains(raw,[]byte("RETIRED"))||!bytes.Contains(raw,[]byte(`"hardware_verified":false`)){t.Fatalf("persistent state %d %s",code,raw)}
