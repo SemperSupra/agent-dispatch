@@ -11,6 +11,7 @@ import (
  "fmt"
  "os"
  "path/filepath"
+ "strings"
  "sync"
  "syscall"
 )
@@ -36,8 +37,22 @@ func NewLinuxNonceStore(root string)(*LinuxNonceStore,error){
  if root==""||!filepath.IsAbs(root)||filepath.Clean(root)!=root||root=="/"{
   return nil,errors.New("absolute canonical dedicated nonce directory required")
  }
- fd,err:=syscall.Open(root,syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
- if err!=nil{return nil,fmt.Errorf("nonce directory open denied: %w",err)}
+ // O_NOFOLLOW on a complete pathname protects only the final leaf.
+ // Open every component from the real root, anchored to the previous FD,
+ // so a symlinked ancestor cannot redirect the persisted replay ledger.
+ // Each parent FD remains a stable inode even if its visible name changes.
+ fd,err:=syscall.Open("/",syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
+ if err!=nil{return nil,fmt.Errorf("nonce root open denied: %w",err)}
+ for _,component:=range strings.Split(strings.TrimPrefix(root,"/"),"/"){
+  if component==""||component=="."||component==".."{
+   syscall.Close(fd)
+   return nil,errors.New("noncanonical nonce directory component")
+  }
+  next,e:=syscall.Openat(fd,component,syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,0)
+  syscall.Close(fd)
+  if e!=nil{return nil,fmt.Errorf("nonce path component denied: %w",e)}
+  fd=next
+ }
  var stat syscall.Stat_t
  if err=syscall.Fstat(fd,&stat);err!=nil{syscall.Close(fd);return nil,err}
  if stat.Mode&syscall.S_IFMT!=syscall.S_IFDIR||stat.Uid!=uint32(os.Geteuid())||stat.Mode&0777!=0700{
