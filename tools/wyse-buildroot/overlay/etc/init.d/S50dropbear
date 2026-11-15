@@ -15,7 +15,7 @@ case "$1" in
   mountpoint -q /root/.ssh || mount -t tmpfs -o size=1m,mode=0700 tmpfs /root/.ssh || exit 1
   cp "$auth" /root/.ssh/authorized_keys || exit 1
   chmod 600 /root/.ssh/authorized_keys
-  /usr/sbin/dropbear -s -g -w -p 22 -r "$key" || exit 1
+  /usr/sbin/dropbear -s -g -p 22 -r "$key" || exit 1
   echo "WYSE_SSH=KEY_ONLY_START"
   ;;
  stop)
