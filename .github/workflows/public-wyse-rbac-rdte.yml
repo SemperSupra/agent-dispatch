@@ -21,7 +21,7 @@ jobs:
         run: |
           set -euo pipefail
           go version
-          gofmt -d authz
+          gofmt -w authz
           test -z "$(gofmt -l authz)"
           go test -race -count=1 -v ./...
           go vet ./...
