@@ -157,11 +157,27 @@ truncate -s 128M "$W/sata.img"
 printf 'PROTECTED_EMMC_CANARY' | dd of="$W/emmc-original.img" bs=1 seek=18874368 conv=notrunc status=none
 sha256sum "$W/emmc-original.img" > "$W/emmc-sha"
 cp "$W/emmc-original.img" "$W/emmc-guest.img"
-cp /usr/share/OVMF/OVMF_VARS_4M.fd "$W/vars.fd"
+ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.fd
+ovmf_machine=q35
+if test "${WYSE_R23_ENFORCE_SB:-0}" = 1; then
+  test "${WYSE_R23_SIGNED_EFI:-0}" = 1
+  command -v virt-fw-vars
+  ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
+  ovmf_machine=q35,smm=on
+  test -f "$ovmf_code"
+  virt-fw-vars --input /usr/share/OVMF/OVMF_VARS_4M.fd \
+    --output "$W/vars.fd" --enroll-cert "$W/ephemeral-sb.crt" \
+    --add-db 603b0819-1cf7-46ef-bf6e-0d9c03ac23bb "$W/ephemeral-sb.crt" \
+    --no-microsoft --secure-boot
+  virt-fw-vars --input "$W/vars.fd" --print > evidence/public/ovmf-keys.txt
+  echo 'R23_OVMF_EPHEMERAL_TEST_ROOT_ENROLLED=PASS' >> evidence/public/receipt.txt
+else
+  cp /usr/share/OVMF/OVMF_VARS_4M.fd "$W/vars.fd"
+fi
 accel=tcg
 if test -w /dev/kvm; then accel=kvm; fi
-qemu-system-x86_64 -machine q35 -accel "$accel" -cpu max -m 3072 -smp 2 \
-  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+qemu-system-x86_64 -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
+  -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
   -drive if=pflash,format=raw,file="$W/vars.fd" \
   -drive if=none,id=usb,format=raw,readonly=on,file="$W/usb-copy.img" \
   -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1 \
@@ -218,3 +234,8 @@ if test "$WYSE_R23_SIGNED_EFI" = 1; then
   echo 'OWNER_PK_KEK_DB_AND_HARDWARE_SECUREBOOT=NOT_TESTED' >> evidence/public/receipt.txt
 fi
 echo 'DELL_FIRMWARE_AND_PHYSICAL_TPM=NOT_TESTED' >> evidence/public/receipt.txt
+if test "${WYSE_R23_ENFORCE_SB:-0}" = 1; then
+  echo 'R23_OVMF_ENROLLED_ROOT_SIGNED_EFI_LINUX_SSH=PASS' >> evidence/public/receipt.txt
+  echo 'R23_FIRMWARE_REFUSAL_OF_UNSIGNED_EFI=NOT_TESTED' >> evidence/public/receipt.txt
+  echo 'R23_KERNEL_INITRD_SIGNED_CHAIN=NOT_TESTED' >> evidence/public/receipt.txt
+fi
