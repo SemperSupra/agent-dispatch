@@ -173,6 +173,8 @@ def _execute(workload: str, timeout: int) -> dict:
             return {"oracle_verified": False, "classification": "FAIL_TESTS",
                     "retrieval_only": True, "model_inference": False,
                     "query_count": 0, "fixture_sha256": None}
+        if str(ROOT / "scripts") not in sys.path:
+            sys.path.insert(0, str(ROOT / "scripts"))
         from mail_synthetic_baseline import benchmark
         result = benchmark()
         accepted = (
