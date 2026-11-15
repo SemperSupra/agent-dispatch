@@ -1,0 +1,32 @@
+name: Public Wyse R20 approval intent immutability qualification
+on:
+  push:
+    branches: [experiment/public-wyse-approval-binding-r20]
+    paths:
+      - 'tools/wyse-modeplan/**'
+      - '.github/workflows/public-wyse-approval-binding-r20.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-approval-binding-r20
+  cancel-in-progress: false
+jobs:
+  pure-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Approval identity red-green regression, race, vet, no device writes
+        working-directory: tools/wyse-modeplan
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'R20_APPROVAL_CHANGE_BOUND=PASS'
+          echo 'REAL_SIGNATURE_VERIFICATION=NOT_TESTED'
+          echo 'PHYSICAL_ACTUATOR=ABSENT'
