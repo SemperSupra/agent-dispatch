@@ -1,0 +1,53 @@
+name: Public Wyse R22 pinned signed-policy + remote witness crosslane qualification
+on:
+  push:
+    branches: [experiment/public-wyse-r22-authority-join]
+    paths:
+      - 'tools/wyse-armgate/**'
+      - '.github/workflows/public-wyse-authority-join-r22.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-mtls-remote-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {path: integration-src, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: 4a512995ba912ad83c6d6b960e09593346dca605, path: policy-src, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: f8a6cf8fb76124ea5c319e2fc1def249463053e1, path: permit-src, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: 81cb94b88ef4ae4c494e24b966cd74e0b0b62847, path: path-src, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: 4e70f268b4d591cce5a08b75dfa21c5df426aa13, path: anchor-src, persist-credentials: false}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {ref: 7734e7374ffd14dd46796e394979136da9e3884a, path: remote-src, persist-credentials: false}
+      - name: Verify exact public source and merge only the six bounded Go source files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C policy-src rev-parse HEAD)" = 4a512995ba912ad83c6d6b960e09593346dca605
+          test "$(git -C permit-src rev-parse HEAD)" = f8a6cf8fb76124ea5c319e2fc1def249463053e1
+          test "$(git -C path-src rev-parse HEAD)" = 81cb94b88ef4ae4c494e24b966cd74e0b0b62847
+          test "$(git -C anchor-src rev-parse HEAD)" = 4e70f268b4d591cce5a08b75dfa21c5df426aa13
+          test "$(git -C remote-src rev-parse HEAD)" = 7734e7374ffd14dd46796e394979136da9e3884a
+          for spec in 'path-src noncestore_linux.go 74b3074322e3ba4a7a59bc714522493d240695af' 'path-src noncestore_path_r21_test.go 5aeec4a1349c977e388975c6e7d5f8de0d87cb8e' 'anchor-src anchored_nonce_r21.go ccfccda31c7fd31a3aa824d3bd1f7de18b5c405f' 'anchor-src anchored_nonce_r21_test.go 46d11198c464eebc77c168e55c2639e12abc8934' 'remote-src witness_https_r22.go d6bfdad2cea982d1fe73093aedbc5d7d357e5cb9' 'remote-src witness_https_r22_test.go 83619ea23cf3b3900b99b88e9cfe39722a76b958'; do
+            set -- $spec
+            src=$1 file=$2 expected=$3
+            test "$(git hash-object "$src/tools/wyse-planpermit/$file")" = "$expected"
+            cp "$src/tools/wyse-planpermit/$file" "permit-src/tools/wyse-planpermit/$file"
+          done
+          echo 'R22_PUBLIC_INPUT_GIT_OBJECTS_MATCH=PASS'
+      - name: Race, vet, no CGO across all modules and full joined TLS transaction
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for mod in policy-src/tools/wyse-modeplan permit-src/tools/wyse-planpermit integration-src/tools/wyse-armgate; do
+            (cd "$mod" && go test -race -count=1 -v ./... && go vet ./... && CGO_ENABLED=0 go test -count=1 ./...)
+          done
+          echo 'R22_SOURCE_JOIN_WITH_REAL_EPHEMERAL_TLS_HOPS=PASS'
+          echo 'PRODUCTION_CA_ROOT_AND_MONOTONIC_STORAGE=NOT_TESTED'
+          echo 'NO_HARDWARE_TRUENAS_GARM_MUTATION=TRUE'
