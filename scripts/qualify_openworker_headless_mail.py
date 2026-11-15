@@ -191,6 +191,27 @@ def qualify() -> dict:
                 len(first.get("attachments", [])) == 2 and
                 [a["filename"] for a in first["attachments"]] == ["report.txt", "report.txt"])
             no_write_root = "error" in tools["email_download_attachment"]("7", "report.txt")
+            # Expected negative: the original name-addressed download API
+            # cannot select the SECOND same-filename attachment occurrence.
+            scratch = base / "fake-downloads"
+            scratch.mkdir()
+            rooted = {fn.__name__: fn for fn in connector.make_email_tools(
+                FakeStore({"address": "fictional@icloud.com",
+                           "app_password": "synthetic-test-only"}),
+                roots=[types.SimpleNamespace(path=scratch, writable=True)],
+                imap_factory=factory, smtp_factory=deny_smtp)}
+            downloaded_first = rooted["email_download_attachment"]("7", "report.txt")
+            downloaded_again = rooted["email_download_attachment"]("7", "report.txt")
+            same_name_second_unaddressable = (
+                downloaded_first.get("ok") is True and
+                downloaded_again.get("ok") is True and
+                downloaded_first["path"] != downloaded_again["path"] and
+                Path(downloaded_first["path"]).read_bytes() ==
+                    b"first fictional payload" and
+                Path(downloaded_again["path"]).read_bytes() ==
+                    b"first fictional payload" and
+                fixture_messages()["7"].get_payload()[-1].get_payload(decode=True) ==
+                    b"second fictional payload")
             disconnected = {f.__name__: f for f in connector.make_email_tools(
                 FakeStore(), imap_factory=factory, smtp_factory=deny_smtp)}
             unconnected_send_rejected = "error" in disconnected["email_send"](
@@ -209,6 +230,7 @@ def qualify() -> dict:
                 call[2] is True for call in imap.calls if call[0] == "select")
             passed = (isolation_safe and approval_safe and distinct_uids and
                       duplicate_attachments_visible and no_write_root and
+                      same_name_second_unaddressable and
                       unconnected_send_rejected and utf8_accepted and bad_date_rejected
                       and peek_only and selects_readonly and imap.logout_called and
                       not smtp_called)
@@ -221,11 +243,13 @@ def qualify() -> dict:
         "headless_blob_sha": SOURCES["coworker/headless/runner.py"],
         "license": "MIT",
         "qualified": bool(passed),
-        "control_count": 11,
+        "control_count": 12,
         "isolated_defaults": bool(isolation_safe),
         "fake_mail_readonly": bool(distinct_uids and peek_only and selects_readonly),
         "duplicate_attachments_visible": bool(duplicate_attachments_visible),
         "no_smtp_attempts": not smtp_called,
+        "same_name_second_unaddressable": bool(same_name_second_unaddressable),
+        "attachment_download_occurrence_complete": False,
         "approval_metadata_only": True,
         "headless_engine_run": False,
         "model_inference": False,
