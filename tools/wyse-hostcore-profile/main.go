@@ -10,7 +10,6 @@ import (
  "io"
  "os"
  "sort"
- "strings"
 )
 
 var mandatory = []string{
