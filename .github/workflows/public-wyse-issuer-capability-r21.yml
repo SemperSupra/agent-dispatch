@@ -1,0 +1,45 @@
+name: Public Wyse R21 mTLS issuer capability synthetic qualification
+on:
+  push:
+    branches: [experiment/public-wyse-issuer-capability-r21]
+    paths:
+      - 'tools/wyse-armgate/**'
+      - '.github/workflows/public-wyse-issuer-capability-r21.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-issuer-capability-r21
+  cancel-in-progress: false
+jobs:
+  source-bound-mtls-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: integration-src
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 4a512995ba912ad83c6d6b960e09593346dca605
+          path: policy-src
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: f8a6cf8fb76124ea5c319e2fc1def249463053e1
+          path: permit-src
+          persist-credentials: false
+      - name: Verify source heads and exercise mutual-TLS capability boundary
+        shell: bash
+        working-directory: integration-src/tools/wyse-armgate
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C ../../../policy-src rev-parse HEAD)" = 4a512995ba912ad83c6d6b960e09593346dca605
+          test "$(git -C ../../../permit-src rev-parse HEAD)" = f8a6cf8fb76124ea5c319e2fc1def249463053e1
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'R21_MUTUAL_TLS13_CAPABILITY_SCOPE=PASS'
+          echo 'REAL_ISSUER_AND_POLICY_SOURCE=NOT_TESTED'
+          echo 'LIVE_HARDWARE_ACTUATOR=NONE'
