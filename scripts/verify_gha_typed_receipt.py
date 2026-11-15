@@ -40,6 +40,10 @@ RESULT_FIELDS = {
         "classification", "oracle_verified", "model_inference",
         "mail_credential_access", "source_blob_sha", "control_count",
         "upstream_commit", "verdict_sha256"},
+    "mail-ragmail-loss-witness": {
+        "classification", "oracle_verified", "upstream_commit", "source_blob_sha",
+        "evidence_loss_confirmed", "dropped_messages", "dropped_attachments",
+        "reader_qualified", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -117,6 +121,18 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
+    if p["workload"] == "mail-ragmail-loss-witness":
+        if (result.get("evidence_loss_confirmed") is not True or
+                result.get("reader_qualified") is not False or
+                result.get("dropped_messages") != 2 or
+                result.get("dropped_attachments") != 1 or
+                result.get("upstream_commit") !=
+                "afab46bfdd83d11af8bacee8231871ff1292fced" or
+                result.get("source_blob_sha") !=
+                "5a9ee91a0f1b7d04439ab8808bf7b1c88df868d6" or
+                not isinstance(result.get("verdict_sha256"), str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("RAGMAIL_NEGATIVE_ORACLE_NOT_VERIFIED")
     if p["workload"] == "mail-openworker-policy":
         if (result.get("model_inference") is not False or
                 result.get("mail_credential_access") is not False or
