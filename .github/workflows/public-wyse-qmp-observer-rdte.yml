@@ -1,0 +1,56 @@
+name: Public synthetic Wyse VM supervisor QMP read-only RDTE
+on:
+  push:
+    branches: [experiment/public-wyse-qmp-observer-r18]
+    paths:
+      - tools/wyse-qmp-observer/**
+      - .github/workflows/public-wyse-qmp-observer-rdte.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qmp-host-observer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install QEMU without guest private data
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y qemu-system-x86
+      - name: Run Go read-only QMP parser and actual QEMU with SSD-backed guest
+        working-directory: tools/wyse-qmp-observer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gofmt -w main.go main_test.go
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/wyse-vm-observer" .
+          truncate -s 64M "$RUNNER_TEMP/synthetic-guest-ssd.img"
+          sock="$RUNNER_TEMP/synthetic-qmp.sock"
+          qemu-system-x86_64 -machine q35 -accel tcg -m 384 -smp 1 -S \
+            -drive if=none,id=ssd,format=raw,file="$RUNNER_TEMP/synthetic-guest-ssd.img" \
+            -device ich9-ahci,id=ahci -device ide-hd,bus=ahci.0,drive=ssd \
+            -qmp "unix:$sock,server=on,wait=off" -monitor none -serial none -display none > "$RUNNER_TEMP/qemu-log.txt" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for n in $(seq 1 50); do test -S "$sock" && break; sleep .1; done
+          test -S "$sock"
+          "$RUNNER_TEMP/wyse-vm-observer" -qmp-socket "$sock" > "$RUNNER_TEMP/host-receipt.json"
+          python3 - "$RUNNER_TEMP/host-receipt.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['qmp_read_only'] is True
+          assert x['physical_tpm_exposed'] is False
+          found={m['query']:m['supported'] for m in x['metrics']}
+          for mandatory in ['query-status','query-cpus-fast','query-memory-size-summary','query-blockstats']:
+            assert found.get(mandatory) is True, (mandatory,found)
+          assert len(x['limitations'])>=4
+          print("HOST_QMP_CPU_MEMORY_DISK_RESOURCE_OBSERVABILITY=PASS")
+          print("PHYSICAL_TPM_GPU_TRAFFIC_CONTENT_ACCESS=NOT_QUALIFIED")
+          PY
+          echo 'READONLY_QMP_REAL_VM=PASS'
+          echo 'GUEST_EFI_EMMC_HOST_NIC_PASSTHROUGH=NOT_TESTED'
