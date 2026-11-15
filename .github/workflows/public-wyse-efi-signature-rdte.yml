@@ -1,0 +1,70 @@
+name: Public synthetic EFI signature and tamper RDTE
+on:
+  push:
+    branches: [experiment/public-wyse-recovery-ssh-r01]
+    paths: [.github/workflows/public-wyse-efi-signature-rdte.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-test-pe-signing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Install upstream EFI builder and PE signature verifier
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq grub-efi-amd64-bin grub-common sbsigntool openssl
+      - name: Generate throwaway test certificate, sign EFI and prove byte-flip rejection
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p evidence/public evidence/private
+          echo 'TEST_KEYS_ONLY_NEVER_FOR_FIELD_RELEASE=TRUE' > evidence/public/receipt.txt
+          echo 'echo SYNTHETIC_SIGNED_LOADER_TEST' > evidence/private/grub.cfg
+          grub-mkstandalone -O x86_64-efi -o evidence/private/BOOTX64.unsigned.efi \
+            "boot/grub/grub.cfg=$PWD/evidence/private/grub.cfg"
+          openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
+            -subj '/CN=Wyse-Virtual-Test-Only-Never-Trust/' -days 1 \
+            -keyout evidence/private/test.key -out evidence/private/test.crt \
+            > evidence/public/openssl-log.txt 2>&1
+          sbsign --key evidence/private/test.key --cert evidence/private/test.crt \
+            --output evidence/private/BOOTX64.signed.efi evidence/private/BOOTX64.unsigned.efi \
+            > evidence/public/sign-log.txt 2>&1
+          sbverify --cert evidence/private/test.crt evidence/private/BOOTX64.signed.efi \
+            > evidence/public/verify.txt 2>&1
+          echo 'THROWAWAY_CERT_SIGNED_EFI_VERIFY=PASS' >> evidence/public/receipt.txt
+          if sbverify --cert evidence/private/test.crt evidence/private/BOOTX64.unsigned.efi > /dev/null 2>&1; then
+            echo 'UNSIGNED_EFI_REJECTION=FAIL_OPEN' >> evidence/public/receipt.txt
+            exit 1
+          fi
+          echo 'UNSIGNED_EFI_REJECTION=PASS' >> evidence/public/receipt.txt
+          cp evidence/private/BOOTX64.signed.efi evidence/private/BOOTX64.tampered.efi
+          python3 - <<'PY'
+          with open('evidence/private/BOOTX64.tampered.efi','r+b') as f:
+              f.seek(8192)
+              old=f.read(1)
+              assert old
+              f.seek(8192)
+              f.write(bytes([old[0] ^ 0x01]))
+          PY
+          if sbverify --cert evidence/private/test.crt evidence/private/BOOTX64.tampered.efi > /dev/null 2>&1; then
+            echo 'TAMPERED_EFI_REJECTION=FAIL_OPEN' >> evidence/public/receipt.txt
+            exit 1
+          fi
+          echo 'TAMPERED_EFI_REJECTION=PASS' >> evidence/public/receipt.txt
+          printf 'UNSIGNED_PE_SHA256=%s\n' "$(sha256sum evidence/private/BOOTX64.unsigned.efi | cut -d' ' -f1)" >> evidence/public/receipt.txt
+          printf 'SIGNED_PE_SHA256=%s\n' "$(sha256sum evidence/private/BOOTX64.signed.efi | cut -d' ' -f1)" >> evidence/public/receipt.txt
+          echo 'FIRMWARE_UEFI_TRUST_ENROLLMENT=NOT_TESTED' >> evidence/public/receipt.txt
+          echo 'REAL_RECOVERY_SIGNATURE_AND_HARDWARE=NOT_TESTED' >> evidence/public/receipt.txt
+      - name: Upload no certificates, keys or EFI binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-efi-signature-tamper
+          path: evidence/public/receipt.txt
+          if-no-files-found: warn
+          retention-days: 7
