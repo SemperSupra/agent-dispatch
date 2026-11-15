@@ -232,7 +232,14 @@ echo "RAW_USB_SHA256=$(sha256sum "$W/usb-copy.img" | cut -d' ' -f1)" >> evidence
 echo "UEFI_LOADER_SHA256=$(sha256sum "$W/efi/EFI/BOOT/BOOTX64.EFI" | cut -d' ' -f1)" >> evidence/public/receipt.txt
 echo "INITRD_SHA256=$(sha256sum "$W/initrd.gz" | cut -d' ' -f1)" >> evidence/public/receipt.txt
 test "$success" -eq 1 || { tail -n 50 evidence/public/guest-serial.txt; exit 1; }
-for marker in WYSE_SYNTHETIC_UEFI_LOADER=PASS WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS; do
+# Direct UKI executes the EFI stub, not GRUB; retain GRUB banner assertion
+# only for the GRUB substrate. Linux, disks, networking and SSH remain
+# required for both signed boot paths; no oracle is weakened.
+boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
+if test "${WYSE_R23_UKI:-0}" != 1; then
+  boot_markers="WYSE_SYNTHETIC_UEFI_LOADER=PASS $boot_markers"
+fi
+for marker in $boot_markers; do
   grep -q "$marker" evidence/public/guest-serial.txt || { echo "MISSING:$marker"; exit 1; }
 done
 for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS GUEST_SATA=PASS; do
