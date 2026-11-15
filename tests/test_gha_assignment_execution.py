@@ -55,6 +55,15 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-ragmail-loss-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "upstream_commit": "afab46bfdd83d11af8bacee8231871ff1292fced",
+            "source_blob_sha": "5a9ee91a0f1b7d04439ab8808bf7b1c88df868d6",
+            "evidence_loss_confirmed": True,
+            "dropped_messages": 2, "dropped_attachments": 1,
+            "reader_qualified": False, "verdict_sha256": "c" * 64,
+        }
     elif profile_id == "mail-openworker-policy-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",

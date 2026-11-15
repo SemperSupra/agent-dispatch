@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,65 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "mail-ragmail-loss-witness":
+        # An independent **negative** source-occurrence oracle against public MIT
+        # RAG-Mail original code; a PASS proves product-incompatible loss exists.
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/qualify_ragmail_mbox_loss.py"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return {"oracle_verified": False, "classification": "FAIL_TIMEOUT",
+                    "upstream_commit": None, "source_blob_sha": None,
+                    "evidence_loss_confirmed": False, "dropped_messages": 0,
+                    "dropped_attachments": 0, "reader_qualified": False,
+                    "verdict_sha256": None}
+        raw = cp.stdout[:8193]
+        if cp.returncode != 0 or len(cp.stdout) > 8192:
+            return {"oracle_verified": False, "classification": "FAIL_WITNESS_RUNTIME",
+                    "upstream_commit": None, "source_blob_sha": None,
+                    "evidence_loss_confirmed": False, "dropped_messages": 0,
+                    "dropped_attachments": 0, "reader_qualified": False,
+                    "verdict_sha256": None}
+        try:
+            obs = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            obs = {}
+        accepted = (
+            isinstance(obs, dict)
+            and obs.get("schema") == "public-ragmail-mbox-loss-witness/v1"
+            and obs.get("classification") == "EXPECTED_EVIDENCE_LOSS_WITNESS"
+            and obs.get("upstream_repository") == "ManiAm/RAG-Mail"
+            and obs.get("upstream_commit") ==
+                "afab46bfdd83d11af8bacee8231871ff1292fced"
+            and obs.get("upstream_source_blob") ==
+                "5a9ee91a0f1b7d04439ab8808bf7b1c88df868d6"
+            and obs.get("license") == "MIT"
+            and obs.get("input_source_occurrences") == 3
+            and obs.get("stored_messages") == 1
+            and obs.get("input_attachment_occurrences") == 2
+            and obs.get("stored_attachments") == 1
+            and obs.get("dropped_message_occurrences") == 2
+            and obs.get("dropped_attachment_occurrences") == 1
+            and obs.get("canonical_evidence_compatible") is False
+            and obs.get("expected_loss_reproduced") is True
+            and obs.get("real_database_used") is False
+            and obs.get("real_mail_used") is False
+            and obs.get("model_inference") is False
+            and obs.get("cost_usd") == 0)
+        return {
+            "oracle_verified": bool(accepted),
+            "classification": "PASS" if accepted else "FAIL_LOSS_WITNESS",
+            "upstream_commit": obs.get("upstream_commit") if accepted else None,
+            "source_blob_sha": obs.get("upstream_source_blob") if accepted else None,
+            "evidence_loss_confirmed": bool(accepted),
+            "dropped_messages": 2 if accepted else 0,
+            "dropped_attachments": 1 if accepted else 0,
+            "reader_qualified": False,
+            "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None,
+        }
     if workload == "mail-openworker-policy":
         # Exact Git-blob-pinned MIT upstream read-only policy modules only.
         # The request never carries a URL, command or permission widening.
