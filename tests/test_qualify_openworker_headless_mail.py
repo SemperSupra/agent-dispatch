@@ -38,7 +38,7 @@ class OriginalConnectorHarnessTests(unittest.TestCase):
     def test_fake_imap_tracks_readonly_and_peek(self):
         m = q.FakeIMAP(q.fixture_messages())
         with self.assertRaises(AssertionError):
-            m.login("real@gmail.com", "not-a-fake")
+            m.login("not-an-allowed-fake@invalid.test", "not-a-fake")
         m.login("fictional@icloud.com", "synthetic-test-only")
         m.select('"INBOX"', readonly=True)
         status, chunks = m.uid("FETCH", "7", "(BODY.PEEK[])")
