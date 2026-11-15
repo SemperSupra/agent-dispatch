@@ -154,10 +154,26 @@ for attempt in $(seq 1 105); do
       > evidence/public/ssh-oracle.txt 2> evidence/public/ssh-errors.txt; then success=1; break; fi
   sleep 1
 done
+if test "$success" -eq 1; then
+  ssh-keygen -q -t ed25519 -N '' -f "$W/unauthorized-id"
+  if ssh -q -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none \
+      -o PasswordAuthentication=no -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 -p 22222 \
+      -i "$W/unauthorized-id" root@127.0.0.1 'echo SECURITY_FAILURE' \
+      > "$W/unauthorized-out.txt" 2>&1; then
+    echo 'UNAUTHORIZED_SSH_KEY_DENIAL=FAIL_OPEN' >> evidence/public/receipt.txt
+    kill "$pid" 2>/dev/null || :
+    exit 1
+  fi
+  echo 'UNAUTHORIZED_SSH_KEY_DENIAL=PASS' >> evidence/public/receipt.txt
+fi
 kill "$pid" 2>/dev/null || :
 wait "$pid" 2>/dev/null || :
 trap - EXIT
 sha256sum -c "$W/emmc-sha"
+echo "RAW_USB_SHA256=$(sha256sum "$W/usb-copy.img" | cut -d' ' -f1)" >> evidence/public/receipt.txt
+echo "UEFI_LOADER_SHA256=$(sha256sum "$W/efi/EFI/BOOT/BOOTX64.EFI" | cut -d' ' -f1)" >> evidence/public/receipt.txt
+echo "INITRD_SHA256=$(sha256sum "$W/initrd.gz" | cut -d' ' -f1)" >> evidence/public/receipt.txt
 test "$success" -eq 1 || { tail -n 50 evidence/public/guest-serial.txt; exit 1; }
 for marker in WYSE_SYNTHETIC_UEFI_LOADER=PASS WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS; do
   grep -q "$marker" evidence/public/guest-serial.txt || { echo "MISSING:$marker"; exit 1; }
