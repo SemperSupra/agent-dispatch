@@ -1,0 +1,56 @@
+name: Public Wyse R23 signed EFI OVMF Linux SSH qualification
+on:
+  push:
+    branches: [experiment/public-wyse-r23-signed-efi-ovmf]
+    paths:
+      - scripts/public_wyse_recovery_ssh.sh
+      - .github/workflows/public-wyse-r23-efi-sign-rdte.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r23-efi-sign-rdte
+  cancel-in-progress: false
+jobs:
+  signed-efi-usb-qemu-linux-ssh:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install public-source QEMU OVMF and signature verification dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
+            linux-image-virtual busybox-static dropbear-bin openssh-client \
+            dosfstools gdisk util-linux cpio kmod sbsigntool openssl
+      - name: Sign EFI with disposable CI test key, tamper refusal, boot synthetic dual disk and key-only SSH
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export WYSE_R23_SIGNED_EFI=1
+          bash scripts/public_wyse_recovery_ssh.sh
+          grep -q '^R23_SIGNED_EFI_SIGNATURE_VERIFIED=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_TAMPERED_EFI_SIGNATURE_REFUSAL=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_SIGNED_EFI_UEFI_BOOT_LINUX_SSH=PASS$' evidence/public/receipt.txt
+          grep -q '^OVMF_SECURE_BOOT_ENFORCEMENT=NOT_TESTED$' evidence/public/receipt.txt
+          grep -q '^EMMC_SOURCE_PRESERVED=PASS$' evidence/public/receipt.txt
+          echo 'R23_SYNTHETIC_SIGNED_EFI_BOOT_ACCEPTANCE=PASS'
+      - name: Upload sanitized boot and signature oracles
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-wyse-r23-signed-efi-ovmf-oracles
+          path: |
+            evidence/public/receipt.txt
+            evidence/public/efi-signature-oracle.txt
+            evidence/public/guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/qemu-log.txt
+            evidence/public/grub-build.txt
+          if-no-files-found: warn
+          retention-days: 7
