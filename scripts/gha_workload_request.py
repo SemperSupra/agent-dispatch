@@ -179,11 +179,13 @@ def _execute(workload: str, timeout: int) -> dict:
                     "3cadae25bd4a3c90d363ae296522058e578af917"
                 and observed.get("license") == "MIT"
                 and observed.get("qualified") is True
-                and observed.get("control_count") == 11
+                and observed.get("control_count") == 12
                 and observed.get("isolated_defaults") is True
                 and observed.get("fake_mail_readonly") is True
                 and observed.get("duplicate_attachments_visible") is True
                 and observed.get("no_smtp_attempts") is True
+                and observed.get("same_name_second_unaddressable") is True
+                and observed.get("attachment_download_occurrence_complete") is False
                 and observed.get("approval_metadata_only") is True
                 and observed.get("headless_engine_run") is False
                 and observed.get("model_inference") is False
@@ -198,10 +200,12 @@ def _execute(workload: str, timeout: int) -> dict:
             "upstream_commit": observed.get("upstream_commit") if accepted else None,
             "connector_blob_sha": observed.get("connector_blob_sha") if accepted else None,
             "headless_blob_sha": observed.get("headless_blob_sha") if accepted else None,
-            "control_count": 11 if accepted else 0,
+            "control_count": 12 if accepted else 0,
             "fake_readonly": bool(accepted),
             "duplicate_attachments_visible": bool(accepted),
             "no_smtp_attempts": bool(accepted),
+            "same_name_second_unaddressable": bool(accepted),
+            "attachment_download_occurrence_complete": False,
             "isolated_defaults": bool(accepted),
             "real_mail": False,
             "model_inference": False,
