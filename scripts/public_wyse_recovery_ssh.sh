@@ -2,6 +2,7 @@
 # Public-synthetic-only: UEFI USB -> real Linux initramfs -> key-only SSH,
 # native eMMC and SATA behind QEMU; no physical media or private source.
 set -Eeuo pipefail
+trap 'echo "SYNTHETIC_RECOVERY_FAILURE_LINE=$LINENO" >&2' ERR
 umask 077
 mkdir -p evidence/public evidence/private/{root,work}
 R="$PWD/evidence/private/root"; W="$PWD/evidence/private/work"
@@ -25,7 +26,7 @@ test -n "$DROP"
 mkdir -p "$R$(dirname "$DROP")"
 cp "$DROP" "$R$DROP"
 for binary in "$DROP" "$(command -v busybox)"; do
-  ldd "$binary" 2>/dev/null | grep -oE '/[^[:space:]()]+' | sort -u | while read -r lib; do
+  (ldd "$binary" 2>/dev/null || :) | (grep -oE '/[^[:space:]()]+' || :) | sort -u | while read -r lib; do
     if test -f "$lib"; then mkdir -p "$R$(dirname "$lib")"; cp -L "$lib" "$R$lib"; fi
   done
 done
