@@ -89,6 +89,13 @@ class TypedWorkRequestTests(unittest.TestCase):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=False)
         self.assertEqual(cp.returncode, 0, cp.stderr.decode("utf-8", "replace"))
 
+    def test_go_evidence_challenge_fixed_zero_cost_profile(self):
+        plan = m.plan("requests/gha/mail-evidence-go-v1.json")
+        self.assertEqual(plan["workload"], "mail-evidence-go-challenge")
+        self.assertEqual(plan["runner"], "ubuntu-24.04")
+        self.assertEqual(plan["max_cost_usd"], 0)
+        self.assertEqual(plan["max_attempts"], 1)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
