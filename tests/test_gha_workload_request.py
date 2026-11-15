@@ -60,6 +60,21 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertFalse(observed["model_inference"])
         self.assertFalse(observed["promoted_to_runtime"])
 
+    def test_openworker_upstream_fixed_workload_and_source_admission(self):
+        request = m.plan("requests/gha/mail-openworker-policy-v1.json")
+        self.assertEqual(request["runner"], "ubuntu-24.04")
+        self.assertEqual(request["workload"], "mail-openworker-policy")
+        self.assertEqual(request["max_attempts"], 1)
+        self.assertEqual(request["max_cost_usd"], 0)
+        import subprocess
+        cp = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+             "-p", "test_qualify_openworker_readonly.py"],
+            cwd=ROOT, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=30, check=False)
+        self.assertEqual(cp.returncode, 0, cp.stderr.decode("utf-8", "replace"))
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",

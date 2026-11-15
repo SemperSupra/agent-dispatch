@@ -36,6 +36,10 @@ RESULT_FIELDS = {
     "mail-synthetic-baseline": {
         "classification", "oracle_verified", "retrieval_only",
         "model_inference", "query_count", "fixture_sha256"},
+    "mail-openworker-policy": {
+        "classification", "oracle_verified", "model_inference",
+        "mail_credential_access", "source_blob_sha", "control_count",
+        "upstream_commit", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -113,6 +117,17 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
+    if p["workload"] == "mail-openworker-policy":
+        if (result.get("model_inference") is not False or
+                result.get("mail_credential_access") is not False or
+                result.get("upstream_commit") !=
+                "ecb445490fc054d52b8ea610d97ba947f57033d2" or
+                result.get("source_blob_sha") !=
+                "d621e606eea85be031c27237b0bc2ffcdfe590cb" or
+                result.get("control_count") != 8 or
+                not isinstance(result.get("verdict_sha256"), str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("UPSTREAM_POLICY_SCOPE_MISMATCH")
     if p["workload"] == "mail-synthetic-baseline":
         if (result.get("retrieval_only") is not True or
                 result.get("model_inference") is not False or
