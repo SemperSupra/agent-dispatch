@@ -1,0 +1,119 @@
+// Package planpermit provides a hardware-independent, Ed25519-signed
+// approval envelope for a single Wyse installation intent. It has no disk,
+// firmware, network, TPM, certificate issuer, or GARM actuator.
+package planpermit
+
+import (
+ "context"
+ "crypto/ed25519"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "strings"
+ "time"
+)
+
+const Schema = "wyse-plan-permit/v1"
+const domain = "WYSE-PLAN-APPROVAL/v1\x00"
+const maxLifetime = 5 * time.Minute
+
+type Target struct {
+ DeviceID string `json:"device_id"`
+ Revision uint64 `json:"revision"`
+ SSDByID string `json:"ssd_by_id"`
+ EMMCByID string `json:"emmc_by_id"`
+ ArtifactSHA256 string `json:"artifact_sha256"`
+ PlanIntentSHA256 string `json:"plan_intent_sha256"`
+}
+type Claims struct {
+ Target Target `json:"target"`
+ Action string `json:"action"`
+ Nonce string `json:"nonce"`
+ IssuedAtUnix int64 `json:"issued_at_unix"`
+ ExpiresAtUnix int64 `json:"expires_at_unix"`
+}
+type Permit struct {
+ Schema string `json:"schema"`
+ KeyID string `json:"key_id"`
+ Claims Claims `json:"claims"`
+ Signature []byte `json:"signature"`
+}
+// NonceStore must durably and atomically reject a repeated nonce.
+// In-memory test stores do not qualify persistence or crash recovery.
+type NonceStore interface { ConsumeOnce(context.Context,string)error }
+
+type Verifier struct { keys map[string]ed25519.PublicKey }
+
+func validHex256(s string)bool{
+ if len(s)!=64{return false}
+ for _,c:=range s{if !(c>='0'&&c<='9'||c>='a'&&c<='f'){return false}}
+ return true
+}
+func validToken(s string,minimum,maximum int)bool{
+ if len(s)<minimum||len(s)>maximum{return false}
+ for _,c:=range s{if !(c>='a'&&c<='z'||c>='A'&&c<='Z'||c>='0'&&c<='9'||c=='-'||c=='_'){return false}}
+ return true
+}
+func validate(p Permit)error{
+ if p.Schema!=Schema{return errors.New("unknown permit schema")}
+ if !validToken(p.KeyID,1,64)||!validToken(p.Claims.Nonce,16,128){return errors.New("invalid key id or nonce")}
+ t:=p.Claims.Target
+ if t.DeviceID==""||len(t.DeviceID)>128||t.Revision==0{return errors.New("missing device binding")}
+ if t.SSDByID==""||t.EMMCByID==""||t.SSDByID==t.EMMCByID||len(t.SSDByID)>256||len(t.EMMCByID)>256 {
+  return errors.New("ambiguous disk identity")
+ }
+ if strings.IndexByte(t.SSDByID+t.EMMCByID,byte(0))>=0||strings.IndexByte(t.SSDByID+t.EMMCByID,byte(10))>=0||strings.IndexByte(t.SSDByID+t.EMMCByID,byte(13))>=0 {return errors.New("invalid disk identity bytes")}
+ if !validHex256(t.ArtifactSHA256)||!validHex256(t.PlanIntentSHA256){return errors.New("invalid digest binding")}
+ if p.Claims.Action!="HOST_INSTALL"&&p.Claims.Action!="GUEST_INSTALL"{return errors.New("unknown action")}
+ if p.Claims.IssuedAtUnix<=0||p.Claims.ExpiresAtUnix<=p.Claims.IssuedAtUnix||
+  p.Claims.ExpiresAtUnix-p.Claims.IssuedAtUnix>int64(maxLifetime.Seconds()){
+  return errors.New("invalid approval lifetime")
+ }
+ return nil
+}
+func bytesForSigning(p Permit)([]byte,error){
+ if err:=validate(p);err!=nil{return nil,err}
+ // Struct marshaling is deterministic for these scalar fields. The signature
+ // is deliberately excluded. Domain and key ID prevent cross-protocol reuse.
+ body,err:=json.Marshal(struct{
+  Schema string `json:"schema"`
+  KeyID string `json:"key_id"`
+  Claims Claims `json:"claims"`
+ }{p.Schema,p.KeyID,p.Claims})
+ if err!=nil{return nil,err}
+ return append([]byte(domain),body...),nil
+}
+// Sign is pure cryptography; possessing a signing key does not prove issuer
+// authorization. Production keys must remain in separately governed custody.
+func Sign(key ed25519.PrivateKey,p Permit)(Permit,error){
+ if len(key)!=ed25519.PrivateKeySize{return Permit{},errors.New("invalid signing key")}
+ msg,err:=bytesForSigning(p);if err!=nil{return Permit{},err}
+ p.Signature=ed25519.Sign(key,msg)
+ return p,nil
+}
+func NewVerifier(keys map[string]ed25519.PublicKey)(*Verifier,error){
+ if len(keys)==0{return nil,errors.New("empty approved issuer set")}
+ out:=make(map[string]ed25519.PublicKey,len(keys))
+ for id,key:=range keys{
+  if !validToken(id,1,64)||len(key)!=ed25519.PublicKeySize{return nil,errors.New("invalid trusted issuer")}
+  out[id]=append(ed25519.PublicKey(nil),key...)
+ }
+ return &Verifier{keys:out},nil
+}
+func (v *Verifier) VerifyOnce(ctx context.Context,p Permit,expected Target,action string,now time.Time,store NonceStore)error{
+ if v==nil||store==nil{return errors.New("trusted verifier and durable one-use store required")}
+ if err:=ctx.Err();err!=nil{return err}
+ if p.Claims.Target!=expected||p.Claims.Action!=action{return errors.New("requested target or action differs from approval")}
+ if now.Unix()<p.Claims.IssuedAtUnix||now.Unix()>=p.Claims.ExpiresAtUnix{return errors.New("approval not currently valid")}
+ msg,err:=bytesForSigning(p);if err!=nil{return err}
+ pub,ok:=v.keys[p.KeyID];if !ok||len(pub)!=ed25519.PublicKeySize{return errors.New("issuer not approved")}
+ if len(p.Signature)!=ed25519.SignatureSize||!ed25519.Verify(pub,msg,p.Signature){return errors.New("invalid signed permit")}
+ // A nonce is globally single-use regardless of device, action, or key ID.
+ // The store is responsible for atomicity and crash persistence.
+ nonceDigest:=sha256.Sum256([]byte(Schema+"|"+p.Claims.Nonce))
+ key:=hex.EncodeToString(nonceDigest[:])
+ if err=store.ConsumeOnce(ctx,key);err!=nil{return fmt.Errorf("nonce already consumed or store unavailable: %w",err)}
+ return nil
+}
