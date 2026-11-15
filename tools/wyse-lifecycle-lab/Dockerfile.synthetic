@@ -1,0 +1,6 @@
+# Public synthetic test only: the Go binary is built and hashed by GHA first.
+FROM scratch
+COPY dist/wyse-lifecycle-lab /wyse-lifecycle-lab
+USER 65532:65532
+EXPOSE 18085
+ENTRYPOINT ["/wyse-lifecycle-lab"]
