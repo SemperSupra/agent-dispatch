@@ -3,6 +3,7 @@
 package planpermit
 
 import (
+ "context"
  "os"
  "path/filepath"
  "strings"
@@ -20,7 +21,7 @@ func TestR21NonceDirectoryRejectsSymlinkInEveryAncestor(t *testing.T){
  if err:=os.Mkdir(ledger,0700);err!=nil{t.Fatal(err)}
  alias:=filepath.Join(base,"alias")
  if err:=os.Symlink(actual,alias);err!=nil{t.Fatal(err)}
- for _,root:=range []string{filepath.Join(alias,"ledger"),filepath.Join(base,"alias","ledger")} {
+ for _,root:=range []string{filepath.Join(alias,"ledger")} {
   t.Run(strings.ReplaceAll(root,base,"TEST"),func(t *testing.T){
    store,err:=NewLinuxNonceStore(root)
    if err==nil{store.Close();t.Fatal("symlink in persistent path accepted")}
@@ -44,7 +45,7 @@ func TestR21NonceFDIsBoundAcrossAuthorizedDirectoryRename(t *testing.T){
  defer store.Close()
  if err:=os.Rename(old,moved);err!=nil{t.Fatal(err)}
  if err:=os.Mkdir(old,0700);err!=nil{t.Fatal(err)}
- if err:=store.ConsumeOnce(t.Context(),strings.Repeat("a",64));err!=nil{t.Fatal(err)}
+ if err:=store.ConsumeOnce(context.Background(),strings.Repeat("a",64));err!=nil{t.Fatal(err)}
  if _,err:=os.Stat(filepath.Join(moved,"nonce-"+strings.Repeat("a",64)));err!=nil{t.Fatalf("opened FD redirected after path rename: %v",err)}
  if _,err:=os.Stat(filepath.Join(old,"nonce-"+strings.Repeat("a",64)));!os.IsNotExist(err){t.Fatalf("unexpected path accepted record: %v",err)}
 }
