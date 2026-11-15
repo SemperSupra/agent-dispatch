@@ -1,0 +1,100 @@
+name: Public Wyse minimal host profile and Buildroot RDTE
+on:
+  push:
+    branches: [experiment/public-wyse-hostcore-r18]
+    paths:
+      - tools/wyse-hostcore-profile/**
+      - tools/wyse-buildroot/**
+      - .github/workflows/public-wyse-minimal-host-rdte.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-minimal-host-r18
+  cancel-in-progress: true
+jobs:
+  hostcore-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate mandatory/optional, SSD isolation, three audiences, watchdog negative cases
+        working-directory: tools/wyse-hostcore-profile
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gofmt -w main.go main_test.go
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/wyse-hostcore" .
+          "$RUNNER_TEMP/wyse-hostcore" -profile profile-recovery.json | tee "$RUNNER_TEMP/profile-result.json"
+          python3 - "$RUNNER_TEMP/profile-result.json" <<'PY'
+          import json,sys
+          j=json.load(open(sys.argv[1]))
+          assert j['valid'] is True
+          assert 'RECOVERY_CORE_WITHOUT_SSD_TRUE_NAS_OR_HEADSCALE' in j['boundaries']
+          assert sorted(j['disabled_optional'])==sorted(['ssd-overlay:ssd-not-ready','hardware-watchdog:unqualified','tpm-sealing:unqualified'])
+          print("MINIMAL_RECOVERY_PROFILE_SOURCE_POLICY=PASS")
+          PY
+          echo 'ACTUAL_SIGNED_PRODUCTION_ROOTFS=NOT_TESTED'
+  buildroot-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install minimal embedded Linux build prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y build-essential bc bison flex file libncurses-dev libssl-dev rsync unzip xz-utils wget cpio
+      - name: Pin Buildroot and compile smallest selected rootfs from external tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          echo 'SCOPE=PUBLIC_SYNTHETIC_ONLY' > evidence/rootfs-receipt.txt
+          curl -fsSL --retry 3 https://buildroot.org/downloads/buildroot-2026.08.1.tar.xz -o "$RUNNER_TEMP/buildroot.tar.xz"
+          printf '%s  %s\n' '34fb7bea8a213ffde39cc02e61703391560f26e0850f03138c722d0b09880f2b' "$RUNNER_TEMP/buildroot.tar.xz" | sha256sum -c - | tee -a evidence/rootfs-receipt.txt
+          tar -xf "$RUNNER_TEMP/buildroot.tar.xz" -C "$RUNNER_TEMP"
+          chmod 0755 tools/wyse-buildroot/overlay/etc/init.d/S*
+          SRC="$RUNNER_TEMP/buildroot-2026.08.1"
+          OUT="$RUNNER_TEMP/wyse-rootfs"
+          EXTERNAL="$PWD/tools/wyse-buildroot"
+          make -C "$SRC" O="$OUT" BR2_EXTERNAL="$EXTERNAL" wyse_minimal_defconfig > evidence/buildroot-config.log 2>&1
+          grep -q '^BR2_PACKAGE_DROPBEAR=y' "$OUT/.config"
+          grep -q '^BR2_PACKAGE_DROPBEAR_SMALL=y' "$OUT/.config"
+          grep -q '^# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set' "$OUT/.config"
+          grep -q '^# BR2_TARGET_ENABLE_ROOT_LOGIN is not set' "$OUT/.config"
+          grep -q '^BR2_TARGET_ROOTFS_CPIO=y' "$OUT/.config"
+          echo 'PINNED_BUILDROOT_AND_MINIMAL_DEFINITIONS=PASS' >> evidence/rootfs-receipt.txt
+          if timeout 1080 make -C "$SRC" O="$OUT" -j4 > "$RUNNER_TEMP/wyse-buildroot-full.log" 2>&1; then
+            test -f "$OUT/images/rootfs.cpio"
+            test -f "$OUT/images/rootfs.squashfs"
+            test -x "$OUT/target/etc/init.d/S01wyse-volatile"
+            test -x "$OUT/target/etc/init.d/S50dropbear"
+            echo 'ROOTFS_BUILD=PASS' >> evidence/rootfs-receipt.txt
+            stat -c '%n %s bytes' "$OUT"/images/rootfs.cpio "$OUT"/images/rootfs.squashfs >> evidence/rootfs-receipt.txt
+            sha256sum "$OUT"/images/rootfs.cpio "$OUT"/images/rootfs.squashfs >> evidence/rootfs-receipt.txt
+            test ! -e "$OUT/target/usr/bin/python3"
+            test ! -e "$OUT/target/usr/bin/qemu-system-x86_64"
+            test ! -e "$OUT/target/usr/bin/docker"
+            echo 'NO_PYTHON_DOCKER_QEMU_IN_CORE=PASS' >> evidence/rootfs-receipt.txt
+          else
+            tail -n 60 "$RUNNER_TEMP/wyse-buildroot-full.log" > evidence/last-build-errors.txt
+            echo 'ROOTFS_BUILD=FAIL_OR_TIME_BUDGET' >> evidence/rootfs-receipt.txt
+            exit 1
+          fi
+          echo 'UEFI_SIGNATURE_AND_REAL_WYSE=NOT_TESTED' >> evidence/rootfs-receipt.txt
+      - name: Upload only receipts and relevant failure excerpts (no binaries or secrets)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-wyse-minimal-buildroot-r18
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 7
