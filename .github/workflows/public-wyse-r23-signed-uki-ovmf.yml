@@ -1,0 +1,60 @@
+name: Public Wyse R23 signed UKI Secure Boot OVMF Linux SSH qualification
+on:
+  push:
+    branches: [experiment/public-wyse-r23-signed-uki-secureboot]
+    paths:
+      - scripts/public_wyse_recovery_ssh.sh
+      - .github/workflows/public-wyse-r23-signed-uki-ovmf.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r23-signed-uki-ovmf
+  cancel-in-progress: false
+jobs:
+  signed-uki-secureboot-qemu:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install OVMF, ukify/systemd EFI stub and synthetic recovery SSH stack
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
+            linux-image-virtual busybox-static dropbear-bin openssh-client \
+            dosfstools gdisk util-linux cpio kmod sbsigntool openssl \
+            python3-virt-firmware systemd-ukify systemd-boot-efi
+      - name: Build signed UKI with embedded kernel initrd and cmdline; boot with enrolled OVMF root
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export WYSE_R23_SIGNED_EFI=1 WYSE_R23_ENFORCE_SB=1 WYSE_R23_UKI=1
+          bash scripts/public_wyse_recovery_ssh.sh
+          grep -q '^R23_UKI_EMBEDDED_KERNEL_INITRD_CMDLINE=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_SIGNED_EFI_SIGNATURE_VERIFIED=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_TAMPERED_EFI_SIGNATURE_REFUSAL=PASS$' evidence/public/receipt.txt
+          grep -q '^R23_UKI_SIGNED_ENROLLED_OVMF_LINUX_SSH=PASS$' evidence/public/receipt.txt
+          grep -q '^UEFI_USB_LINUX_EMMC_SATA_SSH=PASS$' evidence/public/receipt.txt
+          echo 'R23_QUALIFIED_EPHEMERAL_SIGNED_UKI_OVMF_BOOT=PASS'
+          echo 'FIRMWARE_UNSIGNED_UKI_DENIAL_AND_PHYSICAL_WYSE=NOT_TESTED'
+      - name: Preserve public-safe signed UKI QEMU evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-wyse-r23-signed-uki-ovmf
+          path: |
+            evidence/public/receipt.txt
+            evidence/public/ukify-build.txt
+            evidence/public/ukify-inspect.txt
+            evidence/public/efi-signature-oracle.txt
+            evidence/public/ovmf-keys.txt
+            evidence/public/guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/qemu-log.txt
+          if-no-files-found: warn
+          retention-days: 7

@@ -101,9 +101,22 @@ linux ($usb)/vmlinuz console=ttyS0 rdinit=/init panic=2
 initrd ($usb)/initrd.gz
 boot
 GRUB
-grub-mkstandalone -O x86_64-efi -o "$W/efi/EFI/BOOT/BOOTX64.EFI" \
-  --modules="part_gpt fat search search_label linux serial terminal echo" \
-  "boot/grub/grub.cfg=$W/grub.cfg" > evidence/public/grub-build.txt 2>&1
+if test "${WYSE_R23_UKI:-0}" = 1; then
+  if command -v ukify >/dev/null 2>&1; then UKIFY=$(command -v ukify); else UKIFY=/usr/lib/systemd/ukify; fi
+  test -x "$UKIFY"
+  "$UKIFY" build --linux="$W/vmlinuz" --initrd="$W/initrd.gz" \
+    --cmdline="console=ttyS0 rdinit=/init panic=2" \
+    --output="$W/efi/EFI/BOOT/BOOTX64.EFI" > evidence/public/ukify-build.txt 2>&1
+  "$UKIFY" inspect "$W/efi/EFI/BOOT/BOOTX64.EFI" > evidence/public/ukify-inspect.txt 2>&1
+  for section in .linux .initrd .cmdline; do
+    grep -Fq "$section" evidence/public/ukify-inspect.txt || { echo "UKI_MISSING:$section"; exit 1; }
+  done
+  echo 'R23_UKI_EMBEDDED_KERNEL_INITRD_CMDLINE=PASS' >> evidence/public/receipt.txt
+else
+  grub-mkstandalone -O x86_64-efi -o "$W/efi/EFI/BOOT/BOOTX64.EFI" \
+    --modules="part_gpt fat search search_label linux serial terminal echo" \
+    "boot/grub/grub.cfg=$W/grub.cfg" > evidence/public/grub-build.txt 2>&1
+fi
 # R23: Public synthetic EFI signature proof. Ephemeral test key only.
 # OVMF below does NOT enroll this signer. Signature plus boot does not
 # prove Secure Boot firmware enforcement or hardware applicability.
@@ -219,7 +232,14 @@ echo "RAW_USB_SHA256=$(sha256sum "$W/usb-copy.img" | cut -d' ' -f1)" >> evidence
 echo "UEFI_LOADER_SHA256=$(sha256sum "$W/efi/EFI/BOOT/BOOTX64.EFI" | cut -d' ' -f1)" >> evidence/public/receipt.txt
 echo "INITRD_SHA256=$(sha256sum "$W/initrd.gz" | cut -d' ' -f1)" >> evidence/public/receipt.txt
 test "$success" -eq 1 || { tail -n 50 evidence/public/guest-serial.txt; exit 1; }
-for marker in WYSE_SYNTHETIC_UEFI_LOADER=PASS WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS; do
+# Direct UKI executes the EFI stub, not GRUB; retain GRUB banner assertion
+# only for the GRUB substrate. Linux, disks, networking and SSH remain
+# required for both signed boot paths; no oracle is weakened.
+boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
+if test "${WYSE_R23_UKI:-0}" != 1; then
+  boot_markers="WYSE_SYNTHETIC_UEFI_LOADER=PASS $boot_markers"
+fi
+for marker in $boot_markers; do
   grep -q "$marker" evidence/public/guest-serial.txt || { echo "MISSING:$marker"; exit 1; }
 done
 for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS GUEST_SATA=PASS; do
@@ -234,6 +254,10 @@ if test "$WYSE_R23_SIGNED_EFI" = 1; then
   echo 'OWNER_PK_KEK_DB_AND_HARDWARE_SECUREBOOT=NOT_TESTED' >> evidence/public/receipt.txt
 fi
 echo 'DELL_FIRMWARE_AND_PHYSICAL_TPM=NOT_TESTED' >> evidence/public/receipt.txt
+if test "${WYSE_R23_UKI:-0}" = 1; then
+  echo 'R23_UKI_SIGNED_ENROLLED_OVMF_LINUX_SSH=PASS' >> evidence/public/receipt.txt
+  echo 'R23_PRODUCTION_OWNER_KEY_AND_PHYSICAL_SECUREBOOT=NOT_TESTED' >> evidence/public/receipt.txt
+fi
 if test "${WYSE_R23_ENFORCE_SB:-0}" = 1; then
   echo 'R23_OVMF_ENROLLED_ROOT_SIGNED_EFI_LINUX_SSH=PASS' >> evidence/public/receipt.txt
   echo 'R23_FIRMWARE_REFUSAL_OF_UNSIGNED_EFI=NOT_TESTED' >> evidence/public/receipt.txt
