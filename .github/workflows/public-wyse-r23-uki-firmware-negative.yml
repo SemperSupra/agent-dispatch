@@ -1,0 +1,73 @@
+name: Public Wyse R23 Secure Boot reject well formed unsigned UKI
+on:
+  push:
+    branches: [experiment/public-wyse-r23-uki-firmware-negative]
+    paths:
+      - scripts/public_wyse_recovery_ssh.sh
+      - .github/workflows/public-wyse-r23-uki-firmware-negative.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r23-uki-firmware-negative
+  cancel-in-progress: false
+jobs:
+  signed-positive-unsigned-negative:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install only synthetic OVMF UKI Linux and SSH test dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
+            linux-image-virtual busybox-static dropbear-bin openssh-client \
+            dosfstools gdisk util-linux cpio kmod sbsigntool openssl \
+            python3-virt-firmware systemd-ukify systemd-boot-efi
+      - name: Prove signed exact UKI SSH positive and same-target unsigned UKI firmware rejection
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export WYSE_R23_SIGNED_EFI=1
+          export WYSE_R23_ENFORCE_SB=1
+          export WYSE_R23_UKI=1
+          export WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE=1
+          bash scripts/public_wyse_recovery_ssh.sh
+          for marker in \
+            R23_UKI_EMBEDDED_KERNEL_INITRD_CMDLINE=PASS \
+            R23_SIGNED_EFI_SIGNATURE_VERIFIED=PASS \
+            R23_TAMPERED_EFI_SIGNATURE_REFUSAL=PASS \
+            R23_UKI_SIGNED_ENROLLED_OVMF_LINUX_SSH=PASS \
+            UEFI_USB_LINUX_EMMC_SATA_SSH=PASS \
+            EMMC_SOURCE_PRESERVED=PASS \
+            R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS \
+            R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS
+          do
+            grep -Fxq "$marker" evidence/public/receipt.txt
+          done
+          echo 'R23_SAME_IMAGE_SIGNED_BOOT_AND_UNSIGNED_FIRMWARE_REFUSAL=PASS'
+          echo 'BUILDROOT_OWNER_KEYS_REAL_WYSE=NOT_TESTED'
+      - name: Preserve nonsecret positive and explicit firmware refusal oracles
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r23-signed-positive-unsigned-negative
+          path: |
+            evidence/public/receipt.txt
+            evidence/public/ukify-build.txt
+            evidence/public/ukify-inspect.txt
+            evidence/public/unsigned-uki-inspect.txt
+            evidence/public/efi-signature-oracle.txt
+            evidence/public/ovmf-keys.txt
+            evidence/public/guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/qemu-log.txt
+            evidence/public/negative-guest-serial.txt
+            evidence/public/negative-qemu-log.txt
+          if-no-files-found: warn
+          retention-days: 7
