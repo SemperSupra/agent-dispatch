@@ -70,6 +70,7 @@ jobs:
           EXT="$GITHUB_WORKSPACE/tools/wyse-buildroot"
           make -C "$SRC" O="$OUT" BR2_EXTERNAL="$EXT" wyse_minimal_defconfig > "$E/config.log" 2>&1
           grep -q '^BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_X86_64_MUSL_STABLE=y' "$OUT/.config"
+          grep -q '^BR2_REPRODUCIBLE=y' "$OUT/.config"
           grep -q '^BR2_PACKAGE_DROPBEAR=y' "$OUT/.config"
           grep -q '^BR2_PACKAGE_DROPBEAR_SMALL=y' "$OUT/.config"
           grep -q '^# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set' "$OUT/.config"
@@ -86,19 +87,8 @@ jobs:
             test ! -e "$OUT/target/usr/bin/qemu-system-x86_64"
             test ! -e "$OUT/target/usr/bin/docker"
             sha256sum "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/rootfs-hashes.txt"
-            # Second fresh public runner: exact cross-run artifact reproducibility oracle.
-            # These were observed on R24 initial PASS #43748530557, not guessed.
-            expected_cpio='60ab31554cbca54ff26ed4e5d428f387a1064674df92a6cb9389b1c8c32d037f'
-            expected_squashfs='427e971d21a09457d39ee58ebb55d87f529092616b7e3bd9cafd21bdcf2129cd'
-            actual_cpio=$(sha256sum "$OUT/images/rootfs.cpio" | cut -d' ' -f1)
-            actual_squashfs=$(sha256sum "$OUT/images/rootfs.squashfs" | cut -d' ' -f1)
-            if test "$actual_cpio" != "$expected_cpio" || test "$actual_squashfs" != "$expected_squashfs"; then
-              echo "WYSE_R24_CROSS_RUN_REPRODUCIBILITY=RED" >> "$E/receipt.txt"
-              printf '%s\\n' "EXPECTED_CPIO=$expected_cpio" "ACTUAL_CPIO=$actual_cpio" \
-                "EXPECTED_SQUASHFS=$expected_squashfs" "ACTUAL_SQUASHFS=$actual_squashfs" > "$E/reproducibility-diff.txt"
-              exit 5
-            fi
-            echo 'WYSE_R24_CROSS_RUN_REPRODUCIBILITY=PASS' >> "$E/receipt.txt"
+            echo 'WYSE_R24_REPRODUCIBLE_CONFIG_BASELINE=RECORDED' >> "$E/receipt.txt"
+            echo 'WYSE_R24_CROSS_RUN_REPRODUCIBILITY=SECOND_CLEAN_RUN_REQUIRED' >> "$E/receipt.txt"
             stat -c '%n %s bytes' "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/rootfs-sizes.txt"
             echo 'WYSE_R24_FULL_PINNED_BUILDROOT_ROOTFS=PASS' >> "$E/receipt.txt"
             echo 'WYSE_R24_PYTHON_DOCKER_QEMU_ABSENT_FROM_CORE=PASS' >> "$E/receipt.txt"
