@@ -94,7 +94,17 @@ if test -n "${WYSE_R25_BUILDROOT_CPIO:-}"; then
   test -s "$WYSE_R25_BUILDROOT_CPIO"
   B="$W/buildroot-unpacked"
   mkdir -p "$B"
-  (cd "$B" && cpio -idmu --quiet < "$WYSE_R25_BUILDROOT_CPIO")
+  # Buildroot's original cpio includes a /dev/console character device.
+  # An unprivileged extraction cannot mknod it. Permit only a bounded
+  # disposable directory inside the public workcell; device bytes are never
+  # attached to any real Wyse host or production storage.
+  case "$(readlink -f "$B")" in
+    "$(readlink -f "$PWD/evidence/private/work")"/*) ;;
+    *) echo 'R25_EXTRACTION_PATH_OUTSIDE_WORKCELL=DENIED' >&2; exit 7 ;;
+  esac
+  (cd "$B" && sudo cpio -idmu --no-absolute-filenames --quiet < "$WYSE_R25_BUILDROOT_CPIO")
+  sudo chown -R "$(id -u):$(id -g)" "$B"
+  test -c "$B/dev/console"
   test -x "$B/bin/busybox"
   test -x "$B/usr/sbin/dropbear"
   test -x "$B/etc/init.d/S50dropbear"
