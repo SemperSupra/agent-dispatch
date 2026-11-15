@@ -289,6 +289,71 @@ func main() {
  log.Fatal(srv.ListenAndServe())
 }
 
-const htmlUI=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wyse lifecycle LAB — synthetic only</title><link rel="stylesheet" href="/style.css"></head><body><main><h1>Wyse fleet lifecycle lab</h1><p>Simulation only. No hardware, firmware, disk, power or real GARM actions.</p><label>Lab token <input id="token" type="password" autocomplete="off"></label><button id="refresh">View inventory and receipts</button><section><h2>Enrolled devices</h2><pre id="nodes" aria-live="polite"></pre></section><section><h2>Lifecycle receipts</h2><pre id="events" aria-live="polite"></pre></section><p>Enrollment key proof and lifecycle actions use the same versioned API as automation and agents. See <a href="/api/v1/lab/schema">machine contract</a>.</p></main><script src="/app.js"></script></body></html>`
-const cssUI=`body{font:16px system-ui,sans-serif;max-width:64rem;margin:2rem auto;padding:0 1rem;line-height:1.5}input,button{padding:.5rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #888;padding:1rem;border-radius:.5rem}section{margin:1rem 0}@media(prefers-color-scheme:dark){body{background:#111;color:#eee}a{color:#8cf}}`
-const jsUI=`const refresh=async()=>{let tok=document.getElementById('token').value;for(let [id,path] of [['nodes','nodes'],['events','events']]){let x=await fetch('/api/v1/lab/'+path,{headers:{Authorization:'Bearer '+tok,'X-Actor':'human'}});document.getElementById(id).textContent=x.ok?JSON.stringify(await x.json(),null,2):'Access denied ('+x.status+')';}};document.getElementById('refresh').addEventListener('click',refresh);`
+const htmlUI=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wyse lifecycle LAB — synthetic only</title><link rel="stylesheet" href="/style.css"></head><body><main><h1>Wyse fleet lifecycle lab</h1><p><strong>PUBLIC SYNTHETIC ONLY.</strong> No physical devices, firmware, disks, TPM, power, TrueNAS or GitHub runners are controlled.</p><label>Lab bearer token <input id="token" type="password" autocomplete="off"></label><button id="refresh">Refresh inventory and audit</button><section aria-label="Enrollment"><h2>Simulated enrollment</h2><label>Device ID <input id="device" value="synthetic-ui-01" pattern="[a-z0-9-]{3,48}"></label><button id="enroll">Generate simulated device key and enroll</button><p>Key lives in this browser tab only; the console witness is simulated, not physical attestation.</p></section><section aria-label="Lifecycle actions"><h2>Lifecycle and rotation</h2><label>Device <select id="node"></select></label><label>Action <select id="action"><option>commission</option><option>qualify</option><option>drain</option><option>resume</option><option>quarantine</option><option>repair</option><option>retire</option></select></label><button id="apply">Apply simulated transition</button><button id="rotate">Rotate simulated key</button></section><p id="result" role="status" aria-live="polite"></p><section><h2>Device inventory</h2><pre id="nodes" aria-live="polite"></pre></section><section><h2>Durable lifecycle receipts</h2><pre id="events" aria-live="polite"></pre></section><p>Automation and agents operate through the <a href="/api/v1/lab/schema">same machine-readable lifecycle contract</a>. Physical mutations remain disabled.</p></main><script src="/app.js"></script></body></html>`
+const cssUI=`body{font:16px system-ui,sans-serif;max-width:68rem;margin:2rem auto;padding:0 1rem;line-height:1.5}button,input,select{padding:.5rem;margin:.3rem;border-radius:.25rem}button{cursor:pointer}label{display:inline-flex;align-items:center;gap:.4rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #888;padding:1rem;border-radius:.5rem}section{margin:1rem 0;padding:.75rem;border:1px solid #999;border-radius:.5rem}#result{min-height:1.3rem;font-weight:600}@media(prefers-color-scheme:dark){body{background:#111;color:#eee}a{color:#8cf}input,select{background:#222;color:#eee}}`
+const jsUI=`'use strict';
+const el = (id) => document.getElementById(id);
+const keypairs = new Map();
+let inventory = [];
+const result = (message) => { el('result').textContent = message; };
+const base64 = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)));
+async function api(path, method = 'GET', body = undefined, idem = '') {
+  const headers = { 'Authorization': 'Bearer ' + el('token').value, 'X-Actor': 'human' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (idem) headers['Idempotency-Key'] = idem;
+  const response = await fetch('/api/v1/lab/' + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const data = await response.json();
+  if (!response.ok) throw Error(data.error || ('HTTP ' + response.status));
+  return data;
+}
+async function refresh() {
+  const nodes = await api('nodes');
+  const events = await api('events');
+  inventory = nodes.nodes;
+  el('nodes').textContent = JSON.stringify(nodes, null, 2);
+  el('events').textContent = JSON.stringify(events, null, 2);
+  const selected = el('node').value;
+  el('node').replaceChildren(...inventory.map((n) => new Option(n.id + ' / ' + n.state + ' / r' + n.revision, n.id)));
+  if (inventory.some((n) => n.id === selected)) el('node').value = selected;
+}
+async function run(fn) {
+  try { await fn(); } catch (error) { result('Failed safely: ' + error.message); }
+}
+el('refresh').addEventListener('click', () => run(async () => { await refresh(); result('Inventory and events refreshed'); }));
+el('enroll').addEventListener('click', () => run(async () => {
+  const id = el('device').value.trim();
+  if (!/^[a-z0-9-]{3,48}$/.test(id)) throw Error('Invalid synthetic device ID');
+  const keys = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const pub = base64(await crypto.subtle.exportKey('raw', keys.publicKey));
+  const claim = await api('enrollments', 'POST', { id, public_key: pub }, crypto.randomUUID());
+  const bytes = new TextEncoder().encode('WYSE-LAB-ENROLL-v1\x00' + id + '\x00' + claim.challenge);
+  const signature = base64(await crypto.subtle.sign('Ed25519', keys.privateKey, bytes));
+  const confirmation = await api('enrollments/' + encodeURIComponent(id) + '/confirm', 'POST', { witness: claim.witness, signature });
+  keypairs.set(id, keys);
+  await refresh();
+  el('node').value = id;
+  result('Simulated enrollment accepted: ' + confirmation.id + ' (NOT hardware verified)');
+}));
+el('apply').addEventListener('click', () => run(async () => {
+  const id = el('node').value;
+  const node = inventory.find((n) => n.id === id);
+  if (!node) throw Error('Select a device');
+  const transition = el('action').value;
+  const state = await api('nodes/' + encodeURIComponent(id) + '/actions', 'POST', { action: transition, expected_revision: node.revision });
+  await refresh();el('node').value = id;
+  result('Transition ' + transition + ' → ' + state.state + ' (simulated)');
+}));
+el('rotate').addEventListener('click', () => run(async () => {
+  const id = el('node').value;
+  const node = inventory.find((n) => n.id === id);
+  if (!node || !keypairs.has(id)) throw Error('This browser tab does not possess the prior synthetic key');
+  const challenge = await api('nodes/' + encodeURIComponent(id) + '/rotation-challenge', 'POST');
+  const keysNew = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  const bytes = new TextEncoder().encode('WYSE-LAB-ROTATE-v1\x00' + id + '\x00' + challenge.challenge);
+  const oldSignature = base64(await crypto.subtle.sign('Ed25519', keypairs.get(id).privateKey, bytes));
+  const newSignature = base64(await crypto.subtle.sign('Ed25519', keysNew.privateKey, bytes));
+  await api('nodes/' + encodeURIComponent(id) + '/rotate-key', 'POST', { public_key: base64(await crypto.subtle.exportKey('raw', keysNew.publicKey)), old_signature: oldSignature, new_signature: newSignature, expected_revision: node.revision });
+  keypairs.set(id, keysNew);
+  await refresh();el('node').value = id;
+  result('Synthetic key rotated with both old/new signatures (NOT TPM attested)');
+}));`
