@@ -71,12 +71,19 @@ type Question struct {
     OtherID string
     Filename string
 }
+type AttachmentRef struct {
+    SourceOccurrenceID string
+    AttachmentID string
+    Filename string
+    SHA256 string
+}
 type Answer struct {
     QuestionID string
     Classification string
     Value string
     IDs []string
     Citations []Citation
+    AttachmentRefs []AttachmentRef
 }
 type Evaluation struct {
     Schema string
@@ -216,11 +223,17 @@ func (l Ledger) Answer(q Question) (Answer,error) {
     case "message-id-collisions":
         ids:=[]string{}
         for _,o:=range visible {if o.MessageID!="" && o.MessageID==q.Key {ids=append(ids,o.ID)}}
-        if len(ids)>0 {sort.Strings(ids);ans.Classification="SUPPORTED";ans.Value=fmt.Sprint(len(ids));ans.IDs=ids}
+        if len(ids)>0 {
+            sort.Strings(ids);ans.Classification="SUPPORTED";ans.Value=fmt.Sprint(len(ids));ans.IDs=ids
+            for _,id:=range ids {o,_:=l.byID(id);ans.Citations=append(ans.Citations,cite(o,o.Raw))}
+        }
     case "attachment-by-filename":
         for _,o:=range visible {
             if o.ID!=q.OccurrenceID {continue}
-            for _,a:=range o.Attachments {if a.Filename==q.Filename{ans.IDs=append(ans.IDs,a.ID)}}
+            for _,a:=range o.Attachments {if a.Filename==q.Filename{
+                ans.IDs=append(ans.IDs,a.ID)
+                ans.AttachmentRefs=append(ans.AttachmentRefs,AttachmentRef{SourceOccurrenceID:o.ID,AttachmentID:a.ID,Filename:a.Filename,SHA256:a.SHA256})
+            }}
         }
         if len(ans.IDs)>0 {ans.Classification="SUPPORTED";ans.Value=fmt.Sprint(len(ans.IDs))}
     case "attachment-version":
@@ -233,13 +246,22 @@ func (l Ledger) Answer(q Question) (Answer,error) {
                 sort.Strings(left);sort.Strings(right)
                 if strings.Join(left,",")!=strings.Join(right,","){ans.Value="changed"}else{ans.Value="unchanged"}
                 ans.Classification="SUPPORTED";ans.IDs=[]string{a.ID,b.ID}
+                for _,o:=range []Observation{a,b} {
+                    ans.Citations=append(ans.Citations,cite(o,o.Raw))
+                    for _,f:=range o.Attachments {
+                        ans.AttachmentRefs=append(ans.AttachmentRefs,AttachmentRef{SourceOccurrenceID:o.ID,AttachmentID:f.ID,Filename:f.Filename,SHA256:f.SHA256})
+                    }
+                }
             }
         }
     case "thread-parent":
         o,ok:=l.byID(q.OccurrenceID)
         if ok && o.Tenant==q.Tenant && o.ParentID!="" {
             p,exists:=l.byID(o.ParentID)
-            if exists&&p.Tenant==q.Tenant {ans.Classification="SUPPORTED";ans.Value=p.ID;ans.IDs=[]string{p.ID,o.ID}}
+            if exists&&p.Tenant==q.Tenant {
+                ans.Classification="SUPPORTED";ans.Value=p.ID;ans.IDs=[]string{p.ID,o.ID}
+                ans.Citations=[]Citation{cite(p,p.Raw),cite(o,o.Raw)}
+            }
         }
     default:return ans,errors.New("UNKNOWN_QUERY_MODE")
     }
