@@ -56,16 +56,16 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          mkdir -p evidence
-          echo 'SCOPE=PUBLIC_SYNTHETIC_ONLY' > evidence/rootfs-receipt.txt
+          mkdir -p "$RUNNER_TEMP/wyse-r18-buildroot-evidence"
+          echo 'SCOPE=PUBLIC_SYNTHETIC_ONLY' > "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
           curl -fsSL --retry 3 https://buildroot.org/downloads/buildroot-2026.08.1.tar.xz -o "$RUNNER_TEMP/buildroot.tar.xz"
-          printf '%s  %s\n' '34fb7bea8a213ffde39cc02e61703391560f26e0850f03138c722d0b09880f2b' "$RUNNER_TEMP/buildroot.tar.xz" | sha256sum -c - | tee -a evidence/rootfs-receipt.txt
+          printf '%s  %s\n' '34fb7bea8a213ffde39cc02e61703391560f26e0850f03138c722d0b09880f2b' "$RUNNER_TEMP/buildroot.tar.xz" | sha256sum -c - | tee -a "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
           tar -xf "$RUNNER_TEMP/buildroot.tar.xz" -C "$RUNNER_TEMP"
           chmod 0755 tools/wyse-buildroot/overlay/etc/init.d/S*
           SRC="$RUNNER_TEMP/buildroot-2026.08.1"
           OUT="$RUNNER_TEMP/wyse-rootfs"
           EXTERNAL="$PWD/tools/wyse-buildroot"
-          make -C "$SRC" O="$OUT" BR2_EXTERNAL="$EXTERNAL" wyse_minimal_defconfig > evidence/buildroot-config.log 2>&1
+          make -C "$SRC" O="$OUT" BR2_EXTERNAL="$EXTERNAL" wyse_minimal_defconfig > "$RUNNER_TEMP/wyse-r18-buildroot-evidence/buildroot-config.log" 2>&1
           grep -q '^BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_X86_64_MUSL_STABLE=y' "$OUT/.config"
           grep -q '^BR2_PACKAGE_DROPBEAR=y' "$OUT/.config"
           grep -q '^BR2_PACKAGE_DROPBEAR_SMALL=y' "$OUT/.config"
@@ -73,34 +73,34 @@ jobs:
           grep -q '^# BR2_TARGET_ENABLE_ROOT_LOGIN is not set' "$OUT/.config"
           grep -q '^BR2_TARGET_ROOTFS_CPIO=y' "$OUT/.config"
           if grep -Eq 'dropbear .*(-w|--disable-root-login)' tools/wyse-buildroot/overlay/etc/init.d/S50dropbear; then
-            echo 'SSH_KEY_ONLY_ROOT=BLOCKED_BY_DROPBEAR_ROOT_DENY' >> evidence/rootfs-receipt.txt
+            echo 'SSH_KEY_ONLY_ROOT=BLOCKED_BY_DROPBEAR_ROOT_DENY' >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
             exit 1
           fi
-          echo 'SSH_KEY_ONLY_ROOT_POLICY_SOURCE=PASS' >> evidence/rootfs-receipt.txt
-          echo 'PINNED_BUILDROOT_AND_MINIMAL_DEFINITIONS=PASS' >> evidence/rootfs-receipt.txt
+          echo 'SSH_KEY_ONLY_ROOT_POLICY_SOURCE=PASS' >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
+          echo 'PINNED_BUILDROOT_AND_MINIMAL_DEFINITIONS=PASS' >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
           if timeout 930 make -C "$SRC" O="$OUT" -j4 > "$RUNNER_TEMP/wyse-buildroot-full.log" 2>&1; then
             test -f "$OUT/images/rootfs.cpio"
             test -f "$OUT/images/rootfs.squashfs"
             test -x "$OUT/target/etc/init.d/S01wyse-volatile"
             test -x "$OUT/target/etc/init.d/S50dropbear"
-            echo 'ROOTFS_BUILD=PASS' >> evidence/rootfs-receipt.txt
-            stat -c '%n %s bytes' "$OUT"/images/rootfs.cpio "$OUT"/images/rootfs.squashfs >> evidence/rootfs-receipt.txt
-            sha256sum "$OUT"/images/rootfs.cpio "$OUT"/images/rootfs.squashfs >> evidence/rootfs-receipt.txt
+            echo 'ROOTFS_BUILD=PASS' >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
+            stat -c '%n %s bytes' "$OUT"/images/rootfs.cpio "$OUT"/images/rootfs.squashfs >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
+            sha256sum "$OUT"/images/rootfs.cpio "$OUT"/images/rootfs.squashfs >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
             test ! -e "$OUT/target/usr/bin/python3"
             test ! -e "$OUT/target/usr/bin/qemu-system-x86_64"
             test ! -e "$OUT/target/usr/bin/docker"
-            echo 'NO_PYTHON_DOCKER_QEMU_IN_CORE=PASS' >> evidence/rootfs-receipt.txt
+            echo 'NO_PYTHON_DOCKER_QEMU_IN_CORE=PASS' >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
           else
-            tail -n 60 "$RUNNER_TEMP/wyse-buildroot-full.log" > evidence/last-build-errors.txt
-            echo 'ROOTFS_BUILD=FAIL_OR_TIME_BUDGET' >> evidence/rootfs-receipt.txt
+            tail -n 60 "$RUNNER_TEMP/wyse-buildroot-full.log" > "$RUNNER_TEMP/wyse-r18-buildroot-evidence/last-build-errors.txt"
+            echo 'ROOTFS_BUILD=FAIL_OR_TIME_BUDGET' >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
             exit 1
           fi
-          echo 'UEFI_SIGNATURE_AND_REAL_WYSE=NOT_TESTED' >> evidence/rootfs-receipt.txt
+          echo 'UEFI_SIGNATURE_AND_REAL_WYSE=NOT_TESTED' >> "$RUNNER_TEMP/wyse-r18-buildroot-evidence/rootfs-receipt.txt"
       - name: Upload only receipts and relevant failure excerpts (no binaries or secrets)
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: public-wyse-minimal-buildroot-r18
-          path: evidence/
+          path: ${{ runner.temp }}/wyse-r18-buildroot-evidence/
           if-no-files-found: warn
           retention-days: 7

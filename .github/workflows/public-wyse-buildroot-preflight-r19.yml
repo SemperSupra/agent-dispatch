@@ -1,0 +1,60 @@
+name: Public Wyse R19 Buildroot config and SSH safety preflight
+on:
+  push:
+    branches: [experiment/public-wyse-buildroot-preflight-r19]
+    paths:
+      - 'tools/wyse-buildroot/**'
+      - 'tools/wyse-hostcore-profile/**'
+      - '.github/workflows/public-wyse-buildroot-preflight-r19.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-buildroot-preflight-r19
+  cancel-in-progress: true
+jobs:
+  hostcore-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build and test pure Go recovery-host profile contract
+        shell: bash
+        working-directory: tools/wyse-hostcore-profile
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'WYSE_HOSTCORE_POLICY=PASS'
+          echo 'REAL_RECOVERY_HOST=NOT_TESTED'
+  pinned-config-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify SSH guard and Buildroot configuration only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sh tools/wyse-buildroot/preflight-r19.sh
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential libncurses-dev
+          curl -fsSL --retry 3 https://buildroot.org/downloads/buildroot-2026.08.1.tar.xz -o "$RUNNER_TEMP/buildroot.tar.xz"
+          printf '%s  %s\n' '34fb7bea8a213ffde39cc02e61703391560f26e0850f03138c722d0b09880f2b' "$RUNNER_TEMP/buildroot.tar.xz" | sha256sum -c -
+          tar -xf "$RUNNER_TEMP/buildroot.tar.xz" -C "$RUNNER_TEMP"
+          SRC="$RUNNER_TEMP/buildroot-2026.08.1"
+          OUT="$RUNNER_TEMP/wyse-config-only"
+          make -C "$SRC" O="$OUT" BR2_EXTERNAL="$PWD/tools/wyse-buildroot" wyse_minimal_defconfig >/dev/null
+          grep -q '^BR2_PACKAGE_DROPBEAR=y' "$OUT/.config"
+          grep -q '^BR2_PACKAGE_DROPBEAR_SMALL=y' "$OUT/.config"
+          grep -q '^# BR2_TARGET_ENABLE_ROOT_LOGIN is not set' "$OUT/.config"
+          grep -q '^# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set' "$OUT/.config"
+          grep -q '^BR2_TARGET_ROOTFS_CPIO=y' "$OUT/.config"
+          echo 'WYSE_PINNED_BUILDROOT_CONFIG=PASS'
+          echo 'ROOTFS_BUILD=NOT_ATTEMPTED'
+          echo 'UEFI_OR_SSH_RUNTIME=NOT_TESTED'
