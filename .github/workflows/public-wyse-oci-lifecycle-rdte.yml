@@ -35,7 +35,7 @@ jobs:
           sudo mkdir -p "$RUNNER_TEMP/wyse-volume" "$RUNNER_TEMP/wyse-secrets"
           sudo chown 65532:65532 "$RUNNER_TEMP/wyse-volume" "$RUNNER_TEMP/wyse-secrets"
           sudo chmod 0700 "$RUNNER_TEMP/wyse-volume" "$RUNNER_TEMP/wyse-secrets"
-          printf '%s' "$(python3 -c 'import secrets;print(secrets.token_hex(32))')" > "$RUNNER_TEMP/wyse-secrets/token"
+          python3 -c 'import secrets;print(secrets.token_hex(32))' | sudo tee "$RUNNER_TEMP/wyse-secrets/token" >/dev/null
           sudo chown 65532:65532 "$RUNNER_TEMP/wyse-secrets/token"
           sudo chmod 0400 "$RUNNER_TEMP/wyse-secrets/token"
           docker pull busybox:1.36 >/dev/null
