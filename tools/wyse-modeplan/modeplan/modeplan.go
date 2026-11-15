@@ -292,6 +292,11 @@ func AdvanceInstall(n Node,p Plan,next Stage) (Plan,[]string){
  allowed:=map[Stage]Stage{Preflighted:Staged,Staged:Verified,Verified:Armed,Armed:BootProbing,BootProbing:Healthy,Healthy:Committed}
  wanted,ok:=allowed[p.Stage]
  if !ok||wanted!=next{return p,[]string{"INVALID_INSTALL_PHASE"}}
+ // Preserve the existing explicit denial code for an invalid ARMED gate;
+ // other after-preflight modifications are rejected as PLAN_INTENT_CHANGED.
+ if next==Armed&&(p.ApprovedChangeID==""||!p.SignedMutationGate){
+  return p,[]string{"SIGNED_CHANGE_GATE_REQUIRED"}
+ }
  if p.IntentSHA256==""||p.IntentSHA256!=planIntentDigest(p){return p,[]string{"PLAN_INTENT_CHANGED"}}
  if n.ID!=p.DeviceID{return p,[]string{"DEVICE_ID_MISMATCH"}}
  if n.Revision!=p.ExpectedRevision{return p,[]string{"STALE_REVISION"}}
