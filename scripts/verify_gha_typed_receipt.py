@@ -53,7 +53,8 @@ RESULT_FIELDS = {
         "classification", "oracle_verified", "upstream_commit",
         "connector_blob_sha", "headless_blob_sha", "control_count",
         "fake_readonly", "duplicate_attachments_visible", "no_smtp_attempts",
-        "isolated_defaults", "real_mail", "model_inference",
+        "isolated_defaults", "same_name_second_unaddressable",
+        "attachment_download_occurrence_complete", "real_mail", "model_inference",
         "headless_engine_run", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
@@ -136,10 +137,12 @@ def evaluate(
         if (result.get("upstream_commit") != "ecb445490fc054d52b8ea610d97ba947f57033d2" or
                 result.get("connector_blob_sha") != "7be4e1f9e78e8fd9d1ef81b58bbc86a916c48e76" or
                 result.get("headless_blob_sha") != "3cadae25bd4a3c90d363ae296522058e578af917" or
-                result.get("control_count") != 11 or
+                result.get("control_count") != 12 or
                 result.get("fake_readonly") is not True or
                 result.get("duplicate_attachments_visible") is not True or
                 result.get("no_smtp_attempts") is not True or
+                result.get("same_name_second_unaddressable") is not True or
+                result.get("attachment_download_occurrence_complete") is not False or
                 result.get("isolated_defaults") is not True or
                 result.get("real_mail") is not False or
                 result.get("model_inference") is not False or
