@@ -1,0 +1,31 @@
+name: Public Wyse R23 OVMF Secure Boot enrollment capability probe
+on:
+  push:
+    branches: [experiment/public-wyse-r23-secureboot-enforcement]
+    paths:
+      - .github/workflows/public-wyse-r23-secureboot-enforcement.yml
+      - scripts/public_wyse_recovery_ssh.sh
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  secureboot-capability:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Probe virtual Secure Boot firmware/enrollment tooling only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ovmf python3-virt-firmware openssl
+          command -v virt-fw-vars
+          virt-fw-vars --help | grep -E -- '(--enroll-cert|--secure-boot)' | head -8
+          find /usr/share/OVMF -maxdepth 1 -type f -name '*4M*' -print | sort
+          test -f /usr/share/OVMF/OVMF_CODE_4M.secboot.fd
+          test -f /usr/share/OVMF/OVMF_VARS_4M.fd
+          echo 'R23_SECUREBOOT_UEFI_FIRMWARE_AND_ENROLLMENT_CAPABILITY=PASS'
+          echo 'EFI_EXECUTION_ENFORCEMENT=NOT_YET_TESTED'
+          echo 'LIVE_MACHINE_MUTATION=NONE'
