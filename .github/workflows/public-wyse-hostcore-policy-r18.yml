@@ -1,0 +1,37 @@
+name: Public minimal recovery host policy-only negative RDTE
+on:
+  push:
+    branches: [experiment/public-wyse-hostcore-r18-policy]
+    paths:
+      - tools/wyse-hostcore-profile/**
+      - .github/workflows/public-wyse-hostcore-policy-r18.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build Go release policy, prove SSD/cross-mode/hardware negative gates
+        working-directory: tools/wyse-hostcore-profile
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gofmt -w main.go main_test.go
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/wyse-hostcore" .
+          "$RUNNER_TEMP/wyse-hostcore" -profile profile-recovery.json > "$RUNNER_TEMP/receipt.json"
+          python3 - "$RUNNER_TEMP/receipt.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d["valid"] is True
+          assert "RECOVERY_CORE_WITHOUT_SSD_TRUE_NAS_OR_HEADSCALE" in d["boundaries"]
+          assert set(d["disabled_optional"])=={"ssd-overlay:ssd-not-ready","tpm-sealing:unqualified","hardware-watchdog:unqualified"}
+          print("MINIMAL_HOST_POLICY_SHAPE_AND_ADVERSARIAL_TESTS=PASS")
+          print("PRODUCTION_SIGNED_BOOT_AND_REAL_ECC_EMMC=NOT_TESTED")
+          PY
