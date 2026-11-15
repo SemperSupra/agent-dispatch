@@ -7,7 +7,7 @@ import (
     "fmt"
     "os"
     "path/filepath"
-    "reflect"
+    "slices"
 )
 
 type GoldCard struct {
@@ -81,7 +81,7 @@ func Evaluate(goldPath string) (Evaluation,error) {
         if err!=nil{return stats,fmt.Errorf("ANSWER_RUNTIME_%s: %w",card.Question.ID,err)}
         if answer.Classification!=card.ExpectedClassification ||
            answer.Value!=card.ExpectedValue ||
-           !reflect.DeepEqual(answer.IDs,card.ExpectedIDs) ||
+           !slices.Equal(answer.IDs,card.ExpectedIDs) ||
            len(answer.Citations)!=card.ExpectedCitationCount ||
            len(answer.AttachmentRefs)!=card.ExpectedAttachmentCount {
             return stats,fmt.Errorf("GOLD_MISMATCH_%s",card.Question.ID)
