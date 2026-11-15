@@ -25,12 +25,29 @@ DROP=$(command -v dropbear)
 test -n "$DROP"
 mkdir -p "$R$(dirname "$DROP")"
 cp "$DROP" "$R$DROP"
-for binary in "$DROP" "$(command -v busybox)"; do
+for binary in "$DROP" "$(command -v busybox)" "$(command -v modprobe)"; do
   (ldd "$binary" 2>/dev/null || :) | (grep -oE '/[^[:space:]()]+' || :) | sort -u | while read -r lib; do
     if test -f "$lib"; then mkdir -p "$R$(dirname "$lib")"; cp -L "$lib" "$R$lib"; fi
   done
 done
-cp -a "/lib/modules/$version" "$R/lib/modules/"
+# Only ship the module dependency closure for this QEMU recovery topology.
+# A full distro modules tree causes huge initramfs unpacking and is not
+# appropriate for the Wyse recovery resource budget.
+mkdir -p "$R/lib/modules/$version"
+for metadata in /lib/modules/"$version"/modules.*; do
+  test -f "$metadata" || continue
+  cp -L "$metadata" "$R/lib/modules/$version/"
+done
+for mod in sdhci_pci sdhci mmc_block ahci libahci sd_mod e1000 usb_storage; do
+  modprobe -S "$version" --show-depends "$mod" || :
+done > evidence/public/modprobe-deps.txt
+awk '$1 == "insmod" {print $2}' evidence/public/modprobe-deps.txt | sort -u | while read -r module; do
+  test -f "$module" || continue
+  mkdir -p "$R$(dirname "$module")"
+  cp -L "$module" "$R$module"
+done
+cp -L "$(command -v modprobe)" "$R/sbin/modprobe"
+echo "MODULE_FILE_COUNT=$(find "$R/lib/modules/$version" -type f | wc -l)" >> evidence/public/receipt.txt
 ssh-keygen -q -t ed25519 -N '' -f "$W/id_ed25519"
 ssh-keygen -q -t ed25519 -N '' -f "$W/host_ed25519"
 cp "$W/id_ed25519.pub" "$R/root/.ssh/authorized_keys"
@@ -48,7 +65,7 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 /bin/busybox --install -s /bin
 echo 'WYSE_SYNTHETIC_LINUX_INIT=PASS'
 for module in sdhci_pci sdhci mmc_block ahci libahci sd_mod e1000 usb_storage; do
-  /bin/modprobe "$module" 2>&1 || echo "MODULE_MISSING:$module"
+  /sbin/modprobe "$module" 2>&1 || echo "MODULE_MISSING:$module"
 done
 /bin/sleep 4
 for node in /sys/block/mmcblk*; do
@@ -115,7 +132,7 @@ cp "$W/emmc-original.img" "$W/emmc-guest.img"
 cp /usr/share/OVMF/OVMF_VARS_4M.fd "$W/vars.fd"
 accel=tcg
 if test -w /dev/kvm; then accel=kvm; fi
-qemu-system-x86_64 -machine q35 -accel "$accel" -cpu max -m 1536 -smp 2 \
+qemu-system-x86_64 -machine q35 -accel "$accel" -cpu max -m 3072 -smp 2 \
   -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
   -drive if=pflash,format=raw,file="$W/vars.fd" \
   -drive if=none,id=usb,format=raw,readonly=on,file="$W/usb-copy.img" \
