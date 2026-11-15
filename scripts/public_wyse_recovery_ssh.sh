@@ -49,7 +49,7 @@ done
 cp -L "$(command -v modprobe)" "$R/sbin/modprobe"
 echo "MODULE_FILE_COUNT=$(find "$R/lib/modules/$version" -type f | wc -l)" >> evidence/public/receipt.txt
 ssh-keygen -q -t ed25519 -N '' -f "$W/id_ed25519"
-ssh-keygen -q -t ed25519 -N '' -f "$W/host_ed25519"
+dropbearkey -t ed25519 -f "$W/host_ed25519" > evidence/public/dropbearkey-build.txt 2>&1
 cp "$W/id_ed25519.pub" "$R/root/.ssh/authorized_keys"
 cp "$W/host_ed25519" "$R/etc/dropbear/dropbear_ed25519_host_key"
 chmod 0700 "$R/root/.ssh"
