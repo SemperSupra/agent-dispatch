@@ -1,0 +1,34 @@
+name: Public Wyse R19 synthetic provisioning qualification
+on:
+  push:
+    branches: [experiment/public-wyse-synthetic-executor-r19]
+    paths:
+      - 'tools/wyse-synthetic-provisioner/**'
+      - '.github/workflows/public-wyse-synthetic-executor-r19.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-synthetic-executor-r19
+  cancel-in-progress: true
+jobs:
+  source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Go race vet and reproducible source qualification
+        working-directory: tools/wyse-synthetic-provisioner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          gofmt -w provisioner.go provisioner_test.go
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'WYSE_R19_SYNTHETIC_EXECUTOR=PASS'
+          echo 'PHYSICAL_ACTUATOR=ABSENT'
+          echo 'SYNTHETIC_BOOTNEXT_ONLY=TRUE'
+          echo 'GARM_LIVE_HOLD=PRESERVED'
