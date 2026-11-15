@@ -21,7 +21,7 @@ class PublicSyntheticMailTests(unittest.TestCase):
 
     def test_distinct_occurrences_even_if_same_attachment_bytes(self):
         rows, _ = bench.build_corpus()
-        self.assertEqual(len(rows), 15)
+        self.assertEqual(len(rows), 16)
         ids = [r["occurrence_id"] for r in rows]
         self.assertEqual(len(ids), len(set(ids)))
         atlas = {r["occurrence_id"]: r for r in rows}
