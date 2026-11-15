@@ -1,0 +1,87 @@
+name: Public synthetic Wyse Foundry-style OCI lifecycle
+on:
+  push:
+    branches: [experiment/public-wyse-lifecycle-r01]
+    paths:
+      - tools/wyse-lifecycle-lab/**
+      - .github/workflows/public-wyse-oci-lifecycle-rdte.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scratch-oci-qualification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build immutable synthetic nonroot source-controlled service binary and OCI
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence tools/wyse-lifecycle-lab/dist
+          cd tools/wyse-lifecycle-lab
+          go test -race ./...
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags '-s -w -buildid=' -o dist/wyse-lifecycle-lab .
+          file dist/wyse-lifecycle-lab
+          sha256sum dist/wyse-lifecycle-lab | sed 's|dist/wyse-lifecycle-lab|static-go-binary|' > ../../evidence/receipt.txt
+          docker build --network none -f Dockerfile.synthetic -t wyse-synthetic-lab:r17 .
+          docker image inspect wyse-synthetic-lab:r17 --format 'IMAGE_ID={{.Id}}' >> ../../evidence/receipt.txt
+      - name: Exercise container read-only root, nonroot identity, private network, durable volume, restart
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo mkdir -p "$RUNNER_TEMP/wyse-volume" "$RUNNER_TEMP/wyse-secrets"
+          sudo chown 65532:65532 "$RUNNER_TEMP/wyse-volume" "$RUNNER_TEMP/wyse-secrets"
+          sudo chmod 0700 "$RUNNER_TEMP/wyse-volume" "$RUNNER_TEMP/wyse-secrets"
+          printf '%s' "$(python3 -c 'import secrets;print(secrets.token_hex(32))')" > "$RUNNER_TEMP/wyse-secrets/token"
+          sudo chown 65532:65532 "$RUNNER_TEMP/wyse-secrets/token"
+          sudo chmod 0400 "$RUNNER_TEMP/wyse-secrets/token"
+          docker pull busybox:1.36 >/dev/null
+          docker network create --internal wyse-private-test >/dev/null
+          trap 'docker rm -f wyse-lab-r17 2>/dev/null || true; docker network rm wyse-private-test 2>/dev/null || true' EXIT
+          start() {
+            docker run -d --name wyse-lab-r17 --network wyse-private-test \
+              --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 32 --memory 256m --cpus 1 \
+              -v "$RUNNER_TEMP/wyse-volume:/data:rw" \
+              -v "$RUNNER_TEMP/wyse-secrets:/secrets:ro" \
+              wyse-synthetic-lab:r17 -bind 127.0.0.1:18085 -state /data/state.json -token-file /secrets/token >/dev/null
+            for attempt in $(seq 1 25); do
+              if docker run --rm --network container:wyse-lab-r17 busybox:1.36 wget -qO- http://127.0.0.1:18085/healthz >/dev/null 2>&1; then return 0; fi
+              sleep 1
+            done
+            docker logs wyse-lab-r17
+            return 1
+          }
+          start
+          docker inspect wyse-lab-r17 --format 'READ_ONLY_ROOT={{.HostConfig.ReadonlyRootfs}} PRIVILEGED={{.HostConfig.Privileged}} USER={{.Config.User}} NETWORK={{.HostConfig.NetworkMode}}' >> evidence/receipt.txt
+          docker run --rm --network container:wyse-lab-r17 busybox:1.36 wget -qO- http://127.0.0.1:18085/api/v1/lab/schema > "$RUNNER_TEMP/schema.json"
+          python3 - "$RUNNER_TEMP/schema.json" <<'PY'
+          import json,sys
+          j=json.load(open(sys.argv[1]))
+          assert j['hardware_verified'] is False and j['physical_mutation'] is False
+          assert set(j['audiences']) == {'human','automation','agent'}
+          PY
+          if docker run --rm --network container:wyse-lab-r17 busybox:1.36 wget -qO- http://127.0.0.1:18085/api/v1/lab/nodes >/dev/null 2>&1; then
+            echo 'UNAUTHENTICATED_NODES=FAIL_OPEN' >> evidence/receipt.txt
+            exit 1
+          fi
+          echo 'ISOLATED_SCRATCH_NONROOT_CONTAINER=PASS' >> evidence/receipt.txt
+          echo 'UNAUTHENTICATED_NODES=DENIED' >> evidence/receipt.txt
+          docker stop wyse-lab-r17 >/dev/null
+          docker rm wyse-lab-r17 >/dev/null
+          start
+          docker run --rm --network container:wyse-lab-r17 busybox:1.36 wget -qO- http://127.0.0.1:18085/healthz >/dev/null
+          echo 'RESTART_WITH_SAME_APPROVED_PERSISTENT_DATASET=PASS' >> evidence/receipt.txt
+          echo 'TRUE_NAS_FOUNDRY_F0_F6=NOT_TESTED' >> evidence/receipt.txt
+          echo 'REAL_CONTROLLER_MTLS=NOT_TESTED' >> evidence/receipt.txt
+      - name: Upload synthetic OCI lifecycle receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-wyse-synthetic-oci-smoke
+          path: evidence/receipt.txt
+          if-no-files-found: warn
+          retention-days: 7
