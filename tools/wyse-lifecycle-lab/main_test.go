@@ -10,6 +10,7 @@ import (
  "os"
  "path/filepath"
  "strings"
+ "sync"
  "testing"
  "time"
 )
@@ -131,4 +132,51 @@ func TestUnauthorizedUnsafeActionsAndHumanAssets(t *testing.T) {
  }
  code,body:=call(s,token,"human","GET","/api/v1/lab/schema","","")
  if code!=200||!bytes.Contains(body,[]byte(`"real_garm_admission":false`)){t.Fatal("failed to disclose simulation boundary")}
+}
+
+func TestPersistenceFailureDoesNotApplyInMemory(t *testing.T) {
+ s,file,token:=setup(t)
+ _,priv,_:=ed25519.GenerateKey(rand.Reader)
+ n:=enroll(t,s,token,"synthetic-persist-01",priv)
+ dir:=filepath.Dir(file)
+ if err:=os.Chmod(dir,0500);err!=nil{t.Fatal(err)}
+ defer os.Chmod(dir,0700)
+ b,_:=json.Marshal(map[string]any{"action":"commission","expected_revision":n.Revision})
+ code,raw:=call(s,token,"automation","POST","/api/v1/lab/nodes/"+n.ID+"/actions",string(b),"")
+ if code!=500{t.Fatalf("write failed but transition response %d: %s",code,raw)}
+ code,raw=call(s,token,"agent","GET","/api/v1/lab/nodes","","")
+ if code!=200||!bytes.Contains(raw,[]byte(`"state":"ENROLLED"`))||bytes.Contains(raw,[]byte(`"state":"COMMISSIONED"`)){t.Fatalf("in-memory state changed after disk failure: %d %s",code,raw)}
+ if err:=os.Chmod(dir,0700);err!=nil{t.Fatal(err)}
+ again,err:=newService(file,[]byte(token));if err!=nil{t.Fatal(err)}
+ _,snapshot:=call(again,token,"agent","GET","/api/v1/lab/nodes","","")
+ if !bytes.Contains(snapshot,[]byte(`"state":"ENROLLED"`)){t.Fatal("on-disk state diverged")}
+}
+func TestConcurrentStaleRevisionExactlyOneTransition(t *testing.T) {
+ s,_,token:=setup(t)
+ _,priv,_:=ed25519.GenerateKey(rand.Reader)
+ n:=enroll(t,s,token,"synthetic-concurrent-01",priv)
+ const attempts=16
+ var group sync.WaitGroup
+ results:=make(chan int,attempts)
+ payload,_:=json.Marshal(map[string]any{"action":"commission","expected_revision":n.Revision})
+ for i:=0;i<attempts;i++ {
+  group.Add(1)
+  go func(){
+   defer group.Done()
+   code,_:=call(s,token,"automation","POST","/api/v1/lab/nodes/"+n.ID+"/actions",string(payload),"")
+   results<-code
+  }()
+ }
+ group.Wait();close(results)
+ successes,conflicts:=0,0
+ for result:=range results{
+  if result==200{successes++}else if result==409{conflicts++}else{t.Fatalf("unexpected %d",result)}
+ }
+ if successes!=1||conflicts!=attempts-1{t.Fatalf("race results success=%d conflicts=%d",successes,conflicts)}
+}
+func TestCorruptSnapshotRefusesServiceStart(t *testing.T) {
+ s,file,_:=setup(t)
+ if err:=s.save();err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(file,[]byte(`{"nodes":[`),0600);err!=nil{t.Fatal(err)}
+ if _,err:=newService(file,[]byte(strings.Repeat("t",40)));err==nil{t.Fatal("accepted corrupted JSON state")}
 }
