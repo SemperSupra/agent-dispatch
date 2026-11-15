@@ -42,6 +42,24 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertEqual(verdict["query_count"], 9)
         self.assertEqual(len(verdict["fixture_sha256"]), 64)
 
+    def test_offline_policy_candidate_search_requires_heldout_and_negative_gates(self):
+        import subprocess
+        cp = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+             "-p", "test_mail_policy_optimization.py"],
+            cwd=ROOT, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=60, check=False)
+        self.assertEqual(cp.returncode, 0, cp.stderr.decode("utf-8", "replace"))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import mail_policy_optimization as optimizer
+        observed = optimizer.select_and_evaluate()
+        self.assertEqual(observed["selected_policy"], "multilingual-prefix")
+        self.assertEqual(observed["holdout_baseline_hits"], 0)
+        self.assertEqual(observed["holdout_selected_hits"], 3)
+        self.assertFalse(observed["model_inference"])
+        self.assertFalse(observed["promoted_to_runtime"])
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
