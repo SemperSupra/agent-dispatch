@@ -1,0 +1,106 @@
+name: Public Wyse R24 pinned Buildroot rootfs and recovery policy qualification
+on:
+  push:
+    branches: [experiment/public-wyse-r24-pinned-buildroot-rootfs]
+    paths:
+      - .github/workflows/public-wyse-r24-buildroot-rootfs.yml
+      - tools/wyse-buildroot/**
+      - tools/wyse-hostcore-profile/**
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r24-buildroot-rootfs
+  cancel-in-progress: false
+jobs:
+  hostcore-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify nonmutating recovery host profile and SSH guard
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ( cd tools/wyse-hostcore-profile
+            go test -race -count=1 ./...
+            go vet ./...
+            CGO_ENABLED=0 go test -count=1 ./...
+          )
+          sh tools/wyse-buildroot/preflight-r19.sh
+          echo WYSE_R24_HOSTCORE_AND_SSH_GUARDS=PASS
+          echo PHYSICAL_HARDWARE_AND_SITE=NOT_TESTED
+  pinned-rootfs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 36
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install public-source embedded Linux build prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev \
+            rsync unzip xz-utils wget cpio
+      - name: Pin, compile and independently hash Buildroot recovery rootfs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          E="$RUNNER_TEMP/wyse-r24-buildroot-evidence"
+          mkdir -p "$E"
+          echo 'SCOPE=PUBLIC_SYNTHETIC_ONLY' > "$E/receipt.txt"
+          echo "SOURCE_HEAD=$GITHUB_SHA" >> "$E/receipt.txt"
+          sh tools/wyse-buildroot/preflight-r19.sh | tee "$E/ssh-preflight.txt"
+          curl --fail --location --silent --show-error --retry 3 \
+            https://buildroot.org/downloads/buildroot-2026.08.1.tar.xz -o "$RUNNER_TEMP/buildroot.tar.xz"
+          printf '%s  %s\n' \
+            '34fb7bea8a213ffde39cc02e61703391560f26e0850f03138c722d0b09880f2b' \
+            "$RUNNER_TEMP/buildroot.tar.xz" | sha256sum -c - | tee "$E/source-integrity.txt"
+          tar -xf "$RUNNER_TEMP/buildroot.tar.xz" -C "$RUNNER_TEMP"
+          chmod 0755 tools/wyse-buildroot/overlay/etc/init.d/S*
+          SRC="$RUNNER_TEMP/buildroot-2026.08.1"
+          OUT="$RUNNER_TEMP/wyse-r24-rootfs"
+          EXT="$GITHUB_WORKSPACE/tools/wyse-buildroot"
+          make -C "$SRC" O="$OUT" BR2_EXTERNAL="$EXT" wyse_minimal_defconfig > "$E/config.log" 2>&1
+          grep -q '^BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_X86_64_MUSL_STABLE=y' "$OUT/.config"
+          grep -q '^BR2_PACKAGE_DROPBEAR=y' "$OUT/.config"
+          grep -q '^BR2_PACKAGE_DROPBEAR_SMALL=y' "$OUT/.config"
+          grep -q '^# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set' "$OUT/.config"
+          grep -q '^# BR2_TARGET_ENABLE_ROOT_LOGIN is not set' "$OUT/.config"
+          grep -q '^BR2_TARGET_ROOTFS_CPIO=y' "$OUT/.config"
+          echo 'WYSE_R24_EXACT_BUILDROOT_CONFIG=PASS' >> "$E/receipt.txt"
+          if timeout --signal=TERM --kill-after=10s 1980 \
+             make -C "$SRC" O="$OUT" -j4 > "$RUNNER_TEMP/r24-build.log" 2>&1; then
+            test -s "$OUT/images/rootfs.cpio"
+            test -s "$OUT/images/rootfs.squashfs"
+            test -x "$OUT/target/etc/init.d/S01wyse-volatile"
+            test -x "$OUT/target/etc/init.d/S50dropbear"
+            test ! -e "$OUT/target/usr/bin/python3"
+            test ! -e "$OUT/target/usr/bin/qemu-system-x86_64"
+            test ! -e "$OUT/target/usr/bin/docker"
+            sha256sum "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/rootfs-hashes.txt"
+            stat -c '%n %s bytes' "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/rootfs-sizes.txt"
+            echo 'WYSE_R24_FULL_PINNED_BUILDROOT_ROOTFS=PASS' >> "$E/receipt.txt"
+            echo 'WYSE_R24_PYTHON_DOCKER_QEMU_ABSENT_FROM_CORE=PASS' >> "$E/receipt.txt"
+          else
+            tail -n 100 "$RUNNER_TEMP/r24-build.log" > "$E/failure-last100.txt"
+            echo 'WYSE_R24_FULL_PINNED_BUILDROOT_ROOTFS=RED_OR_TIME_LIMIT' >> "$E/receipt.txt"
+            exit 1
+          fi
+          echo 'SIGNED_PRODUCTION_UKI_REAL_WYSE=NOT_TESTED' >> "$E/receipt.txt"
+          echo 'HARDWARE_TRUE_NAS_GARM_MUTATION=NONE' >> "$E/receipt.txt"
+      - name: Retain only small source/config/hash/diagnostic receipts, never rootfs binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-wyse-r24-buildroot-receipts
+          path: ${{ runner.temp }}/wyse-r24-buildroot-evidence/
+          if-no-files-found: warn
+          retention-days: 7
