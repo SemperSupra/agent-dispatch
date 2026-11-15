@@ -1,0 +1,32 @@
+name: Public Wyse R21 nonce path component fail-closed
+on:
+  push:
+    branches: [experiment/public-wyse-nonce-path-hardening-r21]
+    paths:
+      - 'tools/wyse-planpermit/**'
+      - '.github/workflows/public-wyse-nonce-path-r21.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-nonce-path-r21
+  cancel-in-progress: false
+jobs:
+  path-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test strict path and restart reservation, no device access
+        working-directory: tools/wyse-planpermit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          CGO_ENABLED=0 go test -count=1 ./...
+          echo 'R21_PATH_COMPONENT_NOFOLLOW=PASS'
+          echo 'ZFS_SNAPSHOT_ROLLBACK=NOT_TESTED'
+          echo 'LIVE_HARDWARE_MUTATION=NONE'
