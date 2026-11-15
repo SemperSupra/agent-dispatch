@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "assignment_id": "mail-openworker-headless-v1",
+  "runner": "ubuntu-24.04",
+  "workload": "mail-openworker-headless-mail",
+  "timeout_seconds": 180,
+  "data_class": "public-synthetic",
+  "max_attempts": 1,
+  "max_cost_usd": 0
+}

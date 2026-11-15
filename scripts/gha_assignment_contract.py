@@ -31,6 +31,7 @@ PROFILES = {
     "mail-openworker-policy-v1": "requests/gha/mail-openworker-policy-v1.json",
     "mail-ragmail-loss-v1": "requests/gha/mail-ragmail-loss-v1.json",
     "mail-evidence-go-v1": "requests/gha/mail-evidence-go-v1.json",
+    "mail-openworker-headless-v1": "requests/gha/mail-openworker-headless-v1.json",
 }
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
