@@ -1,0 +1,13 @@
+#!/bin/sh
+# Mandatory no-eMMC-write policy. This script MUST remain functional offline.
+case "$1" in
+ start)
+  mountpoint -q /run || mount -t tmpfs -o size=16m,mode=0755 tmpfs /run || exit 1
+  mountpoint -q /tmp || mount -t tmpfs -o size=8m,mode=1777 tmpfs /tmp || exit 1
+  mkdir -p /var/log /run/wyse-keys /run/lock
+  mountpoint -q /var/log || mount -t tmpfs -o size=8m,mode=0755 tmpfs /var/log || exit 1
+  echo "WYSE_CORE_TMPFS_NO_EMMC_WRITES=ACTIVE"
+  ;;
+ stop) ;;
+ *) exit 1 ;;
+esac
