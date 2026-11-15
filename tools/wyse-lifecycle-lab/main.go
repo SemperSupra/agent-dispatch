@@ -118,6 +118,20 @@ func (s *Service) save() error {
  d,err:=os.Open(dir);if err==nil{_ = d.Sync();_ = d.Close()}
  return nil
 }
+func cloneSnapshot(in Snapshot) Snapshot {
+ out:=Snapshot{
+  Nodes:make(map[string]Device,len(in.Nodes)),
+  Pending:make(map[string]Pending,len(in.Pending)),
+  Rotation:make(map[string]Pending,len(in.Rotation)),
+  Idempotency:make(map[string]string,len(in.Idempotency)),
+  Events:append([]Event(nil),in.Events...),
+ }
+ for k,v:=range in.Nodes{out.Nodes[k]=v}
+ for k,v:=range in.Pending{out.Pending[k]=v}
+ for k,v:=range in.Rotation{out.Rotation[k]=v}
+ for k,v:=range in.Idempotency{out.Idempotency[k]=v}
+ return out
+}
 func (s *Service) record(id,action,actor string,rev int64) {
  s.state.Events=append(s.state.Events,Event{Seq:int64(len(s.state.Events)+1),DeviceID:id,Action:action,Actor:actor,Revision:rev})
 }
@@ -198,9 +212,10 @@ func (s *Service) Handler() http.Handler {
   for id,d:=range s.state.Nodes{if id!=x.ID&&d.Key==x.PublicKey{fail(w,409,"public key already enrolled");return}}
   challenge,err:=randomHex(24);if err!=nil{fail(w,500,"entropy unavailable");return}
   witness,err:=randomHex(4);if err!=nil{fail(w,500,"entropy unavailable");return}
+  before:=cloneSnapshot(s.state)
   s.state.Pending[x.ID]=Pending{Key:x.PublicKey,Challenge:challenge,Witness:witness,Deadline:s.now().Add(10*time.Minute)}
   s.state.Idempotency[idem]=fingerprint
-  if err=s.save();err!=nil{fail(w,500,"persistence failure");return}
+  if err=s.save();err!=nil{s.state=before;fail(w,500,"persistence failure");return}
   response(w,201,map[string]any{"id":x.ID,"challenge":challenge,"witness":witness,"expires_in_seconds":600,"scope":scope,"hardware_verified":false})
  })
  mux.HandleFunc("POST /api/v1/lab/enrollments/{id}/confirm",func(w http.ResponseWriter,r *http.Request){
@@ -211,10 +226,11 @@ func (s *Service) Handler() http.Handler {
   if !s.now().Before(p.Deadline){fail(w,409,"challenge expired");return}
   if subtle.ConstantTimeCompare([]byte(x.Witness),[]byte(p.Witness))!=1{fail(w,403,"witness mismatch");return}
   if !checkSignature(p.Key,x.Signature,enrollDomain+id+"\x00"+p.Challenge){fail(w,403,"device key proof invalid");return}
+  before:=cloneSnapshot(s.state)
   n:=Device{ID:id,Key:p.Key,State:"ENROLLED",Revision:1,Verified:false}
   s.state.Nodes[id]=n;delete(s.state.Pending,id)
   s.record(id,"ENROLL",actor(r),1)
-  if err:=s.save();err!=nil{fail(w,500,"persistence failure");return}
+  if err:=s.save();err!=nil{s.state=before;fail(w,500,"persistence failure");return}
   response(w,200,n)
  })
  mux.HandleFunc("POST /api/v1/lab/nodes/{id}/actions",func(w http.ResponseWriter,r *http.Request){
@@ -234,9 +250,10 @@ func (s *Service) Handler() http.Handler {
   case "retire":if n.State=="DRAINED"||n.State=="QUARANTINED"{next="RETIRED"}
   }
   if next==""{fail(w,409,"transition forbidden");return}
+  before:=cloneSnapshot(s.state)
   n.State=next;n.Revision++;s.state.Nodes[id]=n
   s.record(id,strings.ToUpper(x.Action),actor(r),n.Revision)
-  if err:=s.save();err!=nil{fail(w,500,"persistence failure");return}
+  if err:=s.save();err!=nil{s.state=before;fail(w,500,"persistence failure");return}
   response(w,200,n)
  })
  mux.HandleFunc("POST /api/v1/lab/nodes/{id}/rotation-challenge",func(w http.ResponseWriter,r *http.Request){
@@ -245,8 +262,9 @@ func (s *Service) Handler() http.Handler {
   n,ok:=s.state.Nodes[id]
   if !ok||n.State=="RETIRED"{fail(w,409,"rotation forbidden");return}
   challenge,err:=randomHex(24);if err!=nil{fail(w,500,"entropy unavailable");return}
+  before:=cloneSnapshot(s.state)
   s.state.Rotation[id]=Pending{Challenge:challenge,Deadline:s.now().Add(10*time.Minute)}
-  if err=s.save();err!=nil{fail(w,500,"persistence failure");return}
+  if err=s.save();err!=nil{s.state=before;fail(w,500,"persistence failure");return}
   response(w,200,map[string]any{"challenge":challenge,"expires_in_seconds":600})
  })
  mux.HandleFunc("POST /api/v1/lab/nodes/{id}/rotate-key",func(w http.ResponseWriter,r *http.Request){
@@ -261,9 +279,10 @@ func (s *Service) Handler() http.Handler {
   for other,d:=range s.state.Nodes{if other!=id&&d.Key==x.PublicKey{fail(w,409,"key belongs to different node");return}}
   msg:=rotateDomain+id+"\x00"+p.Challenge
   if !checkSignature(n.Key,x.OldSignature,msg)||!checkSignature(x.PublicKey,x.NewSignature,msg){fail(w,403,"dual key proof invalid");return}
+  before:=cloneSnapshot(s.state)
   n.Key=x.PublicKey;n.Revision++;s.state.Nodes[id]=n;delete(s.state.Rotation,id)
   s.record(id,"ROTATE_KEY",actor(r),n.Revision)
-  if err:=s.save();err!=nil{fail(w,500,"persistence failure");return}
+  if err:=s.save();err!=nil{s.state=before;fail(w,500,"persistence failure");return}
   response(w,200,n)
  })
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
