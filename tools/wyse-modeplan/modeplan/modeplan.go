@@ -288,3 +288,22 @@ func RunnerAdmission(n Node,g Guest) []string {
  if n.GARMHold {fail=append(fail,"GARM_LIVE_HOLD")}
  return fail
 }
+
+
+// BareMetalRunnerAdmission is distinct from GuestPreflight: a disposable
+// bare-metal runtime can be a genuine one-job GARM/Agent Dispatch worker.
+// No guest or hypervisor need exist, but a trusted and healthy SSD runtime,
+// independent rescue, and the live GARM authority are always required.
+func BareMetalRunnerAdmission(n Node) []string {
+ var fail []string
+ if n.Enrollment!=Enrolled||!n.TrustVerified||n.Presence!=Present{fail=append(fail,"DEVICE_NOT_ADMITTED")}
+ if n.Admission!=Ready{fail=append(fail,"HOST_NOT_READY")}
+ if n.GARMHold{fail=append(fail,"GARM_LIVE_HOLD")}
+ if n.Power!=PowerOn{fail=append(fail,"HOST_NOT_POWERED")}
+ if n.Network!=OverlayOnline&&n.Network!=LANSSHOnly{fail=append(fail,"TRUSTED_MANAGEMENT_UNREACHABLE")}
+ if !n.RecoveryVerified{fail=append(fail,"RECOVERY_NOT_VERIFIED")}
+ if n.DesiredProfile!=DisposableBareMetal&&n.DesiredProfile!=ClusterNode{fail=append(fail,"WRONG_BAREMETAL_PROFILE")}
+ if n.DesiredBoot!=BareMetalSSD||n.ObservedBoot!=BareMetalSSD||!n.HostHealthy{fail=append(fail,"BAREMETAL_OS_NOT_HEALTHY")}
+ if n.ActiveGuests!=0{fail=append(fail,"ACTIVE_GUESTS_ON_BAREMETAL_PROFILE")}
+ return fail
+}
