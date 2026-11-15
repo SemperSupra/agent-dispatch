@@ -136,6 +136,10 @@ func TestRemoteGuestStandaloneVersusGARMAdmission(t *testing.T){
   {"baremetal",func(n *Node,_ *Guest){n.DesiredBoot=BareMetalSSD},"HYPERVISOR_NOT_HEALTHY"},
   {"quarantine",func(n *Node,_ *Guest){n.Admission=Quarantined},"HOST_NOT_READY"},
   {"license",func(_ *Node,g *Guest){g.RightToInstall=false},"GUEST_ARTIFACT_UNQUALIFIED"},
+  {"not-powered",func(n *Node,_ *Guest){n.Power=PowerWOL},"HOST_NOT_POWERED"},
+  {"remote-offline",func(n *Node,_ *Guest){n.Network=LinkOffline},"TRUSTED_MANAGEMENT_UNREACHABLE"},
+  {"no-recovery",func(n *Node,_ *Guest){n.RecoveryVerified=false},"RECOVERY_NOT_VERIFIED"},
+  {"guest-vtpm",func(_ *Node,g *Guest){g.RequiresVTPM=true;g.VirtualTPM=false},"REQUIRED_GUEST_VTPM_MISSING"},
  }
  for _,x:=range tests{nn,gg:=n,g;x.mutate(&nn,&gg);if !has(GuestPreflight(nn,gg),x.code){t.Errorf("%s fail-open",x.name)}}
 }
