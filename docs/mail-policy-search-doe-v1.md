@@ -24,3 +24,7 @@ The additional adversarial checks include fabricated/unknown targets containing 
 ## O&M and rollback
 
 Run in an ephemeral unprivileged process with no credentials and an in-memory SQLite index. Store only versioned source, fixed public task seed, source SHA and compact outcome receipt in the owning DLE. Restart reruns all candidates deterministically. Hard-veto unsafe/contradictory citations, false merges, cross-account leakage or test contamination. Roll back by selecting `raw` policy; nothing changes in source objects. Production activation requires separate review and held-out oracle.
+
+## Exact source-history reconciliation (2026-11-15)
+
+The parent public synthetic benchmark PR #641 was independently checked at hosted run `43692951025` and squash-merged as `d3031e3730da80f30c1ef5ebe787672ea940008d`. This four-path policy experiment was reconstructed on that commit with its four exact tested source blobs, without reintroducing the parent patch. Original stacked head `ea3bdc84dd2628a5916bb9a20d34ed154be9b648` is retained in the PR history/DLE, and the new lease-bound head is a direct child of the new main, not a force-overwrite of a concurrent actor's work. The retargeted PR should be considered independently mergeable only after **new exact-head** public hosted contract tests; earlier stacked-base run `43693509796` remains historical evidence, not automatic acceptance of a rebased head. No real model or policy promotion happened during reconciliation.
