@@ -107,7 +107,7 @@ trap - EXIT
 dd if="$W/usb.img" of="$W/usb-copy.img" bs=8M status=none
 cmp "$W/usb.img" "$W/usb-copy.img"
 echo 'RAW_USB_WRITE_READBACK=PASS' >> evidence/public/receipt.txt
-truncate -s 192M "$W/emmc-original.img"
+truncate -s 256M "$W/emmc-original.img"
 truncate -s 128M "$W/sata.img"
 printf 'PROTECTED_EMMC_CANARY' | dd of="$W/emmc-original.img" bs=1 seek=18874368 conv=notrunc status=none
 sha256sum "$W/emmc-original.img" > "$W/emmc-sha"
@@ -130,7 +130,7 @@ qemu-system-x86_64 -machine q35 -accel "$accel" -cpu max -m 1536 -smp 2 \
 pid=$!
 trap 'kill "$pid" 2>/dev/null || :' EXIT
 success=0
-for attempt in $(seq 1 65); do
+for attempt in $(seq 1 105); do
   if ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
       -o ConnectTimeout=1 -p 22222 -i "$W/id_ed25519" \
       root@127.0.0.1 'echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; grep -q sda /proc/partitions && echo GUEST_SATA=PASS' \
