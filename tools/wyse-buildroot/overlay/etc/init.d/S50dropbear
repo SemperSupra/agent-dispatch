@@ -1,0 +1,25 @@
+#!/bin/sh
+# Replaces Buildroot's default auto-creating host-key service. No device key
+# may be generated on each boot; run only after recoverd has verified a
+# provisioned per-device key and operator public-key allowlist.
+case "$1" in
+ start)
+  key=/run/wyse-keys/ssh_host_ed25519_key
+  auth=/run/wyse-keys/authorized_keys
+  if [ ! -s "$key" ] || [ ! -s "$auth" ]; then
+   echo "WYSE_SSH=HOLD_UNENROLLED_NO_HOST_KEY"
+   exit 0
+  fi
+  [ "$(stat -c %a "$key" 2>/dev/null)" = 600 ] || exit 1
+  mkdir -p /root/.ssh
+  mountpoint -q /root/.ssh || mount -t tmpfs -o size=1m,mode=0700 tmpfs /root/.ssh || exit 1
+  cp "$auth" /root/.ssh/authorized_keys || exit 1
+  chmod 600 /root/.ssh/authorized_keys
+  /usr/sbin/dropbear -s -g -w -p 22 -r "$key" || exit 1
+  echo "WYSE_SSH=KEY_ONLY_START"
+  ;;
+ stop)
+  killall dropbear 2>/dev/null || true
+  ;;
+ *) exit 1 ;;
+esac
