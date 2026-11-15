@@ -68,6 +68,11 @@ jobs:
           echo 'AUTOMATION_UNAUTHORIZED_DENIED=PASS' >> evidence/receipt.txt
           echo 'AGENT_CONTRACT=PASS' >> evidence/receipt.txt
           echo 'HARDWARE_TRUENAS_GARM_DEPLOYMENT=NOT_TESTED' >> evidence/receipt.txt
+          CHROME_BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME_BIN"
+          (cd tools/wyse-lifecycle-lab && npm install --no-save --ignore-scripts puppeteer-core@24.31.0 >/dev/null)
+          CHROME_BIN="$CHROME_BIN" WYSE_SYNTHETIC_LAB_TOKEN="$token" node tools/wyse-lifecycle-lab/browser-smoke.mjs > evidence/browser-receipt.txt
+          cat evidence/browser-receipt.txt >> evidence/receipt.txt
           rm -f evidence/human-app.js
       - name: Upload allowlisted synthetic receipts only
         if: always()
