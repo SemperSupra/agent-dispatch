@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,63 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "mail-openworker-policy":
+        # Exact Git-blob-pinned MIT upstream read-only policy modules only.
+        # The request never carries a URL, command or permission widening.
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/qualify_openworker_readonly.py"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return {"oracle_verified": False, "classification": "FAIL_TIMEOUT",
+                    "model_inference": False, "mail_credential_access": False,
+                    "source_blob_sha": None, "control_count": 0,
+                    "upstream_commit": None, "verdict_sha256": None}
+        raw = cp.stdout[:8193]
+        if cp.returncode or len(cp.stdout) > 8192:
+            return {"oracle_verified": False, "classification": "FAIL_UPSTREAM_PROBE",
+                    "model_inference": False, "mail_credential_access": False,
+                    "source_blob_sha": None, "control_count": 0,
+                    "upstream_commit": None, "verdict_sha256": None}
+        try:
+            observed = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            observed = {}
+        cases = observed.get("case_matrix", {}) if isinstance(observed, dict) else {}
+        accepted = (
+            isinstance(observed, dict)
+            and observed.get("schema") == "openworker-public-policy-interview/v1"
+            and observed.get("classification") == "UPSTREAM_POLICY_PRIMITIVES_ONLY"
+            and observed.get("upstream_repository") == "andrewyng/openworker"
+            and observed.get("upstream_commit") ==
+                "ecb445490fc054d52b8ea610d97ba947f57033d2"
+            and observed.get("readonly_blob_sha") ==
+                "d621e606eea85be031c27237b0bc2ffcdfe590cb"
+            and observed.get("license") == "MIT"
+            and observed.get("qualified") is True
+            and observed.get("model_inference") is False
+            and observed.get("mail_credential_access") is False
+            and observed.get("shell_commands_executed") is False
+            and observed.get("network_origin") == "raw.githubusercontent.com"
+            and isinstance(cases, dict)
+            and cases.get("allowed_controls") == 2
+            and cases.get("blocked_controls") == 6
+            and cases.get("safe_all_allowed") is True
+            and cases.get("dangerous_all_rejected") is True
+            and cases.get("host_normalization_verified") is True
+            and cases.get("unknown_network_profile_rejected") is True)
+        return {"oracle_verified": bool(accepted),
+                "classification": "PASS" if accepted else "FAIL_UPSTREAM_ORACLE",
+                "model_inference": False, "mail_credential_access": False,
+                "source_blob_sha": observed.get("readonly_blob_sha")
+                    if accepted else None,
+                "control_count": 8 if accepted else 0,
+                "upstream_commit": observed.get("upstream_commit")
+                    if accepted else None,
+                "verdict_sha256": hashlib.sha256(raw).hexdigest()
+                    if accepted else None}
     if workload == "mail-synthetic-baseline":
         # Only the reviewed self-generated fixture + independent negative suite.
         # Infrastructure and retrieval result only, never semantic LLM success.

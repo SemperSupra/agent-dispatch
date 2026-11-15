@@ -28,6 +28,7 @@ PROFILES = {
     "microsoft-devproxy-mock-v1": "requests/gha/microsoft-devproxy-mock-v1.json",
     "azurite-blob-transport-v1": "requests/gha/azurite-blob-transport-v1.json",
     "mail-synthetic-baseline-v1": "requests/gha/mail-synthetic-baseline-v1.json",
+    "mail-openworker-policy-v1": "requests/gha/mail-openworker-policy-v1.json",
 }
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")

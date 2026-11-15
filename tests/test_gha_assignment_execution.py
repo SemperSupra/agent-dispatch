@@ -55,6 +55,15 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-openworker-policy-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "model_inference": False, "mail_credential_access": False,
+            "source_blob_sha": "d621e606eea85be031c27237b0bc2ffcdfe590cb",
+            "control_count": 8,
+            "upstream_commit": "ecb445490fc054d52b8ea610d97ba947f57033d2",
+            "verdict_sha256": "e" * 64,
+        }
     elif profile_id == "mail-synthetic-baseline-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
