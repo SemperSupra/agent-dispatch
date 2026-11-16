@@ -1,0 +1,36 @@
+name: etcd container network partitions on disposable public runner (R62)
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/net-r62/**'
+      - '.github/workflows/qualify-fencing-net-r62.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r62-etcd-net-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  net-isolation:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout pinned no persisted credentials
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Native container network partition and recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/fencing/net-r62/run.sh
+      - name: Preserve exact acceptance boundary
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          Actual etcd 3.6.16 three-peer, Docker network isolation test.
+          ONE runner, three isolated container networks, separate synthetic tmpfs state.
+          Host/physical failure domains, client certs, authenticated budget owner,
+          protected restore, production effect sink and OCI-primary remain NOT TESTED.
+          SUMMARY
