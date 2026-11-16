@@ -55,6 +55,17 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-qwen-real-cpu-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS_REAL_MODEL_MEASURED",
+            "real_model_inference": True, "automatic_promotion": False,
+            "model_sha256": "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8",
+            "engine_commit": "8642541b255bfb5dc39cd351a178be09013a55d6",
+            "question_count": 7, "model_calls": 20, "selected_policy": "plain",
+            "heldout_exact": 1, "baseline_exact": 1,
+            "unsupported_source_count": 1, "semantic_quality_gate": False,
+            "corpus_sha256": "d"*64,"verdict_sha256":"a"*64,
+        }
     elif profile_id == "mail-openworker-scripted-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
