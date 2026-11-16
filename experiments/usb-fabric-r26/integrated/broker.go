@@ -82,11 +82,13 @@ type request struct {
  Op string `json:"op"`
  Actor string `json:"actor"`
  Generation uint64 `json:"generation"`
+ Epoch string `json:"epoch"`
  Command string `json:"command"`
 }
 type response struct {
  OK bool `json:"ok"`
  Generation uint64 `json:"generation,omitempty"`
+ Epoch string `json:"epoch,omitempty"`
  State blue.State `json:"state,omitempty"`
  Error string `json:"error,omitempty"`
 }
@@ -110,12 +112,12 @@ func main(){
   var req request
   if err:=json.Unmarshal(scanner.Bytes(),&req);err!=nil{emit(response{Error:"invalid request"});continue}
   state,active,_:=m.Snapshot()
-  l:=blue.Lease{Device:"keyboard",Port:"xhci0/auto",Actor:req.Actor,Generation:req.Generation}
+  l:=blue.Lease{Device:"keyboard",Port:"xhci0/auto",Actor:req.Actor,Epoch:req.Epoch,Generation:req.Generation}
   if req.Op=="reserve"{
    if req.Actor!="approved-agent"{emit(response{Error:"actor denied"});continue}
    lease,e:=m.Reserve(req.Actor,"keyboard","xhci0/auto")
    if e!=nil{emit(response{Error:e.Error()});continue}
-   emit(response{OK:true,Generation:lease.Generation,State:blue.Reserved});continue
+   emit(response{OK:true,Generation:lease.Generation,Epoch:lease.Epoch,State:blue.Reserved});continue
   }
   var runErr error
   switch req.Op{

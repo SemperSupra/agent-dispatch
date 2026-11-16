@@ -3,7 +3,10 @@
 package blue
 
 import (
+ "crypto/rand"
+ "encoding/hex"
  "errors"
+ "io"
  "sync"
 )
 
@@ -26,6 +29,7 @@ type Lease struct {
  Device string
  Port string
  Actor string
+ Epoch string
  Generation uint64
 }
 
@@ -40,12 +44,27 @@ type Manager struct {
  device, port string
  active Lease
  generation uint64
+ epoch string
  executor Executor
 }
 
 // New creates one synthetic device on one logical port. No external effects.
 func New(device, port string, exec Executor) *Manager {
- return &Manager{state:Available, device:device, port:port,executor:exec}
+ return newWithEntropy(device,port,exec,rand.Reader)
+}
+
+// The incarnation epoch distinguishes otherwise identical leases across
+// crashes/restarts. Entropy failure quarantines instead of permitting an
+// ambiguous owner epoch. This does not authenticate remote actors.
+func newWithEntropy(device,port string,exec Executor,reader io.Reader)*Manager {
+ m:=&Manager{state:Quarantined,device:device,port:port,executor:exec}
+ if reader==nil{return m}
+ var epoch [16]byte
+ if _,err:=io.ReadFull(reader,epoch[:]);err!=nil{return m}
+ if epoch==([16]byte{}){return m}
+ m.epoch=hex.EncodeToString(epoch[:])
+ m.state=Available
+ return m
 }
 
 func (m *Manager) Reserve(actor, device, port string) (Lease,error) {
@@ -57,7 +76,7 @@ func (m *Manager) Reserve(actor, device, port string) (Lease,error) {
  if m.state==Quarantined {return Lease{},ErrQuarantined}
  if m.state!=Available{return Lease{},ErrUnavailable}
  m.generation++
- m.active=Lease{Device:device,Port:port,Actor:actor,Generation:m.generation}
+ m.active=Lease{Device:device,Port:port,Actor:actor,Epoch:m.epoch,Generation:m.generation}
  m.state=Reserved
  return m.active,nil
 }
