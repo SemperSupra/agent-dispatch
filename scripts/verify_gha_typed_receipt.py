@@ -150,7 +150,7 @@ def evaluate(
         if (result.get("real_model_inference") is not True or
                 result.get("automatic_promotion") is not False or
                 result.get("model_sha256") != "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8" or
-                result.get("engine_commit") != "8642541b255bfb5dc39cd351a178be09013a55d6" or
+                result.get("engine_commit") != "b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed" or
                 result.get("question_count") != 7 or
                 result.get("model_calls") != 20 or
                 result.get("selected_policy") not in ("plain","evidence-first") or
