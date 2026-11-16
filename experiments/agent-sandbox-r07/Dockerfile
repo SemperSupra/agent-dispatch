@@ -8,7 +8,7 @@ WORKDIR /src
 COPY workload.c ./
 RUN --mount=type=tmpfs,target=/tmp \
     apt-get update -qq && apt-get install -qq --no-install-recommends -y \
-    gcc "gcc-${TARGET}-linux-gnu" "libc6-dev-${TARGET_LIBC}-cross" qemu-user-static && \
+    gcc libc6-dev "gcc-${TARGET}-linux-gnu" "libc6-dev-${TARGET_LIBC}-cross" qemu-user-static && \
     mkdir -p /out && \
     gcc -O2 -static -DR07_ARCH='"native-x86_64"' -o /out/native workload.c && \
     "${TARGET}-linux-gnu-gcc" -O2 -static -DR07_ARCH='"'${TARGET}'"' -o /out/foreign workload.c && \
