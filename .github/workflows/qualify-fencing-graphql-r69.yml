@@ -1,0 +1,30 @@
+name: R69 read-only native GitHub GraphQL CAS-schema probe
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/graphql-r69/**'
+      - '.github/workflows/qualify-fencing-graphql-r69.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: r69-graphql-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-graphql-readonly:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Offline schema positive and negative contracts
+        run: python3 -m unittest discover -s experiments/fencing/graphql-r69 -p 'test_*.py' -v
+      - name: Live native GraphQL schema query, no mutation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 experiments/fencing/graphql-r69/graphql_probe.py --native
+      - name: Qualification limit
+        if: always()
+        run: echo 'READ-ONLY schema only. No updateRefs mutation, write token, real CAS, two principals, protected writer, or production effect.' >> "$GITHUB_STEP_SUMMARY"
