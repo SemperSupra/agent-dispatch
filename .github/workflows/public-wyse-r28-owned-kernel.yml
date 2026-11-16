@@ -1,0 +1,44 @@
+name: Public Wyse R28 source-built kernel and recovery device closure K0
+on:
+  push:
+    branches: [experiment/public-wyse-r28-owned-kernel]
+    paths:
+      - '.github/workflows/public-wyse-r28-owned-kernel.yml'
+      - 'scripts/public_wyse_r28_owned_kernel.sh'
+      - 'tools/wyse-buildroot/configs/wyse-kernel-r28.fragment'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r28-owned-kernel-k0
+  cancel-in-progress: false
+jobs:
+  independent-kernel-build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 39
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install public Buildroot plus upstream Linux kernel build prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev \
+            libelf-dev rsync unzip xz-utils wget curl cpio zstd perl
+          echo R28_PUBLIC_DISPOSABLE_HOST_DEPS=PASS
+      - name: Check syntax then compile SHA-pinned Buildroot and Linux with recovery drivers
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r28_owned_kernel.sh
+          bash scripts/public_wyse_r28_owned_kernel.sh
+      - name: Qualify only K0 and preserve later production hold
+        shell: bash
+        run: |
+          echo R28_K0_SOURCE_BUILD_ONLY_GATE=PASS
+          echo R28_K1_ENROLLED_OVMF_OWNED_KERNEL_BOOT=NOT_TESTED
+          echo R28_PRODUCTION_SIGNER_HARDWARE_AND_FOUNDRY_GARM=NOT_TESTED
