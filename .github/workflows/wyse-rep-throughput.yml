@@ -1,0 +1,30 @@
+name: Wyse measured disposable 3-lane batch speed experiment
+on:
+  push:
+    branches: [test/issue-368-rep-throughput]
+    paths:
+      - '.github/workflows/wyse-rep-throughput.yml'
+      - 'experiments/wyse-rep-throughput/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wyse-rep-throughput-368
+  cancel-in-progress: false
+jobs:
+  paired-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Matched sequential and parallel OCI throughput, four alternating reps
+        shell: bash
+        run: bash experiments/wyse-rep-throughput/verify.sh
+      - name: Preserve interpretation
+        shell: bash
+        run: |
+          echo 'BENCH_HARDWARE_BENCHMARK_ON_FREE_HOSTED_RUNNER=YES'
+          echo 'BENCH_REAL_LOCAL_AGENT_MODEL_THROUGHPUT=NOT_TESTED'
