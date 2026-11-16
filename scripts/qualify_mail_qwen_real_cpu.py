@@ -98,7 +98,24 @@ def command(args:list[str],cwd:Path,env:dict[str,str],timeout:int) -> subprocess
     except subprocess.TimeoutExpired as exc:
         raise Blocked("COMMAND_TIMEOUT_"+Path(args[0]).name) from exc
     if p.returncode:
-        raise Blocked("COMMAND_FAILED_"+Path(args[0]).name+"_"+str(p.returncode))
+        # Log a bounded first-failure class only; never publish full executable,
+        # model output, or network stderr to a public CI artifact.
+        diagnostics=p.stderr.decode("utf-8","replace").lower()[:4096]
+        reason="OTHER"
+        for indicator,name in (
+            ("unknown argument","UNKNOWN_ARGUMENT"),
+            ("unrecognized argument","UNRECOGNIZED_ARGUMENT"),
+            ("invalid argument","INVALID_ARGUMENT"),
+            ("failed to load model","MODEL_LOAD_FAILURE"),
+            ("error loading shared libraries","SHARED_LIBRARY_FAILURE"),
+            ("unknown option","UNKNOWN_OPTION"),
+            ("no such file","MISSING_FILE"),
+        ):
+            if indicator in diagnostics:
+                reason=name
+                break
+        tool=Path(args[0]).name.replace("-","_").upper()
+        raise Blocked("COMMAND_FAILED_"+tool+"_"+str(p.returncode)+"_"+reason)
     return p
 
 
@@ -182,7 +199,7 @@ def infer(binary:Path,model:Path,root:Path,env:dict[str,str],policy:str,
     commandline=[
         str(binary),"-m",str(model),"-p",prompt(policy,question),
         "-j",JSON_SCHEMA,"-n","75","--temp","0","-s","19",
-        "-t","2","-c","2048","-st","-no-cnv",
+        "-t","2","-c","2048","-st",
         "--simple-io","--no-display-prompt","--no-show-timings",
         "--no-warmup","--log-disable"]
     start=time.monotonic()
