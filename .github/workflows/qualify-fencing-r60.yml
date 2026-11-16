@@ -1,0 +1,37 @@
+name: Public disposable fencing counterexamples (R60)
+on:
+  pull_request:
+    paths:
+      - 'fixtures/fencing/r60/**'
+      - '.github/workflows/qualify-fencing-r60.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r60-fencing-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  bounded-public-fixture:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout with no persisted token
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Run independent disposable source-only negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh fixtures/fencing/r60/run_batch.sh
+      - name: Preserve source-only acceptance boundary
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          R60 public fixture outcome is local/native-Git + synthetic Go sink + local SQLite only.
+          GitHub GraphQL hosted CAS, separate actor identities, Cloudflare, etcd,
+          actual OCI primary, protected backup/restore and live effect-sink fencing
+          remain NOT TESTED by this workflow.
+          No production credentials, remote provider mutations or deployment are used.
+          SUMMARY
