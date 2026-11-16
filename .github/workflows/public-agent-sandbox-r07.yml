@@ -1,0 +1,37 @@
+name: Public Sandbox R07 - paired cross ISA performance envelope
+on:
+  push:
+    branches: [experiment/public-sandbox-r07-throughput]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r07.yml'
+      - 'experiments/agent-sandbox-r07/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-agent-sandbox-r07
+  cancel-in-progress: false
+jobs:
+  synthetic-loop-envelope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        target: [aarch64, riscv64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Repeated paired workload with disposable OCI build and scratch runtime
+        shell: bash
+        env:
+          R07_TARGET: ${{ matrix.target }}
+        run: bash experiments/agent-sandbox-r07/verify.sh
+      - name: Restrict performance inference
+        shell: bash
+        run: |
+          echo 'R07_ONE_TASK_CLASS_ONLY=YES'
+          echo 'R07_REAL_AGENTS_GUI_AND_WYSE=NOT_TESTED'
