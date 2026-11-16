@@ -55,4 +55,5 @@ python3 experiments/fencing/etcd-r61/txn_test.py noquorum
 start 2 22379 2381
 ready
 python3 experiments/fencing/etcd-r61/txn_test.py recovered
+bash experiments/fencing/etcd-r61/auth_acl_probe.sh "$root"
 echo 'R61_NATIVE_ETCD_ONE_HOST_QUORUM_PASS; REAL_CROSS_HOST_FENCING_NOT_TESTED'

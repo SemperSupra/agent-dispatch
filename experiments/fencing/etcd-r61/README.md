@@ -16,3 +16,7 @@ Official release source: https://github.com/etcd-io/etcd/releases/tag/v3.6.16
 ## R62 additional native transaction oracle
 
 `gateway_txn_test.py` extends the same real three-peer etcd cluster with 40 independent budget=1 contention races. Each transaction atomically compares the current synthetic epoch and unspent budget, then marks a unique effect key `UNKNOWN` while decrementing the budget. It independently tests duplicate lost-ACK retry, old-owner replay, new-owner overclaim and UNKNOWN survival through epoch transfer. A privileged epoch reset deliberately reproduces an **EXPECTED RED ABA**. This tests native etcd atomic reservation, **not** an irreversible GitHub Actions or other provider effect. With no client auth, direct writes can spoof/reset the epoch: production authority remains HOLD.
+
+## R63 scoped client principals
+
+`auth_acl_probe.sh` uses **native etcd v3 user/role ACL** on the same disposable three-member test, after core transaction/recovery tests. Random single-run synthetic passwords never print or persist; two user principals can read/write only their own prefixes, cannot change `r63/gateway/epoch`, and revocation of one tenant does not revoke the other. **No TLS** is configured, local loopback endpoints only. Root is capable of resetting the authority; this does **not** prove nonresettable high-water, root credential hardening, externally authenticated service actors or independent hosts.
