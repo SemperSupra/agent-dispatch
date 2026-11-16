@@ -100,6 +100,12 @@ def main(arch):
                 neg=q.call("device_add",{"driver":"not-a-real-device-r13","id":"not-allowed"},negative=True)
                 if "not-allowed" in children(q):raise RuntimeError("invalid device became visible")
                 print("R13_INVALID_DEVICE_REJECTED=PASS CLASS="+str(neg))
+                # Input injection is only valid when the QEMU VM runs.
+                # No installed guest OS is claimed by this synthetic test.
+                q.call("cont")
+                if q.call("query-status").get("running") is not True:
+                    raise RuntimeError("VM did not enter running state")
+                print("R13_VM_RUNNING_FOR_REMOTE_INPUT=PASS")
                 for state in (True, False):
                     q.call("input-send-event",{"events":[{"type":"key","data":{
                         "down":state,"key":{"type":"qcode","data":"a"}}}]})
