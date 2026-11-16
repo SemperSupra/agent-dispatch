@@ -355,6 +355,5 @@ func main(){
  case "probe-import":err=probeImport()
  default:err=errors.New("unknown mode: "+strconv.Quote(os.Args[1]))
  }
- if err!=nil{fmt.Fprintln(os.Stderr,"R16_RESULT=RED",strings.ReplaceAll(err.Error(),"
-",";"));os.Exit(1)}
+ if err!=nil{fmt.Fprintln(os.Stderr,"R16_RESULT=RED",strings.ReplaceAll(err.Error(),string(rune(10)),";"));os.Exit(1)}
 }
