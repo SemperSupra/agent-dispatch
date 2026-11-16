@@ -1,0 +1,36 @@
+name: USB Fabric R26 Red - adversarial corpus validation
+on:
+  push:
+    branches: [experiment/public-usbfabric-r26-red]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-red.yml'
+      - 'experiments/usb-fabric-r26/red/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-red
+  cancel-in-progress: false
+jobs:
+  independent-adversarial-fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: golang:1.23-bookworm
+      options: --cap-drop ALL --security-opt no-new-privileges
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate attack-case schema and boundary coverage, not target security
+        working-directory: experiments/usb-fabric-r26/red
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo "R26_RED_ATTACK_FIXTURES_SCHEMA=PASS"
+          echo "R26_RED_TARGET_SYSTEM_SECURITY_TESTS=NOT_TESTED"
