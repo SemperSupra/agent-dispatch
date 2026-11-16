@@ -5,6 +5,7 @@ case "$R19_LANE" in
  race) test_name=TestRaceRevocationLinearization ;;
  restart) test_name=TestRestartMonotoneEpochAndFailClose ;;
  deny) test_name=TestInvalidScopeIdempotencyAndAmbiguousEffect ;;
+ ttl) test_name=TestBackdatedTimestampCannotExtendLease ;;
  *) echo R19_UNKNOWN_LANE=RED;exit 2 ;;
 esac
 root="$(git rev-parse --show-toplevel)"
