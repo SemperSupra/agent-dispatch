@@ -48,6 +48,23 @@ class RealCpuModelAdmissionTests(unittest.TestCase):
         self.assertEqual(q.POLICIES,("plain","evidence-first"))
         self.assertEqual(q.IDS[-1],"NONE")
 
+    def test_real_model_json_output_parsing_has_independent_fixtures(self):
+        cases = {
+            '{"source_id":"a1","value":"120"}': ("a1","120"),
+            '{"value":"approved","source_id":"a4"}': ("a4","approved"),
+            'model header\\n{"source_id":"NONE","value":"UNKNOWN"}\\n': ("NONE","UNKNOWN"),
+            'prefix {not-json} {"source_id":"a3","value":"denied"}': ("a3","denied"),
+        }
+        for output,expected in cases.items():
+            with self.subTest(output=output):
+                parsed=q.parse_model_json(output)
+                self.assertEqual((parsed.get("source_id"),parsed.get("value")),expected)
+        for bad in ('no braces', '{"source_id":"a1"}',
+                    '{"source_id":"a1","value":"120","extra":"ignore"}',
+                    '{"nested":{"source_id":"a1","value":"120"}}'):
+            with self.subTest(bad=bad):
+                self.assertEqual(q.parse_model_json(bad),{})
+
     def test_independent_metric_is_not_self_graded_promotion(self):
         measured=[
             {"exact":False,"valid_json":False,"incorrect_source":True,
