@@ -1,0 +1,38 @@
+name: Public Sandbox R04 - true ARM64 and RISCV64 Linux boot
+on:
+  push:
+    branches: [experiment/public-sandbox-r04-foreign-kernel]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r04.yml'
+      - 'experiments/agent-sandbox-r04/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-agent-sandbox-r04
+  cancel-in-progress: false
+jobs:
+  actual-kernel-boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        target: [aarch64, riscv64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build disposable OCI toolchain and boot hash-pinned Debian Linux with synthetic initramfs
+        shell: bash
+        env:
+          R04_TARGET: ${{ matrix.target }}
+        run: bash experiments/agent-sandbox-r04/verify.sh
+      - name: Preserve restricted qualification scope
+        shell: bash
+        run: |
+          echo 'R04_MACHINE_FIRMWARE_FULL_INSTALLER=NOT_TESTED'
+          echo 'R04_TCG_ISOLATION_AND_AGENT_RUNTIME=NOT_TESTED'
+          echo 'R04_WYSE_HIL_OR_PRODUCTION=NOT_TESTED'
