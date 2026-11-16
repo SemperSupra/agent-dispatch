@@ -12,7 +12,7 @@ snapshot(){
 before_local="$(snapshot)"
 before_volumes="$(docker volume ls -q | LC_ALL=C sort)"
 image="public-sandbox-r06:${GITHUB_SHA:0:12}"
-cleanup(){docker image rm -f "$image" >/dev/null 2>&1 || true;docker builder prune -af >/dev/null 2>&1 || true; }
+cleanup(){ docker image rm -f "$image" >/dev/null 2>&1 || true;docker builder prune -af >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker pull ubuntu:24.04 >/dev/null
 base="$(docker image inspect --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
