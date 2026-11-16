@@ -1,0 +1,31 @@
+name: Public Sandbox R09 - guest visible USB
+on:
+  push:
+    branches: [experiment/public-sandbox-r09-guest-usb]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r09.yml'
+      - 'experiments/agent-sandbox-r09/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r09-guest-usb
+  cancel-in-progress: false
+jobs:
+  guest-sysfs-usb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Boot actual Debian Linux and check guest USB descriptors after QMP injection
+        shell: bash
+        run: bash experiments/agent-sandbox-r09/verify.sh
+      - name: Scope limits
+        shell: bash
+        run: |
+          echo 'R09_QMP_HID_GUEST_ENUMERATION_ONLY=REQUIRES_OBSERVED_ORACLE'
+          echo 'R09_REAL_REMOTE_DEVICE_OR_USBIP=NOT_TESTED'
+          echo 'R09_ACTUAL_HID_KEYS_AND_CAC=NOT_TESTED'
