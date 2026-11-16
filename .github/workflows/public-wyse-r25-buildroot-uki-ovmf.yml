@@ -1,0 +1,109 @@
+name: Public Wyse R25 real Buildroot userland in signed UKI OVMF pre-HIL
+on:
+  push:
+    branches: [experiment/public-wyse-r25-buildroot-uki-ovmf]
+    paths:
+      - '.github/workflows/public-wyse-r25-buildroot-uki-ovmf.yml'
+      - 'scripts/public_wyse_r25_buildroot_uki_ssh.sh'
+      - 'tools/wyse-buildroot/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r25-buildroot-uki-ovmf
+  cancel-in-progress: false
+jobs:
+  buildroot-userland-uki:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install only public Buildroot, QEMU/OVMF and ephemeral test-key tooling
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev \
+            rsync unzip xz-utils wget cpio qemu-system-x86 ovmf \
+            grub-efi-amd64-bin grub-common grub-pc-bin linux-image-virtual \
+            busybox-static dropbear-bin openssh-client dosfstools gdisk \
+            util-linux kmod zstd sbsigntool openssl python3-virt-firmware \
+            systemd-ukify systemd-boot-efi
+      - name: Compile pinned Buildroot rootfs and prepare explicit source receipt
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          E="$RUNNER_TEMP/r25-public-evidence"
+          mkdir -p "$E"
+          echo "R25_SOURCE_HEAD=$GITHUB_SHA" > "$E/buildroot-receipt.txt"
+          sh tools/wyse-buildroot/preflight-r19.sh | tee "$E/ssh-preflight.txt"
+          curl -fsSL --retry 3 https://buildroot.org/downloads/buildroot-2026.08.1.tar.xz -o "$RUNNER_TEMP/buildroot.tar.xz"
+          printf '%s  %s\n' '34fb7bea8a213ffde39cc02e61703391560f26e0850f03138c722d0b09880f2b' "$RUNNER_TEMP/buildroot.tar.xz" | sha256sum -c - | tee "$E/source-sha256.txt"
+          tar -xf "$RUNNER_TEMP/buildroot.tar.xz" -C "$RUNNER_TEMP"
+          chmod 0755 tools/wyse-buildroot/overlay/etc/init.d/S*
+          SRC="$RUNNER_TEMP/buildroot-2026.08.1"
+          OUT="$RUNNER_TEMP/wyse-r25-rootfs"
+          make -C "$SRC" O="$OUT" BR2_EXTERNAL="$PWD/tools/wyse-buildroot" wyse_minimal_defconfig > "$E/config.log" 2>&1
+          grep -q '^BR2_REPRODUCIBLE=y' "$OUT/.config"
+          timeout --signal=TERM --kill-after=10s 1650 make -C "$SRC" O="$OUT" -j4 > "$RUNNER_TEMP/r25-build.log" 2>&1 || { tail -n 100 "$RUNNER_TEMP/r25-build.log" > "$E/build-failure-last100.txt"; exit 1; }
+          test -s "$OUT/images/rootfs.cpio"
+          test -x "$OUT/target/usr/sbin/dropbear"
+          test -x "$OUT/target/bin/busybox"
+          busybox_cfg=$(find "$OUT/build" -maxdepth 2 -type f -path '*/busybox-*/.config' -print -quit)
+          test -n "$busybox_cfg" && test -f "$busybox_cfg"
+          grep -Fxq 'CONFIG_STAT=y' "$busybox_cfg"
+          grep -Fxq 'CONFIG_FEATURE_STAT_FORMAT=y' "$busybox_cfg"
+          echo 'R25_BUSYBOX_STAT_AND_FORMAT_CONFIG=PASS' >> "$E/buildroot-receipt.txt"
+          test -x "$OUT/target/etc/init.d/S50dropbear"
+          sha256sum "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/actual-rootfs-hashes.txt"
+          echo R25_BUILDROOT_ACTUAL_CPIO_AND_DROPBEAR=PASS >> "$E/buildroot-receipt.txt"
+      - name: Enrolled Secure Boot signed UKI + actual Buildroot Dropbear SSH positive and firmware unsigned refusal
+        shell: bash
+        env:
+          WYSE_R23_SIGNED_EFI: '1'
+          WYSE_R23_ENFORCE_SB: '1'
+          WYSE_R23_UKI: '1'
+          WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE: '1'
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r25_buildroot_uki_ssh.sh
+          export WYSE_R25_BUILDROOT_CPIO="$RUNNER_TEMP/wyse-r25-rootfs/images/rootfs.cpio"
+          bash scripts/public_wyse_r25_buildroot_uki_ssh.sh
+          for marker in \
+            R25_BUILDROOT_ROOTFS_INJECTED=PASS \
+            R23_UKI_SIGNED_ENROLLED_OVMF_LINUX_SSH=PASS \
+            R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS \
+            R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS \
+            EMMC_SOURCE_PRESERVED=PASS \
+            UNAUTHORIZED_SSH_KEY_DENIAL=PASS; do
+            grep -Fxq "$marker" evidence/public/receipt.txt
+          done
+          for marker in \
+            WYSE_R25_BUILDROOT_USERLAND_INIT=PASS \
+            R25_BUILDROOT_MODULE_CLOSURE=PASS \
+            WYSE_R25_BUILDROOT_DROPBEAR_STARTED=PASS \
+            WYSE_SSH=KEY_ONLY_START; do
+            grep -Fq "$marker" evidence/public/guest-serial.txt
+          done
+          echo R25_ACTUAL_BUILDROOT_USERLAND_SIGNED_OVMF_AND_SSH=PASS
+          echo OWNER_SIGNER_REAL_WYSE_PRODUCTION_HARDWARE=NOT_TESTED
+      - name: Publish only bounded public synthetic diagnostics; never UKI/rootfs/keys
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r25-buildroot-signed-uki-public-receipts
+          path: |
+            ${{ runner.temp }}/r25-public-evidence/
+            evidence/public/receipt.txt
+            evidence/public/guest-serial.txt
+            evidence/public/negative-guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/ukify-inspect.txt
+            evidence/public/unsigned-uki-inspect.txt
+            evidence/public/efi-signature-oracle.txt
+          if-no-files-found: warn
+          retention-days: 7

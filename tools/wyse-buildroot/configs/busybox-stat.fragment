@@ -1,0 +1,4 @@
+# Stat is required for S50dropbear to reject incorrectly permissioned
+# provisioned host keys. Do not weaken the S50dropbear permission check.
+CONFIG_STAT=y
+CONFIG_FEATURE_STAT_FORMAT=y
