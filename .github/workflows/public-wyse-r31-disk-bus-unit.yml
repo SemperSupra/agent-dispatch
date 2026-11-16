@@ -1,0 +1,32 @@
+name: Public Wyse R31 sysfs USB versus SATA classifier unit gate
+on:
+  push:
+    branches: [experiment/public-wyse-r31-disk-bus-unit]
+    paths:
+      - '.github/workflows/public-wyse-r31-disk-bus-unit.yml'
+      - 'scripts/public_wyse_r31_disk_bus_classifier.sh'
+      - 'scripts/test_public_wyse_r31_disk_bus_classifier.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r31-disk-bus-unit
+  cancel-in-progress: false
+jobs:
+  synthetic-bus-origin:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: No physical storage; synthetic sysfs disk-bus positive and adversarial tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r31_disk_bus_classifier.sh
+          bash -n scripts/test_public_wyse_r31_disk_bus_classifier.sh
+          bash scripts/test_public_wyse_r31_disk_bus_classifier.sh
+          echo R31_NO_HOST_DISK_OR_FIRMWARE_WRITE=PASS
+          echo R31_QEMU_GUEST_DISK_BUS_WITNESS=NOT_TESTED
