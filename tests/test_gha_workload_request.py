@@ -110,6 +110,23 @@ class TypedWorkRequestTests(unittest.TestCase):
             stderr=subprocess.PIPE, timeout=30, check=False)
         self.assertEqual(cp.returncode, 0, cp.stderr.decode("utf-8", "replace"))
 
+    def test_full_original_openworker_scripted_v1_plan_is_zero_cost(self):
+        plan = m.plan("requests/gha/mail-openworker-scripted-v1.json")
+        self.assertEqual(plan["workload"], "mail-openworker-scripted")
+        self.assertEqual(plan["runner"], "ubuntu-24.04")
+        self.assertEqual(plan["max_cost_usd"], 0)
+        self.assertEqual(plan["max_attempts"], 1)
+        self.assertLessEqual(plan["timeout_seconds"], 240)
+
+    def test_full_openworker_offline_source_and_secrets_negatives(self):
+        import subprocess
+        proc = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+             "-p", "test_qualify_openworker_scripted_runtime.py"],
+            cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=25, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",

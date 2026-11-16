@@ -55,6 +55,19 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-openworker-scripted-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "source_commit": "ecb445490fc054d52b8ea610d97ba947f57033d2",
+            "scripted_provider_only": True,
+            "headless_engine_executed": True,
+            "approval_denial_verified": True, "clean_restart_verified": True,
+            "real_mail": False, "model_inference": False,
+            "dependency_hash_locked": False, "atif_schema": "ATIF-v1.7",
+            "run_count": 2, "denied_calls": 2, "package_count": 1,
+            "dependency_sha256": "d" * 64, "venv_size_bytes": 1,
+            "elapsed_seconds": 1.0, "verdict_sha256": "a" * 64,
+        }
     elif profile_id == "mail-openworker-headless-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
