@@ -86,8 +86,10 @@ func TestRestartMonotoneEpochAndFailClose(t *testing.T){
  }
  store.setAvailable(false)
  if _,e:=NewGate(store);!errors.Is(e,ErrUnavailable){t.Fatal("unavailable epoch store did not fail admission")}
- l:=mustLease(t,two) // This must fail: store now unavailable.
- _=l
+ if e:=two.Do(request(old,"unavailable"),func()error{t.Fatal("effect executed with epoch store unavailable");return nil});!errors.Is(e,ErrUnavailable){
+  t.Fatalf("existing gate did not fail close on unavailable store: %v",e)
+ }
+ t.Log("R19_RESTART_MONOTONE_EPOCH_AND_FAIL_CLOSE=PASS")
 }
 func TestInvalidScopeIdempotencyAndAmbiguousEffect(t *testing.T){
  g:=mustGate(t,NewStore())
