@@ -1,0 +1,67 @@
+name: Public Agent Sandbox R01 - synthetic policy and QMP TCG
+on:
+  push:
+    branches:
+      - experiment/public-agent-sandbox-rdte-r01
+    paths:
+      - '.github/workflows/public-agent-sandbox-rdte.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-agent-sandbox-rdte-r01
+  cancel-in-progress: false
+jobs:
+  synthetic-policy:
+    name: deny-first synthetic guest capability fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run offline Go fixture oracles
+        shell: bash
+        working-directory: experiments/agent-sandbox-rdte
+        run: |
+          set -Eeuo pipefail
+          go version
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -count=1 -race -v ./...
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off CGO_ENABLED=0 go test -count=1 ./...
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go vet ./...
+          echo 'R01_SYNTHETIC_POLICY_NEGATIVE_ORACLES=PASS'
+          echo 'R01_HOST_ENFORCEMENT_AND_SIGNED_IDENTITY=NOT_TESTED'
+  qmp-preboot-tcg:
+    name: QMP TCG preboot / ${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - arch: x86_64
+            package: qemu-system-x86
+          - arch: aarch64
+            package: qemu-system-arm
+          - arch: riscv64
+            package: qemu-system-misc
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install upstream distribution emulator on disposable runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y ${{ matrix.package }}
+      - name: Probe QMP preboot without guest OS or network
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -B experiments/agent-sandbox-rdte/qmp_probe.py --arch ${{ matrix.arch }}
+          echo 'R01_ISA_OS_BOOT_AND_PERFORMANCE=NOT_TESTED'
+          echo 'R01_PHYSICAL_WYSE_OR_PRODUCTION_MUTATION=NONE'
