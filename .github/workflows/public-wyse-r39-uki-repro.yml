@@ -1,7 +1,8 @@
 name: Public Wyse R39 independently rebuilt source-owned UKI and ephemeral signing reproducibility
 on:
-  push:
-    branches: [experiment/public-wyse-r39-uki-repro]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r38-recovery-integration]
     paths:
       - '.github/workflows/public-wyse-r39-uki-repro.yml'
       - 'scripts/public_wyse_r39_uki_repro.sh'
@@ -17,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   offline-oracle:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r39-uki-repro'
     runs-on: ubuntu-26.04
     timeout-minutes: 3
     steps:
