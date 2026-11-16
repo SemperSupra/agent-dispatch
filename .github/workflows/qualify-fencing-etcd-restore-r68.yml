@@ -1,0 +1,26 @@
+name: R68 native etcd signed-witness restore failure qualifications
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/restore-r68-native/**'
+      - '.github/workflows/qualify-fencing-etcd-restore-r68.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r68-native-restore-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-restore-guard:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Test real native restored etcd vs separately signed test witness
+        shell: bash
+        run: bash experiments/fencing/restore-r68-native/run.sh
+      - name: Evidence boundary
+        if: always()
+        run: echo 'One real etcd server/one public host; HMAC key and witness colocated; no independently durable anchor, real effect or protected host restore.' >> "$GITHUB_STEP_SUMMARY"
