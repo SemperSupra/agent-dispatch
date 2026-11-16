@@ -10,7 +10,7 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
     kernel="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' | head -n 1)" && \
     test -n "$kernel" && cp "$kernel" /out/kernel && \
     version="${kernel#/boot/vmlinuz-}" && \
-    printf "xhci_hcd\nxhci_pci\nusb_storage\nusbhid\nhid_generic\n" >> /etc/initramfs-tools/modules && \
+    printf "xhci_hcd\nxhci_pci\nusb_storage\nusbhid\nhid_generic\nevdev\n" >> /etc/initramfs-tools/modules && \
     mkinitramfs -o /out/default-initrd "$version" && \
     unmkinitramfs /out/default-initrd /tmp/extracted && \
     if [ -d /tmp/extracted/main ]; then cp -a /tmp/extracted/main/. /tmp/repacked/; else cp -a /tmp/extracted/. /tmp/repacked/; fi && \
