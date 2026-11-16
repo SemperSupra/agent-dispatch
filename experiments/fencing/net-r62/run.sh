@@ -28,9 +28,9 @@ start_peer(){
   docker run --detach --rm --name "$nm" --network "$net" --ip "$ip" \
     -p "127.0.0.1:${port}:2379" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
-    --tmpfs /data:rw,nosuid,nodev,size=64m,mode=1777 --user 65532:65532 \
+    --tmpfs /data:rw,nosuid,nodev,size=256m,mode=1777 --user 65532:65532 \
     "$image" \
-    --name "e${i}" --data-dir=/data \
+    --name "e${i}" --data-dir=/data/private \
     --listen-client-urls=http://0.0.0.0:2379 \
     --advertise-client-urls="http://${ip}:2379" \
     --listen-peer-urls=http://0.0.0.0:2380 \
