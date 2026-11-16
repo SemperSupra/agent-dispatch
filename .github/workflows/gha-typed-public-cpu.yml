@@ -189,17 +189,8 @@ jobs:
             request: requests/gha/mail-synthetic-baseline-v1.json
             artifact_suffix: mail-synthetic
           - runner: ubuntu-24.04
-            request: requests/gha/mail-openworker-policy-v1.json
-            artifact_suffix: openworker
-          - runner: ubuntu-24.04
-            request: requests/gha/mail-ragmail-loss-v1.json
-            artifact_suffix: ragmail-loss
-          - runner: ubuntu-24.04
             request: requests/gha/mail-evidence-go-v1.json
             artifact_suffix: mail-go
-          - runner: ubuntu-24.04
-            request: requests/gha/mail-openworker-headless-v1.json
-            artifact_suffix: openworker-mail
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:

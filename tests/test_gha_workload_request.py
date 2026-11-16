@@ -127,6 +127,34 @@ class TypedWorkRequestTests(unittest.TestCase):
             stderr=subprocess.PIPE, timeout=25, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
 
+    def test_public_cpu_pr_matrix_keeps_expensive_network_upstream_probes_on_demand(self):
+        workflow = (ROOT / ".github" / "workflows" / "gha-typed-public-cpu.yml").read_text(
+            encoding="utf-8")
+        self.assertIn("  cpu-native-proofs:", workflow)
+        native = workflow.split("  cpu-native-proofs:", 1)[1].split("\n  plan:", 1)[0]
+        required = (
+            "requests/gha/cpu-x64-arithmetic-v1.json",
+            "requests/gha/cpu-arm64-contract-v1.json",
+            "requests/gha/mail-synthetic-baseline-v1.json",
+            "requests/gha/mail-evidence-go-v1.json",
+        )
+        for request in required:
+            self.assertIn("request: " + request, native)
+            self.assertEqual(native.count("request: " + request), 1)
+        on_demand = (
+            ("mail-openworker-policy-v1", "mail-openworker-policy"),
+            ("mail-ragmail-loss-v1", "mail-ragmail-loss-witness"),
+            ("mail-openworker-headless-v1", "mail-openworker-headless-mail"),
+            ("mail-openworker-scripted-v1", "mail-openworker-scripted"),
+        )
+        for name, workload in on_demand:
+            with self.subTest(profile=name):
+                self.assertNotIn("request: requests/gha/" + name + ".json", native)
+                plan = m.plan("requests/gha/" + name + ".json")
+                self.assertEqual(plan["workload"], workload)
+                self.assertEqual(plan["max_cost_usd"], 0)
+                self.assertEqual(plan["max_attempts"], 1)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
