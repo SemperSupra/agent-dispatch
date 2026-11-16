@@ -163,16 +163,16 @@ def _execute(workload: str, timeout: int) -> dict:
             cp = subprocess.run(
                 [sys.executable, "scripts/qualify_mail_qwen_real_cpu.py"],
                 cwd=ROOT, stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 timeout=timeout, check=False)
             if cp.returncode or len(cp.stdout)>16384:
                 # Emit only a single controlled failure class, not raw download,
                 # compiler or model stderr, which could contain untrusted text.
                 failure=re.search(
-                    r"MODEL_PUBLIC_REP_BLOCKED=([A-Z0-9_]{3,90})",
+                    r"MODEL_PUBLIC_REP_BLOCKED=([A-Za-z0-9_]{3,90})",
                     cp.stderr.decode("ascii","replace")[:1024])
                 print("MAIL_MODEL_FIRST_FAILURE=" +
-                      (failure.group(1) if failure else "UNCLASSIFIED_SUBPROCESS"),
+                      (failure.group(1).upper() if failure else "UNCLASSIFIED_SUBPROCESS"),
                       flush=True)
                 raise ValueError("PINNED_MODEL_OR_ENGINE_RUNTIME_FAIL")
             obs=json.loads(cp.stdout)
