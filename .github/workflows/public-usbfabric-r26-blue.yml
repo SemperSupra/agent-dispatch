@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/public-usbfabric-r26-blue.yml'
       - 'experiments/usb-fabric-r26/blue/**'
+  pull_request:
+    types: [opened, synchronize]
   workflow_dispatch:
 permissions:
   contents: read
