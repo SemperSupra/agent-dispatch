@@ -109,7 +109,7 @@ func main(){
  for scanner.Scan(){
   var req request
   if err:=json.Unmarshal(scanner.Bytes(),&req);err!=nil{emit(response{Error:"invalid request"});continue}
-  state,_,_:=m.Snapshot()
+  state,active,_:=m.Snapshot()
   l:=blue.Lease{Device:"keyboard",Port:"xhci0/auto",Actor:req.Actor,Generation:req.Generation}
   if req.Op=="reserve"{
    if req.Actor!="approved-agent"{emit(response{Error:"actor denied"});continue}
@@ -132,7 +132,7 @@ func main(){
     for _,c:=range cmds{if _,runErr=q.call(c.name,c.args);runErr!=nil{m.Offline();break}}
    }
   case "start":
-   if state!=blue.Attached || req.Actor!="approved-agent" {
+   if state!=blue.Attached || req.Actor!="approved-agent" || active!=l {
     runErr=blue.ErrDenied
    }else{
     _,runErr=q.call("cont",nil)
