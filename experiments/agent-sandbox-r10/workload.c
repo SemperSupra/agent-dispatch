@@ -39,8 +39,8 @@ int main(int argc,char **argv){
  }else if(strcmp(argv[1],"syscall")==0){
   volatile int n=30000;
   for(int i=0;i<n;i++){
-   pid_t parent=getppid();
-   if(parent<=0)return 14;
+   pid_t process=getpid();
+   if(process<=0)return 14;
    result++;
   }
   if(result!=30000)return 15;
