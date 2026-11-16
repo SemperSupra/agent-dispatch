@@ -2,7 +2,9 @@ name: Public Sandbox R02 - immutable OCI service recreation
 on:
   push:
     branches: [experiment/public-sandbox-oci-service-r02]
-    paths: ['.github/workflows/public-agent-sandbox-r02-stateless-service.yml']
+    paths:
+      - '.github/workflows/public-agent-sandbox-r02-stateless-service.yml'
+      - 'experiments/agent-sandbox-r02/**'
   workflow_dispatch:
 permissions:
   contents: read
