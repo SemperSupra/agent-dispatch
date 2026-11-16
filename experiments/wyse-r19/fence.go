@@ -87,7 +87,7 @@ func (g *Gate) Do(r Request,emit func()error)error{
  g.mu.Lock()
  defer g.mu.Unlock()
  if e:=g.aliveLocked();e!=nil{return e}
- if !g.issued||r.Lease.ID!=g.lease.ID||r.Lease.Epoch!=g.epoch||
+ if !g.issued||!time.Now().Before(g.lease.Expires)||r.Lease.ID!=g.lease.ID||r.Lease.Epoch!=g.epoch||
   r.Actor!=g.lease.Actor||r.Guest!=g.lease.Guest||r.Mission!=g.lease.Mission||
   r.Lease.Actor!=g.lease.Actor||r.Lease.Guest!=g.lease.Guest||r.Lease.Mission!=g.lease.Mission||
   r.Idempotency==""||r.At.IsZero()||!r.At.Before(g.lease.Expires)||
