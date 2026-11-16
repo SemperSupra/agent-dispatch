@@ -3,9 +3,9 @@ ARG BASE_IMAGE=debian:trixie-slim
 FROM ${BASE_IMAGE} AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /src
-COPY init.sh /src/init.sh
+COPY init.sh hid_observer.c /src/
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
-    linux-image-amd64 initramfs-tools busybox-static cpio gzip kmod zstd xz-utils && \
+    linux-image-amd64 initramfs-tools busybox-static cpio gzip kmod zstd xz-utils gcc libc6-dev && \
     mkdir -p /out /tmp/extracted /tmp/repacked && \
     kernel="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' | head -n 1)" && \
     test -n "$kernel" && cp "$kernel" /out/kernel && \
@@ -15,6 +15,8 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
     unmkinitramfs /out/default-initrd /tmp/extracted && \
     if [ -d /tmp/extracted/main ]; then cp -a /tmp/extracted/main/. /tmp/repacked/; else cp -a /tmp/extracted/. /tmp/repacked/; fi && \
     cp /src/init.sh /tmp/repacked/init && chmod 0755 /tmp/repacked/init && \
+    gcc -Os -static -Wall -Wextra -o /out/hid_observer /src/hid_observer.c && \
+    cp /out/hid_observer /tmp/repacked/hid_observer && chmod 0755 /tmp/repacked/hid_observer && \
     find /tmp/repacked -type f -name "*.ko.zst" -exec zstd -q -d --rm {} + && \
     find /tmp/repacked -type f -name "*.ko.xz" -exec xz -q -d {} + && \
     depmod -b /tmp/repacked "$version" && \
@@ -27,6 +29,6 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y qemu-sy
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/kernel /guest/kernel
 COPY --from=builder /out/initrd.gz /guest/initrd.gz
-COPY qmp_guest.py /guest/qmp_guest.py
+COPY qmp_hid.py /guest/qmp_hid.py
 USER 65532:65532
-ENTRYPOINT ["python3","-B","/guest/qmp_guest.py"]
+ENTRYPOINT ["python3","-B","/guest/qmp_hid.py"]
