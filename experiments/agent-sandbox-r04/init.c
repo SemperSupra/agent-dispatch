@@ -15,8 +15,13 @@ static const char banner[]="R04_GUEST_INIT_REACHED=PASS ARCH=riscv64\n";
 #endif
 int main(void) {
   int fd = open("/dev/console", O_WRONLY | O_NOCTTY);
-  if (fd >= 0) { (void)write(fd, banner, sizeof(banner)-1); close(fd); }
-  (void)write(STDOUT_FILENO, banner, sizeof(banner)-1);
+  if (fd >= 0) {
+    const ssize_t sent = write(fd, banner, sizeof(banner)-1);
+    close(fd);
+    if (sent != (ssize_t)(sizeof(banner)-1)) return 2;
+  }
+  const ssize_t sent_stdout = write(STDOUT_FILENO, banner, sizeof(banner)-1);
+  if (sent_stdout != (ssize_t)(sizeof(banner)-1)) return 3;
   sync();
   sleep(1);
   (void)reboot(RB_POWER_OFF);
