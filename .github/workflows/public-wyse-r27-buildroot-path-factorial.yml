@@ -1,0 +1,82 @@
+name: Public Wyse R27 Buildroot source-versus-output path DOE
+on:
+  push:
+    branches: [experiment/public-wyse-r26-repro-stat-rootfs]
+    paths:
+      - '.github/workflows/public-wyse-r27-buildroot-path-factorial.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r27-path-factorial
+  cancel-in-progress: false
+jobs:
+  independent-cross-factor-build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 27
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: r25-source-r26-output
+            source_profile: R25
+            output_profile: R26
+          - name: r26-source-r25-output
+            source_profile: R26
+            output_profile: R25
+    name: ${{ matrix.name }}
+    env:
+      R27_SOURCE_PROFILE: ${{ matrix.source_profile }}
+      R27_OUTPUT_PROFILE: ${{ matrix.output_profile }}
+      R27_CASE: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Pin same R25 requested public Buildroot host packages
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev \
+            rsync unzip xz-utils wget cpio qemu-system-x86 ovmf \
+            grub-efi-amd64-bin grub-common grub-pc-bin linux-image-virtual \
+            busybox-static dropbear-bin openssh-client dosfstools gdisk \
+            util-linux kmod zstd sbsigntool openssl python3-virt-firmware \
+            systemd-ukify systemd-boot-efi
+          echo R27_FULL_R25_PACKAGE_REQUEST=PASS
+      - name: Build pinned source in one mixed path profile and record hashes only
+        id: build
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$R27_SOURCE_PROFILE" != "$R27_OUTPUT_PROFILE"
+          case "$R27_SOURCE_PROFILE" in
+            R25) export WYSE_R26_SOURCE_PARENT="$RUNNER_TEMP" ;;
+            R26) export WYSE_R26_SOURCE_PARENT="$RUNNER_TEMP/wyse-r26-repro" ;;
+            *) echo R27_SOURCE_PROFILE_UNSUPPORTED >&2; exit 5 ;;
+          esac
+          case "$R27_OUTPUT_PROFILE" in
+            R25) export WYSE_R26_OUTPUT_DIR="$RUNNER_TEMP/wyse-r25-rootfs" ;;
+            R26) export WYSE_R26_OUTPUT_DIR="$RUNNER_TEMP/wyse-r26-repro/out" ;;
+            *) echo R27_OUTPUT_PROFILE_UNSUPPORTED >&2; exit 5 ;;
+          esac
+          echo "R27_DOE_VARIANT=$R27_CASE"
+          bash scripts/public_wyse_r26_repro_rootfs.sh
+      - name: Report exact factorial observation without pretending production parity
+        shell: bash
+        env:
+          CPIO: ${{ steps.build.outputs.cpio }}
+          SQUASH: ${{ steps.build.outputs.squash }}
+        run: |
+          set -Eeuo pipefail
+          test "${#CPIO}" -eq 64 && test "${#SQUASH}" -eq 64
+          printf '%s\n' "$CPIO" "$SQUASH" | grep -Eq '^[0-9a-f]{64}$'
+          echo "R27_PATH_FACTORIAL_CASE=$R27_CASE"
+          echo "R27_PATH_FACTORIAL_CPIO_SHA256=$CPIO"
+          echo "R27_PATH_FACTORIAL_SQUASHFS_SHA256=$SQUASH"
+          echo R27_PATH_FACTORIAL_HASH_OBSERVATION=PASS
+          echo R27_INDEPENDENT_RELEASE_REPRODUCIBILITY=NOT_TESTED
+          echo R27_PRODUCTION_SIGNER_WYSE_DEVICE=NOT_TESTED
