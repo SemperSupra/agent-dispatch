@@ -1,0 +1,36 @@
+name: USB Fabric R26 Blue - fenced lease model
+on:
+  push:
+    branches: [experiment/public-usbfabric-r26-blue]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-blue.yml'
+      - 'experiments/usb-fabric-r26/blue/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-blue
+  cancel-in-progress: false
+jobs:
+  host-local-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: golang:1.23-bookworm
+      options: --cap-drop ALL --security-opt no-new-privileges
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Go race, model tests, static analysis
+        working-directory: experiments/usb-fabric-r26/blue
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo "R26_BLUE_LOCAL_LEASE_INVARIANTS=PASS"
+          echo "R26_BLUE_REAL_QMP_AND_USB_DATA=NOT_TESTED"
