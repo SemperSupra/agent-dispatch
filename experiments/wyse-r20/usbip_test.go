@@ -85,3 +85,31 @@ func TestMalformedFramesAreClosedAndUnknownDeviceDenied(t *testing.T){
  if bytes.Equal(p[:],make([]byte,8)) { /* only a diagnostic buffer */ }
  t.Log("R20_MALFORMED_AND_UNKNOWN_USBIP_FRAME_FAIL_CLOSED=PASS")
 }
+
+func TestDuplicateURBSequenceAndWrongEndpointClosed(t *testing.T){
+ withServer(t)
+ c:=connect(t)
+ if e:=requestImport(c,"1-1");e!=nil{t.Fatal(e)}
+ frame:=basicFrame(CmdSubmit,10,syntheticDev,1,1)
+ order.PutUint32(frame[24:28],8)
+ order.PutUint32(frame[32:36],0xffffffff)
+ if e:=send(c,frame);e!=nil{t.Fatal(e)}
+ var resp[56]byte
+ if _,e:=io.ReadFull(c,resp[:]);e!=nil{t.Fatal(e)}
+ if e:=send(c,frame);e!=nil{t.Fatal(e)}
+ var unexpected[8]byte
+ if _,e:=io.ReadFull(c,unexpected[:]);e==nil{
+  t.Fatal("USBIP duplicate URB sequence accepted")
+ }
+ c.Close()
+ c=connect(t);defer c.Close()
+ if e:=requestImport(c,"1-1");e!=nil{t.Fatal(e)}
+ bad:=basicFrame(CmdSubmit,15,syntheticDev,1,2) // endpoint 2 not exported
+ order.PutUint32(bad[24:28],8)
+ order.PutUint32(bad[32:36],0xffffffff)
+ if e:=send(c,bad);e!=nil{t.Fatal(e)}
+ if _,e:=io.ReadFull(c,unexpected[:]);e==nil{
+  t.Fatal("unexported USB endpoint processed URB")
+ }
+ t.Log("R20_DUPLICATE_SEQUENCE_AND_UNKNOWN_ENDPOINT_DENIED=PASS")
+}
