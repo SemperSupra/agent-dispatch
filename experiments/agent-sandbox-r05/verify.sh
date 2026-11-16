@@ -59,8 +59,14 @@ PY
 start "${names[0]}"
 docker exec -e "R05_HOST_MARKER=$hostmarker" "${names[0]}" /probe examine
 docker exec "${names[0]}" /probe mark
-pids="$(docker top "${names[0]}" -eo pid,comm | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}')"
-count="$(printf '%s\n' "$pids" | awk 'NF{n++} END{print n+0}')"
+pids=""
+count=0
+for i in $(seq 1 30); do
+  pids="$(docker top "${names[0]}" -eo pid,comm | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}')"
+  count="$(printf '%s\n' "$pids" | awk 'NF{n++} END{print n+0}')"
+  if (( count >= 3 )); then break; fi
+  sleep 0.1
+done
 if (( count < 3 )); then echo "R05_PROCESS_TREE_MEMBERS=RED count=$count"; exit 14; fi
 echo "R05_SETSID_DESCENDANT_TREE_OBSERVED=PASS count=$count"
 docker kill --signal KILL "${names[0]}" >/dev/null
