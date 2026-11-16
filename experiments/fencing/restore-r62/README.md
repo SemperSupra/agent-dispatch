@@ -13,3 +13,7 @@ Using the official SHA256-pinned etcd 3.6.16 Linux-amd64 upstream tarball, the d
 Reproduction: `bash experiments/fencing/restore-r62/run.sh` on disposable Linux amd64 with curl/sha256sum/tar/Python3.
 
 No private source, credentials, production host, shared backup path or effectful external service is touched. All resources are ephemeral and cleaned. The comparison receipt is **not independently durable/authenticated** across actual host failures. This proves why a protected external high-water/UNKNOWN reconciliation protocol is required and why etcd's revision bump alone is insufficient. Production restore remains HOLD.
+
+## R63 fail-closed preflight (not a production guard)
+
+The separate `guard.py` compares readback against a test-only receipt outside the restored data directory. A genuine native old restore must produce **exit 42/HOLD** before any new effect; the original script then intentionally bypasses it to reproduce the existing expected-RED capacity overclaim. Missing/malformed witness exits 43. This fixture lacks authenticated or separately durable signer/custody; it **does not** solve `HOLD_PROTECTED_RESTORE`.

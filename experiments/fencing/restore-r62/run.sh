@@ -53,6 +53,15 @@ start "$root/restored-data"
 [[ "$(read_value r62/epoch)" == "7" ]]
 [[ "$(read_value r62/budget)" == "1" ]]
 [[ -z "$(read_value r62/effect/first)" ]]
+# Independent-to-restored-data TEST witness: fail-closed before effect.
+if python3 experiments/fencing/restore-r62/guard.py "$root/test-independent-receipt.txt" "$root/bin/etcdctl"; then
+  echo "FAIL: guard admitted stale restored liability" >&2; exit 1
+else
+  status=$?
+  [[ "$status" -eq 42 ]] || { echo "FAIL: unexpected guard status" >&2; exit 1; }
+fi
+# The next operation deliberately BYPASSES the guard to reproduce the original
+# unsafe database behavior. Never bypass a production release gate.
 # Real conditionally admitted new budget claim against stale restored state.
 python3 - <<'PY'
 import urllib.request,json,base64
