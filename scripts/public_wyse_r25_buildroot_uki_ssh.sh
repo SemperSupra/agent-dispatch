@@ -26,6 +26,29 @@ esac
 if test "${WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE:-0}" = 1 && test "${WYSE_R30_NO_SATA:-0}" != 1; then
   echo 'R38_TAMPERED_MODE_REQUIRES_F1=FAIL_CLOSED' >&2; exit 58
 fi
+# R39: reject unsupported cross-mode topologies BEFORE touching evidence,
+# images or QEMU. Earlier F0/F2 assertions occurred only after setup.
+if test "${WYSE_R32_ASSERT_BUS_TOPOLOGY:-0}" = 1 && test "${WYSE_R30_NO_SATA:-0}" = 1; then
+  echo 'R39_F0_REQUIRES_SATA=FAIL_CLOSED' >&2; exit 59
+fi
+if test "${WYSE_R32_NO_EMMC:-0}" = 1 && test "${WYSE_R30_NO_SATA:-0}" = 1; then
+  echo 'R39_F2_REQUIRES_SATA=FAIL_CLOSED' >&2; exit 60
+fi
+# Every advanced R38 experiment claims a signed, enrolled, negatively
+# challenged source-owned Linux+Buildroot path. A success marker alone must
+# never permit omitted security controls or host-image fallback.
+if test "$mode_count" -gt 0; then
+  for knob in WYSE_R23_SIGNED_EFI WYSE_R23_UKI WYSE_R23_ENFORCE_SB WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE; do
+    if test "${!knob:-0}" != 1; then
+      echo 'R39_INCOMPLETE_SIGNED_RECOVERY_CHAIN=FAIL_CLOSED' >&2; exit 61
+    fi
+  done
+  for source in WYSE_R29_OWNED_KERNEL_BZIMAGE WYSE_R25_BUILDROOT_CPIO; do
+    if test -z "${!source:-}"; then
+      echo 'R39_MISSING_SOURCE_OWNED_RECOVERY_INPUT=FAIL_CLOSED' >&2; exit 62
+    fi
+  done
+fi
 mkdir -p evidence/public evidence/private/{root,work}
 R="$PWD/evidence/private/root"; W="$PWD/evidence/private/work"
 echo 'SCOPE=PUBLIC_SYNTHETIC_ONLY' > evidence/public/receipt.txt
