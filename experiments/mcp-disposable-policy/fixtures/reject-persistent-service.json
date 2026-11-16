@@ -1,0 +1,22 @@
+{
+  "schema": "m1.disposable.execution/v1",
+  "id": "reject-persistent-host",
+  "phase": "deployment",
+  "tooling": {
+    "mode": "preferred_cell",
+    "install_scope": "cell",
+    "cache_scope": "cell",
+    "cleanup_declared": true,
+    "global_install": false,
+    "unmanaged_host_writes": false
+  },
+  "runtime": {
+    "kind": "persistent_host",
+    "replaceable": true,
+    "privileged": false,
+    "host_runtime_socket": false,
+    "writable_host_mount": false,
+    "state": "external_durable",
+    "durable_state_required": true
+  }
+}
