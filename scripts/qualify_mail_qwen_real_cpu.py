@@ -15,11 +15,17 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
 SCHEMA = "mail-public-real-cpu-model-doe/v1"
-LLAMA_COMMIT = "8642541b255bfb5dc39cd351a178be09013a55d6"
+LLAMA_COMMIT = "b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed"
+LLAMA_RELEASE = "b12428"
+LLAMA_ASSET_NAME = "llama-b12428-bin-ubuntu-x64.tar.gz"
+LLAMA_ASSET_SHA256 = "a9b243a3bc4ca172010e96c64062fc02afd1dc4f8b699716f813ae6845ada4c6"
+LLAMA_ASSET_URL = ("https://github.com/ggml-org/llama.cpp/releases/download/"
+                   + LLAMA_RELEASE + "/" + LLAMA_ASSET_NAME)
 LLAMA_REPO = "https://github.com/ggml-org/llama.cpp.git"
 MODEL_REPO = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
 MODEL_COMMIT = "9217f5db79a29953eb74d5343926648285ec7e67"
@@ -109,25 +115,44 @@ def get_model(root:Path,env:dict[str,str])->Path:
 
 
 def build_llama(root:Path,env:dict[str,str])->Path:
-    src=root/"llama"
-    command(["git","clone","--quiet","--depth","1","--branch","v0.8.0",
-             LLAMA_REPO,str(src)],root,env,35)
-    actual=command(["git","rev-parse","HEAD"],src,env,6).stdout.decode().strip()
-    if actual!=LLAMA_COMMIT:
-        raise Blocked("LLAMA_SOURCE_HEAD_MISMATCH")
-    license_text=(src/"LICENSE").read_text(encoding="utf-8")
-    if not license_text.startswith("MIT License"):
-        raise Blocked("LLAMA_RIGHTS_UNQUALIFIED")
-    command(["cmake","-S",str(src),"-B",str(root/"build"),
-             "-DCMAKE_BUILD_TYPE=Release","-DLLAMA_BUILD_TESTS=OFF",
-             "-DGGML_CUDA=OFF","-DGGML_VULKAN=OFF","-DLLAMA_CURL=OFF"],
-            root,env,40)
-    command(["cmake","--build",str(root/"build"),"--target","llama-cli",
-             "--parallel","3"],root,env,175)
-    binary=root/"build"/"bin"/"llama-cli"
-    if not binary.is_file():
-        raise Blocked("MISSING_LLAMA_CLI")
-    return binary
+    """Install verified official pinned x64 binary in disposable directory.
+
+    A prior source-build rep failed at the bounded build/runtime gate; this
+    separate arm qualifies publisher release binary deployment, NOT from-source
+    build reproducibility. SHA is from the publisher's GitHub asset manifest.
+    """
+    archive=root/LLAMA_ASSET_NAME
+    command(["curl","--fail","--location","--silent","--show-error",
+             "--retry","0","--connect-timeout","12","--max-time","50",
+             "--output",str(archive),LLAMA_ASSET_URL],root,env,60)
+    if not archive.is_file() or not 10_000_000 <= archive.stat().st_size <= 35_000_000:
+        raise Blocked("ENGINE_RELEASE_SIZE_BOUND")
+    if sha256(archive)!=LLAMA_ASSET_SHA256:
+        raise Blocked("ENGINE_RELEASE_SHA256_INVALID")
+    destination=root/"engine"
+    destination.mkdir()
+    with tarfile.open(archive,mode="r:gz") as payload:
+        members=payload.getmembers()
+        if len(members)>2000:
+            raise Blocked("ENGINE_ARCHIVE_COUNT_BOUND")
+        for entry in members:
+            parts=Path(entry.name).parts
+            if not parts or ".." in parts or Path(entry.name).is_absolute():
+                raise Blocked("ENGINE_ARCHIVE_PATH_TRAVERSAL")
+            if entry.issym() and (entry.linkname.startswith("/") or
+                                  ".." in Path(entry.linkname).parts):
+                raise Blocked("ENGINE_ARCHIVE_LINK_TRAVERSAL")
+            if entry.islnk():
+                raise Blocked("ENGINE_ARCHIVE_HARDLINK_UNQUALIFIED")
+        payload.extractall(destination,filter="data")
+    files=list(destination.rglob("llama-cli"))
+    if len(files)!=1 or not files[0].is_file():
+        raise Blocked("ENGINE_LLAMA_CLI_MISSING")
+    executable=files[0]
+    if executable.read_bytes()[:4]!=b"\\x7fELF":
+        raise Blocked("ENGINE_BINARY_NOT_ELF")
+    executable.chmod(executable.stat().st_mode|0o111)
+    return executable
 
 
 def prompt(policy:str,query:str)->str:
@@ -224,7 +249,10 @@ def qualify()->dict:
             "classification":"REAL_CPU_MODEL_MEASURED_NO_PROMOTION",
             "model_id":MODEL_REPO,"model_commit":MODEL_COMMIT,
             "model_sha256":MODEL_SHA256,
-            "engine_commit":LLAMA_COMMIT,"model_license":"Apache-2.0",
+            "engine_commit":LLAMA_COMMIT,"engine_release":LLAMA_RELEASE,
+            "engine_asset_sha256":LLAMA_ASSET_SHA256,
+            "engine_build_method":"official-hash-pinned-binary",
+            "model_license":"Apache-2.0",
             "engine_license":"MIT",
             "model_inference":True,"hosted_api_calls":0,
             "no_private_data":True,"public_synthetic_only":True,
