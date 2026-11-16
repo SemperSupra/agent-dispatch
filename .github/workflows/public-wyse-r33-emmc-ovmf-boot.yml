@@ -1,0 +1,51 @@
+name: Public Wyse R33 eMMC user-area EFI boot enumeration on OVMF
+on:
+  push:
+    branches: [experiment/public-wyse-r33-emmc-ovmf-boot]
+    paths:
+      - '.github/workflows/public-wyse-r33-emmc-ovmf-boot.yml'
+      - 'scripts/public_wyse_r33_emmc_ovmf_boot.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r33-emmc-ovmf-boot
+  cancel-in-progress: false
+jobs:
+  actual-uefi-boot-on-emmc:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install only public QEMU, OVMF, GRUB and synthetic disk tooling
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            qemu-system-x86 ovmf grub-common grub-efi-amd64-bin grub-pc-bin \
+            gdisk dosfstools util-linux
+          echo R33_DISPOSABLE_PUBLIC_TOOLS=PASS
+      - name: QEMU eMMC sole block boot target and real firmware GRUB serial proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r33_emmc_ovmf_boot.sh
+          bash scripts/public_wyse_r33_emmc_ovmf_boot.sh
+          echo R33_DIRECT_EMMC_UEFI_ENUMERATION_CI=PASS
+      - name: Preserve bounded public text-only evidence; no disk images or EFI binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r33-emmc-ovmf-boot-text-receipts
+          path: |
+            evidence/public/emmc-ovmf-serial.txt
+            evidence/public/emmc-ovmf-qemu-log.txt
+            evidence/public/grub-build.txt
+            evidence/public/partition-layout.txt
+            evidence/public/mkfs-public.txt
+          if-no-files-found: warn
+          retention-days: 7
