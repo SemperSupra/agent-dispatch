@@ -53,6 +53,11 @@ jobs:
           test -s "$OUT/images/rootfs.cpio"
           test -x "$OUT/target/usr/sbin/dropbear"
           test -x "$OUT/target/bin/busybox"
+          busybox_cfg=$(find "$OUT/build" -maxdepth 2 -type f -path '*/busybox-*/.config' -print -quit)
+          test -n "$busybox_cfg" && test -f "$busybox_cfg"
+          grep -Fxq 'CONFIG_STAT=y' "$busybox_cfg"
+          grep -Fxq 'CONFIG_FEATURE_STAT_FORMAT=y' "$busybox_cfg"
+          echo 'R25_BUSYBOX_STAT_AND_FORMAT_CONFIG=PASS' >> "$E/buildroot-receipt.txt"
           test -x "$OUT/target/etc/init.d/S50dropbear"
           sha256sum "$OUT/images/rootfs.cpio" "$OUT/images/rootfs.squashfs" > "$E/actual-rootfs-hashes.txt"
           echo R25_BUILDROOT_ACTUAL_CPIO_AND_DROPBEAR=PASS >> "$E/buildroot-receipt.txt"
