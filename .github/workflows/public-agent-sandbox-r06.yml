@@ -1,0 +1,31 @@
+name: Public Sandbox R06 - QMP device control
+on:
+  push:
+    branches: [experiment/public-sandbox-r06-qmp-devices]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r06.yml'
+      - 'experiments/agent-sandbox-r06/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-agent-sandbox-r06
+  cancel-in-progress: false
+jobs:
+  qmp-usb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Local-only QMP HID/storage attach and detach in disposable OCI
+        run: bash experiments/agent-sandbox-r06/verify.sh
+        shell: bash
+      - name: Scope boundaries
+        shell: bash
+        run: |
+          echo 'R06_REAL_GUEST_USB_ENUMERATION=NOT_TESTED'
+          echo 'R06_ACTUAL_HUMAN_AGENT_REMOTE_INPUT=NOT_TESTED'
+          echo 'R06_REAL_WYSE_OR_PHYSICAL_USB=NOT_TESTED'
