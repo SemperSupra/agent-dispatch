@@ -7,6 +7,10 @@ case "${TARGET_ARCH:-}" in
   aarch64|riscv64) ;;
   *) echo 'R03_INVALID_TARGET=RED'; exit 10 ;;
 esac
+case "$TARGET_ARCH" in
+  aarch64) target_libc=arm64 ;;
+  riscv64) target_libc=riscv64 ;;
+esac
 image="public-sandbox-r03-${TARGET_ARCH}:${GITHUB_SHA:0:12}"
 status_before="$(git -C ../.. status --porcelain --untracked-files=all)"
 [[ -z "$status_before" ]] || { echo 'R03_DIRTY_SOURCE=RED'; exit 11; }
@@ -36,6 +40,7 @@ DOCKER_BUILDKIT=1 docker build --no-cache --pull -f Dockerfile \
   --build-arg "BASE_IMAGE=$base_image" \
   --build-arg "TARGET_TRIPLE=$TARGET_ARCH" \
   --build-arg "TARGET_NAME=$TARGET_ARCH" \
+  --build-arg "TARGET_LIBC_PKG=$target_libc" \
   --tag "$image" .
 echo 'R03_DISPOSABLE_CROSS_COMPILER_STAGE=PASS'
 
