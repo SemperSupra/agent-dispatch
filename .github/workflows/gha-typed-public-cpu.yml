@@ -54,6 +54,7 @@ on:
       - 'tests/test_verify_gha_typed_receipt.py'
       - 'scripts/verify_gha_typed_receipt.py'
       - 'requests/gha/**'
+      - 'tools/mail-evidence-challenge/**'
       - '.github/workflows/gha-typed-public-cpu.yml'
 
 permissions:
