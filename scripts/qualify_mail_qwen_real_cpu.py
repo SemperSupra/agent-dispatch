@@ -194,16 +194,26 @@ def prompt(policy:str,query:str)->str:
 
 
 def parse_model_json(output: str) -> dict:
-    """Parse only a complete fixed-field object; no model text becomes code."""
-    candidates=re.findall(r'[{][^{}]{2,400}[}]',output)
-    for candidate in reversed(candidates):
-        try:
-            value=json.loads(candidate)
-            if isinstance(value,dict) and set(value)=={"source_id","value"}:
-                return value
-        except ValueError:
+    """Accept only a standalone outermost fixed-field JSON object.
+
+    A valid nested JSON object must not be mistaken for the model's complete
+    response. The caller separately verifies source IDs and allowed values.
+    """
+    decoder=json.JSONDecoder()
+    selected={}
+    skip_until=0
+    for match in re.finditer(r'[{]',output):
+        start=match.start()
+        if start < skip_until:
             continue
-    return {}
+        try:
+            value,end=decoder.raw_decode(output[start:])
+        except json.JSONDecodeError:
+            continue
+        skip_until=start+end
+        if isinstance(value,dict) and set(value)=={"source_id","value"}:
+            selected=value
+    return selected
 
 
 def infer(binary:Path,model:Path,root:Path,env:dict[str,str],policy:str,
