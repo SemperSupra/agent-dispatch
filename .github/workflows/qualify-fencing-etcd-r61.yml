@@ -1,0 +1,36 @@
+name: Native etcd three-peer disposable quorum (R61)
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/etcd-r61/**'
+      - '.github/workflows/qualify-fencing-etcd-r61.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r61-etcd-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-native-etcd:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout public source without persisted token
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Exercise official SHA256-pinned native etcd binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/fencing/etcd-r61/run.sh
+      - name: Record scope and evidence class
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          Actual etcd 3-node Raft in separate processes/data dirs on ONE disposable host.
+          Official binary SHA256 checked. NO cross-host failure domains, TLS identities,
+          downstream effect sink, durable protected restore or OCI cutover acceptance.
+          A timed-out request remains UNKNOWN until independent readback.
+          SUMMARY
