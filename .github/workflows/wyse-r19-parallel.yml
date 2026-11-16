@@ -1,0 +1,37 @@
+name: R19 host-owner fenced HID qualification — parallel
+on:
+  push:
+    branches: [test/issue-364-fence-synthetic]
+    paths:
+      - '.github/workflows/wyse-r19-parallel.yml'
+      - 'experiments/wyse-r19/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wyse-r19-issue-364
+  cancel-in-progress: false
+jobs:
+  independent-oracles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        lane: [race, restart, deny]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Offline Go race test in disposable OCI
+        shell: bash
+        env:
+          R19_LANE: ${{ matrix.lane }}
+        run: bash experiments/wyse-r19/verify.sh
+      - name: Scope limit
+        shell: bash
+        run: |
+          echo 'R19_SINGLE_HOST_MOCK_EVENT_OWNER_ONLY=YES'
+          echo 'R19_REAL_QMP_AND_CROSS_HOST_FENCING=NOT_TESTED'
