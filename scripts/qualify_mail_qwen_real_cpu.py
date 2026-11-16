@@ -193,6 +193,19 @@ def prompt(policy:str,query:str)->str:
             "\nQUESTION: "+query+"\n<|im_end|>\n<|im_start|>assistant\n")
 
 
+def parse_model_json(output: str) -> dict:
+    """Parse only a complete fixed-field object; no model text becomes code."""
+    candidates=re.findall(r'[{][^{}]{2,400}[}]',output)
+    for candidate in reversed(candidates):
+        try:
+            value=json.loads(candidate)
+            if isinstance(value,dict) and set(value)=={"source_id","value"}:
+                return value
+        except ValueError:
+            continue
+    return {}
+
+
 def infer(binary:Path,model:Path,root:Path,env:dict[str,str],policy:str,
           task:tuple[str,str,str,str,str])->dict:
     task_id,lang,question,expected_id,expected_value=task
@@ -205,16 +218,7 @@ def infer(binary:Path,model:Path,root:Path,env:dict[str,str],policy:str,
     start=time.monotonic()
     output=command(commandline,root,env,22).stdout[:8192].decode("utf-8","replace")
     duration_ms=round((time.monotonic()-start)*1000)
-    matches=re.findall(r'\\{[^{}]{2,400}\\}',output)
-    parsed={}
-    for candidate in reversed(matches):
-        try:
-            value=json.loads(candidate)
-            if isinstance(value,dict) and set(value)=={"source_id","value"}:
-                parsed=value
-                break
-        except ValueError:
-            continue
+    parsed=parse_model_json(output)
     value=parsed.get("value")
     source=parsed.get("source_id")
     in_scope=source in IDS and value in VALUES
