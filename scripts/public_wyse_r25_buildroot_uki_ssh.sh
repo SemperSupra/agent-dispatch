@@ -89,7 +89,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS"; break ;;
+    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS" ;;
     */usb[0-9]*/*) echo "USB_BOOT_STORAGE_ENUMERATION=PASS" ;;
     *) echo "BLOCK_BUS_IDENTITY_UNSUPPORTED=RED" ;;
   esac
@@ -197,7 +197,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS'; break ;;
+    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS' ;;
     */usb[0-9]*/*) echo 'USB_BOOT_STORAGE_ENUMERATION=PASS' ;;
     *) echo 'BLOCK_BUS_IDENTITY_UNSUPPORTED=RED' ;;
   esac
@@ -349,13 +349,21 @@ if test "${WYSE_R30_NO_SATA:-0}" = 1; then
   sata_args=()
   echo 'R30_FAULT_NO_SATA_QEMU_DEVICE_OMITTED=PASS' >> evidence/public/receipt.txt
 fi
+# R32 F2: omit emulated eMMC *controller and storage* as a completely
+# detached device, not a hidden guest mount; signed rescue must still work.
+emmc_args=(-drive "if=none,id=emmc,format=raw,file=$W/emmc-guest.img" -device sdhci-pci -device "emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152")
+if test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  test -n "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"
+  test "${WYSE_R30_NO_SATA:-0}" != 1
+  emmc_args=()
+  echo 'R32_F2_EMMC_CONTROLLER_AND_MEDIA_OMITTED=PASS' >> evidence/public/receipt.txt
+fi
 qemu-system-x86_64 -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
   -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
   -drive if=pflash,format=raw,file="$W/vars.fd" \
   -drive if=none,id=usb,format=raw,readonly=on,file="$W/usb-copy.img" \
   -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1 \
-  -drive if=none,id=emmc,format=raw,file="$W/emmc-guest.img" \
-  -device sdhci-pci -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+  "${emmc_args[@]}" \
   "${sata_args[@]}" \
   -netdev user,id=n,hostfwd=tcp:127.0.0.1:22222-:22 -device e1000,netdev=n \
   -display none -monitor none -serial file:evidence/public/guest-serial.txt -no-reboot \
@@ -366,6 +374,11 @@ success=0
 guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; grep -q sda /proc/partitions && echo GUEST_SATA=PASS'
 if test "${WYSE_R30_NO_SATA:-0}" = 1; then
   guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; usb=0; for node in /sys/block/sd[a-z]*; do test -d "$node" || continue; disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo R30_UNKNOWN_BLOCK_DEVICE=FAIL_CLOSED; exit 24; }; case "$disk_path" in */ata[0-9]*/*) echo R30_UNEXPECTED_SATA=FAIL_OPEN; exit 23 ;; */usb[0-9]*/*) usb=1 ;; *) echo R30_UNSUPPORTED_SCSI_BUS=FAIL_CLOSED; exit 25 ;; esac; done; test "$usb" = 1 || { echo R30_EXPECTED_USB_STORAGE_NOT_SEEN=RED; exit 26; }; echo R30_GUEST_USB_BLOCK_PRESENT=PASS; echo R30_GUEST_SATA_ABSENT=PASS'
+fi
+if test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  # The primary eMMC device is absent but the independently signed USB rescue
+  # must boot and provide authenticated SSH. Verify independent SATA bus.
+  guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; for node in /sys/block/mmcblk*; do if test -d "$node"; then echo R32_F2_UNEXPECTED_EMMC=FAIL_OPEN; exit 41; fi; done; echo R32_F2_EMMC_ABSENT=PASS; usb=0; sata=0; for node in /sys/block/sd[a-z]*; do test -d "$node" || continue; disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo R32_F2_UNRESOLVED_BUS=RED; exit 42; }; case "$disk_path" in */usb[0-9]*/*) usb=1 ;; */ata[0-9]*/*) sata=1 ;; *) echo R32_F2_UNKNOWN_BUS=RED; exit 43 ;; esac; done; test "$usb" = 1 || { echo R32_F2_USB_MISSING=RED; exit 44; }; test "$sata" = 1 || { echo R32_F2_SATA_MISSING=RED; exit 45; }; echo R32_F2_USB_AND_SATA_BUS_PRESENT=PASS'
 fi
 for attempt in $(seq 1 105); do
   if ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -402,6 +415,9 @@ boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERAT
 if test "${WYSE_R30_NO_SATA:-0}" = 1; then
   boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
 fi
+if test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS USB_BOOT_STORAGE_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
+fi
 if test "${WYSE_R23_UKI:-0}" != 1; then
   boot_markers="WYSE_SYNTHETIC_UEFI_LOADER=PASS $boot_markers"
 fi
@@ -421,6 +437,19 @@ if test "${WYSE_R30_NO_SATA:-0}" = 1; then
     exit 1
   fi
   echo 'R30_NO_SATA_RECOVERY_BOOT_AND_AUTH_SSH=PASS' >> evidence/public/receipt.txt
+elif test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  for marker in KEY_ONLY_SSH_LOGIN=PASS R32_F2_EMMC_ABSENT=PASS R32_F2_USB_AND_SATA_BUS_PRESENT=PASS; do
+    grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
+  done
+  if grep -Fxq 'EMMC_ENUMERATION=PASS' evidence/public/guest-serial.txt; then
+    echo 'R32_F2_EMMC_GUEST_TOPOLOGY=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  if grep -Eq 'BLOCK_BUS_IDENTITY_(UNKNOWN|UNSUPPORTED)=RED' evidence/public/guest-serial.txt; then
+    echo 'R32_F2_BLOCK_BUS_UNKNOWN=RED' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  echo 'R32_F2_NO_EMMC_SIGNED_USB_RESCUE_WITH_SSH=PASS' >> evidence/public/receipt.txt
 else
   for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS GUEST_SATA=PASS; do
     grep -q "$marker" evidence/public/ssh-oracle.txt || exit 1
