@@ -1,0 +1,26 @@
+name: R66 disposable native etcd mTLS and RBAC
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/etcd-r66-tls/**'
+      - '.github/workflows/qualify-fencing-etcd-r66-tls.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r66-tls-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-native-tls-rbac:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Qualify one-host native etcd x509 auth and denial
+        shell: bash
+        run: bash experiments/fencing/etcd-r66-tls/run.sh
+      - name: Record explicit evidence boundary
+        if: always()
+        run: echo 'Single peer and loopback only. No physical HA, external sink, production credentials, protected recovery or cutover acceptance.' >> "$GITHUB_STEP_SUMMARY"
