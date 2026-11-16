@@ -2,7 +2,9 @@ name: Public Sandbox R03 - disposable cross-ISA ELF
 on:
   push:
     branches: [experiment/public-sandbox-qemu-user-r03]
-    paths: ['.github/workflows/public-agent-sandbox-r03-foreign-elf.yml']
+    paths:
+      - '.github/workflows/public-agent-sandbox-r03-foreign-elf.yml'
+      - 'experiments/agent-sandbox-r03/**'
   workflow_dispatch:
 permissions:
   contents: read
