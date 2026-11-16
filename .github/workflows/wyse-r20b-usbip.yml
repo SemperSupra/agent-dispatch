@@ -1,0 +1,37 @@
+name: R20B Linux USBIP guest-transport prereq and usbredir feasibility
+on:
+  push:
+    branches: [test/issue-367-usbip-guest-feasibility]
+    paths:
+      - '.github/workflows/wyse-r20b-usbip.yml'
+      - 'experiments/wyse-r20b/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wyse-r20b-issue-367
+  cancel-in-progress: false
+jobs:
+  separate-feasibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        lane: [kernel, backend, exporter]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Probe real Debian kernel package and QEMU USB backend in disposable OCI
+        shell: bash
+        env:
+          R20B_LANE: ${{ matrix.lane }}
+        run: bash experiments/wyse-r20b/verify.sh
+      - name: Explicit nonclaims
+        shell: bash
+        run: |
+          echo R20B_PUBLIC_SYNTHETIC_FEASIBILITY_ONLY=YES
+          echo R20B_HOST_KERNEL_MODULE_AND_GUEST_ACTUAL_USBIP_IMPORT=NOT_TESTED
