@@ -2,9 +2,12 @@
 import sys, json,base64,urllib.request
 def b(v):return base64.b64encode(v.encode()).decode()
 def request(port,path,payload,timeout=4):
-    req=urllib.request.Request("http://127.0.0.1:%s/v3/kv/%s"%(port,path),
+    # Direct private bridge address, no host port publishing or environment proxy.
+    endpoint={2379:"172.29.62.11",22379:"172.29.62.12",32379:"172.29.62.13"}[port]
+    req=urllib.request.Request("http://%s:2379/v3/kv/%s"%(endpoint,path),
         data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"},method="POST")
-    with urllib.request.urlopen(req,timeout=timeout) as r:return json.loads(r.read().decode())
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req,timeout=timeout) as r:return json.loads(r.read().decode())
 def read(port,key):
     r=request(port,"range",{"key":b(key)})
     return [base64.b64decode(x["value"]).decode() for x in r.get("kvs",[])]
