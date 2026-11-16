@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "assignment_id": "mail-qwen-real-cpu-v1",
+  "runner": "ubuntu-24.04",
+  "workload": "mail-qwen-real-cpu",
+  "timeout_seconds": 420,
+  "data_class": "public-synthetic",
+  "max_attempts": 1,
+  "max_cost_usd": 0
+}
