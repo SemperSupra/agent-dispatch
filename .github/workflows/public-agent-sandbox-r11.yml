@@ -1,0 +1,31 @@
+name: Public Sandbox R11 - actual synthetic broker mediation
+on:
+  push:
+    branches: [experiment/public-sandbox-r11-broker-enforcement]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r11.yml'
+      - 'experiments/agent-sandbox-r11/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r11-broker
+  cancel-in-progress: false
+jobs:
+  external-mock-broker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build issuer/broker/client in disposable OCI and prove external-synthetic effect gating
+        shell: bash
+        run: bash experiments/agent-sandbox-r11/verify.sh
+      - name: Scope and safety
+        shell: bash
+        run: |
+          echo 'R11_REAL_ISSUER_AND_HOST_HYPERVISOR_ENFORCEMENT=NOT_TESTED'
+          echo 'R11_TEST_KEY_AND_MOCK_EFFECT_ONLY=YES'
+          echo 'R11_PUBLIC_EPHEMERAL_CI_ONLY=YES'
