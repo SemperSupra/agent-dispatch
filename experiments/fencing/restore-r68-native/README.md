@@ -1,0 +1,5 @@
+# R68 native etcd snapshot recovery versus signed witness
+
+Run `bash experiments/fencing/restore-r68-native/run.sh` from a disposable Linux amd64 public runner. A SHA256-pinned real etcd 3.6.16 server snapshots epoch=7/budget=1, advances to epoch=8/budget=0/effect=UNKNOWN, and writes test HMAC receipts before/after the newer state. Then it restores the native stale snapshot with a revision bump and compares live native etcd reads against both signed receipts.
+
+A newer valid signed receipt detects a stale database (exit 42/HOLD). Restoring a valid *old* signed receipt along with the old database authenticates successfully but yields **MATCH_ONLY_HOLD**, never permission to dispatch (exit 43). Missing or tampered receipt yields HOLD. This is a genuine etcd+HMAC **negative control**, not a protected recovery design. The test signer, key and receipts share one disposable runner failure domain; no independent monotonic anchor, real external effect, production host or release acceptance is established. The existing R62 real restore and R66 SQLite HMAC oracle remain separate, immutable prior evidence.
