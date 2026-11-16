@@ -16,7 +16,12 @@ def create(port,key,val,timeout=4):
     return r.get("succeeded") is True
 def main():
     stage=sys.argv[1]
-    if stage=="start":
+    if stage=="ready":
+        # Read-only quorum readiness. Never write a claim in a retry loop.
+        for port in (2379,22379,32379):
+            assert read(port,"r62/net/nonexistent-readiness")==[]
+        print(json.dumps({"stage":stage,"read_only_quorum":True}))
+    elif stage=="start":
         assert create(2379,"r62/net/initial","DURABLE")
         assert read(22379,"r62/net/initial")==["DURABLE"]
         print(json.dumps({"stage":stage,"real_peer_namespaces":3,"cross_member_read":"PASS"}))
