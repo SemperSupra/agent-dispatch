@@ -67,7 +67,9 @@ RESULT_FIELDS = {
         "classification", "oracle_verified", "real_model_inference",
         "automatic_promotion", "model_sha256", "engine_commit",
         "question_count", "model_calls", "selected_policy", "heldout_exact",
-        "baseline_exact", "unsupported_source_count", "semantic_quality_gate",
+        "baseline_exact", "heldout_valid", "baseline_valid",
+        "selected_cases", "baseline_cases", "dev_exact_scores",
+        "unsupported_source_count", "semantic_quality_gate",
         "corpus_sha256", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
@@ -89,6 +91,60 @@ def strict_json(raw: bytes):
         return json.loads(raw, object_pairs_hook=no_duplicate)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise VerdictError("RECEIPT_JSON_INVALID") from exc
+
+
+# Independently authored replica of the frozen synthetic held-out answer oracle.
+# These labels are never sent to the real model, only reviewed by verifier.
+MODEL_HOLDOUT_GOLD = {
+    "H1": ("en", "b1", "150"),
+    "H2": ("en", "a1", "120"),
+    "H3": ("de", "a3", "denied"),
+    "H4": ("th", "a4", "approved"),
+    "H5": ("en", "NONE", "UNKNOWN"),
+    "H6": ("de", "a2", "Friday"),
+    "H7": ("en", "NONE", "UNKNOWN"),
+}
+MODEL_ALLOWED_IDS = {"a1","a2","b1","a3","a4","a5","c1","NONE"}
+MODEL_ALLOWED_VALUES = {"120","150","Friday","denied","approved","pending","UNKNOWN"}
+MODEL_CASE_FIELDS = {"id","language","valid_json","exact","incorrect_source",
+                     "abstained","duration_ms","output_sha256","source_id","value"}
+
+
+def grade_public_model_cases(cases: list) -> dict:
+    if not isinstance(cases,list) or len(cases)!=len(MODEL_HOLDOUT_GOLD):
+        raise VerdictError("MODEL_CASE_COUNT_INVALID")
+    observed={}
+    for case in cases:
+        if not isinstance(case,dict) or set(case)!=MODEL_CASE_FIELDS:
+            raise VerdictError("MODEL_CASE_FIELDS_INVALID")
+        identifier=case.get("id")
+        if identifier not in MODEL_HOLDOUT_GOLD or identifier in observed:
+            raise VerdictError("MODEL_CASE_IDS_INVALID")
+        lang,truth_id,truth_value=MODEL_HOLDOUT_GOLD[identifier]
+        if case.get("language")!=lang:
+            raise VerdictError("MODEL_LANGUAGE_SCOPE_INVALID")
+        source=case.get("source_id")
+        value=case.get("value")
+        allowed=(source in MODEL_ALLOWED_IDS and value in MODEL_ALLOWED_VALUES)
+        exact=allowed and source==truth_id and value==truth_value
+        wrong=(source not in ("NONE",truth_id)) if allowed else True
+        abstained=source=="NONE"
+        if (case.get("valid_json") is not allowed or
+                case.get("exact") is not exact or
+                case.get("incorrect_source") is not wrong or
+                case.get("abstained") is not abstained or
+                type(case.get("duration_ms")) is not int or
+                not 0<=case["duration_ms"]<=30_000 or
+                not isinstance(case.get("output_sha256"),str) or
+                not HEX64.fullmatch(case["output_sha256"])):
+            raise VerdictError("MODEL_CASE_ORACLE_MISMATCH")
+        observed[identifier]=case
+    return {
+        "exact":sum(x["exact"] for x in observed.values()),
+        "valid":sum(x["valid_json"] for x in observed.values()),
+        "unsupported":sum(x["incorrect_source"] for x in observed.values()),
+        "abstained":sum(x["abstained"] for x in observed.values()),
+    }
 
 
 def evaluate(
@@ -166,6 +222,29 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("REAL_MODEL_INFERENCE_OR_SCOPE_INVALID")
+        if (type(result.get("heldout_valid")) is not int or
+                not 0 <= result["heldout_valid"] <= 7 or
+                type(result.get("baseline_valid")) is not int or
+                not 0 <= result["baseline_valid"] <= 7):
+            raise VerdictError("MODEL_CASE_QUALITY_COUNTS_INVALID")
+        scores=result.get("dev_exact_scores")
+        if (not isinstance(scores,dict) or set(scores)!={"plain","evidence-first"}
+                or any(type(n) is not int or not 0<=n<=3 for n in scores.values())):
+            raise VerdictError("MODEL_DEV_POLICY_SCORES_INVALID")
+        chosen=sorted(("plain","evidence-first"),
+            key=lambda k:(-scores[k],("plain","evidence-first").index(k)))[0]
+        if chosen!=result["selected_policy"]:
+            raise VerdictError("MODEL_POLICY_SELECTED_FROM_HOLDOUT")
+        chosen_metrics=grade_public_model_cases(result.get("selected_cases"))
+        baseline_metrics=grade_public_model_cases(result.get("baseline_cases"))
+        if (chosen_metrics["exact"]!=result["heldout_exact"] or
+                chosen_metrics["valid"]!=result["heldout_valid"] or
+                chosen_metrics["unsupported"]!=result["unsupported_source_count"] or
+                baseline_metrics["exact"]!=result["baseline_exact"] or
+                baseline_metrics["valid"]!=result["baseline_valid"] or
+                result["semantic_quality_gate"] is not
+                    (chosen_metrics["exact"]>=6 and chosen_metrics["unsupported"]==0)):
+            raise VerdictError("MODEL_INDEPENDENT_GOLD_METRIC_MISMATCH")
     if p["workload"] == "mail-openworker-scripted":
         if (result.get("source_commit") != "ecb445490fc054d52b8ea610d97ba947f57033d2" or
                 result.get("scripted_provider_only") is not True or
