@@ -1,0 +1,197 @@
+name: Public Wyse R39 fail-closed admission and signed recovery regression
+on:
+  push:
+    branches: [experiment/public-wyse-r39-security-preflight]
+    paths:
+      - '.github/workflows/public-wyse-r39-security-preflight.yml'
+      - 'scripts/public_wyse_r25_buildroot_uki_ssh.sh'
+      - 'scripts/test_public_wyse_r38_mode_preflight.sh'
+      - 'scripts/test_public_wyse_r39_security_preflight.sh'
+      - 'scripts/public_wyse_r28_owned_kernel.sh'
+      - 'tools/wyse-buildroot/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r39-security-preflight
+  cancel-in-progress: false
+jobs:
+  deny-conflicting-modes:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Fail-closed source syntax and six conflicting or invalid mode checks
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/test_public_wyse_r38_mode_preflight.sh
+          bash scripts/test_public_wyse_r38_mode_preflight.sh
+          echo R38_PREBOOT_MODE_NEGATIVES_ALL=PASS
+          bash -n scripts/test_public_wyse_r39_security_preflight.sh
+          bash scripts/test_public_wyse_r39_security_preflight.sh
+          echo R39_PREBOOT_SECURITY_NEGATIVES_ALL=PASS
+  independently-qualified-mode:
+    needs: [deny-conflicting-modes]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: F0_NORMAL_USB_SATA
+            no_sata: '0'
+            f0: '1'
+            f2: '0'
+            f3: '0'
+            k2b: '0'
+            required: R32_F0_BASELINE_USB_AND_SATA_BUS_SIGNED_RECOVERY=PASS
+          - mode: F1_NO_SATA
+            no_sata: '1'
+            f0: '0'
+            f2: '0'
+            f3: '0'
+            k2b: '0'
+            required: R30_NO_SATA_RECOVERY_BOOT_AND_AUTH_SSH=PASS
+          - mode: F2_NO_EMMC
+            no_sata: '0'
+            f0: '0'
+            f2: '1'
+            f3: '0'
+            k2b: '0'
+            required: R32_F2_NO_EMMC_SIGNED_USB_RESCUE_WITH_SSH=PASS
+          - mode: F3_TAMPERED_UKI
+            no_sata: '1'
+            f0: '0'
+            f2: '0'
+            f3: '1'
+            k2b: '0'
+            required: R32_F3_TAMPERED_SIGNED_UKI_FIRMWARE_DENIED=PASS
+          - mode: K2B_SIGNED_EMMC_ONLY
+            no_sata: '1'
+            f0: '0'
+            f2: '0'
+            f3: '0'
+            k2b: '1'
+            required: R34_OVMF_EMMC_USER_AREA_SIGNED_LINUX_AND_AUTH_SSH=PASS
+    runs-on: ubuntu-26.04
+    timeout-minutes: 49
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install independent disposable source-build and enrolled OVMF tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev \
+            rsync unzip xz-utils wget curl cpio zstd perl \
+            qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
+            busybox-static dropbear-bin openssh-client dosfstools gdisk \
+            util-linux kmod sbsigntool openssl python3-virt-firmware \
+            systemd-ukify systemd-boot-efi
+          echo R38_DISPOSABLE_TOOLCHAIN=PASS
+      - name: Build independently SHA-pinned own Linux 6.12.113 and Buildroot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r25_buildroot_uki_ssh.sh
+          bash scripts/public_wyse_r28_owned_kernel.sh
+          test -s "$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/bzImage"
+          test -s "$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/rootfs.cpio"
+          echo R38_OWN_KERNEL_BUILD_PER_MODE=PASS
+      - name: Qualify integrated mode with signed recovery SSH and actual OVMF negatives
+        shell: bash
+        env:
+          R38_MODE: ${{ matrix.mode }}
+          R38_REQUIRED: ${{ matrix.required }}
+          WYSE_R30_NO_SATA: ${{ matrix.no_sata }}
+          WYSE_R32_ASSERT_BUS_TOPOLOGY: ${{ matrix.f0 }}
+          WYSE_R32_NO_EMMC: ${{ matrix.f2 }}
+          WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE: ${{ matrix.f3 }}
+          WYSE_R34_EMMC_SIGNED_BOOT: ${{ matrix.k2b }}
+          WYSE_R23_SIGNED_EFI: '1'
+          WYSE_R23_ENFORCE_SB: '1'
+          WYSE_R23_UKI: '1'
+          WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE: '1'
+        run: |
+          set -Eeuo pipefail
+          export WYSE_R29_OWNED_KERNEL_BZIMAGE="$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/bzImage"
+          export WYSE_R25_BUILDROOT_CPIO="$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/rootfs.cpio"
+          bash scripts/public_wyse_r25_buildroot_uki_ssh.sh
+          for marker in \
+            R29_SOURCE_OWNED_KERNEL_SELECTED=PASS \
+            R29_NO_UBUNTU_TEST_MODULES=PASS \
+            R29_KERNEL_MODULE_LIST_EMPTY_BY_DESIGN=PASS \
+            R23_UKI_SIGNED_ENROLLED_OVMF_LINUX_SSH=PASS \
+            R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS \
+            R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS \
+            UNAUTHORIZED_SSH_KEY_DENIAL=PASS \
+            EMMC_SOURCE_PRESERVED=PASS "$R38_REQUIRED"; do
+            grep -Fxq "$marker" evidence/public/receipt.txt
+          done
+          for marker in \
+            WYSE_SYNTHETIC_LINUX_INIT=PASS \
+            WYSE_R25_BUILDROOT_USERLAND_INIT=PASS \
+            R29_BUILTIN_DRIVER_INIT=PASS \
+            WYSE_R25_BUILDROOT_DROPBEAR_STARTED=PASS \
+            RECOVERY_NETWORK_READY=PASS; do
+            grep -Fq "$marker" evidence/public/guest-serial.txt
+          done
+          case "$R38_MODE" in
+            F0_NORMAL_USB_SATA)
+              for marker in GUEST_EMMC=PASS GUEST_SATA=PASS R32_F0_USB_BUS_PRESENT=PASS R32_F0_SATA_BUS_PRESENT=PASS; do
+                grep -Fxq "$marker" evidence/public/ssh-oracle.txt
+              done
+              ;;
+            F1_NO_SATA)
+              for marker in GUEST_EMMC=PASS R30_GUEST_USB_BLOCK_PRESENT=PASS R30_GUEST_SATA_ABSENT=PASS; do
+                grep -Fxq "$marker" evidence/public/ssh-oracle.txt
+              done
+              ;;
+            F2_NO_EMMC)
+              for marker in R32_F2_EMMC_ABSENT=PASS R32_F2_USB_AND_SATA_BUS_PRESENT=PASS; do
+                grep -Fxq "$marker" evidence/public/ssh-oracle.txt
+              done
+              if grep -Fq 'EMMC_ENUMERATION=PASS' evidence/public/guest-serial.txt; then exit 51; fi
+              ;;
+            F3_TAMPERED_UKI)
+              for marker in R32_F3_TAMPERED_SIGNED_UKI_STRUCTURALLY_VALID_AND_OFFLINE_REFUSED=PASS R32_F3_TAMPERED_SIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS; do
+                grep -Fxq "$marker" evidence/public/receipt.txt
+              done
+              ;;
+            K2B_SIGNED_EMMC_ONLY)
+              for marker in GUEST_EMMC=PASS R34_EMMC_ESP_GPT_USER_PARTITION=PASS R34_GUEST_USB_AND_SATA_ABSENT=PASS; do
+                grep -Fxq "$marker" evidence/public/ssh-oracle.txt
+              done
+              grep -Eq 'BdsDxe: starting Boot[0-9]{4}.*eMMC User Data.*PciRoot.*/eMMC\(' evidence/public/guest-serial.txt
+              for marker in R34_EMMC_UNSIGNED_WELL_FORMED_UKI_FIRMWARE_DENIED=PASS R34_EMMC_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS; do
+                grep -Fxq "$marker" evidence/public/receipt.txt
+              done
+              ;;
+            *) exit 52 ;;
+          esac
+          grep -Fxq 'KEY_ONLY_SSH_LOGIN=PASS' evidence/public/ssh-oracle.txt
+          echo "R38_INTEGRATED_MODE=$R38_MODE"
+          echo 'R38_ONE_SOURCE_FIVE_MODE_QUALIFICATION=PASS'
+          echo 'R38_DELL_HARDWARE_OWNER_SIGNER_AND_BOOTORDER=NOT_TESTED'
+      - name: Preserve only bounded public text receipts, no images or keys
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r39-security-${{ matrix.mode }}-text
+          path: |
+            evidence/public/receipt.txt
+            evidence/public/guest-serial.txt
+            evidence/public/negative-guest-serial.txt
+            evidence/public/emmc-unsigned-guest-serial.txt
+            evidence/public/tampered-guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/unsigned-uki-inspect.txt
+            evidence/public/tampered-uki-inspect.txt
+          if-no-files-found: warn
+          retention-days: 7
