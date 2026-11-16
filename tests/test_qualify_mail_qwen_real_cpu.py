@@ -21,6 +21,10 @@ class RealCpuModelAdmissionTests(unittest.TestCase):
         self.assertEqual(q.LLAMA_REPO,"https://github.com/ggml-org/llama.cpp.git")
         self.assertEqual(q.MAX_MODEL_BYTES,460_000_000)
 
+    def test_engine_magic_is_binary_not_double_escaped_string(self):
+        self.assertEqual(bytes.fromhex("7f454c46"), bytes([127,69,76,70]))
+        self.assertNotEqual(bytes.fromhex("7f454c46"), b"\\\\x7fELF")
+
     def test_dev_holdout_and_accounts_are_separated(self):
         self.assertEqual(q.RUNS,2*(len(q.DEV)+len(q.HOLDOUT)))
         self.assertEqual(len(q.DEV),3)
