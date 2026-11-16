@@ -1,0 +1,26 @@
+name: USB Fabric R26 Guest - R15 HID plus hotplug and PCAP
+on:
+  push:
+    branches: [experiment/public-usbfabric-r26-guest]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-guest.yml'
+      - 'experiments/usb-fabric-r26/guest/**'
+      - 'experiments/agent-sandbox-r15/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-guest
+  cancel-in-progress: false
+jobs:
+  guest-and-hotplug:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Boot actual Linux kernel, witness HID event and probe QMP removal/PCAP
+        shell: bash
+        run: bash experiments/usb-fabric-r26/guest/verify.sh
