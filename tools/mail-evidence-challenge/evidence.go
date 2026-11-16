@@ -12,6 +12,7 @@ import (
     "encoding/json"
     "errors"
     "fmt"
+    "io"
     "os"
     "path/filepath"
     "sort"
@@ -151,18 +152,34 @@ func Fixture() Ledger {
 func (l Ledger) Validate() error {
     if l.Schema != Schema || len(l.Observations)==0 {return errors.New("SCHEMA_OR_EMPTY")}
     seen := map[string]bool{}
-    attachmentIDs:=map[string]bool{}
-    for _,o:= range l.Observations {
-        if o.ID=="" || o.Tenant=="" || o.Archive=="" || o.Locator=="" || seen[o.ID] {return errors.New("OCCURRENCE_IDENTITY")}
+    type nativeKey struct{ archive, locator string }
+    sourceNative := map[nativeKey]bool{}
+    attachmentIDs := map[string]bool{}
+    for _, o := range l.Observations {
+        if o.ID=="" || o.Tenant=="" || o.Archive=="" || o.Locator=="" || seen[o.ID] {
+            return errors.New("OCCURRENCE_IDENTITY")
+        }
         seen[o.ID]=true
+        key := nativeKey{o.Archive,o.Locator}
+        if sourceNative[key] {return errors.New("DUPLICATE_NATIVE_SOURCE_LOCATOR")}
+        sourceNative[key]=true
+        if _,err:=time.Parse(time.RFC3339,o.CapturedAt);err!=nil {
+            return errors.New("CAPTURE_TIMESTAMP_INVALID")
+        }
         if hash(o.Raw)!=o.SHA256 {return errors.New("SOURCE_DIGEST_MISMATCH")}
         for _,a:=range o.Attachments {
-            if a.ID=="" || attachmentIDs[a.ID] || hash(a.Content)!=a.SHA256 {return errors.New("ATTACHMENT_ID_OR_DIGEST")}
+            if a.ID=="" || attachmentIDs[a.ID] || hash(a.Content)!=a.SHA256 {
+                return errors.New("ATTACHMENT_ID_OR_DIGEST")
+            }
             attachmentIDs[a.ID]=true
         }
         for _,c:=range o.Claims {
-            if c.Key=="" || c.Quote=="" || !strings.Contains(o.Raw,c.Quote) {return errors.New("CLAIM_NOT_ANCHORED")}
-            if _,err:=time.Parse(time.RFC3339,c.ValidAt);err!=nil {return errors.New("CLAIM_TIME_INVALID")}
+            if c.Key=="" || c.Quote=="" || !strings.Contains(o.Raw,c.Quote) {
+                return errors.New("CLAIM_NOT_ANCHORED")
+            }
+            if _,err:=time.Parse(time.RFC3339,c.ValidAt);err!=nil {
+                return errors.New("CLAIM_TIME_INVALID")
+            }
         }
         if o.ParentID==o.ID {return errors.New("SELF_REPLY_PARENT")}
     }
@@ -172,6 +189,24 @@ func (l Ledger) Validate() error {
             parent,_:=l.byID(o.ParentID)
             if parent.Tenant!=o.Tenant {return errors.New("CROSS_TENANT_THREAD")}
         }
+    }
+    // Separate from source identity: thread/reply edges must never introduce
+    // a directed cycle. Do not infer such edges from Message-ID alone.
+    visiting:=map[string]uint8{}
+    var visit func(string) error
+    visit=func(id string) error {
+        if visiting[id]==1{return errors.New("CYCLIC_THREAD_PARENT")}
+        if visiting[id]==2{return nil}
+        visiting[id]=1
+        observation,_:=l.byID(id)
+        if observation.ParentID!="" {
+            if err:=visit(observation.ParentID);err!=nil{return err}
+        }
+        visiting[id]=2
+        return nil
+    }
+    for _,o:=range l.Observations {
+        if err:=visit(o.ID);err!=nil{return err}
     }
     return nil
 }
@@ -281,9 +316,15 @@ func (l Ledger) Persist(path string) error {
 func Recover(path string) (Ledger,error) {
     raw,err:=os.ReadFile(path);if err!=nil{return Ledger{},err}
     if len(raw)>1_048_576 {return Ledger{},errors.New("SOURCE_SNAPSHOT_TOO_LARGE")}
+    decoder:=json.NewDecoder(bytes.NewReader(raw))
+    decoder.DisallowUnknownFields()
     var value Ledger
-    if err=json.Unmarshal(raw,&value);err!=nil{return Ledger{},err}
-    if err=value.Validate();err!=nil{return Ledger{},err}
+    if err:=decoder.Decode(&value);err!=nil{return Ledger{},err}
+    var trailing any
+    if err:=decoder.Decode(&trailing);err!=io.EOF {
+        return Ledger{},errors.New("SOURCE_SNAPSHOT_TRAILING_CONTENT")
+    }
+    if err:=value.Validate();err!=nil{return Ledger{},err}
     return value,nil
 }
 func (l Ledger) Digest() string {
