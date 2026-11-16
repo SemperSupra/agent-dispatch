@@ -89,7 +89,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS"; break ;;
+    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS" ;;
     */usb[0-9]*/*) echo "USB_BOOT_STORAGE_ENUMERATION=PASS" ;;
     *) echo "BLOCK_BUS_IDENTITY_UNSUPPORTED=RED" ;;
   esac
@@ -197,7 +197,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS'; break ;;
+    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS' ;;
     */usb[0-9]*/*) echo 'USB_BOOT_STORAGE_ENUMERATION=PASS' ;;
     *) echo 'BLOCK_BUS_IDENTITY_UNSUPPORTED=RED' ;;
   esac
