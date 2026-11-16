@@ -1,0 +1,37 @@
+name: Public Sandbox R10 - three independent workload classes
+on:
+  push:
+    branches: [experiment/public-sandbox-r10-workload-classes]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r10.yml'
+      - 'experiments/agent-sandbox-r10/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-agent-sandbox-r10
+  cancel-in-progress: false
+jobs:
+  synthetic-workloads:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 19
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        target: [aarch64, riscv64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build disposable native+foreign binaries and measure paired workload families
+        shell: bash
+        env:
+          R10_TARGET: ${{ matrix.target }}
+        run: bash experiments/agent-sandbox-r10/verify.sh
+      - name: Explicit qualification limits
+        shell: bash
+        run: |
+          echo 'R10_GENERAL_EMULATOR_RANKING=NOT_QUALIFIED'
+          echo 'R10_TRUE_HYPERVISOR_AND_AGENT_GUI=NOT_TESTED'
