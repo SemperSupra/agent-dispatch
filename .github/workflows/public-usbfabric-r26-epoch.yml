@@ -1,0 +1,39 @@
+name: USB Fabric R26 Epoch - reboot ABA red-green qualification
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-epoch
+  cancel-in-progress: false
+jobs:
+  restart-epoch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run true ABA regression inside isolated public OCI
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          before="$(git status --porcelain --untracked-files=all)"
+          [[ -z "$before" ]] || { echo R26_EPOCH_INPUT_DIRTY=RED; exit 13; }
+          docker pull golang:1.23-bookworm >/dev/null
+          image="$(docker image inspect --format '{{index .RepoDigests 0}}' golang:1.23-bookworm)"
+          [[ "$image" == *@sha256:* ]] || { echo R26_EPOCH_BASE_NOT_PINNED=RED; exit 14; }
+          echo "R26_EPOCH_GO_IMAGE=$image"
+          tar -C experiments/usb-fabric-r26/epoch -cf - . | \
+          docker run --rm -i --network none --read-only --user 65532:65532 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --memory 2048m --memory-swap 2048m --cpus 2 --pids-limit 128 \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=1536m,mode=1777 \
+            -e HOME=/tmp -e GOCACHE=/tmp/cache -e GOPATH=/tmp/gopath \
+            -e GOPROXY=off -e GOSUMDB=off -e GOTOOLCHAIN=local \
+            "$image" sh -ec 'mkdir -p /tmp/work; cd /tmp/work; tar -xf -; go test -race -count=1 -v ./...; go vet ./...'
+          [[ "$(git status --porcelain --untracked-files=all)" == "$before" ]] || { echo R26_EPOCH_SOURCE_TAINT=RED;exit 15; }
+          echo R26_RESTART_EPOCH_TEST_AND_CLEANUP=PASS
