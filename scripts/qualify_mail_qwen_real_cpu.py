@@ -286,6 +286,8 @@ def qualify()->dict:
             "corpus_sha256":corpus_sha,
             "total_elapsed_seconds":round(time.monotonic()-started,2),
             "outputs":holdout[selected],
+            "baseline_outputs":holdout["plain"],
+            "dev_exact_scores":{k:metrics(v)["exact"] for k,v in groups.items()},
             "expected_quality_gate_passed":(
                 metrics(holdout[selected])["exact"]>=6
                 and metrics(holdout[selected])["unsupported_source"]==0),
