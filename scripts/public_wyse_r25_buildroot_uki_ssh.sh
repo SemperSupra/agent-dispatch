@@ -129,7 +129,7 @@ if test -n "${WYSE_R25_BUILDROOT_CPIO:-}"; then
       *) echo "R25_UNSUPPORTED_MODULE_FORMAT:$module" >&2; exit 12 ;;
     esac
     test -s "$B$raw"
-    printf '%s\\n' "$raw" >> "$MODULE_LIST"
+    printf '%s\n' "$raw" >> "$MODULE_LIST"
   done < "$W/ordered-test-modules.txt"
   test -s "$MODULE_LIST"
   echo "R25_TEST_MODULE_COUNT=$(wc -l < "$MODULE_LIST")" >> evidence/public/receipt.txt

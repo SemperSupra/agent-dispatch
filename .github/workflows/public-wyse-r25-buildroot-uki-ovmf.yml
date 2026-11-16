@@ -31,7 +31,7 @@ jobs:
             rsync unzip xz-utils wget cpio qemu-system-x86 ovmf \
             grub-efi-amd64-bin grub-common grub-pc-bin linux-image-virtual \
             busybox-static dropbear-bin openssh-client dosfstools gdisk \
-            util-linux kmod sbsigntool openssl python3-virt-firmware \
+            util-linux kmod zstd sbsigntool openssl python3-virt-firmware \
             systemd-ukify systemd-boot-efi
       - name: Compile pinned Buildroot rootfs and prepare explicit source receipt
         shell: bash
@@ -79,6 +79,7 @@ jobs:
           done
           for marker in \
             WYSE_R25_BUILDROOT_USERLAND_INIT=PASS \
+            R25_BUILDROOT_MODULE_CLOSURE=PASS \
             WYSE_R25_BUILDROOT_DROPBEAR_STARTED=PASS \
             WYSE_SSH=KEY_ONLY_START; do
             grep -Fq "$marker" evidence/public/guest-serial.txt
