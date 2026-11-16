@@ -208,6 +208,13 @@ def _execute(workload: str, timeout: int) -> dict:
                         for k in held)
                 and isinstance(sel,dict) and sel==held[chosen]
                 and len(obs.get("outputs",[]))==7
+                and len(obs.get("baseline_outputs",[]))==7
+                and isinstance(obs.get("dev_exact_scores"),dict)
+                and set(obs["dev_exact_scores"])=={"plain","evidence-first"}
+                and all(type(n) is int and 0<=n<=3 for n in obs["dev_exact_scores"].values())
+                and chosen==sorted(("plain","evidence-first"),
+                    key=lambda k:(-obs["dev_exact_scores"][k],
+                                   ("plain","evidence-first").index(k)))[0]
                 and isinstance(obs.get("corpus_sha256"),str)
                 and re.fullmatch(r"[0-9a-f]{64}",obs["corpus_sha256"]) is not None
                 and isinstance(obs.get("expected_quality_gate_passed"),bool))
@@ -226,6 +233,11 @@ def _execute(workload: str, timeout: int) -> dict:
             "model_calls":20 if admitted else 0,
             "selected_policy":obs.get("selected_policy") if admitted else None,
             "heldout_exact":obs.get("heldout_selected",{}).get("exact",0) if admitted else 0,
+            "heldout_valid":obs.get("heldout_selected",{}).get("valid",0) if admitted else 0,
+            "baseline_valid":obs.get("holdout",{}).get("plain",{}).get("valid",0) if admitted else 0,
+            "selected_cases":obs.get("outputs",[]) if admitted else [],
+            "baseline_cases":obs.get("baseline_outputs",[]) if admitted else [],
+            "dev_exact_scores":obs.get("dev_exact_scores",{}) if admitted else {},
             "baseline_exact":obs.get("holdout",{}).get("plain",{}).get("exact",0) if admitted else 0,
             "unsupported_source_count":obs.get("heldout_selected",{}).get("unsupported_source",0) if admitted else 0,
             "semantic_quality_gate":obs.get("expected_quality_gate_passed") if admitted else False,
