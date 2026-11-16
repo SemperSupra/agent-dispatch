@@ -116,6 +116,7 @@ func basicFrame(command,sequence,devid,direction,ep uint32)[]byte{
 func syntheticHID()[]byte{return []byte{0,0,0x04,0,0,0,0,0}}
 func serveURBs(c net.Conn){
  pending:=map[uint32]bool{}
+ seen:=map[uint32]bool{}
  for{
   var b[48]byte
   if _,e:=io.ReadFull(c,b[:]);e!=nil{return}
@@ -124,7 +125,8 @@ func serveURBs(c net.Conn){
   devid:=order.Uint32(b[8:12])
   dir:=order.Uint32(b[12:16])
   ep:=order.Uint32(b[16:20])
-  if seq==0||devid!=syntheticDev{return}
+  if seq==0||devid!=syntheticDev||seen[seq]{return}
+  seen[seq]=true
   switch cmd {
   case CmdSubmit:
    flags:=order.Uint32(b[20:24])
