@@ -23,7 +23,8 @@ docker build --quiet --network none --tag "$image" "$root/build" >/dev/null
 docker network create --driver bridge --internal --subnet 172.29.62.0/24 "$net" >/dev/null
 cluster='e1=http://172.29.62.11:2380,e2=http://172.29.62.12:2380,e3=http://172.29.62.13:2380'
 start_peer(){
-  local i="$1" ip="172.29.62.1${1}" port="$2" nm="${names[$((i-1))]}"
+  local i="$1"
+  local ip="172.29.62.1${i}" port="$2" nm="${names[$((i-1))]}"
   docker run --detach --rm --name "$nm" --network "$net" --ip "$ip" \
     -p "127.0.0.1:${port}:2379" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
