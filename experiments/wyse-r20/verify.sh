@@ -5,6 +5,7 @@ case "$R20_LANE" in
  discovery) test_name=TestActualUpstreamClientDeviceDiscovery ;;
  urb) test_name=TestSyntheticImportSubmitAndUnlinkWire ;;
  malformed) test_name=TestMalformedFramesAreClosedAndUnknownDeviceDenied ;;
+ replay) test_name=TestDuplicateURBSequenceAndWrongEndpointClosed ;;
  *) echo R20_UNKNOWN_LANE=RED;exit 2 ;;
 esac
 root="$(git rev-parse --show-toplevel)"
