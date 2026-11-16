@@ -13,7 +13,7 @@ echo R15_GUEST_SYSFS_MOUNT=PASS
 /bin/busybox mount -t devtmpfs devtmpfs /dev || echo R15_GUEST_DEVTMPFS_MOUNT=RED
 echo R15_GUEST_PID1_STARTED=PASS
 /bin/busybox uname -r
-for mod in xhci_pci xhci_hcd usb_storage usbhid hid_generic; do
+for mod in evdev xhci_pci xhci_hcd usb_storage usbhid hid_generic; do
  if /sbin/modprobe "$mod" >/dev/null 2>&1 || /bin/busybox modprobe "$mod" >/dev/null 2>&1; then
   echo "R15_MODULE_LOAD_ATTEMPT=$mod PRESENT_OR_LOADED"
  else
@@ -68,7 +68,22 @@ for p in /sys/class/input/event*/device/name; do
    ;;
  esac
 done
+if [ -n "$usb_event" ] && [ ! -c "$usb_event" ]; then
+ event_name="${usb_event##*/}"
+ dev_file="/sys/class/input/$event_name/dev"
+ if [ -r "$dev_file" ]; then
+  devnum="$(/bin/busybox cat "$dev_file")"
+  major="${devnum%:*}"
+  minor="${devnum#*:}"
+  /bin/busybox mkdir -p /dev/input
+  /bin/busybox mknod "$usb_event" c "$major" "$minor" || true
+ fi
+fi
 if [ -z "$usb_event" ] || [ ! -c "$usb_event" ]; then
+ echo R15_GUEST_EVENT_CLASS_LIST_FOR_FAILURE_ONLY
+ /bin/busybox ls -l /sys/class/input 2>/dev/null || true
+ /bin/busybox ls -l /dev/input 2>/dev/null || true
+
  echo R15_USB_KEYBOARD_EVDEV_NODE=RED
  /bin/busybox ls -l /dev/input 2>/dev/null || true
  /bin/busybox poweroff -f
