@@ -179,7 +179,14 @@ echo 'RECOVERY_NETWORK_READY=PASS'
 cp /etc/wyse-ci-fixture/ssh_host_ed25519_key /run/wyse-keys/ssh_host_ed25519_key
 cp /etc/wyse-ci-fixture/authorized_keys /run/wyse-keys/authorized_keys
 chmod 600 /run/wyse-keys/ssh_host_ed25519_key /run/wyse-keys/authorized_keys
-/etc/init.d/S50dropbear start || { echo WYSE_R25_BUILDROOT_DROPBEAR=RED; exec /bin/sh; }
+echo 'R25_SSH_SERVICE_PRECHECK=BEGIN'
+echo "R25_SSH_HOST_KEY_MODE=$(stat -c %a /run/wyse-keys/ssh_host_ed25519_key 2>/dev/null || echo unavailable)"
+echo "R25_SSH_KEY_ALLOWLIST_MODE=$(stat -c %a /run/wyse-keys/authorized_keys 2>/dev/null || echo unavailable)"
+/usr/sbin/dropbear -V 2>&1 || echo 'R25_DROPBEAR_EXECUTABLE_VERSION_PROBE=RED'
+if ! /bin/sh -x /etc/init.d/S50dropbear start; then
+  echo 'WYSE_R25_BUILDROOT_DROPBEAR=RED'
+  exec /bin/sh
+fi
 echo 'WYSE_R25_BUILDROOT_DROPBEAR_STARTED=PASS'
 exec /bin/sh
 BUILDROOT_INIT
