@@ -89,7 +89,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS"; break ;;
+    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS" ;;
     */usb[0-9]*/*) echo "USB_BOOT_STORAGE_ENUMERATION=PASS" ;;
     *) echo "BLOCK_BUS_IDENTITY_UNSUPPORTED=RED" ;;
   esac
@@ -197,7 +197,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS'; break ;;
+    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS' ;;
     */usb[0-9]*/*) echo 'USB_BOOT_STORAGE_ENUMERATION=PASS' ;;
     *) echo 'BLOCK_BUS_IDENTITY_UNSUPPORTED=RED' ;;
   esac
@@ -436,8 +436,8 @@ else
     for marker in R32_F0_USB_BUS_PRESENT=PASS R32_F0_SATA_BUS_PRESENT=PASS; do
       grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
     done
-    grep -Fxq 'USB_BOOT_STORAGE_ENUMERATION=PASS' evidence/public/guest-serial.txt
-    grep -Fxq 'SATA_ENUMERATION=PASS' evidence/public/guest-serial.txt
+    grep -Fq 'USB_BOOT_STORAGE_ENUMERATION=PASS' evidence/public/guest-serial.txt
+    grep -Fq 'SATA_ENUMERATION=PASS' evidence/public/guest-serial.txt
     if grep -Eq 'BLOCK_BUS_IDENTITY_(UNKNOWN|UNSUPPORTED)=RED' evidence/public/guest-serial.txt; then
       echo 'R32_F0_BLOCK_BUS_UNKNOWN=RED' >> evidence/public/receipt.txt
       exit 1
