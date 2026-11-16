@@ -328,6 +328,15 @@ else
 fi
 accel=tcg
 if test -w /dev/kvm; then accel=kvm; fi
+# R30 F1 opt-in virtual SSD loss: the signed recovery image and independent
+# key-only SSH MUST remain healthy with the SATA device wholly absent.
+# Default K1 topology and its strict SATA-positive oracle are unchanged.
+sata_args=(-device ich9-ahci,id=ahci -drive "if=none,id=ssd,format=raw,file=$W/sata.img" -device ide-hd,bus=ahci.0,drive=ssd,bootindex=2)
+if test "${WYSE_R30_NO_SATA:-0}" = 1; then
+  test -n "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"
+  sata_args=()
+  echo 'R30_FAULT_NO_SATA_QEMU_DEVICE_OMITTED=PASS' >> evidence/public/receipt.txt
+fi
 qemu-system-x86_64 -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
   -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
   -drive if=pflash,format=raw,file="$W/vars.fd" \
@@ -335,18 +344,21 @@ qemu-system-x86_64 -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -sm
   -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1 \
   -drive if=none,id=emmc,format=raw,file="$W/emmc-guest.img" \
   -device sdhci-pci -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
-  -device ich9-ahci,id=ahci -drive if=none,id=ssd,format=raw,file="$W/sata.img" \
-  -device ide-hd,bus=ahci.0,drive=ssd,bootindex=2 \
+  "${sata_args[@]}" \
   -netdev user,id=n,hostfwd=tcp:127.0.0.1:22222-:22 -device e1000,netdev=n \
   -display none -monitor none -serial file:evidence/public/guest-serial.txt -no-reboot \
   > evidence/public/qemu-log.txt 2>&1 &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || :' EXIT
 success=0
+guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; grep -q sda /proc/partitions && echo GUEST_SATA=PASS'
+if test "${WYSE_R30_NO_SATA:-0}" = 1; then
+  guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; if grep -q sda /proc/partitions; then echo R30_UNEXPECTED_SATA=FAIL_OPEN; exit 23; fi; echo R30_GUEST_SATA_ABSENT=PASS'
+fi
 for attempt in $(seq 1 105); do
   if ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
       -o ConnectTimeout=1 -p 22222 -i "$W/id_ed25519" \
-      root@127.0.0.1 'echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; grep -q sda /proc/partitions && echo GUEST_SATA=PASS' \
+      root@127.0.0.1 "$guest_probe" \
       > evidence/public/ssh-oracle.txt 2> evidence/public/ssh-errors.txt; then success=1; break; fi
   sleep 1
 done
@@ -375,16 +387,30 @@ test "$success" -eq 1 || { tail -n 50 evidence/public/guest-serial.txt; exit 1; 
 # only for the GRUB substrate. Linux, disks, networking and SSH remain
 # required for both signed boot paths; no oracle is weakened.
 boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
+if test "${WYSE_R30_NO_SATA:-0}" = 1; then
+  boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
+fi
 if test "${WYSE_R23_UKI:-0}" != 1; then
   boot_markers="WYSE_SYNTHETIC_UEFI_LOADER=PASS $boot_markers"
 fi
 for marker in $boot_markers; do
   grep -q "$marker" evidence/public/guest-serial.txt || { echo "MISSING:$marker"; exit 1; }
 done
-for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS GUEST_SATA=PASS; do
-  grep -q "$marker" evidence/public/ssh-oracle.txt || exit 1
-done
-echo 'UEFI_USB_LINUX_EMMC_SATA_SSH=PASS' >> evidence/public/receipt.txt
+if test "${WYSE_R30_NO_SATA:-0}" = 1; then
+  for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS R30_GUEST_SATA_ABSENT=PASS; do
+    grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
+  done
+  if grep -Fq 'SATA_ENUMERATION=PASS' evidence/public/guest-serial.txt; then
+    echo 'R30_NO_SATA_GUEST_TOPOLOGY=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  echo 'R30_NO_SATA_RECOVERY_BOOT_AND_AUTH_SSH=PASS' >> evidence/public/receipt.txt
+else
+  for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS GUEST_SATA=PASS; do
+    grep -q "$marker" evidence/public/ssh-oracle.txt || exit 1
+  done
+  echo 'UEFI_USB_LINUX_EMMC_SATA_SSH=PASS' >> evidence/public/receipt.txt
+fi
 echo 'EMMC_SOURCE_PRESERVED=PASS' >> evidence/public/receipt.txt
 echo 'SIGNED_PRODUCTION_IMAGE=NOT_TESTED' >> evidence/public/receipt.txt
 if test "$WYSE_R23_SIGNED_EFI" = 1; then
