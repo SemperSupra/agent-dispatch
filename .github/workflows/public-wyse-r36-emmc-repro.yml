@@ -33,6 +33,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           bash -n scripts/public_wyse_r36_emmc_repro.sh
+          mkdir -p evidence/public
           bash scripts/public_wyse_r36_emmc_repro.sh | tee evidence/public/r36-repro-receipt.txt
           grep -Fxq 'R36_FULL_RAW_EMMC_IMAGE_CMP=PASS' evidence/public/r36-repro-receipt.txt
           grep -Fxq 'R36_PARTITION_ESP_AND_EFI_READBACK=PASS' evidence/public/r36-repro-receipt.txt
