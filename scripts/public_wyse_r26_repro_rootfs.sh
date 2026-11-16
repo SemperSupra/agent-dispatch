@@ -9,13 +9,13 @@ mkdir -p "$E"
 sh tools/wyse-buildroot/preflight-r19.sh
 curl -fsSL --retry 3 https://buildroot.org/downloads/buildroot-2026.08.1.tar.xz -o "$E/source.tar.xz"
 printf '%s  %s\n' '34fb7bea8a213ffde39cc02e61703391560f26e0850f03138c722d0b09880f2b' "$E/source.tar.xz" | sha256sum -c -
-mkdir -p "${WYSE_R26_SOURCE_PARENT:-$E}"
-tar -xf "$E/source.tar.xz" -C "${WYSE_R26_SOURCE_PARENT:-$E}"
-chmod 0755 tools/wyse-buildroot/overlay/etc/init.d/S*
 SRC_PARENT="${WYSE_R26_SOURCE_PARENT:-$E}"
 OUT="${WYSE_R26_OUTPUT_DIR:-$E/out}"
 case "$SRC_PARENT" in "$RUNNER_TEMP"|"$RUNNER_TEMP"/*) ;; *) echo 'R26_SOURCE_PARENT_OUTSIDE_RUNNER_TEMP=DENIED' >&2; exit 3 ;; esac
 case "$OUT" in "$RUNNER_TEMP"/*) ;; *) echo 'R26_OUTPUT_OUTSIDE_RUNNER_TEMP=DENIED' >&2; exit 3 ;; esac
+mkdir -p "$SRC_PARENT"
+tar -xf "$E/source.tar.xz" -C "$SRC_PARENT"
+chmod 0755 tools/wyse-buildroot/overlay/etc/init.d/S*
 SRC="$SRC_PARENT/buildroot-2026.08.1"
 echo "R26_BUILDROOT_SOURCE_PATH=$SRC"
 echo "R26_BUILDROOT_OUTPUT_PATH=$OUT"
