@@ -1,0 +1,31 @@
+name: Public Sandbox R05 - network denial and crash cleanup
+on:
+  push:
+    branches: [experiment/public-sandbox-r05-crash-boundary]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r05.yml'
+      - 'experiments/agent-sandbox-r05/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-agent-sandbox-r05
+  cancel-in-progress: false
+jobs:
+  negative-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build and exercise disposable native Linux namespace, deny, kill and cleanup oracles
+        shell: bash
+        run: bash experiments/agent-sandbox-r05/verify.sh
+      - name: Limit inference
+        shell: bash
+        run: |
+          echo 'R05_SINGLE_USE_PUBLIC_RUNNER=YES'
+          echo 'R05_NATIVE_CONTAINER_KERNEL_ESCAPE_RESISTANCE=NOT_TESTED'
+          echo 'R05_PHYSICAL_WYSE_OR_PRODUCTION_SERVICE=NOT_TESTED'
