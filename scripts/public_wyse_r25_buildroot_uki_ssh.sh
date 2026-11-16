@@ -10,10 +10,19 @@ echo 'SCOPE=PUBLIC_SYNTHETIC_ONLY' > evidence/public/receipt.txt
 qemu-system-x86_64 --version | head -1 >> evidence/public/receipt.txt
 kernel=''
 version=''
-for candidate in /boot/vmlinuz-*; do
-  v=$(basename "$candidate" | sed 's/^vmlinuz-//')
-  if test -f "$candidate" && test -d "/lib/modules/$v"; then kernel="$candidate"; version="$v"; fi
-done
+if test -n "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"; then
+  # R29 K1: use the independently built Buildroot Linux 6.12.113 kernel,
+  # never Ubuntu host kernel/modules. Checked source build provides drivers built-in.
+  test -s "$WYSE_R29_OWNED_KERNEL_BZIMAGE"
+  kernel="$WYSE_R29_OWNED_KERNEL_BZIMAGE"
+  version='6.12.113'
+  echo 'R29_SOURCE_OWNED_KERNEL_SELECTED=PASS' >> evidence/public/receipt.txt
+else
+  for candidate in /boot/vmlinuz-*; do
+    v=$(basename "$candidate" | sed 's/^vmlinuz-//')
+    if test -f "$candidate" && test -d "/lib/modules/$v"; then kernel="$candidate"; version="$v"; fi
+  done
+fi
 test -n "$kernel"
 sudo cp "$kernel" "$W/vmlinuz"
 sudo chown "$(id -u):$(id -g)" "$W/vmlinuz"
@@ -34,18 +43,23 @@ done
 # A full distro modules tree causes huge initramfs unpacking and is not
 # appropriate for the Wyse recovery resource budget.
 mkdir -p "$R/lib/modules/$version"
-for metadata in /lib/modules/"$version"/modules.*; do
-  test -f "$metadata" || continue
-  cp -L "$metadata" "$R/lib/modules/$version/"
-done
-for mod in sdhci_pci sdhci mmc_block ahci libahci sd_mod e1000 usb_storage; do
-  modprobe -S "$version" --show-depends "$mod" || :
-done > evidence/public/modprobe-deps.txt
-awk '$1 == "insmod" {print $2}' evidence/public/modprobe-deps.txt | sort -u | while read -r module; do
-  test -f "$module" || continue
-  mkdir -p "$R$(dirname "$module")"
-  cp -L "$module" "$R$module"
-done
+if test -z "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"; then
+  for metadata in /lib/modules/"$version"/modules.*; do
+    test -f "$metadata" || continue
+    cp -L "$metadata" "$R/lib/modules/$version/"
+  done
+  for mod in sdhci_pci sdhci mmc_block ahci libahci sd_mod e1000 usb_storage; do
+    modprobe -S "$version" --show-depends "$mod" || :
+  done > evidence/public/modprobe-deps.txt
+  awk '$1 == "insmod" {print $2}' evidence/public/modprobe-deps.txt | sort -u | while read -r module; do
+    test -f "$module" || continue
+    mkdir -p "$R$(dirname "$module")"
+    cp -L "$module" "$R$module"
+  done
+else
+  : > evidence/public/modprobe-deps.txt
+  echo 'R29_NO_UBUNTU_TEST_MODULES=PASS' >> evidence/public/receipt.txt
+fi
 cp -L "$(command -v modprobe)" "$R/sbin/modprobe"
 echo "MODULE_FILE_COUNT=$(find "$R/lib/modules/$version" -type f | wc -l)" >> evidence/public/receipt.txt
 ssh-keygen -q -t ed25519 -N '' -f "$W/id_ed25519"
@@ -117,23 +131,31 @@ if test -n "${WYSE_R25_BUILDROOT_CPIO:-}"; then
   # is shipped into recovery userland. This is NOT a production kernel.
   MODULE_LIST="$B/etc/wyse-ci-fixture/kernel-module-order.txt"
   : > "$MODULE_LIST"
-  awk '$1=="insmod" && !seen[$2]++ {print $2}' evidence/public/modprobe-deps.txt > "$W/ordered-test-modules.txt"
-  while IFS= read -r module; do
-    case "$module" in /lib/modules/"$version"/*) ;; *) echo "R25_BAD_MODULE_SOURCE:$module" >&2; exit 10 ;; esac
-    test -f "$module" || { echo "R25_MODULE_SOURCE_MISSING:$module" >&2; exit 11; }
-    raw="${module%.zst}"
-    mkdir -p "$B$(dirname "$raw")"
-    case "$module" in
-      *.ko.zst) zstd -q -dc "$module" > "$B$raw" ;;
-      *.ko) cp -L "$module" "$B$raw" ;;
-      *) echo "R25_UNSUPPORTED_MODULE_FORMAT:$module" >&2; exit 12 ;;
-    esac
-    test -s "$B$raw"
-    printf '%s\n' "$raw" >> "$MODULE_LIST"
-  done < "$W/ordered-test-modules.txt"
-  test -s "$MODULE_LIST"
-  echo "R25_TEST_MODULE_COUNT=$(wc -l < "$MODULE_LIST")" >> evidence/public/receipt.txt
-  echo 'R25_BUILDROOT_BUSYBOX_MODULE_LOAD_FIXTURE=STAGED' >> evidence/public/receipt.txt
+  if test -n "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"; then
+    # Required recovery drivers were checked as builtin =y by R28 K0.
+    # Guest must demonstrate eMMC, SATA, network and SSH with this kernel.
+    : > "$MODULE_LIST"
+    : > "$B/etc/wyse-ci-fixture/owned-kernel-builtins"
+    echo 'R29_KERNEL_MODULE_LIST_EMPTY_BY_DESIGN=PASS' >> evidence/public/receipt.txt
+  else
+    awk '$1=="insmod" && !seen[$2]++ {print $2}' evidence/public/modprobe-deps.txt > "$W/ordered-test-modules.txt"
+    while IFS= read -r module; do
+      case "$module" in /lib/modules/"$version"/*) ;; *) echo "R25_BAD_MODULE_SOURCE:$module" >&2; exit 10 ;; esac
+      test -f "$module" || { echo "R25_MODULE_SOURCE_MISSING:$module" >&2; exit 11; }
+      raw="${module%.zst}"
+      mkdir -p "$B$(dirname "$raw")"
+      case "$module" in
+        *.ko.zst) zstd -q -dc "$module" > "$B$raw" ;;
+        *.ko) cp -L "$module" "$B$raw" ;;
+        *) echo "R25_UNSUPPORTED_MODULE_FORMAT:$module" >&2; exit 12 ;;
+      esac
+      test -s "$B$raw"
+      printf '%s\n' "$raw" >> "$MODULE_LIST"
+    done < "$W/ordered-test-modules.txt"
+    test -s "$MODULE_LIST"
+    echo "R25_TEST_MODULE_COUNT=$(wc -l < "$MODULE_LIST")" >> evidence/public/receipt.txt
+    echo 'R25_BUILDROOT_BUSYBOX_MODULE_LOAD_FIXTURE=STAGED' >> evidence/public/receipt.txt
+  fi
   cp "$W/host_ed25519" "$B/etc/wyse-ci-fixture/ssh_host_ed25519_key"
   cp "$W/id_ed25519.pub" "$B/etc/wyse-ci-fixture/authorized_keys"
   cat > "$B/init" <<'BUILDROOT_INIT'
@@ -156,7 +178,11 @@ if [ "$module_failed" -ne 0 ]; then
   echo 'R25_BUILDROOT_MODULE_CLOSURE=RED'
   exec /bin/sh
 fi
-echo 'R25_BUILDROOT_MODULE_CLOSURE=PASS'
+if [ -f /etc/wyse-ci-fixture/owned-kernel-builtins ]; then
+  echo 'R29_BUILTIN_DRIVER_INIT=PASS'
+else
+  echo 'R25_BUILDROOT_MODULE_CLOSURE=PASS'
+fi
 /bin/busybox sleep 4
 for node in /sys/block/mmcblk*; do
   test -d "$node" && echo 'EMMC_ENUMERATION=PASS' && break
@@ -193,7 +219,11 @@ BUILDROOT_INIT
   chmod 0755 "$B/init"
   R="$B"
   echo 'R25_BUILDROOT_ROOTFS_INJECTED=PASS' >> evidence/public/receipt.txt
-  echo 'R25_UBUNTU_TEST_KERNEL_MODULES=TRUE_NOT_PRODUCTION=TRUE' >> evidence/public/receipt.txt
+  if test -n "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"; then
+    echo 'R29_UBUNTU_TEST_KERNEL_MODULES=ABSENT' >> evidence/public/receipt.txt
+  else
+    echo 'R25_UBUNTU_TEST_KERNEL_MODULES=TRUE_NOT_PRODUCTION=TRUE' >> evidence/public/receipt.txt
+  fi
 fi
 (cd "$R" && find . -print0 | cpio --null -o -H newc --owner=0:0 --quiet | gzip -1 > "$W/initrd.gz")
 echo "INITRD_BYTES=$(stat -c %s "$W/initrd.gz")" >> evidence/public/receipt.txt
