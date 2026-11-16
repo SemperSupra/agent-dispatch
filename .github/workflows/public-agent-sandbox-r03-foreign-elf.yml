@@ -1,0 +1,36 @@
+name: Public Sandbox R03 - disposable cross-ISA ELF
+on:
+  push:
+    branches: [experiment/public-sandbox-qemu-user-r03]
+    paths: ['.github/workflows/public-agent-sandbox-r03-foreign-elf.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r03
+  cancel-in-progress: false
+jobs:
+  foreign-elf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        arch: [aarch64, riscv64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Cross-compile and emulate from disposable OCI-only tooling
+        shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: bash experiments/agent-sandbox-r03/verify.sh
+      - name: Record scope limitations
+        shell: bash
+        run: |
+          echo 'R03_HOST_SPECIFIC_WORKLOAD_ENVELOPE=NOT_TESTED'
+          echo 'R03_FULL_SYSTEM_KERNEL_BOOT=NOT_TESTED'
+          echo 'R03_LIVE_AGENT_INTERVIEWS=NOT_TESTED'
