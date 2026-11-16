@@ -503,3 +503,75 @@ if test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1; then
   echo 'R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
   echo 'R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
 fi
+
+# R32 F3 security-negative: firmware rejects a once-trusted/signed UKI after
+# its signed bytes were tampered, not merely a never-signed valid UKI (R23).
+# Offline sbverify rejection alone is insufficient; firmware denial required.
+if test "${WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE:-0}" = 1; then
+  test "${WYSE_R23_SIGNED_EFI:-0}" = 1
+  test "${WYSE_R23_UKI:-0}" = 1
+  test "${WYSE_R23_ENFORCE_SB:-0}" = 1
+  test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1
+  test -f "$W/forged-efi.bin"
+  test -f "$W/ephemeral-sb.crt"
+  test -f "$W/vars-for-negative.fd"
+  test -f "$W/usb-copy.img"
+  test -s evidence/public/negative-guest-serial.txt
+  # A malformed PE/UKI is not evidence of Secure Boot signature enforcement.
+  ukify inspect "$W/forged-efi.bin" > evidence/public/tampered-uki-inspect.txt 2>&1
+  for section in .linux .initrd .cmdline; do
+    grep -Fq "$section" evidence/public/tampered-uki-inspect.txt || {
+      echo "R32_F3_TAMPERED_UKI_SECTION_UNPARSEABLE=$section" >> evidence/public/receipt.txt
+      exit 1
+    }
+  done
+  if sbverify --cert "$W/ephemeral-sb.crt" "$W/forged-efi.bin" \
+      > "$W/tampered-offline-check.txt" 2>&1; then
+    echo 'R32_F3_TAMPERED_UKI_OFFLINE_SIGNATURE=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  echo 'R32_F3_TAMPERED_SIGNED_UKI_STRUCTURALLY_VALID_AND_OFFLINE_REFUSED=PASS' >> evidence/public/receipt.txt
+  cp "$W/usb-copy.img" "$W/tampered-usb.img"
+  mkdir -p "$W/tampered-mnt"
+  tamperloop=$(sudo losetup --find --partscan --show "$W/tampered-usb.img")
+  trap 'sudo umount "$W/tampered-mnt" 2>/dev/null || :; sudo losetup -d "$tamperloop" 2>/dev/null || :' EXIT
+  test "$(lsblk -ndo TYPE "$tamperloop")" = loop
+  tamperback=$(sudo losetup -n -O BACK-FILE "$tamperloop" | xargs)
+  test "$(readlink -f "$tamperback")" = "$(readlink -f "$W/tampered-usb.img")"
+  sudo udevadm settle
+  sudo mount "$tamperloop"p1 "$W/tampered-mnt"
+  sudo cp "$W/forged-efi.bin" "$W/tampered-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo cmp "$W/forged-efi.bin" "$W/tampered-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo sync
+  sudo umount "$W/tampered-mnt"
+  sudo losetup -d "$tamperloop"
+  trap - EXIT
+  cp "$W/emmc-original.img" "$W/emmc-tampered.img"
+  cp "$W/vars-for-negative.fd" "$W/vars-tampered.fd"
+  timeout -s TERM -k 5 45s qemu-system-x86_64 \
+    -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
+    -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
+    -drive if=pflash,format=raw,file="$W/vars-tampered.fd" \
+    -drive if=none,id=usb,format=raw,readonly=on,file="$W/tampered-usb.img" \
+    -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1 \
+    -drive if=none,id=emmc,format=raw,file="$W/emmc-tampered.img" \
+    -device sdhci-pci -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+    -device ich9-ahci,id=ahci -drive if=none,id=ssd,format=raw,file="$W/sata.img" \
+    -device ide-hd,bus=ahci.0,drive=ssd,bootindex=2 \
+    -netdev user,id=n -device e1000,netdev=n \
+    -display none -monitor none -serial file:evidence/public/tampered-guest-serial.txt -no-reboot \
+    > evidence/public/tampered-qemu-log.txt 2>&1 || :
+  if ! grep -Eq 'BdsDxe: failed to load Boot[0-9]{4}.*Access Denied' \
+      evidence/public/tampered-guest-serial.txt; then
+    echo 'R32_F3_TAMPERED_SIGNED_UKI_FIRMWARE_DENIAL=UNPROVEN' >> evidence/public/receipt.txt
+    tail -n 50 evidence/public/tampered-guest-serial.txt
+    exit 1
+  fi
+  if grep -Fq 'WYSE_SYNTHETIC_LINUX_INIT=PASS' evidence/public/tampered-guest-serial.txt; then
+    echo 'R32_F3_TAMPERED_SIGNED_UKI_INIT=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  sha256sum -c "$W/emmc-sha"
+  echo 'R32_F3_TAMPERED_SIGNED_UKI_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
+  echo 'R32_F3_TAMPERED_SIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
+fi
