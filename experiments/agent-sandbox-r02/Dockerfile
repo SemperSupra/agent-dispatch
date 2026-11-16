@@ -6,7 +6,7 @@ WORKDIR /src
 COPY service.go ./service.go
 ENV GOCACHE=/tmp/gocache GOPATH=/tmp/gopath GOMODCACHE=/tmp/gomodcache
 RUN --mount=type=tmpfs,target=/tmp \
-    CGO_ENABLED=0 GOPROXY=off GOSUMDB=off GOENV=off \
+    mkdir -p /out && CGO_ENABLED=0 GOPROXY=off GOSUMDB=off GOENV=off \
     go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/service ./service.go
 
 FROM scratch
