@@ -1,0 +1,38 @@
+name: Public Sandbox R13 - multi ISA virtual USB HID
+on:
+  push:
+    branches: [experiment/public-sandbox-r13-crossisa-usb]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r13.yml'
+      - 'experiments/agent-sandbox-r13/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r13-multiisa
+  cancel-in-progress: false
+jobs:
+  host-usb-persona:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        arch: [x86_64, aarch64, riscv64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify XHCI USB HID persona and QMP remote input on disposable TCG
+        shell: bash
+        env:
+          R13_ARCH: ${{ matrix.arch }}
+        run: bash experiments/agent-sandbox-r13/verify.sh
+      - name: Preserve guest qualification boundary
+        shell: bash
+        run: |
+          echo 'R13_HOST_QMP_USB_CONTROLLER_ONLY=YES'
+          echo 'R13_WINDOWS_LINUX_GUEST_HID_INPUT_EFFECT=NOT_TESTED'
+          echo 'R13_FOREIGN_GUEST_USB_DRIVERS=NOT_TESTED'
