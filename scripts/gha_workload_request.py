@@ -166,6 +166,14 @@ def _execute(workload: str, timeout: int) -> dict:
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 timeout=timeout, check=False)
             if cp.returncode or len(cp.stdout)>16384:
+                # Emit only a single controlled failure class, not raw download,
+                # compiler or model stderr, which could contain untrusted text.
+                failure=re.search(
+                    r"MODEL_PUBLIC_REP_BLOCKED=([A-Z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_MODEL_FIRST_FAILURE=" +
+                      (failure.group(1) if failure else "UNCLASSIFIED_SUBPROCESS"),
+                      flush=True)
                 raise ValueError("PINNED_MODEL_OR_ENGINE_RUNTIME_FAIL")
             obs=json.loads(cp.stdout)
             dev=obs.get("dev",{})
@@ -176,7 +184,7 @@ def _execute(workload: str, timeout: int) -> dict:
                 isinstance(obs,dict)
                 and obs.get("schema")=="mail-public-real-cpu-model-doe/v1"
                 and obs.get("classification")=="REAL_CPU_MODEL_MEASURED_NO_PROMOTION"
-                and obs.get("engine_commit")=="8642541b255bfb5dc39cd351a178be09013a55d6"
+                and obs.get("engine_commit")=="b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed"
                 and obs.get("model_commit")=="9217f5db79a29953eb74d5343926648285ec7e67"
                 and obs.get("model_sha256")=="9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8"
                 and obs.get("model_license")=="Apache-2.0"
