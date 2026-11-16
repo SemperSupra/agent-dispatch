@@ -56,6 +56,33 @@ if [ "$seen_kbd" != 1 ] || [ "$seen_tab" != 1 ] || [ "$seen_disk" != 1 ];then
  exit 27
 fi
 echo R15_GUEST_USB_ALL_THREE_ENUMERATED=PASS
+usb_event=""
+for p in /sys/class/input/event*/device/name; do
+ [ -f "$p" ] || continue
+ name="$(/bin/busybox cat "$p" 2>/dev/null)"
+ case "$name" in
+  *QEMU*USB*Keyboard*)
+   usb_event="${p%/device/name}"
+   usb_event="/dev/input/${usb_event##*/}"
+   break
+   ;;
+ esac
+done
+if [ -z "$usb_event" ] || [ ! -c "$usb_event" ]; then
+ echo R15_USB_KEYBOARD_EVDEV_NODE=RED
+ /bin/busybox ls -l /dev/input 2>/dev/null || true
+ /bin/busybox poweroff -f
+ /bin/busybox sleep 3
+ exit 28
+fi
+echo R15_USB_KEYBOARD_EVDEV_NODE=PASS
+if ! /hid_observer "$usb_event"; then
+ echo R15_GUEST_KEY_EVENT_CAPTURE=RED
+ /bin/busybox poweroff -f
+ /bin/busybox sleep 3
+ exit 29
+fi
+echo R15_GUEST_KEY_EVENT_CAPTURE=PASS
 /bin/busybox poweroff -f
 /bin/busybox sleep 10
 exit 0
