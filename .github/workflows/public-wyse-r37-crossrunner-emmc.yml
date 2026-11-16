@@ -1,0 +1,67 @@
+name: Public Wyse R37 two-runner eMMC image byte reproducibility
+on:
+  push:
+    branches: [experiment/public-wyse-r37-crossrunner-emmc]
+    paths:
+      - '.github/workflows/public-wyse-r37-crossrunner-emmc.yml'
+      - 'scripts/public_wyse_r36_emmc_repro.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r37-crossrunner-emmc
+  cancel-in-progress: false
+jobs:
+  independent-raw-image-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [alpha, beta]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install identical public fixed-toolchain image creation packages
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            gdisk dosfstools mtools grub-common grub-efi-amd64-bin grub-pc-bin
+          echo R37_INDEPENDENT_PUBLIC_WORKER_TOOLS=PASS
+      - name: Independently generate EFI and two bitwise-identical full eMMC images
+        shell: bash
+        env:
+          R37_WORKER: ${{ matrix.worker }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence/public
+          bash -n scripts/public_wyse_r36_emmc_repro.sh
+          bash scripts/public_wyse_r36_emmc_repro.sh | tee "evidence/public/r37-${R37_WORKER}-receipt.txt"
+          receipt="evidence/public/r37-${R37_WORKER}-receipt.txt"
+          for marker in \
+            R36_FULL_RAW_EMMC_IMAGE_CMP=PASS \
+            R36_PARTITION_ESP_AND_EFI_READBACK=PASS \
+            R36_ORIGINAL_EFI_BYTE_PAYLOAD_REUSED_BOTH_BUILDS=PASS; do
+            grep -Fxq "$marker" "$receipt"
+          done
+          # Byte identities are anchored to PREVIOUS completed independent
+          # public R36 CI, not merely to two sibling paths in this job.
+          grep -Fxq 'R36_EFI_PAYLOAD_SHA256=ebfd83c9dcf973212ad67a177a413b748aba6f7af0162cd0eb3b445a4acfe332' "$receipt"
+          grep -Fxq 'R36_CANDIDATE_A_SHA256=9b8720283c0c7dce28003430cb798fffbdf5ab7c4a78cb50dcae73f3e3e89027' "$receipt"
+          grep -Fxq 'R36_CANDIDATE_B_SHA256=9b8720283c0c7dce28003430cb798fffbdf5ab7c4a78cb50dcae73f3e3e89027' "$receipt"
+          grep -Fxq 'R36_DETERMINISTIC_260M_IMAGE_SHA256=9b8720283c0c7dce28003430cb798fffbdf5ab7c4a78cb50dcae73f3e3e89027' "$receipt"
+          echo "R37_INDEPENDENT_WORKER=${R37_WORKER}"
+          echo "R37_FULL_RAW_IMAGE_CROSS_RUN_ANCHORED=PASS"
+          echo "R37_SIGNED_UKI_AND_PRODUCTION_KEY_CROSS_RUN=NOT_TESTED"
+      - name: Keep only public text receipts, never images or executable EFI
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r37-crossrunner-${{ matrix.worker }}-text
+          path: evidence/public/r37-*-receipt.txt
+          if-no-files-found: warn
+          retention-days: 7
