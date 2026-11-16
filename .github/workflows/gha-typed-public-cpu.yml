@@ -191,6 +191,9 @@ jobs:
           - runner: ubuntu-24.04
             request: requests/gha/mail-evidence-go-v1.json
             artifact_suffix: mail-go
+          - runner: ubuntu-24.04
+            request: requests/gha/mail-qwen-real-cpu-v1.json
+            artifact_suffix: qwen-real
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
