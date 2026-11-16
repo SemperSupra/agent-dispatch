@@ -12,7 +12,7 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
     version="${kernel#/boot/vmlinuz-}" && \
     mkinitramfs -o /out/default-initrd "$version" && \
     unmkinitramfs /out/default-initrd /tmp/extracted && \
-    cp -a /tmp/extracted/main/. /tmp/repacked/ && \
+    if [ -d /tmp/extracted/main ]; then cp -a /tmp/extracted/main/. /tmp/repacked/; else cp -a /tmp/extracted/. /tmp/repacked/; fi && \
     cp /src/init.sh /tmp/repacked/init && chmod 0755 /tmp/repacked/init && \
     mkdir -p /tmp/repacked/bin && cp /bin/busybox /tmp/repacked/bin/busybox && \
     cd /tmp/repacked && find . -print | LC_ALL=C cpio --quiet -o -H newc | gzip -9 > /out/initrd.gz && \
