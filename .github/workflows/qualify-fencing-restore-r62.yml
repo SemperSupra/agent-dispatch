@@ -1,0 +1,37 @@
+name: Real etcd stale restore and lost UNKNOWN negative (R62)
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/restore-r62/**'
+      - '.github/workflows/qualify-fencing-restore-r62.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r62-etcd-restore-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-restore-negative:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Checkout no persistent auth
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Verify native etcd bump revision stale-snapshot counterexample
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/fencing/restore-r62/run.sh
+      - name: Preserve negative acceptance boundary
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          A real native etcd stale-snapshot restore with revision bump can erase
+          previously committed budget and UNKNOWN effect state. This is a
+          deliberate EXPECTED RED counterexample, not a secure restore design.
+          Single runner/single-member oracle, no external high-water authority,
+          no production host or real effect sink. OCI release remains HOLD.
+          SUMMARY
