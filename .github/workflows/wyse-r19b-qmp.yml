@@ -1,0 +1,45 @@
+name: R19B real Linux-local QMP atomic fence
+on:
+  push:
+    branches: [test/issue-366-qmp-atomic]
+    paths:
+      - '.github/workflows/wyse-r19b-qmp.yml'
+      - 'experiments/wyse-r19b/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wyse-r19b-issue-366
+  cancel-in-progress: false
+jobs:
+  qmp-real:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        lane: [input, race, deny]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: r19b-source
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: r19-source
+          ref: 86b377a4b2d351aea3016852311a9100d8a76230
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real local QMP operation and linearized revoke in disposable Linux OCI
+        shell: bash
+        env:
+          R19B_LANE: ${{ matrix.lane }}
+        run: bash "$GITHUB_WORKSPACE/r19b-source/experiments/wyse-r19b/verify.sh"
+      - name: Preserve scope
+        shell: bash
+        run: |
+          echo R19B_HOST_LOCAL_REAL_QMP_COMMANDS_ONLY=YES
+          echo R19B_REAL_GUEST_USB_KERNEL_EVENTS=NOT_TESTED
+          echo R19B_CROSS_HOST_DURABLE_LEDGER=NOT_TESTED
