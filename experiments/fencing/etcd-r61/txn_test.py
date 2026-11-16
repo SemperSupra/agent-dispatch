@@ -36,7 +36,9 @@ def main():
         gate=Barrier(2)
         def contender(port,owner):
             gate.wait(timeout=10)
-            return owner,txn(port,"r61/claim",owner).get("succeeded")
+            r=txn(port,"r61/claim",owner)
+            assert "header" in r,("invalid etcd txn response",owner,r)
+            return owner,r.get("succeeded") is True
         with ThreadPoolExecutor(max_workers=2) as pool:
             a=pool.submit(contender,2379,"A");c=pool.submit(contender,22379,"B")
             results=[a.result(timeout=10),c.result(timeout=10)]
@@ -63,7 +65,7 @@ def main():
         possibly_committed=get(2379,"r61/no-quorum")
         assert possibly_committed in ([],["MAYBE"]),possibly_committed
         replay=retry_txn(2379,"r61/claim","STALE")
-        assert replay.get("succeeded") is False,replay
+        assert "header" in replay and replay.get("succeeded") is not True,replay
         print(json.dumps({"stage":mode,"previous_liability_retained":True,
             "post_timeout_receipt": "PRESENT" if possibly_committed else "ABSENT_AT_READBACK",
             "stale_absent_version_denied":True,"physical_cross_host":"NOT_TESTED"}))
