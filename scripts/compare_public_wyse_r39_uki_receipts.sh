@@ -27,10 +27,10 @@ for file in "$A" "$B"; do
   for key in "${keys[@]}"; do
     val=$(get "$file" "$key")
     case "$key" in
-      *_SHA256) [[ "$val" =~ ^[a-f0-9]{64}$ ]] ||
-        { echo "R39_BAD_DIGEST=$key"; exit 24; } ;;
       R39_EPHEMERAL_CERT_SHA256) [[ "$val" =~ ^[A-F0-9]{64}$ ]] ||
         { echo R39_BAD_TEST_CERT_FP=RED; exit 24; } ;;
+      *_SHA256) [[ "$val" =~ ^[a-f0-9]{64}$ ]] ||
+        { echo "R39_BAD_DIGEST=$key"; exit 24; } ;;
       R39_UNSIGNED_TWO_BUILDS_EQUAL|R39_SIGNED_SAME_EPHEMERAL_KEY_EQUAL)
         [[ "$val" == YES || "$val" == NO ]] || { echo R39_BAD_COMPARISON=RED; exit 25; } ;;
       R39_REPLICA) [[ "$val" == alpha || "$val" == beta ]] ||
