@@ -7,7 +7,6 @@ import (
  "context"
  "crypto/ed25519"
  "crypto/rand"
- "encoding/hex"
  "encoding/json"
  "errors"
  "fmt"
