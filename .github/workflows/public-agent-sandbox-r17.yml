@@ -1,0 +1,32 @@
+name: Public Sandbox R17 - Linux remote HID to local QMP
+on:
+  push:
+    branches: [experiment/public-sandbox-r17-linux-qmp-adapter]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r17.yml'
+      - 'experiments/agent-sandbox-r17/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r17-linux-qmp-adapter
+  cancel-in-progress: false
+jobs:
+  linux-hid-adapter:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Test independent IP client and local QMP broker with disposable OCI-only tooling
+        shell: bash
+        run: bash experiments/agent-sandbox-r17/verify.sh
+      - name: Explicit acceptance scope
+        shell: bash
+        run: |
+          echo 'R17_LINUX_SERVER_IP_MANAGEMENT_AND_LOCAL_QMP=REQUIRES_VERIFIED_CI'
+          echo 'R17_REAL_GUEST_KEYBOARD_EVDEV_EVENTS=REFER_TO_R15'
+          echo 'R17_WINDOWS_GUEST_AND_FOREIGN_ISA_GUEST=NOT_TESTED'
+          echo 'R17_PRODUCTION_AUTHENTICATION_AND_PHYSICAL_USB=NOT_TESTED'
