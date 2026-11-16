@@ -1,0 +1,31 @@
+name: Public Sandbox R12 - USB/IP protocol mock
+on:
+  push:
+    branches: [experiment/public-sandbox-r12-usbip-gateway]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r12.yml'
+      - 'experiments/agent-sandbox-r12/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r12-usbip
+  cancel-in-progress: false
+jobs:
+  synthetic-usbip-protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real upstream USBIP client discovery and mock import denial in disposable OCI
+        shell: bash
+        run: bash experiments/agent-sandbox-r12/verify.sh
+      - name: Explicit scope
+        shell: bash
+        run: |
+          echo 'R12_USB_HUB_PASS_THROUGH_OR_URB_FORWARDING=NOT_TESTED'
+          echo 'R12_REAL_PHYSICAL_DEVICE_OR_CAC=NOT_TESTED'
+          echo 'R12_BUILTIN_USBIP_ENCRYPTION_AUTHENTICATION=ABSENT'
