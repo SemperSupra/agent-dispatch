@@ -163,11 +163,16 @@ def infer(binary:Path,model:Path,root:Path,env:dict[str,str],policy:str,
     start=time.monotonic()
     output=command(commandline,root,env,22).stdout[:8192].decode("utf-8","replace")
     duration_ms=round((time.monotonic()-start)*1000)
-    matches=re.findall(r'\{\s*"source_id"\s*:\s*"[^"]+"\s*,\s*"value"\s*:\s*"[^"]+"\s*\}',output)
+    matches=re.findall(r'\\{[^{}]{2,400}\\}',output)
     parsed={}
-    if matches:
-        try: parsed=json.loads(matches[-1])
-        except ValueError: pass
+    for candidate in reversed(matches):
+        try:
+            value=json.loads(candidate)
+            if isinstance(value,dict) and set(value)=={"source_id","value"}:
+                parsed=value
+                break
+        except ValueError:
+            continue
     value=parsed.get("value")
     source=parsed.get("source_id")
     in_scope=source in IDS and value in VALUES
