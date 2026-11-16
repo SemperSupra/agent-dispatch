@@ -1,0 +1,31 @@
+name: Public Sandbox R08 - synthetic signed lease policy
+on:
+  push:
+    branches: [experiment/public-sandbox-r08-lease-policy]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r08.yml'
+      - 'experiments/agent-sandbox-r08/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-agent-sandbox-r08
+  cancel-in-progress: false
+jobs:
+  signed-lease:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Synthetic Ed25519 grant controls in fully disposable offline OCI toolchain
+        run: bash experiments/agent-sandbox-r08/verify.sh
+        shell: bash
+      - name: Non-production acceptance boundary
+        run: |
+          echo 'R08_TEST_KEYS_SYNTHETIC_ONLY=YES'
+          echo 'R08_ACTUAL_HOST_OR_EXTERNAL_BROKER_AUTHORITY=NOT_TESTED'
+          echo 'R08_AGENT_MODEL_HARNESS_QUALIFICATION=NOT_TESTED'
+        shell: bash
