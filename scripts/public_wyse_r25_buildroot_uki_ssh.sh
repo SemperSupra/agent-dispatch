@@ -4,6 +4,28 @@
 set -Eeuo pipefail
 trap 'echo "SYNTHETIC_RECOVERY_FAILURE_LINE=$LINENO" >&2' ERR
 umask 077
+# R38 one-mode-per-run: prevent conflicting topology and security experiments.
+# Default K1 and F1 modes remain available with every new opt-in unset.
+mode_count=0
+for value in "${WYSE_R32_ASSERT_BUS_TOPOLOGY:-0}" "${WYSE_R32_NO_EMMC:-0}" \
+             "${WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE:-0}" "${WYSE_R34_EMMC_SIGNED_BOOT:-0}"; do
+  case "$value" in
+    0) ;;
+    1) mode_count=$((mode_count+1)) ;;
+    *) echo 'R38_INVALID_MODE_VALUE=FAIL_CLOSED' >&2; exit 55 ;;
+  esac
+done
+if test "$mode_count" -gt 1; then
+  echo 'R38_CONFLICTING_RECOVERY_MODES=FAIL_CLOSED' >&2
+  exit 56
+fi
+case "${WYSE_R30_NO_SATA:-0}" in
+  0|1) ;;
+  *) echo 'R38_INVALID_SATA_FAULT_VALUE=FAIL_CLOSED' >&2; exit 57 ;;
+esac
+if test "${WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE:-0}" = 1 && test "${WYSE_R30_NO_SATA:-0}" != 1; then
+  echo 'R38_TAMPERED_MODE_REQUIRES_F1=FAIL_CLOSED' >&2; exit 58
+fi
 mkdir -p evidence/public evidence/private/{root,work}
 R="$PWD/evidence/private/root"; W="$PWD/evidence/private/work"
 echo 'SCOPE=PUBLIC_SYNTHETIC_ONLY' > evidence/public/receipt.txt
@@ -89,7 +111,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS"; break ;;
+    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS" ;;
     */usb[0-9]*/*) echo "USB_BOOT_STORAGE_ENUMERATION=PASS" ;;
     *) echo "BLOCK_BUS_IDENTITY_UNSUPPORTED=RED" ;;
   esac
@@ -197,7 +219,7 @@ for node in /sys/block/sd[a-z]*; do
   test -d "$node" || continue
   disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
   case "$disk_path" in
-    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS'; break ;;
+    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS' ;;
     */usb[0-9]*/*) echo 'USB_BOOT_STORAGE_ENUMERATION=PASS' ;;
     *) echo 'BLOCK_BUS_IDENTITY_UNSUPPORTED=RED' ;;
   esac
@@ -320,6 +342,34 @@ truncate -s 128M "$W/sata.img"
 printf 'PROTECTED_EMMC_CANARY' | dd of="$W/emmc-original.img" bs=1 seek=18874368 conv=notrunc status=none
 sha256sum "$W/emmc-original.img" > "$W/emmc-sha"
 cp "$W/emmc-original.img" "$W/emmc-guest.img"
+# R34 K2b: stage the already signed UKI on a disposable COPY of the eMMC
+# user area, never the original protected image or any physical device.
+if test "${WYSE_R34_EMMC_SIGNED_BOOT:-0}" = 1; then
+  test "${WYSE_R23_SIGNED_EFI:-0}" = 1
+  test "${WYSE_R23_UKI:-0}" = 1
+  test "${WYSE_R23_ENFORCE_SB:-0}" = 1
+  test -s "$W/efi/EFI/BOOT/BOOTX64.EFI"
+  truncate -s 256M "$W/emmc-user.raw"
+  sgdisk --zap-all --clear -n 1:2048:+128M -t 1:ef00 "$W/emmc-user.raw" > evidence/public/emmc-user-partition-layout.txt
+  emloop=$(sudo losetup --find --partscan --show "$W/emmc-user.raw")
+  trap 'sudo umount "$W/emmc-mnt" 2>/dev/null || :; sudo losetup -d "$emloop" 2>/dev/null || :' EXIT
+  test "$(lsblk -ndo TYPE "$emloop")" = loop
+  test "$(readlink -f "$(sudo losetup -n -O BACK-FILE "$emloop" | xargs)")" = "$(readlink -f "$W/emmc-user.raw")"
+  sudo udevadm settle
+  sudo mkfs.vfat -F 32 -n WYSEEMMC "$emloop"p1 > /dev/null
+  mkdir -p "$W/emmc-mnt"
+  sudo mount "$emloop"p1 "$W/emmc-mnt"
+  sudo cp -r "$W/efi/EFI" "$W/emmc-mnt/"
+  sudo cmp "$W/efi/EFI/BOOT/BOOTX64.EFI" "$W/emmc-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo sync
+  sudo umount "$W/emmc-mnt"
+  sudo losetup -d "$emloop"
+  trap - EXIT
+  dd if="$W/emmc-user.raw" of="$W/emmc-guest.img" bs=4M seek=1 conv=notrunc status=none
+  test "$(stat -c %s "$W/emmc-guest.img")" -eq 272629760
+  sha256sum -c "$W/emmc-sha"
+  echo 'R34_SIGNED_UKI_STAGED_ON_SYNTHETIC_EMMC_USER_ESP=PASS' >> evidence/public/receipt.txt
+fi
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.fd
 ovmf_machine=q35
 if test "${WYSE_R23_ENFORCE_SB:-0}" = 1; then
@@ -349,13 +399,28 @@ if test "${WYSE_R30_NO_SATA:-0}" = 1; then
   sata_args=()
   echo 'R30_FAULT_NO_SATA_QEMU_DEVICE_OMITTED=PASS' >> evidence/public/receipt.txt
 fi
+# Omit QEMU USB from the K2b positive boot entirely; only eMMC is
+# bootable. F1 no-SATA mode also removes any alternate SATA boot path.
+usb_args=(-drive "if=none,id=usb,format=raw,readonly=on,file=$W/usb-copy.img" -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1)
+if test "${WYSE_R34_EMMC_SIGNED_BOOT:-0}" = 1; then
+  test "${WYSE_R30_NO_SATA:-0}" = 1
+  usb_args=()
+  echo 'R34_QEMU_USB_AND_SATA_BOOT_PATHS_ABSENT=PASS' >> evidence/public/receipt.txt
+fi
+# R32 F2: omit emulated eMMC *controller and storage* as a completely
+# detached device, not a hidden guest mount; signed rescue must still work.
+emmc_args=(-drive "if=none,id=emmc,format=raw,file=$W/emmc-guest.img" -device sdhci-pci -device "emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152")
+if test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  test -n "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"
+  test "${WYSE_R30_NO_SATA:-0}" != 1
+  emmc_args=()
+  echo 'R32_F2_EMMC_CONTROLLER_AND_MEDIA_OMITTED=PASS' >> evidence/public/receipt.txt
+fi
 qemu-system-x86_64 -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
   -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
   -drive if=pflash,format=raw,file="$W/vars.fd" \
-  -drive if=none,id=usb,format=raw,readonly=on,file="$W/usb-copy.img" \
-  -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1 \
-  -drive if=none,id=emmc,format=raw,file="$W/emmc-guest.img" \
-  -device sdhci-pci -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+  "${usb_args[@]}" \
+  "${emmc_args[@]}" \
   "${sata_args[@]}" \
   -netdev user,id=n,hostfwd=tcp:127.0.0.1:22222-:22 -device e1000,netdev=n \
   -display none -monitor none -serial file:evidence/public/guest-serial.txt -no-reboot \
@@ -366,6 +431,23 @@ success=0
 guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; grep -q sda /proc/partitions && echo GUEST_SATA=PASS'
 if test "${WYSE_R30_NO_SATA:-0}" = 1; then
   guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; usb=0; for node in /sys/block/sd[a-z]*; do test -d "$node" || continue; disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo R30_UNKNOWN_BLOCK_DEVICE=FAIL_CLOSED; exit 24; }; case "$disk_path" in */ata[0-9]*/*) echo R30_UNEXPECTED_SATA=FAIL_OPEN; exit 23 ;; */usb[0-9]*/*) usb=1 ;; *) echo R30_UNSUPPORTED_SCSI_BUS=FAIL_CLOSED; exit 25 ;; esac; done; test "$usb" = 1 || { echo R30_EXPECTED_USB_STORAGE_NOT_SEEN=RED; exit 26; }; echo R30_GUEST_USB_BLOCK_PRESENT=PASS; echo R30_GUEST_SATA_ABSENT=PASS'
+fi
+if test "${WYSE_R34_EMMC_SIGNED_BOOT:-0}" = 1; then
+  # Real signed UKI directly from eMMC: no USB/SATA physical ancestry in
+  # authenticated guest, positive eMMC user-area partition and SSH.
+  guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions || exit 51; echo GUEST_EMMC=PASS; grep -q mmcblk0p1 /proc/partitions || { echo R34_EMMC_ESP_PARTITION_MISSING=RED; exit 52; }; echo R34_EMMC_ESP_GPT_USER_PARTITION=PASS; for node in /sys/block/sd[a-z]*; do test -d "$node" || continue; echo R34_UNEXPECTED_SCSI_DISK=FAIL_OPEN; exit 53; done; echo R34_GUEST_USB_AND_SATA_ABSENT=PASS'
+fi
+if test "${WYSE_R32_ASSERT_BUS_TOPOLOGY:-0}" = 1; then
+  # R32 F0: real guest sysfs transport ancestry, not /dev/sda name, must
+  # show both QEMU USB boot medium and separate AHCI/SATA workload disk.
+  test -n "${WYSE_R29_OWNED_KERNEL_BZIMAGE:-}"
+  test "${WYSE_R30_NO_SATA:-0}" != 1
+  guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions || exit 31; echo GUEST_EMMC=PASS; usb=0; sata=0; for node in /sys/block/sd[a-z]*; do test -d "$node" || continue; disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo R32_F0_UNRESOLVED_BLOCK_BUS=RED; exit 32; }; case "$disk_path" in */ata[0-9]*/*) sata=1 ;; */usb[0-9]*/*) usb=1 ;; *) echo R32_F0_UNKNOWN_SCSI_BUS=RED; exit 33 ;; esac; done; test "$usb" = 1 || { echo R32_F0_MISSING_USB=RED; exit 34; }; test "$sata" = 1 || { echo R32_F0_MISSING_SATA=RED; exit 35; }; echo R32_F0_USB_BUS_PRESENT=PASS; echo R32_F0_SATA_BUS_PRESENT=PASS; echo GUEST_SATA=PASS'
+fi
+if test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  # The primary eMMC device is absent but the independently signed USB rescue
+  # must boot and provide authenticated SSH. Verify independent SATA bus.
+  guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; for node in /sys/block/mmcblk*; do if test -d "$node"; then echo R32_F2_UNEXPECTED_EMMC=FAIL_OPEN; exit 41; fi; done; echo R32_F2_EMMC_ABSENT=PASS; usb=0; sata=0; for node in /sys/block/sd[a-z]*; do test -d "$node" || continue; disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo R32_F2_UNRESOLVED_BUS=RED; exit 42; }; case "$disk_path" in */usb[0-9]*/*) usb=1 ;; */ata[0-9]*/*) sata=1 ;; *) echo R32_F2_UNKNOWN_BUS=RED; exit 43 ;; esac; done; test "$usb" = 1 || { echo R32_F2_USB_MISSING=RED; exit 44; }; test "$sata" = 1 || { echo R32_F2_SATA_MISSING=RED; exit 45; }; echo R32_F2_USB_AND_SATA_BUS_PRESENT=PASS'
 fi
 for attempt in $(seq 1 105); do
   if ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -402,13 +484,29 @@ boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS SATA_ENUMERAT
 if test "${WYSE_R30_NO_SATA:-0}" = 1; then
   boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS EMMC_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
 fi
+if test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  boot_markers="WYSE_SYNTHETIC_LINUX_INIT=PASS USB_BOOT_STORAGE_ENUMERATION=PASS SATA_ENUMERATION=PASS RECOVERY_NETWORK_READY=PASS"
+fi
 if test "${WYSE_R23_UKI:-0}" != 1; then
   boot_markers="WYSE_SYNTHETIC_UEFI_LOADER=PASS $boot_markers"
 fi
 for marker in $boot_markers; do
   grep -q "$marker" evidence/public/guest-serial.txt || { echo "MISSING:$marker"; exit 1; }
 done
-if test "${WYSE_R30_NO_SATA:-0}" = 1; then
+if test "${WYSE_R34_EMMC_SIGNED_BOOT:-0}" = 1; then
+  for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS R34_EMMC_ESP_GPT_USER_PARTITION=PASS R34_GUEST_USB_AND_SATA_ABSENT=PASS; do
+    grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
+  done
+  if ! grep -Eq 'BdsDxe: starting Boot[0-9]{4}.*eMMC User Data.*PciRoot.*/eMMC\(' evidence/public/guest-serial.txt; then
+    echo 'R34_OVMF_ACTUAL_EMMC_BOOT_PATH=UNPROVEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  if grep -Fq 'USB_BOOT_STORAGE_ENUMERATION=PASS' evidence/public/guest-serial.txt || grep -Fq 'SATA_ENUMERATION=PASS' evidence/public/guest-serial.txt; then
+    echo 'R34_UNEXPECTED_ALTERNATE_BOOT_BLOCK_DEVICE=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  echo 'R34_OVMF_EMMC_USER_AREA_SIGNED_LINUX_AND_AUTH_SSH=PASS' >> evidence/public/receipt.txt
+elif test "${WYSE_R30_NO_SATA:-0}" = 1; then
   for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS R30_GUEST_USB_BLOCK_PRESENT=PASS R30_GUEST_SATA_ABSENT=PASS; do
     grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
   done
@@ -421,10 +519,35 @@ if test "${WYSE_R30_NO_SATA:-0}" = 1; then
     exit 1
   fi
   echo 'R30_NO_SATA_RECOVERY_BOOT_AND_AUTH_SSH=PASS' >> evidence/public/receipt.txt
+elif test "${WYSE_R32_NO_EMMC:-0}" = 1; then
+  for marker in KEY_ONLY_SSH_LOGIN=PASS R32_F2_EMMC_ABSENT=PASS R32_F2_USB_AND_SATA_BUS_PRESENT=PASS; do
+    grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
+  done
+  if grep -Fxq 'EMMC_ENUMERATION=PASS' evidence/public/guest-serial.txt; then
+    echo 'R32_F2_EMMC_GUEST_TOPOLOGY=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  if grep -Eq 'BLOCK_BUS_IDENTITY_(UNKNOWN|UNSUPPORTED)=RED' evidence/public/guest-serial.txt; then
+    echo 'R32_F2_BLOCK_BUS_UNKNOWN=RED' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  echo 'R32_F2_NO_EMMC_SIGNED_USB_RESCUE_WITH_SSH=PASS' >> evidence/public/receipt.txt
 else
   for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS GUEST_SATA=PASS; do
     grep -q "$marker" evidence/public/ssh-oracle.txt || exit 1
   done
+  if test "${WYSE_R32_ASSERT_BUS_TOPOLOGY:-0}" = 1; then
+    for marker in R32_F0_USB_BUS_PRESENT=PASS R32_F0_SATA_BUS_PRESENT=PASS; do
+      grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
+    done
+    grep -Fq 'USB_BOOT_STORAGE_ENUMERATION=PASS' evidence/public/guest-serial.txt
+    grep -Fq 'SATA_ENUMERATION=PASS' evidence/public/guest-serial.txt
+    if grep -Eq 'BLOCK_BUS_IDENTITY_(UNKNOWN|UNSUPPORTED)=RED' evidence/public/guest-serial.txt; then
+      echo 'R32_F0_BLOCK_BUS_UNKNOWN=RED' >> evidence/public/receipt.txt
+      exit 1
+    fi
+    echo 'R32_F0_BASELINE_USB_AND_SATA_BUS_SIGNED_RECOVERY=PASS' >> evidence/public/receipt.txt
+  fi
   echo 'UEFI_USB_LINUX_EMMC_SATA_SSH=PASS' >> evidence/public/receipt.txt
 fi
 echo 'EMMC_SOURCE_PRESERVED=PASS' >> evidence/public/receipt.txt
@@ -502,4 +625,128 @@ if test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1; then
   sha256sum -c "$W/emmc-sha"
   echo 'R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
   echo 'R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
+fi
+
+# R34 K2b: the *same QEMU eMMC firmware boot path*, without any USB/SATA
+# fallback, MUST refuse a structurally valid unsigned UKI. The older R23
+# negative boots USB and remains a separate mandatory control; this test
+# closes the eMMC-specific firmware-enforcement gap.
+if test "${WYSE_R34_EMMC_SIGNED_BOOT:-0}" = 1; then
+  test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1
+  test -f "$W/unsigned-efi.efi"
+  test -f "$W/vars-for-negative.fd"
+  test -f "$W/emmc-guest.img"
+  cp "$W/emmc-guest.img" "$W/emmc-unsigned.img"
+  mkdir -p "$W/emmc-negative-mnt"
+  # Partition scanner sees 256MiB USER REGION beginning after the
+  # QEMU-concatenated boot0 + boot1 + RPMB (4MiB). Never attach host disk.
+  emnegloop=$(sudo losetup --find --partscan --show \
+    --offset 4194304 --sizelimit 268435456 "$W/emmc-unsigned.img")
+  trap 'sudo umount "$W/emmc-negative-mnt" 2>/dev/null || :; sudo losetup -d "$emnegloop" 2>/dev/null || :' EXIT
+  test "$(lsblk -ndo TYPE "$emnegloop")" = loop
+  test "$(readlink -f "$(sudo losetup -n -O BACK-FILE "$emnegloop" | xargs)")" = "$(readlink -f "$W/emmc-unsigned.img")"
+  sudo udevadm settle
+  sudo mount "$emnegloop"p1 "$W/emmc-negative-mnt"
+  sudo cp "$W/unsigned-efi.efi" "$W/emmc-negative-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo cmp "$W/unsigned-efi.efi" "$W/emmc-negative-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo sync
+  sudo umount "$W/emmc-negative-mnt"
+  sudo losetup -d "$emnegloop"
+  trap - EXIT
+  cp "$W/vars-for-negative.fd" "$W/vars-emmc-negative.fd"
+  timeout -s TERM -k 5 45s qemu-system-x86_64 \
+    -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
+    -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
+    -drive if=pflash,format=raw,file="$W/vars-emmc-negative.fd" \
+    -drive if=none,id=emmc,format=raw,file="$W/emmc-unsigned.img" \
+    -device sdhci-pci \
+    -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+    -net none -display none -monitor none \
+    -serial file:evidence/public/emmc-unsigned-guest-serial.txt -no-reboot \
+    > evidence/public/emmc-unsigned-qemu-log.txt 2>&1 || :
+  if ! grep -Eq 'BdsDxe: failed to load Boot[0-9]{4}.*eMMC User Data.*Access Denied' \
+      evidence/public/emmc-unsigned-guest-serial.txt; then
+    echo 'R34_EMMC_UNSIGNED_UKI_FIRMWARE_REJECTION=UNPROVEN' >> evidence/public/receipt.txt
+    tail -n 50 evidence/public/emmc-unsigned-guest-serial.txt
+    exit 1
+  fi
+  if grep -Fq 'WYSE_SYNTHETIC_LINUX_INIT=PASS' evidence/public/emmc-unsigned-guest-serial.txt; then
+    echo 'R34_EMMC_UNSIGNED_UKI_FIRMWARE_DENIAL=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  sha256sum -c "$W/emmc-sha"
+  echo 'R34_EMMC_UNSIGNED_WELL_FORMED_UKI_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
+  echo 'R34_EMMC_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
+fi
+
+# R32 F3 security-negative: firmware rejects a once-trusted/signed UKI after
+# its signed bytes were tampered, not merely a never-signed valid UKI (R23).
+# Offline sbverify rejection alone is insufficient; firmware denial required.
+if test "${WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE:-0}" = 1; then
+  test "${WYSE_R23_SIGNED_EFI:-0}" = 1
+  test "${WYSE_R23_UKI:-0}" = 1
+  test "${WYSE_R23_ENFORCE_SB:-0}" = 1
+  test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1
+  test -f "$W/forged-efi.bin"
+  test -f "$W/ephemeral-sb.crt"
+  test -f "$W/vars-for-negative.fd"
+  test -f "$W/usb-copy.img"
+  test -s evidence/public/negative-guest-serial.txt
+  # A malformed PE/UKI is not evidence of Secure Boot signature enforcement.
+  ukify inspect "$W/forged-efi.bin" > evidence/public/tampered-uki-inspect.txt 2>&1
+  for section in .linux .initrd .cmdline; do
+    grep -Fq "$section" evidence/public/tampered-uki-inspect.txt || {
+      echo "R32_F3_TAMPERED_UKI_SECTION_UNPARSEABLE=$section" >> evidence/public/receipt.txt
+      exit 1
+    }
+  done
+  if sbverify --cert "$W/ephemeral-sb.crt" "$W/forged-efi.bin" \
+      > "$W/tampered-offline-check.txt" 2>&1; then
+    echo 'R32_F3_TAMPERED_UKI_OFFLINE_SIGNATURE=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  echo 'R32_F3_TAMPERED_SIGNED_UKI_STRUCTURALLY_VALID_AND_OFFLINE_REFUSED=PASS' >> evidence/public/receipt.txt
+  cp "$W/usb-copy.img" "$W/tampered-usb.img"
+  mkdir -p "$W/tampered-mnt"
+  tamperloop=$(sudo losetup --find --partscan --show "$W/tampered-usb.img")
+  trap 'sudo umount "$W/tampered-mnt" 2>/dev/null || :; sudo losetup -d "$tamperloop" 2>/dev/null || :' EXIT
+  test "$(lsblk -ndo TYPE "$tamperloop")" = loop
+  tamperback=$(sudo losetup -n -O BACK-FILE "$tamperloop" | xargs)
+  test "$(readlink -f "$tamperback")" = "$(readlink -f "$W/tampered-usb.img")"
+  sudo udevadm settle
+  sudo mount "$tamperloop"p1 "$W/tampered-mnt"
+  sudo cp "$W/forged-efi.bin" "$W/tampered-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo cmp "$W/forged-efi.bin" "$W/tampered-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo sync
+  sudo umount "$W/tampered-mnt"
+  sudo losetup -d "$tamperloop"
+  trap - EXIT
+  cp "$W/emmc-original.img" "$W/emmc-tampered.img"
+  cp "$W/vars-for-negative.fd" "$W/vars-tampered.fd"
+  timeout -s TERM -k 5 45s qemu-system-x86_64 \
+    -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
+    -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
+    -drive if=pflash,format=raw,file="$W/vars-tampered.fd" \
+    -drive if=none,id=usb,format=raw,readonly=on,file="$W/tampered-usb.img" \
+    -device qemu-xhci,id=usbctl -device usb-storage,bus=usbctl.0,drive=usb,bootindex=1 \
+    -drive if=none,id=emmc,format=raw,file="$W/emmc-tampered.img" \
+    -device sdhci-pci -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+    -device ich9-ahci,id=ahci -drive if=none,id=ssd,format=raw,file="$W/sata.img" \
+    -device ide-hd,bus=ahci.0,drive=ssd,bootindex=2 \
+    -netdev user,id=n -device e1000,netdev=n \
+    -display none -monitor none -serial file:evidence/public/tampered-guest-serial.txt -no-reboot \
+    > evidence/public/tampered-qemu-log.txt 2>&1 || :
+  if ! grep -Eq 'BdsDxe: failed to load Boot[0-9]{4}.*Access Denied' \
+      evidence/public/tampered-guest-serial.txt; then
+    echo 'R32_F3_TAMPERED_SIGNED_UKI_FIRMWARE_DENIAL=UNPROVEN' >> evidence/public/receipt.txt
+    tail -n 50 evidence/public/tampered-guest-serial.txt
+    exit 1
+  fi
+  if grep -Fq 'WYSE_SYNTHETIC_LINUX_INIT=PASS' evidence/public/tampered-guest-serial.txt; then
+    echo 'R32_F3_TAMPERED_SIGNED_UKI_INIT=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  sha256sum -c "$W/emmc-sha"
+  echo 'R32_F3_TAMPERED_SIGNED_UKI_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
+  echo 'R32_F3_TAMPERED_SIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
 fi
