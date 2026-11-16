@@ -11,7 +11,7 @@ watch_paths(){
 }
 local_before="$(watch_paths)"
 vols_before="$(docker volume ls -q | LC_ALL=C sort)"
-prefix="public-r11-${GITHUB_SHA:0:12}"
+prefix="public-r11-${ GITHUB_SHA:0:12}"
 tmp="$(mktemp -d "$RUNNER_TEMP/r11-XXXXXXXX")"
 mkdir -p "$tmp/ipc" "$tmp/trust" "$tmp/grants" "$tmp/state"
 chmod 0777 "$tmp" "$tmp/ipc" "$tmp/trust" "$tmp/grants" "$tmp/state"
@@ -24,8 +24,8 @@ cleanup(){
 }
 trap cleanup EXIT
 docker pull golang:1.24-bookworm >/dev/null
-base="$(docker image inspect --format '{{index .RepoDigests 0}}' golang:1.24-bookworm)"
-[[ "$base" == *@sha256:* ]] || {echo R11_GO_BASE_DIGEST=RED;exit 11;}
+base="$(docker image inspect --format '{{ index .RepoDigests 0}}' golang:1.24-bookworm)"
+[[ "$base" == *@sha256:* ]] || { echo R11_GO_BASE_DIGEST=RED; exit 11; }
 echo "R11_DISPOSABLE_BASE_REFERENCE=$base"
 for stage in broker client issuer;do
  DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg "GO_IMAGE=$base" --target "$stage" -t "$prefix-$stage" .
@@ -35,14 +35,14 @@ echo "R11_DISPOSABLE_TOOLCHAIN_AND_THREE_SCRATCH_ROLES=PASS"
 opts=(--rm --read-only --network none --user 65532:65532 --cap-drop ALL
  --security-opt no-new-privileges --memory 96m --memory-swap 96m --cpus 1 --pids-limit 40)
 issuer(){
- docker run "${opts[@]}" \
+ docker run "${ opts[@]}" \
   --mount "type=bind,src=$tmp/trust,dst=/trust" \
   --mount "type=bind,src=$tmp/grants,dst=/grants" \
   "$prefix-issuer" "$@"
 }
 issuer keygen
 if [[ ! -s "$tmp/trust/issuer.pub" || ! -s "$tmp/trust/owner.pub" ]];then
- echo "R11_TEST_KEY_MATERIAL_MISSING=RED";exit 12
+ echo "R11_TEST_KEY_MATERIAL_MISSING=RED"; exit 12
 fi
 printf '2\n' > "$tmp/state/epoch_min"
 chmod 0666 "$tmp/state/epoch_min"
@@ -60,11 +60,11 @@ start_broker(){
   sleep 0.1
  done
  if [[ "$ready" != 1 ]];then
-  echo "R11_BROKER_SOCKET_UNAVAILABLE=RED";docker logs "$name" || true;exit 13
+  echo "R11_BROKER_SOCKET_UNAVAILABLE=RED";docker logs "$name" || true; exit 13
  fi
 }
 client(){
- docker run "${opts[@]}" \
+ docker run "${ opts[@]}" \
  --mount "type=bind,src=$tmp/ipc,dst=/ipc,readonly" \
  --mount "type=bind,src=$tmp/grants,dst=/grants,readonly" \
  "$prefix-client" "$@"
@@ -101,7 +101,7 @@ for _ in $(seq 1 50);do
  if ! docker inspect "$name" >/dev/null 2>&1;then break;fi
  sleep 0.1
 done
-if docker inspect "$name" >/dev/null 2>&1;then echo "R11_BROKER_NOT_DISPOSABLE=RED";exit 15;fi
+if docker inspect "$name" >/dev/null 2>&1;then echo "R11_BROKER_NOT_DISPOSABLE=RED"; exit 15;fi
 start_broker
 client token-fresh guest.root DENY
 client token-effect external.real_network DENY
