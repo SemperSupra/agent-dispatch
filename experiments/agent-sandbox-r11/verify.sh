@@ -11,7 +11,7 @@ watch_paths(){
 }
 local_before="$(watch_paths)"
 vols_before="$(docker volume ls -q | LC_ALL=C sort)"
-prefix="public-r11-${ GITHUB_SHA:0:12}"
+prefix="public-r11-${GITHUB_SHA:0:12}"
 tmp="$(mktemp -d "$RUNNER_TEMP/r11-XXXXXXXX")"
 mkdir -p "$tmp/ipc" "$tmp/trust" "$tmp/grants" "$tmp/state"
 chmod 0777 "$tmp" "$tmp/ipc" "$tmp/trust" "$tmp/grants" "$tmp/state"
@@ -35,7 +35,7 @@ echo "R11_DISPOSABLE_TOOLCHAIN_AND_THREE_SCRATCH_ROLES=PASS"
 opts=(--rm --read-only --network none --user 65532:65532 --cap-drop ALL
  --security-opt no-new-privileges --memory 96m --memory-swap 96m --cpus 1 --pids-limit 40)
 issuer(){
- docker run "${ opts[@]}" \
+ docker run "${opts[@]}" \
   --mount "type=bind,src=$tmp/trust,dst=/trust" \
   --mount "type=bind,src=$tmp/grants,dst=/grants" \
   "$prefix-issuer" "$@"
@@ -64,7 +64,7 @@ start_broker(){
  fi
 }
 client(){
- docker run "${ opts[@]}" \
+ docker run "${opts[@]}" \
  --mount "type=bind,src=$tmp/ipc,dst=/ipc,readonly" \
  --mount "type=bind,src=$tmp/grants,dst=/grants,readonly" \
  "$prefix-client" "$@"
