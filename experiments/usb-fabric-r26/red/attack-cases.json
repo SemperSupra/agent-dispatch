@@ -1,0 +1,150 @@
+{
+  "schema": 1,
+  "scope": "public synthetic only; NOT executed against USB broker",
+  "cases": [
+    {
+      "id": "actor-impersonation",
+      "priority": "P0",
+      "boundary": "api",
+      "expected": "deny",
+      "oracle": "no synthetic input dispatched",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "unauthorized-qmp",
+      "priority": "P0",
+      "boundary": "control",
+      "expected": "deny",
+      "oracle": "raw QMP remains unreachable",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "stale-lease-replay",
+      "priority": "P0",
+      "boundary": "lease",
+      "expected": "deny",
+      "oracle": "stale generation cannot dispatch",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "concurrent-exclusive-claims",
+      "priority": "P0",
+      "boundary": "lease",
+      "expected": "deny",
+      "oracle": "one controlling lease at most",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "revoke-input-race",
+      "priority": "P0",
+      "boundary": "lease",
+      "expected": "deny",
+      "oracle": "no new dispatch after revoke barrier",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "offline-split-brain",
+      "priority": "P0",
+      "boundary": "recovery",
+      "expected": "hold",
+      "oracle": "no reassignment without isolation evidence",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "forged-host-heartbeat",
+      "priority": "P0",
+      "boundary": "discovery",
+      "expected": "quarantine",
+      "oracle": "untrusted observation cannot update authority",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "capture-hid-secret-leak",
+      "priority": "P0",
+      "boundary": "capture",
+      "expected": "deny",
+      "oracle": "public artifact excludes key payload",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "ambiguous-device-fingerprint",
+      "priority": "P1",
+      "boundary": "discovery",
+      "expected": "quarantine",
+      "oracle": "ambiguous identity not automatically selected",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "delayed-device-deleted",
+      "priority": "P1",
+      "boundary": "lifecycle",
+      "expected": "hold",
+      "oracle": "port not freed on QMP ACK only",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "transport-unplug-timeout",
+      "priority": "P1",
+      "boundary": "transport",
+      "expected": "quarantine",
+      "oracle": "pending USB effects never reallocated",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "storage-remap-write-race",
+      "priority": "P1",
+      "boundary": "storage",
+      "expected": "hold",
+      "oracle": "unsafe removal cannot silently reassign",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "malformed-usb-descriptor",
+      "priority": "P1",
+      "boundary": "transport",
+      "expected": "deny",
+      "oracle": "parser bounded and no resource corruption",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "port-resource-exhaustion",
+      "priority": "P1",
+      "boundary": "topology",
+      "expected": "deny",
+      "oracle": "bounded ports memory and sessions",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "duplicate-idempotency-key",
+      "priority": "P1",
+      "boundary": "api",
+      "expected": "deny",
+      "oracle": "no duplicate side effect",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "unauthorized-pcap-upload",
+      "priority": "P0",
+      "boundary": "capture",
+      "expected": "deny",
+      "oracle": "sensitive payload not published",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "guest-reboot-during-attach",
+      "priority": "P1",
+      "boundary": "recovery",
+      "expected": "quarantine",
+      "oracle": "generation fenced until reconciling guest",
+      "implementation_status": "fixture_only"
+    },
+    {
+      "id": "unsupported-usb-class",
+      "priority": "P1",
+      "boundary": "policy",
+      "expected": "deny",
+      "oracle": "no default physical device export",
+      "implementation_status": "fixture_only"
+    }
+  ]
+}
