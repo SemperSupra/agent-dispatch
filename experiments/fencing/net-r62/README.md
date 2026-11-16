@@ -1,6 +1,6 @@
 # R62 native etcd network-isolation test on a disposable public runner
 
-Independent of PR #689's process-kill tests. Builds a **local Docker image FROM scratch** containing only the official SHA256-verified etcd v3.6.16 binaries. Launches 3 **distinct container network namespaces** in an internal Docker bridge, with only host-loopback client ports. Detaches peers from the bridge to induce a live **network partition without stopping their processes**; reconnects them without clearing their tmpfs data, reconciles UNKNOWN timed-out requests, and verifies previous committed state.
+Independent of PR #689's process-kill tests. Builds a **local Docker image FROM scratch** containing only the official SHA256-verified etcd v3.6.16 binaries. Launches 3 **distinct container network namespaces** in an internal Docker bridge, with no published ports; read-only host clients use the private internal bridge addresses. Detaches peers from the bridge to induce a live **network partition without stopping their processes**; reconnects them without clearing their tmpfs data, reconciles UNKNOWN timed-out requests, and verifies previous committed state.
 
 Entry point: `bash experiments/fencing/net-r62/run.sh` on a disposable Ubuntu GitHub-hosted runner with Docker Engine. Each run creates an isolated internal network, disposable image, nonroot read-only-rootfs containers and tmpfs data stores. Cleanup is trap-protected. Public/secretless with pinned upstream asset hash, no production registry, no host deployment.
 
