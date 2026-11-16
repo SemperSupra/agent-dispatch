@@ -27,7 +27,7 @@ echo "R19_BASE_DIGEST=$base"
 DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg "BASE_IMAGE=$base" -t "$tag" .
 docker run --rm --network none --read-only --user 65532:65532 \
  --cap-drop ALL --security-opt no-new-privileges --memory 1536m --memory-swap 1536m \
- --cpus 2 --pids-limit 160 --tmpfs /tmp:rw,nosuid,nodev,size=256m,mode=1777 \
+ --cpus 2 --pids-limit 160 --tmpfs /tmp:rw,exec,nosuid,nodev,size=256m,mode=1777 \
  "$tag" -run "^${test_name}$" ./...
 echo "R19_EXACT_LANE_${R19_LANE}_GO_RACE=PASS"
 [[ "$(docker volume ls -q | LC_ALL=C sort)" == "$old_vol" ]] || { echo R19_VOLUME_TAINT=RED;exit 12; }
