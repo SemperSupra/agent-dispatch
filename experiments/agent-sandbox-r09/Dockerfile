@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /src
 COPY init.sh /src/init.sh
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
-    linux-image-amd64 initramfs-tools busybox-static cpio gzip kmod && \
+    linux-image-amd64 initramfs-tools busybox-static cpio gzip kmod zstd && \
     mkdir -p /out /tmp/extracted /tmp/repacked && \
     kernel="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' | head -n 1)" && \
     test -n "$kernel" && cp "$kernel" /out/kernel && \
@@ -14,6 +14,8 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
     unmkinitramfs /out/default-initrd /tmp/extracted && \
     if [ -d /tmp/extracted/main ]; then cp -a /tmp/extracted/main/. /tmp/repacked/; else cp -a /tmp/extracted/. /tmp/repacked/; fi && \
     cp /src/init.sh /tmp/repacked/init && chmod 0755 /tmp/repacked/init && \
+    find /tmp/repacked -type f -name "*.ko.zst" -exec zstd -q -d --rm {} + && \
+    depmod -b /tmp/repacked "$version" && \
     mkdir -p /tmp/repacked/bin && cp /bin/busybox /tmp/repacked/bin/busybox && \
     cd /tmp/repacked && find . -print | LC_ALL=C cpio --quiet -o -H newc | gzip -9 > /out/initrd.gz && \
     sha256sum /out/kernel /out/initrd.gz && test -s /out/initrd.gz
