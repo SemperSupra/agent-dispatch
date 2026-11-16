@@ -1,0 +1,91 @@
+name: Public Wyse R26 stat-enabled Buildroot independent reproducibility
+on:
+  push:
+    branches: [experiment/public-wyse-r26-repro-stat-rootfs]
+    paths:
+      - '.github/workflows/public-wyse-r26-repro-rootfs.yml'
+      - 'scripts/public_wyse_r26_repro_rootfs.sh'
+      - 'tools/wyse-buildroot/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r26-repro-rootfs
+  cancel-in-progress: false
+jobs:
+  build-a:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    outputs:
+      cpio: ${{ steps.build.outputs.cpio }}
+      squash: ${{ steps.build.outputs.squash }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install pinned public Buildroot prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential bc bison flex file libncurses-dev libssl-dev \
+            rsync unzip xz-utils wget cpio
+      - name: Compile pinned stat-enabled rootfs and emit hashes only
+        id: build
+        shell: bash
+        run: bash scripts/public_wyse_r26_repro_rootfs.sh
+  build-b:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    outputs:
+      cpio: ${{ steps.build.outputs.cpio }}
+      squash: ${{ steps.build.outputs.squash }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install pinned public Buildroot prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential bc bison flex file libncurses-dev libssl-dev \
+            rsync unzip xz-utils wget cpio
+      - name: Compile pinned stat-enabled rootfs and emit hashes only
+        id: build
+        shell: bash
+        run: bash scripts/public_wyse_r26_repro_rootfs.sh
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    needs: [build-a, build-b]
+    steps:
+      - name: Verify two separate clean runner CPIO and SquashFS digests
+        shell: bash
+        env:
+          CPIO_A: ${{ needs.build-a.outputs.cpio }}
+          CPIO_B: ${{ needs.build-b.outputs.cpio }}
+          SQUASH_A: ${{ needs.build-a.outputs.squash }}
+          SQUASH_B: ${{ needs.build-b.outputs.squash }}
+        run: |
+          set -Eeuo pipefail
+          for value in "$CPIO_A" "$CPIO_B" "$SQUASH_A" "$SQUASH_B"; do
+            if ! [[ "$value" =~ ^[0-9a-f]{64}$ ]]; then
+              echo R26_INVALID_OR_MISSING_DIGEST=RED
+              exit 3
+            fi
+          done
+          if test "$CPIO_A" != "$CPIO_B" || test "$SQUASH_A" != "$SQUASH_B"; then
+            echo R26_TWO_CLEAN_RUNNER_CROSS_DIGEST=RED
+            echo "CPIO_A=$CPIO_A CPIO_B=$CPIO_B"
+            echo "SQUASH_A=$SQUASH_A SQUASH_B=$SQUASH_B"
+            exit 5
+          fi
+          echo 'WYSE_R26_STAT_ENABLED_ROOTFS_REPRODUCIBLE_TWO_CLEAN_RUNNERS=PASS'
+          echo "CPIO_SHA256=$CPIO_A"
+          echo "SQUASHFS_SHA256=$SQUASH_A"
+          echo 'SIGNED_OWNER_PRODUCTION_IMAGE_AND_PHYSICAL_WYSE=NOT_TESTED'

@@ -1,0 +1,61 @@
+name: Public Wyse R26 Buildroot cross-workflow host prerequisite parity
+on:
+  push:
+    branches: [experiment/public-wyse-r26-repro-stat-rootfs]
+    paths:
+      - '.github/workflows/public-wyse-r26-cross-env-parity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r26-cross-env-parity
+  cancel-in-progress: false
+jobs:
+  full-r25-host-dependency-parity:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 36
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Match exact R25 host dependency footprint before Buildroot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev \
+            rsync unzip xz-utils wget cpio qemu-system-x86 ovmf \
+            grub-efi-amd64-bin grub-common grub-pc-bin linux-image-virtual \
+            busybox-static dropbear-bin openssh-client dosfstools gdisk \
+            util-linux kmod zstd sbsigntool openssl python3-virt-firmware \
+            systemd-ukify systemd-boot-efi
+          echo 'R26_R25_HOST_PACKAGE_FOOTPRINT_REQUESTED=PASS'
+      - name: Compile identical source/config and compare against observed R25 boot image hashes
+        id: build
+        shell: bash
+        env:
+          WYSE_R26_SOURCE_PARENT: ${{ runner.temp }}
+          WYSE_R26_OUTPUT_DIR: ${{ runner.temp }}/wyse-r25-rootfs
+        run: bash scripts/public_wyse_r26_repro_rootfs.sh
+      - name: Require exact equality with R25 boot-passing stat-enabled CPIO and SquashFS
+        shell: bash
+        env:
+          ACTUAL_CPIO: ${{ steps.build.outputs.cpio }}
+          ACTUAL_SQUASH: ${{ steps.build.outputs.squash }}
+        run: |
+          set -Eeuo pipefail
+          expected_cpio=4d5d61a9f5de4d9464f25cc72260868a3ab8949896ee5cfd1e3f0dd274ffd7e9
+          expected_squash=92264c4662d6f305f5904b39ad7ee73395c77cf9f40739b4cc18ea1ad669951a
+          echo "R25_EXACT_BOOT_BASELINE=ce7a7d78eb8559b0309fbc683fd0923ff42b161a"
+          echo "R26_CROSS_ENV_CPIO_ACTUAL=$ACTUAL_CPIO"
+          echo "R26_CROSS_ENV_SQUASH_ACTUAL=$ACTUAL_SQUASH"
+          if test "$ACTUAL_CPIO" != "$expected_cpio" || test "$ACTUAL_SQUASH" != "$expected_squash"; then
+            echo 'R26_CROSS_WORKFLOW_SAME_BUILDROOT_RECIPE_PARITY=RED'
+            echo 'R26_REPRODUCIBILITY_SCOPE=ENVIRONMENT_DEPENDENT'
+            exit 5
+          fi
+          echo 'R26_CROSS_WORKFLOW_SAME_BUILDROOT_RECIPE_PARITY=PASS'
+          echo 'R26_DISTRIBUTION_INDEPENDENT_REPRODUCIBILITY=NOT_TESTED'
+          echo 'PRODUCTION_KERNEL_SIGNER_AND_REAL_WYSE=NOT_TESTED'
