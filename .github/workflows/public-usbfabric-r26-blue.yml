@@ -14,25 +14,32 @@ concurrency:
   group: public-usbfabric-r26-blue
   cancel-in-progress: false
 jobs:
-  host-local-model:
+  synthetic-blue:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    container:
-      image: golang:1.23-bookworm
-      options: --cap-drop ALL --security-opt no-new-privileges
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
           fetch-depth: 1
-      - name: Go race, model tests, static analysis
-        working-directory: experiments/usb-fabric-r26/blue
-        env:
-          GOPROXY: "off"
-          GOSUMDB: "off"
-          GOTOOLCHAIN: "local"
+      - name: Test in isolated OCI with tar-stream source (no host mounts)
+        shell: bash
         run: |
-          go test -race -count=1 -v ./...
-          go vet ./...
-          echo "R26_BLUE_LOCAL_LEASE_INVARIANTS=PASS"
-          echo "R26_BLUE_REAL_QMP_AND_USB_DATA=NOT_TESTED"
+          set -Eeuo pipefail
+          before="$(git status --porcelain --untracked-files=all)"
+          [[ -z "$before" ]] || { echo R26_BLUE_INPUT_DIRTY=RED; exit 13; }
+          docker pull golang:1.23-bookworm >/dev/null
+          base="$(docker image inspect --format '{{index .RepoDigests 0}}' golang:1.23-bookworm)"
+          [[ "$base" == *@sha256:* ]] || { echo R26_BLUE_MISSING_DIGEST=RED; exit 14; }
+          echo "R26_BLUE_GO_IMAGE=$base"
+          tar -C experiments/usb-fabric-r26/blue -cf - . | \
+          docker run --rm -i --network none --read-only --user 65532:65532 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --memory 2048m --memory-swap 2048m --cpus 2 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=1536m,mode=1777 \
+            -e HOME=/tmp -e GOCACHE=/tmp/cache -e GOPATH=/tmp/gopath \
+            -e GOPROXY=off -e GOSUMDB=off -e GOTOOLCHAIN=local \
+            "$base" sh -ec 'mkdir -p /tmp/work; cd /tmp/work; tar -xf -; go test -race -count=1 -v ./...; go vet ./...'
+          [[ "$(git status --porcelain --untracked-files=all)" == "$before" ]] || { echo R26_BLUE_SOURCE_TAINT=RED; exit 15; }
+          echo "R26_BLUE_OCI_ISOLATED_QUALIFICATION=PASS"
+          echo "R26_BLUE_PHYSICAL_USB_AND_INTEGRATED_GUEST=NOT_TESTED"
