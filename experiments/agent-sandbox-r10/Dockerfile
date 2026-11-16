@@ -11,7 +11,7 @@ RUN --mount=type=tmpfs,target=/tmp \
     gcc libc6-dev "gcc-${TARGET}-linux-gnu" "libc6-dev-${TARGET_LIBC}-cross" qemu-user-static && \
     mkdir -p /out && \
     gcc -O2 -static -DTARGET_LABEL='"native-x86_64"' -o /out/native workload.c && \
-    "${TARGET}-linux-gnu-gcc" -O2 -static -DTARGET_LABEL='"${TARGET}"' -o /out/foreign workload.c && \
+    "${TARGET}-linux-gnu-gcc" -O2 -static "-DTARGET_LABEL=\"${TARGET}\"" -o /out/foreign workload.c && \
     cp "/usr/bin/qemu-${TARGET}-static" /out/qemu && \
     test -s /out/native && test -s /out/foreign && test -s /out/qemu
 FROM scratch
