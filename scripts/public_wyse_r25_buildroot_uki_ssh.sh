@@ -86,7 +86,13 @@ for node in /sys/block/mmcblk*; do
   test -d "$node" && echo "EMMC_ENUMERATION=PASS" && break
 done
 for node in /sys/block/sd[a-z]*; do
-  test -d "$node" && echo "SATA_ENUMERATION=PASS" && break
+  test -d "$node" || continue
+  disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
+  case "$disk_path" in
+    */ata[0-9]*/*) echo "SATA_ENUMERATION=PASS"; break ;;
+    */usb[0-9]*/*) echo "USB_BOOT_STORAGE_ENUMERATION=PASS" ;;
+    *) echo "BLOCK_BUS_IDENTITY_UNSUPPORTED=RED" ;;
+  esac
 done
 nic=''
 for node in /sys/class/net/*; do
@@ -188,7 +194,13 @@ for node in /sys/block/mmcblk*; do
   test -d "$node" && echo 'EMMC_ENUMERATION=PASS' && break
 done
 for node in /sys/block/sd[a-z]*; do
-  test -d "$node" && echo 'SATA_ENUMERATION=PASS' && break
+  test -d "$node" || continue
+  disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo 'BLOCK_BUS_IDENTITY_UNKNOWN=RED'; continue; }
+  case "$disk_path" in
+    */ata[0-9]*/*) echo 'SATA_ENUMERATION=PASS'; break ;;
+    */usb[0-9]*/*) echo 'USB_BOOT_STORAGE_ENUMERATION=PASS' ;;
+    *) echo 'BLOCK_BUS_IDENTITY_UNSUPPORTED=RED' ;;
+  esac
 done
 nic=''
 for node in /sys/class/net/*; do
@@ -353,7 +365,7 @@ trap 'kill "$pid" 2>/dev/null || :' EXIT
 success=0
 guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; grep -q sda /proc/partitions && echo GUEST_SATA=PASS'
 if test "${WYSE_R30_NO_SATA:-0}" = 1; then
-  guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; if grep -q sda /proc/partitions; then echo R30_UNEXPECTED_SATA=FAIL_OPEN; exit 23; fi; echo R30_GUEST_SATA_ABSENT=PASS'
+  guest_probe='echo KEY_ONLY_SSH_LOGIN=PASS; grep -q mmcblk0 /proc/partitions && echo GUEST_EMMC=PASS; usb=0; for node in /sys/block/sd[a-z]*; do test -d "$node" || continue; disk_path=$(cd "$node/device" 2>/dev/null && pwd -P) || { echo R30_UNKNOWN_BLOCK_DEVICE=FAIL_CLOSED; exit 24; }; case "$disk_path" in */ata[0-9]*/*) echo R30_UNEXPECTED_SATA=FAIL_OPEN; exit 23 ;; */usb[0-9]*/*) usb=1 ;; *) echo R30_UNSUPPORTED_SCSI_BUS=FAIL_CLOSED; exit 25 ;; esac; done; test "$usb" = 1 || { echo R30_EXPECTED_USB_STORAGE_NOT_SEEN=RED; exit 26; }; echo R30_GUEST_USB_BLOCK_PRESENT=PASS; echo R30_GUEST_SATA_ABSENT=PASS'
 fi
 for attempt in $(seq 1 105); do
   if ssh -q -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -397,9 +409,13 @@ for marker in $boot_markers; do
   grep -q "$marker" evidence/public/guest-serial.txt || { echo "MISSING:$marker"; exit 1; }
 done
 if test "${WYSE_R30_NO_SATA:-0}" = 1; then
-  for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS R30_GUEST_SATA_ABSENT=PASS; do
+  for marker in KEY_ONLY_SSH_LOGIN=PASS GUEST_EMMC=PASS R30_GUEST_USB_BLOCK_PRESENT=PASS R30_GUEST_SATA_ABSENT=PASS; do
     grep -Fxq "$marker" evidence/public/ssh-oracle.txt || exit 1
   done
+  if ! grep -Fq 'USB_BOOT_STORAGE_ENUMERATION=PASS' evidence/public/guest-serial.txt; then
+    echo 'R30_USB_BOOT_BLOCK_NOT_PROVEN=RED' >> evidence/public/receipt.txt
+    exit 1
+  fi
   if grep -Fq 'SATA_ENUMERATION=PASS' evidence/public/guest-serial.txt; then
     echo 'R30_NO_SATA_GUEST_TOPOLOGY=FAIL_OPEN' >> evidence/public/receipt.txt
     exit 1
