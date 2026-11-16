@@ -63,6 +63,12 @@ RESULT_FIELDS = {
         "model_inference", "dependency_hash_locked", "atif_schema",
         "run_count", "denied_calls", "package_count", "dependency_sha256",
         "venv_size_bytes", "elapsed_seconds", "verdict_sha256"},
+    "mail-qwen-real-cpu": {
+        "classification", "oracle_verified", "real_model_inference",
+        "automatic_promotion", "model_sha256", "engine_commit",
+        "question_count", "model_calls", "selected_policy", "heldout_exact",
+        "baseline_exact", "unsupported_source_count", "semantic_quality_gate",
+        "corpus_sha256", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -140,6 +146,26 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
+    if p["workload"] == "mail-qwen-real-cpu":
+        if (result.get("real_model_inference") is not True or
+                result.get("automatic_promotion") is not False or
+                result.get("model_sha256") != "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8" or
+                result.get("engine_commit") != "8642541b255bfb5dc39cd351a178be09013a55d6" or
+                result.get("question_count") != 7 or
+                result.get("model_calls") != 20 or
+                result.get("selected_policy") not in ("plain","evidence-first") or
+                type(result.get("heldout_exact")) is not int or
+                not 0 <= result["heldout_exact"] <= 7 or
+                type(result.get("baseline_exact")) is not int or
+                not 0 <= result["baseline_exact"] <= 7 or
+                type(result.get("unsupported_source_count")) is not int or
+                not 0 <= result["unsupported_source_count"] <= 7 or
+                type(result.get("semantic_quality_gate")) is not bool or
+                not isinstance(result.get("corpus_sha256"), str) or
+                not HEX64.fullmatch(result["corpus_sha256"]) or
+                not isinstance(result.get("verdict_sha256"), str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("REAL_MODEL_INFERENCE_OR_SCOPE_INVALID")
     if p["workload"] == "mail-openworker-scripted":
         if (result.get("source_commit") != "ecb445490fc054d52b8ea610d97ba947f57033d2" or
                 result.get("scripted_provider_only") is not True or
