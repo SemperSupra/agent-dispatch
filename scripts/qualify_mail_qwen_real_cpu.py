@@ -149,7 +149,7 @@ def build_llama(root:Path,env:dict[str,str])->Path:
     if len(files)!=1 or not files[0].is_file():
         raise Blocked("ENGINE_LLAMA_CLI_MISSING")
     executable=files[0]
-    if executable.read_bytes()[:4]!=b"\\x7fELF":
+    if executable.read_bytes()[:4]!=bytes.fromhex("7f454c46"):
         raise Blocked("ENGINE_BINARY_NOT_ELF")
     executable.chmod(executable.stat().st_mode|0o111)
     return executable
