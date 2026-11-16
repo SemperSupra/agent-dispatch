@@ -57,26 +57,50 @@ def main():
         try:
             ready, _, _ = select.select([broker.stdout], [], [], 12)
             if not ready:
-                raise RuntimeError("Go broker QMP handshake timed out")
-            initial = json.loads(broker.stdout.readline())
-            expect(initial, True, "R26_GO_BROKER_QMP_CONNECTED")
-            generation = 0
+                raise RuntimeError("initial broker QMP handshake timed out")
+            expect(json.loads(broker.stdout.readline()), True,
+                   "R26_INITIAL_BROKER_QMP_CONNECTED")
+            old_grant = send(broker, {"op": "reserve", "actor": "approved-agent"})
+            expect(old_grant, True, "R26_PRE_RESTART_LEASE_GRANTED")
+            old_epoch = old_grant["epoch"]
+            old_generation = old_grant["generation"]
+            broker.stdin.close()
+            if broker.wait(timeout=5) != 0:
+                raise RuntimeError("original broker did not close cleanly")
+            print("R26_ACTUAL_GO_BROKER_PROCESS_RESTART=PASS", flush=True)
+            broker = subprocess.Popen(
+                ["/guest/r26-broker", "--qmp", qmp, "--media", str(media),
+                 "--capture", str(pcap)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, bufsize=1)
+            ready, _, _ = select.select([broker.stdout], [], [], 12)
+            if not ready:
+                raise RuntimeError("restarted broker QMP handshake timed out")
+            expect(json.loads(broker.stdout.readline()), True,
+                   "R26_RESTARTED_GO_BROKER_QMP_CONNECTED")
             denied = send(broker, {"op": "reserve", "actor": "rogue"})
             expect(denied, False, "R26_UNAUTHORIZED_ACTOR_DENIED")
             grant = send(broker, {"op": "reserve", "actor": "approved-agent"})
             expect(grant, True, "R26_GO_EXCLUSIVE_LEASE_GRANTED")
-            generation = grant["generation"]
+            generation, epoch = grant["generation"], grant["epoch"]
+            if generation != old_generation or epoch == old_epoch or len(epoch) != 32:
+                raise RuntimeError("restart epoch isolation precondition failed")
+            replay = send(broker, {
+                "op": "attach", "actor": "approved-agent",
+                "generation": old_generation, "epoch": old_epoch})
+            expect(replay, False, "R26_RESTARTED_BROKER_REJECTED_OLD_LEASE")
             bad = send(broker, {"op": "attach", "actor": "rogue",
-                                "generation": generation})
+                                "generation": generation, "epoch": epoch})
             expect(bad, False, "R26_ATTACH_WRONG_ACTOR_DENIED")
             attached = send(broker, {"op": "attach", "actor": "approved-agent",
-                                     "generation": generation})
+                                     "generation": generation, "epoch": epoch})
             expect(attached, True, "R26_GO_TO_QMP_USB_THREE_DEVICES_ATTACHED")
             started = send(broker, {"op": "start", "actor": "approved-agent",
-                                    "generation": generation})
+                                    "generation": generation, "epoch": epoch})
             expect(started, True, "R26_GUEST_STARTED_AFTER_AUTHORIZED_ATTACH")
             stale = send(broker, {"op": "input", "actor": "approved-agent",
-                                  "generation": 0, "command": "key-a-down"})
+                                  "generation": 0, "epoch": epoch,
+                                  "command": "key-a-down"})
             expect(stale, False, "R26_STALE_GENERATION_INPUT_DENIED")
             chunks = []
             partial = b""
@@ -95,17 +119,17 @@ def main():
                             if b"R15_GUEST_HID_OBSERVER_READY=PASS" in line and not injected:
                                 down = send(broker, {
                                     "op": "input", "actor": "approved-agent",
-                                    "generation": generation, "command": "key-a-down"})
+                                    "generation": generation, "epoch": epoch, "command": "key-a-down"})
                                 expect(down, True, "R26_GO_FENCED_KEY_DOWN_SUBMITTED")
                                 time.sleep(0.30)
                                 release = send(broker, {
                                     "op": "revoke", "actor": "approved-agent",
-                                    "generation": generation})
+                                    "generation": generation, "epoch": epoch})
                                 expect(release, True, "R26_GO_QMP_RELEASE_ON_REVOKE")
                                 revoked = True
                                 after = send(broker, {
                                     "op": "input", "actor": "approved-agent",
-                                    "generation": generation, "command": "key-a-down"})
+                                    "generation": generation, "epoch": epoch, "command": "key-a-down"})
                                 expect(after, False, "R26_GO_POST_REVOKE_INPUT_DENIED")
                                 injected = True
                     elif vm.poll() is not None:
@@ -149,7 +173,8 @@ def main():
             print("R26_SYNTHETIC_STORAGE_UNCHANGED=PASS", flush=True)
             print("R26_CROSS_HOST_FENCING_AND_PHYSICAL_USB=NOT_TESTED", flush=True)
         finally:
-            broker.stdin.close()
+            if not broker.stdin.closed:
+                broker.stdin.close()
             if broker.poll() is None:
                 broker.terminate()
                 try:
