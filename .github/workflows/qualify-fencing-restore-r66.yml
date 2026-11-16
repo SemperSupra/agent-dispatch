@@ -1,0 +1,25 @@
+name: R66 public signed witness and rollback negatives
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/restore-r66/**'
+      - '.github/workflows/qualify-fencing-restore-r66.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r66-witness-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test-rollback-witness:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Test real SQLite restore and unsigned versus HMAC-integrity boundary
+        run: python3 experiments/fencing/restore-r66/witness_oracle.py
+      - name: Qualify no further than synthetic witness negative controls
+        if: always()
+        run: echo 'No externally durable monotonic witness, no actual host restore, no real effects, no release acceptance.' >> "$GITHUB_STEP_SUMMARY"

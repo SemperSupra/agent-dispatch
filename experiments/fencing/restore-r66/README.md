@@ -1,0 +1,5 @@
+# R66 signed-witness restoration negative controls
+
+Run `python3 experiments/fencing/restore-r66/witness_oracle.py` (Python 3 stdlib; no credentials, network, or provider). A real SQLite file is restored from a stale copy; a separate test-only HMAC-authenticated high-water witness detects the lost UNKNOWN and reopened capacity. Missing and tampered receipts fail closed.
+
+**Critical negative result:** when an authorized reset restores **both** the database and a valid older signed witness, a signature still verifies. The guard always returns `MATCH_ONLY_HOLD_MONOTONIC_ANCHOR_UNPROVEN` on a match, not permission to dispatch. HMAC authenticates bytes, **not freshness or independent durability**. Real protected recovery needs a separately controlled, nonrollbackable monotonic anchor, authenticated receipts, exact scope identity, and an independently tested restore; those remain NOT_TESTED. This is a synthetic negative control and must never be used with production credentials or as an Agent Dispatch recovery verifier.
