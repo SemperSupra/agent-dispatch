@@ -12,3 +12,7 @@ The script downloads the official **etcd v3.6.16 Linux amd64** release archive a
 **Acceptance limitations:** this is a real Raft server and networked-client test but all members share one host, network stack, physical disk/failure domain, and no TLS/client auth. It does not demonstrate *cross-host HA*, independent writer principals, protected snapshot/restore, downstream effect-sink fencing, irreversible external idempotency or native Cloudflare/GitHub CAS. Exact RUN receipt from GitHub Actions must be independently inspected. Never apply these test ports/configuration to production.
 
 Official release source: https://github.com/etcd-io/etcd/releases/tag/v3.6.16
+
+## R62 additional native transaction oracle
+
+`gateway_txn_test.py` extends the same real three-peer etcd cluster with 40 independent budget=1 contention races. Each transaction atomically compares the current synthetic epoch and unspent budget, then marks a unique effect key `UNKNOWN` while decrementing the budget. It independently tests duplicate lost-ACK retry, old-owner replay, new-owner overclaim and UNKNOWN survival through epoch transfer. A privileged epoch reset deliberately reproduces an **EXPECTED RED ABA**. This tests native etcd atomic reservation, **not** an irreversible GitHub Actions or other provider effect. With no client auth, direct writes can spoof/reset the epoch: production authority remains HOLD.
