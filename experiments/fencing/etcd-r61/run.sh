@@ -43,6 +43,7 @@ start 2 22379 2381
 start 3 32379 2382
 ready
 python3 experiments/fencing/etcd-r61/txn_test.py race
+python3 experiments/fencing/etcd-r61/gateway_txn_test.py
 kill "${pids[3]}" 2>/dev/null || :
 wait "${pids[3]}" 2>/dev/null || :
 sleep 3
