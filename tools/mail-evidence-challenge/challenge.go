@@ -5,6 +5,7 @@ import (
     "encoding/json"
     "errors"
     "fmt"
+    "io"
     "os"
     "path/filepath"
     "slices"
@@ -25,6 +26,10 @@ func ReadGold(path string) ([]GoldCard, error) {
     d:=json.NewDecoder(bytes.NewReader(data));d.DisallowUnknownFields()
     var gold []GoldCard
     if err=d.Decode(&gold);err!=nil{return nil,err}
+    var extra any
+    if err:=d.Decode(&extra);err!=io.EOF {
+        return nil,errors.New("GOLD_TRAILING_CONTENT")
+    }
     if len(gold)<20 || len(gold)>30 {return nil,errors.New("GOLD_CASE_COUNT")}
     seen:=map[string]bool{}
     for _,c:=range gold {
