@@ -109,3 +109,18 @@ func TestInvalidScopeIdempotencyAndAmbiguousEffect(t *testing.T){
  if !errors.Is(g.Do(r,noop),ErrUnavailable){t.Fatal("ambiguous effect not quarantined")}
  t.Log("R19_INVALID_SCOPE_IDEMPOTENCY_FAIL_CLOSE=PASS")
 }
+
+func TestBackdatedTimestampCannotExtendLease(t *testing.T){
+ g:=mustGate(t,NewStore())
+ lease,e:=g.Claim("actor","guest","mission",time.Now().Add(20*time.Millisecond))
+ if e!=nil{t.Fatal(e)}
+ time.Sleep(35*time.Millisecond)
+ r:=request(lease,"spoofed-old-timestamp")
+ r.At=lease.Expires.Add(-time.Millisecond)
+ called:=false
+ err:=g.Do(r,func()error{called=true;return nil})
+ if !errors.Is(err,ErrDenied)||called{
+  t.Fatalf("backdated attacker request bypassed actual host TTL: %v, effect=%v",err,called)
+ }
+ t.Log("R19_HOST_CLOCK_EXPIRY_DENIES_BACKDATED_REQUEST=PASS")
+}
