@@ -35,6 +35,9 @@ jobs:
       - name: Compile identical source/config and compare against observed R25 boot image hashes
         id: build
         shell: bash
+        env:
+          WYSE_R26_SOURCE_PARENT: ${{ runner.temp }}
+          WYSE_R26_OUTPUT_DIR: ${{ runner.temp }}/wyse-r25-rootfs
         run: bash scripts/public_wyse_r26_repro_rootfs.sh
       - name: Require exact equality with R25 boot-passing stat-enabled CPIO and SquashFS
         shell: bash
