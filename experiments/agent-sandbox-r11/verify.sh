@@ -44,8 +44,8 @@ issuer keygen
 if [[ ! -s "$tmp/trust/issuer.pub" || ! -s "$tmp/trust/owner.pub" ]];then
  echo "R11_TEST_KEY_MATERIAL_MISSING=RED"; exit 12
 fi
-cp "$tmp/trust/issuer.pub" "$tmp/trust/owner.pub" "$tmp/public/"
-chmod 0644 "$tmp/public/"*.pub
+sudo cp "$tmp/trust/issuer.pub" "$tmp/trust/owner.pub" "$tmp/public/"
+sudo chmod 0644 "$tmp/public/"*.pub
 printf '2\n' > "$tmp/state/epoch_min"
 chmod 0666 "$tmp/state/epoch_min"
 start_broker(){
