@@ -71,7 +71,13 @@ timeout -s TERM -k 5 50s qemu-system-x86_64 \
   -net none -display none -monitor none \
   -serial file:evidence/public/emmc-ovmf-serial.txt -no-reboot \
   > evidence/public/emmc-ovmf-qemu-log.txt 2>&1 || :
-if grep -Fxq 'R33_EMMC_UEFI_BOOT_FROM_USER_AREA=PASS' evidence/public/emmc-ovmf-serial.txt; then
+# QEMU/OVMF reports BdsDxe eMMC User Data before GRUB executes.
+# GRUB may echo to serial and console on the SAME line; accept a bounded
+# guest-only substring, but never a host-only echoed marker. Require both.
+if grep -Eq 'BdsDxe: starting Boot[0-9]{4}.*eMMC User Data.*PciRoot.*/eMMC\(' evidence/public/emmc-ovmf-serial.txt \
+   && grep -Fq 'R33_EMMC_UEFI_BOOT_FROM_USER_AREA=PASS' evidence/public/emmc-ovmf-serial.txt; then
+  echo 'R33_OVMF_CONFIRMED_BOOT_ENTRY_EMMC_USER_AREA=PASS'
+  echo 'R33_GRUB_EFI_ACTUAL_EMMC_GUEST_SERIAL=PASS'
   echo 'R33_QEMU_OVMF_EMMC_UEFI_BOOT=PASS'
 else
   echo 'R33_QEMU_OVMF_EMMC_UEFI_BOOT=RED_UNPROVEN' >&2
