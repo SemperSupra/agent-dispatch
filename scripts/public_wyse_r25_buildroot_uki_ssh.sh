@@ -556,3 +556,55 @@ if test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1; then
   echo 'R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
   echo 'R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
 fi
+
+# R34 K2b: the *same QEMU eMMC firmware boot path*, without any USB/SATA
+# fallback, MUST refuse a structurally valid unsigned UKI. The older R23
+# negative boots USB and remains a separate mandatory control; this test
+# closes the eMMC-specific firmware-enforcement gap.
+if test "${WYSE_R34_EMMC_SIGNED_BOOT:-0}" = 1; then
+  test "${WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE:-0}" = 1
+  test -f "$W/unsigned-efi.efi"
+  test -f "$W/vars-for-negative.fd"
+  test -f "$W/emmc-guest.img"
+  cp "$W/emmc-guest.img" "$W/emmc-unsigned.img"
+  mkdir -p "$W/emmc-negative-mnt"
+  # Partition scanner sees 256MiB USER REGION beginning after the
+  # QEMU-concatenated boot0 + boot1 + RPMB (4MiB). Never attach host disk.
+  emnegloop=$(sudo losetup --find --partscan --show \
+    --offset 4194304 --sizelimit 268435456 "$W/emmc-unsigned.img")
+  trap 'sudo umount "$W/emmc-negative-mnt" 2>/dev/null || :; sudo losetup -d "$emnegloop" 2>/dev/null || :' EXIT
+  test "$(lsblk -ndo TYPE "$emnegloop")" = loop
+  test "$(readlink -f "$(sudo losetup -n -O BACK-FILE "$emnegloop" | xargs)")" = "$(readlink -f "$W/emmc-unsigned.img")"
+  sudo udevadm settle
+  sudo mount "$emnegloop"p1 "$W/emmc-negative-mnt"
+  sudo cp "$W/unsigned-efi.efi" "$W/emmc-negative-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo cmp "$W/unsigned-efi.efi" "$W/emmc-negative-mnt/EFI/BOOT/BOOTX64.EFI"
+  sudo sync
+  sudo umount "$W/emmc-negative-mnt"
+  sudo losetup -d "$emnegloop"
+  trap - EXIT
+  cp "$W/vars-for-negative.fd" "$W/vars-emmc-negative.fd"
+  timeout -s TERM -k 5 45s qemu-system-x86_64 \
+    -machine "$ovmf_machine" -accel "$accel" -cpu max -m 3072 -smp 2 \
+    -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
+    -drive if=pflash,format=raw,file="$W/vars-emmc-negative.fd" \
+    -drive if=none,id=emmc,format=raw,file="$W/emmc-unsigned.img" \
+    -device sdhci-pci \
+    -device emmc,drive=emmc,boot-partition-size=1048576,rpmb-partition-size=2097152 \
+    -net none -display none -monitor none \
+    -serial file:evidence/public/emmc-unsigned-guest-serial.txt -no-reboot \
+    > evidence/public/emmc-unsigned-qemu-log.txt 2>&1 || :
+  if ! grep -Eq 'BdsDxe: failed to load Boot[0-9]{4}.*eMMC User Data.*Access Denied' \
+      evidence/public/emmc-unsigned-guest-serial.txt; then
+    echo 'R34_EMMC_UNSIGNED_UKI_FIRMWARE_REJECTION=UNPROVEN' >> evidence/public/receipt.txt
+    tail -n 50 evidence/public/emmc-unsigned-guest-serial.txt
+    exit 1
+  fi
+  if grep -Fq 'WYSE_SYNTHETIC_LINUX_INIT=PASS' evidence/public/emmc-unsigned-guest-serial.txt; then
+    echo 'R34_EMMC_UNSIGNED_UKI_FIRMWARE_DENIAL=FAIL_OPEN' >> evidence/public/receipt.txt
+    exit 1
+  fi
+  sha256sum -c "$W/emmc-sha"
+  echo 'R34_EMMC_UNSIGNED_WELL_FORMED_UKI_FIRMWARE_DENIED=PASS' >> evidence/public/receipt.txt
+  echo 'R34_EMMC_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS' >> evidence/public/receipt.txt
+fi
