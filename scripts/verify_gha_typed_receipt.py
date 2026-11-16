@@ -56,6 +56,13 @@ RESULT_FIELDS = {
         "isolated_defaults", "same_name_second_unaddressable",
         "attachment_download_occurrence_complete", "real_mail", "model_inference",
         "headless_engine_run", "verdict_sha256"},
+    "mail-openworker-scripted": {
+        "classification", "oracle_verified", "source_commit",
+        "scripted_provider_only", "headless_engine_executed",
+        "approval_denial_verified", "clean_restart_verified", "real_mail",
+        "model_inference", "dependency_hash_locked", "atif_schema",
+        "run_count", "denied_calls", "package_count", "dependency_sha256",
+        "venv_size_bytes", "elapsed_seconds", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -133,6 +140,29 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
+    if p["workload"] == "mail-openworker-scripted":
+        if (result.get("source_commit") != "ecb445490fc054d52b8ea610d97ba947f57033d2" or
+                result.get("scripted_provider_only") is not True or
+                result.get("headless_engine_executed") is not True or
+                result.get("approval_denial_verified") is not True or
+                result.get("clean_restart_verified") is not True or
+                result.get("real_mail") is not False or
+                result.get("model_inference") is not False or
+                result.get("dependency_hash_locked") is not False or
+                result.get("atif_schema") != "ATIF-v1.7" or
+                result.get("run_count") != 2 or
+                type(result.get("denied_calls")) is not int or
+                result["denied_calls"] < 2 or
+                type(result.get("package_count")) is not int or
+                result["package_count"] < 1 or
+                type(result.get("venv_size_bytes")) is not int or
+                result["venv_size_bytes"] < 1 or
+                not isinstance(result.get("elapsed_seconds"), (float, int)) or
+                not isinstance(result.get("dependency_sha256"), str) or
+                not HEX64.fullmatch(result["dependency_sha256"]) or
+                not isinstance(result.get("verdict_sha256"), str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("OPENWORKER_SCRIPTED_SCOPE_OR_PROVENANCE_INVALID")
     if p["workload"] == "mail-openworker-headless-mail":
         if (result.get("upstream_commit") != "ecb445490fc054d52b8ea610d97ba947f57033d2" or
                 result.get("connector_blob_sha") != "7be4e1f9e78e8fd9d1ef81b58bbc86a916c48e76" or

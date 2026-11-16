@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -155,6 +155,67 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "mail-openworker-scripted":
+        # Exact source-pinned public MIT OpenWorker engine only; disposable venv.
+        # All runtime inference is fake scripted-model replay, no real mailbox.
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/qualify_openworker_scripted_runtime.py"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+            if cp.returncode != 0 or len(cp.stdout) > 8192:
+                raise ValueError("ORIGINAL_SCRIPTED_RUNTIME_FAILED")
+            result = json.loads(cp.stdout)
+            admitted = (
+                isinstance(result, dict)
+                and result.get("schema") == "public-openworker-scripted-full-runtime/v1"
+                and result.get("classification") == "ORIGINAL_SCRIPTED_HEADLESS_RUNTIME_ONLY"
+                and result.get("upstream_commit") == "ecb445490fc054d52b8ea610d97ba947f57033d2"
+                and result.get("upstream_license") == "MIT"
+                and result.get("headless_engine_executed") is True
+                and result.get("model_inference") is False
+                and result.get("scripted_provider_only") is True
+                and result.get("real_mail") is False
+                and result.get("smtp_sent") is False
+                and result.get("shell_tools_executed") is False
+                and result.get("approval_denial_observed") is True
+                and result.get("clean_restart_replay") is True
+                and result.get("atif_schema") == "ATIF-v1.7"
+                and result.get("run_count") == 2
+                and result.get("record_count_per_run") == 7
+                and result.get("installed_package_count", 0) >= 1
+                and result.get("dependencies_hash_locked") is False
+                and result.get("total_denied_calls", 0) >= 2
+                and result.get("total_model_calls", 0) >= 2
+                and isinstance(result.get("dependency_inventory_sha256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", result["dependency_inventory_sha256"]) is not None
+                and type(result.get("venv_size_bytes")) is int
+                and result["venv_size_bytes"] > 0
+                and type(result.get("install_seconds")) in (float, int)
+                and type(result.get("elapsed_seconds")) in (float, int))
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            admitted, result, cp = False, {}, None
+        return {
+            "oracle_verified": bool(admitted),
+            "classification": "PASS" if admitted else "FAIL_SCRIPTED_ENGINE_OR_INSTALL",
+            "source_commit": result.get("upstream_commit") if admitted else None,
+            "scripted_provider_only": bool(admitted),
+            "headless_engine_executed": bool(admitted),
+            "approval_denial_verified": bool(admitted),
+            "clean_restart_verified": bool(admitted),
+            "real_mail": False,
+            "model_inference": False,
+            "dependency_hash_locked": False,
+            "atif_schema": "ATIF-v1.7" if admitted else None,
+            "run_count": 2 if admitted else 0,
+            "denied_calls": result.get("total_denied_calls", 0) if admitted else 0,
+            "package_count": result.get("installed_package_count", 0) if admitted else 0,
+            "dependency_sha256": result.get("dependency_inventory_sha256") if admitted else None,
+            "venv_size_bytes": result.get("venv_size_bytes", 0) if admitted else 0,
+            "elapsed_seconds": result.get("elapsed_seconds", 0) if admitted else 0,
+            "verdict_sha256": hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
     if workload == "mail-openworker-headless-mail":
         # Original immutable MIT headless CLI parser and fake IMAP source.
         # No real login, mail sending, model engine or arbitrary URL input.
