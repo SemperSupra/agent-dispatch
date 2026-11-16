@@ -1,0 +1,110 @@
+name: Public Wyse R32 F2 signed OVMF USB rescue without eMMC
+on:
+  push:
+    branches: [experiment/public-wyse-r32-f2-no-emmc]
+    paths:
+      - '.github/workflows/public-wyse-r32-f2-no-emmc.yml'
+      - 'scripts/public_wyse_r25_buildroot_uki_ssh.sh'
+      - 'scripts/public_wyse_r28_owned_kernel.sh'
+      - 'tools/wyse-buildroot/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r32-f2-no-emmc
+  cancel-in-progress: false
+jobs:
+  signed-usb-rescue-with-no-emmc:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 49
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install disposable public Linux build and OVMF tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev \
+            rsync unzip xz-utils wget curl cpio zstd perl \
+            qemu-system-x86 ovmf grub-efi-amd64-bin grub-common grub-pc-bin \
+            busybox-static dropbear-bin openssh-client dosfstools gdisk \
+            util-linux kmod sbsigntool openssl python3-virt-firmware \
+            systemd-ukify systemd-boot-efi
+          echo R32_F2_PUBLIC_DISPOSABLE_DEPENDENCIES=PASS
+      - name: Build official SHA-pinned Linux kernel and Buildroot userland afresh
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r28_owned_kernel.sh
+          bash -n scripts/public_wyse_r25_buildroot_uki_ssh.sh
+          bash scripts/public_wyse_r28_owned_kernel.sh
+          test -s "$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/bzImage"
+          test -s "$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/rootfs.cpio"
+          echo R32_F2_SOURCE_OWNED_LINUX_AND_ROOTFS_BUILD=PASS
+      - name: Prove signed USB rescue SSH when eMMC controller missing; retain unsigned firmware denial
+        shell: bash
+        env:
+          WYSE_R23_SIGNED_EFI: '1'
+          WYSE_R23_ENFORCE_SB: '1'
+          WYSE_R23_UKI: '1'
+          WYSE_R23_FIRMWARE_UNSIGNED_NEGATIVE: '1'
+          WYSE_R32_NO_EMMC: '1'
+        run: |
+          set -Eeuo pipefail
+          export WYSE_R29_OWNED_KERNEL_BZIMAGE="$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/bzImage"
+          export WYSE_R25_BUILDROOT_CPIO="$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/rootfs.cpio"
+          bash scripts/public_wyse_r25_buildroot_uki_ssh.sh
+          for marker in \
+            R29_SOURCE_OWNED_KERNEL_SELECTED=PASS \
+            R29_NO_UBUNTU_TEST_MODULES=PASS \
+            R29_KERNEL_MODULE_LIST_EMPTY_BY_DESIGN=PASS \
+            R32_F2_EMMC_CONTROLLER_AND_MEDIA_OMITTED=PASS \
+            R32_F2_NO_EMMC_SIGNED_USB_RESCUE_WITH_SSH=PASS \
+            R23_UKI_SIGNED_ENROLLED_OVMF_LINUX_SSH=PASS \
+            R23_UNSIGNED_UKI_WELL_FORMED_AND_FIRMWARE_DENIED=PASS \
+            R23_UNSIGNED_UKI_LINUX_INIT_NOT_REACHED=PASS \
+            UNAUTHORIZED_SSH_KEY_DENIAL=PASS \
+            EMMC_SOURCE_PRESERVED=PASS; do
+            grep -Fxq "$marker" evidence/public/receipt.txt
+          done
+          for marker in \
+            WYSE_R25_BUILDROOT_USERLAND_INIT=PASS \
+            R29_BUILTIN_DRIVER_INIT=PASS \
+            WYSE_R25_BUILDROOT_DROPBEAR_STARTED=PASS \
+            RECOVERY_NETWORK_READY=PASS \
+            USB_BOOT_STORAGE_ENUMERATION=PASS \
+            SATA_ENUMERATION=PASS; do
+            grep -Fq "$marker" evidence/public/guest-serial.txt
+          done
+          if grep -Fxq 'EMMC_ENUMERATION=PASS' evidence/public/guest-serial.txt; then
+            echo R32_F2_UNEXPECTED_EMMC_GUEST=FAIL_OPEN
+            exit 1
+          fi
+          if grep -Eq 'BLOCK_BUS_IDENTITY_(UNKNOWN|UNSUPPORTED)=RED' evidence/public/guest-serial.txt; then
+            echo R32_F2_UNKNOWN_BLOCK_BUS=RED
+            exit 1
+          fi
+          for marker in KEY_ONLY_SSH_LOGIN=PASS R32_F2_EMMC_ABSENT=PASS R32_F2_USB_AND_SATA_BUS_PRESENT=PASS; do
+            grep -Fxq "$marker" evidence/public/ssh-oracle.txt
+          done
+          echo R32_F2_SIGNED_USB_RESCUE_NO_EMMC_AND_SSH=PASS
+          echo R32_F2_PHYSICAL_DELL_EMMC_OUTAGE_PRODUCTION_SIGNER=NOT_TESTED
+      - name: Publish bounded public receipts only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r32-f2-no-emmc-public-receipts
+          path: |
+            evidence/public/receipt.txt
+            evidence/public/guest-serial.txt
+            evidence/public/negative-guest-serial.txt
+            evidence/public/ssh-oracle.txt
+            evidence/public/ukify-inspect.txt
+            evidence/public/unsigned-uki-inspect.txt
+            evidence/public/efi-signature-oracle.txt
+          if-no-files-found: warn
+          retention-days: 7
