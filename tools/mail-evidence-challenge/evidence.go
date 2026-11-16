@@ -226,24 +226,42 @@ func (l Ledger) Answer(q Question) (Answer,error) {
     for _,o:=range l.Observations {if o.Tenant==q.Tenant {visible=append(visible,o)}}
     switch q.Mode {
     case "fact-asof":
-        cutoff,err:=time.Parse(time.RFC3339,q.AsOf);if err!=nil{return ans,errors.New("BAD_ASOF")}
+        cutoff,err:=time.Parse(time.RFC3339,q.AsOf)
+        if err!=nil{return ans,errors.New("BAD_ASOF")}
+        // Knowledge-as-of is distinct from historical valid-at time: evidence
+        // acquired after the requested cutoff may not affect an earlier answer.
+        // A conflicting fact at the same latest valid time cannot be silently
+        // resolved by arbitrary source ID ordering.
         var best *Claim
         var bestObservation Observation
         var bestAt time.Time
+        conflict:=false
         for _,o:=range visible {
             if o.Group!=q.Group {continue}
+            captured,err:=time.Parse(time.RFC3339,o.CapturedAt)
+            if err!=nil{return ans,errors.New("BAD_OBSERVATION_TIME")}
+            if captured.After(cutoff){continue}
             for _,c:=range o.Claims {
                 when,_:=time.Parse(time.RFC3339,c.ValidAt)
                 if c.Key!=q.Key||when.After(cutoff){continue}
-                if best==nil || when.After(bestAt) || (when.Equal(bestAt)&&o.ID<bestObservation.ID) {
+                if best==nil || when.After(bestAt){
                     copyClaim:=c
                     best=&copyClaim
                     bestObservation=o
                     bestAt=when
+                    conflict=false
+                } else if when.Equal(bestAt) {
+                    if c.Value!=best.Value {
+                        conflict=true
+                    } else if o.ID<bestObservation.ID {
+                        copyClaim:=c
+                        best=&copyClaim
+                        bestObservation=o
+                    }
                 }
             }
         }
-        if best!=nil{
+        if best!=nil && !conflict {
             ans.Classification="SUPPORTED";ans.Value=best.Value
             ans.IDs=[]string{bestObservation.ID}
             ans.Citations=[]Citation{cite(bestObservation,best.Quote)}
