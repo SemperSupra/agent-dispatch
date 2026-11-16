@@ -5,16 +5,18 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /src
 COPY init.sh /src/init.sh
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
-    linux-image-amd64 initramfs-tools busybox-static cpio gzip kmod zstd && \
+    linux-image-amd64 initramfs-tools busybox-static cpio gzip kmod zstd xz-utils && \
     mkdir -p /out /tmp/extracted /tmp/repacked && \
     kernel="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' | head -n 1)" && \
     test -n "$kernel" && cp "$kernel" /out/kernel && \
     version="${kernel#/boot/vmlinuz-}" && \
+    printf "xhci_hcd\nxhci_pci\nusb_storage\nusbhid\nhid_generic\n" >> /etc/initramfs-tools/modules && \
     mkinitramfs -o /out/default-initrd "$version" && \
     unmkinitramfs /out/default-initrd /tmp/extracted && \
     if [ -d /tmp/extracted/main ]; then cp -a /tmp/extracted/main/. /tmp/repacked/; else cp -a /tmp/extracted/. /tmp/repacked/; fi && \
     cp /src/init.sh /tmp/repacked/init && chmod 0755 /tmp/repacked/init && \
     find /tmp/repacked -type f -name "*.ko.zst" -exec zstd -q -d --rm {} + && \
+    find /tmp/repacked -type f -name "*.ko.xz" -exec xz -q -d {} + && \
     depmod -b /tmp/repacked "$version" && \
     mkdir -p /tmp/repacked/bin && cp /bin/busybox /tmp/repacked/bin/busybox && \
     cd /tmp/repacked && find . -print | LC_ALL=C cpio --quiet -o -H newc | gzip -9 > /out/initrd.gz && \
