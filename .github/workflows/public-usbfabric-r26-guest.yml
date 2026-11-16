@@ -6,6 +6,8 @@ on:
       - '.github/workflows/public-usbfabric-r26-guest.yml'
       - 'experiments/usb-fabric-r26/guest/**'
       - 'experiments/agent-sandbox-r15/**'
+  pull_request:
+    types: [opened, synchronize]
   workflow_dispatch:
 permissions:
   contents: read
