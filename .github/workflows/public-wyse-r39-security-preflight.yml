@@ -1,7 +1,8 @@
 name: Public Wyse R39 fail-closed admission and signed recovery regression
 on:
-  push:
-    branches: [experiment/public-wyse-r39-security-preflight]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r38-recovery-integration]
     paths:
       - '.github/workflows/public-wyse-r39-security-preflight.yml'
       - 'scripts/public_wyse_r25_buildroot_uki_ssh.sh'
@@ -17,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deny-conflicting-modes:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r39-security-preflight'
     runs-on: ubuntu-26.04
     timeout-minutes: 3
     steps:
