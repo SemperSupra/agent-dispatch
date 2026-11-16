@@ -65,6 +65,28 @@ class RealCpuModelAdmissionTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertEqual(q.parse_model_json(bad),{})
 
+    def test_second_oracle_rejects_forged_model_citation_and_exact_count(self):
+        import verify_gha_typed_receipt as verifier
+        tasks=verifier.MODEL_HOLDOUT_GOLD
+        cases=[
+            {"id":identifier,"language":language,
+             "source_id":source,"value":value,
+             "valid_json":True,"exact":True,
+             "incorrect_source":False,"abstained":source=="NONE",
+             "duration_ms":1,"output_sha256":"a"*64}
+            for identifier,(language,source,value) in tasks.items()
+        ]
+        metric=verifier.grade_public_model_cases(cases)
+        self.assertEqual(metric["exact"],7)
+        self.assertEqual(metric["valid"],7)
+        cases[0]["source_id"]="a2"
+        with self.assertRaisesRegex(verifier.VerdictError,"MODEL_CASE_ORACLE_MISMATCH"):
+            verifier.grade_public_model_cases(cases)
+        cases[0]["source_id"]="b1"
+        cases[0]["exact"]=False
+        with self.assertRaisesRegex(verifier.VerdictError,"MODEL_CASE_ORACLE_MISMATCH"):
+            verifier.grade_public_model_cases(cases)
+
     def test_independent_metric_is_not_self_graded_promotion(self):
         measured=[
             {"exact":False,"valid_json":False,"incorrect_source":True,
