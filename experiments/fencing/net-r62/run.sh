@@ -26,7 +26,6 @@ start_peer(){
   local i="$1"
   local ip="172.29.62.1${i}" port="$2" nm="${names[$((i-1))]}"
   docker run --detach --rm --name "$nm" --network "$net" --ip "$ip" \
-    -p "127.0.0.1:${port}:2379" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --tmpfs /data:rw,nosuid,nodev,size=256m,mode=1777 --user 65532:65532 \
     "$image" \
