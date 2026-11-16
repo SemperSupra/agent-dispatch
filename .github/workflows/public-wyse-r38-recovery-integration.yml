@@ -103,13 +103,13 @@ jobs:
       - name: Qualify integrated mode with signed recovery SSH and actual OVMF negatives
         shell: bash
         env:
-          R38_MODE: ${{ matrix.mode }
-          R38_REQUIRED: ${{ matrix.required }
-          WYSE_R30_NO_SATA: ${{ matrix.no_sata }
-          WYSE_R32_ASSERT_BUS_TOPOLOGY: ${{ matrix.f0 }
-          WYSE_R32_NO_EMMC: ${{ matrix.f2 }
-          WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE: ${{ matrix.f3 }
-          WYSE_R34_EMMC_SIGNED_BOOT: ${{ matrix.k2b }
+          R38_MODE: ${{ matrix.mode }}
+          R38_REQUIRED: ${{ matrix.required }}
+          WYSE_R30_NO_SATA: ${{ matrix.no_sata }}
+          WYSE_R32_ASSERT_BUS_TOPOLOGY: ${{ matrix.f0 }}
+          WYSE_R32_NO_EMMC: ${{ matrix.f2 }}
+          WYSE_R32_FIRMWARE_TAMPERED_NEGATIVE: ${{ matrix.f3 }}
+          WYSE_R34_EMMC_SIGNED_BOOT: ${{ matrix.k2b }}
           WYSE_R23_SIGNED_EFI: '1'
           WYSE_R23_ENFORCE_SB: '1'
           WYSE_R23_UKI: '1'
@@ -179,7 +179,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: wyse-r38-integration-${{ matrix.mode }-text
+          name: wyse-r38-integration-${{ matrix.mode }}-text
           path: |
             evidence/public/receipt.txt
             evidence/public/guest-serial.txt
