@@ -209,7 +209,7 @@ def _execute(workload: str, timeout: int) -> dict:
             cp=None
         return {
             "oracle_verified":bool(admitted),
-            "classification":"PASS_REAL_MODEL_MEASURED" if admitted else "FAIL_REAL_MODEL_RUNTIME_OR_ORACLE",
+            "classification":"PASS" if admitted else "FAIL_REAL_MODEL_RUNTIME_OR_ORACLE",
             "real_model_inference":bool(admitted),
             "automatic_promotion":False,
             "model_sha256":obs.get("model_sha256") if admitted else None,
