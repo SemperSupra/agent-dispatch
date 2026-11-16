@@ -84,8 +84,7 @@ func issuer(args []string)error{
   if approve=="yes"{
    ownerSeed,e:=read(filepath.Join(trust,"owner.seed"));if e!=nil{return e}
    ownerKey:=ed25519.NewKeyFromSeed(ownerSeed)
-   token.OwnerSignature=ed25519.Sign(ownerKey,append(serialize(g),[]byte("
-owner-approval:"+cap)...))
+   token.OwnerSignature=ed25519.Sign(ownerKey,append(serialize(g),append([]byte{10},[]byte("owner-approval:"+cap)...)...))
   } else if approve!="no" {return errors.New("approval must be yes|no")}
   data,_:=json.Marshal(token)
   return mustWrite(filepath.Join(grants,file),data)
@@ -113,8 +112,7 @@ func check(action Action,issuerKey,ownerKey ed25519.PublicKey)(string,bool){
  case "guest.tools","guest.root":
   return "allowed_mock_guest",true
  case "external.synthetic_effect":
-  approval:=append(serialize(g),[]byte("
-owner-approval:"+action.Capability)...)
+  approval:=append(serialize(g),append([]byte{10},[]byte("owner-approval:"+action.Capability)...)...)
   if len(action.Token.OwnerSignature)==0 || !ed25519.Verify(ownerKey,approval,action.Token.OwnerSignature){
    return "owner_approval_required",false
   }
@@ -193,8 +191,7 @@ func client(args []string)error{
  if e!=nil{return e}
  got:="DENY";if resp.StatusCode==200{got="ALLOW"}
  if got!=expected{return fmt.Errorf("R11_EXPECTED_%s_GOT_%s: %s",expected,got,string(response))}
- fmt.Printf("R11_INDEPENDENT_BROKER_%s=PASS CAP=%s
-",got,cap)
+ fmt.Println("R11_INDEPENDENT_BROKER_"+got+"=PASS CAP="+cap)
  return nil
 }
 func main(){
