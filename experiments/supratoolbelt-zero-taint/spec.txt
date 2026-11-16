@@ -1,0 +1,1 @@
+M1 zero-taint fixture; no secret; build tools cannot write to host; 2026-11-11

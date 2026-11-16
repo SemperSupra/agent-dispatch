@@ -1,0 +1,62 @@
+name: M1 zero-taint disposable build and toolchain runtime
+on:
+  push:
+    branches: [rdte/supratoolbelt-zero-taint-execution-20261111]
+    paths:
+      - .github/workflows/mcp-zero-taint-build.yml
+      - experiments/supratoolbelt-zero-taint/**
+  pull_request:
+    paths:
+      - .github/workflows/mcp-zero-taint-build.yml
+      - experiments/supratoolbelt-zero-taint/**
+permissions:
+  contents: read
+jobs:
+  zero-taint:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify only a fresh hosted ephemeral public runner is eligible
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test -n "$RUNNER_TEMP"
+          test "$(id -u)" != 0
+          test -n "$(command -v docker)"
+          docker info >/dev/null
+      - name: Resolve public builder image to exact immutable digest on this disposable runner
+        run: |
+          set -euo pipefail
+          docker pull golang:1.25.4-alpine
+          image="$(docker image inspect --format '{{index .RepoDigests 0}}' golang:1.25.4-alpine)"
+          case "$image" in golang@sha256:*) ;; *) echo "Image digest missing";exit 1;; esac
+          printf '%s\n' "$image" > builder-image-digest.txt
+          echo "DISPOSABLE_BUILDER_IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Actual read-only nonroot no-network tool build in disposable tmpfs-only OCI
+        run: |
+          python3 experiments/supratoolbelt-zero-taint/qualify_no_taint.py
+      - name: Evidence file is the only intentional checkout mutation; no OCI leftovers
+        if: always()
+        run: |
+          test ! -e experiments/supratoolbelt-zero-taint/should-not-write
+          if [ -f zero-taint-receipt.json ]; then
+            python3 - <<'PY'
+          import json
+          with open("zero-taint-receipt.json") as fp: result=json.load(fp)
+          print("zero_taint_passed=",result["passed"])
+          PY
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: m1-zero-taint-${{ matrix.runner }}
+          path: |
+            builder-image-digest.txt
+            zero-taint-receipt.json
