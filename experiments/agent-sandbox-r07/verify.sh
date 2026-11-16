@@ -14,14 +14,14 @@ vols_before="$(docker volume ls -q | LC_ALL=C sort)"
 case "$R07_TARGET" in
   aarch64) target_libc=arm64 ;;
   riscv64) target_libc=riscv64 ;;
-  *) echo R07_TARGET_UNSUPPORTED=RED;exit 11 ;;
+  *) echo R07_TARGET_UNSUPPORTED=RED; exit 11 ;;
 esac
 image="public-sandbox-r07-${R07_TARGET}:${GITHUB_SHA:0:12}"
 cleanup(){ docker image rm -f "$image" >/dev/null 2>&1 || true; docker builder prune -af >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker pull ubuntu:24.04 >/dev/null
 base="$(docker image inspect --format '{{index .RepoDigests 0}}' ubuntu:24.04)"
-[[ "$base" == *@sha256:* ]] || { echo R07_BASE_NOT_PINNED=RED;exit 12; }
+[[ "$base" == *@sha256:* ]] || { echo R07_BASE_NOT_PINNED=RED; exit 12; }
 echo "R07_BUILDER_DIGEST=$base"
 DOCKER_BUILDKIT=1 docker build --pull --no-cache --build-arg "BASE_IMAGE=$base" --build-arg "TARGET=$R07_TARGET" --build-arg "TARGET_LIBC=$target_libc" -t "$image" .
 python3 - "$image" "$R07_TARGET" <<'PY'
@@ -71,10 +71,10 @@ print("R07_SAME_RUNNER_COMPUTE_ENVELOPE="+json.dumps(report,sort_keys=True))
 print("R07_GUI_AGENT_REAL_WORKLOAD=NOT_TESTED")
 print("R07_CROSS_HOST_AND_WYSE_TRANSFER=NOT_QUALIFIED")
 PY
-[[ "$(docker volume ls -q | LC_ALL=C sort)" == "$vols_before" ]] || {echo R07_VOLUME_TAINT=RED;exit 15;}
-[[ "$(snapshot)" == "$locals_before" ]] || {echo R07_LOCAL_TAINT=RED;exit 16;}
-[[ "$(git -C "$root" status --porcelain --untracked-files=all)" == "$start" ]] || {echo R07_CHECKOUT_TAINT=RED;exit 17;}
+[[ "$(docker volume ls -q | LC_ALL=C sort)" == "$vols_before" ]] || { echo R07_VOLUME_TAINT=RED; exit 15; }
+[[ "$(snapshot)" == "$locals_before" ]] || { echo R07_LOCAL_TAINT=RED; exit 16; }
+[[ "$(git -C "$root" status --porcelain --untracked-files=all)" == "$start" ]] || { echo R07_CHECKOUT_TAINT=RED; exit 17; }
 cleanup;trap - EXIT
-if docker image inspect "$image" >/dev/null 2>&1;then echo R07_IMAGE_TAINT=RED;exit 18;fi
+if docker image inspect "$image" >/dev/null 2>&1;then echo R07_IMAGE_TAINT=RED; exit 18;fi
 echo R07_DISPOSABLE_TOOLCHAIN_RUNTIME_TEARDOWN=PASS
 echo R07_HOME_PROJECT_LOCAL_AND_SOURCE_ZERO_TAINT=PASS
