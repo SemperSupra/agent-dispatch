@@ -1,0 +1,45 @@
+name: Public Sandbox R18 - Linux hub policy to local QMP
+on:
+  push:
+    branches: [experiment/public-sandbox-r18-hub-qmp-integrated]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r18.yml'
+      - 'experiments/agent-sandbox-r18/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r18-linux-hub-qmp
+  cancel-in-progress: false
+jobs:
+  integrated-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: r18-source
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: r16-source
+          ref: e5065cd859c15966d23dd929a79dc4a6b3751dd9
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: r17-source
+          ref: e76b1ad8d4c17c30a1912ed7415ccbbdd4cf0719
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build three independent Linux services in disposable OCI and verify hub-controlled remote HID
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/r18-source/experiments/agent-sandbox-r18/verify.sh"
+      - name: Preserve acceptance limits
+        shell: bash
+        run: |
+          echo 'R18_ALL_SOURCE_REVISIONS_EXACT_SHA_VERIFIED=REQUIRES_CI'
+          echo 'R18_SYNTHETIC_HUB_LEASE_BEFORE_QMP=REQUIRES_CI'
+          echo 'R18_REAL_HUB_USBIP_URB_FORWARDING=NOT_TESTED'
+          echo 'R18_PRODUCTION_SIGNER_TLS_GUEST_OS=NOT_TESTED'
