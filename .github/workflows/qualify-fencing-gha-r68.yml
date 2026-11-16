@@ -1,0 +1,30 @@
+name: R68 native GHA self-readback and correlation
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/gha-r68/**'
+      - '.github/workflows/qualify-fencing-gha-r68.yml'
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: r68-native-receipt-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-readback:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Contract negatives
+        run: python3 -m unittest discover -s experiments/fencing/gha-r68 -p 'test_*.py' -v
+      - name: Actual read-only native provider run receipt
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 experiments/fencing/gha-r68/receipt.py --native
+      - name: Preserve scope
+        if: always()
+        run: echo 'Read-only GET of this public workflow run, no native dispatch/ACK-loss test or at-sink fencing. Production HOLD.' >> "$GITHUB_STEP_SUMMARY"
