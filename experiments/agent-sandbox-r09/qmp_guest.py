@@ -57,7 +57,7 @@ def main():
     "-m","1024M","-smp","1","-S","-nodefaults","-display","none",
     "-monitor","none","-serial","stdio","-net","none","-no-reboot",
     "-kernel","/guest/kernel","-initrd","/guest/initrd.gz",
-    "-append","console=ttyS0 rdinit=/init loglevel=4 panic=-1",
+    "-append","console=ttyS0 rdinit=/init loglevel=7 panic=-1",
     "-device","qemu-xhci,id=xhci0",
     "-qmp","unix:"+sockname+",server=on,wait=off"]
   proc=subprocess.Popen(cmd,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
