@@ -1,0 +1,37 @@
+name: R20 Linux USBIP wire oracles — parallel
+on:
+  push:
+    branches: [test/issue-365-usbip-wire]
+    paths:
+      - '.github/workflows/wyse-r20-parallel.yml'
+      - 'experiments/wyse-r20/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wyse-r20-issue-365
+  cancel-in-progress: false
+jobs:
+  independent-oracles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        lane: [discovery, urb, malformed]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real upstream usbip CLI and synthetic URB frame oracles inside disposable OCI
+        shell: bash
+        env:
+          R20_LANE: ${{ matrix.lane }}
+        run: bash experiments/wyse-r20/verify.sh
+      - name: Scope limit
+        shell: bash
+        run: |
+          echo 'R20_LINUX_USBIP_UPSTREAM_CLIENT_AND_WIRE_SYNTHETIC_ONLY=YES'
+          echo 'R20_REAL_KERNEL_VHCI_GUEST_DEVICE_FORWARDING=NOT_TESTED'
