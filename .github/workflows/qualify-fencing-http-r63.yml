@@ -1,0 +1,33 @@
+name: R63 disposable HTTP effect boundary tests
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/sink-http-r63/**'
+      - '.github/workflows/qualify-fencing-http-r63.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r63-sink-http-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-http-commit-oracle:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Checkout no persistent auth
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Go native race and vet
+        working-directory: experiments/fencing/sink-http-r63
+        shell: bash
+        run: |
+          set -euo pipefail
+          go version
+          go vet ./...
+          go test -race -count=10 -v ./...
+      - name: Classification
+        if: always()
+        run: |
+          echo 'Actual localhost HTTP transport, synthetic in-memory receiver only. No provider-side effect fencing or durable recovery accepted.' >> "$GITHUB_STEP_SUMMARY"
