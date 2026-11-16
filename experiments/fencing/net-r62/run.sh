@@ -44,9 +44,7 @@ start_peer 3 32379
 ready(){
   local i
   for i in $(seq 1 45); do
-    if python3 experiments/fencing/net-r62/test_net.py start >/dev/null 2>&1; then
-      # test_net.py start is not a pure readiness probe. Its claim must be
-      # committed exactly once; verify readback separately below.
+    if python3 experiments/fencing/net-r62/test_net.py ready >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -56,7 +54,7 @@ ready(){
   return 1
 }
 ready
-echo '{"stage":"start","cross_member_read":"PASS","real_peer_namespaces":3}'
+python3 experiments/fencing/net-r62/test_net.py start
 # Disconnect the peer network without terminating e3; e1 and e2 keep quorum.
 docker network disconnect --force "$net" "${names[2]}"
 sleep 7
