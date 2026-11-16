@@ -1,0 +1,37 @@
+name: Public Sandbox R14 - QEMU usbredir backend across ISA
+on:
+  push:
+    branches: [experiment/public-sandbox-r14-usbredir-backend]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r14.yml'
+      - 'experiments/agent-sandbox-r14/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r14-usbredir
+  cancel-in-progress: false
+jobs:
+  usbredir-backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        arch: [x86_64, aarch64, riscv64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Test QEMU usbredir chardev with no physical USB device or network
+        shell: bash
+        env:
+          R14_ARCH: ${{ matrix.arch }}
+        run: bash experiments/agent-sandbox-r14/verify.sh
+      - name: Distinguish transport endpoint and functioning USB device
+        shell: bash
+        run: |
+          echo 'R14_USBIP_URB_FORWARDING_OR_CLIENT_CONNECT=NOT_TESTED'
+          echo 'R14_WINDOWS_LINUX_CROSSISA_GUEST_DRIVER=NOT_TESTED'
