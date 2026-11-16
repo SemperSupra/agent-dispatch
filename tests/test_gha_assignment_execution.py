@@ -60,7 +60,7 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "oracle_verified": True, "classification": "PASS",
             "real_model_inference": True, "automatic_promotion": False,
             "model_sha256": "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8",
-            "engine_commit": "8642541b255bfb5dc39cd351a178be09013a55d6",
+            "engine_commit": "b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed",
             "question_count": 7, "model_calls": 20, "selected_policy": "plain",
             "heldout_exact": 1, "baseline_exact": 1,
             "unsupported_source_count": 1, "semantic_quality_gate": False,
