@@ -1,0 +1,32 @@
+name: Public Sandbox R16 - Linux virtual USB gateway IP API
+on:
+  push:
+    branches: [experiment/public-sandbox-r16-linux-usb-gateway]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r16.yml'
+      - 'experiments/agent-sandbox-r16/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r16-linux-usb-gateway
+  cancel-in-progress: false
+jobs:
+  linux-virtual-hub:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build disposable Linux USB gateway and prove remote management API and USBIP discovery
+        shell: bash
+        run: bash experiments/agent-sandbox-r16/verify.sh
+      - name: Maintain strict scope
+        shell: bash
+        run: |
+          echo 'R16_OWNER_LINUX_SERVER_VIRTUAL_HUB_API=YES'
+          echo 'R16_USBIP_PORT_UNPUBLISHED_OUTSIDE_SERVER=YES'
+          echo 'R16_REAL_USB_FORWARDING=NOT_TESTED'
+          echo 'R16_WINDOWS_GUEST=NOT_TESTED'
