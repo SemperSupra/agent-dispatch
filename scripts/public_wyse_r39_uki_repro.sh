@@ -52,6 +52,9 @@ for n in A B; do
   sbsign --key "$W/test-only.key" --cert "$W/test-only.crt" \
     --output "$W/signed-$n.efi" "$W/unsigned-A.efi" > "$W/sbsign-$n.log" 2>&1
   sbverify --cert "$W/test-only.crt" "$W/signed-$n.efi" > "$W/verify-$n.log" 2>&1
+  # Deliberately cross a wall-clock boundary. Same-second Authenticode
+  # timestamps could otherwise masquerade as signing reproducibility.
+  if test "$n" = A; then sleep 2; fi
 done
 S1=$(sha256sum "$W/signed-A.efi" | cut -d' ' -f1)
 S2=$(sha256sum "$W/signed-B.efi" | cut -d' ' -f1)
