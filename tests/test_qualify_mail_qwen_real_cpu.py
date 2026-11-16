@@ -10,7 +10,9 @@ import qualify_mail_qwen_real_cpu as q
 
 class RealCpuModelAdmissionTests(unittest.TestCase):
     def test_hard_pinned_model_and_backend(self):
-        self.assertEqual(q.LLAMA_COMMIT,"8642541b255bfb5dc39cd351a178be09013a55d6")
+        self.assertEqual(q.LLAMA_COMMIT,"b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed")
+        self.assertEqual(q.LLAMA_RELEASE,"b12428")
+        self.assertEqual(q.LLAMA_ASSET_SHA256,"a9b243a3bc4ca172010e96c64062fc02afd1dc4f8b699716f813ae6845ada4c6")
         self.assertEqual(q.MODEL_COMMIT,"9217f5db79a29953eb74d5343926648285ec7e67")
         self.assertEqual(q.MODEL_SHA256,"9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8")
         self.assertEqual(q.MODEL_REPO,"Qwen/Qwen2.5-0.5B-Instruct-GGUF")
