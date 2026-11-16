@@ -1,0 +1,51 @@
+name: Public Wyse R36 deterministic eMMC raw image repeat build
+on:
+  push:
+    branches: [experiment/public-wyse-r36-emmc-repro]
+    paths:
+      - '.github/workflows/public-wyse-r36-emmc-repro.yml'
+      - 'scripts/public_wyse_r36_emmc_repro.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r36-emmc-repro
+  cancel-in-progress: false
+jobs:
+  deterministic-gpt-fat-emmc:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install only free public tooling for synthetic GPT FAT images
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            gdisk dosfstools mtools grub-common grub-efi-amd64-bin grub-pc-bin
+          echo R36_PUBLIC_DISPOSABLE_TOOLS=PASS
+      - name: Build two independent identical 260MiB emulated eMMC images, compare all bytes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r36_emmc_repro.sh
+          mkdir -p evidence/public
+          bash scripts/public_wyse_r36_emmc_repro.sh | tee evidence/public/r36-repro-receipt.txt
+          grep -Fxq 'R36_FULL_RAW_EMMC_IMAGE_CMP=PASS' evidence/public/r36-repro-receipt.txt
+          grep -Fxq 'R36_PARTITION_ESP_AND_EFI_READBACK=PASS' evidence/public/r36-repro-receipt.txt
+          grep -Fxq 'R36_PRODUCTION_SIGNED_UKI_AND_CROSS_RUN_REPRODUCIBILITY=NOT_TESTED' evidence/public/r36-repro-receipt.txt
+          echo R36_BITWISE_REPEAT_BUILD_CI=PASS
+      - name: Upload public-safe text receipts, never raw EFI or full images
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r36-emmc-repro-text-receipts
+          path: |
+            evidence/public/r36-repro-receipt.txt
+            evidence/public/r36-grub-build.txt
+          if-no-files-found: warn
+          retention-days: 7
