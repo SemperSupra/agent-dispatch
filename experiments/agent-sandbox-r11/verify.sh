@@ -13,8 +13,8 @@ local_before="$(watch_paths)"
 vols_before="$(docker volume ls -q | LC_ALL=C sort)"
 prefix="public-r11-${GITHUB_SHA:0:12}"
 tmp="$(mktemp -d "$RUNNER_TEMP/r11-XXXXXXXX")"
-mkdir -p "$tmp/ipc" "$tmp/trust" "$tmp/grants" "$tmp/state"
-chmod 0777 "$tmp" "$tmp/ipc" "$tmp/trust" "$tmp/grants" "$tmp/state"
+mkdir -p "$tmp/ipc" "$tmp/trust" "$tmp/public" "$tmp/grants" "$tmp/state"
+chmod 0777 "$tmp" "$tmp/ipc" "$tmp/trust" "$tmp/public" "$tmp/grants" "$tmp/state"
 name=public-r11-broker
 cleanup(){
  docker rm -f "$name" >/dev/null 2>&1 || true
@@ -44,13 +44,15 @@ issuer keygen
 if [[ ! -s "$tmp/trust/issuer.pub" || ! -s "$tmp/trust/owner.pub" ]];then
  echo "R11_TEST_KEY_MATERIAL_MISSING=RED"; exit 12
 fi
+cp "$tmp/trust/issuer.pub" "$tmp/trust/owner.pub" "$tmp/public/"
+chmod 0644 "$tmp/public/"*.pub
 printf '2\n' > "$tmp/state/epoch_min"
 chmod 0666 "$tmp/state/epoch_min"
 start_broker(){
  docker run --rm -d --name "$name" --read-only --network none --user 65532:65532 \
  --cap-drop ALL --security-opt no-new-privileges \
  --memory 96m --memory-swap 96m --cpus 1 --pids-limit 40 \
- --mount "type=bind,src=$tmp/trust,dst=/trust,readonly" \
+ --mount "type=bind,src=$tmp/public,dst=/trust,readonly" \
  --mount "type=bind,src=$tmp/state,dst=/state" \
  --mount "type=bind,src=$tmp/ipc,dst=/ipc" \
  "$prefix-broker" >/dev/null
@@ -82,7 +84,7 @@ mint "nonce-03" "external.synthetic_effect" no 2 "token-noowner"
 client token-noowner external.synthetic_effect DENY
 mint "nonce-04" "external.synthetic_effect" yes 2 "token-effect"
 client token-effect external.synthetic_effect ALLOW
-[[ "$(grep -c '^SYNTHETIC_ONLY:nonce-04$' "$tmp/state/effects.log")" == 1 ]] || { echo R11_SYNTHETIC_EFFECT_NOT_OBSERVED=RED; exit 14; }
+[[ "$(sudo grep -c '^SYNTHETIC_ONLY:nonce-04$' "$tmp/state/effects.log")" == 1 ]] || { echo R11_SYNTHETIC_EFFECT_NOT_OBSERVED=RED; exit 14; }
 echo "R11_EXTERNAL_MOCK_EFFECT_INDEPENDENTLY_OBSERVED=PASS"
 client token-effect external.synthetic_effect DENY
 
