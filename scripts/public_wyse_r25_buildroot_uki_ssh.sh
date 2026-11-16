@@ -111,23 +111,29 @@ if test -n "${WYSE_R25_BUILDROOT_CPIO:-}"; then
   test -x "$B/etc/init.d/S01wyse-volatile"
   mkdir -p "$B/lib/modules" "$B/etc/wyse-ci-fixture"
   cp -a "$R/lib/modules/$version" "$B/lib/modules/"
-  cp "$R/sbin/modprobe" "$B/sbin/wyse-ci-modprobe"
-  # The Ubuntu test-only kmod binary may load from /usr/lib or /lib64,
-  # depending on runner release. Resolve every absolute dynamic dependency
-  # from the exact observed host executable rather than assuming /lib paths.
-  kmodhost=$(command -v modprobe)
-  while IFS= read -r lib; do
-    if test -f "$lib"; then
-      mkdir -p "$B$(dirname "$lib")"
-      cp -L "$lib" "$B$lib"
-    fi
-  done <<EOF
-$(ldd "$kmodhost" 2>/dev/null | grep -oE '/[^[:space:]()]+' | sort -u)
-EOF
-  interp=$(readelf -l "$kmodhost" | sed -n 's/.*Requesting program interpreter: \([^]]*\)\].*/\1/p')
-  test -n "$interp"
-  test -f "$B$interp" || { echo "R25_TEST_MODULE_LOADER_INTERPRETER_MISSING:$interp" >&2; exit 9; }
-  echo 'R25_HOST_TEST_KMOD_DYNAMIC_CLOSURE=PASS' >> evidence/public/receipt.txt
+  # R25 synthetic-only module fixture: materialize an exact, ordered,
+  # decompressed kernel-module dependency closure on the host and use the
+  # actual Buildroot BusyBox insmod in the guest. No Ubuntu dynamic loader
+  # is shipped into recovery userland. This is NOT a production kernel.
+  MODULE_LIST="$B/etc/wyse-ci-fixture/kernel-module-order.txt"
+  : > "$MODULE_LIST"
+  awk '$1=="insmod" && !seen[$2]++ {print $2}' evidence/public/modprobe-deps.txt > "$W/ordered-test-modules.txt"
+  while IFS= read -r module; do
+    case "$module" in /lib/modules/"$version"/*) ;; *) echo "R25_BAD_MODULE_SOURCE:$module" >&2; exit 10 ;; esac
+    test -f "$module" || { echo "R25_MODULE_SOURCE_MISSING:$module" >&2; exit 11; }
+    raw="${module%.zst}"
+    mkdir -p "$B$(dirname "$raw")"
+    case "$module" in
+      *.ko.zst) zstd -q -dc "$module" > "$B$raw" ;;
+      *.ko) cp -L "$module" "$B$raw" ;;
+      *) echo "R25_UNSUPPORTED_MODULE_FORMAT:$module" >&2; exit 12 ;;
+    esac
+    test -s "$B$raw"
+    printf '%s\\n' "$raw" >> "$MODULE_LIST"
+  done < "$W/ordered-test-modules.txt"
+  test -s "$MODULE_LIST"
+  echo "R25_TEST_MODULE_COUNT=$(wc -l < "$MODULE_LIST")" >> evidence/public/receipt.txt
+  echo 'R25_BUILDROOT_BUSYBOX_MODULE_LOAD_FIXTURE=STAGED' >> evidence/public/receipt.txt
   cp "$W/host_ed25519" "$B/etc/wyse-ci-fixture/ssh_host_ed25519_key"
   cp "$W/id_ed25519.pub" "$B/etc/wyse-ci-fixture/authorized_keys"
   cat > "$B/init" <<'BUILDROOT_INIT'
@@ -139,9 +145,18 @@ export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 /bin/busybox --install -s /bin
 echo 'WYSE_SYNTHETIC_LINUX_INIT=PASS'
 echo 'WYSE_R25_BUILDROOT_USERLAND_INIT=PASS'
-for module in sdhci_pci sdhci mmc_block ahci libahci sd_mod e1000 usb_storage; do
-  /sbin/wyse-ci-modprobe "$module" 2>&1 || echo "MODULE_MISSING:$module"
-done
+module_failed=0
+while IFS= read -r module; do
+  if ! /bin/busybox insmod "$module"; then
+    echo "R25_BUILDROOT_INSMOD_FAILED:$module"
+    module_failed=1
+  fi
+done < /etc/wyse-ci-fixture/kernel-module-order.txt
+if [ "$module_failed" -ne 0 ]; then
+  echo 'R25_BUILDROOT_MODULE_CLOSURE=RED'
+  exec /bin/sh
+fi
+echo 'R25_BUILDROOT_MODULE_CLOSURE=PASS'
 /bin/busybox sleep 4
 for node in /sys/block/mmcblk*; do
   test -d "$node" && echo 'EMMC_ENUMERATION=PASS' && break
