@@ -107,7 +107,7 @@ if docker inspect "$name" >/dev/null 2>&1;then echo "R11_BROKER_NOT_DISPOSABLE=R
 start_broker
 client token-fresh guest.root DENY
 client token-effect external.real_network DENY
-[[ "$(grep -c '^SYNTHETIC_ONLY:' "$tmp/state/effects.log")" == 1 ]] || { echo R11_UNAUTHORIZED_EXTRA_EFFECT=RED; exit 16; }
+[[ "$(sudo grep -c '^SYNTHETIC_ONLY:' "$tmp/state/effects.log")" == 1 ]] || { echo R11_UNAUTHORIZED_EXTRA_EFFECT=RED; exit 16; }
 echo "R11_EXTERNAL_LEDGER_SURVIVED_BROKER_RESTART=PASS"
 echo "R11_ONLY_ONE_APPROVED_SYNTHETIC_EFFECT=PASS"
 docker stop "$name" >/dev/null
