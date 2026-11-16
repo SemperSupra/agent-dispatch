@@ -1,0 +1,31 @@
+name: Public Sandbox R02 - immutable OCI service recreation
+on:
+  push:
+    branches: [experiment/public-sandbox-oci-service-r02]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r02-stateless-service.yml'
+      - 'experiments/agent-sandbox-r02/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r02
+  cancel-in-progress: false
+jobs:
+  stateless-service:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build inside disposable OCI stage; deploy two stateless isolated incarnations
+        shell: bash
+        run: bash experiments/agent-sandbox-r02/verify.sh
+      - name: Qualify exact scope and avoid general host assumptions
+        shell: bash
+        run: |
+          echo 'R02_RUNNER_DISPOSABLE_PUBLIC_GHA=OBSERVED_HOSTED_CLASS'
+          echo 'R02_PRODUCTION_SERVICE_DEPLOYMENT=NOT_TESTED'
+          echo 'R02_HARDWARE_AND_PERSISTENT_HOST_TAINT=NOT_TESTED'
