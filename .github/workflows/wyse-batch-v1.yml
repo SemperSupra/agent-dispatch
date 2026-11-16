@@ -1,0 +1,37 @@
+name: Weak-model 3-lane work packet validator
+on:
+  push:
+    branches: [test/issue-363-batch-validator]
+    paths:
+      - '.github/workflows/wyse-batch-v1.yml'
+      - 'experiments/wyse-batch-v1/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wyse-batch-v1-issue-363
+  cancel-in-progress: false
+jobs:
+  offline-static-packets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        lane: [valid, collision, unsafe]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Prove weak-model packet safety/independence via disposable Go race tests
+        shell: bash
+        env:
+          BATCH_LANE: ${{ matrix.lane }}
+        run: bash experiments/wyse-batch-v1/verify.sh
+      - name: No scheduler side effect
+        shell: bash
+        run: |
+          echo 'BATCH_STATIC_MANIFEST_ONLY=YES'
+          echo 'BATCH_REAL_LOCAL_ACTOR_INVOCATION=NOT_DONE'
