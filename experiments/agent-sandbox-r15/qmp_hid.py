@@ -78,13 +78,44 @@ def main():
      raise RuntimeError("host QOM lacks expected device")
     print("R15_HOST_QMP_THREE_USB_DEVICES_ATTACHED=PASS",flush=True)
     q.call("cont")
+    # Consume actual serial console output; only after guest input device
+    # observer announces readiness do remote QMP key down/up operations.
+    import select
+    chunks=[]
+    partial=b""
+    injected=False
+    deadline=time.monotonic()+130
+    while time.monotonic()<deadline:
+     ready,_,_=select.select([proc.stdout],[],[],0.5)
+     if ready:
+      chunk=os.read(proc.stdout.fileno(),65536)
+      if chunk:
+       chunks.append(chunk)
+       partial+=chunk
+       while b"\n" in partial:
+        line,partial=partial.split(b"\n",1)
+        if b"R15_GUEST_HID_OBSERVER_READY=PASS" in line and not injected:
+         if q.call("query-status").get("running") is not True:
+          raise RuntimeError("QMP guest not running when event observer ready")
+         q.call("input-send-event",{"events":[{"type":"key","data":{
+          "down":True,"key":{"type":"qcode","data":"a"}}}]})
+         time.sleep(0.3)
+         q.call("input-send-event",{"events":[{"type":"key","data":{
+          "down":False,"key":{"type":"qcode","data":"a"}}}]})
+         injected=True
+         print("R15_HOST_QMP_KEY_A_PRESS_AND_RELEASE_SUBMITTED=PASS",flush=True)
+      elif proc.poll() is not None:
+       break
+     elif proc.poll() is not None:
+      break
+    if proc.poll() is None:
+     proc.kill()
+     proc.wait(timeout=5)
+     raise RuntimeError("guest did not terminate before bounded timeout")
     q.close()
-   try: out,_=proc.communicate(timeout=150)
-   except subprocess.TimeoutExpired:
-    proc.kill()
-    out,_=proc.communicate()
-    raise RuntimeError("guest boot timed out; tail="+out[-1400:].decode("utf-8","replace"))
-   output=out.decode("utf-8","replace")
+   output=b"".join(chunks).decode("utf-8","replace")
+   if not injected:
+    print("R15_HOST_QMP_EVENT_TRIGGER=RED",flush=True)
    for line in output.splitlines():
     if "R15_" in line:print(line[:230],flush=True)
    required=[
@@ -93,7 +124,12 @@ def main():
     "R15_GUEST_USB_KEYBOARD_ENUMERATED=PASS",
     "R15_GUEST_USB_TABLET_ENUMERATED=PASS",
     "R15_GUEST_USB_MASS_STORAGE_ENUMERATED=PASS",
-    "R15_GUEST_USB_ALL_THREE_ENUMERATED=PASS"
+    "R15_GUEST_USB_ALL_THREE_ENUMERATED=PASS",
+    "R15_GUEST_HID_OBSERVER_READY=PASS",
+    "R15_GUEST_USB_KEY_A_DOWN=PASS",
+    "R15_GUEST_USB_KEY_A_UP=PASS",
+    "R15_REAL_USB_KEY_A_DOWN_AND_UP_OBSERVED=PASS",
+    "R15_GUEST_KEY_EVENT_CAPTURE=PASS"
    ]
    missing=[x for x in required if x not in output]
    if missing or proc.returncode!=0:
@@ -105,7 +141,7 @@ def main():
    if hashlib.sha256(media.read_bytes()).hexdigest()!=start_hash:
     raise RuntimeError("backing USB image changed")
    print("R15_READONLY_SYNTHETIC_MEDIA_HASH=PASS",flush=True)
-   print("R15_ACTUAL_HID_INPUT_EVENTS_AND_GUI=NOT_TESTED",flush=True)
+   print("R15_GUI_POINTER_AND_WINDOWS_INPUT=NOT_TESTED",flush=True)
    print("R15_REAL_CAC_PHYSICAL_PASSTHROUGH=NOT_TESTED",flush=True)
    print("R15_TCG_HOSTILE_GUEST_ISOLATION=NOT_TESTED",flush=True)
   finally:
