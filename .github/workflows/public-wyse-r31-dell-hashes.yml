@@ -1,0 +1,76 @@
+name: Public Wyse R31 Dell BIOS vendor-byte SHA witness only
+on:
+  push:
+    branches: [experiment/public-wyse-r31-dell-hashes]
+    paths:
+      - '.github/workflows/public-wyse-r31-dell-hashes.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r31-dell-hashes
+  cancel-in-progress: false
+jobs:
+  ephemeral-vendor-hash:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - driver_id: JMTV2
+            version: '1.40.0'
+            filename: Wyse_5070_1.40.0.exe
+            url: https://dl.dell.com/FOLDER13789106M/1/Wyse_5070_1.40.0.exe
+            sha256: 75c47a8e2e263700fde315ad905ccd191d8101dd864e2d48e5652b19d742f505
+          - driver_id: KRPTT
+            version: '1.0.4'
+            filename: Wyse_5070_1.0.4.exe
+            url: https://dl.dell.com/FOLDER04988996M/1/Wyse_5070_1.0.4.exe
+            sha256: f5ae889d5badbb9165eeea4146cea1fefd103cdc9668cb02934dc10240dacead
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - name: Verify Dell-exact official EXE bytes in an ephemeral public-only workcell; never run or publish executable
+        shell: bash
+        env:
+          DELL_DRIVER_ID: ${{ matrix.driver_id }}
+          DELL_BIOS_VERSION: ${{ matrix.version }}
+          DELL_FILENAME: ${{ matrix.filename }}
+          DELL_DOWNLOAD_URL: ${{ matrix.url }}
+          DELL_EXPECTED_SHA256: ${{ matrix.sha256 }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          dir=$(mktemp -d "$RUNNER_TEMP/wyse-dell-XXXXXX")
+          trap 'rm -rf -- "$dir"' EXIT
+          file="$dir/$DELL_FILENAME"
+          echo "R31_DELL_DRIVER_ID=$DELL_DRIVER_ID"
+          echo "R31_DELL_VERSION=$DELL_BIOS_VERSION"
+          echo "R31_VENDOR_PAYLOAD_DOWNLOAD=NOT_VERIFIED_UNTIL_SHA_MATCH"
+          # Only download from hardcoded, vendor-official exact URLs. Never use a
+          # user-supplied URL, credentials, direct flash or vendor execution.
+          curl --fail --location --silent --show-error --retry 2 \
+            --connect-timeout 20 --max-time 120 --max-filesize 20000000 \
+            "$DELL_DOWNLOAD_URL" -o "$file"
+          test -s "$file"
+          size=$(stat -c %s "$file")
+          if (( size < 1000000 || size > 20000000 )); then
+            echo "R31_VENDOR_PAYLOAD_SIZE=RED"
+            exit 4
+          fi
+          magic=$(od -An -tx1 -N2 "$file" | tr -d '[:space:]')
+          if test "$magic" != 4d5a; then
+            echo "R31_WINDOWS_PE_MAGIC=RED"
+            exit 5
+          fi
+          actual=$(sha256sum "$file" | cut -d' ' -f1)
+          echo "R31_DOWNLOAD_BYTES=$size"
+          echo "R31_ACTUAL_SHA256=$actual"
+          if test "$actual" != "$DELL_EXPECTED_SHA256"; then
+            echo "R31_DELL_PUBLISHED_SHA256_MATCH=RED"
+            exit 6
+          fi
+          echo "R31_DELL_PUBLISHED_SHA256_MATCH=PASS"
+          echo "R31_EPHEMERAL_VENDOR_BYTES_HASH_CHECKED=PASS"
+          echo "R31_VERIFIED_DURABLE_DRIVE_ARCHIVE=NOT_TESTED"
+          echo "R31_DELL_HARDWARE_BIOS_FLASH=NOT_TESTED"
+          # Source bytes are deleted by EXIT trap; no upload-artifact step.
