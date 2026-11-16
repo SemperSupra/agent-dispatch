@@ -1,0 +1,31 @@
+name: Public Sandbox R15 - real guest HID input events
+on:
+  push:
+    branches: [experiment/public-sandbox-r15-hid-event]
+    paths:
+      - '.github/workflows/public-agent-sandbox-r15.yml'
+      - 'experiments/agent-sandbox-r15/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-sandbox-r15-hid-event
+  cancel-in-progress: false
+jobs:
+  guest-key-event:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Boot real Linux HID keyboard and independently witness QMP key A down/up through evdev
+        shell: bash
+        run: bash experiments/agent-sandbox-r15/verify.sh
+      - name: Preserve exact qualification limits
+        shell: bash
+        run: |
+          echo 'R15_REAL_GUEST_EVDEV_KEYBOARD_EVENT=REQUIRES_GUEST_WITNESS'
+          echo 'R15_WINDOWS_AND_FOREIGN_ISA_GUEST_HID_EVENTS=NOT_TESTED'
+          echo 'R15_HUMAN_GUI_REMOTE_MOUSE_POINTER=NOT_TESTED'
