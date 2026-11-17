@@ -125,7 +125,7 @@ def main():
    extra=[]
    for driver in accepted:
     token={"usb-net":"Network","usb-serial":"Serial","usb-audio":"Audio",
-           "usb-ccid":"CCID","usb-mtp":"MTP"}[driver]
+           "usb-ccid":"CCID","usb-mtp":"filesharing"}[driver]
     observed=any(token.lower() in p.lower() for p in products)
     print("R26_M3_GUEST_SYSFS_"+driver.upper().replace("-","_")+"="+("PASS" if observed else "UNKNOWN"),flush=True)
     if observed:extra.append(driver)
