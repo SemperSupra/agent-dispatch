@@ -21,6 +21,19 @@ printf 'R44_QEMU_VERSION=%s\n' "$QEMU_VERSION" >> evidence/public/r44-qemu-bootb
 printf 'R44_BOOT_SOURCE_SHA256=%s\n' "$(sha256sum tools/wyse-qemu-bootbench/bootsector.asm|cut -d' ' -f1)" >> evidence/public/r44-qemu-bootbench.txt
 printf 'R44_BOOTSECTOR_SHA256=%s\n' "$(sha256sum "$W/boot.img"|cut -d' ' -f1)" >> evidence/public/r44-qemu-bootbench.txt
 printf 'R44_IGPU_GPU_PASSTHROUGH_HIL=NOT_TESTED\n' >> evidence/public/r44-qemu-bootbench.txt
+echo 'R44_CLOCK_SOURCE=LINUX_PROC_UPTIME_MONOTONIC_CENTISECOND' >> evidence/public/r44-qemu-bootbench.txt
+monotonic_ms() {
+  # /proc/uptime advances monotonically, unlike cloud wall-clock date; the
+  # kernel text format is seconds with two fractional digits. No dependencies.
+  local up unused whole centis
+  read -r up unused < /proc/uptime
+  case "$up" in *.*) ;; *) echo 'R44_UPTIME_FORMAT=RED' >&2; return 1 ;; esac
+  whole=${up%.*}
+  centis=${up#*.}
+  centis=${centis:0:2}
+  test -n "$whole" && test -n "$centis"
+  echo "$((10#$whole * 1000 + 10#$centis * 10))"
+}
 
 run() {
   local mode=$1 machine=$2 accel=$3 cpu=$4 smp=$5
@@ -40,16 +53,21 @@ run() {
   for rep in 1 2 3; do
     : > "$W/debugcon.txt"
     local start end code=0
-    start=$(date +%s%3N)
+    start=$(monotonic_ms)
     timeout -k 3s 25s qemu-system-x86_64 "${base[@]}" "${disk[@]}" \
       > "$W/qemu-$mode-$rep.log" 2>&1 || code=$?
-    end=$(date +%s%3N)
+    end=$(monotonic_ms)
     if test "$code" -ne 33 || ! grep -Fxq 'R44_GUEST_BOOTSECTOR_EXECUTED=PASS' "$W/debugcon.txt"; then
       echo "R44_GUEST_BOOT_OR_EXIT_ORACLE=RED:$mode:$rep:exit=$code" >&2
       tail -n 15 "$W/qemu-$mode-$rep.log" >&2
       exit 41
     fi
-    echo "R44_SAMPLE=$mode,$rep,$accel,$machine,$smp,$((end-start))ms" >> evidence/public/r44-qemu-bootbench.txt
+    local elapsed=$((end-start))
+    if test "$elapsed" -lt 0 || test "$elapsed" -gt 25000; then
+      echo "R44_MONOTONIC_ELAPSED_INVALID=RED:$mode:$rep:$elapsed" >&2
+      exit 42
+    fi
+    echo "R44_SAMPLE=$mode,$rep,$accel,$machine,$smp,${elapsed}ms" >> evidence/public/r44-qemu-bootbench.txt
   done
   echo "R44_MODE_$mode=PASS" >> evidence/public/r44-qemu-bootbench.txt
 }
