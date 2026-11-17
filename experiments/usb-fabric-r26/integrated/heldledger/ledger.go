@@ -60,11 +60,14 @@ func (s Store) Read()(State,error){
  return state,nil
 }
 
-// Transition is a write-ahead held=true record before key down, or a
-// post-QMP-ACK held=false record after key release. The caller serializes
-// access; expected sequence prevents naive stale updates.
+// Transition is ONLY a write-ahead held=true record before key down.
+// Legacy held=false without an independent guest receipt is denied.
+// The caller serializes access; expected sequence prevents stale updates.
 func (s Store) Transition(expected uint64,held bool)(State,error){
  current,e:=s.Read();if e!=nil{return State{},e}
+ // Legacy ACK-only release must never clear a key. An independently
+ // verified guest evdev receipt must use ConfirmGuestRelease instead.
+ if !held{return State{},ErrUnverified}
  if current.Sequence!=expected || current.Held==held {return State{},ErrConflict}
  next:=State{Version:Version,Sequence:current.Sequence+1,Held:held,
   LastReleaseEventSequence:current.LastReleaseEventSequence,
