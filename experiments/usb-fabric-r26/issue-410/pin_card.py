@@ -7,6 +7,7 @@ must use OS-approved protected real-PIN entry, not this automated test prompt.
 """
 import hmac,os,subprocess,threading,time
 from cryptography.hazmat.primitives import hashes,serialization
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ec
 from base_card import Card,serve,TEST_AID
 from smartcard.System import readers
@@ -129,9 +130,8 @@ def run_workflow():
          0x9000,"R26_P1B_TEST_PIN_SUBMITTED_OVER_PCSC")
  finally:
   for i in range(len(entered)):entered[i]=0
- _,sw=tx(c,b"\x00\xca\x01\x01")
- if sw!=0x9000:raise RuntimeError("synthetic card public key unavailable")
  point,sw=tx(c,b"\x00\xca\x01\x01")
+ if sw!=0x9000:raise RuntimeError("synthetic card public key unavailable")
  public=ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(),point)
  signature,sw=tx(c,sign)
  if sw!=0x9000 or not signature:raise RuntimeError("card-mediated test signature failed")
@@ -139,7 +139,7 @@ def run_workflow():
  print("R26_P1B_PCSC_PIN_GATED_P256_CHALLENGE_SIGNATURE_VERIFIED=PASS",flush=True)
  tampered=bytearray(challenge);tampered[0]^=1
  try:public.verify(signature,tampered,ec.ECDSA(hashes.SHA256()))
- except Exception:
+ except InvalidSignature:
   print("R26_P1B_TAMPERED_CHALLENGE_REJECTED=PASS",flush=True)
  else:raise RuntimeError("tampered challenge accepted")
  expect(c,write,0x9000,"R26_P1B_PIN_GATED_TEST_APPLET_UPDATE")
@@ -149,6 +149,7 @@ def run_workflow():
  expect(c,b"\x00\xfe\x00\x00",0x9000,"R26_P1B_TEST_SESSION_LOGOUT")
  expect(c,sign,0x6982,"R26_P1B_SIGN_AFTER_LOGOUT_DENIED")
  # Deliberately exhaust a second set of wrong test PIN attempts.
+ expect(c,wrong,0x63c2,"R26_P1B_PIN_RETRY_AFTER_LOGOUT")
  expect(c,wrong,0x63c1,"R26_P1B_PIN_RETRY_FINAL_WARNING")
  expect(c,wrong,0x6983,"R26_P1B_TEST_PIN_LOCKOUT")
  expect(c,b"\x00\x20\x00\x00\x06"+TEST_ONLY_PIN,0x6983,
