@@ -5,7 +5,9 @@ umask 077
 
 if [[ ${1:-} == --self-test ]]; then
  D=$(mktemp -d); trap 'rm -rf -- "$D"' EXIT
- expected=$(printf 'r52-guest-work-v1\n'|sha256sum|cut -d' ' -f1)
+ expected=$(printf 'wyse-r51-canary-v1\n'|sha256sum|cut -d' ' -f1)
+ [[ "$expected" == e990572be5fbb48fd706e5c3f612dd7c6e953c9b583919c3455f10c4f1845a8d ]] || exit 12
+ printf 'wyse-r51-canary-v1 altered\n' | sha256sum | cut -d' ' -f1 | grep -Fxq "$expected" && { echo R53_C_MUTATED_PAYLOAD_HASH_ADMITTED=RED >&2; exit 13; }
  printf 'R52_C_GUEST_LINUX_STARTED=PASS\nR52_C_GUEST_RESULT_SHA256=%s\nR52_C_GUEST_CLEAN_EXIT=PASS\n' "$expected" > "$D/good"
  grep -Fxq 'R52_C_GUEST_LINUX_STARTED=PASS' "$D/good"
  grep -Fxq "R52_C_GUEST_RESULT_SHA256=$expected" "$D/good"
@@ -50,8 +52,15 @@ ln -s busybox "$W/root/bin/sh"
 ln -s busybox "$W/root/bin/sha256sum"
 ln -s busybox "$W/root/bin/mount"
 ln -s ../bin/busybox "$W/root/sbin/poweroff"
-printf 'r52-guest-work-v1\n' > "$W/root/r52_payload"
+printf 'wyse-r51-canary-v1\n' > "$W/root/r52_payload"
+# Independently pinned R51 owner-approved guest task, never a hash derived
+# solely from mutable fixture bytes. Fail closed if payload is changed.
+R51_CANONICAL_SHA=e990572be5fbb48fd706e5c3f612dd7c6e953c9b583919c3455f10c4f1845a8d
 EXPECTED=$(sha256sum "$W/root/r52_payload" | cut -d' ' -f1)
+if [[ $EXPECTED != "$R51_CANONICAL_SHA" ]]; then
+ echo R53_C_CANONICAL_PAYLOAD_HASH_MISMATCH=RED >&2; exit 24
+fi
+echo R53_C_CANONICAL_GUEST_PAYLOAD_MATCHES_R51=PASS
 cat > "$W/root/init" <<'GUEST'
 #!/bin/sh
 export PATH=/bin:/sbin
@@ -112,6 +121,8 @@ mkdir -p evidence/public
  echo R52_C_HOST_VOLUME_AND_GUEST_NIC=NOT_ATTACHED
  echo R52_C_AGENT_DISPATCH_REAL_LEASE=NOT_TESTED
  echo R52_C_WYSE_REAL_KVM_AND_EMMC=NOT_TESTED
+ echo R53_C_CANONICAL_R51_SHA256=$R51_CANONICAL_SHA
+ echo R53_C_GUEST_PAYLOAD_CANONICAL_R51=PASS
  echo R52_C_GUEST_RESULT_AND_CLEAN_EXIT=PASS
 } > evidence/public/r52-linux-guest.txt
 echo R52_C_PUBLIC_REAL_LINUX_GUEST_TASK_AND_SHUTDOWN=PASS

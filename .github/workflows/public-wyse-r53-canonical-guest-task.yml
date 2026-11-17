@@ -1,0 +1,64 @@
+name: Public Wyse R53-C canonical R51 one-task Linux guest parity
+on:
+  push:
+    branches: [experiment/public-wyse-r53-canonical-guest-task]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r52-linux-guest]
+    paths:
+      - 'tools/wyse-qemu-bootbench/run-linux-guest.sh'
+      - '.github/workflows/public-wyse-r53-canonical-guest-task.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r53-canonical-guest
+  cancel-in-progress: false
+jobs:
+  canonical-linux-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Fail closed on noncanonical payload, syntax and forbidden guest host access
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n tools/wyse-qemu-bootbench/run-linux-guest.sh
+          bash tools/wyse-qemu-bootbench/run-linux-guest.sh --self-test
+          grep -Fq "wyse-r51-canary-v1" tools/wyse-qemu-bootbench/run-linux-guest.sh
+          ! grep -Fq "r52-guest-work-v1" tools/wyse-qemu-bootbench/run-linux-guest.sh
+          if grep -Ev '^[[:space:]]*#' tools/wyse-qemu-bootbench/run-linux-guest.sh | grep -En -- '-drive|-netdev|hostfwd|usb-host|vfio-pci|mount -o rw'; then
+            echo R53_C_FORBIDDEN_GUEST_HOST_DEVICE=RED
+            exit 42
+          fi
+          echo R53_C_CANONICAL_SOURCE_AND_GUEST_DEVICE_NEGATIVES=PASS
+      - name: Install disposable QEMU TCG, static BusyBox and Linux kernel on public runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            qemu-system-x86 busybox-static cpio linux-image-virtual
+      - name: Boot actual disposable Linux guest and prove exact canonical R51 SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash tools/wyse-qemu-bootbench/run-linux-guest.sh --public-disposable
+          grep -Fxq 'R53_C_GUEST_PAYLOAD_CANONICAL_R51=PASS' evidence/public/r52-linux-guest.txt
+          grep -Fxq 'R53_C_CANONICAL_R51_SHA256=e990572be5fbb48fd706e5c3f612dd7c6e953c9b583919c3455f10c4f1845a8d' evidence/public/r52-linux-guest.txt
+          grep -Fxq 'R52_C_GUEST_RESULT_AND_CLEAN_EXIT=PASS' evidence/public/r52-linux-guest.txt
+          grep -Fxq 'R52_C_AGENT_DISPATCH_REAL_LEASE=NOT_TESTED' evidence/public/r52-linux-guest.txt
+          grep -Fxq 'R52_C_WYSE_REAL_KVM_AND_EMMC=NOT_TESTED' evidence/public/r52-linux-guest.txt
+          echo R53_C_REAL_GUEST_CANONICAL_R51_TASK_PARITY=PASS
+      - name: Persist only public synthetic markers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r53-canonical-task-public-only
+          path: evidence/public/r52-linux-guest.txt
+          if-no-files-found: warn
+          retention-days: 7
