@@ -1,4 +1,4 @@
-name: USB Fabric R26-H - reproduce missed HID release on broker SIGKILL
+name: USB Fabric R26-K - independent host watchdog release after broker SIGKILL
 on:
   pull_request:
     types: [opened, synchronize]
@@ -17,6 +17,6 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
-      - name: Actual Linux guest release oracle on hard-killed Go broker (expected RED)
+      - name: Actual Linux guest must observe supervisor-forced key release after SIGKILL
         shell: bash
         run: bash experiments/usb-fabric-r26/red-live/verify.sh
