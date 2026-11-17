@@ -1,0 +1,24 @@
+name: USB Fabric R26-M3 - synthetic peripheral classes Linux sysfs
+on:
+  push:
+    branches: [test/issue-389-usb-peripheral-matrix]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-m3-peripheral-matrix
+  cancel-in-progress: false
+jobs:
+  synthetic-peripheral-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: QMP attach diverse peripherals and require Linux guest USB sysfs
+        shell: bash
+        run: bash experiments/usb-fabric-r26/matrix-389/verify.sh
