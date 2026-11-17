@@ -21,6 +21,9 @@ import (
 
  blue "example.org/usb-fabric-r26-integrated/blue"
  heldledger "example.org/usb-fabric-r26-integrated/heldledger"
+ releasegate "example.org/usb-fabric-r26-releasegate"
+ "example.org/usb-fabric-r26-releasegate/evidence"
+ "example.org/usb-fabric-r26-releasegate/guestwire"
 )
 // ErrGuestUnconfirmed is a safety hold: QMP ACK does not prove that the
 // actual guest released the key. A later independently authenticated guest
@@ -184,6 +187,7 @@ func (q *qmp) prelaunchOnly()(bool,error){
 type executor struct {
  q *qmp
  journal heldledger.Store
+ gate *releasegate.Gate // optional TEST-ONLY evdev proof gate, never a client API
  mu sync.Mutex
 }
 func (e *executor) qmpKey(down bool)error {
@@ -207,12 +211,26 @@ func (e *executor) Input(command string)error {
   if _,err=e.journal.Transition(state.Sequence,true);err!=nil{return err}
   return e.qmpKey(true)
  case "key-a-up":
-  if err:=e.qmpKey(false);err!=nil{return err}
   state,err:=e.journal.Read()
   if err!=nil{return err}
+  if state.Held && state.ReleasePhase=="" {
+   // Durable intent is committed before potentially effective QMP key-up.
+   if _,err=e.journal.RequestRelease(state.Sequence);err!=nil{return err}
+  }
+  if err:=e.qmpKey(false);err!=nil{return err}
   if state.Held {
-   // QMP confirmed command delivery, NOT an in-guest release. Never
-   // reclaim a potentially held key based on the control-plane ACK.
+   if state.ReleasePhase!="qmp-acked" {
+    // A QMP ACK is a RELEASE STAGE only; it never clears Held.
+    if _,err=e.journal.AcknowledgeQMPRelease(state.Sequence);err!=nil{return err}
+   }
+   if e.gate!=nil {
+    scope:=guestwire.Scope()
+    // The independent gate will reject a second claim without a fresh
+    // guest epoch. This synthetic run qualifies only the FIRST release.
+    if err:=e.gate.RequestRelease(scope);err==nil{
+     _=e.gate.AcknowledgeQMP(scope)
+    }
+   }
    return errGuestUnconfirmed
   }
   return nil
@@ -241,6 +259,104 @@ type actuator struct{
  media,pcap string
  attachMu sync.Mutex
  devicesAttached,vmStarted bool
+ proofMu sync.Mutex
+ firstDownSequence uint64
+ bridge *evidence.Bridge
+ gate *releasegate.Gate
+ journal heldledger.Store
+ receiptConn net.Conn
+}
+
+// Test-only first-hand guest evdev evidence ingress. The QEMU virtio-serial
+// connection is host-local and never exposed to the unprivileged frontend.
+// MAC material is PUBLIC in this research branch: DO NOT use for real auth.
+func (a *actuator)startReceiptReader(path string)error {
+ if path==""{return nil}
+ if a.bridge==nil||a.gate==nil{return errors.New("missing guest proof verifier")}
+ var conn net.Conn
+ var err error
+ for i:=0;i<50;i++{
+  conn,err=net.DialTimeout("unix",path,500*time.Millisecond)
+  if err==nil{break}
+  time.Sleep(40*time.Millisecond)
+ }
+ if err!=nil{return err}
+ a.receiptConn=conn
+ go func(){
+  decoder:=json.NewDecoder(bufio.NewReader(conn))
+  for {
+   var event evidence.Event
+   if err:=decoder.Decode(&event);err!=nil{
+    fmt.Fprintln(os.Stderr,"R26_L9B_GUEST_RECEIPT_CHANNEL_LOST=OBSERVED",err)
+    a.m.Offline() // lack of a trusted sensor is never an availability signal
+    return
+   }
+   a.applyGuestReceipt(event)
+  }
+ }()
+ return nil
+}
+func (a *actuator)applyGuestReceipt(event evidence.Event){
+ if a.bridge==nil || event.Scope!=guestwire.Scope(){return}
+ if event.Down {
+  if err:=a.bridge.ObserveDown(event);err!=nil{return}
+  a.proofMu.Lock()
+  a.firstDownSequence=event.EventSequence
+  a.proofMu.Unlock()
+  fmt.Println("R26_L9B_FIRST_REAL_GUEST_EVDEV_DOWN_VERIFIED=PASS")
+  return
+ }
+ a.proofMu.Lock()
+ down:=a.firstDownSequence
+ a.proofMu.Unlock()
+ if down==0||!guestwire.VerifySyntheticGuest(event) || event.EventSequence<=down {
+  return
+ }
+ // A guest can observe key-up before the host has received the QMP ACK.
+ // Buffer the real signed receipt until the host has fsynced the QMP ACK.
+ // If the ACK never arrives, quarantine; do not infer it from guest alone.
+ var state heldledger.State
+ var err error
+ ready:=false
+ for i:=0;i<150;i++{
+  state,err=a.journal.Read()
+  if err!=nil{return}
+  if state.Held && state.ReleasePhase=="qmp-acked" &&
+    a.gate.Snapshot().Phase==releasegate.QMPAcknowledged {
+   ready=true
+   break
+  }
+  time.Sleep(20*time.Millisecond)
+ }
+ if !ready{return}
+ if err=a.bridge.ConfirmUp(event);err!=nil{return}
+ claim:=heldledger.ReleaseClaim{
+  GuestID:event.Scope.GuestID,DeviceID:event.Scope.DeviceID,
+  HostEpoch:event.Scope.HostEpoch,GuestEpoch:event.Scope.GuestEpoch,
+  LeaseEpoch:event.Scope.LeaseEpoch,Generation:event.Scope.Generation,
+  ReleaseSequence:event.Scope.ReleaseSequence,DownEventSequence:down,
+  EventSequence:event.EventSequence,Source:event.Source,
+  Key:heldledger.KeyA,KeyReleased:!event.Down,Proof:event.Proof,
+ }
+ verifier:=func(c heldledger.ReleaseClaim)bool{
+  return guestwire.VerifySyntheticGuest(event) &&
+   c.GuestID==event.Scope.GuestID && c.DeviceID==event.Scope.DeviceID &&
+   c.HostEpoch==event.Scope.HostEpoch && c.GuestEpoch==event.Scope.GuestEpoch &&
+   c.LeaseEpoch==event.Scope.LeaseEpoch &&
+   c.Generation==event.Scope.Generation &&
+   c.ReleaseSequence==event.Scope.ReleaseSequence &&
+   c.DownEventSequence==down && c.EventSequence==event.EventSequence &&
+   c.Source==event.Source && c.Key==heldledger.KeyA &&
+   c.KeyReleased && c.Proof==event.Proof
+ }
+ if err:=a.m.RestoreAfterVerifiedGuestUp(a.journal,state.Sequence,claim,verifier);err!=nil{
+  fmt.Fprintln(os.Stderr,"R26_L9B_RECEIPT_REJECTED_LEDGER_REMAINS_HELD=OBSERVED",err)
+  return
+ }
+ a.proofMu.Lock()
+ a.firstDownSequence=0
+ a.proofMu.Unlock()
+ fmt.Println("R26_L9B_REAL_GUEST_VERIFIED_RELEASE_FSYNC_AND_READMISSION=PASS")
 }
 func (a *actuator) attach()error {
  a.attachMu.Lock();defer a.attachMu.Unlock()
@@ -343,6 +459,9 @@ func main(){
  media:=flag.String("media","","synthetic media path")
  pcap:=flag.String("capture","","synthetic USB capture path")
  journalPath:=flag.String("journal","","host-local fsynced key state path")
+ // Optional source-identified R26-L8 synthetic QEMU virtio guest data plane.
+ // It carries PUBLIC TEST-ONLY MAC events; not production authentication.
+ receiptPath:=flag.String("receipt","","test-only QEMU virtio-serial receipt Unix socket")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
@@ -414,7 +533,22 @@ func main(){
  defer listener.Close()
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
- a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,media:*media,pcap:*pcap}
+ a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
+  media:*media,pcap:*pcap,journal:journal}
+ if *receiptPath!="" {
+  scope:=guestwire.Scope()
+  gate,err:=releasegate.New(scope)
+  if err!=nil{fmt.Fprintln(os.Stderr,"invalid guest scope",err);os.Exit(14)}
+  bridge,err:=evidence.New(gate,scope,guestwire.VerifySyntheticGuest)
+  if err!=nil{fmt.Fprintln(os.Stderr,"guest proof bridge unavailable",err);os.Exit(14)}
+  ex.gate=gate
+  a.gate=gate
+  a.bridge=bridge
+  if err=a.startReceiptReader(*receiptPath);err!=nil{
+   fmt.Fprintln(os.Stderr,"guest receipt ingress unavailable",err);os.Exit(14)
+  }
+  defer a.receiptConn.Close()
+ }
  fmt.Println("R26_L_SOLE_QMP_ACTUATOR_LISTENING=PASS")
  for {
   c,err:=listener.Accept()

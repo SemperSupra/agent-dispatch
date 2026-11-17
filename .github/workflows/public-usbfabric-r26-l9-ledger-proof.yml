@@ -32,14 +32,14 @@ jobs:
           base="$(docker image inspect --format '{{index .RepoDigests 0}}' golang:1.23-bookworm)"
           [[ "$base" == *@sha256:* ]] || exit 12
           echo "R26_L9_GO_BASE=$base"
-          tar -C experiments/usb-fabric-r26/integrated -cf - . | \
+          tar -C experiments/usb-fabric-r26 -cf - integrated releasegate | \
           docker run --rm -i --network none --read-only --user 65532:65532 \
             --cap-drop ALL --security-opt no-new-privileges \
             --memory 2048m --memory-swap 2048m --cpus 2 --pids-limit 128 \
             --tmpfs /tmp:rw,exec,nosuid,nodev,size=1536m,mode=1777 \
             -e HOME=/tmp -e GOCACHE=/tmp/cache -e GOPATH=/tmp/gopath \
             -e GOPROXY=off -e GOSUMDB=off -e GOTOOLCHAIN=local \
-            "$base" sh -ec 'mkdir -p /tmp/work; cd /tmp/work; tar -xf -; go test -race -count=1 -v ./...; go vet ./...'
+            "$base" sh -ec 'mkdir -p /tmp/work; cd /tmp/work; tar -xf -; cd integrated; go test -race -count=1 -v ./...; go vet ./...'
           [[ "$(git status --porcelain --untracked-files=all)" == "$before" ]] || { echo R26_L9_SOURCE_TAINT=RED;exit 13; }
           echo R26_L9_GUEST_VERIFIED_JOURNAL_FSYNC_POLICY=PASS
           echo R26_L9_ACTUAL_QEMU_GUEST_RELEASE_INTEGRATION=NOT_TESTED

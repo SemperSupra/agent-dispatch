@@ -8,6 +8,8 @@ import (
  "errors"
  "io"
  "sync"
+
+ heldledger "example.org/usb-fabric-r26-integrated/heldledger"
 )
 
 var (
@@ -122,6 +124,27 @@ func (m *Manager) Revoke(l Lease) error {
  if m.state==Attached {
   if m.executor==nil {m.quarantine();return ErrUnavailable}
   if err:=m.executor.ReleaseAll();err!=nil {m.quarantine();return err}
+ }
+ m.generation++
+ m.active=Lease{}
+ m.state=Available
+ return nil
+}
+
+// RestoreAfterVerifiedGuestUp is called ONLY by the sole host actuator's
+// independent guest event reader. It serializes the actual fsynced guest-
+// confirmed ledger transition and lease-state re-admission under one manager
+// mutex, so a new frontend cannot reserve between those two steps.
+// The passed verifier MUST bind the actual guest evdev UP to scope, QMP
+// ACK and prior verified DOWN. No external frontend op exposes this method.
+func (m *Manager)RestoreAfterVerifiedGuestUp(
+ journal heldledger.Store,expected uint64,
+ claim heldledger.ReleaseClaim,verify heldledger.ReleaseVerifier,
+)error{
+ m.mu.Lock();defer m.mu.Unlock()
+ if m.state!=Quarantined{return ErrDenied}
+ if _,err:=journal.ConfirmGuestRelease(expected,claim,verify);err!=nil{
+  return err
  }
  m.generation++
  m.active=Lease{}
