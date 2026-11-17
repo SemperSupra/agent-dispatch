@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Synthetic red-team: crash Go broker while key is down.
-Expected finding: no external owner forces key-up; real Linux evdev waits
-and times out. This script deliberately exits nonzero on confirmed defect.
+"""Synthetic blue recovery: host-local supervisor survives broker SIGKILL.
+Require QMP forced release AND actual Linux guest evdev key-up proof.
 """
 import json
 import os
@@ -38,6 +37,11 @@ def main():
              "--media",str(media),"--capture",d+"/keyboard.pcap"],
             stdin=subprocess.PIPE,stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,text=True,bufsize=1)
+        watchdog=subprocess.Popen(
+            ["/guest/r26-watchdog","--broker-pid",str(broker.pid),
+             "--qmp",d+"/qmp.sock"],
+            stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,text=True)
         try:
             ready,_,_=select.select([broker.stdout],[],[],12)
             if not ready:raise RuntimeError("broker did not open QMP")
@@ -80,17 +84,24 @@ def main():
                 elif vm.poll() is not None:break
             text=b"".join(chunks).decode("utf-8","replace")
             for line in text.splitlines():
-                if "R15_GUEST_USB_KEY_A_" in line or "R15_REAL_USB_HID_EVENT_ORACLE" in line:
+                if "R15_GUEST_USB_KEY_A_" in line or "R15_REAL_USB_KEY_A_DOWN_AND_UP_OBSERVED" in line:
                     print(line[:180],flush=True)
             if not killed:raise RuntimeError("no independent guest key-down before broker crash")
-            if "R15_GUEST_USB_KEY_A_UP=PASS" in text:
-                raise RuntimeError("guest saw release; assumed crash defect not reproduced")
-            if "R15_REAL_USB_HID_EVENT_ORACLE=RED" not in text:
-                raise RuntimeError("guest did not prove no key-release within its deadline")
-            print("R26_H_P0_CRASH_WHILE_KEY_HELD_MISSED_RELEASE=RED",flush=True)
-            print("R26_H_SUPERVISOR_RELEASE_BARRIER_REQUIRED=BLOCKED",flush=True)
-            sys.exit(17)
+            if "R15_GUEST_USB_KEY_A_UP=PASS" not in text:
+                raise RuntimeError("guest did not observe supervisor key release")
+            if "R15_REAL_USB_KEY_A_DOWN_AND_UP_OBSERVED=PASS" not in text:
+                raise RuntimeError("guest never confirmed both key transitions")
+            out,err=watchdog.communicate(timeout=10)
+            if watchdog.returncode!=0 or "R26_K_INDEPENDENT_PROCESS_FORCED_QMP_KEY_UP=PASS" not in out:
+                raise RuntimeError("supervisor did not confirm forced QMP release: "+err[-500:])
+            print(out.strip(),flush=True)
+            print("R26_K_REAL_GUEST_KEY_UP_AFTER_BROKER_SIGKILL=PASS",flush=True)
+            print("R26_K_FAILED_RELEASE_REASSIGNMENT=QUARANTINE_REQUIRED",flush=True)
+            print("R26_K_DURABLE_PROCESS_FENCING=NOT_TESTED",flush=True)
         finally:
+            if watchdog.poll() is None:
+                watchdog.kill()
+                watchdog.wait()
             if broker.poll() is None:
                 broker.kill()
                 broker.wait()
