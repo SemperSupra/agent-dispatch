@@ -459,6 +459,9 @@ func main(){
  media:=flag.String("media","","synthetic media path")
  pcap:=flag.String("capture","","synthetic USB capture path")
  journalPath:=flag.String("journal","","host-local fsynced key state path")
+ // Optional source-identified R26-L8 synthetic QEMU virtio guest data plane.
+ // It carries PUBLIC TEST-ONLY MAC events; not production authentication.
+ receiptPath:=flag.String("receipt","","test-only QEMU virtio-serial receipt Unix socket")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
@@ -530,7 +533,22 @@ func main(){
  defer listener.Close()
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
- a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,media:*media,pcap:*pcap}
+ a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
+  media:*media,pcap:*pcap,journal:journal}
+ if *receiptPath!="" {
+  scope:=guestwire.Scope()
+  gate,err:=releasegate.New(scope)
+  if err!=nil{fmt.Fprintln(os.Stderr,"invalid guest scope",err);os.Exit(14)}
+  bridge,err:=evidence.New(gate,scope,guestwire.VerifySyntheticGuest)
+  if err!=nil{fmt.Fprintln(os.Stderr,"guest proof bridge unavailable",err);os.Exit(14)}
+  ex.gate=gate
+  a.gate=gate
+  a.bridge=bridge
+  if err=a.startReceiptReader(*receiptPath);err!=nil{
+   fmt.Fprintln(os.Stderr,"guest receipt ingress unavailable",err);os.Exit(14)
+  }
+  defer a.receiptConn.Close()
+ }
  fmt.Println("R26_L_SOLE_QMP_ACTUATOR_LISTENING=PASS")
  for {
   c,err:=listener.Accept()
