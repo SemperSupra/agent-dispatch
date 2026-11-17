@@ -6,6 +6,7 @@ package heldledger
 
 import (
  "bytes"
+ "encoding/hex"
  "encoding/json"
  "errors"
  "fmt"
@@ -27,6 +28,13 @@ type State struct {
  Sequence uint64 `json:"sequence"`
  Key string `json:"key,omitempty"`
  Held bool `json:"held"`
+ // None, release-intent, or qmp-acked. Guest evidence is still required
+ // after the QMP acknowledgment. All stages remain Held=true until proof.
+ ReleasePhase string `json:"release_phase,omitempty"`
+ // Audit-only receipt fingerprint and guest event monotonic sequence.
+ // Neither field alone constitutes a fresh proof on process restart.
+ LastReleaseEventSequence uint64 `json:"last_release_event_sequence,omitempty"`
+ LastReleaseProofHash string `json:"last_release_proof_hash,omitempty"`
 }
 
 type Store struct {Path string}
@@ -53,16 +61,33 @@ func (s Store) Read()(State,error){
   (!state.Held && state.Key!="") || state.Sequence==^uint64(0) {
   return State{},ErrInvalid
  }
+ // Reject torn, unpaired or malformed receipt audit data. These fields
+ // cannot become live authentication just because they survived a reboot.
+ if (state.LastReleaseEventSequence==0)!=(state.LastReleaseProofHash==""){
+  return State{},ErrInvalid
+ }
+ if state.LastReleaseProofHash!="" {
+  d,err:=hex.DecodeString(state.LastReleaseProofHash)
+  if err!=nil||len(d)!=32{return State{},ErrInvalid}
+ }
+ if state.ReleasePhase!="" && state.ReleasePhase!="release-intent" &&
+  state.ReleasePhase!="qmp-acked" {return State{},ErrInvalid}
+ if !state.Held && state.ReleasePhase!="" {return State{},ErrInvalid}
  return state,nil
 }
 
-// Transition is a write-ahead held=true record before key down, or a
-// post-QMP-ACK held=false record after key release. The caller serializes
-// access; expected sequence prevents naive stale updates.
+// Transition is ONLY a write-ahead held=true record before key down.
+// Legacy held=false without an independent guest receipt is denied.
+// The caller serializes access; expected sequence prevents stale updates.
 func (s Store) Transition(expected uint64,held bool)(State,error){
  current,e:=s.Read();if e!=nil{return State{},e}
+ // Legacy ACK-only release must never clear a key. An independently
+ // verified guest evdev receipt must use ConfirmGuestRelease instead.
+ if !held{return State{},ErrUnverified}
  if current.Sequence!=expected || current.Held==held {return State{},ErrConflict}
- next:=State{Version:Version,Sequence:current.Sequence+1,Held:held}
+ next:=State{Version:Version,Sequence:current.Sequence+1,Held:held,
+  LastReleaseEventSequence:current.LastReleaseEventSequence,
+  LastReleaseProofHash:current.LastReleaseProofHash}
  if held{next.Key=KeyA}
  if e=s.writeAtomic(next);e!=nil{return State{},e}
  return next,nil
