@@ -8,7 +8,6 @@ import (
  "encoding/hex"
  "encoding/json"
  "errors"
- "os"
  "path/filepath"
  "sort"
  "strconv"
@@ -163,6 +162,10 @@ func CollectHostCandidates(root string)(HostInventory,error){
   {join(root,"sys","class","tty","ttyUSB*"),"serial","usb_serial","SERIAL_OWNER_GATE"},
   {join(root,"sys","class","tty","ttyACM*"),"serial","usb_acm","SERIAL_OWNER_GATE"},
   {join(root,"sys","class","sound","card*"),"audio","alsa","AUDIO_OWNER_GATE"},
+  {join(root,"sys","class","tty","ttyS*"),"serial","platform_serial","PLATFORM_CONSOLE_PROTECTED"},
+  {join(root,"sys","class","input","event*"),"input","evdev","HOST_INPUT_PROTECTED"},
+  {join(root,"sys","class","i2c-dev","i2c-*"),"i2c","i2c_bus","HOST_BOARD_BUS_PROTECTED"},
+  {join(root,"sys","class","bluetooth","hci*"),"bluetooth","hci","WIRELESS_RADIO_OWNER_GATE"},
  }{
   for _,p:=range glob(spec.pattern){
    d:=candidate(spec.kind,filepath.Base(p),spec.fn,spec.fn)
