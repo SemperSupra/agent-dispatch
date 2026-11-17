@@ -20,12 +20,36 @@ while [ "$tries" -lt 20 ];do
 done
 if [ "$seen" != 1 ];then echo R26_N5B_REAL_GUEST_USB_CCID_SYSFS=RED; /bin/busybox poweroff -f; exit 35;fi
 echo R26_N5B_REAL_GUEST_USB_CCID_SYSFS=PASS
-/usr/sbin/pcscd --foreground --disable-polkit >/tmp/pcscd.log 2>&1 &
+# An initrd has no udev daemon. Enumerate the kernel-owned USB character
+# devices explicitly so libusb/libccid can open a synthetic QEMU reader.
+for u in /sys/bus/usb/devices/*;do
+ [ -r "$u/dev" ] && [ -r "$u/busnum" ] && [ -r "$u/devnum" ] || continue
+ pair="$(/bin/busybox cat "$u/dev")"
+ bus="$(/bin/busybox cat "$u/busnum")"
+ dev="$(/bin/busybox cat "$u/devnum")"
+ path="$(/bin/busybox printf "/dev/bus/usb/%03d/%03d" "$bus" "$dev")"
+ /bin/busybox mkdir -p "${path%/*}"
+ [ -c "$path" ] || /bin/busybox mknod "$path" c "${pair%:*}" "${pair#*:}" || true
+done
+for u in /sys/bus/usb/devices/*;do
+ [ -r "$u/idVendor" ] && [ -r "$u/idProduct" ] || continue
+ echo "R26_N5B_SYNTHETIC_USB_VID_PID=$(/bin/busybox cat "$u/idVendor"):$(
+   /bin/busybox cat "$u/idProduct")"
+done
+/bin/busybox ls /dev/bus/usb 2>/dev/null || true
+/usr/sbin/pcscd --foreground --disable-polkit --debug >/tmp/pcscd.log 2>&1 &
 pid=$!
 /bin/busybox sleep 2
 /r26-pcsc-probe
 status=$?
 if [ "$status" = 0 ];then echo R26_N5B_REAL_GUEST_USB_CCID_APDU_ORACLE=PASS;else echo "R26_N5B_REAL_GUEST_USB_CCID_APDU_ORACLE=RED exit=$status";fi
+# No PIN or APDU data is used in this synthetic run. Limit to loader/device
+# startup errors rather than dumping arbitrary card responses.
+if [ "$status" != 0 ];then
+ echo R26_N5B_PCSC_DAEMON_DIAGNOSTIC_BEGIN
+ /bin/busybox tail -n 70 /tmp/pcscd.log 2>/dev/null | /bin/busybox grep -E 'reader|Reader|CCID|usb|USB|udev|load|error|Error|driver|Driver|No such|pcsc-lite' | /bin/busybox tail -n 28 || true
+ echo R26_N5B_PCSC_DAEMON_DIAGNOSTIC_END
+fi
 /bin/busybox kill "$pid" 2>/dev/null || true
 /bin/busybox poweroff -f
 /bin/busybox sleep 10
