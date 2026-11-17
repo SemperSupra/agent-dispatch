@@ -1,0 +1,63 @@
+name: Public R49 Apple CoreSimulator mobile endpoint smoke
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'scripts/r49_ios_simulator_smoke.py'
+      - 'tests/test_r49_ios_simulator_smoke.py'
+      - '.github/workflows/public-r49-ios-coresimulator.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-r49-ios-coresimulator
+  cancel-in-progress: false
+jobs:
+  offline-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test portable receipt assertions and PNG semantics
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile scripts/r49_ios_simulator_smoke.py
+          python3 -m unittest -v tests/test_r49_ios_simulator_smoke.py
+          echo R49_IOS_OFFLINE_CONTRACT=PASS
+  real-core-simulator:
+    needs: offline-contract
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-r49-ios-coresimulator'
+    runs-on: macos-26-intel
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Boot disposable iPhone simulator, observe guest and screenshot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/r49-ios"
+          python3 scripts/r49_ios_simulator_smoke.py --label macos-26-intel \
+            --out "$RUNNER_TEMP/r49-ios/receipt.json"
+          python3 - "$RUNNER_TEMP/r49-ios/receipt.json" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert data["classification"]=="SUPPORTED",data["reason"]
+          assert data["evidence"]["core_simulator_boot"]=="BOOTED"
+          assert data["evidence"]["guest_spawn"]=="PASS"
+          assert data["evidence"]["framebuffer_capture"]=="PNG_OBSERVED"
+          assert data["ios_app_install_launch_background_and_mdm"]=="NOT_TESTED"
+          print("R49_IOS_CORESIMULATOR_BOOT_SPAWN_FRAMEBUFFER=PASS")
+          print("R49_PHYSICAL_IPHONE_OR_APP=NOT_TESTED")
+          PY
+      - name: Upload short public-safe simulator receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r49-ios-simulator-primitive-receipt
+          path: ${{ runner.temp }}/r49-ios/receipt.json
+          if-no-files-found: warn
+          retention-days: 7
