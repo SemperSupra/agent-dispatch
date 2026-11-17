@@ -47,6 +47,7 @@ def main():
         capture = Path(d) / "keyboard.pcap"
         qmp = d + "/qmp.sock"
         api = d + "/actuator.sock"
+        journal = Path(d) / "held.json"
         qemu = subprocess.Popen([
             "qemu-system-x86_64", "-machine", "q35", "-accel", "tcg",
             "-cpu", "qemu64", "-m", "1024M", "-smp", "1", "-S",
@@ -61,6 +62,7 @@ def main():
         actuator = subprocess.Popen([
             "/guest/r26-actuator", "--qmp", qmp, "--socket", api,
             "--media", str(media), "--capture", str(capture),
+            "--journal", str(journal),
         ], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, bufsize=1)
         frontend = None
@@ -153,6 +155,10 @@ def main():
             if ("R26_L_ACTUATOR_CLIENT_LOSS_RELEASE_ACCEPTED=PASS" not in out):
                 raise RuntimeError("sole QMP actuator lacked release receipt: " + err[-500:])
             print("R26_L_ACTUATOR_CLIENT_LOSS_RELEASE_ACCEPTED=PASS",flush=True)
+            state = json.loads(journal.read_text())
+            if state.get("held") or state.get("sequence") != 2:
+                raise RuntimeError("journal not cleared after client-loss release")
+            print("R26_L3_ORDERLY_FRONTEND_DISCONNECT_JOURNAL_CLEARED=PASS",flush=True)
             if hashlib.sha256(media.read_bytes()).hexdigest() != original:
                 raise RuntimeError("synthetic storage mutated")
             if not capture.exists() or capture.stat().st_size <= 24:
