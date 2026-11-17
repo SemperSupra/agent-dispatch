@@ -17,6 +17,8 @@ func TestWriteAheadHeldSurvivesReopen(t *testing.T){
  second:=Store{Path:path}
  st,e=second.Read();if e!=nil||!st.Held||st.Key!=KeyA{t.Fatalf("lost write ahead journal %+v %v",st,e)}
  if _,e=second.Transition(0,false);!errors.Is(e,ErrUnverified){t.Fatalf("legacy ACK-only release allowed: %v",e)}
+ if _,e=second.RequestRelease(1);e!=nil{t.Fatal(e)}
+ if _,e=second.AcknowledgeQMPRelease(1);e!=nil{t.Fatal(e)}
  st,e=second.ConfirmGuestRelease(1,claim(1,10,11),signed);if e!=nil||st.Held||st.Sequence!=2{t.Fatalf("guest-confirmed release %v %+v",e,st)}
  if st.Key!="" {t.Fatal("raw key retained on release")}
  info,e:=os.Stat(path);if e!=nil{t.Fatal(e)}
@@ -42,6 +44,8 @@ func TestMonotonicHeldTransitions(t *testing.T){
  s:=Store{Path:filepath.Join(t.TempDir(),"ledger")}
  st,e:=s.Transition(0,true);if e!=nil{t.Fatal(e)}
  if _,e=s.Transition(st.Sequence,true);!errors.Is(e,ErrConflict){t.Fatal("double down accepted")}
+ if _,e=s.RequestRelease(st.Sequence);e!=nil{t.Fatal(e)}
+ if _,e=s.AcknowledgeQMPRelease(st.Sequence);e!=nil{t.Fatal(e)}
  st,e=s.ConfirmGuestRelease(st.Sequence,claim(1,10,11),signed);if e!=nil{t.Fatal(e)}
  st,e=s.Transition(st.Sequence,true);if e!=nil{t.Fatal(e)}
  if st.Sequence!=3 || !st.Held {t.Fatal("incorrect monotonic rehold")}
