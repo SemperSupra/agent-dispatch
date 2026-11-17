@@ -1,0 +1,24 @@
+name: USB Fabric R26-N2 - in-guest ext4 format write reboot cross VM
+on:
+  push:
+    branches: [test/issue-391-persistent-usb-storage]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-n2-writable-usb
+  cancel-in-progress: false
+jobs:
+  real-guest-writable-filesystem:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real Linux USB guest formats ext4 and persists files across reboot and new QEMU processes
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-391/verify.sh
