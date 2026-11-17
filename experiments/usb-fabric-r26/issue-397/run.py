@@ -57,7 +57,12 @@ def main():
     portion=text.split(begin,1)[1].split(end,1)[0]
     startup=[line[:220] for line in portion.splitlines() if line.strip()]
     print("R26_N5B_READER_STARTUP_DIAGNOSTICS_COUNT="+str(len(startup)),flush=True)
-    for line in startup[-45:]:
+    # Preserve initial driver registration and libusb/udev diagnostics;
+    # previous tail-only view showed only later GET_READERS_STATE polls.
+    selected=startup[:24]+startup[-8:]
+    selected += [line for line in startup if any(token in line.lower() for token in
+                 ("ccid","udev","libusb","hotplug","driver","error","warning","usbfs","readerfactory"))]
+    for line in dict.fromkeys(selected):
      print("R26_N5B_PCSC_STARTUP="+line,flush=True)
    required=[
     "R26_N5B_REAL_GUEST_USB_CCID_SYSFS=PASS",
