@@ -60,7 +60,12 @@ if test -c /dev/kvm && test -r /dev/kvm && test -w /dev/kvm; then
   run KVM_Q35_AHCI q35 kvm host 2
   echo 'R44_RUNNER_KVM_BOOT=OBSERVED_PASS' >> evidence/public/r44-qemu-bootbench.txt
 else
-  echo 'R44_RUNNER_KVM_BOOT=NOT_AVAILABLE_NOT_A_WYSE_VERDICT' >> evidence/public/r44-qemu-bootbench.txt
+  if test -c /dev/kvm; then
+    echo 'R44_RUNNER_KVM_BOOT=CHAR_DEVICE_PRESENT_NO_UNPRIVILEGED_RW' >> evidence/public/r44-qemu-bootbench.txt
+  else
+    echo 'R44_RUNNER_KVM_BOOT=NO_CHARACTER_DEVICE' >> evidence/public/r44-qemu-bootbench.txt
+  fi
+  echo 'R44_RUNNER_KVM_NO_ACTUAL_GUEST_TEST=TRUE_NOT_A_WYSE_VERDICT' >> evidence/public/r44-qemu-bootbench.txt
 fi
 if qemu-system-x86_64 -device help 2>/dev/null | grep -Fq virtio-gpu-pci; then
   echo 'R44_VIRTIO_GPU_DEVICE_ADVERTISED=YES_NOT_GUEST_OR_ACCEL_TESTED' >> evidence/public/r44-qemu-bootbench.txt
