@@ -156,16 +156,16 @@ func CollectHostCandidates(root string)(HostInventory,error){
   }
  }
  for _,spec:=range []struct{pattern,kind,fn string}{
-  {join(root,"sys","class","drm","renderD*"),"render","drm_render","RENDER_NODE_NOT_PROOF_OF_VIRGL_OR_VAAPI"},
-  {join(root,"sys","class","video4linux","video*"),"video","v4l2","VIDEO_DEVICE_UNVERIFIED"},
-  {join(root,"sys","class","hidraw","hidraw*"),"hidraw","hid_raw","MANAGEMENT_HID_NEEDS_OWNER_REVIEW"},
-  {join(root,"sys","class","tty","ttyUSB*"),"serial","usb_serial","SERIAL_OWNER_GATE"},
-  {join(root,"sys","class","tty","ttyACM*"),"serial","usb_acm","SERIAL_OWNER_GATE"},
-  {join(root,"sys","class","sound","card*"),"audio","alsa","AUDIO_OWNER_GATE"},
-  {join(root,"sys","class","tty","ttyS*"),"serial","platform_serial","PLATFORM_CONSOLE_PROTECTED"},
-  {join(root,"sys","class","input","event*"),"input","evdev","HOST_INPUT_PROTECTED"},
-  {join(root,"sys","class","i2c-dev","i2c-*"),"i2c","i2c_bus","HOST_BOARD_BUS_PROTECTED"},
-  {join(root,"sys","class","bluetooth","hci*"),"bluetooth","hci","WIRELESS_RADIO_OWNER_GATE"},
+  {join(root,"sys","class","drm","renderD*"),"render","drm_render"},
+  {join(root,"sys","class","video4linux","video*"),"video","v4l2"},
+  {join(root,"sys","class","hidraw","hidraw*"),"hidraw","hid_raw"},
+  {join(root,"sys","class","tty","ttyUSB*"),"serial","usb_serial"},
+  {join(root,"sys","class","tty","ttyACM*"),"serial","usb_acm"},
+  {join(root,"sys","class","sound","card*"),"audio","alsa"},
+  {join(root,"sys","class","tty","ttyS*"),"serial","platform_serial"},
+  {join(root,"sys","class","input","event*"),"input","evdev"},
+  {join(root,"sys","class","i2c-dev","i2c-*"),"i2c","i2c_bus"},
+  {join(root,"sys","class","bluetooth","hci*"),"bluetooth","hci"},
  }{
   for _,p:=range glob(spec.pattern){
    d:=candidate(spec.kind,filepath.Base(p),spec.fn,spec.fn)
