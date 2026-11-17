@@ -1,0 +1,24 @@
+name: USB Fabric R26-P2 - real guest USB net and audio data integrity
+on:
+  push:
+    branches: [test/issue-405-usb-net-audio]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-p2-net-audio-functional
+  cancel-in-progress: false
+jobs:
+  network-and-audio-functional:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real Linux guest USB RNDIS TFTP checksum and USB ALSA tone captured as WAV
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-405/verify.sh
