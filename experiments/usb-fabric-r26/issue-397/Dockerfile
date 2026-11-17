@@ -20,6 +20,7 @@ RUN gcc -O2 -Wall -Wextra -o /tmp/r26-pcsc-probe /src/pcsc_probe.c \
  awk '{for(i=1;i<=NF;i++) if(substr($i,1,1)=="/") print $i}' | \
  sort -u | while read -r lib; do test -r "$lib" && cp -L --parents "$lib" /tmp/r26-initrd/ || exit 1;done && \
  find /usr/lib /lib -name 'libpcsclite_real.so*' -exec cp -L --parents '{}' /tmp/r26-initrd/ \; && \
+ find /usr/lib /lib -name 'libgcc_s.so.1' -exec cp -L --parents '{}' /tmp/r26-initrd/ \; && \
  test -n "$(find /tmp/r26-initrd -name 'libpcsclite_real.so*' -print -quit)" && \
  find . -print | LC_ALL=C cpio --quiet -o -H newc | gzip -9 > /guest/r26-pcsc-initrd.gz && \
  test -s /guest/r26-pcsc-initrd.gz
