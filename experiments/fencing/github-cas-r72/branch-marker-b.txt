@@ -1,0 +1,2 @@
+R72 public experimental descendant B of A.
+No protected effects, credentials, or private workset.
