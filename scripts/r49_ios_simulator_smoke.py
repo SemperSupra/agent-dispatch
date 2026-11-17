@@ -54,11 +54,22 @@ def assess(booted,getenv_ok,spawn_ok,png_shape):
 def run_qualified(label):
     ev={"runner":label,"ios_sdk":"NOT_TESTED","core_simulator_boot":"NOT_TESTED",
         "guest_spawn":"NOT_TESTED","framebuffer_capture":"NOT_TESTED"}
-    supported={"macos-26-intel":"x86_64","macos-26":"arm64"}
+    supported={"macos-26-intel":"x86_64","macos-26":"arm64","xcode-27":"arm64"}
     if os.environ.get("GITHUB_ACTIONS")!="true" or platform.system()!="Darwin" or platform.machine()!=supported.get(label):
         return receipt("SKIPPED_GUARDRAIL","NOT_ADMITTED_SIMULATOR_HOST_OR_ARCH",ev)
     xcrun=shutil.which("xcrun")
     if not xcrun:return receipt("SKIPPED_GUARDRAIL","XCODE_COMMAND_LINE_NOT_PRESENT",ev)
+    if label in ("macos-26","xcode-27"):
+        # GitHub runner-images #15247 documents first simctl runtime query
+        # blocking for up to ~153 s while CoreSimulator mounts image trees.
+        # The shared prior #223 helper has a 20 s probe deadline. Warm
+        # once with bounded 180 s on ARM, then use its unchanged selection.
+        start=time.monotonic()
+        init_code,_,_=frontier._run([xcrun,"simctl","list","runtimes","-j"],timeout=180)
+        ev["coresimulator_cold_init_s"]=round(time.monotonic()-start,2)
+        ev["coresimulator_cold_init_exit"]=init_code
+        if init_code!=0:
+            return receipt("ENVIRONMENT_FAILURE","COLD_CORESIMULATOR_INIT_TIMEOUT_OR_ERROR",ev)
     runtime,devtype,probe=frontier._latest_ios_and_iphone(xcrun)
     ev["runtime_query_exit"]=probe.get("runtime_exit")
     ev["device_type_query_exit"]=probe.get("device_type_exit")
