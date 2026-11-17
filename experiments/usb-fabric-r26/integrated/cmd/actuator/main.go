@@ -228,14 +228,17 @@ func main(){
  }
  ex:=&executor{q:q,journal:journal}
  if recovered.Held {
-  if err:=ex.ReleaseAll();err!=nil{
+  // QMP ACK cannot prove that the guest input driver actually observed
+  // key-up. Preserve the held journal and refuse client admission until
+  // a separately authenticated guest/port reconciliation can clear it.
+  // A subsequent restart repeats this idempotent emergency key-up.
+  if err:=ex.qmpKey(false);err!=nil{
    fmt.Fprintln(os.Stderr,"R26_L3_RECOVERY_RELEASE_FAILED_QUARANTINE=RED",err)
    os.Exit(9)
   }
   fmt.Println("R26_L3_ACTUATOR_RESTART_FORCED_QMP_KEY_UP=PASS")
+  fmt.Println("R26_L3_JOURNAL_REMAINS_HELD_PENDING_GUEST_ATTESTATION=PASS")
   fmt.Println("R26_L3_RECOVERY_HOLD_REQUIRES_TOPOLOGY_RECONCILIATION=PASS")
-  // Stop here: journal recovery alone must never admit a fresh lease when
-  // previous guest device attachments are still un-reconciled.
   return
  }
  if _,err=os.Lstat(*socketPath);err==nil{
