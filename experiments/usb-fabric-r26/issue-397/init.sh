@@ -20,7 +20,7 @@ while [ "$tries" -lt 20 ];do
 done
 if [ "$seen" != 1 ];then echo R26_N5B_REAL_GUEST_USB_CCID_SYSFS=RED; /bin/busybox poweroff -f; exit 35;fi
 echo R26_N5B_REAL_GUEST_USB_CCID_SYSFS=PASS
-/usr/sbin/pcscd --foreground --debug >/tmp/pcscd.log 2>&1 &
+/usr/sbin/pcscd --foreground --disable-polkit >/tmp/pcscd.log 2>&1 &
 pid=$!
 /bin/busybox sleep 2
 /r26-pcsc-probe
