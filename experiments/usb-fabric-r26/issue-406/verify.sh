@@ -8,7 +8,7 @@ base="$(docker pull debian:trixie-slim >/dev/null && docker image inspect --form
 [[ "$base" == *@sha256:* ]] || exit 12
 echo "R26_P3_BASE=$base"
 img="r26-p3-optical-${GITHUB_SHA:0:12}"
-cleanup(){docker image rm -f "$img" >/dev/null 2>&1 || true;docker builder prune -af >/dev/null 2>&1||true;}
+cleanup(){ docker image rm -f "$img" >/dev/null 2>&1 || true; docker builder prune -af >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 DOCKER_BUILDKIT=1 docker build --no-cache --pull \
  -f experiments/usb-fabric-r26/issue-406/Dockerfile \
