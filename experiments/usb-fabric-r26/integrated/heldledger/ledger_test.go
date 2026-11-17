@@ -16,12 +16,12 @@ func TestWriteAheadHeldSurvivesReopen(t *testing.T){
  // Simulated process reconstruction; state must survive independent Store.
  second:=Store{Path:path}
  st,e=second.Read();if e!=nil||!st.Held||st.Key!=KeyA{t.Fatalf("lost write ahead journal %+v %v",st,e)}
- if _,e=second.Transition(0,false);!errors.Is(e,ErrConflict){t.Fatalf("stale update: %v",e)}
- st,e=second.Transition(1,false);if e!=nil||st.Held||st.Sequence!=2{t.Fatalf("mark released %v %+v",e,st)}
+ if _,e=second.Transition(0,false);!errors.Is(e,ErrUnverified){t.Fatalf("legacy ACK-only release allowed: %v",e)}
+ st,e=second.ConfirmGuestRelease(1,claim(1,10,11),signed);if e!=nil||st.Held||st.Sequence!=2{t.Fatalf("guest-confirmed release %v %+v",e,st)}
  if st.Key!="" {t.Fatal("raw key retained on release")}
  info,e:=os.Stat(path);if e!=nil{t.Fatal(e)}
  if info.Mode().Perm()!=0600{t.Fatalf("ledger mode too broad %v",info.Mode())}
- if _,e=second.Transition(2,false);!errors.Is(e,ErrConflict){t.Fatal("double release allowed")}
+ if _,e=second.Transition(2,false);!errors.Is(e,ErrUnverified){t.Fatal("legacy double release allowed")}
 }
 func TestMalformedAndUnknownStateNeverResets(t *testing.T){
  dir:=t.TempDir();path:=filepath.Join(dir,"held.json");s:=Store{Path:path}
@@ -35,14 +35,14 @@ func TestMalformedAndUnknownStateNeverResets(t *testing.T){
  for _,c:=range bad{
   if e:=os.WriteFile(path,[]byte(c),0600);e!=nil{t.Fatal(e)}
   if _,e:=s.Read();!errors.Is(e,ErrInvalid){t.Fatalf("bad record accepted: %s => %v",c,e)}
-  if _,e:=s.Transition(1,false);!errors.Is(e,ErrInvalid){t.Fatalf("bad record modified %v",e)}
+  if _,e:=s.ConfirmGuestRelease(1,claim(1,10,11),signed);!errors.Is(e,ErrInvalid){t.Fatalf("bad record modified %v",e)}
  }
 }
 func TestMonotonicHeldTransitions(t *testing.T){
  s:=Store{Path:filepath.Join(t.TempDir(),"ledger")}
  st,e:=s.Transition(0,true);if e!=nil{t.Fatal(e)}
  if _,e=s.Transition(st.Sequence,true);!errors.Is(e,ErrConflict){t.Fatal("double down accepted")}
- st,e=s.Transition(st.Sequence,false);if e!=nil{t.Fatal(e)}
+ st,e=s.ConfirmGuestRelease(st.Sequence,claim(1,10,11),signed);if e!=nil{t.Fatal(e)}
  st,e=s.Transition(st.Sequence,true);if e!=nil{t.Fatal(e)}
  if st.Sequence!=3 || !st.Held {t.Fatal("incorrect monotonic rehold")}
  data,e:=os.ReadFile(s.Path);if e!=nil{t.Fatal(e)}
