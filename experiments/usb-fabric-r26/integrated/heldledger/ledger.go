@@ -27,6 +27,10 @@ type State struct {
  Sequence uint64 `json:"sequence"`
  Key string `json:"key,omitempty"`
  Held bool `json:"held"`
+ // Audit-only receipt fingerprint and guest event monotonic sequence.
+ // Neither field alone constitutes a fresh proof on process restart.
+ LastReleaseEventSequence uint64 `json:"last_release_event_sequence,omitempty"`
+ LastReleaseProofHash string `json:"last_release_proof_hash,omitempty"`
 }
 
 type Store struct {Path string}
@@ -62,7 +66,9 @@ func (s Store) Read()(State,error){
 func (s Store) Transition(expected uint64,held bool)(State,error){
  current,e:=s.Read();if e!=nil{return State{},e}
  if current.Sequence!=expected || current.Held==held {return State{},ErrConflict}
- next:=State{Version:Version,Sequence:current.Sequence+1,Held:held}
+ next:=State{Version:Version,Sequence:current.Sequence+1,Held:held,
+  LastReleaseEventSequence:current.LastReleaseEventSequence,
+  LastReleaseProofHash:current.LastReleaseProofHash}
  if held{next.Key=KeyA}
  if e=s.writeAtomic(next);e!=nil{return State{},e}
  return next,nil
