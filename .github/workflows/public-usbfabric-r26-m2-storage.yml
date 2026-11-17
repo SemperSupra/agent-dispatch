@@ -1,0 +1,24 @@
+name: USB Fabric R26-M2 - actual guest USB BOT UAS block reads
+on:
+  push:
+    branches: [test/issue-388-usb-storage-matrix]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-m2-synthetic-storage
+  cancel-in-progress: false
+jobs:
+  guest-block-storage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Linux kernel guest USB BOT/UAS SCSI reads and immutable backing
+        shell: bash
+        run: bash experiments/usb-fabric-r26/matrix-388/verify.sh
