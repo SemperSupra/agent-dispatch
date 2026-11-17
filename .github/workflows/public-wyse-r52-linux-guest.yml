@@ -26,7 +26,7 @@ jobs:
           set -Eeuo pipefail
           bash -n tools/wyse-qemu-bootbench/run-linux-guest.sh
           bash tools/wyse-qemu-bootbench/run-linux-guest.sh --self-test
-          if grep -En -- '-drive|-netdev|hostfwd|usb-host|vfio-pci|mount -o rw' tools/wyse-qemu-bootbench/run-linux-guest.sh; then
+          if grep -Ev '^[[:space:]]*#' tools/wyse-qemu-bootbench/run-linux-guest.sh | grep -En -- '-drive|-netdev|hostfwd|usb-host|vfio-pci|mount -o rw'; then
             echo R52_C_FORBIDDEN_GUEST_HOST_DEVICES=RED
             exit 42
           fi
