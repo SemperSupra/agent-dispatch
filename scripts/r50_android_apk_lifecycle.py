@@ -13,7 +13,11 @@ import os
 from pathlib import Path
 import tempfile
 import time
+import sys
 
+# Invoked as python scripts/... and imported as scripts.... in offline tests:
+# use the repository root for both, not the interpreter's scripts/ cwd.
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from scripts.r49_android_companion_smoke import run, smoke
 
 PACKAGE="com.sempersupra.r50"
