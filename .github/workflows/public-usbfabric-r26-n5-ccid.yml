@@ -1,0 +1,24 @@
+name: USB Fabric R26-N5 - QEMU CCID virtual CAC test APDU policy
+on:
+  push:
+    branches: [test/issue-394-virtual-ccid-apdu]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-n5-synthetic-ccid
+  cancel-in-progress: false
+jobs:
+  virtual-ccid-reader:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Test ISO7816 read/write policy, NSS virtual CAC, QEMU CCID and real Linux guest
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-394/verify.sh
