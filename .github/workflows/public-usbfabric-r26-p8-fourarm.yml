@@ -1,0 +1,24 @@
+name: USB Fabric R26-P8 - four-arm real guest USB latency isolation
+on:
+  push:
+    branches: [test/issue-414-fourarm-usb]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-p8-fourarm-xhci
+  cancel-in-progress: false
+jobs:
+  four-way-real-guest-stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Independent Linux guests compare network only, disk only, audio only, disk+audio
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-414/verify.sh
