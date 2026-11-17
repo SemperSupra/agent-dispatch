@@ -1,0 +1,111 @@
+name: Public Wyse R41 source-owned UKI fixed-clock signed reproducibility
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r38-recovery-integration]
+    paths:
+      - '.github/workflows/public-wyse-r41-frozen-uki.yml'
+      - 'scripts/public_wyse_r39_uki_repro.sh'
+      - 'scripts/compare_public_wyse_r39_uki_receipts.sh'
+      - 'scripts/test_public_wyse_r39_uki_oracle.sh'
+      - 'scripts/public_wyse_r28_owned_kernel.sh'
+      - 'tools/wyse-buildroot/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r41-frozen-uki
+  cancel-in-progress: false
+jobs:
+  offline-oracle:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r41-frozen-uki'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate synthetic source and fail-closed manifest oracle
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r39_uki_repro.sh
+          bash -n scripts/compare_public_wyse_r39_uki_receipts.sh
+          bash -n scripts/test_public_wyse_r39_uki_oracle.sh
+          bash scripts/test_public_wyse_r39_uki_oracle.sh
+          echo R39_OFFLINE_ORACLE_GATE=PASS
+  independently-rebuild:
+    needs: [offline-oracle]
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [alpha, beta]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 49
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install disposable source-building and UKI signing tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev \
+            rsync unzip xz-utils wget curl cpio zstd perl sbsigntool \
+            openssl systemd-ukify faketime libfaketime
+          echo R39_EPHEMERAL_BUILD_TOOLCHAIN=PASS
+      - name: Build original pinned kernel and Buildroot independently
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r28_owned_kernel.sh
+          test -s "$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/bzImage"
+          test -s "$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/rootfs.cpio"
+          echo R39_SOURCE_OWNED_KERNEL_BUILD=PASS
+      - name: Characterize unsigned UKI and disposable test signer bytes
+        shell: bash
+        env:
+          R39_REPLICA: ${{ matrix.replica }}
+          R41_FROZEN_SIGNER: '1'
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r39_uki_repro.sh
+          test -s "evidence/public/r39-uki-$R39_REPLICA.txt"
+          grep -Fxq 'R39_SIGNED_SAME_EPHEMERAL_KEY_EQUAL=YES' "evidence/public/r39-uki-$R39_REPLICA.txt"
+          echo R41_FULL_UKI_CONTROLLED_SIGNER=PASS
+          echo R39_REPLICA_TEXT_RECEIPT=PASS
+      - name: Retain only public manifest, never UKI, key, cert or rootfs bytes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r39-uki-${{ matrix.replica }}-text
+          path: evidence/public/r39-uki-${{ matrix.replica }}.txt
+          if-no-files-found: warn
+          retention-days: 7
+  compare-independent-receipts:
+    needs: [independently-rebuild]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Fetch only text manifests from this one public run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: wyse-r39-uki-*-text
+          path: r39-receipts
+          merge-multiple: false
+      - name: Fail closed on missing evidence, unsigned UKI mismatch or nondeterministic signing
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/compare_public_wyse_r39_uki_receipts.sh \
+            r39-receipts/wyse-r39-uki-alpha-text/r39-uki-alpha.txt \
+            r39-receipts/wyse-r39-uki-beta-text/r39-uki-beta.txt
+          echo R41_TWO_PUBLIC_RUNNER_UNSIGNED_AND_WITHIN_RUN_SIGNED_REPRO_GATE=PASS
