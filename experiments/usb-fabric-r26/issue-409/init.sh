@@ -41,6 +41,11 @@ while [ "$tries" -lt 35 ];do
  /bin/busybox sleep 1
  tries=$((tries+1))
 done
+echo "R26_P5_DEVICE_DISCOVERY iface=${iface:-NONE} key=${usbkey:-NONE} storage=$([ -b /dev/sda ] && echo yes || echo no) audio=$([ -e /dev/snd/pcmC0D0p ] && echo yes || echo no)"
+for p in /sys/bus/usb/devices/*/product;do
+ [ -f "$p" ] || continue
+ echo "R26_P5_GUEST_USB_SYSFS_PRODUCT=$(/bin/busybox cat "$p")"
+done
 [ -n "$iface" ] && [ -n "$usbkey" ] && [ -b /dev/sda ] && [ -e /dev/snd/pcmC0D0p ] || fatal required_usb_class_missing
 if [ ! -c "$usbkey" ];then
  n="${usbkey##*/}"
