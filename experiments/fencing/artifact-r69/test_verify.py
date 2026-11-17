@@ -3,7 +3,7 @@ import io
 import json
 import unittest
 import zipfile
-from verify import Hold, validate_meta, validate_zip
+from verify import Hold, NoFollow, validate_artifact_redirect, validate_meta, validate_zip
 
 REPO="SemperSupra/agent-dispatch"
 HEAD="a"*40
@@ -27,6 +27,44 @@ def meta(digest):
             "workflow_run":{"id":RUN,"repository_id":7,"head_sha":HEAD}}]}
 
 class Tests(unittest.TestCase):
+    def test_artifact_redirect_origin_admission(self):
+        valid = [
+            "https://store.blob.core.windows.net/artifact.zip",
+            "https://store.blob.core.windows.net:443/artifact.zip",
+            "https://objects.githubusercontent.com/artifact.zip",
+        ]
+        for url in valid:
+            with self.subTest(url=url):
+                self.assertEqual(url, validate_artifact_redirect(url))
+
+    def test_artifact_redirect_origin_denials(self):
+        invalid = [
+            "http://store.blob.core.windows.net/archive",
+            "https://store.blob.core.windows.net:444/archive",
+            "https://store.blob.core.windows.net:0/archive",
+            "https://store.blob.core.windows.net:bad/archive",
+            "https://user@store.blob.core.windows.net/archive",
+            "https://user:pass@store.blob.core.windows.net/archive",
+            "https://store.blob.core.windows.net.evil.example/archive",
+            "https://127.0.0.1/archive",
+            "https://localhost/archive",
+            "file:///etc/passwd",
+            "//store.blob.core.windows.net/archive",
+            "",
+        ]
+        for url in invalid:
+            with self.subTest(url=url):
+                with self.assertRaisesRegex(Hold, "ORIGIN_NOT_ADMITTED"):
+                    validate_artifact_redirect(url)
+
+    def test_second_hop_redirect_refused(self):
+        import urllib.request
+        handler = NoFollow()
+        request = urllib.request.Request("https://store.blob.core.windows.net/archive")
+        self.assertIsNone(handler.redirect_request(
+            request, None, 302, "Found", {}, "https://127.0.0.1/private"
+        ))
+
     def test_valid_realistic_metadata_and_zip(self):
         payload=zip_one()
         dg=hashlib.sha256(payload).hexdigest()
