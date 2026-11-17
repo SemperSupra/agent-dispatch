@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1.7
+ARG BASE_IMAGE=debian:trixie-slim
+FROM ${BASE_IMAGE}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
+ pcscd vsmartcard-vpcd python3 python3-pyscard && rm -rf /var/lib/apt/lists/* && \
+ test -n "$(find /usr/lib/pcsc -name 'libifdvpcd.so' -print -quit)"
+COPY test_card.py /test-card/test_card.py
+USER 65532:65532
+ENTRYPOINT ["python3","-B","/test-card/test_card.py"]
