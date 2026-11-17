@@ -122,33 +122,73 @@ def smoke(label):
                 return safe_result(ev,"ORACLE_FAILURE","ANDROID_PROPERTY_OBSERVATION_FAILED")
             ev["observed_api"]=api.strip()
             ev["observed_abi"]=abi.strip()
-            launch,_,_=adb_run("shell","am","start","-a","android.settings.SETTINGS",timeout=20)
+            # Actor-visible app intent is distinct from verifier-only ADB
+            # activity/window state. Do not interpret an exit-zero start as
+            # proof of an actually resumed foreground Settings screen.
+            launch,launch_out,_=adb_run("shell","am","start","-a","android.settings.SETTINGS",timeout=20)
+            ev["settings_start_exit"]=launch
             foreground=False
-            for _ in range(12):
+            for _ in range(10):
+                code,out,_=adb_run("shell","dumpsys","window","windows",timeout=15)
+                if code==0:
+                    focus=[x for x in out.splitlines() if
+                           "mCurrentFocus" in x or "mFocusedApp" in x]
+                    if any("com.android.settings" in x for x in focus):
+                        foreground=True
+                        ev["settings_focus_oracle"]="DUMPSYS_WINDOW_FOCUSED_APP"
+                        break
                 code,out,_=adb_run("shell","dumpsys","activity","activities",timeout=15)
                 if code==0:
-                    focus=[x for x in out.splitlines() if "mResumedActivity" in x or "topResumedActivity" in x]
+                    focus=[x for x in out.splitlines() if
+                           "mResumedActivity" in x or "topResumedActivity" in x or
+                           ("ResumedActivity:" in x and "com.android.settings" in x)]
                     if any("com.android.settings" in x for x in focus):
-                        foreground=True;break
+                        foreground=True
+                        ev["settings_focus_oracle"]="DUMPSYS_ACTIVITY_RESUMED"
+                        break
                 time.sleep(2)
             ev["settings_activity"]="FOREGROUND" if foreground else "NOT_OBSERVED"
             ev["battery_simulation"]="NOT_PROVEN"
-            bcode,_,_=adb_run("emu","power","capacity","73",timeout=20)
+            # Emulator power console is an emulator test-control, not an
+            # Android-app capability. Independently query battery service.
+            battery_source="NONE"
+            bcode,_,_=adb_run("emu","power","capacity","73",timeout=15)
+            ev["emulator_power_control_exit"]=bcode
             level=None
+            def observed_battery():
+                code,out,_=adb_run("shell","dumpsys","battery")
+                if code!=0:return None
+                for line in out.splitlines():
+                    if line.strip().startswith("level:"):
+                        try:return int(line.split(":",1)[1].strip())
+                        except ValueError:return None
+                return None
             if bcode==0:
-                for _ in range(8):
-                    code,out,_=adb_run("shell","dumpsys","battery")
-                    for line in out.splitlines():
-                        if line.strip().startswith("level:"):
-                            try:level=int(line.split(":",1)[1].strip())
-                            except ValueError:pass
-                    if code==0 and level==73:break
+                for _ in range(5):
+                    level=observed_battery()
+                    if level==73:
+                        battery_source="EMULATOR_CONSOLE_AND_DUMPSYS"
+                        break
                     time.sleep(1)
+            if level!=73:
+                # Fallback is test-harness-only shell control of the virtual
+                # battery service, then a distinct read-only dumpsys oracle.
+                bcode,_,_=adb_run("shell","dumpsys","battery","set","level","73",timeout=15)
+                ev["emulator_battery_service_control_exit"]=bcode
+                if bcode==0:
+                    for _ in range(5):
+                        level=observed_battery()
+                        if level==73:
+                            battery_source="SYNTHETIC_BATTERY_SERVICE_AND_DUMPSYS"
+                            break
+                        time.sleep(1)
             ev["battery_simulation"]="OBSERVED_LEVEL_73" if level==73 else "NOT_PROVEN"
+            ev["battery_oracle_source"]=battery_source
             passed,reason=decide(abi.strip(),api.strip(),launch==0,foreground,level)
             return safe_result(ev,"SUPPORTED" if passed else "ORACLE_FAILURE",reason)
         finally:
             if serial:
+                adb_run("shell","dumpsys","battery","reset",timeout=5)
                 adb_run("emu","power","capacity","100",timeout=5)
                 adb_run("emu","kill",timeout=15)
             try:proc.terminate();proc.wait(timeout=8)
