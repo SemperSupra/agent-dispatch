@@ -77,10 +77,21 @@ func TestMismatchedURBEndpointDenied(t *testing.T){
  b=append(b,record(bo,2,'C',1,0x82,37,nil)...)
  if _,e:=Decode(b);e==nil{t.Fatal("identity mismatch accepted")}
 }
-func TestDuplicateInFlightURBDenied(t *testing.T){
+func TestRepeatedSameURBSubmitIsNAKRetry(t *testing.T){
  bo:=binary.LittleEndian
  b:=header(bo)
  b=append(b,record(bo,1,'S',1,0x81,37,nil)...)
  b=append(b,record(bo,2,'S',1,0x81,37,nil)...)
- if _,e:=Decode(b);e==nil{t.Fatal("duplicate outstanding URB accepted")}
+ b=append(b,record(bo,3,'C',1,0x81,37,[]byte{0,0,0,0,0,0,0,0})...)
+ got,e:=Decode(b);if e!=nil{t.Fatal(e)}
+ if got.RepeatedSubmits!=1 || got.MatchedURBs!=1 || got.UnmatchedSubmits!=0 {
+  t.Fatalf("NAK retry not modeled %+v",got)
+ }
+}
+func TestConflictingInFlightURBDenied(t *testing.T){
+ bo:=binary.LittleEndian
+ b:=header(bo)
+ b=append(b,record(bo,1,'S',1,0x81,37,nil)...)
+ b=append(b,record(bo,2,'S',1,0x82,37,nil)...)
+ if _,e:=Decode(b);e==nil{t.Fatal("conflicting outstanding URB accepted")}
 }
