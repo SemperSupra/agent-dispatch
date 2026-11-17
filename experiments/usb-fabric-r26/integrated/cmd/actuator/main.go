@@ -114,7 +114,10 @@ func acquireVMOwner(conn net.Conn)(*vmOwner,error) {
  aliasName:=fmt.Sprintf("@r26-vm-%x",incarnation[:16])
  alias,err:=net.Listen("unix",aliasName)
  if err!=nil{
-  if errors.Is(err,syscall.EADDRINUSE){return nil,syscall.EWOULDBLOCK}
+  if errors.Is(err,syscall.EADDRINUSE){
+   fmt.Fprintln(os.Stderr,"R26_L10_ABSTRACT_VM_OWNER_ALREADY_BOUND=PASS")
+   return nil,syscall.EWOULDBLOCK
+  }
   return nil,err
  }
  defer func(){if alias!=nil{_ = alias.Close()}}()
