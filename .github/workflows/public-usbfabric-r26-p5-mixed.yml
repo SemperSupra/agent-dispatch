@@ -1,0 +1,24 @@
+name: USB Fabric R26-P5 - real mixed xHCI functional stress
+on:
+  push:
+    branches: [test/issue-409-usb-mixed-load]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-p5-real-guest-mixed
+  cancel-in-progress: false
+jobs:
+  actual-mixed-usb-data:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Contended Linux guest HID evdev + USB disk + RNDIS TFTP + ALSA WAV + CCID
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-409/verify.sh
