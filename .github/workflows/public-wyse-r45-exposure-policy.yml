@@ -1,0 +1,43 @@
+name: Public Wyse R45-A fail-closed LAN/tailnet service exposure policy
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/public-wyse-r45-exposure-policy.yml'
+      - 'tools/wyse-exposure-policy/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r45-exposure-policy
+  cancel-in-progress: false
+jobs:
+  offline-plan:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r45-exposure'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify untrusted synthetic policy never makes a network change
+        shell: bash
+        working-directory: tools/wyse-exposure-policy
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -count=1 -v ./...
+          go vet ./...
+          if grep -En 'net\.Listen|exec\.Command|os\.WriteFile|syscall\.Mount|tailscale up|iptables |nft add' policy.go; then
+            echo R45_EXPOSURE_ACTIVE_NETWORK_SIDE_EFFECT=RED
+            exit 42
+          fi
+          echo R45_EXACT_BIND_OVERLAY_LAN_AND_INVENTORY_SECRECY=PASS
+          echo R45_REAL_TAILNET_HEADSCALE_BIND_AND_FIREWALL=NOT_TESTED
+          echo R45_REAL_HOST_PASSTHROUGH_DISCOVERY=NOT_TESTED

@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "overlay_provider": "headscale",
+  "overlay_interface": "tailscale0",
+  "overlay_prefixes": [
+    "100.64.0.0/10"
+  ],
+  "overlay_policy_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "overlay_state": "observed_up",
+  "trust_proxy_identity_headers": false,
+  "services": [
+    {
+      "name": "human_ui",
+      "mode": "both",
+      "port": 8443,
+      "lan_ip": "192.168.50.10",
+      "overlay_ip": "100.101.102.103",
+      "auth": "oidc",
+      "roles": [
+        "owner",
+        "operator"
+      ]
+    },
+    {
+      "name": "recoverd_ssh",
+      "mode": "overlay",
+      "port": 2222,
+      "overlay_ip": "100.101.102.103",
+      "auth": "ssh_key",
+      "roles": [
+        "owner"
+      ]
+    },
+    {
+      "name": "inventory_admin",
+      "mode": "local",
+      "unix_socket": "/run/wyse/inventory.sock",
+      "auth": "mtls",
+      "roles": [
+        "owner"
+      ]
+    }
+  ]
+}
