@@ -74,6 +74,8 @@ func TestTimeoutQuarantineAndUnknownSnapshot(t *testing.T){
  g.FailClosed()
  if g.Reclaimable(){t.Fatal("quarantined device re-admitted")}
  if e:=g.AcknowledgeQMP(scope());!errors.Is(e,ErrDenied){t.Fatal("QMP ack ended quarantine")}
+ forgedPersistence:=Restore(Snapshot{Version:1,Scope:scope(),Phase:GuestConfirmed})
+ if forgedPersistence.Reclaimable(){t.Fatal("persisted confirmation re-admitted without independent signature revalidation")}
  uncertain:=Restore(Snapshot{Version:20,Scope:scope(),Phase:GuestConfirmed})
  if uncertain.Reclaimable()||uncertain.Snapshot().Phase!=Quarantined{t.Fatal("unknown version trusted")}
  unknown:=Restore(Snapshot{Version:1,Scope:scope(),Phase:"mystery"})
