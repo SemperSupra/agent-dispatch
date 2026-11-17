@@ -1,0 +1,48 @@
+name: Public Wyse R47-B hardware-aware host guest synthesis policy
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/public-wyse-r47-synthesis.yml'
+      - 'tools/wyse-r47-synthesis/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r47-synthesis
+  cancel-in-progress: false
+jobs:
+  offline-synthetic-planner:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r47-synthesis'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate source-only hardware constraints and model-untrusted proposals
+        shell: bash
+        working-directory: tools/wyse-r47-synthesis
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -count=1 -v ./...
+          go vet ./...
+          echo R47_SYNTHETIC_HARDWARE_CONSTRAINT_ORACLES=PASS
+          echo R47_UNQUALIFIED_LLM_CANNOT_OVERRIDE_HARD_GATES=PASS
+          echo R47_REAL_WATTS_THERMALS_AND_HOSTS=NOT_TESTED
+      - name: Check no deployment or network side effects in planner implementation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -En 'net[.]Dial|net[.]Listen|exec[.]Command|os[.]OpenFile|os[.]WriteFile|syscall[.]Mount|/dev/vfio|/dev/kvm' tools/wyse-r47-synthesis/planner.go; then
+            echo R47_SYNTHETIC_PLANNER_MUTATION_OR_NETWORK_PATH=RED
+            exit 41
+          fi
+          echo R47_STATIC_NO_NETWORK_OR_DEVICE_MUTATION=PASS
