@@ -1,0 +1,29 @@
+name: USB Fabric R26-L6 - real QMP sole actuator process owner
+on:
+  push:
+    branches: [test/issue-382-dual-qmp-owner-redblue]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-l6-sole-owner.yml'
+      - 'experiments/usb-fabric-r26/integrated/l6_dual_qmp_owner*'
+      - 'experiments/usb-fabric-r26/integrated/Dockerfile'
+      - 'experiments/usb-fabric-r26/integrated/cmd/actuator/**'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-l6-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  sole-qmp-owner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Require one host-local actuator even with different frontend sockets
+        shell: bash
+        run: bash experiments/usb-fabric-r26/integrated/l6_dual_qmp_owner_verify.sh
