@@ -74,6 +74,26 @@ class Tests(unittest.TestCase):
         p=zip_one(); dg=hashlib.sha256(p).hexdigest(); m=meta(dg)
         m["artifacts"].append(dict(m["artifacts"][0]))
         with self.assertRaisesRegex(Hold,"DUPLICATE"): validate_meta(m,7,RUN,HEAD,AID,NAME,dg)
+    def test_partial_artifact_listing_holds_even_if_expected_artifact_present(self):
+        p=zip_one(); dg=hashlib.sha256(p).hexdigest()
+        for count in (-1, 0, 2, 101, True):
+            with self.subTest(count=count):
+                m=meta(dg); m["total_count"]=count
+                with self.assertRaises(Hold):
+                    validate_meta(m,7,RUN,HEAD,AID,NAME,dg)
+
+    def test_false_uniqueness_from_partial_result_holds(self):
+        p=zip_one(); dg=hashlib.sha256(p).hexdigest()
+        m=meta(dg); m["artifacts"].append({"name":"other-artifact","id":789})
+        with self.assertRaisesRegex(Hold,"PAGINATION_AMBIGUOUS"):
+            validate_meta(m,7,RUN,HEAD,AID,NAME,dg)
+
+    def test_valid_multi_artifact_listing(self):
+        p=zip_one(); dg=hashlib.sha256(p).hexdigest()
+        m=meta(dg); m["artifacts"].append({"name":"other-artifact","id":789})
+        m["total_count"]=2
+        self.assertEqual(AID, validate_meta(m,7,RUN,HEAD,AID,NAME,dg)["id"])
+
     def test_wrong_workflow_run(self):
         p=zip_one(); dg=hashlib.sha256(p).hexdigest(); m=meta(dg)
         m["artifacts"][0]["workflow_run"]["id"]=999
@@ -91,7 +111,7 @@ class Tests(unittest.TestCase):
         p=zip_one(); dg=hashlib.sha256(p).hexdigest()
         with self.assertRaisesRegex(Hold,"IDENTITY"):validate_zip(p,dg,REPO,RUN,ATTEMPT,"b"*40)
     def test_missing_artifact(self):
-        p=zip_one(); dg=hashlib.sha256(p).hexdigest(); m=meta(dg);m["artifacts"]=[]
+        p=zip_one(); dg=hashlib.sha256(p).hexdigest(); m=meta(dg);m["artifacts"]=[];m["total_count"]=0
         with self.assertRaisesRegex(Hold,"MISSING"):validate_meta(m,7,RUN,HEAD,AID,NAME,dg)
     def test_expired_artifact(self):
         p=zip_one(); dg=hashlib.sha256(p).hexdigest(); m=meta(dg);m["artifacts"][0]["expired"]=True
