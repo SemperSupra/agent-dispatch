@@ -38,6 +38,22 @@ func signed(c ReleaseClaim)bool{
  want,err:=hex.DecodeString(testMAC(c))
  return err==nil&&hmac.Equal(got,want)
 }
+func stage(t *testing.T,s Store,sequence uint64) {
+ t.Helper()
+ // A QMP ACK or guest receipt alone cannot complete release before the
+ // persisted intent is committed to disk.
+ if _,err:=s.AcknowledgeQMPRelease(sequence);!errors.Is(err,ErrUnverified){
+  t.Fatal("QMP ACK without release intent accepted",err)
+ }
+ state,err:=s.RequestRelease(sequence)
+ if err!=nil||!state.Held||state.ReleasePhase!="release-intent"{
+  t.Fatalf("intent not durable: %+v %v",state,err)
+ }
+ state,err=s.AcknowledgeQMPRelease(sequence)
+ if err!=nil||!state.Held||state.ReleasePhase!="qmp-acked"{
+  t.Fatalf("QMP ACK cleared held input: %+v %v",state,err)
+ }
+}
 func readHeld(t *testing.T,s Store,sequence uint64) {
  t.Helper()
  r,err:=s.Read()
@@ -54,6 +70,10 @@ func TestVerifiedReleaseDurableAndMonotonic(t *testing.T){
   t.Fatal("nil verifier accepted",err)
  }
  readHeld(t,s,1)
+ if _,err=s.ConfirmGuestRelease(1,c,signed);!errors.Is(err,ErrUnverified){
+  t.Fatal("verified guest up without QMP ACK accepted",err)
+ }
+ stage(t,s,1)
  st,err=s.ConfirmGuestRelease(1,c,signed)
  if err!=nil||st.Held||st.Sequence!=2||st.LastReleaseEventSequence!=11||
   len(st.LastReleaseProofHash)!=64{
@@ -80,6 +100,7 @@ func TestVerifiedReleaseDurableAndMonotonic(t *testing.T){
   t.Fatal("stale guest event sequence accepted",err)
  }
  readHeld(t,s,3)
+ stage(t,s,3)
  later:=claim(3,12,13)
  st,err=s.ConfirmGuestRelease(3,later,signed)
  if err!=nil||st.Held||st.LastReleaseEventSequence!=13{
@@ -90,6 +111,7 @@ func TestVerifiedReleaseDurableAndMonotonic(t *testing.T){
 func TestForgedAndOutOfOrderProofNeverClearsHeld(t *testing.T){
  s:=Store{Path:filepath.Join(t.TempDir(),"held.json")}
  _,_ =s.Transition(0,true)
+ stage(t,s,1)
  base:=claim(1,30,31)
  fixtures:=[]ReleaseClaim{
   func()ReleaseClaim{c:=base;c.GuestID="";return c}(),
@@ -151,6 +173,7 @@ func TestGuestProofWriteFailureRetainsHeld(t *testing.T){
 func TestAuditDigestIsNotPlaintextInput(t *testing.T){
  s:=Store{Path:filepath.Join(t.TempDir(),"held")}
  _,_ =s.Transition(0,true)
+ stage(t,s,1)
  c:=claim(1,10,11)
  _,err:=s.ConfirmGuestRelease(1,c,signed)
  if err!=nil{t.Fatal(err)}
