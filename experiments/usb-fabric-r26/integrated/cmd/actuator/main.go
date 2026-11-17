@@ -293,7 +293,7 @@ func main(){
   fmt.Fprintln(os.Stderr,"R26_L5_STALE_OR_UNKNOWN_GUEST_STARTUP_QUARANTINED=PASS",err)
   os.Exit(8)
  }
- fmt.Println("R26_L5_NEVER_RAN_PRELAUNCH_CONTROL_PROOF=PASS")
+ fmt.Fprintln(os.Stderr,"R26_L5_NEVER_RAN_PRELAUNCH_CONTROL_PROOF=PASS")
  if _,err=os.Lstat(*socketPath);err==nil{
   fmt.Fprintln(os.Stderr,"refusing existing socket path");os.Exit(4)
  }else if !errors.Is(err,os.ErrNotExist){fmt.Fprintln(os.Stderr,err);os.Exit(4)}
