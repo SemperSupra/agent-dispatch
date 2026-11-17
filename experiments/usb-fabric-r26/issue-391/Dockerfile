@@ -8,8 +8,12 @@ RUN mkdir -p /tmp/r26-initrd && cd /tmp/r26-initrd && \
  gzip -dc /guest/initrd.gz | cpio --quiet -idmu && \
  cp /src/init.sh ./init && chmod 0755 ./init && \
  mkdir -p ./usr/sbin && cp /usr/sbin/mkfs.ext4 ./usr/sbin/mkfs.ext4 && \
- ldd /usr/sbin/mkfs.ext4 | awk '/=> \\/\// {print $3} /^[[:space:]]*\\// {print $1}' | \
-   while read -r lib;do test -r "$lib" && cp -L --parents "$lib" /tmp/r26-initrd/ || exit 1;done && \
+ mkdir -p ./etc && cp /etc/mke2fs.conf ./etc/mke2fs.conf && \
+ ldd /usr/sbin/mkfs.ext4 | awk '{for(i=1;i<=NF;i++) if(substr($i,1,1)=="/") print $i}' | \
+  sort -u | while read -r lib;do \
+    test -r "$lib" && cp -L --parents "$lib" /tmp/r26-initrd/ || exit 1; \
+  done && \
+ test -r ./lib/x86_64-linux-gnu/libext2fs.so.2 && \
  find . -print | LC_ALL=C cpio --quiet -o -H newc | gzip -9 > /guest/r26-initrd.gz && \
  test -s /guest/r26-initrd.gz
 FROM ${R15_IMAGE}
