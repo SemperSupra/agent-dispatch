@@ -1,0 +1,24 @@
+name: Passkey Lab R1 - virtual HID USB/IP UVC and audio runner census
+on:
+  push:
+    branches: [experiment/passkey-r1-virtual-device-census]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: passkey-r1-virtual-device-census
+  cancel-in-progress: false
+jobs:
+  kernel-user-peripheral-capacity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Inventory virtual HID and USB gadget support without host mutation
+        shell: bash
+        run: bash experiments/passkey-lab/issue-419/census.sh
