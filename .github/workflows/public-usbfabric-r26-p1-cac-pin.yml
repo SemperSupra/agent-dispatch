@@ -1,0 +1,42 @@
+name: USB Fabric R26-P1 - synthetic CAC PIN and challenge lifecycle
+on:
+  push:
+    branches: [test/issue-404-synthetic-cac-pin]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-p1-cac-pin-lifecycle
+  cancel-in-progress: false
+jobs:
+  synthetic-pin-session:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Test-only virtual CAC prompt, wrong/correct PIN, signing and logout
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          before="$(git status --porcelain --untracked-files=all)"
+          [[ -z "$before" ]] || exit 11
+          docker pull golang:1.23-bookworm >/dev/null
+          base="$(docker image inspect --format '{{index .RepoDigests 0}}' golang:1.23-bookworm)"
+          [[ "$base" == *@sha256:* ]] || exit 12
+          echo "R26_P1_GO_BASE=$base"
+          tar -C experiments/usb-fabric-r26/issue-404 -cf - . | \
+            docker run --rm -i --network none --read-only --user 65532:65532 \
+              --cap-drop ALL --security-opt no-new-privileges \
+              --memory 2048m --memory-swap 2048m --cpus 2 --pids-limit 128 \
+              --tmpfs /tmp:rw,exec,nosuid,nodev,size=1536m,mode=1777 \
+              -e HOME=/tmp -e GOCACHE=/tmp/cache -e GOPATH=/tmp/gopath \
+              -e GOPROXY=off -e GOSUMDB=off -e GOTOOLCHAIN=local \
+              "$base" sh -ec 'mkdir -p /tmp/work; cd /tmp/work; tar -xf -; go test -race -count=1 -v ./...; go vet ./...'
+          [[ "$(git status --porcelain --untracked-files=all)" == "$before" ]] || exit 13
+          echo R26_P1_SYNTHETIC_CAC_PIN_LIFECYCLE_MODEL=PASS
+          echo R26_P1_ACTUAL_GUEST_PCSC_AND_ISSUED_CAC_PIN=NOT_TESTED
