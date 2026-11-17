@@ -1,0 +1,61 @@
+name: Public R48 native AMD64 and ARM64 hardware profile qualification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/public-r48-heterogeneous-node-profiles.yml'
+      - 'tools/r48-node-profiles/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-r48-heterogeneous-profiles
+  cancel-in-progress: false
+jobs:
+  native-architecture-qualification:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-r48-heterogeneous-node-profiles'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Native arch and no-remote-dependency admission
+        shell: bash
+        working-directory: tools/r48-node-profiles
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          go version
+          native_arch=$(go env GOARCH)
+          test "$native_arch" = "${{ matrix.architecture }}"
+          test "$(go env GOOS)" = linux
+          go test -count=1 -v ./...
+          go vet ./...
+          go test -c -trimpath -o "$RUNNER_TEMP/r48-profile-${{ matrix.architecture }}.test" .
+          file "$RUNNER_TEMP/r48-profile-${{ matrix.architecture }}.test"
+          sha256sum "$RUNNER_TEMP/r48-profile-${{ matrix.architecture }}.test"
+          echo R48_NATIVE_${{ matrix.architecture }}_GO_POLICY_TESTS=PASS
+          echo R48_JETSON_CUDA_GPU_AND_PI_FIRMWARE_HIL=NOT_TESTED
+      - name: Audit synthetic policy for forbidden host actuation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -En 'net[.]Dial|net[.]Listen|exec[.]Command|os[.]OpenFile|os[.]WriteFile|/dev/|/sys/|/proc/|Jetson[ ]flash' tools/r48-node-profiles/profiles.go; then
+            echo R48_DEVICE_OR_NETWORK_ACTUATION_PATH=RED
+            exit 41
+          fi
+          echo R48_PLAN_ONLY_NO_REAL_DEVICE_ACTION=PASS
