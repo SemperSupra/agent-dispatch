@@ -1,0 +1,61 @@
+name: Public Wyse R45-B private host candidate census and tenant redaction
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r43-census]
+    paths:
+      - '.github/workflows/public-wyse-r45-private-device-catalog.yml'
+      - 'tools/wyse-hw-census/private_candidates.go'
+      - 'tools/wyse-hw-census/private_candidates_test.go'
+      - 'tools/wyse-hw-census/cmd/wyse-private-candidates/**'
+      - 'tools/wyse-hw-census/README-private-candidates.md'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r45-private-device-catalog
+  cancel-in-progress: false
+jobs:
+  simulated-hardware-private-inventory:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r45-private-device-catalog'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Qualify R43 and R45-B read-only private candidate inventory
+        shell: bash
+        working-directory: tools/wyse-hw-census
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          go test -count=1 -v ./...
+          go vet ./...
+          go build -trimpath -o "$RUNNER_TEMP/r45-census" ./cmd/wyse-hw-census
+          go build -trimpath -o "$RUNNER_TEMP/r45-private-candidates" ./cmd/wyse-private-candidates
+          file "$RUNNER_TEMP/r45-private-candidates"
+          if "$RUNNER_TEMP/r45-private-candidates" > "$RUNNER_TEMP/r45-private.stdout" 2> "$RUNNER_TEMP/r45-private.stderr"; then
+            echo R45_UNAUTHORIZED_PUBLIC_RUNNER_INVENTORY=RED
+            exit 43
+          fi
+          test ! -s "$RUNNER_TEMP/r45-private.stdout"
+          grep -Fq 'R45_PRIVATE_CENSUS=DENIED:' "$RUNNER_TEMP/r45-private.stderr"
+          echo R45_UNAUTHORIZED_PUBLIC_RUNNER_INVENTORY_REFUSED=PASS
+          echo R45_PRIVATE_ONLY_STATIC_AMD64_INVENTORY_BINARY=PASS
+          echo R45_PRIVATE_DEVICE_CANDIDATE_AND_TENANT_REDACTION=PASS
+          echo R45_ACTUAL_SIX_WYSE_HARDWARE=NOT_TESTED
+          echo R45_REAL_PASSTHROUGH_KVM_USB_CCID=NOT_TESTED
+      - name: Fail closed on privileged enumeration or direct device mutation calls
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -En 'os[.]OpenFile|exec[.]Command|net[.]Listen|ioctl|vfio-pci|modprobe|/dev/bus/usb|/dev/vfio' tools/wyse-hw-census/private_candidates.go; then
+            echo R45_MUTATING_DEVICE_CENSUS_SOURCE=RED
+            exit 42
+          fi
+          echo R45_PRIVATE_CENSUS_NO_DRIVER_BIND_OR_DEVICE_OPEN=PASS
