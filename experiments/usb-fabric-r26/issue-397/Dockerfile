@@ -19,6 +19,9 @@ RUN gcc -O2 -Wall -Wextra -o /tmp/r26-pcsc-probe /src/pcsc_probe.c \
  find /usr/lib/pcsc/drivers -name '*.so' -type f -exec ldd '{}' \; ) | \
  awk '{for(i=1;i<=NF;i++) if(substr($i,1,1)=="/") print $i}' | \
  sort -u | while read -r lib; do test -r "$lib" && cp -L --parents "$lib" /tmp/r26-initrd/ || exit 1;done && \
+ # libpcsclite is a runtime shim that dlopens the non-ldd-visible real library.
+ find /usr/lib /lib -name 'libpcsclite_real.so*' -type f -exec cp -L --parents '{}' /tmp/r26-initrd/ \; && \
+ test -n "$(find /tmp/r26-initrd -name 'libpcsclite_real.so*' -print -quit)" && \
  find . -print | LC_ALL=C cpio --quiet -o -H newc | gzip -9 > /guest/r26-pcsc-initrd.gz && \
  test -s /guest/r26-pcsc-initrd.gz
 FROM ${R15_IMAGE}
