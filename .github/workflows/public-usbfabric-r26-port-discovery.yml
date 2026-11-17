@@ -1,0 +1,27 @@
+name: USB Fabric R26-G - conservative QEMU port discovery
+on:
+  push:
+    branches: [experiment/public-usbfabric-r26-port-probe]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-port-discovery.yml'
+      - 'experiments/usb-fabric-r26/discovery/**'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-g
+  cancel-in-progress: false
+jobs:
+  actual-qmp-topology:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Prove explicit virtual port collision, reconnect occupancy and safe reuse
+        shell: bash
+        run: bash experiments/usb-fabric-r26/discovery/verify.sh
