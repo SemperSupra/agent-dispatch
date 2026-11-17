@@ -93,14 +93,14 @@ func groupInfo(devicePath string) string {
 	return g
 }
 func KVMStatus(root string) string {
+	// G0 is strict metadata-only. Even opening /dev/kvm with O_RDWR is a
+	// capability exercise, not a passive inspection. Defer to a separate
+	// owner-approved on-host KVM guest-boot test.
 	p:=join(root,"dev","kvm")
 	info,err:=os.Stat(p)
 	if err!=nil{return "NOT_OBSERVED"}
 	if info.Mode()&os.ModeCharDevice==0 {return "NOT_A_CHARACTER_DEVICE"}
-	f,err:=os.OpenFile(p,os.O_RDWR,0)
-	if err!=nil {return "CHAR_DEVICE_INACCESSIBLE"}
-	_ = f.Close()
-	return "CHAR_DEVICE_ACCESSIBLE_NOT_YET_GUEST_TESTED"
+	return "CHAR_DEVICE_PRESENT_NOT_OPENED"
 }
 func Collect(root string) (Snapshot,error) {
 	root,err:=filepath.Abs(root);if err!=nil{return Snapshot{},err}
@@ -155,8 +155,8 @@ func Collect(root string) (Snapshot,error) {
 		if pci.IOMMUGroup!="" {pci.GroupMembers=groups[pci.IOMMUGroup]}
 		if strings.HasPrefix(class,"0x03"){s.GPUs=append(s.GPUs,pci)}else{s.NICs=append(s.NICs,pci)}
 	}
-	if root=="/" && vmx && strings.HasPrefix(s.KVMDevice,"CHAR_DEVICE_ACCESSIBLE") && mem>=6144 {
-		s.KVMProfile="KVM_SINGLE_GUEST_CANDIDATE_REQUIRES_BOOT_BENCH"
+	if root=="/" && vmx && s.KVMDevice=="CHAR_DEVICE_PRESENT_NOT_OPENED" && mem>=6144 {
+		s.KVMProfile="KVM_TOPOLOGY_CANDIDATE_REQUIRES_GUEST_BOOT"
 		s.VCPUSuggested=2
 		s.MemorySuggested=mem-2048
 		if s.MemorySuggested>8192{s.MemorySuggested=8192}
