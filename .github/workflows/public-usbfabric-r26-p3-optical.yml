@@ -1,0 +1,24 @@
+name: USB Fabric R26-P3 - USB UAS optical ISO UDF read/write deny
+on:
+  push:
+    branches: [test/issue-406-optical-scsi]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-p3-optical-synthetic
+  cancel-in-progress: false
+jobs:
+  guest-optical:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real Linux guest xHCI USB UAS SCSI-CD ISO9660 and UDF media read write denial
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-406/verify.sh
