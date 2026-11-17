@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 
 	releaseguard "example.com/wyse-release-guard"
 )
@@ -15,6 +16,8 @@ import (
 // scanJSON detects duplicate keys at every object depth before the ordinary
 // decoder can silently replace an earlier security-critical field. Limit the
 // nesting depth to keep the preflight bounded on untrusted input.
+var canonicalField = regexp.MustCompile("^[a-z][a-z0-9_]*$")
+
 func scanJSON(d *json.Decoder, depth int) error {
 	if depth > 64 { return fmt.Errorf("JSON depth exceeded") }
 	t, err := d.Token()
@@ -28,7 +31,7 @@ func scanJSON(d *json.Decoder, depth int) error {
 			k, err := d.Token()
 			if err != nil { return err }
 			key, ok := k.(string)
-			if !ok || seen[key] { return fmt.Errorf("duplicate or invalid object key") }
+			if !ok || !canonicalField.MatchString(key) || seen[key] { return fmt.Errorf("duplicate or noncanonical object key") }
 			seen[key] = true
 			if err := scanJSON(d, depth+1); err != nil { return err }
 		}
