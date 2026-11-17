@@ -33,9 +33,9 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        runner: [macos-26-intel, macos-26]
+        runner: [macos-26, xcode-27]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
