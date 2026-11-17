@@ -143,6 +143,7 @@ func TestDoesNotReadRealBlockDeviceNodes(t *testing.T){
  if err:=os.MkdirAll(filepath.Dir(p),0755);err!=nil{t.Fatal(err)}
  if err:=os.WriteFile(p,[]byte("DO_NOT_TOUCH"),0000);err!=nil{t.Fatal(err)}
  if _,err:=CollectHostCandidates(r);err!=nil{t.Fatal(err)}
- b,_:=os.ReadFile(p)
- if string(b)!="DO_NOT_TOUCH"{t.Fatal("block node mutated")}
+ if err:=os.Chmod(p,0600);err!=nil{t.Fatal(err)}
+ b,err:=os.ReadFile(p)
+ if err!=nil||string(b)!="DO_NOT_TOUCH"{t.Fatal("block node mutated")}
 }
