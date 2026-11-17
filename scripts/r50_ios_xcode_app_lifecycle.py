@@ -127,10 +127,24 @@ def exercise():
                 time.sleep(2)
             evidence["simulator_boot"]="BOOTED" if booted else "NOT_PROVEN"
             if not booted:return rec("ORACLE_FAILURE","IPHONE_SIMULATOR_BOOT_ORACLE_FAILED",evidence)
+            # Booted means CoreSimulator recognized the guest, not that its
+            # app installation services are ready. Require the separately
+            # documented bounded bootstatus before attempting app install.
+            ready,_,bootstatus_err=frontier._run(
+                [xcrun,"simctl","bootstatus",udid,"-b"],timeout=80)
+            evidence["simulator_boot_services_ready"]="PASS" if ready==0 else "NOT_PROVEN"
+            if ready!=0:
+                evidence["bootstatus_error_tail"]=bootstatus_err[-450:]
+                return rec("ENVIRONMENT_FAILURE","SIMULATOR_BOOT_SERVICES_NOT_READY",evidence)
             c,_,_=frontier._run([xcrun,"simctl","spawn",udid,"/usr/bin/true"],timeout=20)
             if c!=0:return rec("ORACLE_FAILURE","IPHONE_SIMULATOR_GUEST_SPAWN_FAILED",evidence)
-            c,_,_=frontier._run([xcrun,"simctl","install",udid,str(app)],timeout=30)
-            if c!=0:return rec("ORACLE_FAILURE","XCODE_APP_SIMCTL_INSTALL_FAILED",evidence)
+            install_started=time.monotonic()
+            c,_,install_err=frontier._run([xcrun,"simctl","install",udid,str(app)],timeout=30)
+            evidence["simctl_install_exit"]=c
+            evidence["simctl_install_seconds"]=round(time.monotonic()-install_started,2)
+            if c!=0:
+                evidence["simctl_install_error_tail"]=install_err[-900:]
+                return rec("ORACLE_FAILURE","XCODE_APP_SIMCTL_INSTALL_FAILED",evidence)
             installed=True
             evidence["simulator_app_install"]="PASS"
             c,_,_=frontier._run([xcrun,"simctl","launch",udid,BUNDLE],timeout=30)
