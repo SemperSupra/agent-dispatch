@@ -48,9 +48,23 @@ openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 1 \
   -subj '/CN=Wyse R39 public disposable signing test only' \
   -keyout "$W/test-only.key" -out "$W/test-only.crt" > "$W/keygen.log" 2>&1
 chmod 600 "$W/test-only.key"
+case "${R41_FROZEN_SIGNER:-0}" in
+  0|1) ;;
+  *) echo R41_SIGNER_MODE_INVALID=FAIL_CLOSED; exit 41 ;;
+esac
+if test "${R41_FROZEN_SIGNER:-0}" = 1; then
+  command -v faketime >/dev/null 2>&1 || { echo R41_FAKETIME_MISSING=RED; exit 42; }
+  R41_SIGN_TIME=$(date -u '+%Y-%m-%d %H:%M:%S')
+  echo R41_PER_CHILD_FROZEN_SIGNER_ADMITTED=PASS
+fi
 for n in A B; do
-  sbsign --key "$W/test-only.key" --cert "$W/test-only.crt" \
-    --output "$W/signed-$n.efi" "$W/unsigned-A.efi" > "$W/sbsign-$n.log" 2>&1
+  if test "${R41_FROZEN_SIGNER:-0}" = 1; then
+    faketime -f "$R41_SIGN_TIME" sbsign --key "$W/test-only.key" --cert "$W/test-only.crt" \
+      --output "$W/signed-$n.efi" "$W/unsigned-A.efi" > "$W/sbsign-$n.log" 2>&1
+  else
+    sbsign --key "$W/test-only.key" --cert "$W/test-only.crt" \
+      --output "$W/signed-$n.efi" "$W/unsigned-A.efi" > "$W/sbsign-$n.log" 2>&1
+  fi
   sbverify --cert "$W/test-only.crt" "$W/signed-$n.efi" > "$W/verify-$n.log" 2>&1
   # Deliberately cross a wall-clock boundary. Same-second Authenticode
   # timestamps could otherwise masquerade as signing reproducibility.
@@ -80,4 +94,9 @@ REPORT
 echo "R39_UKI_STRUCTURAL_AND_SBSIGN_VERIFY=PASS"
 echo "R39_UNSIGNED_SAME_RUN_BYTES_EQUAL=$U_EQUAL"
 echo "R39_SIGNED_SAME_RUN_BYTES_EQUAL=$S_EQUAL"
+if test "${R41_FROZEN_SIGNER:-0}" = 1; then
+  if test "$S_EQUAL" != YES; then echo R41_FULL_UKI_FROZEN_SIGNED_BYTES=RED; exit 43; fi
+  echo R41_FULL_UKI_FROZEN_SIGNED_BYTES=PASS
+  echo R41_PRODUCTION_SIGNER_AND_PHYSICAL_MEDIA=NOT_TESTED
+fi
 echo "R39_UKI_PUBLIC_TEXT_ONLY_RECEIPT=PASS"
