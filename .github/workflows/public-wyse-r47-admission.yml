@@ -1,0 +1,48 @@
+name: Public Wyse R47-A discovery enrollment plan admission
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/public-wyse-r47-admission.yml'
+      - 'tools/wyse-r47-admission/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r47-admission
+  cancel-in-progress: false
+jobs:
+  offline-discovery-contract:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r47-admission'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Qualify offline untrusted-discovery lifecycle contract
+        shell: bash
+        working-directory: tools/wyse-r47-admission
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -count=1 -v ./...
+          go vet ./...
+          echo R47_UNTRUSTED_DISCOVERY_NEVER_AUTO_ENROLLS=PASS
+          echo R47_ENROLLMENT_LIFECYCLE_SAFETY_NEGATIVES=PASS
+          echo R47_REAL_NETWORK_IDENTITY_AND_BOOTSTRAP=NOT_TESTED
+      - name: Reject network scanning or provisioning implementations in synthetic model
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -En 'net[.]Dial|net[.]Listen|exec[.]Command|os[.]OpenFile|os[.]WriteFile|syscall[.]Mount|/dev/|dhcpd|ipxe|wol' tools/wyse-r47-admission/admission.go; then
+            echo R47_ADMISSION_LIVE_NETWORK_OR_HARDWARE_SIDE_EFFECT=RED
+            exit 41
+          fi
+          echo R47_PLAN_ONLY_NO_NETWORK_OR_DEVICE_ACTION=PASS
