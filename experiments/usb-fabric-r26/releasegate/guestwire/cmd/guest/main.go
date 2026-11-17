@@ -31,7 +31,8 @@ func run()error {
  encoder:=json.NewEncoder(wire)
  fmt.Println("R26_L8_REAL_GUEST_VIRTIO_EVDEV_OBSERVER_READY=PASS")
  seenDown:=false
- for i:=0;i<100000;i++{
+ cycle:=0
+ for i:=0;i<200000;i++{
   var e inputEvent
   if err:=binary.Read(ev,binary.LittleEndian,&e);err!=nil{
    if err==io.EOF{return fmt.Errorf("evdev disconnected before key up")}
@@ -41,8 +42,8 @@ func run()error {
   down:=e.Value==1
   if !down && (!seenDown||e.Value!=0){continue}
   if down && seenDown {continue}
-  seq:=uint64(10)
-  if !down{seq=11}
+  seq:=uint64(10+2*cycle)
+  if !down{seq=uint64(11+2*cycle)}
   receipt:=guestwire.SignForSyntheticGuest(evidence.Event{
    Scope:guestwire.Scope(),Source:"guest.evdev",KeyCode:"key-a",
    Down:down,EventSequence:seq,
@@ -51,9 +52,13 @@ func run()error {
   if down {
    seenDown=true
    fmt.Println("R26_L8_REAL_GUEST_VIRTIO_EVDEV_DOWN_SENT=PASS")
+   if cycle==1{fmt.Println("R26_L9B_SECOND_ACTUAL_GUEST_EVDEV_DOWN=PASS")}
   }else{
    fmt.Println("R26_L8_REAL_GUEST_VIRTIO_EVDEV_UP_SENT=PASS")
-   return nil
+   if cycle==1{fmt.Println("R26_L9B_SECOND_ACTUAL_GUEST_EVDEV_UP=PASS")}
+   cycle++
+   if cycle>=2{return nil}
+   seenDown=false
   }
  }
  return fmt.Errorf("evdev observation bound exceeded")
