@@ -13,6 +13,11 @@ from verify import get_json, Hold
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 def classify(payload, repository, workflow_id, head_sha, native_run_id):
+    if repository != "SemperSupra/agent-dispatch" or \
+       type(workflow_id) is not int or workflow_id < 1 or \
+       not isinstance(head_sha,str) or not SHA.fullmatch(head_sha) or \
+       type(native_run_id) is not int or native_run_id < 1:
+        raise Hold("INVALID_DISCOVERY_SCOPE")
     if not isinstance(payload, dict) or type(payload.get("total_count")) is not int or \
        payload["total_count"] < 0 or payload["total_count"] > 100:
         raise Hold("PAGINATION_OR_COUNT_AMBIGUOUS")
@@ -28,10 +33,15 @@ def classify(payload, repository, workflow_id, head_sha, native_run_id):
         if type(rid) is not int or rid < 1 or rid in seen:
             raise Hold("DUPLICATE_OR_INVALID_RUN_ID")
         seen.add(rid)
-        if run.get("workflow_id") != workflow_id or \
+        if type(run.get("workflow_id")) is not int or run["workflow_id"] < 1:
+            raise Hold("INVALID_WORKFLOW_ID")
+        run_repository=run.get("repository")
+        if not isinstance(run_repository,dict):
+            raise Hold("INVALID_RUN_REPOSITORY")
+        if run["workflow_id"] != workflow_id or \
            run.get("head_sha") != head_sha or \
            run.get("event") != "pull_request" or \
-           run.get("repository",{}).get("full_name") != repository:
+           run_repository.get("full_name") != repository:
             raise Hold("PROVIDER_RETURNED_CROSS_SCOPE_RUN")
         candidates.append(rid)
     if native_run_id not in candidates:
@@ -48,6 +58,22 @@ def classify(payload, repository, workflow_id, head_sha, native_run_id):
             "exactly_once_dispatch":"NOT_PROVEN",
             "release_gate":"HOLD"}
 
+def enumerate_candidates(read_json, sleep, repo, workflow_id, head, self_id):
+    """At most five read-only snapshots; only missing visibility is retried.
+
+    The known self ID is an oracle, never a query parameter. A single snapshot
+    is not a stable uniqueness or lost-ACK recovery guarantee.
+    """
+    q=urllib.parse.urlencode({"event":"pull_request","head_sha":head,"per_page":"100"})
+    path=f"/repos/{repo}/actions/workflows/{workflow_id}/runs?"+q
+    for attempt in range(5):
+        try:
+            return classify(read_json(path),repo,workflow_id,head,self_id)
+        except Hold as e:
+            if str(e)!="CURRENT_RUN_ABSENT_FROM_CANDIDATES" or attempt==4:
+                raise
+            sleep(2)
+
 def main():
     env=os.environ
     if env.get("GITHUB_ACTIONS")!="true" or env.get("GITHUB_EVENT_NAME")!="pull_request":
@@ -59,25 +85,16 @@ def main():
         raise Hold("PUBLIC_SOURCE_NOT_ADMITTED")
     self_id=int(env["GITHUB_RUN_ID"])
     run=get_json(f"/repos/{repo}/actions/runs/{self_id}",token)
+    if not isinstance(run,dict):
+        raise Hold("SELF_NATIVE_RUN_MISMATCH")
     wf_id=run.get("workflow_id")
     if type(run.get("id")) is not int or run["id"]!=self_id or \
        type(wf_id) is not int or wf_id<=0 or \
        run.get("head_sha")!=head or run.get("event")!="pull_request":
         raise Hold("SELF_NATIVE_RUN_MISMATCH")
     # No run ID in the discovery request. Source head and native workflow ID are known.
-    q=urllib.parse.urlencode({"event":"pull_request","head_sha":head,"per_page":"100"})
-    path=f"/repos/{repo}/actions/workflows/{wf_id}/runs?"+q
-    last=None
-    for _ in range(5):
-        try:
-            result=classify(get_json(path,token),repo,wf_id,head,self_id)
-            return result
-        except Hold as e:
-            if str(e)!="CURRENT_RUN_ABSENT_FROM_CANDIDATES":
-                raise
-            last=e
-            time.sleep(2)
-    raise last or Hold("RUN_NOT_VISIBLE")
+    return enumerate_candidates(lambda path:get_json(path,token),time.sleep,
+                                repo,wf_id,head,self_id)
 
 if __name__=="__main__":
     try:
