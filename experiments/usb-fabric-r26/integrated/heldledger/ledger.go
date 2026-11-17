@@ -28,6 +28,9 @@ type State struct {
  Sequence uint64 `json:"sequence"`
  Key string `json:"key,omitempty"`
  Held bool `json:"held"`
+ // None, release-intent, or qmp-acked. Guest evidence is still required
+ // after the QMP acknowledgment. All stages remain Held=true until proof.
+ ReleasePhase string `json:"release_phase,omitempty"`
  // Audit-only receipt fingerprint and guest event monotonic sequence.
  // Neither field alone constitutes a fresh proof on process restart.
  LastReleaseEventSequence uint64 `json:"last_release_event_sequence,omitempty"`
@@ -67,6 +70,9 @@ func (s Store) Read()(State,error){
   d,err:=hex.DecodeString(state.LastReleaseProofHash)
   if err!=nil||len(d)!=32{return State{},ErrInvalid}
  }
+ if state.ReleasePhase!="" && state.ReleasePhase!="release-intent" &&
+  state.ReleasePhase!="qmp-acked" {return State{},ErrInvalid}
+ if !state.Held && state.ReleasePhase!="" {return State{},ErrInvalid}
  return state,nil
 }
 
