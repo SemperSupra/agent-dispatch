@@ -32,7 +32,7 @@ for n in A B C; do
     --output "$W/signed-$n.efi" "$W/unsigned.efi" > "$W/sign-$n.log" 2>&1
   sbverify --cert "$W/temp.crt" "$W/signed-$n.efi" > "$W/verify-$n.log" 2>&1
   if command -v sbattach >/dev/null 2>&1; then
-    sbattach --detach "$W/sig-$n.p7b" --image "$W/signed-$n.efi" > "$W/detach-$n.log" 2>&1 || :
+    sbattach --detach "$W/sig-$n.p7b" "$W/signed-$n.efi" > "$W/detach-$n.log" 2>&1 || :
   fi
   if test -s "$W/sig-$n.p7b"; then
     if openssl asn1parse -inform DER -in "$W/sig-$n.p7b" > "$W/asn1-$n.txt" 2>&1; then
