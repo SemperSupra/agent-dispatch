@@ -91,15 +91,18 @@ if [[ $CODE -ne 0 ]]; then
  tail -n 16 "$W/qemu-stderr.log" >&2 || :
  exit 42
 fi
-grep -Fxq 'R52_C_GUEST_LINUX_STARTED=PASS' "$W/serial.log" ||
+# The emulated ISA UART serial console can add CRLF transport endings.
+# Normalize only CR bytes, without weakening full-line or hash equality.
+tr -d '\r' < "$W/serial.log" > "$W/serial-normalized.log"
+grep -Fxq 'R52_C_GUEST_LINUX_STARTED=PASS' "$W/serial-normalized.log" ||
  { echo R52_C_GUEST_LINUX_BOOT_ORACLE=RED >&2;
    echo R52_C_SYNTHETIC_GUEST_SERIAL_DIAGNOSTIC_BEGIN >&2;
    tail -n 50 "$W/serial.log" >&2 || :;
    tail -n 16 "$W/qemu-stderr.log" >&2 || :;
    echo R52_C_SYNTHETIC_GUEST_SERIAL_DIAGNOSTIC_END >&2; exit 43; }
-grep -Fxq "R52_C_GUEST_RESULT_SHA256=$EXPECTED" "$W/serial.log" ||
+grep -Fxq "R52_C_GUEST_RESULT_SHA256=$EXPECTED" "$W/serial-normalized.log" ||
  { echo R52_C_GUEST_TASK_DIGEST=RED >&2; exit 44; }
-grep -Fxq 'R52_C_GUEST_CLEAN_EXIT=PASS' "$W/serial.log" ||
+grep -Fxq 'R52_C_GUEST_CLEAN_EXIT=PASS' "$W/serial-normalized.log" ||
  { echo R52_C_GUEST_SHUTDOWN_ORACLE=RED >&2; exit 45; }
 mkdir -p evidence/public
 {
