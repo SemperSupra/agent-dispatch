@@ -38,9 +38,14 @@ def validate_manifest(data, repo, run_id, attempt, head):
 def validate_meta(items, repo_id, run_id, head, artifact_id, name, digest):
     if not isinstance(items, dict) or type(items.get("total_count")) is not int:
         raise Hold("BAD_ARTIFACT_LIST")
-    if items["total_count"] > 100 or not isinstance(items.get("artifacts"), list):
+    # A partial or internally inconsistent artifact listing cannot establish
+    # a unique receipt, even when the expected artifact is visible.
+    artifacts = items.get("artifacts")
+    if (items["total_count"] < 0 or items["total_count"] > 100 or
+            not isinstance(artifacts, list) or
+            len(artifacts) != items["total_count"]):
         raise Hold("PAGINATION_AMBIGUOUS")
-    matches = [x for x in items["artifacts"] if isinstance(x, dict) and x.get("name")==name]
+    matches = [x for x in artifacts if isinstance(x, dict) and x.get("name")==name]
     if len(matches) != 1:
         raise Hold("DUPLICATE_OR_MISSING_ARTIFACT")
     artifact = matches[0]
