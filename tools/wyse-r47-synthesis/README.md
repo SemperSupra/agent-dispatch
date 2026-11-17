@@ -1,0 +1,7 @@
+# R47-B — hardware-specific synthesis admission (synthetic only)
+
+Go stdlib proof-of-concept for the hardware-neutral node fabric. A hardware profile declares **already independently qualified** recovery, KVM guest boot, guest GPU rendering and guest USB assignment. An untrusted planner/LLM may generate proposals, but `Validate` checks independently for valid hardware generation, source workload, arch, CPU/memory reserves, workload class, protected isolation and requested profile, refusing unqualified hardware features.
+
+`Propose` produces feasible synthetic variants without inventing power, benchmark or performance estimates. `ParetoQualified` only produces a frontier from records asserting actual canary qualification, matching hardware generation/workload, complete comparable throughput/latency/energy metrics, and no duplicates. **Those assertions are test fixture values, not real attestation**: the existing controller must verify signatures, measurement provenance, observed physical hardware and owner approval before any real optimization or deployment. An LLM must never self-certify the fields.
+
+No new scheduler, network discovery, BIOS, driver, VFIO, GPU, USB, storage or VM actions, and no runtime dependency beyond Go. Actual six-Wyse inventory, KVM/VAAPI/USB on-host canary and thermal/watts evidence remain NOT_TESTED. Intended integration authority: private IaC #402, existing controller #333, Agent Dispatch, TrueNAS Foundry, privacy #395.
