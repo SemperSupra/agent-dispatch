@@ -12,11 +12,11 @@ import (
  "fmt"
  "net"
  "os"
- "strings"
  "sync"
  "time"
 
  blue "example.org/usb-fabric-r26-integrated/blue"
+ heldledger "example.org/usb-fabric-r26-integrated/heldledger"
 )
 type qmp struct {
  mu sync.Mutex
@@ -56,15 +56,41 @@ func (q *qmp) call(name string,args map[string]any)error{
  }
  return errors.New("QMP response limit")
 }
-type executor struct {q *qmp}
-func (e *executor) Input(command string)error {
- if command!="key-a-down" && command!="key-a-up" {return blue.ErrDenied}
- down:=strings.HasSuffix(command,"down")
+type executor struct {
+ q *qmp
+ journal heldledger.Store
+ mu sync.Mutex
+}
+func (e *executor) qmpKey(down bool)error {
  return e.q.call("input-send-event",map[string]any{"events":[]any{
   map[string]any{"type":"key","data":map[string]any{
    "down":down,"key":map[string]any{"type":"qcode","data":"a"},
   }},
  }})
+}
+// Held=true is fsynced BEFORE a potentially effective QMP keydown.
+// Held=false is fsynced ONLY AFTER successful QMP key-up ACK.
+// A partial failure preserves held=true for emergency restart recovery.
+func (e *executor) Input(command string)error {
+ e.mu.Lock();defer e.mu.Unlock()
+ switch command {
+ case "key-a-down":
+  state,err:=e.journal.Read()
+  if err!=nil{return err}
+  if state.Held{return blue.ErrDenied}
+  if _,err=e.journal.Transition(state.Sequence,true);err!=nil{return err}
+  return e.qmpKey(true)
+ case "key-a-up":
+  if err:=e.qmpKey(false);err!=nil{return err}
+  state,err:=e.journal.Read()
+  if err!=nil{return err}
+  if state.Held {
+   _,err=e.journal.Transition(state.Sequence,false)
+   return err
+  }
+  return nil
+ default:return blue.ErrDenied
+ }
 }
 func (e *executor) ReleaseAll()error{return e.Input("key-a-up")}
 
@@ -166,7 +192,9 @@ func (a *actuator) handle(c net.Conn){
    state,active,_:=a.m.Snapshot()
    if state!=blue.Attached || active!=held{err=blue.ErrDenied}else{err=a.start()}
   case "input":
-   err=a.m.Input(held,req.Command)
+   if req.Command!="key-a-down" && req.Command!="key-a-up" {
+    err=blue.ErrDenied
+   }else{err=a.m.Input(held,req.Command)}
   case "revoke":
    err=a.m.Revoke(held)
    if err==nil{held=blue.Lease{}}
@@ -183,13 +211,35 @@ func main(){
  socketPath:=flag.String("socket","","new owned frontend Unix socket")
  media:=flag.String("media","","synthetic media path")
  pcap:=flag.String("capture","","synthetic USB capture path")
+ journalPath:=flag.String("journal","","host-local fsynced key state path")
  flag.Parse()
- if *qmpPath==""||*socketPath==""||*media==""||*pcap==""{
-  fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture");os.Exit(2)
+ if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
+  fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
  }
  q,err:=openQMP(*qmpPath)
  if err!=nil{fmt.Fprintln(os.Stderr,"QMP unavailable:",err);os.Exit(3)}
  defer q.conn.Close()
+ journal:=heldledger.Store{Path:*journalPath}
+ recovered,err:=journal.Read()
+ if err!=nil{
+  fmt.Fprintln(os.Stderr,"R26_L3_CORRUPT_JOURNAL_QUARANTINE=RED",err)
+  os.Exit(8)
+ }
+ ex:=&executor{q:q,journal:journal}
+ if recovered.Held {
+  // QMP ACK cannot prove that the guest input driver actually observed
+  // key-up. Preserve the held journal and refuse client admission until
+  // a separately authenticated guest/port reconciliation can clear it.
+  // A subsequent restart repeats this idempotent emergency key-up.
+  if err:=ex.qmpKey(false);err!=nil{
+   fmt.Fprintln(os.Stderr,"R26_L3_RECOVERY_RELEASE_FAILED_QUARANTINE=RED",err)
+   os.Exit(9)
+  }
+  fmt.Println("R26_L3_ACTUATOR_RESTART_FORCED_QMP_KEY_UP=PASS")
+  fmt.Println("R26_L3_JOURNAL_REMAINS_HELD_PENDING_GUEST_ATTESTATION=PASS")
+  fmt.Println("R26_L3_RECOVERY_HOLD_REQUIRES_TOPOLOGY_RECONCILIATION=PASS")
+  return
+ }
  if _,err=os.Lstat(*socketPath);err==nil{
   fmt.Fprintln(os.Stderr,"refusing existing socket path");os.Exit(4)
  }else if !errors.Is(err,os.ErrNotExist){fmt.Fprintln(os.Stderr,err);os.Exit(4)}
@@ -198,7 +248,6 @@ func main(){
  defer listener.Close()
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
- ex:=&executor{q:q}
  a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,media:*media,pcap:*pcap}
  fmt.Println("R26_L_SOLE_QMP_ACTUATOR_LISTENING=PASS")
  for {

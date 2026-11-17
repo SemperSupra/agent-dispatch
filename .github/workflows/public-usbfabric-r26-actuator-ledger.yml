@@ -1,0 +1,30 @@
+name: USB Fabric R26-L3 - held journal recovery after actuator SIGKILL
+on:
+  push:
+    branches: [experiment/public-usbfabric-r26-actuator-ledger]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-actuator-ledger.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+      - 'experiments/usb-fabric-r26/integrated/cmd/actuator/**'
+      - 'experiments/usb-fabric-r26/integrated/actuator_restart*'
+      - 'experiments/usb-fabric-r26/integrated/Dockerfile'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-l3
+  cancel-in-progress: false
+jobs:
+  actuator-restart-real-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real Linux guest must observe journal-recovered key-up after actuator SIGKILL
+        shell: bash
+        run: bash experiments/usb-fabric-r26/integrated/actuator_restart_verify.sh
