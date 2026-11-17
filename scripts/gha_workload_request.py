@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "wyse-r52-linux-guest"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -85,6 +85,57 @@ def plan(name: str) -> dict:
 
 
 def _execute(workload: str, timeout: int) -> dict:
+    if workload == "wyse-r52-linux-guest":
+        # The same reviewed profile is used by the existing typed executor
+        # and the R52 public disposable Linux guest. This is NOT a Wyse
+        # physical host KVM/lease, and it does not call Agent Dispatch again.
+        receipt = ROOT / "evidence/public/r52-linux-guest.txt"
+        if receipt.is_symlink() or receipt.exists():
+            return {"oracle_verified": False, "classification": "FAIL_STALE_GUEST_RECEIPT",
+                    "guest_task_sha256": None, "guest_kernel_boot": False,
+                    "guest_clean_exit": False, "physical_wyse_qualified": False,
+                    "agent_dispatch_real_lease": False}
+        try:
+            cp = subprocess.run(
+                ["bash", "tools/wyse-qemu-bootbench/run-linux-guest.sh",
+                 "--public-disposable"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=timeout, check=False)
+        except subprocess.TimeoutExpired:
+            return {"oracle_verified": False, "classification": "FAIL_TIMEOUT",
+                    "guest_task_sha256": None, "guest_kernel_boot": False,
+                    "guest_clean_exit": False, "physical_wyse_qualified": False,
+                    "agent_dispatch_real_lease": False}
+        if cp.returncode != 0 or receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > 1600:
+            return {"oracle_verified": False, "classification": "FAIL_LINUX_GUEST",
+                    "guest_task_sha256": None, "guest_kernel_boot": False,
+                    "guest_clean_exit": False, "physical_wyse_qualified": False,
+                    "agent_dispatch_real_lease": False}
+        try:
+            pairs = [line.split("=", 1) for line in receipt.read_text(encoding="utf-8").splitlines()]
+            evidence = {k: v for k, v in pairs}
+            valid = (
+                len(pairs) == 7 and len(evidence) == 7 and
+                evidence.get("R52_C_EVIDENCE_CLASS") == "PUBLIC_DISPOSABLE_REAL_LINUX_NOT_DELL_HIL" and
+                evidence.get("R52_C_GUEST_BOOT") == "LINUX_KERNEL_QEMU_TCG_OBSERVED" and
+                evidence.get("R52_C_GUEST_TASK_SHA256") ==
+                "b4f51231b5956ff6eb520c4a85dc43ff4542405342e5ab8e097b960155898782" and
+                evidence.get("R52_C_HOST_VOLUME_AND_GUEST_NIC") == "NOT_ATTACHED" and
+                evidence.get("R52_C_AGENT_DISPATCH_REAL_LEASE") == "NOT_TESTED" and
+                evidence.get("R52_C_WYSE_REAL_KVM_AND_EMMC") == "NOT_TESTED" and
+                evidence.get("R52_C_GUEST_RESULT_AND_CLEAN_EXIT") == "PASS")
+        except (OSError, ValueError, UnicodeError):
+            valid = False
+        return {
+            "oracle_verified": bool(valid),
+            "classification": "PASS" if valid else "FAIL_GUEST_RECEIPT",
+            "guest_task_sha256": evidence["R52_C_GUEST_TASK_SHA256"] if valid else None,
+            "guest_kernel_boot": bool(valid),
+            "guest_clean_exit": bool(valid),
+            "physical_wyse_qualified": False,
+            "agent_dispatch_real_lease": False,
+        }
     if workload == "azurite-blob-transport":
         # Fixed source, no input-substituted command, public Azurite emulator account only.
         try:
