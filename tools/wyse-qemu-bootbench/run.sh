@@ -10,9 +10,11 @@ fi
 W=$(mktemp -d "$RUNNER_TEMP/wyse-r44-qemu-XXXXXX")
 trap 'rm -rf -- "$W"' EXIT
 mkdir -p evidence/public
-nasm -f bin tools/wyse-qemu-bootbench/bootsector.asm -o "$W/boot.img"
-test "$(stat -c %s "$W/boot.img")" -eq 512
-test "$(od -An -tx1 -j510 -N2 "$W/boot.img" | tr -d ' \n')" = 55aa
+nasm -f bin tools/wyse-qemu-bootbench/bootsector.asm -o "$W/sector.bin"
+test "$(stat -c %s "$W/sector.bin")" -eq 512
+test "$(od -An -tx1 -j510 -N2 "$W/sector.bin" | tr -d ' \n')" = 55aa
+cp "$W/sector.bin" "$W/boot.img"
+truncate -s 8M "$W/boot.img" # private sparse disposable BIOS boot disk
 QEMU_VERSION=$(qemu-system-x86_64 --version | head -1)
 printf '%s\n' "R44_SCOPE=PUBLIC_CLOUD_SYNTHETIC_NOT_DELL_HIL" > evidence/public/r44-qemu-bootbench.txt
 printf 'R44_QEMU_VERSION=%s\n' "$QEMU_VERSION" >> evidence/public/r44-qemu-bootbench.txt
