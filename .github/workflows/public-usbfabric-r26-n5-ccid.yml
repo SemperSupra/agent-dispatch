@@ -4,11 +4,14 @@ on:
     branches: [test/issue-394-virtual-ccid-apdu]
   pull_request:
     types: [opened, synchronize]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-n5-ccid.yml'
+      - 'experiments/usb-fabric-r26/issue-394/**'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: r26-n5-synthetic-ccid
+  group: r26-n5-synthetic-ccid-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   virtual-ccid-reader:
