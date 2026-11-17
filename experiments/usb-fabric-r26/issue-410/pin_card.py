@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from base_card import Card,serve,TEST_AID
 from smartcard.System import readers
 from smartcard.Exceptions import CardConnectionException,NoCardException
+from smartcard.pcsc.PCSCExceptions import EstablishContextException
 
 # Deliberately fictional lab-only test PIN, NEVER a personal credential.
 TEST_ONLY_PIN=b"246813"
@@ -80,7 +81,11 @@ class AuthTestCard(Card):
 def get_connection():
  found=[]
  for _ in range(80):
-  found=readers()
+  try:
+   found=readers()
+  except EstablishContextException:
+   time.sleep(.2)
+   continue
   if found:break
   time.sleep(.2)
  if not found:raise RuntimeError("real PCSC virtual reader missing")
