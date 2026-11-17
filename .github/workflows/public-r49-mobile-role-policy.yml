@@ -1,0 +1,54 @@
+name: Public R49 Android and iOS app-role admission tests
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'tools/r49-mobile-role-policy/**'
+      - '.github/workflows/public-r49-mobile-role-policy.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-r49-mobile-role-policy
+  cancel-in-progress: false
+jobs:
+  portable-role-contract:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-r49-mobile-role-admission'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run independent plan-only mobile role denial tests natively
+        working-directory: tools/r49-mobile-role-policy
+        shell: bash
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          test "$(go env GOARCH)" = "${{ matrix.arch }}"
+          go test -v -count=1 ./...
+          go vet ./...
+          echo R49_MOBILE_ROLE_${{ matrix.arch }}_NEGATIVE_MATRIX=PASS
+          echo R49_SIGNED_PHYSICAL_ANDROID_IOS_AGENT=NOT_TESTED
+      - name: Static source-only guard
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -En 'net[.]Dial|net[.]Listen|exec[.]Command|os[.]OpenFile|os[.]WriteFile|/dev/|/sys/' tools/r49-mobile-role-policy/mobile.go; then
+            echo R49_MOBILE_ROLE_MUTATING_CODE=RED
+            exit 41
+          fi
+          echo R49_MOBILE_PLAN_ONLY=PASS
