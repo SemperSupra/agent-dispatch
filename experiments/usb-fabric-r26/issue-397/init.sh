@@ -40,6 +40,10 @@ done
 /usr/sbin/pcscd --foreground --disable-polkit --debug >/tmp/pcscd.log 2>&1 &
 pid=$!
 /bin/busybox sleep 2
+# Minimal-initrd kernels do not run the udev event dispatcher. Request
+# a bounded new reader scan after synthetic USB character nodes exist.
+/usr/sbin/pcscd --hotplug >/tmp/pcsc-hotplug.log 2>&1 || true
+/bin/busybox sleep 1
 /r26-pcsc-probe
 status=$?
 if [ "$status" = 0 ];then echo R26_N5B_REAL_GUEST_USB_CCID_APDU_ORACLE=PASS;else echo "R26_N5B_REAL_GUEST_USB_CCID_APDU_ORACLE=RED exit=$status";fi
@@ -47,7 +51,10 @@ if [ "$status" = 0 ];then echo R26_N5B_REAL_GUEST_USB_CCID_APDU_ORACLE=PASS;else
 # startup errors rather than dumping arbitrary card responses.
 if [ "$status" != 0 ];then
  echo R26_N5B_PCSC_DAEMON_DIAGNOSTIC_BEGIN
- /bin/busybox tail -n 70 /tmp/pcscd.log 2>/dev/null | /bin/busybox grep -E 'reader|Reader|CCID|usb|USB|udev|load|error|Error|driver|Driver|No such|pcsc-lite' | /bin/busybox tail -n 28 || true
+ echo "R26_N5B_PCSC_LOG_BYTES=$(/bin/busybox wc -c </tmp/pcscd.log)"
+/bin/busybox tail -n 50 /tmp/pcscd.log 2>/dev/null || true
+echo R26_N5B_PCSC_RESCAN_DIAGNOSTIC
+/bin/busybox tail -n 20 /tmp/pcsc-hotplug.log 2>/dev/null || true
  echo R26_N5B_PCSC_DAEMON_DIAGNOSTIC_END
 fi
 /bin/busybox kill "$pid" 2>/dev/null || true
