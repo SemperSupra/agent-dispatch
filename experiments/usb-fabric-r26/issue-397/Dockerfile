@@ -16,7 +16,7 @@ RUN gcc -O2 -Wall -Wextra -o /tmp/r26-pcsc-probe /src/pcsc_probe.c \
  cp /usr/sbin/pcscd ./usr/sbin/pcscd && \
  cp -a /usr/lib/pcsc/drivers ./usr/lib/pcsc/ && \
  ( ldd /usr/sbin/pcscd; ldd /tmp/r26-pcsc-probe; \
- find /usr/lib/pcsc/drivers -name '*.so' -type f -exec ldd '{}' \; ) | \
+ find -L /usr/lib/pcsc/drivers -name '*.so' -type f -exec ldd '{}' \; ) | \
  awk '{for(i=1;i<=NF;i++) if(substr($i,1,1)=="/") print $i}' | \
  sort -u | while read -r lib; do test -r "$lib" && cp -L --parents "$lib" /tmp/r26-initrd/ || exit 1;done && \
  find /usr/lib /lib -name 'libpcsclite_real.so*' -exec cp -L --parents '{}' /tmp/r26-initrd/ \; && \
