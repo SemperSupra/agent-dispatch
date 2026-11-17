@@ -33,6 +33,9 @@ int main(void){
   {"de",NULL,21,'z',0},{"de",NULL,44,'y',0},
   {"fr",NULL,30,'q',0},{"gb",NULL,21,'y',0},
   {"th",NULL,30,0,1},
+  {"th","pat",30,0,1}, /* Thai Pattachote */
+  {"us","dvorak",16,0x27,0}, /* Dvorak Q-position is apostrophe */
+  {"de","nodeadkeys",21,'z',0}, /* German alternative */
   {"br",NULL,30,'a',0},
   {"jp",NULL,30,'a',0},
   {"kr",NULL,30,'a',0},
@@ -42,6 +45,7 @@ int main(void){
  xkb_context_unref(ctx);
  if(fails){fprintf(stderr,"R26_N4_LAYOUT_ERRORS=%d\n",fails);return 3;}
  puts("R26_N4_ACTUAL_XKB_LAYOUT_US_DE_FR_GB_TH_BR_JP_KR=PASS");
+ puts("R26_N4_THAI_PAT_GERMAN_NODEADKEYS_US_DVORAK_VARIANTS=PASS");
  puts("R26_N4_THAI_IME_COMPOSITION_AND_JP_KR_IME=NOT_TESTED");
  puts("R26_N4_OS_SELECTED_LAYOUT_NOT_INFERRED_FROM_USB_USAGE=PASS");
  return 0;
