@@ -106,8 +106,8 @@ def run_case(reps):
     raise RuntimeError("mixed guest timeout")
    out=b"".join(data).decode("utf-8","replace")
    for line in out.splitlines():
-    if line.startswith("R26_P5_") or line.startswith("R15_GUEST_USB_KEY_A_") or
-       line.startswith("R15_REAL_USB_KEY_A_"):
+    if (line.startswith("R26_P5_") or line.startswith("R15_GUEST_USB_KEY_A_") or
+        line.startswith("R15_REAL_USB_KEY_A_")):
      print(line[:260],flush=True)
    required=[
     "R26_P5_GUEST_USB_HID_STORAGE_RNDIS_AUDIO_CCID_ENUMERATED=PASS",
