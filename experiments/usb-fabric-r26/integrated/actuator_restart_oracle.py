@@ -149,10 +149,13 @@ def main():
                                     raise RuntimeError("no restarted actuator QMP release confirmation")
                                 if "R26_L3_RECOVERY_HOLD_REQUIRES_TOPOLOGY_RECONCILIATION=PASS" not in stdout:
                                     raise RuntimeError("new lease admission not held after crash")
+                                if "R26_L3_JOURNAL_REMAINS_HELD_PENDING_GUEST_ATTESTATION=PASS" not in stdout:
+                                    raise RuntimeError("QMP-only release incorrectly cleared uncertainty")
                                 record = json.loads(journal.read_text())
-                                if record.get("held") or record.get("sequence") != 2:
-                                    raise RuntimeError("journal cleared without expected acknowledged release sequence")
+                                if not record.get("held") or record.get("sequence") != 1:
+                                    raise RuntimeError("QMP ACK must NOT clear held state before trusted guest confirmation")
                                 print("R26_L3_RECOVERED_ACTUATOR_QMP_RELEASE_AND_ADMISSION_HOLD=PASS",flush=True)
+                                print("R26_L3_JOURNAL_REMAINS_QUARANTINED_PENDING_GUEST_ATTESTATION=PASS",flush=True)
                     elif qemu.poll() is not None:
                         break
                 elif qemu.poll() is not None:
