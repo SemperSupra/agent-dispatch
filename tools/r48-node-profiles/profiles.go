@@ -84,8 +84,14 @@ func Validate(h Hardware,i Intent)(Plan,error){
   }
   if i.NeedGuestGPU{return Plan{},denied("JETSON_GPU_GUEST_PASSTHROUGH_NOT_ADMITTED")}
  case "pc","server","laptop":
-  if h.Architecture!="amd64" {return Plan{},denied("X86_HARDWARE_ARCH_MISMATCH")}
-  if h.Boot!="uefi"&&h.Boot!="legacy_bios" {return Plan{},denied("X86_BOOT_NOT_QUALIFIED")}
+  // Modern PCs and laptops include ARM64 systems. Architecture and
+  // firmware are separate facts: legacy BIOS is x86-only here, while
+  // ARM64 UEFI requires its own independently qualified boot chain.
+  if h.Architecture=="arm64" {
+   if h.Boot!="uefi" {return Plan{},denied("ARM64_PC_UEFI_REQUIRED")}
+  } else if h.Architecture=="amd64" {
+   if h.Boot!="uefi"&&h.Boot!="legacy_bios" {return Plan{},denied("X86_BOOT_NOT_QUALIFIED")}
+  } else {return Plan{},denied("PC_ARCH_NOT_SUPPORTED")}
   if h.JetPackMajor!=0||h.VendorBSPQualified {return Plan{},denied("FOREIGN_BSP_ON_PC")}
  case "generic-arm64":
   if h.Architecture!="arm64"||h.Boot!="vendor_qualified" {
