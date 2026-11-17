@@ -42,7 +42,8 @@ def main():
         root=Path(d)
         media=root/"synthetic.img"
         media.write_bytes(b"R26-L6-NO-REAL-USB"+bytes(4096))
-        qmp=str(root/"qmp.sock")
+        qmp_a=str(root/"qmp-a.sock")
+        qmp_b=str(root/"qmp-b.sock")
         journal=str(root/"held.json")
         a1=a2=a3=f1=f2=f3=None
         qemu=subprocess.Popen([
@@ -53,12 +54,13 @@ def main():
             "-kernel","/guest/kernel","-initrd","/guest/initrd.gz",
             "-append","console=ttyS0 rdinit=/init loglevel=7 panic=-1",
             "-device","qemu-xhci,id=xhci0",
-            "-qmp","unix:"+qmp+",server=on,wait=off",
+            "-qmp","unix:"+qmp_a+",server=on,wait=off",
+            "-qmp","unix:"+qmp_b+",server=on,wait=off",
         ],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
         try:
             def actuator(n):
                 return subprocess.Popen([
-                    "/guest/r26-actuator","--qmp",qmp,
+                    "/guest/r26-actuator","--qmp",(qmp_b if n=="second" else qmp_a),
                     "--socket",str(root/("api-"+n+".sock")),
                     "--media",str(media),"--capture",str(root/"hid.pcap"),
                     "--journal",journal,
@@ -91,7 +93,12 @@ def main():
                     raise RuntimeError("P0: two actuator processes admitted same QMP guest")
                 print("R26_L6_SECOND_ACTUATOR_CLIENT_DENIED=PASS",flush=True)
             else:
-                print("R26_L6_SECOND_ACTUATOR_PROCESS_FENCED=PASS",flush=True)
+                # A QMP greeting timeout or one-listener limit is NOT OS-level
+                # actuator exclusivity. Demand an explicit OS lock failure.
+                if "R26_L6_QMP_OWNER_LOCK_BUSY=PASS" not in msg:
+                    print("R26_L6_RED_NO_OS_OWNER_FENCE="+msg.strip()[-240:],flush=True)
+                    raise RuntimeError("P0: no explicit OS owner lock rejection")
+                print("R26_L6_SECOND_ACTUATOR_OS_LOCK_DENIED=PASS",flush=True)
 
             # Host-level owner should transfer only AFTER actual first exit.
             kill(f1)
