@@ -35,6 +35,24 @@ jobs:
           go vet ./...
           echo R43_PRIVACY_AND_CAPABILITY_FIXTURES=PASS
           echo R43_PUBLIC_CI_REAL_WYSE_HARDWARE=NOT_TESTED
+      - name: Build a static AMD64 census binary without target-host Go runtime
+        shell: bash
+        working-directory: tools/wyse-hw-census
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+          GOOS: 'linux'
+          GOARCH: 'amd64'
+        run: |
+          set -Eeuo pipefail
+          go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/wyse-hw-census" ./cmd/wyse-hw-census
+          file "$RUNNER_TEMP/wyse-hw-census"
+          file "$RUNNER_TEMP/wyse-hw-census" | grep -Fq 'statically linked'
+          sha256sum "$RUNNER_TEMP/wyse-hw-census"
+          echo R43_CGOLESS_STATIC_AMD64_CENSUS_BUILD=PASS
+          echo R43_STATIC_BINARY_PHYSICAL_DEVICE_EXECUTION=NOT_TESTED
       - name: Refuse shipping a privileged hardware mutation in source
         shell: bash
         run: |
