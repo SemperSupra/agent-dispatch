@@ -28,6 +28,10 @@ RECEIPT_FIELDS = {
     "workload",
 }
 RESULT_FIELDS = {
+    "wyse-r52-linux-guest": {
+        "classification", "oracle_verified", "guest_task_sha256",
+        "guest_kernel_boot", "guest_clean_exit", "physical_wyse_qualified",
+        "agent_dispatch_real_lease"},
     "arithmetic-oracle": {
         "classification", "oracle_verified", "task_count", "fixture_sha256"},
     "sealed-contract-native": {"classification", "oracle_verified"},
@@ -128,6 +132,16 @@ def evaluate(
         raise VerdictError("WORKLOAD_RESULT_FIELDS_UNTRUSTED")
     if result["classification"] != "PASS" or result["oracle_verified"] is not True:
         raise VerdictError("WORKLOAD_ORACLE_NOT_VERIFIED")
+    if p["workload"] == "wyse-r52-linux-guest":
+        # Independent reducer: never turn a public TCG guest receipt into
+        # physical Wyse KVM qualification or a real Agent Dispatch lease.
+        if (result.get("guest_kernel_boot") is not True or
+                result.get("guest_clean_exit") is not True or
+                result.get("guest_task_sha256") !=
+                "b4f51231b5956ff6eb520c4a85dc43ff4542405342e5ab8e097b960155898782" or
+                result.get("physical_wyse_qualified") is not False or
+                result.get("agent_dispatch_real_lease") is not False):
+            raise VerdictError("PUBLIC_LINUX_GUEST_PROVENANCE_OR_TASK_INVALID")
     if p["workload"] == "microsoft-devproxy-mock":
         if (result.get("mock_only") is not True or
                 result.get("provider_access_verified") is not False or
