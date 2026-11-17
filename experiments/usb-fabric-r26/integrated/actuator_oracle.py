@@ -67,6 +67,7 @@ def main():
             stderr=subprocess.PIPE, text=True, bufsize=1)
         frontend = None
         competing = None
+        after_crash = None
         try:
             ready(actuator, "R26_L_SOLE_QMP_ACTUATOR_LISTENING=PASS")
             frontend = subprocess.Popen([
@@ -150,15 +151,27 @@ def main():
             if not sent or not killed or qemu.returncode != 0 or any(x not in guest for x in needed):
                 raise RuntimeError("guest did not independently observe crash recovery key-up")
             print("R26_L_ACTUAL_GUEST_KEY_UP_AFTER_FRONTEND_CRASH=PASS",flush=True)
+            # Independent guest event appeared, but the host actuator has
+            # not authenticated a scoped release receipt. It MUST fail closed
+            # rather than treating a QMP ACK as a release attestation.
+            state = json.loads(journal.read_text())
+            if not state.get("held") or state.get("sequence") != 1:
+                raise RuntimeError("QMP ACK improperly cleared held journal")
+            print("R26_L4_ACK_ONLY_JOURNAL_REMAINS_HELD=PASS",flush=True)
+            after_crash = subprocess.Popen([
+                "/guest/r26-frontend", "--socket", api,
+            ],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,text=True,bufsize=1)
+            ready(after_crash, '"state":"frontend-ready"')
+            denied = request(after_crash,{"op":"reserve","actor":"approved-agent"})
+            expect(denied,False,"R26_L4_NO_NEW_LEASE_BEFORE_GUEST_PROOF")
+            after_crash.terminate()
+            after_crash.wait(timeout=5)
             actuator.terminate()
             out, err = actuator.communicate(timeout=5)
-            if ("R26_L_ACTUATOR_CLIENT_LOSS_RELEASE_ACCEPTED=PASS" not in out):
-                raise RuntimeError("sole QMP actuator lacked release receipt: " + err[-500:])
-            print("R26_L_ACTUATOR_CLIENT_LOSS_RELEASE_ACCEPTED=PASS",flush=True)
-            state = json.loads(journal.read_text())
-            if state.get("held") or state.get("sequence") != 2:
-                raise RuntimeError("journal not cleared after client-loss release")
-            print("R26_L3_ORDERLY_FRONTEND_DISCONNECT_JOURNAL_CLEARED=PASS",flush=True)
+            if "R26_L_ACK_ONLY_RELEASE_QUARANTINED_PENDING_GUEST_PROOF=PASS" not in out:
+                raise RuntimeError("host actuator did not declare guest-proof hold: " + err[-500:])
+            print("R26_L4_FRONTEND_DISCONNECT_QUARANTINED=PASS",flush=True)
             if hashlib.sha256(media.read_bytes()).hexdigest() != original:
                 raise RuntimeError("synthetic storage mutated")
             if not capture.exists() or capture.stat().st_size <= 24:
@@ -169,7 +182,7 @@ def main():
             print("R26_L_BACKEND_RESTART_HELD_LEDGER=NOT_TESTED",flush=True)
             print("R26_L_TRUSTED_PEERCRED_AND_REAL_USBIP=NOT_TESTED",flush=True)
         finally:
-            for proc in (competing,frontend,actuator,qemu):
+            for proc in (competing,frontend,after_crash,actuator,qemu):
                 if proc is not None and proc.poll() is None:
                     proc.kill()
                     proc.wait(timeout=5)
