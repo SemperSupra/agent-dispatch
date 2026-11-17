@@ -109,7 +109,7 @@ def main():
             else:
                 # A QMP greeting timeout or one-listener limit is NOT OS-level
                 # actuator exclusivity. Demand an explicit OS lock failure.
-                if "R26_L10_QMP_OWNER_LOCK_BUSY=PASS" not in msg:
+                if "R26_L10_ABSTRACT_VM_OWNER_ALREADY_BOUND=PASS" not in msg:
                     print("R26_L10_RED_NO_OS_OWNER_FENCE="+msg.strip()[-240:],flush=True)
                     raise RuntimeError("P0: no explicit OS owner lock rejection")
                 print("R26_L10_SECOND_ACTUATOR_OS_LOCK_DENIED=PASS",flush=True)
