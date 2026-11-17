@@ -54,12 +54,18 @@ def assess(booted,getenv_ok,spawn_ok,png_shape):
 def run_qualified(label):
     ev={"runner":label,"ios_sdk":"NOT_TESTED","core_simulator_boot":"NOT_TESTED",
         "guest_spawn":"NOT_TESTED","framebuffer_capture":"NOT_TESTED"}
-    if os.environ.get("GITHUB_ACTIONS")!="true" or label!="macos-26-intel" or platform.system()!="Darwin" or platform.machine()!="x86_64":
-        return receipt("SKIPPED_GUARDRAIL","NOT_PREVIOUSLY_QUALIFIED_SIMULATOR_HOST",ev)
+    supported={"macos-26-intel":"x86_64","macos-26":"arm64"}
+    if os.environ.get("GITHUB_ACTIONS")!="true" or platform.system()!="Darwin" or platform.machine()!=supported.get(label):
+        return receipt("SKIPPED_GUARDRAIL","NOT_ADMITTED_SIMULATOR_HOST_OR_ARCH",ev)
     xcrun=shutil.which("xcrun")
     if not xcrun:return receipt("SKIPPED_GUARDRAIL","XCODE_COMMAND_LINE_NOT_PRESENT",ev)
-    runtime,devtype,_=frontier._latest_ios_and_iphone(xcrun)
-    if not runtime or not devtype:return receipt("SKIPPED_GUARDRAIL","IOS_RUNTIME_OR_IPHONE_TYPE_UNAVAILABLE",ev)
+    runtime,devtype,probe=frontier._latest_ios_and_iphone(xcrun)
+    ev["runtime_query_exit"]=probe.get("runtime_exit")
+    ev["device_type_query_exit"]=probe.get("device_type_exit")
+    ev["runtime_selection"]="AVAILABLE" if runtime else "MISSING"
+    ev["iphone_type_selection"]="AVAILABLE" if devtype else "MISSING"
+    if not runtime or not devtype:
+        return receipt("SKIPPED_GUARDRAIL","IOS_RUNTIME_OR_IPHONE_TYPE_UNAVAILABLE",ev)
     rc,sdk,_=frontier._run([xcrun,"--sdk","iphonesimulator","--show-sdk-path"],timeout=20)
     if rc!=0 or not sdk:
         return receipt("ENVIRONMENT_FAILURE","IOS_SIMULATOR_SDK_UNAVAILABLE",ev)
