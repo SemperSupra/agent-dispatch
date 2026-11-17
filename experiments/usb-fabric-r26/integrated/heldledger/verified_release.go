@@ -46,6 +46,34 @@ func (c ReleaseClaim) valid()bool {
   c.Proof!=""
 }
 
+// RequestRelease persists the release intent BEFORE sending a QMP key-up.
+// A crash at this stage leaves Held=true and cannot authorize a new lease.
+func (s Store)RequestRelease(expected uint64)(State,error) {
+ state,err:=s.Read()
+ if err!=nil{return State{},err}
+ if !state.Held || state.Sequence!=expected || state.ReleasePhase!=""{
+  return State{},ErrUnverified
+ }
+ state.ReleasePhase="release-intent"
+ if err=s.writeAtomic(state);err!=nil{return State{},err}
+ return state,nil
+}
+
+// AcknowledgeQMPRelease persists ONLY the fact that the trusted actuator
+// successfully sent the QMP release command. It never clears held input.
+// Only a trusted host actuator may call this after parsing a real QMP ACK.
+func (s Store)AcknowledgeQMPRelease(expected uint64)(State,error) {
+ state,err:=s.Read()
+ if err!=nil{return State{},err}
+ if !state.Held || state.Sequence!=expected ||
+  state.ReleasePhase!="release-intent" {
+  return State{},ErrUnverified
+ }
+ state.ReleasePhase="qmp-acked"
+ if err=s.writeAtomic(state);err!=nil{return State{},err}
+ return state,nil
+}
+
 // ConfirmGuestRelease is the ONLY synthetic held=>clean transition authorized
 // to persist a receipt hash. A QMP ACK is NOT an input to this method.
 // The caller must have observed the real QMP release ACK and must have a
@@ -55,7 +83,8 @@ func (c ReleaseClaim) valid()bool {
 func (s Store) ConfirmGuestRelease(expected uint64,c ReleaseClaim,verify ReleaseVerifier)(State,error){
  state,err:=s.Read()
  if err!=nil{return State{},err}
- if !state.Held || state.Sequence!=expected || !c.valid() ||
+ if !state.Held || state.Sequence!=expected || state.ReleasePhase!="qmp-acked" ||
+  !c.valid() ||
   c.ReleaseSequence!=state.Sequence || verify==nil ||
   c.EventSequence<=state.LastReleaseEventSequence {
   return State{},ErrUnverified
