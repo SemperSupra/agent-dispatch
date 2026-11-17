@@ -1,0 +1,56 @@
+name: Public R50 signed mobile capability receipts on native ARM64 and AMD64
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'tools/r50-mobile-signed-receipts/**'
+      - '.github/workflows/public-r50-mobile-signed-receipts.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-r50-mobile-signed-receipts
+  cancel-in-progress: false
+jobs:
+  offline-enrollment-provenance:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-r50-mobile-receipt'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check native Ed25519 provenance consent replay and tenant privacy
+        shell: bash
+        working-directory: tools/r50-mobile-signed-receipts
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          test "$(go env GOARCH)" = "${{ matrix.arch }}"
+          go test -race -count=1 -v ./...
+          go vet ./...
+          go build -trimpath ./...
+          echo R50_SIGNED_MOBILE_CAPABILITY_${{ matrix.arch }}_POLICY=PASS
+          echo R50_REAL_PHONE_ENROLLMENT_AND_OS_ATTESTATION=NOT_TESTED
+      - name: Prove source has no device or network enrollment side effects
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -En 'net[.]Dial|net[.]Listen|exec[.]Command|os[.]OpenFile|os[.]WriteFile|/dev/|/sys/|/proc/' tools/r50-mobile-signed-receipts/receipt.go; then
+            echo R50_SIGNED_MOBILE_SOURCE_SIDE_EFFECT_PATH=RED
+            exit 42
+          fi
+          echo R50_SIGNED_MOBILE_OFFLINE_VERIFIER_ONLY=PASS
