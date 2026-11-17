@@ -68,6 +68,11 @@ jobs:
           EXPECTED_ARTIFACT_NAME: ${{ needs.produce.outputs.artifact_name }}
           EXPECTED_ARTIFACT_DIGEST: ${{ needs.produce.outputs.artifact_digest }}
         run: python3 experiments/fencing/artifact-r69/verify.py --native
+      - name: Read-only native workflow run candidate enumeration
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 experiments/fencing/artifact-r69/discover.py --native
       - name: Non-promotion scope
         if: always()
         run: echo 'Public native artifact correlation only. No real actuator, trusted external signer, lost-ACK discovery, or production effect release.' >> "$GITHUB_STEP_SUMMARY"
