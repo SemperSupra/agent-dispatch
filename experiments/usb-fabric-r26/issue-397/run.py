@@ -46,8 +46,19 @@ def main():
     output,_=vm.communicate()
     raise RuntimeError("guest PCSC timed out; tail="+output.decode("utf-8","replace")[-700:])
    text=output.decode("utf-8","replace")
-   for line in text.splitlines():
+   lines=text.splitlines()
+   for line in lines:
     if line.startswith("R26_N5B_"):print(line[:200],flush=True)
+   # Restrict diagnostics to the explicit startup-only section. No test PIN
+   # or raw smartcard APDU is ever used in this lab.
+   begin="R26_N5B_PCSC_DAEMON_DIAGNOSTIC_BEGIN"
+   end="R26_N5B_PCSC_DAEMON_DIAGNOSTIC_END"
+   if begin in text and end in text:
+    portion=text.split(begin,1)[1].split(end,1)[0]
+    startup=[line[:220] for line in portion.splitlines() if line.strip()]
+    print("R26_N5B_READER_STARTUP_DIAGNOSTICS_COUNT="+str(len(startup)),flush=True)
+    for line in startup[-45:]:
+     print("R26_N5B_PCSC_STARTUP="+line,flush=True)
    required=[
     "R26_N5B_REAL_GUEST_USB_CCID_SYSFS=PASS",
     "R26_N5B_REAL_GUEST_PCSC_CONTEXT=PASS",
