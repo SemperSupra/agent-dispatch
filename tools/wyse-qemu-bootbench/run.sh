@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Synthetic x86 boot-sector microbenchmark on disposable PUBLIC cloud CI.
+# Does not boot a Linux guest and cannot predict physical Wyse throughput.
+set -Eeuo pipefail
+umask 077
+if test "${GITHUB_ACTIONS:-}" != true || test -z "${RUNNER_TEMP:-}"; then
+  echo R44_PUBLIC_CI_ADMISSION_ONLY=FAIL_CLOSED >&2
+  exit 10
+fi
+W=$(mktemp -d "$RUNNER_TEMP/wyse-r44-qemu-XXXXXX")
+trap 'rm -rf -- "$W"' EXIT
+mkdir -p evidence/public
+nasm -f bin tools/wyse-qemu-bootbench/bootsector.asm -o "$W/sector.bin"
+test "$(stat -c %s "$W/sector.bin")" -eq 512
+test "$(od -An -tx1 -j510 -N2 "$W/sector.bin" | tr -d ' \n')" = 55aa
+cp "$W/sector.bin" "$W/boot.img"
+truncate -s 8M "$W/boot.img" # private sparse disposable BIOS boot disk
+QEMU_VERSION=$(qemu-system-x86_64 --version | head -1)
+printf '%s\n' "R44_SCOPE=PUBLIC_CLOUD_SYNTHETIC_NOT_DELL_HIL" > evidence/public/r44-qemu-bootbench.txt
+printf 'R44_QEMU_VERSION=%s\n' "$QEMU_VERSION" >> evidence/public/r44-qemu-bootbench.txt
+printf 'R44_BOOT_SOURCE_SHA256=%s\n' "$(sha256sum tools/wyse-qemu-bootbench/bootsector.asm|cut -d' ' -f1)" >> evidence/public/r44-qemu-bootbench.txt
+printf 'R44_BOOTSECTOR_SHA256=%s\n' "$(sha256sum "$W/boot.img"|cut -d' ' -f1)" >> evidence/public/r44-qemu-bootbench.txt
+printf 'R44_IGPU_GPU_PASSTHROUGH_HIL=NOT_TESTED\n' >> evidence/public/r44-qemu-bootbench.txt
+echo 'R44_CLOCK_SOURCE=LINUX_PROC_UPTIME_MONOTONIC_CENTISECOND' >> evidence/public/r44-qemu-bootbench.txt
+monotonic_ms() {
+  # /proc/uptime advances monotonically, unlike cloud wall-clock date; the
+  # kernel text format is seconds with two fractional digits. No dependencies.
+  local up unused whole centis
+  read -r up unused < /proc/uptime
+  case "$up" in *.*) ;; *) echo 'R44_UPTIME_FORMAT=RED' >&2; return 1 ;; esac
+  whole=${up%.*}
+  centis=${up#*.}
+  centis=${centis:0:2}
+  test -n "$whole" && test -n "$centis"
+  echo "$((10#$whole * 1000 + 10#$centis * 10))"
+}
+
+run() {
+  local mode=$1 machine=$2 accel=$3 cpu=$4 smp=$5
+  local -a disk base
+  base=(-machine "$machine" -accel "$accel" -cpu "$cpu" -smp "$smp" -m 128M
+        -nodefaults -display none -serial none -monitor none -no-reboot
+        -device isa-debug-exit,iobase=0xf4,iosize=0x04
+        -debugcon "file:$W/debugcon.txt"
+        -global isa-debugcon.iobase=0xe9 -boot order=c)
+  if test "$machine" = pc; then
+    disk=(-drive "if=ide,media=disk,format=raw,file=$W/boot.img")
+  else
+    disk=(-device ich9-ahci,id=ahci
+          -drive "if=none,id=boot,media=disk,format=raw,file=$W/boot.img"
+          -device ide-hd,bus=ahci.0,drive=boot,bootindex=1)
+  fi
+  for rep in 1 2 3; do
+    : > "$W/debugcon.txt"
+    local start end code=0
+    start=$(monotonic_ms)
+    timeout -k 3s 25s qemu-system-x86_64 "${base[@]}" "${disk[@]}" \
+      > "$W/qemu-$mode-$rep.log" 2>&1 || code=$?
+    end=$(monotonic_ms)
+    if test "$code" -ne 33 || ! grep -Fxq 'R44_GUEST_BOOTSECTOR_EXECUTED=PASS' "$W/debugcon.txt"; then
+      echo "R44_GUEST_BOOT_OR_EXIT_ORACLE=RED:$mode:$rep:exit=$code" >&2
+      tail -n 15 "$W/qemu-$mode-$rep.log" >&2
+      exit 41
+    fi
+    local elapsed=$((end-start))
+    if test "$elapsed" -lt 0 || test "$elapsed" -gt 25000; then
+      echo "R44_MONOTONIC_ELAPSED_INVALID=RED:$mode:$rep:$elapsed" >&2
+      exit 42
+    fi
+    echo "R44_SAMPLE=$mode,$rep,$accel,$machine,$smp,${elapsed}ms" >> evidence/public/r44-qemu-bootbench.txt
+  done
+  echo "R44_MODE_$mode=PASS" >> evidence/public/r44-qemu-bootbench.txt
+}
+run TCG_PC_IDE pc tcg max 1
+run TCG_Q35_AHCI q35 tcg max 1
+run TCG_Q35_AHCI_2VCPU q35 tcg max 2
+if test -c /dev/kvm && test -r /dev/kvm && test -w /dev/kvm; then
+  run KVM_Q35_AHCI q35 kvm host 2
+  echo 'R44_RUNNER_KVM_BOOT=OBSERVED_PASS' >> evidence/public/r44-qemu-bootbench.txt
+else
+  if test -c /dev/kvm; then
+    echo 'R44_RUNNER_KVM_BOOT=CHAR_DEVICE_PRESENT_NO_UNPRIVILEGED_RW' >> evidence/public/r44-qemu-bootbench.txt
+  else
+    echo 'R44_RUNNER_KVM_BOOT=NO_CHARACTER_DEVICE' >> evidence/public/r44-qemu-bootbench.txt
+  fi
+  echo 'R44_RUNNER_KVM_NO_ACTUAL_GUEST_TEST=TRUE_NOT_A_WYSE_VERDICT' >> evidence/public/r44-qemu-bootbench.txt
+fi
+if qemu-system-x86_64 -device help 2>/dev/null | grep -Fq virtio-gpu-pci; then
+  echo 'R44_VIRTIO_GPU_DEVICE_ADVERTISED=YES_NOT_GUEST_OR_ACCEL_TESTED' >> evidence/public/r44-qemu-bootbench.txt
+else
+  echo 'R44_VIRTIO_GPU_DEVICE_ADVERTISED=NO_OR_UNKNOWN' >> evidence/public/r44-qemu-bootbench.txt
+fi
+echo 'R44_PUBLIC_CLOUD_RUNNER_PERFORMANCE_NOT_WYSE=TRUE' >> evidence/public/r44-qemu-bootbench.txt
+echo R44_THREE_REP_GUEST_EXECUTION_ORACLES=PASS
