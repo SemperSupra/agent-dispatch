@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          if grep -E 'exec[.]Command|net[.]Dial|syscall[.]Mount|os[.]WriteFile|os[.]OpenFile.*O_WRONLY' \
+          if grep -E 'exec[.]Command|net[.]Dial|syscall[.]Mount|os[.]WriteFile|os[.]OpenFile|syscall[.]Ioctl' \
             tools/wyse-hw-census/census.go tools/wyse-hw-census/cmd/wyse-hw-census/main.go; then
             echo R43_SOURCE_PRIVILEGED_MUTATION_PATTERN=RED
             exit 42
