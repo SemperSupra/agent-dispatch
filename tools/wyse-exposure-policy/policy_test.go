@@ -51,6 +51,8 @@ func TestFailClosedNegativeMatrix(t *testing.T){
   {"duplicate-service",func(p *Plan){p.Services=append(p.Services,p.Services[0])}},
   {"overlay-address-in-lan-only",func(p *Plan){p.Services[0].Mode="lan"}},
   {"unknown-mode",func(p *Plan){p.Services[0].Mode="funnel"}},
+  {"disabled-stale-bind",func(p *Plan){p.Services[0].Mode="disabled"}},
+  {"local-inventory-with-lan-fact",func(p *Plan){p.Services[3].LANIP="192.168.50.10"}},
  }
  for _,tc:=range tests{t.Run(tc.name,func(t *testing.T){p:=valid();tc.mutate(&p);if _,e:=Compile(p);e==nil{t.Fatal("unsafe plan accepted")}})}
 }
