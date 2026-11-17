@@ -6,6 +6,7 @@ package heldledger
 
 import (
  "bytes"
+ "encoding/hex"
  "encoding/json"
  "errors"
  "fmt"
@@ -56,6 +57,15 @@ func (s Store) Read()(State,error){
  if state.Version!=Version || (state.Held && state.Key!=KeyA) ||
   (!state.Held && state.Key!="") || state.Sequence==^uint64(0) {
   return State{},ErrInvalid
+ }
+ // Reject torn, unpaired or malformed receipt audit data. These fields
+ // cannot become live authentication just because they survived a reboot.
+ if (state.LastReleaseEventSequence==0)!=(state.LastReleaseProofHash==""){
+  return State{},ErrInvalid
+ }
+ if state.LastReleaseProofHash!="" {
+  d,err:=hex.DecodeString(state.LastReleaseProofHash)
+  if err!=nil||len(d)!=32{return State{},ErrInvalid}
  }
  return state,nil
 }
