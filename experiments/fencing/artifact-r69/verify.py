@@ -92,6 +92,23 @@ class NoFollow(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
+def validate_artifact_redirect(location):
+    """Allow only ordinary HTTPS transport to the documented public artifact CDNs."""
+    try:
+        u = urllib.parse.urlsplit(location)
+        host = (u.hostname or "").lower()
+        port = u.port
+    except (TypeError, ValueError):
+        raise Hold("ARCHIVE_REDIRECT_ORIGIN_NOT_ADMITTED") from None
+    if (u.scheme != "https" or not host or
+            u.username is not None or u.password is not None or
+            port not in (None, 443) or
+            not (host.endswith(".blob.core.windows.net") or
+                 host.endswith(".githubusercontent.com"))):
+        raise Hold("ARCHIVE_REDIRECT_ORIGIN_NOT_ADMITTED")
+    return location
+
+
 def archive(artifact_id, token):
     # First request is *only* to api.github.com with the bearer token.
     req=urllib.request.Request(
@@ -104,16 +121,12 @@ def archive(artifact_id, token):
     except urllib.error.HTTPError as e:
         if e.code!=302: raise Hold("ARCHIVE_REDIRECT_HTTP_"+str(e.code)) from None
         location=e.headers.get("Location","")
-    url=urllib.parse.urlsplit(location)
-    host=(url.hostname or "").lower()
-    if url.scheme!="https" or not host or url.username or url.password or \
-       not (host.endswith(".blob.core.windows.net") or
-            host.endswith(".githubusercontent.com")):
-        raise Hold("ARCHIVE_REDIRECT_ORIGIN_NOT_ADMITTED")
-    # Completely new uncredentialed request: bearer is never forwarded to CDN.
+    validate_artifact_redirect(location)
+    # Completely new uncredentialed request. A second redirect must HOLD,
+    # not follow an attacker-controlled URL or reuse the original token.
     request=urllib.request.Request(location,headers={"User-Agent":"r69-artifact-readback"})
     try:
-        with urllib.request.urlopen(request,timeout=25) as response:
+        with urllib.request.build_opener(NoFollow()).open(request,timeout=25) as response:
             payload=response.read(1048577)
             if len(payload)>1048576: raise Hold("ARCHIVE_OVERSIZE")
     except (urllib.error.URLError, TimeoutError):
