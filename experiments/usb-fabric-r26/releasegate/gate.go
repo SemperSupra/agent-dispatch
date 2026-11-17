@@ -69,7 +69,10 @@ func Restore(s Snapshot)*Gate{
  case Held,ReleasePending,QMPAcknowledged,GuestConfirmed,Quarantined:
  default:valid=false
  }
- if !valid{s.Phase=Quarantined}
+ // A persisted "guest-confirmed" bit is not itself a signed proof.
+ // Revalidate trusted evidence after restart before any new lease is
+ // admitted; a restored snapshot alone can never grant availability.
+ if !valid || s.Phase==GuestConfirmed{s.Phase=Quarantined}
  return &Gate{snap:s}
 }
 func (g *Gate) Snapshot()Snapshot{
