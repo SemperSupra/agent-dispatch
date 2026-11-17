@@ -13,6 +13,8 @@ import (
  "net"
  "os"
  "path/filepath"
+ "strconv"
+ "strings"
  "sync"
  "syscall"
  "time"
@@ -53,6 +55,64 @@ func acquireOwner(journalPath string)(*os.File,error){
  // Leave the lockfile in place when the process exits: unlinking permits
  // a replacement inode and two simultaneous lock holders.
  return f,nil
+}
+
+// acquireVMOwner closes the alternative-journal bypass in the synthetic
+// same-host topology. Linux SO_PEERCRED identifies the QEMU socket server
+// process; boot ID and /proc start ticks distinguish PID reuse. Every QMP
+// socket served by the same QEMU PID maps to the SAME host-global lock even
+// when its socket path and the caller's journal path differ.
+//
+// TEST SCOPE ONLY: a trusted controller must supply a protected host-wide
+// state root, VM incarnation and authorization policy. /tmp and same-UID
+// processes are NOT an adversary-resistant trust boundary.
+func acquireVMOwner(conn net.Conn)(*os.File,error) {
+ unix,ok:=conn.(*net.UnixConn)
+ if !ok{return nil,errors.New("QMP owner connection is not Unix")}
+ raw,err:=unix.SyscallConn()
+ if err!=nil{return nil,err}
+ var cred *syscall.Ucred
+ var sockErr error
+ if err=raw.Control(func(fd uintptr){
+  cred,sockErr=syscall.GetsockoptUcred(int(fd),syscall.SOL_SOCKET,syscall.SO_PEERCRED)
+ });err!=nil{return nil,err}
+ if sockErr!=nil{return nil,sockErr}
+ if cred==nil || cred.Pid<=1 || cred.Uid!=uint32(os.Geteuid()){
+  return nil,errors.New("QMP peer UID/PID untrusted")
+ }
+ rawStat,err:=os.ReadFile("/proc/"+strconv.Itoa(int(cred.Pid))+"/stat")
+ if err!=nil{return nil,err}
+ end:=strings.LastIndexByte(string(rawStat),')')
+ if end<0{return nil,errors.New("QMP /proc starttime parse failed")}
+ fields:=strings.Fields(string(rawStat[end+1:]))
+ if len(fields)<20{return nil,errors.New("QMP /proc starttime missing")}
+ ticks:=fields[19]
+ if ticks==""{return nil,errors.New("empty process starttime")}
+ rawBoot,err:=os.ReadFile("/proc/sys/kernel/random/boot_id")
+ if err!=nil{return nil,err}
+ bootID:=strings.TrimSpace(string(rawBoot))
+ if len(bootID)<8{return nil,errors.New("invalid boot incarnation")}
+ dir:=fmt.Sprintf("/tmp/.r26-sole-qmp-owner-%d",os.Geteuid())
+ if err=os.Mkdir(dir,0700);err!=nil && !errors.Is(err,os.ErrExist){return nil,err}
+ info,err:=os.Lstat(dir)
+ if err!=nil{return nil,err}
+ stat,ok:=info.Sys().(*syscall.Stat_t)
+ if !ok || !info.IsDir() || info.Mode().Perm()!=0700 || stat.Uid!=uint32(os.Geteuid()){
+  return nil,errors.New("host owner lock root is not private")
+ }
+ path:=filepath.Join(dir,fmt.Sprintf("vm-%d-%s-%s.lock",cred.Pid,bootID,ticks))
+ fd,err:=syscall.Open(path,syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,0600)
+ if err!=nil{return nil,err}
+ file:=os.NewFile(uintptr(fd),path)
+ if file==nil{syscall.Close(fd);return nil,errors.New("VM lock descriptor unavailable")}
+ details,err:=file.Stat()
+ if err!=nil || !details.Mode().IsRegular() || details.Mode().Perm()!=0600 {
+  file.Close();return nil,errors.New("VM lock state not regular mode-0600")
+ }
+ if err=syscall.Flock(fd,syscall.LOCK_EX|syscall.LOCK_NB);err!=nil{
+  file.Close();return nil,err
+ }
+ return file,nil
 }
 
 type qmp struct {
@@ -300,6 +360,16 @@ func main(){
  q,err:=openQMP(*qmpPath)
  if err!=nil{fmt.Fprintln(os.Stderr,"QMP unavailable:",err);os.Exit(3)}
  defer q.conn.Close()
+ vmOwner,err:=acquireVMOwner(q.conn)
+ if err!=nil{
+  if errors.Is(err,syscall.EWOULDBLOCK){
+   fmt.Fprintln(os.Stderr,"R26_L7_QMP_OWNER_LOCK_BUSY=PASS")
+  }else{
+   fmt.Fprintln(os.Stderr,"R26_L7_QMP_PEER_IDENTITY_UNTRUSTED=RED",err)
+  }
+  os.Exit(12)
+ }
+ defer vmOwner.Close()
  journal:=heldledger.Store{Path:*journalPath}
  recovered,err:=journal.Read()
  if err!=nil{
