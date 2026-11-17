@@ -1,0 +1,65 @@
+name: Public Wyse R43 read-only capability census fixture qualification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/public-wyse-r43-census.yml'
+      - 'tools/wyse-hw-census/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r43-census
+  cancel-in-progress: false
+jobs:
+  synthetic-census:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r43-census'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Qualify static Go offline capability model and fake sysfs
+        shell: bash
+        working-directory: tools/wyse-hw-census
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -count=1 ./...
+          go vet ./...
+          echo R43_PRIVACY_AND_CAPABILITY_FIXTURES=PASS
+          echo R43_PUBLIC_CI_REAL_WYSE_HARDWARE=NOT_TESTED
+      - name: Build a static AMD64 census binary without target-host Go runtime
+        shell: bash
+        working-directory: tools/wyse-hw-census
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+          GOOS: 'linux'
+          GOARCH: 'amd64'
+        run: |
+          set -Eeuo pipefail
+          go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/wyse-hw-census" ./cmd/wyse-hw-census
+          file "$RUNNER_TEMP/wyse-hw-census"
+          file "$RUNNER_TEMP/wyse-hw-census" | grep -Fq 'statically linked'
+          sha256sum "$RUNNER_TEMP/wyse-hw-census"
+          echo R43_CGOLESS_STATIC_AMD64_CENSUS_BUILD=PASS
+          echo R43_STATIC_BINARY_PHYSICAL_DEVICE_EXECUTION=NOT_TESTED
+      - name: Refuse shipping a privileged hardware mutation in source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -E 'exec[.]Command|net[.]Dial|syscall[.]Mount|os[.]WriteFile|os[.]OpenFile|syscall[.]Ioctl' \
+            tools/wyse-hw-census/census.go tools/wyse-hw-census/cmd/wyse-hw-census/main.go; then
+            echo R43_SOURCE_PRIVILEGED_MUTATION_PATTERN=RED
+            exit 42
+          fi
+          echo R43_READ_ONLY_CENSUS_SOURCE_GATE=PASS
