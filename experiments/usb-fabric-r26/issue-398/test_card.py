@@ -138,7 +138,7 @@ def card_roundtrip():
 def main():
  stop=threading.Event()
  stderr=subprocess.DEVNULL
- pcsc=subprocess.Popen(["pcscd","--foreground"],stdout=stderr,stderr=stderr)
+ pcsc=subprocess.Popen(["pcscd","--foreground","--disable-polkit"],stdout=stderr,stderr=stderr)
  card=Card();signals=[]
  thread=threading.Thread(target=serve,args=(card,stop,signals),daemon=True)
  thread.start()
