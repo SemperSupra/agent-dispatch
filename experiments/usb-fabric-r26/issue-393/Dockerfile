@@ -5,6 +5,6 @@ WORKDIR /work
 ENV DEBIAN_FRONTEND=noninteractive GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y gcc libxkbcommon-dev xkb-data && rm -rf /var/lib/apt/lists/*
 COPY . /work/
-RUN go test -race -count=1 ./... && go vet ./... && gcc -Wall -Wextra -Werror -o /usr/local/bin/r26-xkb-oracle xkb_oracle.c -lxkbcommon
+RUN mv xkb_oracle.c /tmp/r26-xkb-oracle.c && go test -race -count=1 ./... && go vet ./... && gcc -Wall -Wextra -Werror -o /usr/local/bin/r26-xkb-oracle /tmp/r26-xkb-oracle.c -lxkbcommon
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/r26-xkb-oracle"]
