@@ -1,0 +1,31 @@
+name: USB Fabric R26-L2 - sole QMP actuator survives frontend SIGKILL
+on:
+  push:
+    branches: [experiment/public-usbfabric-r26-actuator]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-actuator.yml'
+      - 'experiments/usb-fabric-r26/integrated/actuator_oracle.py'
+      - 'experiments/usb-fabric-r26/integrated/actuator_verify.sh'
+      - 'experiments/usb-fabric-r26/integrated/cmd/actuator/**'
+      - 'experiments/usb-fabric-r26/integrated/cmd/frontend/**'
+      - 'experiments/usb-fabric-r26/integrated/Dockerfile'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-l2
+  cancel-in-progress: false
+jobs:
+  sole-actuator-real-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Prove frontend SIGKILL does not strand guest HID, with sole QMP owner
+        shell: bash
+        run: bash experiments/usb-fabric-r26/integrated/actuator_verify.sh
