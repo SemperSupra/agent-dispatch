@@ -37,6 +37,8 @@ on:
       - 'scripts/gha_assignment_execute.py'
       - 'scripts/verify_gha_assignment_receipt.py'
       - 'tests/test_gha_assignment_execution.py'
+      - 'tests/test_wyse_r53_typed_guest.py'
+      - 'tools/wyse-qemu-bootbench/run-linux-guest.sh'
       - 'tests/test_gha_workload_request.py'
       - 'scripts/provider_packet_contract.py'
       - 'tests/test_provider_packet_contract.py'
@@ -78,6 +80,7 @@ jobs:
           python3 -m unittest -v tests/test_azurite_dispatch_profile.py
           python3 tests/test_verify_gha_typed_receipt.py -v
           python3 tests/test_gha_assignment_execution.py -v
+          python3 -m unittest -v tests/test_wyse_r53_typed_guest.py
 
   devproxy-mock-only:
     if: github.event_name == 'pull_request'
@@ -232,6 +235,66 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  wyse-r53-typed-linux-guest:
+    if: github.event_name == 'pull_request' && github.head_ref == 'experiment/public-wyse-r53-typed-guest' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install previously qualified public guest dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            qemu-system-x86 busybox-static cpio linux-image-virtual
+      - name: Admit and execute only the committed guest profile via existing typed CPU executor
+        id: planned
+        shell: bash
+        env:
+          REQUEST: requests/gha/wyse-r53-linux-guest-v1.json
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/gha_workload_request.py --action plan \
+            --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
+      - name: Run bounded guest through exact reviewed request, not arbitrary shell input
+        shell: bash
+        env:
+          REQUEST: requests/gha/wyse-r53-linux-guest-v1.json
+          DIGEST: ${{ steps.planned.outputs.request_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/gha_workload_request.py --action run \
+            --request "$REQUEST" --digest "$DIGEST" \
+            --receipt ".gha-typed/wyse-r53-receipt.json"
+      - name: Independently verify typed native source, runner, digest and no physical claims
+        shell: bash
+        env:
+          REQUEST: requests/gha/wyse-r53-linux-guest-v1.json
+        run: |
+          set -Eeuo pipefail
+          sha=$(sha256sum .gha-typed/wyse-r53-receipt.json | cut -d' ' -f1)
+          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+            --receipt .gha-typed/wyse-r53-receipt.json \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --runner ubuntu-24.04 --sha256 "$sha" \
+            --out .gha-typed/wyse-r53-verified.json
+          echo R53_EXISTING_TYPED_EXECUTOR_REAL_PUBLIC_LINUX_GUEST=PASS
+          echo R53_AGENT_DISPATCH_SIDECAR_REAL_LEASE_AND_PHYSICAL_WYSE=NOT_TESTED
+      - name: Retain only public-safe typed receipts
+        if: always() && hashFiles('.gha-typed/wyse-r53-receipt.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r53-existing-typed-linux-guest
+          path: |
+            .gha-typed/wyse-r53-receipt.json
+            .gha-typed/wyse-r53-verified.json
+          if-no-files-found: warn
+          retention-days: 7
+
   plan:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: contract
@@ -241,6 +304,7 @@ jobs:
       runner: ${{ steps.plan.outputs.runner }}
       request_sha256: ${{ steps.plan.outputs.request_sha256 }}
       assignment_sha256: ${{ steps.plan.outputs.assignment_sha256 }}
+      request_path: ${{ steps.plan.outputs.request_path }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -275,6 +339,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Install fixed QEMU guest dependencies only for reviewed R53 guest profile
+        if: needs.plan.outputs.request_path == 'requests/gha/wyse-r53-linux-guest-v1.json'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            qemu-system-x86 busybox-static cpio linux-image-virtual
       - name: Execute one previously admitted fixed CPU workload
         env:
           REQUEST: ${{ inputs.request }}
