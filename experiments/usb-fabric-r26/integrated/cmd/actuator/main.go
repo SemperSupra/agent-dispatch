@@ -21,6 +21,9 @@ import (
 
  blue "example.org/usb-fabric-r26-integrated/blue"
  heldledger "example.org/usb-fabric-r26-integrated/heldledger"
+ releasegate "example.org/usb-fabric-r26-releasegate"
+ "example.org/usb-fabric-r26-releasegate/evidence"
+ "example.org/usb-fabric-r26-releasegate/guestwire"
 )
 // ErrGuestUnconfirmed is a safety hold: QMP ACK does not prove that the
 // actual guest released the key. A later independently authenticated guest
@@ -184,6 +187,7 @@ func (q *qmp) prelaunchOnly()(bool,error){
 type executor struct {
  q *qmp
  journal heldledger.Store
+ gate *releasegate.Gate // optional TEST-ONLY evdev proof gate, never a client API
  mu sync.Mutex
 }
 func (e *executor) qmpKey(down bool)error {
@@ -207,12 +211,26 @@ func (e *executor) Input(command string)error {
   if _,err=e.journal.Transition(state.Sequence,true);err!=nil{return err}
   return e.qmpKey(true)
  case "key-a-up":
-  if err:=e.qmpKey(false);err!=nil{return err}
   state,err:=e.journal.Read()
   if err!=nil{return err}
+  if state.Held && state.ReleasePhase=="" {
+   // Durable intent is committed before potentially effective QMP key-up.
+   if _,err=e.journal.RequestRelease(state.Sequence);err!=nil{return err}
+  }
+  if err:=e.qmpKey(false);err!=nil{return err}
   if state.Held {
-   // QMP confirmed command delivery, NOT an in-guest release. Never
-   // reclaim a potentially held key based on the control-plane ACK.
+   if state.ReleasePhase!="qmp-acked" {
+    // A QMP ACK is a RELEASE STAGE only; it never clears Held.
+    if _,err=e.journal.AcknowledgeQMPRelease(state.Sequence);err!=nil{return err}
+   }
+   if e.gate!=nil {
+    scope:=guestwire.Scope()
+    // The independent gate will reject a second claim without a fresh
+    // guest epoch. This synthetic run qualifies only the FIRST release.
+    if err:=e.gate.RequestRelease(scope);err==nil{
+     _=e.gate.AcknowledgeQMP(scope)
+    }
+   }
    return errGuestUnconfirmed
   }
   return nil
