@@ -2,7 +2,7 @@ name: Public Wyse R41 source-owned UKI fixed-clock signed reproducibility
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [experiment/public-wyse-r38-recovery-integration]
+    branches: [experiment/public-wyse-r39-uki-repro]
     paths:
       - '.github/workflows/public-wyse-r41-frozen-uki.yml'
       - 'scripts/public_wyse_r39_uki_repro.sh'
