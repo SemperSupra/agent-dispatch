@@ -29,6 +29,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 experiments/fencing/graphql-r69/rules.py --native
+      - name: Native classic branch protection census, read-only
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 experiments/fencing/graphql-r69/classic.py --native
       - name: Qualification limit
         if: always()
         run: echo 'READ-ONLY schema only. No updateRefs mutation, write token, real CAS, two principals, protected writer, or production effect.' >> "$GITHUB_STEP_SUMMARY"
