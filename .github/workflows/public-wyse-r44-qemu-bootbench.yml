@@ -41,6 +41,23 @@ jobs:
           grep -Fxq 'R44_MODE_TCG_Q35_AHCI=PASS' evidence/public/r44-qemu-bootbench.txt
           grep -Fxq 'R44_MODE_TCG_Q35_AHCI_2VCPU=PASS' evidence/public/r44-qemu-bootbench.txt
           grep -Fxq 'R44_PUBLIC_CLOUD_RUNNER_PERFORMANCE_NOT_WYSE=TRUE' evidence/public/r44-qemu-bootbench.txt
+          grep -Fxq 'R44_CLOCK_SOURCE=LINUX_PROC_UPTIME_MONOTONIC_CENTISECOND' evidence/public/r44-qemu-bootbench.txt
+          test "$(grep -c '^R44_SAMPLE=TCG_' evidence/public/r44-qemu-bootbench.txt)" -eq 9
+          if grep -Eq '^R44_SAMPLE=.*,-[0-9]+ms
+          cat evidence/public/r44-qemu-bootbench.txt
+      - name: Preserve bounded public text measurements only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r44-public-synthetic-qemu-bootbench-text
+          path: evidence/public/r44-qemu-bootbench.txt
+          if-no-files-found: warn
+          retention-days: 7
+ evidence/public/r44-qemu-bootbench.txt; then
+            echo R44_NEGATIVE_BENCH_DURATION_FAIL_OPEN=RED
+            exit 43
+          fi
+          echo R44_MONOTONIC_CLOCK_AND_NINE_POSITIVE_SAMPLES=PASS
           echo R44_REAL_QEMU_GUEST_EXECUTION_CLOUD_METHOD_QUALIFIED=PASS
           cat evidence/public/r44-qemu-bootbench.txt
       - name: Preserve bounded public text measurements only
