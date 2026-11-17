@@ -39,6 +39,13 @@ jobs:
           go build -trimpath -o "$RUNNER_TEMP/r45-census" ./cmd/wyse-hw-census
           go build -trimpath -o "$RUNNER_TEMP/r45-private-candidates" ./cmd/wyse-private-candidates
           file "$RUNNER_TEMP/r45-private-candidates"
+          if "$RUNNER_TEMP/r45-private-candidates" > "$RUNNER_TEMP/r45-private.stdout" 2> "$RUNNER_TEMP/r45-private.stderr"; then
+            echo R45_UNAUTHORIZED_PUBLIC_RUNNER_INVENTORY=RED
+            exit 43
+          fi
+          test ! -s "$RUNNER_TEMP/r45-private.stdout"
+          grep -Fq 'R45_PRIVATE_CENSUS=DENIED:' "$RUNNER_TEMP/r45-private.stderr"
+          echo R45_UNAUTHORIZED_PUBLIC_RUNNER_INVENTORY_REFUSED=PASS
           echo R45_PRIVATE_ONLY_STATIC_AMD64_INVENTORY_BINARY=PASS
           echo R45_PRIVATE_DEVICE_CANDIDATE_AND_TENANT_REDACTION=PASS
           echo R45_ACTUAL_SIX_WYSE_HARDWARE=NOT_TESTED
