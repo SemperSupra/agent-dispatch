@@ -2,8 +2,9 @@
 ARG GO_BASE=golang:1.23-bookworm
 ARG R15_IMAGE
 FROM ${GO_BASE} AS go-builder
-WORKDIR /src
-COPY experiments/usb-fabric-r26/integrated/ /src/
+WORKDIR /src/integrated
+COPY experiments/usb-fabric-r26/integrated/ /src/integrated/
+COPY experiments/usb-fabric-r26/releasegate/ /src/releasegate/
 ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
 RUN go test ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -o /out/r26-broker . && CGO_ENABLED=0 go build -trimpath -o /out/r26-actuator ./cmd/actuator && CGO_ENABLED=0 go build -trimpath -o /out/r26-frontend ./cmd/frontend
 
@@ -17,5 +18,6 @@ COPY experiments/usb-fabric-r26/integrated/actuator_restart_oracle.py /guest/r26
 COPY experiments/usb-fabric-r26/integrated/l5_missing_journal_oracle.py /guest/r26-l5-missing-journal-oracle.py
 COPY experiments/usb-fabric-r26/integrated/l6_dual_qmp_owner_oracle.py /guest/r26-l6-dual-qmp-owner-oracle.py
 COPY experiments/usb-fabric-r26/integrated/l7_alternate_journal_oracle.py /guest/r26-l7-alternate-journal-oracle.py
+COPY experiments/usb-fabric-r26/integrated/l9b_guest_readmission_oracle.py /guest/r26-l9b-guest-readmission-oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]
