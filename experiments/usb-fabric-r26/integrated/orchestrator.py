@@ -171,6 +171,24 @@ def main():
             if hashlib.sha256(media.read_bytes()).hexdigest() != old_hash:
                 raise RuntimeError("synthetic read-only USB storage changed")
             print("R26_SYNTHETIC_STORAGE_UNCHANGED=PASS", flush=True)
+            # Analyze fresh synthetic PCAP bytes inside disposable OCI.
+            # Raw USB payload and report bytes never enter the public logs.
+            analysis = subprocess.run(["/guest/r26-pcap-analyze", str(pcap)],
+                                      text=True, capture_output=True, timeout=15)
+            if analysis.returncode != 0:
+                raise RuntimeError("USB PCAP decoder rejected capture: " +
+                                   analysis.stderr[-700:])
+            summary = json.loads(analysis.stdout)
+            print("R26_USB_PCAP_SANITIZED_ANALYSIS=" +
+                  json.dumps(summary, sort_keys=True, separators=(",", ":")),
+                  flush=True)
+            if summary["link_type"] != 220 or summary["matched_noncontrol_urbs"] < 1:
+                raise RuntimeError("real USB capture lacks matched usbmon URBs")
+            if summary["synthetic_key_a_presses"] < 1 or summary["synthetic_key_a_releases"] < 1:
+                raise RuntimeError("real USB capture lacks both HID key A transitions")
+            if summary["orphan_completions"] != 0:
+                raise RuntimeError("real USB capture contains unmatched completion")
+            print("R26_PCAP_REAL_URB_AND_HID_REPORT_ANALYSIS=PASS", flush=True)
             print("R26_CROSS_HOST_FENCING_AND_PHYSICAL_USB=NOT_TESTED", flush=True)
         finally:
             if not broker.stdin.closed:
