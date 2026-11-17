@@ -606,7 +606,7 @@ def main() -> int:
         if opts.action == "plan":
             if opts.github_output:
                 with open(opts.github_output, "a", encoding="utf-8") as fh:
-                    for key in ("runner", "request_sha256", "assignment_id"):
+                    for key in ("runner", "request_path", "request_sha256", "assignment_id"):
                         fh.write(f"{key}={p[key]}\n")
             print(json.dumps(p, sort_keys=True))
             return 0
