@@ -1,0 +1,53 @@
+name: Public Wyse R52-A G0 canary preflight over R43 read-only census
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r43-census]
+    paths:
+      - 'tools/wyse-hw-census/**'
+      - '.github/workflows/public-wyse-r52-g0-preflight.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r52-g0-preflight
+  cancel-in-progress: false
+jobs:
+  offline-g0-hold-contract:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r52-g0-preflight'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run existing census and R52 source-only admission tests
+        working-directory: tools/wyse-hw-census
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -count=1 -v ./...
+          go vet ./...
+          go build -trimpath ./cmd/wyse-hw-census
+          # Runner is NOT one of the six physical Wyse. We do not invoke
+          # the live host root or publish any real PCI/USB/serial outputs.
+          echo R52_A_G0_SYNTHETIC_STORAGE_AND_NETWORK_DENIALS=PASS
+          echo R52_A_REAL_WYSE_CHASSIS_IDENTITY_AND_SSH=NOT_TESTED
+      - name: Deny mutation or arbitrary network scans in preflight projection
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -En 'net[.]Dial|net[.]Listen|exec[.]Command|os[.]OpenFile|os[.]WriteFile|/dev/|/sys/|os[.]Remove|syscall[.]Mount' tools/wyse-hw-census/canary_preflight.go; then
+            echo R52_A_SOURCE_MUTATION_PATH=RED
+            exit 42
+          fi
+          echo R52_A_PURE_CENSUS_PROJECTION=PASS
