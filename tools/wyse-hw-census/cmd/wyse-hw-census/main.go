@@ -14,6 +14,7 @@ import (
 
 func main() {
 	root:=flag.String("root","/","read-only sysfs/proc root; test fixtures use an isolated path")
+ preflight:=flag.Bool("preflight",false,"emit coarse MVP1 canary HOLD preflight only; never authorizes deployment")
 	flag.Parse()
 	if flag.NArg()!=0 {
 		fmt.Fprintln(os.Stderr,"R43_CENSUS_UNEXPECTED_ARGUMENT=FAIL_CLOSED")
@@ -24,7 +25,9 @@ func main() {
 		fmt.Fprintln(os.Stderr,"R43_CENSUS_INCOMPLETE=FAIL_CLOSED:",err)
 		os.Exit(2)
 	}
-	out,err:=json.MarshalIndent(s,"","  ")
+	var record any=s
+ if *preflight {record=census.Preflight(s)}
+ out,err:=json.MarshalIndent(record,"","  ")
 	if err!=nil{fmt.Fprintln(os.Stderr,"R43_CENSUS_SERIALIZATION=RED");os.Exit(2)}
 	fmt.Println(string(out))
 }
