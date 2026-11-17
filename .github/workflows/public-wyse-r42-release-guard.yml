@@ -57,4 +57,15 @@ jobs:
             exit 41
           fi
           grep -Fq 'R42_RELEASE_GUARD=DENIED:' /tmp/r42-negative.txt
+          if printf '{"schema_version":1,"schema_version":2}\n' | go run ./cmd/wyse-release-guard > /tmp/r42-duplicate.txt 2>&1; then
+            echo R42_DUPLICATE_KEY_FAIL_OPEN=RED
+            exit 42
+          fi
+          grep -Fq 'R42_RELEASE_GUARD=DENIED:DUPLICATE_OR_MALFORMED_JSON' /tmp/r42-duplicate.txt
+          if printf '{"witnesses":[{"runner":"alpha","runner":"beta"}]}\n' | go run ./cmd/wyse-release-guard > /tmp/r42-nested.txt 2>&1; then
+            echo R42_NESTED_DUPLICATE_KEY_FAIL_OPEN=RED
+            exit 43
+          fi
+          grep -Fq 'R42_RELEASE_GUARD=DENIED:DUPLICATE_OR_MALFORMED_JSON' /tmp/r42-nested.txt
+          echo R42_CLI_DUPLICATE_JSON_KEY_NEGATIVES=PASS
           echo R42_CLI_JSON_DENIAL_AND_NO_PRODUCTION_CLAIM=PASS
