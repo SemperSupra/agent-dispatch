@@ -15,7 +15,7 @@ import tempfile
 import time
 
 def cmd(*args, timeout=35):
- return subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+ return subprocess.run(args,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                        text=True,timeout=timeout)
 
 def qmp_connect(path,process):
@@ -46,15 +46,19 @@ def certificates(db):
  # brand-new fake test-only identities; no personal or DoD data.
  run=cmd("certutil","-N","--empty-password","-d","sql:"+str(db))
  if run.returncode:raise RuntimeError("synthetic NSS init failed "+run.stderr[-300:])
+ # certutil -z reads to EOF: use a bounded test-only entropy file.
+ noise=db.parent/"r26-entropy.bin"
+ noise.write_bytes(os.urandom(2048))
+ os.chmod(noise,0o600)
  ca="R26 Synthetic CA"
  run=cmd("certutil","-S","-d","sql:"+str(db),"-x",
    "-s","CN=R26 Synthetic CA","-n",ca,"-t","CT,CT,CT",
-   "-m","101","-v","1","-z","/dev/urandom",timeout=45)
+   "-m","101","-v","1","-z",str(noise),timeout=45)
  if run.returncode:raise RuntimeError("synthetic CA creation failed "+run.stderr[-350:])
  for i,nick in enumerate(["id-cert","signing-cert","encryption-cert"],start=102):
   run=cmd("certutil","-S","-d","sql:"+str(db),
    "-s","CN=R26 Synthetic "+nick,"-n",nick,"-c",ca,
-   "-t",",,","-m",str(i),"-v","1","-z","/dev/urandom",timeout=45)
+   "-t",",,","-m",str(i),"-v","1","-z",str(noise),timeout=45)
   if run.returncode:
    raise RuntimeError("synthetic leaf "+nick+" creation failed "+run.stderr[-350:])
  print("R26_N5_THREE_SYNTHETIC_NSS_CERTIFICATES_CREATED=PASS",flush=True)
