@@ -7,7 +7,50 @@ not a guest CAC transaction, not a multi-VM production throughput SLA.
 """
 import hashlib,json,os,runpy,select,socket,statistics,struct,subprocess,tempfile,time
 from pathlib import Path
-validate_audio=runpy.run_path("/guest/run.py")["validate_audio"]
+# A whole-stream Goertzel score cancels across repeated ALSA aplay restarts
+# and zero-filled WAV gaps. Qualify spectral integrity in independent 200ms
+# active windows; do not accept non-silence without frequency fidelity.
+import math,struct,wave
+def validate_audio_segmented(path):
+ if not path.is_file() or path.stat().st_size<8192:
+  raise RuntimeError("QEMU audio WAV absent/empty")
+ with wave.open(str(path),"rb") as fp:
+  rate=fp.getframerate()
+  channels=fp.getnchannels()
+  width=fp.getsampwidth()
+  raw=fp.readframes(fp.getnframes())
+ if width!=2 or channels not in (1,2) or not 8000<=rate<=96000:
+  raise RuntimeError("unexpected USB audio PCM format")
+ step=2*channels
+ samples=[struct.unpack_from("<h",raw,j)[0] for j in range(0,len(raw)-step+1,step)]
+ if len(samples)<rate//4:
+  raise RuntimeError("USB audio too short")
+ window=max(512,rate//5)
+ active=0
+ good=0
+ ratios=[]
+ def power(span,freq):
+  coef=2*math.cos(2*math.pi*freq/rate)
+  prev=prev2=0.0
+  for v in span:
+   state=float(v)+coef*prev-prev2
+   prev2=prev
+   prev=state
+  return max(0.0,prev*prev+prev2*prev2-coef*prev*prev2)
+ for start in range(0,len(samples)-window+1,window):
+  span=samples[start:start+window]
+  rms=math.sqrt(sum(float(v)*v for v in span)/len(span))
+  if rms<800:continue
+  active+=1
+  ratio=power(span,440)/max(1.0,power(span,730))
+  ratios.append(ratio)
+  if ratio>3.0:good+=1
+ ratio_median=sorted(ratios)[len(ratios)//2] if ratios else 0.0
+ print(f"R26_P6_AUDIO_SEGMENTS active={active} frequency_valid={good} total_frames={len(samples)} rate={rate} ratio_median={ratio_median:.2f}",flush=True)
+ if active<3 or good*4<active*3:
+  raise RuntimeError(f"USB audio repeated-playback spectral fidelity RED active={active} valid={good}")
+ print("R26_P6_AUDIO_REPEATED_PCM_440HZ_SEGMENT_FIDELITY=PASS",flush=True)
+
 
 def qmp(path,proc):
  for _ in range(160):
@@ -128,7 +171,7 @@ def run_case(reps,variant):
    if len(times)!=reps:raise RuntimeError("missing network iteration latency receipts")
    if hashlib.sha256(disk.read_bytes()).hexdigest()!=before:
     raise RuntimeError("read-only USB backing mutated under stress")
-   if variant=="busy":validate_audio(wav)
+   if variant=="busy":validate_audio_segmented(wav)
    elapsed=time.monotonic()-started
    print(f"R26_P6_MIXED_REAL_USB_IO=PASS variant={variant} reps={reps} tftp_p50_ms={pct(times,.5):.1f} tftp_p95_ms={pct(times,.95):.1f} tftp_p99_ms={pct(times,.99):.1f} elapsed_s={elapsed:.2f}",flush=True)
    print("R26_P5_MIXED_SYNTHETIC_DISK_IMMUTABLE=PASS",flush=True)
