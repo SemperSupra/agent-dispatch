@@ -37,6 +37,14 @@ for u in /sys/bus/usb/devices/*;do
    /bin/busybox cat "$u/idProduct")"
 done
 /bin/busybox ls /dev/bus/usb 2>/dev/null || true
+# pcsc-lite on Debian trixie uses a udev-backed hotplug path. Replay
+# *guest-local* USB add events using Debian's shipped libccid rule;
+# never alter runner-host udev, kernel modules, or physical USB devices.
+/usr/lib/systemd/systemd-udevd --daemon >/tmp/r26-udevd.log 2>&1 || true
+/bin/busybox sleep 1
+/usr/bin/udevadm trigger --action=add --subsystem-match=usb >/tmp/r26-udev-trigger.log 2>&1 || true
+/usr/bin/udevadm settle --timeout=12 >/tmp/r26-udev-settle.log 2>&1 || true
+echo R26_N5B_GUEST_UDEV_USB_EVENT_REPLAY_ATTEMPTED=PASS
 /usr/sbin/pcscd --foreground --disable-polkit --debug >/tmp/pcscd.log 2>&1 &
 pid=$!
 /bin/busybox sleep 2
