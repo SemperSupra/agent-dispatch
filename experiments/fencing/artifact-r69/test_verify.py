@@ -73,6 +73,7 @@ class Tests(unittest.TestCase):
     def test_duplicate_artifact(self):
         p=zip_one(); dg=hashlib.sha256(p).hexdigest(); m=meta(dg)
         m["artifacts"].append(dict(m["artifacts"][0]))
+        m["total_count"]=2
         with self.assertRaisesRegex(Hold,"DUPLICATE"): validate_meta(m,7,RUN,HEAD,AID,NAME,dg)
     def test_partial_artifact_listing_holds_even_if_expected_artifact_present(self):
         p=zip_one(); dg=hashlib.sha256(p).hexdigest()
