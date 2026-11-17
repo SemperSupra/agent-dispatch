@@ -25,6 +25,7 @@ FIELDS = {
 PROFILES = {
     "cpu-x64-arithmetic-v1": "requests/gha/cpu-x64-arithmetic-v1.json",
     "cpu-arm64-contract-v1": "requests/gha/cpu-arm64-contract-v1.json",
+    "wyse-r53-linux-guest-v1": "requests/gha/wyse-r53-linux-guest-v1.json",
     "microsoft-devproxy-mock-v1": "requests/gha/microsoft-devproxy-mock-v1.json",
     "azurite-blob-transport-v1": "requests/gha/azurite-blob-transport-v1.json",
     "mail-synthetic-baseline-v1": "requests/gha/mail-synthetic-baseline-v1.json",
