@@ -4,7 +4,7 @@ FROM ${R15_IMAGE} AS pcsc-builder
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
- cpio gzip gcc libc6-dev pcscd libccid libpcsclite-dev pkg-config && rm -rf /var/lib/apt/lists/*
+ cpio gzip gcc libc6-dev pcscd libccid libpcsclite-dev pkg-config udev && rm -rf /var/lib/apt/lists/*
 COPY issue-397/init.sh issue-397/pcsc_probe.c /src/
 RUN gcc -O2 -Wall -Wextra -o /tmp/r26-pcsc-probe /src/pcsc_probe.c \
   $(pkg-config --cflags --libs libpcsclite) && \
@@ -12,10 +12,14 @@ RUN gcc -O2 -Wall -Wextra -o /tmp/r26-pcsc-probe /src/pcsc_probe.c \
  gzip -dc /guest/initrd.gz | cpio --quiet -idmu && \
  cp /src/init.sh ./init && chmod 0755 ./init && \
  cp /tmp/r26-pcsc-probe ./r26-pcsc-probe && chmod 0755 ./r26-pcsc-probe && \
- mkdir -p ./usr/sbin ./usr/lib/pcsc && \
+ mkdir -p ./usr/sbin ./usr/bin ./usr/lib/pcsc ./usr/lib/systemd ./usr/lib/udev && \
  cp /usr/sbin/pcscd ./usr/sbin/pcscd && \
  cp -a /usr/lib/pcsc/drivers ./usr/lib/pcsc/ && \
- ( ldd /usr/sbin/pcscd; ldd /tmp/r26-pcsc-probe; \
+ cp /usr/lib/systemd/systemd-udevd ./usr/lib/systemd/systemd-udevd && \
+ cp /usr/bin/udevadm ./usr/bin/udevadm && \
+ cp -a /usr/lib/udev/rules.d ./usr/lib/udev/ && \
+ test -f ./usr/lib/udev/rules.d/92-libccid.rules && \
+ ( ldd /usr/sbin/pcscd; ldd /tmp/r26-pcsc-probe; ldd /usr/lib/systemd/systemd-udevd; ldd /usr/bin/udevadm; \
  find -L /usr/lib/pcsc/drivers -name '*.so' -type f -exec ldd '{}' \; ) | \
  awk '{for(i=1;i<=NF;i++) if(substr($i,1,1)=="/") print $i}' | \
  sort -u | while read -r lib; do test -r "$lib" && cp -L --parents "$lib" /tmp/r26-initrd/ || exit 1;done && \
