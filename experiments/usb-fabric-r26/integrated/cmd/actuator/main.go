@@ -12,7 +12,9 @@ import (
  "fmt"
  "net"
  "os"
+ "path/filepath"
  "sync"
+ "syscall"
  "time"
 
  blue "example.org/usb-fabric-r26-integrated/blue"
@@ -22,6 +24,36 @@ import (
 // actual guest released the key. A later independently authenticated guest
 // receipt must authorize clearing the durable held-input journal.
 var errGuestUnconfirmed=errors.New("guest release not independently confirmed")
+
+// acquireOwner pins an OS advisory owner lock to the same host-controlled
+// journal namespace that fences guest input. A Go mutex cannot guard two
+// independent actuator PIDs or two separate QMP monitors of one VM.
+//
+// This synthetic capability does NOT authenticate the state directory,
+// prevent a different journal namespace or arbitrary raw QMP actor, or
+// survive an adversary unlinking the lockfile. A production host controller
+// must enforce canonical VM identity and a private immutable state root.
+func acquireOwner(journalPath string)(*os.File,error){
+ if !filepath.IsAbs(journalPath){return nil,errors.New("owner journal path must be absolute")}
+ lockPath:=journalPath+".owner.lock"
+ fd,err:=syscall.Open(lockPath,syscall.O_CREAT|syscall.O_RDWR|
+  syscall.O_CLOEXEC|syscall.O_NOFOLLOW,0600)
+ if err!=nil{return nil,err}
+ f:=os.NewFile(uintptr(fd),lockPath)
+ if f==nil {syscall.Close(fd);return nil,errors.New("owner lock descriptor unavailable")}
+ info,err:=f.Stat()
+ if err!=nil || !info.Mode().IsRegular() || info.Mode().Perm()!=0600 {
+  f.Close()
+  return nil,errors.New("owner lock state is not regular mode-0600")
+ }
+ if err:=syscall.Flock(fd,syscall.LOCK_EX|syscall.LOCK_NB);err!=nil {
+  f.Close()
+  return nil,err
+ }
+ // Leave the lockfile in place when the process exits: unlinking permits
+ // a replacement inode and two simultaneous lock holders.
+ return f,nil
+}
 
 type qmp struct {
  mu sync.Mutex
@@ -255,6 +287,16 @@ func main(){
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
  }
+ owner,err:=acquireOwner(*journalPath)
+ if err!=nil{
+  if errors.Is(err,syscall.EWOULDBLOCK){
+   fmt.Fprintln(os.Stderr,"R26_L6_QMP_OWNER_LOCK_BUSY=PASS")
+  }else{
+   fmt.Fprintln(os.Stderr,"R26_L6_OWNER_LOCK_STATE_UNTRUSTED=RED",err)
+  }
+  os.Exit(10)
+ }
+ defer owner.Close()
  q,err:=openQMP(*qmpPath)
  if err!=nil{fmt.Fprintln(os.Stderr,"QMP unavailable:",err);os.Exit(3)}
  defer q.conn.Close()

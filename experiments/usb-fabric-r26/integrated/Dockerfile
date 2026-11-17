@@ -15,5 +15,6 @@ COPY experiments/usb-fabric-r26/integrated/orchestrator.py /guest/r26-orchestrat
 COPY experiments/usb-fabric-r26/integrated/actuator_oracle.py /guest/r26-actuator-oracle.py
 COPY experiments/usb-fabric-r26/integrated/actuator_restart_oracle.py /guest/r26-actuator-restart-oracle.py
 COPY experiments/usb-fabric-r26/integrated/l5_missing_journal_oracle.py /guest/r26-l5-missing-journal-oracle.py
+COPY experiments/usb-fabric-r26/integrated/l6_dual_qmp_owner_oracle.py /guest/r26-l6-dual-qmp-owner-oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]
