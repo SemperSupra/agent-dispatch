@@ -61,6 +61,34 @@ func (q *qmp) call(name string,args map[string]any)error{
  }
  return errors.New("QMP response limit")
 }
+// prelaunchOnly verifies the exact QMP VM run-state before admitting the
+// FIRST synthetic lease. QEMU's "paused" state is insufficient: the guest
+// might already have run and observed held input, then been stopped.
+func (q *qmp) prelaunchOnly()(bool,error){
+ q.mu.Lock();defer q.mu.Unlock()
+ _=q.conn.SetDeadline(time.Now().Add(10*time.Second))
+ if err:=q.enc.Encode(map[string]any{"execute":"query-status"});err!=nil{return false,err}
+ for i:=0;i<150;i++{
+  var response map[string]json.RawMessage
+  if err:=q.dec.Decode(&response);err!=nil{return false,err}
+  if _,ok:=response["event"];ok{continue}
+  if raw,ok:=response["error"];ok{
+   return false,fmt.Errorf("QMP query-status: %s",string(raw))
+  }
+  if raw,ok:=response["return"];ok{
+   var status struct{
+    Running bool `json:"running"`
+    Status string `json:"status"`
+   }
+   if err:=json.Unmarshal(raw,&status);err!=nil{return false,err}
+   if status.Status==""{return false,errors.New("missing VM run state")}
+   return !status.Running && status.Status=="prelaunch",nil
+  }
+  return false,errors.New("QMP status response missing return")
+ }
+ return false,errors.New("QMP status response limit")
+}
+
 type executor struct {
  q *qmp
  journal heldledger.Store
@@ -251,6 +279,21 @@ func main(){
   fmt.Println("R26_L3_RECOVERY_HOLD_REQUIRES_TOPOLOGY_RECONCILIATION=PASS")
   return
  }
+ // R26-L5: even a missing or apparently clean journal cannot establish
+ // that an existing guest is safe for new input. Only a QEMU incarnation
+ // that has NEVER started execution may bootstrap in this synthetic model.
+ // Recovered, already-running, paused-after-run, unknown or QMP-offline
+ // guests MUST remain unavailable until independently reconciled.
+ //
+ // This is NOT complete production first-boot proof: a real controller must
+ // additionally attest USB topology, exclusive socket ownership, VM
+ // incarnation, and persistent guest/host epoch before provisioning.
+ pristine,err:=q.prelaunchOnly()
+ if err!=nil || !pristine {
+  fmt.Fprintln(os.Stderr,"R26_L5_STALE_OR_UNKNOWN_GUEST_STARTUP_QUARANTINED=PASS",err)
+  os.Exit(8)
+ }
+ fmt.Fprintln(os.Stderr,"R26_L5_NEVER_RAN_PRELAUNCH_CONTROL_PROOF=PASS")
  if _,err=os.Lstat(*socketPath);err==nil{
   fmt.Fprintln(os.Stderr,"refusing existing socket path");os.Exit(4)
  }else if !errors.Is(err,os.ErrNotExist){fmt.Fprintln(os.Stderr,err);os.Exit(4)}
