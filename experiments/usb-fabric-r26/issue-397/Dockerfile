@@ -14,7 +14,7 @@ RUN gcc -O2 -Wall -Wextra -o /tmp/r26-pcsc-probe /src/pcsc_probe.c \
  cp /tmp/r26-pcsc-probe ./r26-pcsc-probe && chmod 0755 ./r26-pcsc-probe && \
  mkdir -p ./usr/sbin ./usr/bin ./usr/lib/pcsc ./usr/lib/systemd ./usr/lib/udev && \
  cp /usr/sbin/pcscd ./usr/sbin/pcscd && \
- # Resolve the Debian pcsc driver bundle into the initrd instead of retaining\n # symlinked directory entries whose targets may not exist in the guest.\n mkdir -p ./usr/lib/pcsc/drivers && \
+ mkdir -p ./usr/lib/pcsc/drivers && \
  cp -aL /usr/lib/pcsc/drivers/. ./usr/lib/pcsc/drivers/ && \
  test -s ./usr/lib/pcsc/drivers/ifd-ccid.bundle/Contents/Info.plist && \
  test -s ./usr/lib/pcsc/drivers/ifd-ccid.bundle/Contents/Linux/libccid.so && \
