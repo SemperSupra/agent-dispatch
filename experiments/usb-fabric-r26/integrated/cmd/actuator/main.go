@@ -6,6 +6,7 @@ package main
 
 import (
  "bufio"
+ "crypto/sha256"
  "encoding/json"
  "errors"
  "flag"
@@ -66,7 +67,20 @@ func acquireOwner(journalPath string)(*os.File,error){
 // TEST SCOPE ONLY: a trusted controller must supply a protected host-wide
 // state root, VM incarnation and authorization policy. /tmp and same-UID
 // processes are NOT an adversary-resistant trust boundary.
-func acquireVMOwner(conn net.Conn)(*os.File,error) {
+// vmOwner pins both a filesystem owner lease and a Linux abstract Unix
+// socket alias in this VM incarnation. The abstract socket is a kernel-owned
+// name with no path/inode to unlink, even for a process sharing our UID.
+// This still requires a trustworthy common network namespace and QMP peer.
+type vmOwner struct{
+ file *os.File
+ alias net.Listener
+}
+func (o *vmOwner)Close()error {
+ if o.alias!=nil{_ = o.alias.Close()}
+ if o.file!=nil{return o.file.Close()}
+ return nil
+}
+func acquireVMOwner(conn net.Conn)(*vmOwner,error) {
  unix,ok:=conn.(*net.UnixConn)
  if !ok{return nil,errors.New("QMP owner connection is not Unix")}
  raw,err:=unix.SyscallConn()
@@ -92,6 +106,18 @@ func acquireVMOwner(conn net.Conn)(*os.File,error) {
  if err!=nil{return nil,err}
  bootID:=strings.TrimSpace(string(rawBoot))
  if len(bootID)<8{return nil,errors.New("invalid boot incarnation")}
+ // The unprivileged same-UID adversary may replace lock pathnames.
+ // A kernel-registered AF_UNIX abstract address remains busy while the
+ // owning process is alive. The name is bound to peer PID/start/boot/UID.
+ incarnation:=sha256.Sum256([]byte(fmt.Sprintf("%d/%d/%s/%s",
+  cred.Uid,cred.Pid,bootID,ticks)))
+ aliasName:=fmt.Sprintf("@r26-vm-%x",incarnation[:16])
+ alias,err:=net.Listen("unix",aliasName)
+ if err!=nil{
+  if errors.Is(err,syscall.EADDRINUSE){return nil,syscall.EWOULDBLOCK}
+  return nil,err
+ }
+ defer func(){if alias!=nil{_ = alias.Close()}}()
  dir:=fmt.Sprintf("/tmp/.r26-sole-qmp-owner-%d",os.Geteuid())
  if err=os.Mkdir(dir,0700);err!=nil && !errors.Is(err,os.ErrExist){return nil,err}
  info,err:=os.Lstat(dir)
@@ -112,7 +138,9 @@ func acquireVMOwner(conn net.Conn)(*os.File,error) {
  if err=syscall.Flock(fd,syscall.LOCK_EX|syscall.LOCK_NB);err!=nil{
   file.Close();return nil,err
  }
- return file,nil
+ owner:=&vmOwner{file:file,alias:alias}
+ alias=nil
+ return owner,nil
 }
 
 type qmp struct {
