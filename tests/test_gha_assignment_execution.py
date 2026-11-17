@@ -43,7 +43,15 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
     plan = execute.plan(raw, SOURCE)
     machine = "aarch64" if profile_id == "cpu-arm64-contract-v1" else "x86_64"
     runner_arch = "X64" if machine == "x86_64" else "ARM64"
-    if profile_id == "microsoft-devproxy-mock-v1":
+    if profile_id == "wyse-r53-linux-guest-v1":
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "guest_task_sha256":
+                "b4f51231b5956ff6eb520c4a85dc43ff4542405342e5ab8e097b960155898782",
+            "guest_kernel_boot": True, "guest_clean_exit": True,
+            "physical_wyse_qualified": False, "agent_dispatch_real_lease": False,
+        }
+    elif profile_id == "microsoft-devproxy-mock-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
             "mock_only": True, "provider_access_verified": False,
