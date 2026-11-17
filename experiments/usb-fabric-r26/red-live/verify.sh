@@ -42,9 +42,9 @@ set -e
 [[ "$(git status --porcelain --untracked-files=all)" == "$before" ]] || { echo R26_H_SOURCE_TAINT=RED;exit 14; }
 cleanup;trap - EXIT
 echo R26_H_DISPOSABLE_CLEANUP=PASS
-if [[ "$result" == 17 ]];then
- echo R26_H_EXPECTED_P0_RELEASE_OMISSION_REPRODUCED=RED
- exit 17
+if [[ "$result" == 0 ]];then
+ echo R26_K_HOST_SUPERVISOR_REAL_GUEST_RELEASE=PASS
+ exit 0
 fi
-echo "R26_H_INCONCLUSIVE_OR_UNEXPECTED_EXIT=$result"
+echo "R26_K_HOST_SUPERVISOR_RELEASE_FAILED=RED exit=$result"
 exit 15
