@@ -1,0 +1,24 @@
+name: USB Fabric R26-N5c - actual PCSC writable virtual smartcard
+on:
+  push:
+    branches: [test/issue-398-pcsc-virtual-writable]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-n5c-virtual-pcsc-writer
+  cancel-in-progress: false
+jobs:
+  pcsc-test-card:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real PCSC virtual reader SELECT UPDATE BINARY READ BINARY and reconnect
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-398/verify.sh
