@@ -1,0 +1,57 @@
+name: Public Wyse R40b controlled-clock sbsign byte reproducibility
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r39-uki-repro]
+    paths:
+      - '.github/workflows/public-wyse-r40-frozen-time.yml'
+      - 'scripts/public_wyse_r40_frozen_time_signer.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r40-frozen-time
+  cancel-in-progress: false
+jobs:
+  frozen-time-signature:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r40-signature-forensics'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate script syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r40_frozen_time_signer.sh
+          echo R40B_SOURCE_PREFLIGHT=PASS
+      - name: Install disposable signing tools and locally intercepted clock
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            grub-efi-amd64-bin grub-common grub-pc-bin sbsigntool openssl faketime libfaketime
+          for tool in grub-mkstandalone sbsign sbverify faketime; do command -v "$tool"; done
+          echo R40B_DISPOSABLE_TOOLCHAIN=PASS
+      - name: Independently sign fixed input twice under one controlled clock
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r40_frozen_time_signer.sh
+          test -s evidence/public/r40b-frozen-signing.txt
+          grep -Fxq 'R40B_SIGNED_AFTER_3S_SAME_FROZEN_CLOCK_EQUAL=YES' evidence/public/r40b-frozen-signing.txt
+          grep -Fxq 'R40B_CROSS_RUN_OWNER_SIGNING=NOT_TESTED' evidence/public/r40b-frozen-signing.txt
+          echo R40B_REPRODUCTION_AND_FALSE_CLAIM_GATES=PASS
+          cat evidence/public/r40b-frozen-signing.txt
+      - name: Retain public metadata text only, no keys or EFI
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r40b-frozen-time-text
+          path: evidence/public/r40b-frozen-signing.txt
+          if-no-files-found: warn
+          retention-days: 7
