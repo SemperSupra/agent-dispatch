@@ -27,6 +27,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         newWindow.makeKeyAndVisible()
         window = newWindow
         UserDefaults.standard.set("R50_IOS_APP_LAUNCHED", forKey: "r50.status")
-        return UserDefaults.standard.synchronize()
+        _ = UserDefaults.standard.synchronize()
+        return true
     }
 }
