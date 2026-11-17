@@ -1,6 +1,9 @@
 package heldledger
 
 import (
+ "crypto/hmac"
+ "crypto/sha256"
+ "encoding/hex"
  "errors"
  "fmt"
  "os"
@@ -9,18 +12,31 @@ import (
  "testing"
 )
 
+var syntheticTestKey=[]byte("TEST-ONLY-R26-L9-NOT-PRODUCTION-AUTH")
+func testMAC(c ReleaseClaim)string{
+ h:=hmac.New(sha256.New,syntheticTestKey)
+ _,_ =fmt.Fprintf(h,"%s|%s|%s|%s|%s|%d|%d|%d|%d|%s|%s|%t",
+  c.GuestID,c.DeviceID,c.HostEpoch,c.GuestEpoch,c.LeaseEpoch,
+  c.Generation,c.ReleaseSequence,c.DownEventSequence,c.EventSequence,
+  c.Source,c.Key,c.KeyReleased)
+ return hex.EncodeToString(h.Sum(nil))
+}
 func claim(sequence,down,up uint64) ReleaseClaim {
- return ReleaseClaim{
+ c:=ReleaseClaim{
   GuestID:"guest-qemu1",DeviceID:"usb-kbd",HostEpoch:"host1",
   GuestEpoch:"g1",LeaseEpoch:fmt.Sprintf("lease-%d",sequence),
   Generation:sequence,ReleaseSequence:sequence,
   DownEventSequence:down,EventSequence:up,
-  Source:"guest.evdev",Key:KeyA,KeyReleased:true,Proof:"test-signed-proof",
+  Source:"guest.evdev",Key:KeyA,KeyReleased:true,
  }
+ c.Proof=testMAC(c)
+ return c
 }
 func signed(c ReleaseClaim)bool{
- return c.Proof=="test-signed-proof" && c.Source=="guest.evdev" &&
-  c.GuestID=="guest-qemu1" && c.KeyReleased
+ got,err:=hex.DecodeString(c.Proof)
+ if err!=nil{return false}
+ want,err:=hex.DecodeString(testMAC(c))
+ return err==nil&&hmac.Equal(got,want)
 }
 func readHeld(t *testing.T,s Store,sequence uint64) {
  t.Helper()
@@ -90,6 +106,10 @@ func TestForgedAndOutOfOrderProofNeverClearsHeld(t *testing.T){
   func()ReleaseClaim{c:=base;c.KeyReleased=false;return c}(),
   func()ReleaseClaim{c:=base;c.Proof="";return c}(),
   func()ReleaseClaim{c:=base;c.Proof="forgery";return c}(),
+  func()ReleaseClaim{c:=base;c.GuestID="other-guest";return c}(),
+  func()ReleaseClaim{c:=base;c.HostEpoch="other-host";return c}(),
+  func()ReleaseClaim{c:=base;c.LeaseEpoch="other-lease";return c}(),
+  func()ReleaseClaim{c:=base;c.Generation=99;return c}(),
  }
  for i,c:=range fixtures{
   if _,err:=s.ConfirmGuestRelease(1,c,signed);!errors.Is(err,ErrUnverified){
@@ -136,7 +156,7 @@ func TestAuditDigestIsNotPlaintextInput(t *testing.T){
  if err!=nil{t.Fatal(err)}
  b,err:=os.ReadFile(s.Path)
  if err!=nil{t.Fatal(err)}
- if strings.Contains(string(b),"test-signed-proof") ||
+ if strings.Contains(string(b),c.Proof) ||
   strings.Contains(string(b),"raw_report"){
   t.Fatal("raw proof material leaked into persisted journal")
  }
