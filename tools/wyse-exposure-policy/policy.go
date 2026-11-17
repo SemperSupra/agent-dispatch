@@ -88,9 +88,20 @@ func Compile(p Plan) (Result,error) {
  for _,s:=range p.Services{
   if !known[s.Name]||!idRE.MatchString(s.Name)||seenServices[s.Name]{return out,errf("SERVICE_UNKNOWN_OR_DUPLICATE")}
   seenServices[s.Name]=true
-  switch s.Mode {case "disabled":continue;case "local","lan","overlay","both":default:return out,errf("MODE")}
+  switch s.Mode {
+  case "disabled":
+   // Reject stale dangerous values rather than silently storing dormant
+   // listener addresses, which could later be activated by a mode typo.
+   if s.Port!=0||s.LANIP!=""||s.OverlayIP!=""||s.UnixSocket!=""||s.Auth!=""||len(s.Roles)!=0{
+    return out,errf("DISABLED_SERVICE_HAS_DORMANT_EXPOSURE")
+   }
+   continue
+  case "local","lan","overlay","both":
+  default:return out,errf("MODE")
+  }
   if s.Name=="inventory_admin" {
-   if s.Mode!="local"||s.Port!=0||!validLocalSocket(s.UnixSocket)||s.Auth!="mtls"||!validRoles(s.Roles,true) {
+   if s.Mode!="local"||s.Port!=0||s.LANIP!=""||s.OverlayIP!=""||
+    !validLocalSocket(s.UnixSocket)||s.Auth!="mtls"||!validRoles(s.Roles,true) {
     return out,errf("INVENTORY_MUST_STAY_PRIVATE_LOCAL_UNIX")
    }
    out.Listeners=append(out.Listeners,Listener{Service:s.Name,Network:"local_unix",Address:s.UnixSocket,Auth:s.Auth})
