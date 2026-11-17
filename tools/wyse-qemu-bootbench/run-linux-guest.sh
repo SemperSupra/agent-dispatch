@@ -24,7 +24,7 @@ fi
 
 QEMU=$(command -v qemu-system-x86_64 || :)
 BUSYBOX=$(command -v busybox || :)
-KERNEL=$(find /boot -maxdepth 1 -name 'vmlinuz-*' -print 2>/dev/null | sort -V | tail -n1 || :)
+KERNEL=$(find /boot -maxdepth 1 -name 'vmlinuz-*-generic' -print 2>/dev/null | sort -V | tail -n1 || :)
 for bin in "$QEMU" "$BUSYBOX" "$KERNEL"; do
  if [[ -z $bin || ! -f $bin ]]; then
   echo R52_C_KERNEL_OR_QEMU_DEPENDENCY_ABSENT=ENVIRONMENT_FAILURE >&2; exit 21
@@ -39,6 +39,11 @@ fi
 
 W=$(mktemp -d "$RUNNER_TEMP/r52-linux-guest-XXXXXXXX")
 trap 'sudo rm -rf -- "$W"' EXIT
+# Public CI Ubuntu kernel package; copy only that package-installed test
+# kernel into disposable temp so private runner boot assets are never used.
+sudo cp -- "$KERNEL" "$W/test-linux-vmlinuz"
+sudo chown "$(id -u):$(id -g)" "$W/test-linux-vmlinuz"
+test -r "$W/test-linux-vmlinuz"
 mkdir -p "$W/root"/{bin,sbin,dev,proc,sys}
 cp "$BUSYBOX" "$W/root/bin/busybox"
 ln -s busybox "$W/root/bin/sh"
@@ -75,7 +80,7 @@ timeout -k 5s 110s "$QEMU" \
   -machine q35 -accel tcg -cpu max -smp 1 -m 192M \
   -nodefaults -nic none -display none -monitor none \
   -serial "file:$W/serial.log" -no-reboot \
-  -kernel "$KERNEL" -initrd "$W/guest-initramfs.cpio.gz" \
+  -kernel "$W/test-linux-vmlinuz" -initrd "$W/guest-initramfs.cpio.gz" \
   -append 'console=ttyS0 panic=1 rdinit=/init' \
   >"$W/qemu-stderr.log" 2>&1
 CODE=$?
