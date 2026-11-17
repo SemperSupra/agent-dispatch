@@ -1,0 +1,24 @@
+name: USB Fabric R26-N4b - descriptor boot and NKRO model
+on:
+  push:
+    branches: [test/issue-396-hid-report-descriptors]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-n4b-descriptors
+  cancel-in-progress: false
+jobs:
+  report-capacity-parser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Parse synthetic USB HID report descriptors with boot/NKRO and fail-closed tests
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-396/verify.sh
