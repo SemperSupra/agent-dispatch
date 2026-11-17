@@ -1,0 +1,65 @@
+name: Public R49 Android KVM emulator mobile companion smoke
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'scripts/r49_android_companion_smoke.py'
+      - 'tests/test_r49_android_companion_smoke.py'
+      - '.github/workflows/public-r49-android-companion.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-r49-android-companion
+  cancel-in-progress: false
+jobs:
+  offline-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise receipt semantics, negative oracles and syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile scripts/r49_android_companion_smoke.py
+          python3 -m unittest -v tests/test_r49_android_companion_smoke.py
+          echo R49_ANDROID_OFFLINE_CONTRACT=PASS
+  actual-android-emulator:
+    needs: offline-contract
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-r49-android-companion-emulator'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install bounded Android API35 image, boot KVM, start Settings, exercise synthetic battery
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/r49-android"
+          python3 scripts/r49_android_companion_smoke.py --label ubuntu-24.04 \
+            --out "$RUNNER_TEMP/r49-android/receipt.json"
+          python3 - "$RUNNER_TEMP/r49-android/receipt.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["classification"]=="SUPPORTED", r["reason"]
+          assert r["evidence"]["observed_api"]=="35"
+          assert r["evidence"]["observed_abi"]=="x86_64"
+          assert r["evidence"]["settings_activity"]=="FOREGROUND"
+          assert r["evidence"]["battery_simulation"]=="OBSERVED_LEVEL_73"
+          assert r["physical_phone_security_thermal_radio_background"]=="NOT_TESTED"
+          print("R49_ANDROID_API35_KVM_SETTINGS_BATTERY_ORACLE=PASS")
+          print("R49_REAL_PHONE_FLEET_AGENT=NOT_TESTED")
+          PY
+      - name: Preserve short synthetic receipt only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r49-android-api35-synthetic-receipt
+          path: ${{ runner.temp }}/r49-android/receipt.json
+          if-no-files-found: warn
+          retention-days: 7
