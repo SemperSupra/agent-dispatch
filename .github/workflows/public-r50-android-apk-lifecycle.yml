@@ -28,6 +28,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 -m py_compile scripts/r49_android_companion_smoke.py scripts/r50_android_apk_lifecycle.py
+          python3 scripts/r50_android_apk_lifecycle.py --help >/dev/null
           python3 -m unittest -v tests/test_r49_android_companion_smoke.py tests/test_r50_android_apk_lifecycle.py
           test "$(grep -Ec 'uses-permission|INTERNET|READ_CONTACTS|READ_SMS' tools/r50-android-app/AndroidManifest.xml || :)" = 0
           echo R50_ANDROID_APK_OFFLINE_CONTRACT=PASS
