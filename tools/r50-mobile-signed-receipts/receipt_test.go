@@ -95,9 +95,9 @@ func TestTamperReplayExpiryAndTrustContextFailsClosed(t *testing.T){
   {"wrong-platform",func(c *Claims,_ *Enrollment,_ *Signed){c.Platform="watchos"}},
   {"signature-mutated",func(_ *Claims,_ *Enrollment,w *Signed){w.SignatureBase64="AA"}},
   {"trailing-json",func(_ *Claims,_ *Enrollment,w *Signed){w.Payload=append(w.Payload,[]byte(" {}")...)}},
-  {"unknown-json-field",func(_ *Claims,_ *Enrollment,w *Signed){w.Payload=append(w.Payload[:len(w.Payload)-1],[]byte(,"danger":true}`)...)}},
+  {"unknown-json-field",func(_ *Claims,_ *Enrollment,w *Signed){w.Payload=append(w.Payload[:len(w.Payload)-1],[]byte(",\"danger\":true}")...)}},
   {"noncanonical-json",func(_ *Claims,_ *Enrollment,w *Signed){w.Payload=append([]byte(" "),w.Payload...)}},
-  {"duplicate-json-field",func(_ *Claims,_ *Enrollment,w *Signed){w.Payload=append(w.Payload[:len(w.Payload)-1],[]byte(,"scope":"simulator_ui_oracle"}`)...)}},
+  {"duplicate-json-field",func(_ *Claims,_ *Enrollment,w *Signed){w.Payload=append(w.Payload[:len(w.Payload)-1],[]byte(",\"scope\":\"simulator_ui_oracle\"}")...)}},
  }
  for _,tc:=range tests{
   t.Run(tc.name,func(t *testing.T){
