@@ -67,5 +67,11 @@ jobs:
             exit 43
           fi
           grep -Fq 'R42_RELEASE_GUARD=DENIED:DUPLICATE_OR_MALFORMED_JSON' /tmp/r42-nested.txt
+          if printf '{"state":"BUILT_UNSIGNED","State":"SIGNED_CANONICAL"}\n' | go run ./cmd/wyse-release-guard > /tmp/r42-case.txt 2>&1; then
+            echo R42_CASE_FOLDED_ALIAS_FAIL_OPEN=RED
+            exit 44
+          fi
+          grep -Fq 'R42_RELEASE_GUARD=DENIED:DUPLICATE_OR_MALFORMED_JSON' /tmp/r42-case.txt
+          echo R42_CLI_CASE_FOLDED_JSON_ALIAS_DENIED=PASS
           echo R42_CLI_DUPLICATE_JSON_KEY_NEGATIVES=PASS
           echo R42_CLI_JSON_DENIAL_AND_NO_PRODUCTION_CLAIM=PASS
