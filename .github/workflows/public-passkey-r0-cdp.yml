@@ -1,0 +1,39 @@
+name: Passkey Lab R0 - Chromium CDP virtual WebAuthn authenticator
+on:
+  push:
+    branches: [experiment/passkey-r0-cdp-virtual-authenticator]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: passkey-r0-cdp-browser
+  cancel-in-progress: false
+jobs:
+  disposable-virtual-authenticator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: WebAuthn Chrome CDP real registration and assertion test, synthetic localhost RP
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          before="$(git status --porcelain --untracked-files=all)"
+          [[ -z "$before" ]] || exit 11
+          node --version
+          command -v google-chrome || command -v chromium || exit 12
+          node -e 'if(Number(process.versions.node.split(".")[0])<22)process.exit(13)'
+          chrome="$(command -v google-chrome || command -v chromium)"
+          echo "PASSKEY_R0_CHROME_PATH=$chrome"
+          "$chrome" --version
+          sha256sum "$chrome" || true
+          node --check experiments/passkey-lab/issue-416/virtual-authenticator.mjs
+          timeout 100s node experiments/passkey-lab/issue-416/virtual-authenticator.mjs
+          [[ "$(git status --porcelain --untracked-files=all)" == "$before" ]] || { echo PASSKEY_R0_SOURCE_TAINT=RED;exit 14; }
+          echo PASSKEY_R0_PUBLIC_FREE_CDP_WEBAUTHN_ORACLE=PASS
+          echo PASSKEY_R0_ANDROID_CREDENTIAL_PROVIDER_EMULATOR=NOT_TESTED
