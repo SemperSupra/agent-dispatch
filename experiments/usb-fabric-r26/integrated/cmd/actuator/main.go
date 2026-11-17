@@ -18,6 +18,11 @@ import (
  blue "example.org/usb-fabric-r26-integrated/blue"
  heldledger "example.org/usb-fabric-r26-integrated/heldledger"
 )
+// ErrGuestUnconfirmed is a safety hold: QMP ACK does not prove that the
+// actual guest released the key. A later independently authenticated guest
+// receipt must authorize clearing the durable held-input journal.
+var errGuestUnconfirmed=errors.New("guest release not independently confirmed")
+
 type qmp struct {
  mu sync.Mutex
  conn net.Conn
@@ -69,8 +74,9 @@ func (e *executor) qmpKey(down bool)error {
  }})
 }
 // Held=true is fsynced BEFORE a potentially effective QMP keydown.
-// Held=false is fsynced ONLY AFTER successful QMP key-up ACK.
-// A partial failure preserves held=true for emergency restart recovery.
+// A QMP key-up ACK alone MUST NOT fsync held=false. Until a separate
+// trustworthy guest receipt exists, preserve held=true and quarantine.
+// Partial errors likewise preserve held=true for emergency restart recovery.
 func (e *executor) Input(command string)error {
  e.mu.Lock();defer e.mu.Unlock()
  switch command {
@@ -85,8 +91,9 @@ func (e *executor) Input(command string)error {
   state,err:=e.journal.Read()
   if err!=nil{return err}
   if state.Held {
-   _,err=e.journal.Transition(state.Sequence,false)
-   return err
+   // QMP confirmed command delivery, NOT an in-guest release. Never
+   // reclaim a potentially held key based on the control-plane ACK.
+   return errGuestUnconfirmed
   }
   return nil
  default:return blue.ErrDenied
@@ -157,7 +164,11 @@ func (a *actuator) handle(c net.Conn){
  defer func(){
   if held.Generation!=0{
    if err:=a.m.Revoke(held);err!=nil{
-    fmt.Fprintln(os.Stderr,"R26_L_RELEASE_FAILURE_QUARANTINE=RED",err)
+    if errors.Is(err,errGuestUnconfirmed) {
+     fmt.Println("R26_L_ACK_ONLY_RELEASE_QUARANTINED_PENDING_GUEST_PROOF=PASS")
+    }else{
+     fmt.Fprintln(os.Stderr,"R26_L_RELEASE_FAILURE_QUARANTINE=RED",err)
+    }
    }else{
     fmt.Println("R26_L_ACTUATOR_CLIENT_LOSS_RELEASE_ACCEPTED=PASS")
    }
