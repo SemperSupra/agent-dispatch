@@ -1,0 +1,24 @@
+name: USB Fabric R26-N5b - real Linux PCSC reader ATR and APDU
+on:
+  push:
+    branches: [test/issue-397-guest-pcsc-apdu]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-n5b-real-guest-pcsc
+  cancel-in-progress: false
+jobs:
+  real-guest-pcsc-ccid:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Linux pcscd/libccid genuine USB guest reader ATR and APDU over fake NSS CAC
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-397/verify.sh
