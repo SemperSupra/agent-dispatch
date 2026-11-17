@@ -7,6 +7,7 @@ on:
       - '.github/workflows/public-wyse-r45-private-device-catalog.yml'
       - 'tools/wyse-hw-census/private_candidates.go'
       - 'tools/wyse-hw-census/private_candidates_test.go'
+      - 'tools/wyse-hw-census/cmd/wyse-private-candidates/**'
       - 'tools/wyse-hw-census/README-private-candidates.md'
 permissions:
   contents: read
@@ -36,6 +37,9 @@ jobs:
           go test -count=1 -v ./...
           go vet ./...
           go build -trimpath -o "$RUNNER_TEMP/r45-census" ./cmd/wyse-hw-census
+          go build -trimpath -o "$RUNNER_TEMP/r45-private-candidates" ./cmd/wyse-private-candidates
+          file "$RUNNER_TEMP/r45-private-candidates"
+          echo R45_PRIVATE_ONLY_STATIC_AMD64_INVENTORY_BINARY=PASS
           echo R45_PRIVATE_DEVICE_CANDIDATE_AND_TENANT_REDACTION=PASS
           echo R45_ACTUAL_SIX_WYSE_HARDWARE=NOT_TESTED
           echo R45_REAL_PASSTHROUGH_KVM_USB_CCID=NOT_TESTED
