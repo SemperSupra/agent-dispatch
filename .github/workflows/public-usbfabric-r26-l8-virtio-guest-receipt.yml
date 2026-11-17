@@ -1,0 +1,27 @@
+name: USB Fabric R26-L8 - actual guest evdev virtio receipt to Go release gate
+on:
+  push:
+    branches: [test/issue-386-l8-guest-virtio-proof]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-l8-virtio-guest-receipt.yml'
+      - 'experiments/usb-fabric-r26/releasegate/**'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-l8-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  actual-linux-guest-virtio-receipt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify actual guest evdev input over virtio and reject forged receipts
+        shell: bash
+        run: bash experiments/usb-fabric-r26/releasegate/guestwire/verify.sh
