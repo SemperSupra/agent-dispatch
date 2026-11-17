@@ -1,0 +1,37 @@
+name: USB Fabric R26-P7 RED - close admitted tasks without receipts
+on:
+  push:
+    branches: [test/issue-412-close-red]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-p7-red-closure
+  cancel-in-progress: false
+jobs:
+  expected-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Intentionally reproduce background Submit orphan on Close (RED)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker pull golang:1.23-bookworm >/dev/null
+          base="$(docker image inspect --format '{{index .RepoDigests 0}}' golang:1.23-bookworm)"
+          [[ "$base" == *@sha256:* ]] || exit 12
+          echo "R26_P7_RED_BASE=$base"
+          tar -C experiments/usb-fabric-r26/issue-407 -cf - . | \
+            docker run --rm -i --network none --read-only --user 65532:65532 \
+              --cap-drop ALL --security-opt no-new-privileges \
+              --memory 2048m --memory-swap 2048m --cpus 2 --pids-limit 128 \
+              --tmpfs /tmp:rw,exec,nosuid,nodev,size=1536m,mode=1777 \
+              -e HOME=/tmp -e GOCACHE=/tmp/cache -e GOPATH=/tmp/gopath \
+              -e GOPROXY=off -e GOSUMDB=off -e GOTOOLCHAIN=local \
+              "$base" sh -ec 'mkdir -p /tmp/work; cd /tmp/work; tar -xf -; go test -race -count=1 -run ^TestCloseDrainsQueuedReceipts$ -v ./...'
