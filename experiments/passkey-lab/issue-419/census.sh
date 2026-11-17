@@ -33,6 +33,6 @@ fi
 test -d /sys/class/udc && find /sys/class/udc -mindepth 1 -maxdepth 1 -printf 'PASSKEY_R1_USB_UDC=%f\n' || true
 test -d /sys/class/video4linux && find /sys/class/video4linux -mindepth 1 -maxdepth 1 -printf 'PASSKEY_R1_V4L2=%f\n' || true
 echo PASSKEY_R1_NO_SUDO_MODPROBE_USB_ATTACH_OR_BIOMETRIC_INPUT=PASS
-[[ "$(git status --porcelain --untracked-files=all)" == "$old" ]] || {echo PASSKEY_R1_SOURCE_TAINT=RED;exit 11;}
+[[ "$(git status --porcelain --untracked-files=all)" == "$old" ]] || { echo PASSKEY_R1_SOURCE_TAINT=RED; exit 11; }
 echo PASSKEY_R1_NON_MUTATING_VIRTUAL_PERIPHERAL_CENSUS=PASS
 echo PASSKEY_R1_REAL_UHID_DEVICE_USBIP_CCID_UVC_UAC=NOT_TESTED
