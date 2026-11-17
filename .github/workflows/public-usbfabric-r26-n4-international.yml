@@ -1,0 +1,24 @@
+name: USB Fabric R26-N4 - multilingual physical usage and guest XKB layouts
+on:
+  push:
+    branches: [test/issue-393-international-keyboard]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r26-n4-layouts
+  cancel-in-progress: false
+jobs:
+  keyboard-layout-crosswalk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: USB HID usages, 6KRO/NKRO, ANSI/ISO/JIS keysets and real Linux XKB layouts
+        shell: bash
+        run: bash experiments/usb-fabric-r26/issue-393/verify.sh
