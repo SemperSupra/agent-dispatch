@@ -98,3 +98,18 @@ func TestMissingRequiredObservationFailsClosed(t *testing.T) {
 	write(t,r,"proc/meminfo","MemTotal: 8388608 kB\n")
 	if _,err:=Collect(r);err==nil{t.Fatal("missing CPU accepted")}
 }
+
+func TestPentiumJ5005UHD605IsNotAutomaticVGPUQualification(t *testing.T) {
+	r:=fixture(t)
+	write(t,r,"proc/cpuinfo",strings.Repeat("processor : 0\nmodel name : Intel Pentium Silver J5005\nflags : fpu sse4_2 vmx\n",4))
+	write(t,r,"sys/bus/pci/devices/0000:00:02.0/device","0x3184\n")
+	// Driver and IOMMU group alone do not prove a guest graphics assignment.
+	if err:=os.Remove(filepath.Join(r,"sys/class/drm/renderD128"));err!=nil {
+		// The node is a fixture directory.
+		if err:=os.RemoveAll(filepath.Join(r,"sys/class/drm/renderD128"));err!=nil {t.Fatal(err)}
+	}
+	s,err:=Collect(r);if err!=nil{t.Fatal(err)}
+	if !strings.Contains(s.CPUModel,"J5005")||s.GPUs[0].Device!="0x3184" {t.Fatal("J5005/UHD605 not observed")}
+	if s.GPUs[0].MdevTypes!=0||s.SharingPolicy!="NOT_QUALIFIED" {t.Fatal("fabricated iGPU sharing support")}
+	if s.HostMode!="FIXTURE_NOT_HARDWARE" {t.Fatal("fixture labeled HIL")}
+}
