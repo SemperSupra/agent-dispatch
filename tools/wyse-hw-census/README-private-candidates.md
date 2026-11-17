@@ -11,3 +11,10 @@ The inventory generation SHA changes with hotplug/topology. Any previous candida
 PrivateOwnerInventory requires the synthetic caller values owner + local_unix_verified; in production these assertions MUST be derived from Unix peer credentials by the existing private #333 controller, not supplied by the caller. Do not serialize HostInventory over a remote API, OpenAPI, logs, error messages or public GHA. ProjectGuestView is a separate type with only guest-assigned virtual handles, never host IOMMU/PCI/USB presence. Guests with privileged access can still enumerate devices that have been explicitly attached to their own guest.
 
 R43 parent #384 is the accepted capability-only source; R45 private policy #395 owns this additive contract. First real six-node G0 read-only census remains NOT_TESTED and requires local owner-controlled execution and private result custody. No production network, firmware, storage, GPU or USB changes.
+
+
+## Owner-local report workflow (future physical G0 only)
+
+The optional statically built Linux/AMD64 CLI `cmd/wyse-private-candidates` is deliberately **not** a remote API. Its code requires local UID 0, preprovisioned root-owned 0700 directories `/run/wyse` and `/run/wyse/private`, and a verified tmpfs `/run` mount. It writes exactly one new 0600 generation-stamped inventory JSON under `/run/wyse/private` using an exclusive create; it never overwrites, edits host devices, logs a PCI/USB count or emits a JSON payload to stdout. The owner/fleet controller must decide whether and how a private, device-authenticated collection channel transports/archives that file; no such channel is implemented here. The local file is temporary, not evidence of off-host durable custody.
+
+This CLI is **built but has not run on any Wyse**. Do not enable it on live hosts without G0 entry approval and a private report destination. Existing eMMC and SATA remain untouched.
