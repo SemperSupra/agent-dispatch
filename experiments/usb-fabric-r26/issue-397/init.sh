@@ -60,7 +60,14 @@ if [ "$status" = 0 ];then echo R26_N5B_REAL_GUEST_USB_CCID_APDU_ORACLE=PASS;else
 if [ "$status" != 0 ];then
  echo R26_N5B_PCSC_DAEMON_DIAGNOSTIC_BEGIN
  echo "R26_N5B_PCSC_LOG_BYTES=$(/bin/busybox wc -c </tmp/pcscd.log)"
-/bin/busybox tail -n 50 /tmp/pcscd.log 2>/dev/null || true
+echo R26_N5B_PCSC_INITIAL_DRIVER_LOG
+/bin/busybox head -n 55 /tmp/pcscd.log 2>/dev/null || true
+echo R26_N5B_PCSC_LAST_CLIENT_LOG
+/bin/busybox tail -n 15 /tmp/pcscd.log 2>/dev/null || true
+echo R26_N5B_GUEST_UDEV_LOG
+/bin/busybox head -n 12 /tmp/r26-udevd.log 2>/dev/null || true
+/bin/busybox head -n 12 /tmp/r26-udev-trigger.log 2>/dev/null || true
+/bin/busybox head -n 12 /tmp/r26-udev-settle.log 2>/dev/null || true
 echo R26_N5B_PCSC_RESCAN_DIAGNOSTIC
 /bin/busybox tail -n 20 /tmp/pcsc-hotplug.log 2>/dev/null || true
  echo R26_N5B_PCSC_DAEMON_DIAGNOSTIC_END
