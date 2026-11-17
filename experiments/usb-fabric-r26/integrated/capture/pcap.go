@@ -9,7 +9,6 @@ import (
  "encoding/hex"
  "errors"
  "fmt"
- "sort"
 )
 
 type Summary struct {
@@ -26,6 +25,7 @@ type Summary struct {
  Status map[string]int `json:"statuses"`
  Controls map[string]int `json:"control_requests"`
  MatchedURBs int `json:"matched_noncontrol_urbs"`
+ RepeatedSubmits int `json:"repeated_same_urb_submits"`
  UnmatchedSubmits int `json:"unmatched_submits"`
  OrphanCompletions int `json:"orphan_completions"`
  HIDReports int `json:"hid_boot_reports"`
@@ -125,10 +125,17 @@ func Decode(b []byte) (Summary,error) {
   }
   if transfer!=2 {
    if event=="S" {
-    if _,exists:=inflight[id];exists {
-     return s,fmt.Errorf("duplicate outstanding URB id %d",id)
+    if prior,exists:=inflight[id];exists {
+     // QEMU can log multiple S events for the same URB after a device
+     // answers NAK. There may be no completion record for the NAK attempt;
+     // the same transfer is retried. A conflicting identity is still fatal.
+     if prior.endpoint!=endpoint || prior.transfer!=transfer {
+      return s,fmt.Errorf("conflicting outstanding URB id %d",id)
+     }
+     s.RepeatedSubmits++
+    }else{
+     inflight[id]=inFlight{endpoint:endpoint,transfer:transfer}
     }
-    inflight[id]=inFlight{endpoint:endpoint,transfer:transfer}
    }else{
     original,ok:=inflight[id]
     if !ok {s.OrphanCompletions++}else{
@@ -155,8 +162,5 @@ func Decode(b []byte) (Summary,error) {
  }
  s.UnmatchedSubmits=len(inflight)
  if last>=first && first>=0{s.DurationMS=float64(last-first)/1000.0}
- // Deterministic encoder doesn't depend on map iteration ordering, but
- // enumerate keys to guard against accidentally logging raw descriptors.
- _=sort.Strings
  return s,nil
 }
