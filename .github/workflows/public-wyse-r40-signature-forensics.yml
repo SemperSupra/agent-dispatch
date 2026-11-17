@@ -1,0 +1,61 @@
+name: Public Wyse R40 disposable EFI Authenticode signature forensics
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r39-uki-repro]
+    paths:
+      - '.github/workflows/public-wyse-r40-signature-forensics.yml'
+      - 'scripts/public_wyse_r40_signing_metadata.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r40-signature-forensics
+  cancel-in-progress: false
+jobs:
+  signature-metadata:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r40-signature-forensics'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Read-only syntactic preflight
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r40_signing_metadata.sh
+          echo R40_SYNTACTIC_ADMISSION=PASS
+      - name: Install only ephemeral PE/EFI and signature tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            grub-efi-amd64-bin grub-common grub-pc-bin sbsigntool openssl
+          command -v grub-mkstandalone
+          command -v sbsign
+          command -v sbverify
+          command -v sbattach
+          echo R40_SYNTHETIC_EFI_SIGNATURE_TOOLCHAIN=PASS
+      - name: Qualify exact same unsigned payload with timed disposable signatures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r40_signing_metadata.sh
+          test -s evidence/public/r40-signature-metadata.txt
+          grep -Fxq 'R40_SIGNATURES_VERIFY=PASS' evidence/public/r40-signature-metadata.txt
+          grep -Fxq 'R40_OWNER_KEYS_HARDWARE_AND_MEDIA=NOT_TESTED' evidence/public/r40-signature-metadata.txt
+          test "$(grep -Ec '^R40_SIGNED_[ABC]_SHA256=[a-f0-9]{64}$' evidence/public/r40-signature-metadata.txt)" -eq 3
+          echo R40_SIGNED_METADATA_RECEIPT_SCHEMA=PASS
+          cat evidence/public/r40-signature-metadata.txt
+      - name: Publish ONLY bounded text metadata, no images, test keys or binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wyse-r40-synthetic-signature-forensics-text
+          path: evidence/public/r40-signature-metadata.txt
+          if-no-files-found: warn
+          retention-days: 7
