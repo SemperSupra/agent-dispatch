@@ -50,7 +50,7 @@ def decide(abi, api, settings_started, settings_foreground, battery_level):
         return False, "EMULATED_BATTERY_ORACLE_FAILED"
     return True, "BOUNDED_ANDROID_EMULATOR_SETTINGS_AND_BATTERY_PASS"
 
-def smoke(label):
+def smoke(label, live_probe=None):
     ev = {"runner": label, "expected_api": 35, "expected_abi": "x86_64",
           "emulator_acceleration": "NOT_TESTED",
           "settings_activity": "NOT_TESTED", "battery_simulation": "NOT_TESTED"}
@@ -185,7 +185,22 @@ def smoke(label):
             ev["battery_simulation"]="OBSERVED_LEVEL_73" if level==73 else "NOT_PROVEN"
             ev["battery_oracle_source"]=battery_source
             passed,reason=decide(abi.strip(),api.strip(),launch==0,foreground,level)
-            return safe_result(ev,"SUPPORTED" if passed else "ORACLE_FAILURE",reason)
+            base=safe_result(ev,"SUPPORTED" if passed else "ORACLE_FAILURE",reason)
+            if not passed or live_probe is None:return base
+            # Explicit opt-in hook available only while the disposable AVD
+            # is booted; parent R49 behavior is unchanged without a hook.
+            try: result=live_probe(adb_run,sdk,env)
+            except Exception as exc:
+                ev["app_probe_exception_type"]=type(exc).__name__
+                return safe_result(ev,"HARNESS_FAILURE","LIVE_APP_PROBE_EXCEPTION")
+            if not isinstance(result,dict) or not isinstance(result.get("evidence"),dict):
+                return safe_result(ev,"HARNESS_FAILURE","LIVE_APP_PROBE_INVALID_RESULT")
+            for k,v in result["evidence"].items():
+                if not k.startswith("r50_"):
+                    return safe_result(ev,"HARNESS_FAILURE","LIVE_APP_PROBE_EVIDENCE_NAMESPACE")
+                ev[k]=v
+            return safe_result(ev,result.get("classification","ORACLE_FAILURE"),
+                               result.get("reason","LIVE_APP_PROBE_NO_VERDICT"))
         finally:
             if serial:
                 adb_run("shell","dumpsys","battery","reset",timeout=5)

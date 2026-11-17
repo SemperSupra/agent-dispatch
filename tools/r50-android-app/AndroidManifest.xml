@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.sempersupra.r50">
+  <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35"/>
+  <application android:label="R50 Companion Synthetic Test"
+      android:allowBackup="false" android:debuggable="true"
+      android:usesCleartextTraffic="false">
+    <activity android:name="com.sempersupra.r50.CompanionActivity"
+        android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
