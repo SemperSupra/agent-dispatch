@@ -29,8 +29,13 @@ jobs:
   real-core-simulator:
     needs: offline-contract
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-r49-ios-coresimulator'
-    runs-on: macos-26-intel
-    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner: [macos-26-intel, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -40,7 +45,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p "$RUNNER_TEMP/r49-ios"
-          python3 scripts/r49_ios_simulator_smoke.py --label macos-26-intel \
+          python3 scripts/r49_ios_simulator_smoke.py --label ${{ matrix.runner }} \
             --out "$RUNNER_TEMP/r49-ios/receipt.json"
           python3 - "$RUNNER_TEMP/r49-ios/receipt.json" <<'PY'
           import json,sys
@@ -57,7 +62,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: r49-ios-simulator-primitive-receipt
+          name: r49-ios-simulator-${{ matrix.runner }}-primitive-receipt
           path: ${{ runner.temp }}/r49-ios/receipt.json
           if-no-files-found: warn
           retention-days: 7
