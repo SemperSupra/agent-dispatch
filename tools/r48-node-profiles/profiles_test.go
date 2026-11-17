@@ -21,6 +21,8 @@ func TestSafeArchitectureAndPlatformCandidates(t *testing.T){
   {"amd64-pc",base("pc","amd64","uefi","Generic UEFI PC"),native(),"NATIVE_LINUX_CANDIDATE"},
   {"amd64-server",base("server","amd64","legacy_bios","Server BIOS Node"),native(),"NATIVE_LINUX_CANDIDATE"},
   {"generic-arm64",base("generic-arm64","arm64","vendor_qualified","Generic Arm64"),native(),"NATIVE_LINUX_CANDIDATE"},
+  {"arm64-server",base("server","arm64","uefi","ARM64 UEFI Server"),native(),"NATIVE_LINUX_CANDIDATE"},
+  {"arm64-laptop",base("laptop","arm64","uefi","ARM64 UEFI Laptop"),native(),"NATIVE_LINUX_CANDIDATE"},
  }
  for _,tc:=range cases{
   t.Run(tc.name,func(t *testing.T){
@@ -80,7 +82,7 @@ func TestUntrustedModelClaimsAndCrossArchitectureDenied(t *testing.T){
   {"amd64-pi",base("rpi5","amd64","sd","Pi 5"),native()},
   {"foreign-jetpack-on-pi",func()Hardware{h:=base("rpi5","arm64","sd","Pi 5");h.JetPackMajor=7;return h}(),native()},
   {"jetson-without-bsp",base("jetson-orin","arm64","jetson_vendor_bsp_uefi","Jetson Orin"),native()},
-  {"arm64-x86-uefi",base("pc","arm64","uefi","Generic PC"),native()},
+  {"arm64-pc-legacy-bios",base("pc","arm64","legacy_bios","ARM64 Legacy BIOS"),native()},
   {"generic-unknown-model",base("random","arm64","vendor_qualified","Random SBC"),native()},
   {"no-recovery",func()Hardware{h:=base("rpi5","arm64","sd","Pi 5");h.RecoveryQualified=false;return h}(),native()},
   {"stale-hardware-generation",func()Hardware{h:=base("rpi5","arm64","sd","Pi 5");h.HardwareGeneration="old";return h}(),native()},
