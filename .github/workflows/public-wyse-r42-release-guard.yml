@@ -1,0 +1,60 @@
+name: Public Wyse R42 offline Go release-state admission qualifier
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/public-wyse-r42-release-guard.yml'
+      - 'tools/wyse-release-guard/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r42-release-guard
+  cancel-in-progress: false
+jobs:
+  plan-only-state-machine:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r42-release-guard'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install public Go compiler, no external project dependencies
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y golang-go
+          go version
+      - name: Qualify all adjacent synthetic transitions and negative mutations
+        shell: bash
+        working-directory: tools/wyse-release-guard
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+        run: |
+          set -Eeuo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          echo R42_SYNTHETIC_STATE_TRANSITION_AND_NEGATIVES=PASS
+      - name: Prove CLI fails closed on malformed and unknown JSON
+        shell: bash
+        working-directory: tools/wyse-release-guard
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+        run: |
+          set -Eeuo pipefail
+          h=$(printf '%064d' 0)
+          printf '{"schema_version":1,"intent":"SYNTHETIC_PLAN_ONLY","release_id":"release-001","operation_id":"op-002","previous_state":"UNBUILT","state":"BUILT_UNSIGNED","source_sha256":"%s","unsigned_uki_sha256":"%s"}\n' "$h" "$h" \
+            | go run ./cmd/wyse-release-guard | grep -Fq 'R42_RELEASE_GUARD=SYNTHETIC_PLAN_PASS;PRODUCTION_ATTESTATION=NOT_TESTED'
+          if printf '{"foo":"bar"}\n' | go run ./cmd/wyse-release-guard > /tmp/r42-negative.txt 2>&1; then
+            echo R42_UNKNOWN_FIELD_FAIL_OPEN=RED
+            exit 41
+          fi
+          grep -Fq 'R42_RELEASE_GUARD=DENIED:' /tmp/r42-negative.txt
+          echo R42_CLI_JSON_DENIAL_AND_NO_PRODUCTION_CLAIM=PASS
