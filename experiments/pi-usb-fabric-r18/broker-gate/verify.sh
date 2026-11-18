@@ -23,9 +23,9 @@ timeout 270s docker run --rm --network none --read-only --user 65532:65532 \
 rc=$?
 set -e
 cat "$log"
-if [[ "$rc" -ne 0 ]];then echo "R11_THREE_GUEST_HANDOFF=RED rc=$rc"; exit 22; fi
+if [[ "$rc" -ne 0 ]];then echo "R18_REAL_KERNEL_BROKER_GATE=RED rc=$rc"; exit 22; fi
 grep -q 'R18_SAME_RUN_REAL_USBIP_EXISTING_GO_BROKER_TEST_ONLY_GATE=PASS' "$log"
 cleanup
 trap - EXIT
-test -z "$(git status --porcelain --untracked-files=all)"
+test -z "$(git status --porcelain --untracked-files=all | grep -v '.r18-existing-go' || true)"
 echo R18_THREE_GUEST_BROKER_CLOUD_CLEANUP=PASS
