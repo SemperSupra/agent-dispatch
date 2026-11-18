@@ -20,6 +20,7 @@ import (
 // establishes the next signed-guest scope and journal sequence.
 func (a *actuator)bindGuestLease(lease blue.Lease)error {
  if !a.scoped{return nil}
+ if a.runtimeMode{return a.bindRuntimeGuestLease(lease)}
  state,err:=a.journal.Read()
  if err!=nil{return err}
  if state.Held||state.ReleasePhase!=""||a.receiptConn==nil {
