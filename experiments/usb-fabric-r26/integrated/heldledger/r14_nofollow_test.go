@@ -6,7 +6,6 @@ import (
  "os"
  "path/filepath"
  "runtime"
- "strings"
  "sync"
  "testing"
 )
@@ -35,6 +34,7 @@ func TestR14ConcurrentJournalSymlinkReplacementNeverAdmitsTarget(t *testing.T) {
  regular:=filepath.Join(dir,"regular.json")
  safe:=[]byte("{\"version\":1,\"sequence\":7,\"held\":true,\"key\":\"key-a\"}\n")
  if err:=os.WriteFile(regular,safe,0600);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(link,safe,0600);err!=nil{t.Fatal(err)}
  tmp:=filepath.Join(dir,"link-next")
  if err:=os.Symlink(clean,tmp);err!=nil{t.Fatal(err)}
  // Swapper repeatedly atomically replaces the visible journal with a
@@ -68,5 +68,4 @@ func TestR14ConcurrentJournalSymlinkReplacementNeverAdmitsTarget(t *testing.T) {
  if err!=nil||!bytes.Equal(got,original){t.Fatalf("R14_TARGET_CHANGED: %v",err)}
  t.Log("R14_CONCURRENT_JOURNAL_SYMLINK_SWAP_REJECTED=PASS")
  t.Log("R14_JOURNAL_TARGET_BYTES_UNCHANGED=PASS")
- _=strings.Contains
 }
