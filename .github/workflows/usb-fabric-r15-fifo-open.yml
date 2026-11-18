@@ -1,0 +1,35 @@
+name: USB Fabric R15 nonblocking journal FIFO critic
+on:
+  push:
+    branches: [test/issue-455-journal-fifo-nonblock]
+    paths:
+      - '.github/workflows/usb-fabric-r15-fifo-open.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/usb-fabric-r15-fifo-open.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+permissions:
+  contents: read
+jobs:
+  fifo-critic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline Go race and vet for journal FIFO swap
+        working-directory: experiments/usb-fabric-r26/integrated
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOTOOLCHAIN: "local"
+          GOSUMDB: "off"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./heldledger
+          go vet ./heldledger
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R15_JOURNAL_FIFO_NO_TAINT=PASS
