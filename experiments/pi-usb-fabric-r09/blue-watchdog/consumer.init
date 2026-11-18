@@ -65,10 +65,19 @@ if [ "$discovered" = yes ]; then
               if /usr/sbin/usbip detach --port 0; then
                 echo R09_BLUE_FORCED_USBIP_DETACH=PASS
                 for probe in 1 2 3 4 5; do
-                  /usr/sbin/usbip port >/tmp/r09-blue-port.txt 2>&1 || :
-                  if ! grep -q '<Port in Use>' /tmp/r09-blue-port.txt; then
+                  if /usr/sbin/usbip port >/tmp/r09-blue-port.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r09-blue-port.txt; then
                     echo R09_BLUE_VHCI_PORT_QUIESCENT=PASS
-                    exit 0
+                    removed=no
+                    for wait in 1 2 3 4 5; do
+                      if ! grep -q 'USBFabric SyntheticHID' /proc/bus/input/devices; then removed=yes; break; fi
+                      sleep 1
+                    done
+                    if [ "$removed" = yes ]; then
+                      echo R09_BLUE_IMPORTED_HID_DEVICE_REMOVED=PASS
+                      exit 0
+                    fi
+                    echo R09_BLUE_IMPORTED_HID_DEVICE_REMOVED=RED
+                    exit 19
                   fi
                   sleep 1
                 done
