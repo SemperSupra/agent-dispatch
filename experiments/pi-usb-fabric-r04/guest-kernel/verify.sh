@@ -21,6 +21,10 @@ timeout 210s docker run --rm --network none --read-only --user 65532:65532 \
 cat /tmp/r04-guest.log
 grep -q USBFABRIC_R04_GUEST_BOOT=PASS /tmp/r04-guest.log
 grep -q USBFABRIC_R04_GUEST_PROBE_END=YES /tmp/r04-guest.log
+if ! grep -q USBFABRIC_R04_VUDC_NUM1_LOAD=PASS /tmp/r04-guest.log || ! grep -q USBFABRIC_R04_CONFIGFS_MOUNT=PASS /tmp/r04-guest.log || ! grep -q usbip-vudc.0 /tmp/r04-guest.log; then
+  echo USBFABRIC_R04_VUDC_REGISTERED_CONTROLLER=RED; exit 26
+fi
+echo USBFABRIC_R04_VUDC_REGISTERED_CONTROLLER=PASS
 grep -q USBFABRIC_R04_REAL_USBIP_URB=NOT_TESTED /tmp/r04-guest.log
 if grep -q 'USBFABRIC_R04_MODULE_usbip_vudc=FAILED' /tmp/r04-guest.log ||
    grep -q 'USBFABRIC_R04_MODULE_vhci_hcd=FAILED' /tmp/r04-guest.log; then
