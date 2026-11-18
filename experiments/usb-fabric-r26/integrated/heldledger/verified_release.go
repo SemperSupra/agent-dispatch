@@ -86,6 +86,7 @@ func (s Store) ConfirmGuestRelease(expected uint64,c ReleaseClaim,verify Release
  if !state.Held || state.Sequence!=expected || state.ReleasePhase!="qmp-acked" ||
   !c.valid() ||
   c.ReleaseSequence!=state.Sequence || verify==nil ||
+  c.DownEventSequence<=state.LastReleaseEventSequence ||
   c.EventSequence<=state.LastReleaseEventSequence {
   return State{},ErrUnverified
  }
