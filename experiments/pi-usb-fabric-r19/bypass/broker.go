@@ -145,8 +145,11 @@ func run()error{
   return fmt.Errorf("R18_EARLY_B_ADMISSION=%v",err)
  }
  fmt.Println("R18_GUEST_TRANSPORT_SIGNAL_NOT_AUTHORIZED_FOR_REASSIGNMENT=PASS")
- // The provider will consume this first host-only serial command
- // while the journal remains fsynced HELD=true. It may not allow B yet.
+ // Wait until the provider has *actually opened* the secondary guest
+ // serial receiver. QEMU's ISA UART is NOT a buffered message queue,
+ // so writing before the guest reads can discard this command.
+ if err=wait(p,deadline,"R19_PROVIDER_TEST_HOST_PREPARATION_WAIT=PASS");err!=nil{return err}
+ fmt.Println("R19_HOST_CONFIRMED_PROVIDER_SERIAL_RECEIVER_READY=PASS")
  if err=c.SetWriteDeadline(time.Now().Add(5*time.Second));err!=nil{return err}
  if _,err=c.Write([]byte("PREPARE_BYPASS\n"));err!=nil{return err}
  fmt.Println("R19_HOST_GO_LEDGER_HELD_BEFORE_UNTRUSTED_CLIENT_PROBE=PASS")
