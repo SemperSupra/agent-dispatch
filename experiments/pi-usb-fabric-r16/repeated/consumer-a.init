@@ -1,0 +1,170 @@
+#!/bin/sh
+# Independent USB/IP consumer QEMU guest. No local gadget exists.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p /proc /sys /dev /var/run /tmp
+mount -t proc proc /proc || :
+mount -t sysfs sysfs /sys || :
+mount -t devtmpfs devtmpfs /dev || :
+echo R08_CONSUMER_DISTINCT_KERNEL_BOOT=PASS >/dev/console
+uname -r >/dev/console
+for m in usbip_core vhci_hcd usbhid hid_generic evdev e1000; do
+ if modprobe "$m" >/dev/console 2>&1; then
+  echo "R08_CONSUMER_MODULE_$m=PASS" >/dev/console
+ else
+  echo "R08_CONSUMER_MODULE_$m=RED" >/dev/console
+ fi
+done
+if /bin/busybox ip addr add 10.77.0.2/24 dev eth0 >/dev/console 2>&1 && /bin/busybox ip link set eth0 up >/dev/console 2>&1; then
+ echo R08_CONSUMER_ETHERNET=PASS >/dev/console
+else
+ echo R08_CONSUMER_ETHERNET=RED >/dev/console
+fi
+/bin/busybox ip link set lo up >/dev/console 2>&1 || :
+# Never fall back to 127.0.0.1 or a same-kernel virtual port.
+discovered=no
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+ if /usr/sbin/usbip list --remote 10.77.0.1 > /tmp/r08-list.txt 2>&1 && grep -q usbip-vudc.0 /tmp/r08-list.txt; then discovered=yes; break; fi
+ sleep 1
+done
+cat /tmp/r08-list.txt >/dev/console
+if [ "$discovered" = yes ]; then
+ echo R08_CONSUMER_REMOTE_PROVIDER_DISCOVERED=PASS >/dev/console
+ if /usr/sbin/usbip attach --remote 10.77.0.1 --busid usbip-vudc.0 >/tmp/r08-attach.txt 2>&1; then
+  attached=no
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+   /usr/sbin/usbip port >/tmp/r08-port.txt 2>&1 || :
+   if grep -q '10.77.0.1:3240/usbip-vudc.0' /tmp/r08-port.txt; then attached=yes; break; fi
+   sleep 1
+  done
+  cat /tmp/r08-port.txt >/dev/console
+  if [ "$attached" = yes ]; then
+   echo R08_CONSUMER_REAL_REMOTE_VHCI_ATTACH=PASS >/dev/console
+   eventdev=""
+   for i in 1 2 3 4 5 6 7 8 9 10; do
+    eventdev="$(/bin/busybox awk '/Name="USBFabric SyntheticHID"/{matched=1;next} matched && /Handlers=/ {for(i=1;i<=NF;i++)if($i ~ /^event[0-9]+$/){print $i;exit}}' /proc/bus/input/devices)"
+    if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then break; fi
+    sleep 1
+   done
+   if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then
+    echo "R08_CONSUMER_REAL_EVDEV_PATH=/dev/input/$eventdev" >/dev/console
+    /usr/bin/hid_evdev_observer "/dev/input/$eventdev" >/tmp/r08-evdev.txt 2>&1 &
+    observerpid="$!"
+    sleep 1
+    /bin/busybox printf 'GO\n' | /bin/busybox nc -w 2 10.77.0.1 3333 >/tmp/r08-control.txt 2>&1 || :
+    if wait "$observerpid"; then
+     cat /tmp/r08-evdev.txt >/dev/console
+     echo R08_CONSUMER_REAL_REMOTE_HID_DATA=PASS >/dev/console
+     # Hold this actual VHCI port for consumer B's independent failed import.
+     if /bin/busybox nc -l -p 3336 >/tmp/r10-release.txt 2>/dev/console && grep -qx RELEASE /tmp/r10-release.txt; then
+       echo R10_CONSUMER_A_HELD_UNTIL_B_RESULT=PASS >/dev/console
+     else
+       echo R10_CONSUMER_A_HELD_UNTIL_B_RESULT=RED >/dev/console
+     fi
+    else
+     cat /tmp/r08-evdev.txt >/dev/console
+     echo R08_CONSUMER_REAL_REMOTE_HID_DATA=RED >/dev/console
+    fi
+   else
+    echo R08_CONSUMER_REAL_REMOTE_HID_DATA=RED >/dev/console
+   fi
+  else
+   echo R08_CONSUMER_REAL_REMOTE_VHCI_ATTACH=RED >/dev/console
+  fi
+  if /usr/sbin/usbip detach --port 0 >/dev/console 2>&1; then
+   echo R08_CONSUMER_DETACH=PASS >/dev/console
+   released=no
+   for tick in 1 2 3 4 5 6 7 8 9 10; do
+    if /usr/sbin/usbip port >/tmp/r11-a-port.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r11-a-port.txt; then released=yes; break; fi
+    sleep 1
+   done
+   if [ "$released" = yes ]; then
+    echo R11_CONSUMER_A_ACTUAL_VHCI_QUIESCENT=PASS >/dev/console
+    confirmed=no
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     if /bin/busybox printf 'A_DETACHED\n' | /bin/busybox nc -w 2 10.77.0.1 3339 >/tmp/r11-a-confirm.txt 2>&1; then confirmed=yes; break; fi
+     sleep 1
+    done
+    if [ "$confirmed" = yes ]; then echo R11_CONSUMER_A_RELEASE_RECEIPT_SENT=PASS >/dev/console; else echo R11_CONSUMER_A_RELEASE_RECEIPT_SENT=RED >/dev/console; fi
+   else
+    echo R11_CONSUMER_A_ACTUAL_VHCI_QUIESCENT=RED >/dev/console
+   fi
+  else
+   echo R08_CONSUMER_DETACH=RED >/dev/console
+  fi
+ else
+  cat /tmp/r08-attach.txt >/dev/console
+  echo R08_CONSUMER_REAL_REMOTE_VHCI_ATTACH=RED >/dev/console
+ fi
+else
+ echo R08_CONSUMER_REMOTE_PROVIDER_DISCOVERED=RED >/dev/console
+fi
+# Third transfer: after A's first detach and B's successful independent
+# attach+evdev+detach, A reimports the SAME provider VUDC and sees fresh keys.
+if /bin/busybox timeout 40 /bin/busybox nc -l -p 3342 >/tmp/r16-a-retry.txt 2>/dev/console && grep -qx RETRY_A /tmp/r16-a-retry.txt; then
+ echo R16_CONSUMER_A_SECOND_IMPORT_BARRIER=PASS >/dev/console
+ if /bin/busybox timeout 12 /usr/sbin/usbip attach --remote 10.77.0.1 --busid usbip-vudc.0 >/tmp/r16-a-second-attach.txt 2>&1; then
+  attached=no
+  for tick in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+   if /usr/sbin/usbip port >/tmp/r16-a-second-port.txt 2>&1 && grep -q '10.77.0.1:3240/usbip-vudc.0' /tmp/r16-a-second-port.txt; then attached=yes; break; fi
+   sleep 1
+  done
+  if [ "$attached" = yes ]; then
+   echo R16_CONSUMER_A_SECOND_REAL_IMPORT=PASS >/dev/console
+   eventdev=""
+   for tick in 1 2 3 4 5 6 7 8 9 10; do
+    eventdev="$(/bin/busybox awk '/Name="USBFabric SyntheticHID"/{matched=1;next} matched && /Handlers=/ {for(i=1;i<=NF;i++)if($i ~ /^event[0-9]+$/){print $i;exit}}' /proc/bus/input/devices)"
+    if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then break; fi
+    sleep 1
+   done
+   if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then
+    /usr/bin/hid_evdev_observer "/dev/input/$eventdev" >/tmp/r16-a-evdev.txt 2>&1 &
+    observerpid="$!"
+    sleep 1
+    go=no
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     if /bin/busybox printf 'GO_A2\n' | /bin/busybox nc -w 2 10.77.0.1 3343 >/tmp/r16-a-go.txt 2>&1; then go=yes; break; fi
+     sleep 1
+    done
+    if [ "$go" = yes ]; then echo R16_CONSUMER_A_THIRD_HID_REQUEST=PASS >/dev/console; else echo R16_CONSUMER_A_THIRD_HID_REQUEST=RED >/dev/console; fi
+    if wait "$observerpid"; then
+     cat /tmp/r16-a-evdev.txt >/dev/console
+     echo R16_CONSUMER_A_SECOND_INDEPENDENT_EVDEV=PASS >/dev/console
+    else
+     cat /tmp/r16-a-evdev.txt >/dev/console
+     echo R16_CONSUMER_A_SECOND_INDEPENDENT_EVDEV=RED >/dev/console
+    fi
+   else
+    echo R16_CONSUMER_A_SECOND_INDEPENDENT_EVDEV=RED >/dev/console
+   fi
+  else
+   echo R16_CONSUMER_A_SECOND_REAL_IMPORT=RED >/dev/console
+  fi
+  if /usr/sbin/usbip detach --port 0 >/dev/console 2>&1; then
+   clear=no
+   for tick in 1 2 3 4 5 6 7 8 9 10; do
+    if /usr/sbin/usbip port >/tmp/r16-a-final-port.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r16-a-final-port.txt; then clear=yes; break; fi
+    sleep 1
+   done
+   if [ "$clear" = yes ]; then
+    echo R16_CONSUMER_A_FINAL_PORT_CLEAR=PASS >/dev/console
+    sent=no
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     if /bin/busybox printf 'A2_DETACHED\n' | /bin/busybox nc -w 2 10.77.0.1 3344 >/tmp/r16-a-done.txt 2>&1; then sent=yes; break; fi
+     sleep 1
+    done
+    if [ "$sent" = yes ]; then echo R16_CONSUMER_A_FINAL_RECEIPT_SENT=PASS >/dev/console; else echo R16_CONSUMER_A_FINAL_RECEIPT_SENT=RED >/dev/console; fi
+   else
+    echo R16_CONSUMER_A_FINAL_PORT_CLEAR=RED >/dev/console
+   fi
+  else
+   echo R16_CONSUMER_A_FINAL_PORT_CLEAR=RED >/dev/console
+  fi
+ else
+  echo R16_CONSUMER_A_SECOND_REAL_IMPORT=RED >/dev/console
+ fi
+else
+ echo R16_CONSUMER_A_SECOND_IMPORT_BARRIER=RED >/dev/console
+fi
+echo R08_CONSUMER_FINISHED=YES >/dev/console
+sync
+poweroff -f || reboot -f
