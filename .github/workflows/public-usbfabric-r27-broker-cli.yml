@@ -1,0 +1,28 @@
+name: USB Fabric R27 - kernel peer-authenticated guarded port CLI on actual QEMU
+on:
+  push:
+    branches: [test/issue-429-r27-broker-cli-status]
+    paths:
+      - '.github/workflows/public-usbfabric-r27-broker-cli.yml'
+      - 'experiments/usb-fabric-r26/integrated/**'
+      - 'experiments/usb-fabric-r26/releasegate/**'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r27-broker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  actual-linux-guest-guarded-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real QEMU guest port status before lease and post-detach, peer creds, negative cases
+        shell: bash
+        run: bash experiments/usb-fabric-r26/integrated/r27_broker_cli_verify.sh
