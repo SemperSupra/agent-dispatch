@@ -15,7 +15,7 @@ DOCKER_BUILDKIT=1 docker build --no-cache --build-arg "BASE=$base" \
 timeout 210s docker run --rm --network none --read-only --user 65532:65532 \
  --cap-drop ALL --security-opt no-new-privileges --memory 2048m --cpus 2 --pids-limit 128 \
  --tmpfs /tmp:rw,nosuid,nodev,size=32m,mode=1777 "$image" > "$RUNNER_TEMP/r06-transport.log" 2>&1 || {
- tail -n 140 "$RUNNER_TEMP/r06-transport.log"; echo USBFABRIC_R05_GUEST_BOOT_OR_GADGET=RED; exit 21; }
+ tail -n 140 "$RUNNER_TEMP/r06-transport.log"; echo USBFABRIC_R06_GUEST_BOOT_OR_IMPORT=RED; exit 21; }
 tail -n 160 "$RUNNER_TEMP/r06-transport.log"
 for oracle in USBFABRIC_R04_GUEST_BOOT=PASS USBFABRIC_R04_PROC_MOUNT=PASS \
  USBFABRIC_R04_SYSFS_MOUNT=PASS USBFABRIC_R04_VUDC_NUM1_LOAD=PASS \
@@ -25,10 +25,10 @@ for oracle in USBFABRIC_R04_GUEST_BOOT=PASS USBFABRIC_R04_PROC_MOUNT=PASS \
  USBFABRIC_R06_REAL_VHCI_IMPORT=PASS USBFABRIC_R06_TRANSPORT_PROBE_END=YES \
  USBFABRIC_R05_GADGET_PROBE_END=YES; do
   if ! grep -q "$oracle" "$RUNNER_TEMP/r06-transport.log"; then
-    echo "R05_MISSING_ORACLE=$oracle"; exit 22
+    echo "R06_MISSING_ORACLE=$oracle"; exit 22
   fi
 done
-grep -q "^.*usbip-vudc.0" "$RUNNER_TEMP/r06-transport.log" || { echo USBFABRIC_R05_UDC_NOT_ENUMERATED=RED; exit 23; }
+grep -q "^.*usbip-vudc.0" "$RUNNER_TEMP/r06-transport.log" || { echo USBFABRIC_R06_UDC_NOT_ENUMERATED=RED; exit 23; }
 echo USBFABRIC_R06_REAL_GUEST_USBIP_VUDC_VHCI=PASS
 echo USBFABRIC_R06_EVDEV_REPORT_TRANSFER=NOT_TESTED
 cleanup
