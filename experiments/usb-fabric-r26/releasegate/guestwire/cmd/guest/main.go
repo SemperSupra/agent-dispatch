@@ -82,10 +82,10 @@ func run()error {
   if down {
    seenDown=true
    fmt.Println("R26_L8_REAL_GUEST_VIRTIO_EVDEV_DOWN_SENT=PASS")
-   if cycle==1{fmt.Println("R26_L9B_SECOND_ACTUAL_GUEST_EVDEV_DOWN=PASS")}
+   if cycle==1{if scoped{fmt.Println("R26_L9C_SECOND_ACTUAL_GUEST_EVDEV_DOWN=PASS")}else{fmt.Println("R26_L9B_SECOND_ACTUAL_GUEST_EVDEV_DOWN=PASS")}}
   }else{
    fmt.Println("R26_L8_REAL_GUEST_VIRTIO_EVDEV_UP_SENT=PASS")
-   if cycle==1{fmt.Println("R26_L9B_SECOND_ACTUAL_GUEST_EVDEV_UP=PASS")}
+   if cycle==1{if scoped{fmt.Println("R26_L9C_SECOND_ACTUAL_GUEST_EVDEV_UP=PASS")}else{fmt.Println("R26_L9B_SECOND_ACTUAL_GUEST_EVDEV_UP=PASS")}}
    lastUp=receipt
    cycle++
    if cycle>=2{
