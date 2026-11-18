@@ -158,7 +158,9 @@ func run()error{
  // host-only ALLOW_B channel. A noncooperative B can nevertheless invoke
  // native usbip attach because the provider still exports bound VUDC.
  // Require its ACTUAL kernel VHCI occupied before reporting a bypass.
+ if err=wait(p,deadline,"R18_PROVIDER_POST_A_DETACH_ATTACK_BARRIER=PASS");err!=nil{return err}
  if err=wait(b,deadline,
+  "R18_B_FIRST_ATTACK_AFTER_A_DETACH=PASS",
   "R18_NONCOOPERATIVE_B_REAL_USBIP_VHCI_ATTACHED=PASS",
   "R18_RAW_USBIP_DIRECT_B_ATTACH_BEFORE_HOST_GO=RED");err!=nil{return err}
  still,err:=journal.Read()
