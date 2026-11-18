@@ -1,0 +1,33 @@
+name: Pi USB Fabric R11 real 3 Linux guest USBIP handoff
+on:
+  push:
+    branches: [test/issue-450-pi-usbip-handoff]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r11-handoff.yml'
+      - 'experiments/pi-usb-fabric-r11/handoff/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r11-handoff.yml'
+      - 'experiments/pi-usb-fabric-r11/handoff/**'
+permissions:
+  contents: read
+jobs:
+  three-guest-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require B denied while A attached and admit B only after actual A detach
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r11/handoff/verify.sh
+      - name: Preserve actual guest serial data-plane and failure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r11-handoff-serial
+          path: ${{ runner.temp }}/r11-handoff.log
+          retention-days: 7
+          if-no-files-found: warn
