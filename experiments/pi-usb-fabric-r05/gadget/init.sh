@@ -49,6 +49,7 @@ else
   echo SyntheticHID > "$g/strings/0x409/product"
   echo HIDtest > "$g/configs/c.1/strings/0x409/configuration"
   echo 100 > "$g/configs/c.1/MaxPower"
+  if modprobe usb_f_hid >/dev/console 2>&1; then echo USBFABRIC_R05_HID_FUNCTION_MODULE=PASS >/dev/console; else echo USBFABRIC_R05_HID_FUNCTION_MODULE=RED >/dev/console; fi
   mkdir -p "$g/functions/hid.usb0"
   echo 1 > "$g/functions/hid.usb0/protocol"
   echo 1 > "$g/functions/hid.usb0/subclass"
