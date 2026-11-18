@@ -25,6 +25,14 @@ RUN set -eux; \
       mkdir -p "/tmp/merged$(dirname "$lib")"; cp -L "$lib" "/tmp/merged$lib"; done; done; \
   mkdir -p /tmp/merged/usr/bin; \
   gcc -static -Os -Wall -Wextra -o /tmp/merged/usr/bin/hid_evdev_observer /tmp/evdev.c; \
+  # Explicitly preserve the resolved kernel module dependency closure in the new initramfs. \
+  for m in usbip_core usbip_host vhci_hcd usbip_vudc libcomposite dummy_hcd usb_f_hid usbhid hid_generic evdev e1000; do \
+    modprobe -S "$version" --show-depends "$m" | awk '$1=="insmod"{print $2}'; \
+  done | sort -u | while IFS= read -r kofile; do \
+    test -f "$kofile"; mkdir -p "/tmp/merged$(dirname "$kofile")"; cp -L "$kofile" "/tmp/merged$kofile"; \
+  done; \
+  test -d "/tmp/merged/lib/modules/$version"; \
+  find "/tmp/merged/lib/modules/$version" -type f -name '*.ko*' | wc -l; \
   depmod -b /tmp/merged "$version"; \
   for role in provider consumer; do cp "/tmp/$role.init" /tmp/merged/init; chmod 0755 /tmp/merged/init; \
     (cd /tmp/merged && find . -print | cpio --quiet -o -H newc | gzip -9) > "/out/$role.gz"; done; \
