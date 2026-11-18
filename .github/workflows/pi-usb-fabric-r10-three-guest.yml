@@ -1,0 +1,33 @@
+name: Pi USB Fabric R10 three-kernel concurrent USBIP device contention
+on:
+  push:
+    branches: [test/issue-448-pi-usbip-three-guest]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r10-three-guest.yml'
+      - 'experiments/pi-usb-fabric-r10/three-guest/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r10-three-guest.yml'
+      - 'experiments/pi-usb-fabric-r10/three-guest/**'
+permissions:
+  contents: read
+jobs:
+  real-three-kernels:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise real competing Linux clients against one provider USBIP VUDC
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r10/three-guest/verify.sh
+      - name: Retain bounded three-guest UART RED and BLUE evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r10-three-guest-serial
+          path: ${{ runner.temp }}/r10-three-guest.log
+          retention-days: 7
+          if-no-files-found: warn
