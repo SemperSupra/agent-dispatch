@@ -6,6 +6,7 @@ package main
 
 import (
  "bufio"
+ "crypto/ed25519"
  "crypto/sha256"
  "encoding/json"
  "errors"
@@ -25,6 +26,7 @@ import (
  releasegate "example.org/usb-fabric-r26-releasegate"
  "example.org/usb-fabric-r26-releasegate/evidence"
  "example.org/usb-fabric-r26-releasegate/guestwire"
+ "example.org/usb-fabric-r26-releasegate/runtimeproof"
 )
 // ErrGuestUnconfirmed is a safety hold: QMP ACK does not prove that the
 // actual guest released the key. A later independently authenticated guest
@@ -216,6 +218,7 @@ type executor struct {
  q *qmp
  journal heldledger.Store
  gate *releasegate.Gate // optional TEST-ONLY evdev proof gate, never a client API
+ runtimeProof *runtimeproof.Authority // host-pinned Ed25519 path (synthetic)
  mu sync.Mutex
 }
 func (e *executor) qmpKey(down bool)error {
@@ -250,6 +253,13 @@ func (e *executor) Input(command string)error {
    if state.ReleasePhase!="qmp-acked" {
     // A QMP ACK is a RELEASE STAGE only; it never clears Held.
     if _,err=e.journal.AcknowledgeQMPRelease(state.Sequence);err!=nil{return err}
+   }
+   if e.runtimeProof!=nil {
+    // The solely authorized QMP actuator has just received real ACK and
+    // fsynced its release stage. No guest message may set this flag.
+    if err:=e.runtimeProof.MarkQMPAcknowledged();err!=nil{
+     return errGuestUnconfirmed
+    }
    }
    if e.gate!=nil {
     // Dynamic L9C lease scope, assigned only by the sole host actuator;
@@ -297,6 +307,9 @@ type actuator struct{
  scoped bool
  scope releasegate.Scope
  ex *executor
+ runtimeMode bool
+ pinnedGuestKey ed25519.PublicKey
+ runtimeProof *runtimeproof.Authority
 }
 
 // Test-only first-hand guest evdev evidence ingress. The QEMU virtio-serial
@@ -317,13 +330,23 @@ func (a *actuator)startReceiptReader(path string)error {
  go func(){
   decoder:=json.NewDecoder(bufio.NewReader(conn))
   for {
-   var event evidence.Event
-   if err:=decoder.Decode(&event);err!=nil{
-    fmt.Fprintln(os.Stderr,"R26_L9B_GUEST_RECEIPT_CHANNEL_LOST=OBSERVED",err)
-    a.m.Offline() // lack of a trusted sensor is never an availability signal
-    return
+   if a.runtimeMode{
+    var event runtimeproof.Event
+    if err:=decoder.Decode(&event);err!=nil{
+     fmt.Fprintln(os.Stderr,"R27C_GUEST_PROOF_CHANNEL_LOST=OBSERVED",err)
+     a.m.Offline()
+     return
+    }
+    a.applyRuntimeGuestReceipt(event)
+   }else{
+    var event evidence.Event
+    if err:=decoder.Decode(&event);err!=nil{
+     fmt.Fprintln(os.Stderr,"R26_L9B_GUEST_RECEIPT_CHANNEL_LOST=OBSERVED",err)
+     a.m.Offline() // lack of a trusted sensor is never an availability signal
+     return
+    }
+    a.applyGuestReceipt(event)
    }
-   a.applyGuestReceipt(event)
   }
  }()
  return nil
@@ -511,6 +534,7 @@ func main(){
  // It carries PUBLIC TEST-ONLY MAC events; not production authentication.
  receiptPath:=flag.String("receipt","","test-only QEMU virtio-serial receipt Unix socket")
  scopedReceipts:=flag.Bool("scoped-receipts",false,"test-only per-lease guest receipt scope with host-to-guest binding")
+ runtimePubPath:=flag.String("runtime-guest-public","","host BUILDER-pin of QEMU guest Ed25519 image public key; synthetic only")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
@@ -583,9 +607,24 @@ func main(){
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
  a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
-  media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex}
+  media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex,
+  runtimeMode:*runtimePubPath!=""}
  if *scopedReceipts && *receiptPath=="" {
   fmt.Fprintln(os.Stderr,"per-lease receipt needs explicit synthetic guest channel");os.Exit(14)
+ }
+ if a.runtimeMode{
+  if !a.scoped||*receiptPath==""{
+   fmt.Fprintln(os.Stderr,"runtime Ed25519 requires scoped guest receipt channel");os.Exit(14)
+  }
+  // The pinned key comes from the CONTROLLED image build, never the guest
+  // virtio transport. A public image private key remains extractable;
+  // actual TPM/secure boot attestation is outside this synthetic gate.
+  pub,err:=os.ReadFile(*runtimePubPath)
+  if err!=nil||len(pub)!=ed25519.PublicKeySize{
+   fmt.Fprintln(os.Stderr,"trusted image-builder guest key pin absent");os.Exit(14)
+  }
+  a.pinnedGuestKey=append(ed25519.PublicKey(nil),pub...)
+  fmt.Println("R27C_HOST_BUILDER_GUEST_PUBLIC_KEY_PINNED=PASS")
  }
  if *receiptPath!="" {
   if !*scopedReceipts {
