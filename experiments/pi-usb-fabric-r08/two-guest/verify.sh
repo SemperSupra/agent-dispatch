@@ -15,7 +15,7 @@ DOCKER_BUILDKIT=1 docker build --no-cache --build-arg "BASE=$base" \
 set +e
 timeout 215s docker run --rm --network none --read-only --user 65532:65532 \
  --cap-drop ALL --security-opt no-new-privileges \
- --memory 3072m --memory-swap 3072m --cpus 3 --pids-limit 128 \
+ --memory 4096m --memory-swap 4096m --cpus 3 --pids-limit 128 \
  --tmpfs /tmp:rw,exec,nosuid,nodev,size=128m,mode=1777 \
  "$image" >"$log" 2>&1
 rc=$?
