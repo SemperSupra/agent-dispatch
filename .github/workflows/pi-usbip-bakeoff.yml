@@ -1,0 +1,83 @@
+name: Synthetic Pi ARM64 image and USBIP feasibility bakeoff
+on:
+  push:
+    branches:
+      - experiment/issue-430-pi-usbip-bakeoff
+    paths:
+      - .github/workflows/pi-usbip-bakeoff.yml
+      - experiments/pi-usbip-bakeoff/**
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/pi-usbip-bakeoff.yml
+      - experiments/pi-usbip-bakeoff/**
+permissions:
+  contents: read
+jobs:
+  static-image:
+    name: ${{ matrix.os }} rootfs image inspection
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [dietpi, raspios, debian]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install read-only inspection tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xz-utils e2fsprogs fdisk
+      - name: Inspect real ARM64 OS image/rootfs
+        run: |
+          bash experiments/pi-usbip-bakeoff/inspect-image.sh ${{ matrix.os }}
+      - name: Print observed comparison metrics
+        if: always()
+        shell: bash
+        run: |
+          for f in evidence/compressed-bytes.txt evidence/raw-image-bytes.txt evidence/root-partition-bytes.txt evidence/ext4-used-bytes.txt evidence/ext4-capacity-bytes.txt evidence/rootfs-bytes.txt evidence/source.txt evidence/os-release.txt evidence/scope.txt; do
+            if [ -f "$f" ]; then printf '%s: ' "$f"; head -c 1200 "$f"; printf '\\n'; fi
+          done
+      - name: Checksums and run identity
+        if: always()
+        run: |
+          mkdir -p evidence
+          printf 'repository=%s\nsha=%s\nrun_id=%s\nrunner_arch=%s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$(uname -m)" >evidence/provenance.txt
+          (cd evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pi-image-${{ matrix.os }}-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
+  usbip-package:
+    name: ARM64 USBIP userspace and Quadlet generator feasibility
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - name: Package and module availability, no device manipulation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          uname -a > evidence/uname.txt
+          sudo apt-get update -qq
+          apt-cache policy podman usbip linux-tools-generic > evidence/packages.txt
+          sudo apt-get install -y -qq --no-install-recommends podman uidmap linux-tools-common linux-tools-generic
+          podman --version > evidence/podman.txt
+          (command -v usbip || find /usr/lib/linux-tools -type f -name usbip -print 2>/dev/null || true) > evidence/usbip-paths.txt
+          (command -v usbipd || find /usr/lib/linux-tools -type f -name usbipd -print 2>/dev/null || true) > evidence/usbipd-paths.txt
+          (usbip version || true) > evidence/usbip-version.txt 2>&1
+          (usbipd --version || true) > evidence/usbipd-version.txt 2>&1
+          (dpkg -L podman | grep -E 'quadlet|podman-system-generator' || true) > evidence/quadlet-package-files.txt
+          (find /usr/lib /usr/libexec -name podman-system-generator -print 2>/dev/null || true) > evidence/quadlet-generator.txt
+          if [ -s evidence/quadlet-generator.txt ]; then echo PRESENT > evidence/quadlet-state.txt; else echo MISSING_UNQUALIFIED > evidence/quadlet-state.txt; fi
+          (modinfo usbip_host || true) > evidence/usbip-host-module.txt 2>&1
+          (modinfo vhci_hcd || true) > evidence/vhci-module.txt 2>&1
+          echo 'NO physical USB; no modprobe; no client drivers tested; no TCP listeners started' > evidence/limits.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pi-usbip-userspace-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
