@@ -11,7 +11,10 @@ case "${1:-}" in
     url='https://dietpi.com/downloads/images/DietPi_RPi234-ARMv8-Trixie.img.xz'
     curl -fLsS --retry 2 --max-time 240 -o image.img.xz "$url"
     curl -fLsS --retry 2 --max-time 30 -o expected.sha256 "${url}.sha256"
-    sha256sum -c expected.sha256
+    expected=$(awk 'NR==1 {print $1}' expected.sha256)
+    actual=$(sha256sum image.img.xz | awk '{print $1}')
+    test -n "$expected" && test "$expected" = "$actual"
+    printf '%s  image.img.xz\n' "$expected" > "$EVIDENCE_DIR/vendor-verified.sha256"
     ;;
   raspios)
     name=raspios
