@@ -1,0 +1,33 @@
+name: Pi USB Fabric R16 three real Linux kernels A-B-A handoff
+on:
+  push:
+    branches: [test/issue-457-repeated-handoff]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r16-repeated.yml'
+      - 'experiments/pi-usb-fabric-r16/repeated/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r16-repeated.yml'
+      - 'experiments/pi-usb-fabric-r16/repeated/**'
+permissions:
+  contents: read
+jobs:
+  three-guest-repeated:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require true original A, second B and final A kernel HID input after real detach
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r16/repeated/verify.sh
+      - name: Preserve actual guest serial events and RED fault evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r16-repeated-serial
+          path: ${{ runner.temp }}/r16-repeated.log
+          retention-days: 7
+          if-no-files-found: warn
