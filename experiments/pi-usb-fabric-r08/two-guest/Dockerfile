@@ -25,7 +25,7 @@ RUN set -eux; \
       mkdir -p "/tmp/merged$(dirname "$lib")"; cp -L "$lib" "/tmp/merged$lib"; done; done; \
   mkdir -p /tmp/merged/usr/bin; \
   gcc -static -Os -Wall -Wextra -o /tmp/merged/usr/bin/hid_evdev_observer /tmp/evdev.c; \
-  # Explicitly preserve the resolved kernel module dependency closure in the new initramfs. \
+  echo R08_COPY_KERNEL_MODULE_DEPENDENCY_CLOSURE; \
   for m in usbip_core usbip_host vhci_hcd usbip_vudc libcomposite dummy_hcd usb_f_hid usbhid hid_generic evdev e1000; do \
     modprobe -S "$version" --show-depends "$m" | awk '$1=="insmod"{print $2}'; \
   done | sort -u | while IFS= read -r kofile; do \
