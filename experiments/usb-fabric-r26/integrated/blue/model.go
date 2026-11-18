@@ -152,6 +152,16 @@ func (m *Manager)RestoreAfterVerifiedGuestUp(
  return nil
 }
 
+// BeginDetach atomically fences new reservations before QMP device_del.
+// The device remains Quarantined; a later independent topology witness is
+// required before advertising a reusable port. No frontend can renew it.
+func (m *Manager)BeginDetach()error{
+ m.mu.Lock();defer m.mu.Unlock()
+ if m.state!=Available{return ErrDenied}
+ m.quarantine()
+ return nil
+}
+
 // Offline fences the old lease. Safe physical reassignment requires a
 // separate proof of host/device isolation and is NOT implemented here.
 func (m *Manager) Offline() {
