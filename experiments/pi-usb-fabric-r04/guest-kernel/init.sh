@@ -1,8 +1,9 @@
 #!/bin/sh
 # Runs ONLY inside disposable QEMU Linux guest.
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-mount -t proc proc /proc || :
-mount -t sysfs sysfs /sys || :
+mkdir -p /proc /sys /dev
+if mount -t proc proc /proc; then echo USBFABRIC_R04_PROC_MOUNT=PASS >/dev/console; else echo USBFABRIC_R04_PROC_MOUNT=RED >/dev/console; fi
+if mount -t sysfs sysfs /sys; then echo USBFABRIC_R04_SYSFS_MOUNT=PASS >/dev/console; else echo USBFABRIC_R04_SYSFS_MOUNT=RED >/dev/console; fi
 mount -t devtmpfs devtmpfs /dev || :
 echo USBFABRIC_R04_GUEST_BOOT=PASS >/dev/console
 uname -r >/dev/console
