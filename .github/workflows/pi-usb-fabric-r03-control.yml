@@ -1,0 +1,46 @@
+name: Pi USB Fabric R03 USBIP control protocol critics
+on:
+  push:
+    branches: [experiment/issue-434-pi-usbip-control]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r03-control.yml'
+      - 'experiments/pi-usb-fabric-r03/usbipcontrol/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r03-control.yml'
+      - 'experiments/pi-usb-fabric-r03/usbipcontrol/**'
+permissions:
+  contents: read
+jobs:
+  protocol:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Execute actual native protocol regression and fuzz corpus
+        shell: bash
+        working-directory: experiments/pi-usb-fabric-r03/usbipcontrol
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: 'local'
+          CGO_ENABLED: '0'
+        run: |
+          set -Eeuo pipefail
+          test "$(go env GOARCH)" = "${{ matrix.arch }}"
+          go test -count=1 -v ./...
+          go vet ./...
+          go test -run '^$' -fuzz '^FuzzDevlistResponse$' -fuzztime=5s -parallel=2 ./...
+          echo "USBIP_CONTROL_NATIVE_${{ matrix.arch }}=PASS"
+          echo "USBIP_ACTUAL_GUEST_URB=NOT_TESTED"
