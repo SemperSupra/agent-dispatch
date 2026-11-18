@@ -107,7 +107,17 @@ if [ ! -c "$wire_port" ];then
  exit 41
 fi
 echo R26_L8_REAL_GUEST_VIRTIO_PORT_PRESENT=PASS
-if ! /guestwire-observer "$usb_event" "$wire_port"; then
+scoped=""
+case " $(/bin/busybox cat /proc/cmdline) " in
+ *" r26_scoped=1 "*) scoped="scoped";;
+esac
+if [ -n "$scoped" ];then
+ echo R26_L9C_GUEST_SCOPED_RECEIPTS_REQUESTED=PASS
+ /guestwire-observer "$usb_event" "$wire_port" scoped
+else
+ /guestwire-observer "$usb_event" "$wire_port"
+fi
+if [ "$?" -ne 0 ]; then
  echo R26_L8_GUEST_EVDEV_RECEIPT=RED
  /bin/busybox poweroff -f
  /bin/busybox sleep 3

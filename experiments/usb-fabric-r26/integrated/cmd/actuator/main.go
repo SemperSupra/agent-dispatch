@@ -123,6 +123,7 @@ type qmp struct {
  conn net.Conn
  enc *json.Encoder
  dec *json.Decoder
+ deleted map[string]bool
 }
 func openQMP(path string)(*qmp,error){
  var conn net.Conn;var err error
@@ -149,7 +150,7 @@ func (q *qmp) call(name string,args map[string]any)error{
  for i:=0;i<150;i++{
   var response map[string]json.RawMessage
   if err:=q.dec.Decode(&response);err!=nil{return err}
-  if _,ok:=response["event"];ok{continue}
+  if _,ok:=response["event"];ok{q.recordQMPEvent(response);continue}
   if e,ok:=response["error"];ok{return fmt.Errorf("QMP %s: %s",name,string(e))}
   if _,ok:=response["return"];ok{return nil}
   return errors.New("QMP response missing return")
@@ -224,9 +225,9 @@ func (e *executor) Input(command string)error {
     if _,err=e.journal.AcknowledgeQMPRelease(state.Sequence);err!=nil{return err}
    }
    if e.gate!=nil {
-    scope:=guestwire.Scope()
-    // The independent gate will reject a second claim without a fresh
-    // guest epoch. This synthetic run qualifies only the FIRST release.
+    // Dynamic L9C lease scope, assigned only by the sole host actuator;
+    // original L9B remains static unless --scoped-receipts is enabled.
+    scope:=e.gate.Snapshot().Scope
     if err:=e.gate.RequestRelease(scope);err==nil{
      _=e.gate.AcknowledgeQMP(scope)
     }
@@ -265,6 +266,10 @@ type actuator struct{
  gate *releasegate.Gate
  journal heldledger.Store
  receiptConn net.Conn
+ receiptWriteMu sync.Mutex
+ scoped bool
+ scope releasegate.Scope
+ ex *executor
 }
 
 // Test-only first-hand guest evdev evidence ingress. The QEMU virtio-serial
@@ -272,7 +277,7 @@ type actuator struct{
 // MAC material is PUBLIC in this research branch: DO NOT use for real auth.
 func (a *actuator)startReceiptReader(path string)error {
  if path==""{return nil}
- if a.bridge==nil||a.gate==nil{return errors.New("missing guest proof verifier")}
+ if !a.scoped && (a.bridge==nil||a.gate==nil){return errors.New("missing guest proof verifier")}
  var conn net.Conn
  var err error
  for i:=0;i<50;i++{
@@ -297,6 +302,7 @@ func (a *actuator)startReceiptReader(path string)error {
  return nil
 }
 func (a *actuator)applyGuestReceipt(event evidence.Event){
+ if a.scoped{a.applyScopedGuestReceipt(event);return}
  if a.bridge==nil || event.Scope!=guestwire.Scope(){return}
  if event.Down {
   if err:=a.bridge.ObserveDown(event);err!=nil{return}
@@ -437,7 +443,10 @@ func (a *actuator) handle(c net.Conn){
    if err==nil{err=a.attach()}
   case "start":
    state,active,_:=a.m.Snapshot()
-   if state!=blue.Attached || active!=held{err=blue.ErrDenied}else{err=a.start()}
+   if state!=blue.Attached || active!=held{err=blue.ErrDenied}else{
+    err=a.start()
+    if err==nil && a.scoped{err=a.bindGuestLease(held)}
+   }
   case "input":
    if req.Command!="key-a-down" && req.Command!="key-a-up" {
     err=blue.ErrDenied
@@ -445,6 +454,18 @@ func (a *actuator) handle(c net.Conn){
   case "revoke":
    err=a.m.Revoke(held)
    if err==nil{held=blue.Lease{}}
+  case "detach":
+   if !a.scoped{err=blue.ErrDenied}else{
+    snapshot,_,_:=a.m.Snapshot()
+    state,readErr:=a.journal.Read()
+    if readErr!=nil{err=readErr
+    }else if snapshot!=blue.Available || state.Held ||
+      state.ReleasePhase!=""{err=blue.ErrDenied
+    }else{
+     err=a.m.BeginDetach()
+     if err==nil{err=a.detachKeyboard()}
+    }
+   }
   default:
    err=blue.ErrDenied
   }
@@ -462,6 +483,7 @@ func main(){
  // Optional source-identified R26-L8 synthetic QEMU virtio guest data plane.
  // It carries PUBLIC TEST-ONLY MAC events; not production authentication.
  receiptPath:=flag.String("receipt","","test-only QEMU virtio-serial receipt Unix socket")
+ scopedReceipts:=flag.Bool("scoped-receipts",false,"test-only per-lease guest receipt scope with host-to-guest binding")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
@@ -534,16 +556,21 @@ func main(){
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
  a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
-  media:*media,pcap:*pcap,journal:journal}
+  media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex}
+ if *scopedReceipts && *receiptPath=="" {
+  fmt.Fprintln(os.Stderr,"per-lease receipt needs explicit synthetic guest channel");os.Exit(14)
+ }
  if *receiptPath!="" {
-  scope:=guestwire.Scope()
-  gate,err:=releasegate.New(scope)
-  if err!=nil{fmt.Fprintln(os.Stderr,"invalid guest scope",err);os.Exit(14)}
-  bridge,err:=evidence.New(gate,scope,guestwire.VerifySyntheticGuest)
-  if err!=nil{fmt.Fprintln(os.Stderr,"guest proof bridge unavailable",err);os.Exit(14)}
-  ex.gate=gate
-  a.gate=gate
-  a.bridge=bridge
+  if !*scopedReceipts {
+   scope:=guestwire.Scope()
+   gate,err:=releasegate.New(scope)
+   if err!=nil{fmt.Fprintln(os.Stderr,"invalid guest scope",err);os.Exit(14)}
+   bridge,err:=evidence.New(gate,scope,guestwire.VerifySyntheticGuest)
+   if err!=nil{fmt.Fprintln(os.Stderr,"guest proof bridge unavailable",err);os.Exit(14)}
+   ex.gate=gate
+   a.gate=gate
+   a.bridge=bridge
+  }
   if err=a.startReceiptReader(*receiptPath);err!=nil{
    fmt.Fprintln(os.Stderr,"guest receipt ingress unavailable",err);os.Exit(14)
   }
