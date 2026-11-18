@@ -111,12 +111,22 @@ scoped=""
 case " $(/bin/busybox cat /proc/cmdline) " in
  *" r26_scoped=1 "*) scoped="scoped";;
 esac
-if [ -n "$scoped" ];then
- echo R26_L9C_GUEST_SCOPED_RECEIPTS_REQUESTED=PASS
- /guestwire-observer "$usb_event" "$wire_port" scoped
-else
- /guestwire-observer "$usb_event" "$wire_port"
-fi
+case " $(/bin/busybox cat /proc/cmdline) " in
+ *" r27_signed=1 "*)
+  # The only accepted test identity is already in host-builder custody.
+  # Private key is inside extractable synthetic initramfs: NOT production.
+  echo R27C_GUEST_IMAGE_PROVISIONED_ED25519_MODE=PASS
+  /r27-runtime-guest-observer "$usb_event" "$wire_port"
+  ;;
+ *)
+  if [ -n "$scoped" ];then
+   echo R26_L9C_GUEST_SCOPED_RECEIPTS_REQUESTED=PASS
+   /guestwire-observer "$usb_event" "$wire_port" scoped
+  else
+   /guestwire-observer "$usb_event" "$wire_port"
+  fi
+  ;;
+esac
 if [ "$?" -ne 0 ]; then
  echo R26_L8_GUEST_EVDEV_RECEIPT=RED
  /bin/busybox poweroff -f
