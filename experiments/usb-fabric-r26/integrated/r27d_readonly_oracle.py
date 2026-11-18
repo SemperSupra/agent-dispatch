@@ -70,6 +70,18 @@ def main():
             if denied.get("ok") or "outside authenticated peer grant" not in denied.get("error",""):
                 raise RuntimeError("frontend bypassed capability with fabricated lease")
             print("R27D_FORGED_LEASE_CANNOT_BYPASS_OPERATION_POLICY=PASS",flush=True)
+            # Attempt actor/role/capability impersonation in the untrusted
+            # JSON body. The controller must use only host-side OS identity
+            # and its configured capability allowlist.
+            denied=request(frontend,{
+                "op":"reserve","actor":"approved-agent",
+                "principal_uid":65532,"role":"administrator",
+                "capabilities":["reserve","input","detach"],
+                "admin":True,
+            })
+            if denied.get("ok") or "outside authenticated peer grant" not in denied.get("error",""):
+                raise RuntimeError("client-controlled JSON escalated host capability")
+            print("R27D_CLIENT_ROLE_CAPABILITY_SPOOF_REJECTED=PASS",flush=True)
             denied=request(frontend,{"op":"detach","actor":"approved-agent",
                                      "epoch":"forged","generation":999})
             if denied.get("ok") or "outside authenticated peer grant" not in denied.get("error",""):
