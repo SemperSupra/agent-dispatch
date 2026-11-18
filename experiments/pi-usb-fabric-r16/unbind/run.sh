@@ -20,6 +20,24 @@ timeout 220s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
  -netdev socket,id=n1,listen=127.0.0.1:22124 \
  -device e1000,netdev=n1,mac=52:54:00:00:10:02 >"$p" 2>&1 &
 P=$!
+# QEMU socket Ethernet is an independent UNIX-namespace listener. Start
+# consumers only after the provider created BOTH TCP listen sockets. Merely
+# having an e1000 Link Up in guests is not proof of the host socket wire.
+# This is a scheduling precondition, NOT a product release gate.
+socket_ready=no
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+ if grep -qi ':566B ' /proc/net/tcp && grep -qi ':566C ' /proc/net/tcp; then
+  socket_ready=yes
+  break
+ fi
+ sleep 1
+done
+if [ "$socket_ready" = yes ]; then
+ echo R16_QEMU_DUAL_SOCKET_LISTEN_READY=PASS
+else
+ echo R16_QEMU_DUAL_SOCKET_LISTEN_READY=RED
+ # Continue for exact guest observations; independent host oracle will RED.
+fi
 timeout 195s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
  -m 768 -smp 1 -kernel /guest/kernel -initrd /guest/consumer-a.gz \
  -append 'console=ttyS0 rdinit=/init panic=1' \
