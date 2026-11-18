@@ -300,6 +300,7 @@ type actuator struct{
  scope releasegate.Scope
  ex *executor
  authorizedPeerUID int // opt-in kernel SO_PEERCRED check, -1 legacy only
+ policy operationPolicy
 }
 
 // Test-only first-hand guest evdev evidence ingress. The QEMU virtio-serial
@@ -456,6 +457,13 @@ func (a *actuator) handle(c net.Conn){
   _=c.SetReadDeadline(time.Now().Add(90*time.Second))
   var req request
   if err:=reader.Decode(&req);err!=nil{return}
+  // Only the host OS principal can select capabilities, through the
+  // actuator launch configuration. No client-provided role, actor, or
+  // JSON field may expand these permissions.
+  if !a.policy.may(req.Op){
+   write(response{Error:ErrCapabilityDenied.Error()})
+   continue
+  }
   // Protected discovery is a separate read-only operation requiring
   // the actual peer UID; no lease token or actor string is interpreted.
   if req.Op=="status" || req.Op=="ports"{
@@ -530,6 +538,7 @@ func main(){
  receiptPath:=flag.String("receipt","","test-only QEMU virtio-serial receipt Unix socket")
  scopedReceipts:=flag.Bool("scoped-receipts",false,"test-only per-lease guest receipt scope with host-to-guest binding")
  authorizedPeerUID:=flag.Int("authorized-peer-uid",-1,"opt-in Linux SO_PEERCRED UID restriction for host-local controller API; -1 legacy synthetic")
+ operations:=flag.String("permitted-operations","","optional strict comma-separated host-granted operation allowlist (no wildcard)")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
@@ -601,9 +610,13 @@ func main(){
  defer listener.Close()
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
+ policy,err:=parseOperationPolicy(*operations)
+ if err!=nil|| (policy.configured && *authorizedPeerUID<0){
+  fmt.Fprintln(os.Stderr,"invalid operation grant or kernel peer authorization absent");os.Exit(16)
+ }
  a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
   media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex,
-  authorizedPeerUID:*authorizedPeerUID}
+  authorizedPeerUID:*authorizedPeerUID,policy:policy}
  if *scopedReceipts && *receiptPath=="" {
   fmt.Fprintln(os.Stderr,"per-lease receipt needs explicit synthetic guest channel");os.Exit(14)
  }
