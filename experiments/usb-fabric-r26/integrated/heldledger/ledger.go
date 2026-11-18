@@ -44,12 +44,19 @@ type Store struct {Path string}
 // when caller also performs a QMP release before accepting input.
 func (s Store) Read()(State,error){
  if s.Path==""{return State{},ErrInvalid}
- f,e:=os.Open(s.Path)
+ // A symlink (including a dangling link) is not an absent journal.
+ // Fail closed before following a path that could impersonate clean state.
+ pathInfo,e:=os.Lstat(s.Path)
  if errors.Is(e,os.ErrNotExist){return State{Version:Version},nil}
+ if e!=nil{return State{},e}
+ if !pathInfo.Mode().IsRegular(){return State{},ErrInvalid}
+ f,e:=os.Open(s.Path)
+ if errors.Is(e,os.ErrNotExist){return State{},ErrInvalid}
  if e!=nil{return State{},e}
  defer f.Close()
  info,e:=f.Stat();if e!=nil{return State{},e}
- if !info.Mode().IsRegular() || info.Size()>maxBytes || info.Size()<2{return State{},ErrInvalid}
+ if !info.Mode().IsRegular() || !os.SameFile(pathInfo,info) ||
+  info.Size()>maxBytes || info.Size()<2{return State{},ErrInvalid}
  raw,e:=io.ReadAll(io.LimitReader(f,maxBytes+1));if e!=nil{return State{},e}
  if len(raw)>maxBytes{return State{},ErrInvalid}
  // Reject duplicate top-level JSON keys BEFORE decoding into State.
