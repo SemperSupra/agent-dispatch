@@ -55,8 +55,10 @@ jobs:
           uname -a > evidence/uname.txt
           sudo apt-get update -qq
           apt-cache policy podman usbip linux-tools-generic > evidence/packages.txt
-          sudo apt-get install -y -qq --no-install-recommends podman uidmap usbip
+          sudo apt-get install -y -qq --no-install-recommends podman uidmap linux-tools-common linux-tools-generic
           podman --version > evidence/podman.txt
+          (command -v usbip || find /usr/lib/linux-tools -type f -name usbip -print 2>/dev/null || true) > evidence/usbip-paths.txt
+          (command -v usbipd || find /usr/lib/linux-tools -type f -name usbipd -print 2>/dev/null || true) > evidence/usbipd-paths.txt
           (usbip version || true) > evidence/usbip-version.txt 2>&1
           (usbipd --version || true) > evidence/usbipd-version.txt 2>&1
           find /usr/lib /usr/libexec -type f -name podman-system-generator -print > evidence/quadlet-generator.txt 2>/dev/null
