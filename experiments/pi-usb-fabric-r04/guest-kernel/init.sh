@@ -13,10 +13,18 @@ for m in usbip_core usbip_host vhci_hcd usbip_vudc libcomposite dummy_hcd; do
    echo "USBFABRIC_R04_MODULE_${m}=FAILED" >/dev/console
  fi
 done
-if [ -e /sys/kernel/config ]; then
- echo USBFABRIC_R04_CONFIGFS_PATH=PRESENT >/dev/console
+mkdir -p /sys/kernel/config
+if mount -t configfs configfs /sys/kernel/config >/dev/console 2>&1; then
+ echo USBFABRIC_R04_CONFIGFS_MOUNT=PASS >/dev/console
 else
- echo USBFABRIC_R04_CONFIGFS_PATH=ABSENT >/dev/console
+ echo USBFABRIC_R04_CONFIGFS_MOUNT=RED >/dev/console
+fi
+if [ -d /sys/class/udc ]; then
+ echo USBFABRIC_R04_UDC_ENUM_BEGIN >/dev/console
+ ls -1 /sys/class/udc >/dev/console
+ echo USBFABRIC_R04_UDC_ENUM_END >/dev/console
+else
+ echo USBFABRIC_R04_UDC_ENUM=ABSENT >/dev/console
 fi
 echo USBFABRIC_R04_GUEST_PROBE_END=YES >/dev/console
 sync
