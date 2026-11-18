@@ -1,0 +1,25 @@
+name: Pi USB Fabric R08 negative USBIP import and positive real HID
+on:
+  push:
+    branches: [test/issue-442-pi-usbip-negative]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r08-negative.yml'
+      - 'experiments/pi-usb-fabric-r08/negative/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r08-negative.yml'
+      - 'experiments/pi-usb-fabric-r08/negative/**'
+permissions:
+  contents: read
+jobs:
+  negative-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prove invalid USBIP import creates no ghost port and valid HID still works
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r08/negative/verify.sh
