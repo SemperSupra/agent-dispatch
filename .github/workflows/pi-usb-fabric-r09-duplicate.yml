@@ -1,0 +1,25 @@
+name: Pi USB Fabric R09 duplicate USBIP contention and live HID
+on:
+  push:
+    branches: [test/issue-445-pi-usbip-duplicate]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r09-duplicate.yml'
+      - 'experiments/pi-usb-fabric-r09/duplicate/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r09-duplicate.yml'
+      - 'experiments/pi-usb-fabric-r09/duplicate/**'
+permissions:
+  contents: read
+jobs:
+  duplicate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify duplicate live USBIP denial and original evdev KEY_A press/release
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r09/duplicate/verify.sh
