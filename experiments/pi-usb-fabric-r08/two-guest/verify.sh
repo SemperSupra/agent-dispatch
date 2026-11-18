@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 cd "$(git rev-parse --show-toplevel)"
 test -z "$(git status --porcelain --untracked-files=all)"
-image="pi-usb-r08a-\${GITHUB_SHA:0:12}"
+image="pi-usb-r08a-${GITHUB_SHA:0:12}"
 log="$RUNNER_TEMP/r08-two-guest.log"
 cleanup(){ docker image rm -f "$image" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
