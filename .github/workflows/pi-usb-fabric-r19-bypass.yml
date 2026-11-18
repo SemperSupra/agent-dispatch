@@ -1,0 +1,40 @@
+name: USB Fabric R19 RED bypass reproduction with real three-kernel USBIP and existing Go broker
+on:
+  push:
+    branches: [test/issue-463-usbip-broker-bypass]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r19-bypass.yml'
+      - 'experiments/pi-usb-fabric-r19/bypass/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r19-bypass.yml'
+      - 'experiments/pi-usb-fabric-r19/bypass/**'
+permissions:
+  contents: read
+jobs:
+  native-usbip-broker-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Checkout exact previously qualified Go Manager and durable journal source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r18-existing-go
+          persist-credentials: false
+      - name: Run real three-guest USBIP direct import challenge against Go HELD journal
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r19/bypass/verify.sh
+      - name: Retain Linux serial, actual evdev and native USBIP import denial/admission evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r19-bypass-serial
+          path: ${{ runner.temp }}/r19-red-463.log
+          retention-days: 7
+          if-no-files-found: warn
