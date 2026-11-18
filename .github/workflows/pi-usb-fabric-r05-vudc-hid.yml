@@ -1,0 +1,25 @@
+name: Pi USB Fabric R05 actual ConfigFS HID gadget bind to VUDC
+on:
+  push:
+    branches: [experiment/issue-437-pi-vudc-hid]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r05-vudc-hid.yml'
+      - 'experiments/pi-usb-fabric-r05/gadget/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r05-vudc-hid.yml'
+      - 'experiments/pi-usb-fabric-r05/gadget/**'
+permissions:
+  contents: read
+jobs:
+  gadget-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build and boot disposable Linux QEMU guest, bind actual ConfigFS HID gadget
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r05/gadget/verify.sh
