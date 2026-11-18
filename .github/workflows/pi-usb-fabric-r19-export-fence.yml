@@ -35,6 +35,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: pi-r19-export-fence-serial
-          path: ${{ runner.temp }}/r19-464.log
+          path: ${{ runner.temp }}/r19-blue-464.log
           retention-days: 7
           if-no-files-found: warn
