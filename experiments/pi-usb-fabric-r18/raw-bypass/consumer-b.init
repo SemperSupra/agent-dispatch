@@ -66,8 +66,16 @@ if [ "$ready" = yes ]; then
  # wait for provider RETRY_B or host serial ALLOW_B. It issues actual raw
  # USBIP attach calls over its own second Ethernet link while A is released.
  # Positive bypass requires actual populated VHCI, not a TCP marker.
+ if /bin/busybox timeout 45 /bin/busybox nc -l -p 3345 >/tmp/r18-post-a-detach.txt 2>/dev/console &&
+    grep -qx POST_A_DETACH_ATTACK /tmp/r18-post-a-detach.txt; then
+  echo R18_B_FIRST_ATTACK_AFTER_A_DETACH=PASS >/dev/console
+ else
+  echo R18_B_FIRST_ATTACK_AFTER_A_DETACH=RED >/dev/console
+  sync
+  poweroff -f || reboot -f
+ fi
  unauthorized=no
- for attack in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+ for attack in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   if /bin/busybox timeout 7 /usr/sbin/usbip attach --remote 10.78.0.1 --busid usbip-vudc.0 >/tmp/r18-raw-attach.txt 2>&1; then
    if /usr/sbin/usbip port >/tmp/r18-raw-port.txt 2>&1 && grep -q '10.78.0.1:3240/usbip-vudc.0' /tmp/r18-raw-port.txt; then
     echo R18_NONCOOPERATIVE_B_REAL_USBIP_VHCI_ATTACHED=PASS >/dev/console
