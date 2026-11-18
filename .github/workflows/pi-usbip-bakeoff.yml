@@ -7,6 +7,10 @@ on:
       - .github/workflows/pi-usbip-bakeoff.yml
       - experiments/pi-usbip-bakeoff/**
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/pi-usbip-bakeoff.yml
+      - experiments/pi-usbip-bakeoff/**
 permissions:
   contents: read
 jobs:
