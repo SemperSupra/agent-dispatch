@@ -1,0 +1,36 @@
+name: USB Fabric R12 duplicate-key HELD journal fail-closed critic
+on:
+  push:
+    branches: [test/issue-452-duplicate-ledger-keys]
+    paths:
+      - '.github/workflows/usb-fabric-r12-duplicate-journal.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/usb-fabric-r12-duplicate-journal.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+permissions:
+  contents: read
+jobs:
+  journal-critic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run actual existing Go journal with race and vet offline
+        working-directory: experiments/usb-fabric-r26/integrated
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOTOOLCHAIN: "local"
+          GOSUMDB: "off"
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -race -count=1 -v ./heldledger
+          go vet ./heldledger
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R12_DUPLICATE_LEDGER_NO_TAINT=PASS
