@@ -1,0 +1,33 @@
+name: Pi USB Fabric R09 blue watchdog bounded port eviction after network partition
+on:
+  push:
+    branches: [test/issue-446-pi-usbip-blue]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r09-blue.yml'
+      - 'experiments/pi-usb-fabric-r09/blue-watchdog/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r09-blue.yml'
+      - 'experiments/pi-usb-fabric-r09/blue-watchdog/**'
+permissions:
+  contents: read
+jobs:
+  forced-eviction:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Observe real held key and provider link cut; verify watchdog forced VHCI detach
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r09/blue-watchdog/verify.sh
+      - name: Preserve separate guest serial evidence and unsafe key-up status
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r09-blue-watchdog-serial
+          path: ${{ runner.temp }}/r09-blue-watchdog.log
+          retention-days: 7
+          if-no-files-found: warn
