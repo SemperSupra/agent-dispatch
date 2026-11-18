@@ -1,0 +1,60 @@
+#!/bin/sh
+# Independent third Linux kernel, USB/IP *competing consumer*, never same-kernel A.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p /proc /sys /dev /var/run /tmp
+mount -t proc proc /proc || :
+mount -t sysfs sysfs /sys || :
+mount -t devtmpfs devtmpfs /dev || :
+echo R10_CONSUMER_B_DISTINCT_KERNEL_BOOT=PASS >/dev/console
+uname -r >/dev/console
+for m in usbip_core vhci_hcd usbhid hid_generic evdev e1000; do
+ if modprobe "$m" >/dev/console 2>&1; then
+   echo "R10_CONSUMER_B_MODULE_$m=PASS" >/dev/console
+ else
+   echo "R10_CONSUMER_B_MODULE_$m=RED" >/dev/console
+ fi
+done
+if /bin/busybox ip addr add 10.78.0.2/24 dev eth0 >/dev/console 2>&1 && /bin/busybox ip link set eth0 up >/dev/console 2>&1; then
+ echo R10_CONSUMER_B_NETWORK=PASS >/dev/console
+else
+ echo R10_CONSUMER_B_NETWORK=RED >/dev/console
+fi
+/bin/busybox ip link set lo up >/dev/console 2>&1 || :
+# Provider opens 3334 only after consumer A has successfully attached
+# and received actual kernel evdev KEY_A down/up. No fixed sleep race.
+ready=no
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if /bin/busybox nc -w 2 10.78.0.1 3334 < /dev/null >/tmp/r10-ready.txt 2>&1 && grep -qx READY /tmp/r10-ready.txt; then
+    ready=yes
+    break
+  fi
+  sleep 1
+done
+if [ "$ready" = yes ]; then
+ echo R10_CONSUMER_B_PROVIDER_CONFIRMED_A_ATTACHED=PASS >/dev/console
+ # Actual remote endpoint differs from A, but the provider USBIP VUDC is the SAME object.
+ # Demand second import cannot seize a held physical-equivalent controller.
+ if /bin/busybox timeout 12 /usr/sbin/usbip attach --remote 10.78.0.1 --busid usbip-vudc.0 >/tmp/r10-attach.txt 2>&1; then
+   cat /tmp/r10-attach.txt >/dev/console
+   echo R10_CONSUMER_B_CROSS_KERNEL_DUPLICATE_DENIED=RED >/dev/console
+ else
+   cat /tmp/r10-attach.txt >/dev/console
+   echo R10_CONSUMER_B_CROSS_KERNEL_DUPLICATE_DENIED=PASS >/dev/console
+ fi
+ if /usr/sbin/usbip port >/tmp/r10-port.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r10-port.txt; then
+   echo R10_CONSUMER_B_NO_GHOST_VHCI=PASS >/dev/console
+ else
+   cat /tmp/r10-port.txt >/dev/console
+   echo R10_CONSUMER_B_NO_GHOST_VHCI=RED >/dev/console
+ fi
+ if /bin/busybox printf 'B_DONE\n' | /bin/busybox nc -w 2 10.78.0.1 3335 >/tmp/r10-bdone.txt 2>&1; then
+   echo R10_CONSUMER_B_RESULT_SENT=PASS >/dev/console
+ else
+   echo R10_CONSUMER_B_RESULT_SENT=RED >/dev/console
+ fi
+else
+ echo R10_CONSUMER_B_PROVIDER_CONFIRMED_A_ATTACHED=RED >/dev/console
+fi
+echo R10_CONSUMER_B_FINISHED=YES >/dev/console
+sync
+poweroff -f || reboot -f
