@@ -146,6 +146,14 @@ else
  allowed=no
 fi
 if [ "$allowed" = yes ]; then
+ # Keep the hostile direct attach out of the A-attached phase: provider
+ # has independently received A_DETACHED after A's kernel VHCI is empty.
+ signal=no
+ for tick in 1 2 3 4 5 6 7 8 9 10; do
+  if /bin/busybox printf 'POST_A_DETACH_ATTACK\n' | /bin/busybox nc -w 2 10.78.0.2 3345 >/tmp/r18-redteam-ready.txt 2>&1; then signal=yes; break; fi
+  sleep 1
+ done
+ if [ "$signal" = yes ]; then echo R18_PROVIDER_POST_A_DETACH_ATTACK_BARRIER=PASS >/dev/console; else echo R18_PROVIDER_POST_A_DETACH_ATTACK_BARRIER=RED >/dev/console; fi
  # R18: An unauthenticated A_DETACHED TCP message must NEVER grant B access.
  # Only the host Go manager+fsynced journal gate can deliver ALLOW_B on an
  # independent guest /dev/ttyS1 QEMU ISA serial channel. TEST-ONLY source.
