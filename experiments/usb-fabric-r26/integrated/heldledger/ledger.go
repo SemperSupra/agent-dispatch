@@ -13,6 +13,7 @@ import (
  "io"
  "os"
  "path/filepath"
+ "strings"
 )
 
 const (
@@ -51,6 +52,10 @@ func (s Store) Read()(State,error){
  if !info.Mode().IsRegular() || info.Size()>maxBytes || info.Size()<2{return State{},ErrInvalid}
  raw,e:=io.ReadAll(io.LimitReader(f,maxBytes+1));if e!=nil{return State{},e}
  if len(raw)>maxBytes{return State{},ErrInvalid}
+ // Reject duplicate top-level JSON keys BEFORE decoding into State.
+ // encoding/json otherwise accepts last-key-wins values: a damaged HELD
+ // journal could be interpreted as clean. Case aliases are duplicates too.
+ if err:=rejectDuplicateJournalKeys(raw);err!=nil{return State{},err}
  decoder:=json.NewDecoder(bytes.NewReader(raw))
  decoder.DisallowUnknownFields()
  var state State
@@ -79,6 +84,31 @@ func (s Store) Read()(State,error){
 // Transition is ONLY a write-ahead held=true record before key down.
 // Legacy held=false without an independent guest receipt is denied.
 // The caller serializes access; expected sequence prevents stale updates.
+// rejectDuplicateJournalKeys validates the single bounded top-level object.
+// The subsequent strict State decoder still owns schema/type validation.
+func rejectDuplicateJournalKeys(raw []byte)error{
+ d:=json.NewDecoder(bytes.NewReader(raw))
+ first,err:=d.Token()
+ if err!=nil||first!=json.Delim('{'){return ErrInvalid}
+ seen:=make(map[string]struct{},8)
+ for d.More(){
+  token,err:=d.Token()
+  if err!=nil{return ErrInvalid}
+  name,ok:=token.(string)
+  if !ok{return ErrInvalid}
+  key:=strings.ToLower(name)
+  if _,exists:=seen[key];exists{return ErrInvalid}
+  seen[key]=struct{}{}
+  var value json.RawMessage
+  if err=d.Decode(&value);err!=nil{return ErrInvalid}
+ }
+ last,err:=d.Token()
+ if err!=nil||last!=json.Delim('}'){return ErrInvalid}
+ var extra any
+ if err=d.Decode(&extra);!errors.Is(err,io.EOF){return ErrInvalid}
+ return nil
+}
+
 func (s Store) Transition(expected uint64,held bool)(State,error){
  current,e:=s.Read();if e!=nil{return State{},e}
  // Legacy ACK-only release must never clear a key. An independently
