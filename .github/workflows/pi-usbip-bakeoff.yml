@@ -29,6 +29,13 @@ jobs:
       - name: Inspect real ARM64 OS image/rootfs
         run: |
           bash experiments/pi-usbip-bakeoff/inspect-image.sh ${{ matrix.os }}
+      - name: Print observed comparison metrics
+        if: always()
+        shell: bash
+        run: |
+          for f in evidence/compressed-bytes.txt evidence/raw-image-bytes.txt evidence/root-partition-bytes.txt evidence/rootfs-bytes.txt evidence/source.txt evidence/os-release.txt evidence/scope.txt; do
+            if [ -f "$f" ]; then printf '%s: ' "$f"; head -c 1200 "$f"; printf '\\n'; fi
+          done
       - name: Checksums and run identity
         if: always()
         run: |
