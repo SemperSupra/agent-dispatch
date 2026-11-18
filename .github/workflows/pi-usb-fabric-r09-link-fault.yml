@@ -1,0 +1,33 @@
+name: Pi USB Fabric R09 real guest held-HID ethernet partition safety test
+on:
+  push:
+    branches: [test/issue-444-pi-usbip-link-fault]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r09-link-fault.yml'
+      - 'experiments/pi-usb-fabric-r09/link-fault/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r09-link-fault.yml'
+      - 'experiments/pi-usb-fabric-r09/link-fault/**'
+permissions:
+  contents: read
+jobs:
+  held-input-loss:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Cut provider Ethernet while real USBIP key A held and require independent guest release
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r09/link-fault/verify.sh
+      - name: Preserve RED/BLUE serial-log evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r09-link-fault-serial
+          path: ${{ runner.temp }}/r09-link-fault.log
+          retention-days: 7
+          if-no-files-found: warn
