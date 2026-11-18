@@ -1,0 +1,25 @@
+name: Pi USB Fabric R04 disposable guest VUDC VHCI capability
+on:
+  push:
+    branches: [experiment/issue-435-pi-guest-kernel]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r04-guest-kernel.yml'
+      - 'experiments/pi-usb-fabric-r04/guest-kernel/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r04-guest-kernel.yml'
+      - 'experiments/pi-usb-fabric-r04/guest-kernel/**'
+permissions:
+  contents: read
+jobs:
+  qemu-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Boot actual Linux QEMU TCG guest and probe USBIP gadget and virtual host modules
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r04/guest-kernel/verify.sh
