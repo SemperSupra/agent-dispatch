@@ -119,7 +119,7 @@ else
 fi
 # Only signal consumer B after A has established HID transport.
 # B completes its attempted import while consumer A still holds the device.
-if /bin/busybox printf 'READY\n' | /bin/busybox nc -l -p 3334 > /tmp/r10-ready.txt 2>/dev/console; then
+if /bin/busybox nc -l -p 3334 > /tmp/r10-ready.txt 2>/dev/console && grep -qx B_HELLO /tmp/r10-ready.txt; then
  echo R10_PROVIDER_B_CHALLENGE_ISSUED=PASS >/dev/console
 else
  echo R10_PROVIDER_B_CHALLENGE_ISSUED=RED >/dev/console
