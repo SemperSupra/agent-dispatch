@@ -1,0 +1,33 @@
+name: Pi USB Fabric R16 real provider VUDC unbind and rebind handoff
+on:
+  push:
+    branches: [test/issue-456-provider-unbind-failclosed]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r16-unbind.yml'
+      - 'experiments/pi-usb-fabric-r16/unbind/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r16-unbind.yml'
+      - 'experiments/pi-usb-fabric-r16/unbind/**'
+permissions:
+  contents: read
+jobs:
+  three-guest-failure-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Actual Linux ConfigFS VUDC unbind deny and rebind restore remote HID
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r16/unbind/verify.sh
+      - name: Preserve Linux kernel negative evidence and recovery events
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r16-unbind-serial
+          path: ${{ runner.temp }}/r16-unbind.log
+          retention-days: 7
+          if-no-files-found: warn
