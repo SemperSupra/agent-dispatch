@@ -4,8 +4,8 @@ set -eu
 p=/tmp/r08-provider.log
 c=/tmp/r08-consumer.log
 cleanup() {
-  if [ -n "\${P:-}" ]; then kill "$P" 2>/dev/null || :; wait "$P" 2>/dev/null || :; fi
-  if [ -n "\${C:-}" ]; then kill "$C" 2>/dev/null || :; wait "$C" 2>/dev/null || :; fi
+  if [ -n "${P:-}" ]; then kill "$P" 2>/dev/null || :; wait "$P" 2>/dev/null || :; fi
+  if [ -n "${C:-}" ]; then kill "$C" 2>/dev/null || :; wait "$C" 2>/dev/null || :; fi
 }
 trap cleanup EXIT INT TERM
 # QEMU socket network is only inside this outer container's loopback namespace.
