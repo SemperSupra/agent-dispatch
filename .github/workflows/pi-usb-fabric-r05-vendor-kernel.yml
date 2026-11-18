@@ -1,0 +1,45 @@
+name: Pi USB Fabric R05 vendor kernel USBIP module inventory
+on:
+  push:
+    branches: [experiment/issue-438-pi-vendor-kernel]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r05-vendor-kernel.yml'
+      - 'experiments/pi-usb-fabric-r05/vendor-kernel/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r05-vendor-kernel.yml'
+      - 'experiments/pi-usb-fabric-r05/vendor-kernel/**'
+permissions:
+  contents: read
+jobs:
+  vendor:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [dietpi, raspios]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install read-only ext4 and partition tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fdisk e2fsprogs xz-utils
+      - name: Inspect genuine vendor ARM64 kernel modules
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r05/vendor-kernel/scan.sh ${{ matrix.os }}
+      - name: Record evidence checksums and exact source
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'head_sha=%s\nrun_id=%s\narch=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$(uname -m)" >evidence/provenance.txt
+          (cd evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum >SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pi-r05-kernel-${{ matrix.os }}-${{ github.run_id }}
+          path: evidence
+          retention-days: 7
+          if-no-files-found: error
