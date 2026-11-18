@@ -15,6 +15,7 @@ func TestR12DuplicateJournalKeysFailClosed(t *testing.T) {
  fixtures:=[]struct{name,json string}{
   {"held-and-key-overridden",`{"version":1,"sequence":1,"held":true,"key":"key-a","held":false,"key":""}`},
   {"same-held-repeated",`{"version":1,"sequence":1,"held":true,"key":"key-a","held":true}`},
+  {"case-alias-overrides-held",`{"version":1,"sequence":1,"held":true,"key":"key-a","Held":false,"Key":""}`},
   {"sequence-overridden",`{"version":1,"sequence":1,"held":true,"key":"key-a","sequence":2}`},
   {"version-repeated",`{"version":1,"sequence":1,"held":true,"key":"key-a","version":1}`},
   {"release-phase-overridden",`{"version":1,"sequence":1,"held":true,"key":"key-a","release_phase":"release-intent","release_phase":"qmp-acked"}`},
