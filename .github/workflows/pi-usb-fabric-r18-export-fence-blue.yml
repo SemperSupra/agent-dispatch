@@ -1,0 +1,39 @@
+name: USB Fabric R18 BLUE existing Go journal gates actual ConfigFS export and raw B attack
+on:
+  push:
+    branches: [test/issue-462-usbip-export-fence-blue]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r18-export-fence-blue.yml'
+      - 'experiments/pi-usb-fabric-r18/export-fence/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r18-export-fence-blue.yml'
+      - 'experiments/pi-usb-fabric-r18/export-fence/**'
+permissions:
+  contents: read
+jobs:
+  three-real-kernel-export-fence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r18-existing-go
+          persist-credentials: false
+      - name: BLUE actual USBIP kernel unbind denies unauthorized B until Go journal releases
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r18/export-fence/verify.sh
+      - name: Retain actual Go HELD and QEMU kernel evdev/unbound/rebound receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r18-usbip-export-fence-blue
+          path: ${{ runner.temp }}/r18-export-fence.log
+          retention-days: 7
+          if-no-files-found: warn
