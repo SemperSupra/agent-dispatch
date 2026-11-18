@@ -1,0 +1,29 @@
+name: USB Fabric R26-L9E - combined L10 owner fence with L9C guest release
+on:
+  push:
+    branches: [test/issue-429-l9e-combined-owner-release]
+    paths:
+      - '.github/workflows/public-usbfabric-r26-l9e-combined-owner.yml'
+      - 'experiments/usb-fabric-r26/integrated/l10_lockfile_inode*'
+      - 'experiments/usb-fabric-r26/integrated/Dockerfile'
+      - 'experiments/usb-fabric-r26/integrated/cmd/actuator/**'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r26-l9e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  live-qmp-same-uid-lock-swap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Require ownership fence after disposable owner-lock inode unlink
+        shell: bash
+        run: bash experiments/usb-fabric-r26/integrated/l10_lockfile_inode_verify.sh
