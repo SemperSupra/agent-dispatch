@@ -99,10 +99,18 @@ else
       echo USBFABRIC_R06_REAL_USBIP_VUDC_EXPORT=PASS >/dev/console
       if /usr/sbin/usbip attach --remote 127.0.0.1 --busid usbip-vudc.0 >/tmp/r06-attach.txt 2>&1; then
         cat /tmp/r06-attach.txt >/dev/console
-        /usr/sbin/usbip port >/tmp/r06-port.txt 2>&1 || :
+        # The virtual controller's kernel attach is asynchronous. Observe up to five real port polls.
+        echo USBFABRIC_R06_CLIENT_IMPORT_REQUEST_ACCEPTED=PASS >/dev/console
+        connected=no
+        for probe in 1 2 3 4 5; do
+          /usr/sbin/usbip port >/tmp/r06-port.txt 2>&1 || :
+          if grep -q usbip-vudc.0 /tmp/r06-port.txt; then connected=yes; break; fi
+          sleep 1
+        done
         cat /tmp/r06-port.txt >/dev/console
-        if grep -q usbip-vudc.0 /tmp/r06-port.txt; then
+        if [ "$connected" = yes ]; then
           echo USBFABRIC_R06_REAL_VHCI_IMPORT=PASS >/dev/console
+          if [ -r /proc/bus/input/devices ]; then cat /proc/bus/input/devices >/dev/console; fi
         else
           echo USBFABRIC_R06_REAL_VHCI_IMPORT=RED >/dev/console
         fi
