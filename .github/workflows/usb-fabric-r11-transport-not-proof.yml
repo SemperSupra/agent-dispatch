@@ -1,0 +1,36 @@
+name: USB Fabric R11 transport receipt cannot clear Go durable held journal
+on:
+  push:
+    branches: [test/issue-451-port-removal-not-proof]
+    paths:
+      - '.github/workflows/usb-fabric-r11-transport-not-proof.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/usb-fabric-r11-transport-not-proof.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+permissions:
+  contents: read
+jobs:
+  heldledger-evidence-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Actual Go source race and vet for existing durable release decision
+        shell: bash
+        working-directory: experiments/usb-fabric-r26/integrated
+        env:
+          GOPROXY: "off"
+          GOTOOLCHAIN: "local"
+          GOSUMDB: "off"
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -race -count=1 -v ./heldledger
+          go vet ./heldledger
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R11_EXISTING_GO_LEDGER_RECEIPT_BOUNDARY_NO_TAINT=PASS
