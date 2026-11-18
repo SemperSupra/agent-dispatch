@@ -1,0 +1,25 @@
+name: Pi USB Fabric R06 real VUDC USBIP VHCI loopback transfer
+on:
+  push:
+    branches: [experiment/issue-439-pi-usbip-transport]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r06-transport.yml'
+      - 'experiments/pi-usb-fabric-r06/transport/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r06-transport.yml'
+      - 'experiments/pi-usb-fabric-r06/transport/**'
+permissions:
+  contents: read
+jobs:
+  actual-transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Disposable actual Linux USBIP VUDC export and VHCI import
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r06/transport/verify.sh
