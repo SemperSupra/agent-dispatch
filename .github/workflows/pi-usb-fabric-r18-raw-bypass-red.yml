@@ -1,0 +1,39 @@
+name: USB Fabric R18 RED real noncooperative B USBIP bypass while Go HELD
+on:
+  push:
+    branches: [test/issue-461-raw-usbip-bypass-red]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r18-raw-bypass-red.yml'
+      - 'experiments/pi-usb-fabric-r18/raw-bypass/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r18-raw-bypass-red.yml'
+      - 'experiments/pi-usb-fabric-r18/raw-bypass/**'
+permissions:
+  contents: read
+jobs:
+  noncooperative-raw-attach:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r18-existing-go
+          persist-credentials: false
+      - name: RED falsifier - direct native USBIP attach while existing Go broker quarantined
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r18/raw-bypass/verify.sh
+      - name: Preserve RED firsthand Linux QEMU evdev + Go HELD journal evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r18-raw-bypass-red
+          path: ${{ runner.temp }}/r18-raw-bypass.log
+          retention-days: 7
+          if-no-files-found: warn
