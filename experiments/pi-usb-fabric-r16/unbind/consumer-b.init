@@ -74,6 +74,14 @@ if /bin/busybox timeout 30 /bin/busybox nc -l -p 3337 >/tmp/r16-test-unbound.txt
  else
   echo R16_CONSUMER_B_PROVIDER_NETWORK_STILL_REACHABLE=RED >/dev/console
  fi
+ # Probe the real responding USBIP server. A disconnect, bad route,
+ # refused TCP or generic client error cannot prove device non-export.
+ if /bin/busybox timeout 12 /usr/sbin/usbip list --remote 10.78.0.1 >/tmp/r16-unbound-list.txt 2>&1 && ! grep -q 'usbip-vudc.0' /tmp/r16-unbound-list.txt; then
+  echo R16_CONSUMER_B_UNBOUND_REMOTE_LIST_EMPTY=PASS >/dev/console
+ else
+  cat /tmp/r16-unbound-list.txt >/dev/console
+  echo R16_CONSUMER_B_UNBOUND_REMOTE_LIST_EMPTY=RED >/dev/console
+ fi
  /bin/busybox timeout 12 /usr/sbin/usbip attach --remote 10.78.0.1 --busid usbip-vudc.0 >/tmp/r16-unbound-import.txt 2>&1
  unbound_rc="$?"
  cat /tmp/r16-unbound-import.txt >/dev/console
