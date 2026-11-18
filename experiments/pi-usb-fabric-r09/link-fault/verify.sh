@@ -9,9 +9,9 @@ trap cleanup EXIT
 docker pull debian:trixie-slim >/dev/null
 base="$(docker image inspect --format '{{index .RepoDigests 0}}' debian:trixie-slim)"
 [[ "$base" == *@sha256:* ]] || exit 11
-echo "R08_BASE_IMAGE=$base"
+echo "R09_BASE_IMAGE=$base"
 DOCKER_BUILDKIT=1 docker build --no-cache --build-arg "BASE=$base" \
- -f experiments/pi-usb-fabric-r08/two-guest/Dockerfile -t "$image" .
+ -f experiments/pi-usb-fabric-r09/link-fault/Dockerfile -t "$image" .
 set +e
 timeout 215s docker run --rm --network none --read-only --user 65532:65532 \
  --cap-drop ALL --security-opt no-new-privileges \
@@ -21,7 +21,7 @@ timeout 215s docker run --rm --network none --read-only --user 65532:65532 \
 rc=$?
 set -e
 cat "$log"
-if [[ "$rc" -ne 0 ]];then echo "R08_TWO_GUEST_RUN=RED rc=$rc"; exit 22; fi
+if [[ "$rc" -ne 0 ]];then echo "R09_LINK_FAULT_RUN=RED rc=$rc"; exit 22; fi
 grep -q 'R09_REAL_GUEST_KEY_UP_AFTER_NETWORK_LOSS=PASS' "$log"
 cleanup
 trap - EXIT
