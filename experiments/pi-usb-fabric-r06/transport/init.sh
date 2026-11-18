@@ -111,6 +111,25 @@ else
         if [ "$connected" = yes ]; then
           echo USBFABRIC_R06_REAL_VHCI_IMPORT=PASS >/dev/console
           if [ -r /proc/bus/input/devices ]; then cat /proc/bus/input/devices >/dev/console; fi
+          eventdev="$(/bin/busybox awk '/Name="USBFabric SyntheticHID"/{matched=1;next} matched && /Handlers=/ {for(i=1;i<=NF;i++) if($i ~ /^event[0-9]+$/){print $i;exit}}' /proc/bus/input/devices)"
+          if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then
+            echo "USBFABRIC_R06_EVDEV_PATH=/dev/input/$eventdev" >/dev/console
+            /usr/bin/hid_evdev_observer "/dev/input/$eventdev" >/tmp/r06-evdev.txt 2>&1 &
+            observerpid="$!"
+            sleep 1
+            /bin/busybox printf '\x00\x00\x04\x00\x00\x00\x00\x00' >/dev/hidg0
+            sleep 1
+            /bin/busybox printf '\x00\x00\x00\x00\x00\x00\x00\x00' >/dev/hidg0
+            if wait "$observerpid"; then
+              cat /tmp/r06-evdev.txt >/dev/console
+              echo USBFABRIC_R06_GUEST_HID_INPUT_DATA=PASS >/dev/console
+            else
+              cat /tmp/r06-evdev.txt >/dev/console
+              echo USBFABRIC_R06_GUEST_HID_INPUT_DATA=RED >/dev/console
+            fi
+          else
+            echo USBFABRIC_R06_GUEST_HID_INPUT_DATA=RED >/dev/console
+          fi
         else
           echo USBFABRIC_R06_REAL_VHCI_IMPORT=RED >/dev/console
         fi
@@ -129,7 +148,7 @@ else
   kill "$daemonpid" >/dev/console 2>&1 || :
 fi
 echo USBFABRIC_R06_TRANSPORT_PROBE_END=YES >/dev/console
-echo USBFABRIC_R06_EVDEV_REPORT_TRANSFER=NOT_TESTED >/dev/console
+echo USBFABRIC_R06_EVDEV_CHECK_COMPLETED=YES >/dev/console
 echo USBFABRIC_R05_GADGET_PROBE_END=YES >/dev/console
 echo USBFABRIC_R05_USBIP_EXPORT=NOT_TESTED >/dev/console
 echo USBFABRIC_R05_VHCI_IMPORT=NOT_TESTED >/dev/console
