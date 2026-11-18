@@ -30,7 +30,7 @@ jobs:
           mkdir -p evidence
           printf 'head_sha=%s\nrun_id=%s\nrunner=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$(uname -m)" >evidence/provenance.txt
           (cd evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum >SHA256SUMS)
-      - uses: actions/upload-artifact@4a6cdad905f1a85fd7e1ded070d4d6d8bcb9c61f
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: pi-usb-r03-quadlet-evidence
