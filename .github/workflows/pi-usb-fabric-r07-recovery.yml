@@ -1,0 +1,25 @@
+name: Pi USB Fabric R07 real USBIP HID detach and reconnect
+on:
+  push:
+    branches: [experiment/issue-440-pi-usbip-recovery]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r07-recovery.yml'
+      - 'experiments/pi-usb-fabric-r07/recovery/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r07-recovery.yml'
+      - 'experiments/pi-usb-fabric-r07/recovery/**'
+permissions:
+  contents: read
+jobs:
+  disconnect-reconnect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Actual Linux USBIP HID detach quiescence and second device attach with evdev
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r07/recovery/verify.sh
