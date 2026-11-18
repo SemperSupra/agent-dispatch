@@ -6,12 +6,13 @@ WORKDIR /src/integrated
 COPY experiments/usb-fabric-r26/integrated/ /src/integrated/
 COPY experiments/usb-fabric-r26/releasegate/ /src/releasegate/
 ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
-RUN go test ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -o /out/r26-broker . && CGO_ENABLED=0 go build -trimpath -o /out/r26-actuator ./cmd/actuator && CGO_ENABLED=0 go build -trimpath -o /out/r26-frontend ./cmd/frontend
+RUN go test ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -o /out/r26-broker . && CGO_ENABLED=0 go build -trimpath -o /out/r26-actuator ./cmd/actuator && CGO_ENABLED=0 go build -trimpath -o /out/r26-frontend ./cmd/frontend && CGO_ENABLED=0 go build -trimpath -o /out/r26ctl ./cmd/controlcli
 
 FROM ${R15_IMAGE}
 COPY --from=go-builder /out/r26-broker /guest/r26-broker
 COPY --from=go-builder /out/r26-actuator /guest/r26-actuator
 COPY --from=go-builder /out/r26-frontend /guest/r26-frontend
+COPY --from=go-builder /out/r26ctl /guest/r26ctl
 COPY experiments/usb-fabric-r26/integrated/orchestrator.py /guest/r26-orchestrator.py
 COPY experiments/usb-fabric-r26/integrated/actuator_oracle.py /guest/r26-actuator-oracle.py
 COPY experiments/usb-fabric-r26/integrated/actuator_restart_oracle.py /guest/r26-actuator-restart-oracle.py
