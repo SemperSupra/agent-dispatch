@@ -280,6 +280,8 @@ type response struct{
  State blue.State `json:"state,omitempty"`
  Epoch string `json:"epoch,omitempty"`
  Generation uint64 `json:"generation,omitempty"`
+ Port *PortInfo `json:"port,omitempty"`
+ Ports []PortInfo `json:"ports,omitempty"`
 }
 type actuator struct{
  m *blue.Manager
@@ -297,6 +299,7 @@ type actuator struct{
  scoped bool
  scope releasegate.Scope
  ex *executor
+ authorizedPeerUID int // opt-in kernel SO_PEERCRED check, -1 legacy only
 }
 
 // Test-only first-hand guest evdev evidence ingress. The QEMU virtio-serial
@@ -422,6 +425,12 @@ func (a *actuator) start()error{
 }
 func (a *actuator) handle(c net.Conn){
  defer c.Close()
+ // A caller may never set this UID through JSON. Fail before reading
+ // any requested operation or becoming associated with a lease.
+ if err:=authorizePeer(c,a.authorizedPeerUID);err!=nil{
+  fmt.Fprintln(os.Stderr,"R27_UNTRUSTED_SOCKET_PEER_DENIED=PASS")
+  return
+ }
  reader:=json.NewDecoder(bufio.NewReader(c))
  writer:=bufio.NewWriter(c)
  write:=func(r response){
@@ -447,6 +456,15 @@ func (a *actuator) handle(c net.Conn){
   _=c.SetReadDeadline(time.Now().Add(90*time.Second))
   var req request
   if err:=reader.Decode(&req);err!=nil{return}
+  // Protected discovery is a separate read-only operation requiring
+  // the actual peer UID; no lease token or actor string is interpreted.
+  if req.Op=="status" || req.Op=="ports"{
+   port,err:=a.status()
+   if err!=nil{write(response{Error:err.Error()});continue}
+   if req.Op=="status"{write(response{OK:true,State:port.State,Port:&port})
+   }else{write(response{OK:true,Ports:[]PortInfo{port}})}
+   continue
+  }
   // The fixed actor is a synthetic test selector, NOT authentication.
   if req.Actor!="approved-agent" {
    write(response{Error:"actor denied"});continue
@@ -511,6 +529,7 @@ func main(){
  // It carries PUBLIC TEST-ONLY MAC events; not production authentication.
  receiptPath:=flag.String("receipt","","test-only QEMU virtio-serial receipt Unix socket")
  scopedReceipts:=flag.Bool("scoped-receipts",false,"test-only per-lease guest receipt scope with host-to-guest binding")
+ authorizedPeerUID:=flag.Int("authorized-peer-uid",-1,"opt-in Linux SO_PEERCRED UID restriction for host-local controller API; -1 legacy synthetic")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
@@ -583,7 +602,8 @@ func main(){
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
  a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
-  media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex}
+  media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex,
+  authorizedPeerUID:*authorizedPeerUID}
  if *scopedReceipts && *receiptPath=="" {
   fmt.Fprintln(os.Stderr,"per-lease receipt needs explicit synthetic guest channel");os.Exit(14)
  }
