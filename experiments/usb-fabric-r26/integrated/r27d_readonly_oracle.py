@@ -8,7 +8,17 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from r27_broker_cli_oracle import Lines, ready, request, stop, control_snapshot
+# Reuse the unchanged qualified L9C/R27-B controller test primitives from
+# their immutable installed path; Docker intentionally uses a hyphenated file.
+import importlib.util
+spec=importlib.util.spec_from_file_location("r27_broker_test_helpers","/guest/r27-broker-cli-oracle.py")
+helpers=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helpers)
+Lines=helpers.Lines
+ready=helpers.ready
+request=helpers.request
+stop=helpers.stop
+control_snapshot=helpers.control_snapshot
 
 def main():
     with tempfile.TemporaryDirectory(prefix="r27d-readonly-",dir="/tmp") as temp:
