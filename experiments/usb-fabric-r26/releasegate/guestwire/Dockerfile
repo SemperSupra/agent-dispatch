@@ -8,13 +8,18 @@ COPY experiments/usb-fabric-r26/releasegate/ /src/
 ENV GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local
 RUN go test -race -count=1 ./... && go vet ./... && \
     CGO_ENABLED=0 go build -trimpath -o /out/guestwire-observer ./guestwire/cmd/guest && \
-    CGO_ENABLED=0 go build -trimpath -o /out/hostbridge ./guestwire/cmd/host
+    CGO_ENABLED=0 go build -trimpath -o /out/hostbridge ./guestwire/cmd/host && \
+    CGO_ENABLED=0 go build -trimpath -o /out/r27-runtime-guest-observer ./guestwire/cmd/runtimeguest && \
+    CGO_ENABLED=0 go build -trimpath -o /out/r27-provision ./guestwire/cmd/provision && \
+    /out/r27-provision /out/r27-guest-private /out/r27-guest-public
 
 FROM ${DEBIAN_BASE} AS kernel-builder
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /src
 COPY experiments/usb-fabric-r26/releasegate/guestwire/init.sh /src/init.sh
 COPY --from=go-builder /out/guestwire-observer /src/guestwire-observer
+COPY --from=go-builder /out/r27-runtime-guest-observer /src/r27-runtime-guest-observer
+COPY --from=go-builder /out/r27-guest-private /src/r27-guest-private
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
     linux-image-amd64 initramfs-tools busybox-static cpio gzip kmod zstd xz-utils && \
     mkdir -p /out /tmp/extracted /tmp/repacked && \
@@ -27,6 +32,8 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
     if [ -d /tmp/extracted/main ]; then cp -a /tmp/extracted/main/. /tmp/repacked/; else cp -a /tmp/extracted/. /tmp/repacked/; fi && \
     cp /src/init.sh /tmp/repacked/init && chmod 0755 /tmp/repacked/init && \
     cp /src/guestwire-observer /tmp/repacked/guestwire-observer && chmod 0755 /tmp/repacked/guestwire-observer && \
+    cp /src/r27-runtime-guest-observer /tmp/repacked/r27-runtime-guest-observer && chmod 0755 /tmp/repacked/r27-runtime-guest-observer && \
+    mkdir -p /tmp/repacked/etc && cp /src/r27-guest-private /tmp/repacked/etc/r27-guest-private-key && chmod 0400 /tmp/repacked/etc/r27-guest-private-key && \
     find /tmp/repacked -type f -name '*.ko.zst' -exec zstd -q -d --rm {} + && \
     find /tmp/repacked -type f -name '*.ko.xz' -exec xz -q -d {} + && \
     depmod -b /tmp/repacked "$version" && \
@@ -41,6 +48,7 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
 COPY --from=kernel-builder /out/kernel /guest/kernel
 COPY --from=kernel-builder /out/initrd.gz /guest/initrd.gz
 COPY --from=go-builder /out/hostbridge /guest/r26-hostbridge
+COPY --from=go-builder /out/r27-guest-public /guest/r27-guest-public
 COPY experiments/usb-fabric-r26/releasegate/guestwire/oracle.py /guest/oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/oracle.py"]

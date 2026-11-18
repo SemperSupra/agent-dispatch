@@ -21,5 +21,6 @@ COPY experiments/usb-fabric-r26/integrated/l7_alternate_journal_oracle.py /guest
 COPY experiments/usb-fabric-r26/integrated/l9b_guest_readmission_oracle.py /guest/r26-l9b-guest-readmission-oracle.py
 COPY experiments/usb-fabric-r26/integrated/l9c_scoped_release_detach_oracle.py /guest/r26-l9c-scoped-release-detach-oracle.py
 COPY experiments/usb-fabric-r26/integrated/l10_lockfile_inode_oracle.py /guest/r26-l10-lockfile-inode-oracle.py
+COPY experiments/usb-fabric-r26/integrated/r27c_signed_guest_oracle.py /guest/r27c_signed_guest_oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]
