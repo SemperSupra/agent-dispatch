@@ -1,0 +1,35 @@
+name: USB Fabric R13 symlink journal fail-closed critic
+on:
+  push:
+    branches: [test/issue-453-journal-symlink]
+    paths:
+      - '.github/workflows/usb-fabric-r13-journal-symlink.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/usb-fabric-r13-journal-symlink.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+permissions:
+  contents: read
+jobs:
+  symlink-critic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline existing Go journal symlink negative and race/vet
+        working-directory: experiments/usb-fabric-r26/integrated
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOTOOLCHAIN: "local"
+          GOSUMDB: "off"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./heldledger
+          go vet ./heldledger
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R13_SYMLINK_JOURNAL_NO_TAINT=PASS
