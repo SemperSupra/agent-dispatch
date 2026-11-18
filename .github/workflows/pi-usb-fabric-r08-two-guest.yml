@@ -1,0 +1,33 @@
+name: Pi USB Fabric R08 true dual Linux guest USBIP HID transfer
+on:
+  push:
+    branches: [test/issue-441-pi-usbip-two-guest]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r08-two-guest.yml'
+      - 'experiments/pi-usb-fabric-r08/two-guest/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r08-two-guest.yml'
+      - 'experiments/pi-usb-fabric-r08/two-guest/**'
+permissions:
+  contents: read
+jobs:
+  dual-kernel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify real USBIP HID transfer across two disposable Linux kernels
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r08/two-guest/verify.sh
+      - name: Preserve guest UART and failure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r08-two-guest-serial
+          path: ${{ runner.temp }}/r08-two-guest.log
+          retention-days: 7
+          if-no-files-found: warn
