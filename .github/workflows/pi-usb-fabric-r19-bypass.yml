@@ -35,6 +35,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: pi-r19-bypass-serial
-          path: ${{ runner.temp }}/r19-463.log
+          path: ${{ runner.temp }}/r19-red-463.log
           retention-days: 7
           if-no-files-found: warn
