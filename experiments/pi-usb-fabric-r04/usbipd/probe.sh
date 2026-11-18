@@ -2,8 +2,9 @@
 set -Eeuo pipefail
 echo "ARCH=$(uname -m)"
 test "$(uname -m)" = aarch64
-mapfile -t clients < <(find /usr/lib/linux-tools -type f -name usbip -perm /111 | sort -V)
-mapfile -t servers < <(find /usr/lib/linux-tools -type f -name usbipd -perm /111 | sort -V)
+(dpkg -L linux-tools-common linux-tools-generic | grep -E 'usbip|linux-tools' || true) | tail -60
+mapfile -t clients < <(find /usr/lib/linux-tools /usr/bin /usr/sbin -name usbip -print 2>/dev/null | sort -V)
+mapfile -t servers < <(find /usr/lib/linux-tools /usr/bin /usr/sbin -name usbipd -print 2>/dev/null | sort -V)
 if (( ${#clients[@]} == 0 || ${#servers[@]} == 0 )); then
  echo USBIP_NATIVE_USERSPACE_BINARIES=RED; exit 21
 fi
