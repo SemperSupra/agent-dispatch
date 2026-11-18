@@ -290,6 +290,8 @@ type response struct{
  State blue.State `json:"state,omitempty"`
  Epoch string `json:"epoch,omitempty"`
  Generation uint64 `json:"generation,omitempty"`
+ Port *PortInfo `json:"port,omitempty"`
+ Ports []PortInfo `json:"ports,omitempty"`
 }
 type actuator struct{
  m *blue.Manager
@@ -310,6 +312,8 @@ type actuator struct{
  runtimeMode bool
  pinnedGuestKey ed25519.PublicKey
  runtimeProof *runtimeproof.Authority
+ authorizedPeerUID int
+ policy operationPolicy
 }
 
 // Test-only first-hand guest evdev evidence ingress. The QEMU virtio-serial
@@ -445,6 +449,10 @@ func (a *actuator) start()error{
 }
 func (a *actuator) handle(c net.Conn){
  defer c.Close()
+ if err:=authorizePeer(c,a.authorizedPeerUID);err!=nil{
+  fmt.Fprintln(os.Stderr,"R27_UNTRUSTED_SOCKET_PEER_DENIED=PASS")
+  return
+ }
  reader:=json.NewDecoder(bufio.NewReader(c))
  writer:=bufio.NewWriter(c)
  write:=func(r response){
@@ -470,6 +478,20 @@ func (a *actuator) handle(c net.Conn){
   _=c.SetReadDeadline(time.Now().Add(90*time.Second))
   var req request
   if err:=reader.Decode(&req);err!=nil{return}
+  // Kernel-verified principal and host-configured grants are the only
+  // authority in opt-in synthetic protected mode. Never accept client
+  // JSON role, UID or capabilities.
+  if !a.policy.may(req.Op){
+   write(response{Error:ErrCapabilityDenied.Error()})
+   continue
+  }
+  if req.Op=="status"||req.Op=="ports"{
+   port,err:=a.status()
+   if err!=nil{write(response{Error:err.Error()});continue}
+   if req.Op=="status"{write(response{OK:true,State:port.State,Port:&port})
+   }else{write(response{OK:true,Ports:[]PortInfo{port}})}
+   continue
+  }
   // The fixed actor is a synthetic test selector, NOT authentication.
   if req.Actor!="approved-agent" {
    write(response{Error:"actor denied"});continue
@@ -535,6 +557,8 @@ func main(){
  receiptPath:=flag.String("receipt","","test-only QEMU virtio-serial receipt Unix socket")
  scopedReceipts:=flag.Bool("scoped-receipts",false,"test-only per-lease guest receipt scope with host-to-guest binding")
  runtimePubPath:=flag.String("runtime-guest-public","","host BUILDER-pin of QEMU guest Ed25519 image public key; synthetic only")
+ authorizedPeerUID:=flag.Int("authorized-peer-uid",-1,"opt-in kernel SO_PEERCRED allowed host-local UID; -1 legacy test")
+ operations:=flag.String("permitted-operations","","optional strict comma-separated host-granted operation allowlist")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
@@ -606,9 +630,14 @@ func main(){
  defer listener.Close()
  defer os.Remove(*socketPath)
  if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
+ policy,err:=parseOperationPolicy(*operations)
+ if err!=nil || (policy.configured && *authorizedPeerUID<0){
+  fmt.Fprintln(os.Stderr,"invalid operation grant or kernel peer authorization absent");os.Exit(16)
+ }
  a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
   media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex,
-  runtimeMode:*runtimePubPath!=""}
+  runtimeMode:*runtimePubPath!="",
+  authorizedPeerUID:*authorizedPeerUID,policy:policy}
  if *scopedReceipts && *receiptPath=="" {
   fmt.Fprintln(os.Stderr,"per-lease receipt needs explicit synthetic guest channel");os.Exit(14)
  }
