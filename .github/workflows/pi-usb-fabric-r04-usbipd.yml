@@ -1,0 +1,25 @@
+name: Pi USB Fabric R04 native ARM64 usbipd handshake
+on:
+  push:
+    branches: [experiment/issue-436-pi-usbipd-handshake]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r04-usbipd.yml'
+      - 'experiments/pi-usb-fabric-r04/usbipd/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r04-usbipd.yml'
+      - 'experiments/pi-usb-fabric-r04/usbipd/**'
+permissions:
+  contents: read
+jobs:
+  actual-userspace:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Actual USB/IP client to daemon loopback and no-server negative
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r04/usbipd/verify.sh
