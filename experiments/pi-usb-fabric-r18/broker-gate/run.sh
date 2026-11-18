@@ -14,13 +14,13 @@ trap cleanup EXIT INT TERM
 timeout 220s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
  -m 768 -smp 1 -kernel /guest/kernel -initrd /guest/provider.gz \
  -append 'console=ttyS0 rdinit=/init panic=1' \
- -nographic -monitor none -no-reboot \
+ -nographic -monitor none -no-reboot -serial stdio \
  -netdev socket,id=n0,listen=127.0.0.1:22123 \
  -device e1000,netdev=n0,mac=52:54:00:00:10:01 \
  -netdev socket,id=n1,listen=127.0.0.1:22124 \
  -device e1000,netdev=n1,mac=52:54:00:00:10:02 \
  -chardev socket,id=r18hostserial,path=/tmp/r18-provider-gate.sock,server=on,wait=off \
- -device isa-serial,chardev=r18hostserial >"$p" 2>&1 &
+ -device isa-serial,chardev=r18hostserial,index=1 >"$p" 2>&1 &
 P=$!
 # START sole test-only host Go broker after provider socket creation and before
 # consumer starts. Host process controls the ONLY B handoff authorization wire.
