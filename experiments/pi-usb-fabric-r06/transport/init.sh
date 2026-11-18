@@ -77,7 +77,9 @@ else
   fi
 fi
 # Actual USB/IP userland server-client path; all processes stay inside the QEMU guest.
-mkdir -p /tmp
+mkdir -p /tmp /var/run
+# usbip's vhci connection-record directory requires an existing /var/run parent.
+for mod in usbhid hid_generic evdev; do modprobe "$mod" >/dev/console 2>&1 || :; done
 if [ ! -x /usr/sbin/usbip ] || [ ! -x /usr/sbin/usbipd ]; then
   echo USBFABRIC_R06_USBIP_BINARIES=RED >/dev/console
 else
