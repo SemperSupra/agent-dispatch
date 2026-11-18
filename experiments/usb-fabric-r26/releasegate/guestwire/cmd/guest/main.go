@@ -27,7 +27,7 @@ type inputEvent struct {
 }
 
 func run()error {
- if len(os.Args)!=3{return fmt.Errorf("need /dev/input/eventN and virtio-port")}
+ if len(os.Args)!=3 && !(len(os.Args)==4 && os.Args[3]=="scoped"){return fmt.Errorf("need /dev/input/eventN virtio-port [scoped]")}
  ev,err:=os.Open(os.Args[1]);if err!=nil{return err}
  defer ev.Close()
  scoped:=len(os.Args)==4 && os.Args[3]=="scoped"
