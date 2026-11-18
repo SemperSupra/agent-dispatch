@@ -35,7 +35,12 @@ RUN set -eux; \
   find "/tmp/merged/lib/modules/$version" -type f -name '*.ko*' | wc -l; \
   depmod -b /tmp/merged "$version"; \
   for role in provider consumer; do cp "/tmp/$role.init" /tmp/merged/init; chmod 0755 /tmp/merged/init; \
-    (cd /tmp/merged && find . -print | cpio --quiet -o -H newc | gzip -9) > "/out/$role.gz"; done; \
+    test -f /tmp/merged/init && test -x /tmp/merged/init; \
+    ls -ld /tmp/merged/init /tmp/merged/lib /tmp/merged/lib/modules || true; \
+    (cd /tmp/merged && find . -print | cpio --quiet -o -H newc | gzip -9) > "/out/$role.gz"; \
+    gzip -t "/out/$role.gz"; \
+    gzip -dc "/out/$role.gz" | cpio -t --quiet | grep -Fx './init'; \
+  done; \
   test -s /out/provider.gz && test -s /out/consumer.gz
 FROM ${BASE}
 RUN apt-get update -qq && apt-get install -qq -y --no-install-recommends \
