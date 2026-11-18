@@ -1,0 +1,35 @@
+name: USB Fabric R14 atomic no-follow journal critic
+on:
+  push:
+    branches: [test/issue-454-journal-nofollow]
+    paths:
+      - '.github/workflows/usb-fabric-r14-nofollow.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/usb-fabric-r14-nofollow.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+permissions:
+  contents: read
+jobs:
+  nofollow-critic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline Go nofollow race and vet
+        working-directory: experiments/usb-fabric-r26/integrated
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOTOOLCHAIN: "local"
+          GOSUMDB: "off"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./heldledger
+          go vet ./heldledger
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R14_JOURNAL_NOFOLLOW_NO_TAINT=PASS
