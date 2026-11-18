@@ -59,6 +59,17 @@ with open('image.img','rb') as src, open('root.img','wb') as dst:
 with open('evidence/root-partition-bytes.txt','w') as out:out.write(str(length)+'\n')
 PY
 dumpe2fs -h root.img > "$EVIDENCE_DIR/ext4-superblock.txt" 2>&1
+python3 - <<'PY2'
+import re
+s=open('evidence/ext4-superblock.txt').read()
+def number(k):
+ m=re.search(r'^'+re.escape(k)+r':\s*(\d+)',s,re.M)
+ if not m:raise SystemExit('missing filesystem metric '+k)
+ return int(m.group(1))
+blocks=number('Block count'); free=number('Free blocks'); size=number('Block size')
+open('evidence/ext4-used-bytes.txt','w').write(str((blocks-free)*size)+'\n')
+open('evidence/ext4-capacity-bytes.txt','w').write(str(blocks*size)+'\n')
+PY2
 debugfs -R 'cat /etc/os-release' root.img > "$EVIDENCE_DIR/os-release.txt" 2>&1 || true
 debugfs -R 'stat /var/lib/dpkg/status' root.img > "$EVIDENCE_DIR/dpkg-status-metadata.txt" 2>&1 || true
 debugfs -R 'ls -p /usr/lib/systemd/system-generators' root.img > "$EVIDENCE_DIR/generators.txt" 2>&1 || true
