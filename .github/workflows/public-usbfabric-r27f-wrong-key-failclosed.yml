@@ -1,0 +1,28 @@
+name: USB Fabric R27-F - wrong pinned Ed25519 guest key fail closed in real QEMU
+on:
+  push:
+    branches: [test/issue-443-r27f-wrong-image-key-failclosed]
+    paths:
+      - '.github/workflows/public-usbfabric-r27f-wrong-key-failclosed.yml'
+      - 'experiments/usb-fabric-r26/integrated/**'
+      - 'experiments/usb-fabric-r26/releasegate/**'
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r27f-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  real-linux-guest-wrong-identity-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Real guest sends signed down and up but wrong pinned host key must leave journal held
+        shell: bash
+        run: bash experiments/usb-fabric-r26/integrated/r27f_wrong_pinned_key_verify.sh
