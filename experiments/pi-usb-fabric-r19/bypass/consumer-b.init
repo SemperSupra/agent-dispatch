@@ -85,15 +85,38 @@ if [ "$ready" = yes ]; then
   /bin/busybox timeout 12 /usr/sbin/usbip attach --remote 10.78.0.1 --busid usbip-vudc.0 >/tmp/r19-b-direct-attach.txt 2>&1
   direct_rc="$?"
   cat /tmp/r19-b-direct-attach.txt >/dev/console
-  if [ "$direct_rc" -eq 0 ] && /usr/sbin/usbip port >/tmp/r19-b-direct-port.txt 2>&1 && grep -q '10.78.0.1:3240/usbip-vudc.0' /tmp/r19-b-direct-port.txt; then
+  # USBIP attach(0) means the guest kernel has begun attaching, but
+  # device enumeration / usbip port output is asynchronous. Wait for BOTH
+  # actual VHCI address and independent guest Linux HID input enumeration.
+  attached=no
+  if [ "$direct_rc" -eq 0 ]; then
+   for tick in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if /usr/sbin/usbip port >/tmp/r19-b-direct-port.txt 2>&1 &&
+       grep -q '10.78.0.1:3240/usbip-vudc.0' /tmp/r19-b-direct-port.txt &&
+       grep -q 'USBFabric SyntheticHID' /proc/bus/input/devices; then
+     attached=yes
+     break
+    fi
+    sleep 1
+   done
+  fi
+  if [ "$attached" = yes ]; then
+   cat /tmp/r19-b-direct-port.txt >/dev/console
    echo R19_RED_UNAUTHORIZED_REAL_USBIP_IMPORT=PASS >/dev/console
-   if /usr/sbin/usbip detach --port 0 >/dev/console 2>&1 && /usr/sbin/usbip port >/tmp/r19-b-direct-clear.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r19-b-direct-clear.txt; then
-    echo R19_RED_BYPASS_PORT_CLEANUP=PASS >/dev/console
-   else
-    echo R19_RED_BYPASS_PORT_CLEANUP=RED >/dev/console
-   fi
+   echo R19_RED_INDEPENDENT_KERNEL_HID_ENUMERATED_BEFORE_BROKER=PASS >/dev/console
   else
+   cat /tmp/r19-b-direct-port.txt >/dev/console 2>&1 || :
    echo R19_RED_UNAUTHORIZED_REAL_USBIP_IMPORT=NOT_REPRODUCED >/dev/console
+   echo R19_RED_INDEPENDENT_KERNEL_HID_ENUMERATED_BEFORE_BROKER=RED >/dev/console
+  fi
+  # Always clean any successful native attach, even if the full input
+  # enumeration oracle timed out: never leave an imported ghost behind.
+  if [ "$direct_rc" -eq 0 ] &&
+     /usr/sbin/usbip detach --port 0 >/dev/console 2>&1 &&
+     /usr/sbin/usbip port >/tmp/r19-b-direct-clear.txt 2>&1 &&
+     ! grep -q '<Port in Use>' /tmp/r19-b-direct-clear.txt; then
+   echo R19_RED_BYPASS_PORT_CLEANUP=PASS >/dev/console
+  else
    echo R19_RED_BYPASS_PORT_CLEANUP=RED >/dev/console
   fi
   done=no
