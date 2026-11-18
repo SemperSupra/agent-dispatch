@@ -68,8 +68,9 @@ jobs:
           (command -v usbipd || find /usr/lib/linux-tools -type f -name usbipd -print 2>/dev/null || true) > evidence/usbipd-paths.txt
           (usbip version || true) > evidence/usbip-version.txt 2>&1
           (usbipd --version || true) > evidence/usbipd-version.txt 2>&1
-          find /usr/lib /usr/libexec -type f -name podman-system-generator -print > evidence/quadlet-generator.txt 2>/dev/null
-          test -s evidence/quadlet-generator.txt
+          (dpkg -L podman | grep -E 'quadlet|podman-system-generator' || true) > evidence/quadlet-package-files.txt
+          (find /usr/lib /usr/libexec -name podman-system-generator -print 2>/dev/null || true) > evidence/quadlet-generator.txt
+          if [ -s evidence/quadlet-generator.txt ]; then echo PRESENT > evidence/quadlet-state.txt; else echo MISSING_UNQUALIFIED > evidence/quadlet-state.txt; fi
           (modinfo usbip_host || true) > evidence/usbip-host-module.txt 2>&1
           (modinfo vhci_hcd || true) > evidence/vhci-module.txt 2>&1
           echo 'NO physical USB; no modprobe; no client drivers tested; no TCP listeners started' > evidence/limits.txt
