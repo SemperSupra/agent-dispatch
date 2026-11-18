@@ -50,7 +50,7 @@ func (s Store) Read()(State,error){
  if errors.Is(e,os.ErrNotExist){return State{Version:Version},nil}
  if e!=nil{return State{},e}
  if !pathInfo.Mode().IsRegular(){return State{},ErrInvalid}
- f,e:=os.Open(s.Path)
+ f,e:=openJournalNoFollow(s.Path)
  if errors.Is(e,os.ErrNotExist){return State{},ErrInvalid}
  if e!=nil{return State{},e}
  defer f.Close()
