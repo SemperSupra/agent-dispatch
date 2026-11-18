@@ -10,14 +10,14 @@ cleanup() {
 trap cleanup EXIT INT TERM
 # QEMU socket network is only inside this outer container's loopback namespace.
 timeout 170s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
-  -m 448 -smp 1 -kernel /guest/kernel -initrd /guest/provider.gz \
+  -m 768 -smp 1 -kernel /guest/kernel -initrd /guest/provider.gz \
   -append 'console=ttyS0 rdinit=/init panic=1' \
   -nographic -monitor none -no-reboot \
   -netdev socket,id=n0,listen=127.0.0.1:22123 \
   -device e1000,netdev=n0,mac=52:54:00:00:08:01 >"$p" 2>&1 &
 P=$!
 timeout 170s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
-  -m 448 -smp 1 -kernel /guest/kernel -initrd /guest/consumer.gz \
+  -m 768 -smp 1 -kernel /guest/kernel -initrd /guest/consumer.gz \
   -append 'console=ttyS0 rdinit=/init panic=1' \
   -nographic -monitor none -no-reboot \
   -netdev socket,id=n0,connect=127.0.0.1:22123 \
@@ -25,7 +25,13 @@ timeout 170s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
 C=$!
 set +e
 wait "$C"; client_rc=$?
-wait "$P"; provider_rc=$?
+if grep -q R08_CONSUMER_REAL_REMOTE_HID_DATA=PASS "$c"; then
+  wait "$P"; provider_rc=$?
+else
+  kill "$P" 2>/dev/null || :
+  wait "$P"; provider_rc=$?
+  echo R08_EARLY_CONSUMER_FAILURE_PROVIDER_STOPPED=YES
+fi
 set -e
 P=""; C=""
 echo R08_PROVIDER_SERIAL_BEGIN
