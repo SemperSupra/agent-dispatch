@@ -3,6 +3,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -65,6 +66,81 @@ class ContainerPreB4Tests(unittest.TestCase):
             with self.subTest(pool=pool, name=name), self.assertRaises(probe.ProbeError):
                 dataset = f"{pool}/.truenas_containers/containers/{name}"
                 probe.derive_rootfs_mountpoint(doc, pool, name, dataset)
+
+    def test_invalid_pool_stops_before_network_and_create(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = pathlib.Path(td) / "receipt.json"
+            args = ["probe", "--http-port", "80", "--middleware-port", "6000",
+                    "--password-file", str(pathlib.Path(td) / "missing-password"),
+                    "--fixture-dir", td, "--fixture-producer-commit", "a" * 40,
+                    "--pool", "..", "--out", str(out)]
+            with mock.patch.object(sys, "argv", args), \
+                    mock.patch.object(probe, "load_fixture", return_value=self.fixture()), \
+                    mock.patch.object(probe, "WebSocket", side_effect=AssertionError("network reached")):
+                self.assertEqual(probe.main(), 2)
+            self.assertFalse((pathlib.Path(td) / "missing-password").exists())
+            self.assertFalse(json.loads(out.read_text())["cleanup"]["attempted"])
+
+    def test_staged_traversal_rejected_before_any_upload(self):
+        uploads = []
+        fixture = {"staged_files": [{"path": "/usr/local/bin/bootstrap"},
+                                    {"path": "/../../../../etc/forged"}]}
+        with self.assertRaises(probe.ProbeError):
+            probe.stage_bootstrap_files(
+                fixture, "/mnt/.truenas_containers/rdtepool/containers/garm-test", "token",
+                lambda *args: uploads.append(args), lambda *args: None, lambda *args: None,
+            )
+        self.assertEqual(uploads, [])
+
+    def test_retirement_rechecks_created_identity_before_stop_and_delete(self):
+        expected = {"id": 7, "uuid": "43e983d3-b812-456e-b39c-12ac68500b3f",
+                    "name": "garm-test", "description": "owned",
+                    "dataset": "rdtepool/.truenas_containers/containers/garm-test",
+                    }
+        for replace_at, want_stops, changed_field, replacement in (
+            (1, 0, "description", "foreign"),
+            (2, 1, "uuid", "2c85e1da-7a63-4579-8d57-96359ecf4ee0"),
+        ):
+            with self.subTest(replace_at=replace_at, field=changed_field):
+                row = {**expected, "status": {"state": "RUNNING"}}
+                calls = []
+                reads = 0
+                def call(method, params):
+                    nonlocal row, reads
+                    calls.append(method)
+                    if method == "container.query":
+                        reads += 1
+                        if reads == replace_at:
+                            row = {**row, changed_field: replacement}
+                        query_field, _, value = params[0][0]
+                        return [row] if row and row.get(query_field) == value else []
+                    if method == "container.stop":
+                        row = {**row, "status": {"state": "STOPPED"}}
+                        return None
+                    if method == "container.delete":
+                        row = None
+                        return None
+                    raise AssertionError(method)
+                with self.assertRaises(probe.ProbeError):
+                    probe.retire_created_container(call, expected, {"force": True}, lambda *args: None, 0)
+                self.assertEqual(calls.count("container.stop"), want_stops)
+                self.assertNotIn("container.delete", calls)
+
+    def test_retirement_requires_id_and_name_absence(self):
+        expected = {"id": 7, "uuid": "43e983d3-b812-456e-b39c-12ac68500b3f",
+                    "name": "garm-test", "description": "owned",
+                    "dataset": "rdtepool/.truenas_containers/containers/garm-test",
+                    }
+        row = {**expected, "status": {"state": "STOPPED"}}
+        def call(method, params):
+            if method == "container.query":
+                field, _, value = params[0][0]
+                return [row] if row.get(field) == value else []
+            if method == "container.delete":
+                return None  # Acknowledged, but retained.
+            raise AssertionError(method)
+        with self.assertRaises(probe.ProbeError):
+            probe.retire_created_container(call, expected, {}, lambda *args: None, 0)
 
     def test_load_rejects_hidden_dataset_query_reintroduction(self):
         with tempfile.TemporaryDirectory() as td:
