@@ -1,0 +1,19 @@
+name: USB Fabric R27-H4 - protected QMP directory OS peer DAC primitive
+on:
+  push:
+    branches: [test/issue-470-r27h4-qmp-dac-boundary]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  service-private-qmp-socket-directory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test private Unix QMP socket directory negative and permissive controls
+        run: python3 experiments/usb-fabric-r26/r27h/qmp_private_socket_dac.py
