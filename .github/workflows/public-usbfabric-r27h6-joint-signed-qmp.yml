@@ -1,4 +1,4 @@
-name: USB Fabric R27-H6 - same-run two signed leases and protected QMP identity
+name: USB Fabric R27-H6+H9 - signed two leases with protected, unlinked QMP
 on:
   push:
     branches: [test/issue-470-r27h6-signed-guest-service-boundary]
@@ -15,6 +15,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Signed two-lease Linux guest, distinct-UID protected QMP and broker
+      - name: Signed two-lease Linux guest with QMP pathname unlink and broker
         shell: bash
-        run: bash experiments/usb-fabric-r26/integrated/r27h6_joint_signed_private_qmp_verify.sh
+        run: bash experiments/usb-fabric-r26/integrated/r27h9_signed_qmp_unlink_verify.sh
