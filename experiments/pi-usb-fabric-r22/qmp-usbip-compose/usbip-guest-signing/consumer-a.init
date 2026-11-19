@@ -1,0 +1,132 @@
+#!/bin/sh
+# Independent USB/IP consumer QEMU guest. No local gadget exists.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p /proc /sys /dev /var/run /tmp
+mount -t proc proc /proc || :
+mount -t sysfs sysfs /sys || :
+mount -t devtmpfs devtmpfs /dev || :
+echo R08_CONSUMER_DISTINCT_KERNEL_BOOT=PASS >/dev/console
+uname -r >/dev/console
+for m in usbip_core vhci_hcd usbhid hid_generic evdev e1000 virtio virtio_ring virtio_pci virtio_console; do
+ if modprobe "$m" >/dev/console 2>&1; then
+  echo "R08_CONSUMER_MODULE_$m=PASS" >/dev/console
+ else
+  echo "R08_CONSUMER_MODULE_$m=RED" >/dev/console
+ fi
+done
+if /bin/busybox ip addr add 10.77.0.2/24 dev eth0 >/dev/console 2>&1 && /bin/busybox ip link set eth0 up >/dev/console 2>&1; then
+ echo R08_CONSUMER_ETHERNET=PASS >/dev/console
+else
+ echo R08_CONSUMER_ETHERNET=RED >/dev/console
+fi
+/bin/busybox ip link set lo up >/dev/console 2>&1 || :
+# Never fall back to 127.0.0.1 or a same-kernel virtual port.
+discovered=no
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+ if /usr/sbin/usbip list --remote 10.77.0.1 > /tmp/r08-list.txt 2>&1 && grep -q usbip-vudc.0 /tmp/r08-list.txt; then discovered=yes; break; fi
+ sleep 1
+done
+cat /tmp/r08-list.txt >/dev/console
+if [ "$discovered" = yes ]; then
+ echo R08_CONSUMER_REMOTE_PROVIDER_DISCOVERED=PASS >/dev/console
+ if /usr/sbin/usbip attach --remote 10.77.0.1 --busid usbip-vudc.0 >/tmp/r08-attach.txt 2>&1; then
+  attached=no
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+   /usr/sbin/usbip port >/tmp/r08-port.txt 2>&1 || :
+   if grep -q '10.77.0.1:3240/usbip-vudc.0' /tmp/r08-port.txt; then attached=yes; break; fi
+   sleep 1
+  done
+  cat /tmp/r08-port.txt >/dev/console
+  if [ "$attached" = yes ]; then
+   echo R08_CONSUMER_REAL_REMOTE_VHCI_ATTACH=PASS >/dev/console
+   eventdev=""
+   for i in 1 2 3 4 5 6 7 8 9 10; do
+    eventdev="$(/bin/busybox awk '/Name="USBFabric SyntheticHID"/{matched=1;next} matched && /Handlers=/ {for(i=1;i<=NF;i++)if($i ~ /^event[0-9]+$/){print $i;exit}}' /proc/bus/input/devices)"
+    if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then break; fi
+    sleep 1
+   done
+   if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then
+    echo "R08_CONSUMER_REAL_EVDEV_PATH=/dev/input/$eventdev" >/dev/console
+    # Reuse R22-A actual guest-origin Ed25519 observer over a QEMU-local
+    # virtio-serial port; never expose its key or receipts over USBIP TCP.
+    port=/dev/vport0p1
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     if [ -c "$port" ]; then break; fi
+     if [ -r /sys/class/virtio-ports/vport0p1/dev ]; then
+      devnum="$(cat /sys/class/virtio-ports/vport0p1/dev)"
+      mknod "$port" c "${devnum%:*}" "${devnum#*:}" >/dev/console 2>&1 || :
+     fi
+     sleep 1
+    done
+    if [ ! -c "$port" ]; then
+     echo R22_B_REAL_USBIP_GUEST_VIRTIO_RECEIPT_PORT=RED >/dev/console
+     sync;poweroff -f || reboot -f
+    fi
+    /usr/bin/guestwire-observer "/dev/input/$eventdev" "$port" >/tmp/r22-a-guest-signing.log 2>&1 &
+    signerpid="$!"
+    started=no
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     if grep -q 'R26_L8_REAL_GUEST_VIRTIO_EVDEV_OBSERVER_READY=PASS' /tmp/r22-a-guest-signing.log; then started=yes;break;fi
+     if ! kill -0 "$signerpid" 2>/dev/null;then break;fi
+     sleep 1
+    done
+    if [ "$started" != yes ]; then
+     cat /tmp/r22-a-guest-signing.log >/dev/console
+     echo R22_B_REAL_USBIP_GUEST_ED25519_SIGNER_READY=RED >/dev/console
+     sync;poweroff -f || reboot -f
+    fi
+    echo R22_B_REAL_USBIP_GUEST_ED25519_SIGNER_READY=PASS >/dev/console
+    /usr/bin/hid_evdev_observer "/dev/input/$eventdev" >/tmp/r08-evdev.txt 2>&1 &
+    observerpid="$!"
+    sleep 1
+    /bin/busybox printf 'GO\n' | /bin/busybox nc -w 2 10.77.0.1 3333 >/tmp/r08-control.txt 2>&1 || :
+    if wait "$observerpid"; then
+     cat /tmp/r08-evdev.txt >/dev/console
+     echo R08_CONSUMER_REAL_REMOTE_HID_DATA=PASS >/dev/console
+     # Hold this actual VHCI port for consumer B's independent failed import.
+     if /bin/busybox nc -l -p 3336 >/tmp/r10-release.txt 2>/dev/console && grep -qx RELEASE /tmp/r10-release.txt; then
+       echo R10_CONSUMER_A_HELD_UNTIL_B_RESULT=PASS >/dev/console
+     else
+       echo R10_CONSUMER_A_HELD_UNTIL_B_RESULT=RED >/dev/console
+     fi
+    else
+     cat /tmp/r08-evdev.txt >/dev/console
+     echo R08_CONSUMER_REAL_REMOTE_HID_DATA=RED >/dev/console
+    fi
+   else
+    echo R08_CONSUMER_REAL_REMOTE_HID_DATA=RED >/dev/console
+   fi
+  else
+   echo R08_CONSUMER_REAL_REMOTE_VHCI_ATTACH=RED >/dev/console
+  fi
+  if /usr/sbin/usbip detach --port 0 >/dev/console 2>&1; then
+   echo R08_CONSUMER_DETACH=PASS >/dev/console
+   released=no
+   for tick in 1 2 3 4 5 6 7 8 9 10; do
+    if /usr/sbin/usbip port >/tmp/r11-a-port.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r11-a-port.txt; then released=yes; break; fi
+    sleep 1
+   done
+   if [ "$released" = yes ]; then
+    echo R11_CONSUMER_A_ACTUAL_VHCI_QUIESCENT=PASS >/dev/console
+    confirmed=no
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     if /bin/busybox printf 'A_DETACHED\n' | /bin/busybox nc -w 2 10.77.0.1 3339 >/tmp/r11-a-confirm.txt 2>&1; then confirmed=yes; break; fi
+     sleep 1
+    done
+    if [ "$confirmed" = yes ]; then echo R11_CONSUMER_A_RELEASE_RECEIPT_SENT=PASS >/dev/console; else echo R11_CONSUMER_A_RELEASE_RECEIPT_SENT=RED >/dev/console; fi
+   else
+    echo R11_CONSUMER_A_ACTUAL_VHCI_QUIESCENT=RED >/dev/console
+   fi
+  else
+   echo R08_CONSUMER_DETACH=RED >/dev/console
+  fi
+ else
+  cat /tmp/r08-attach.txt >/dev/console
+  echo R08_CONSUMER_REAL_REMOTE_VHCI_ATTACH=RED >/dev/console
+ fi
+else
+ echo R08_CONSUMER_REMOTE_PROVIDER_DISCOVERED=RED >/dev/console
+fi
+echo R08_CONSUMER_FINISHED=YES >/dev/console
+sync
+poweroff -f || reboot -f
