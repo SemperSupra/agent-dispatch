@@ -24,6 +24,9 @@ def main():
         sys.exit(attempt(sys.argv[2]))
     with tempfile.TemporaryDirectory(prefix="r27h4-") as top:
         base=Path(top); base.chmod(0o755)
+        helper=base/"public-disposable-client.py"
+        helper.write_text(Path(__file__).read_text())
+        helper.chmod(0o644)
         private=base/"service-qmp";private.mkdir(mode=0o700)
         endpoint=private/"qmp.sock"
         server=socket.socket(socket.AF_UNIX)
@@ -31,10 +34,10 @@ def main():
         server.listen(3)
         endpoint.chmod(0o666)  # intentionally permissive; parent must defend
         try:
-            owner=subprocess.run([sys.executable,__file__,"connect",str(endpoint)],capture_output=True,text=True,timeout=6)
+            owner=subprocess.run([sys.executable,str(helper),"connect",str(endpoint)],capture_output=True,text=True,timeout=6)
             if owner.returncode!=0:raise RuntimeError("controller cannot access its own QMP socket: "+owner.stderr)
             print("R27H4_SERVICE_PRINCIPAL_QMP_ALLOWED=PASS",flush=True)
-            hostile=["sudo","-n","-u","nobody",sys.executable,__file__,"connect",str(endpoint)]
+            hostile=["sudo","-n","-u","nobody",sys.executable,str(helper),"connect",str(endpoint)]
             forbidden=subprocess.run(hostile,capture_output=True,text=True,timeout=6)
             if forbidden.returncode!=13:
                 raise RuntimeError("untrusted principal was not denied: "+repr((forbidden.returncode,forbidden.stdout,forbidden.stderr)))
