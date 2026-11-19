@@ -1,0 +1,60 @@
+name: USB Fabric R25-A QMP guest witness to existing durable export gate
+on:
+  push:
+    branches: [test/issue-504-r25-causal-handoff]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-causal-handoff.yml'
+      - 'experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25*'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-causal-handoff.yml'
+      - 'experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25*'
+permissions:
+  contents: read
+jobs:
+  offline-go-admission-interlock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin existing qualified R26 source; never clone a second QMP or broker
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r23-existing-go
+          persist-credentials: false
+      - name: Qualify causal witness, durable HELD and R22 simulated exporter together
+        working-directory: experiments/pi-usb-fabric-r24/qmp-usbip-identity
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE/.r23-existing-go" rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          go test -race -count=1 -timeout 100s -v ./... | tee "$RUNNER_TEMP/r25-a-handoff.log"
+          go vet ./...
+          for marker in \
+            R25_A_CROSS_DEVICE_ACK_AND_GUEST_MISMATCH_REFUSED_BEFORE_BIND=PASS \
+            R25_A_UNVERIFIED_RECEIPTS_KEEP_HELD_BYTE_IDENTICAL=PASS \
+            R25_A_MATCHED_TEST_PAIR_FSYNC_BEFORE_SINGLE_UDC_BIND=PASS \
+            R25_A_MISSING_QMP_RELEASE_STAGE_FAILS_CLOSED_NO_RETRY=PASS \
+            R25_A_CONCURRENT_REPLAY_ONE_USE_ONLY=PASS \
+            R25_A_REAL_QMP_USBIP_CAUSAL_HANDOFF=NOT_TESTED; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r25-a-handoff.log"
+          done
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r23-existing-go')"
+          echo R25_A_EXISTING_R24_R23_R22_COMPOSITION_TEST_ONLY=PASS
+      - name: Retain positive and refused-control tests
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r25-a-causal-qmp-usbip-fence
+          path: ${{ runner.temp }}/r25-a-handoff.log
+          retention-days: 7
+          if-no-files-found: warn
