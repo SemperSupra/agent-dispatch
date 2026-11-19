@@ -31,3 +31,17 @@ jobs:
           echo R21_B_ED25519_VERIFIER_PREDECESSOR_ONLY=PASS
           echo R21_B_REAL_GUEST_SIGNED_EVDEV=NOT_TESTED
           test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Qualify strict guest console marker parser and test-only signed durable release adapter
+        working-directory: experiments/pi-usb-fabric-r21/live-evdev-proof
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo R21_B_TEST_ONLY_TRACE_PARSER_TO_LEDGER=PASS
+          echo R21_B_REAL_GUEST_HELD_SIGNATURE=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
