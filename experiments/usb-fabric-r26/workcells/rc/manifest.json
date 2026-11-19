@@ -19,7 +19,8 @@
       "head": "eceb8405f5c9f35ba215f38bfc39417810abf11b",
       "decision": "preserve-red",
       "gate": "RED",
-      "reason": "same service UID new second QMP monitor bypass demonstrated"
+      "reason": "same service UID new second QMP monitor bypass demonstrated",
+      "mitigated_by": "H9"
     },
     {
       "id": "H9",
@@ -39,11 +40,11 @@
     },
     {
       "id": "H10",
-      "pr": 0,
-      "head": "0000000000000000000000000000000000000000",
-      "decision": "pending",
-      "gate": "NOT_TESTED",
-      "reason": "held-input SIGKILL crash and restart require qualification"
+      "pr": 891,
+      "head": "6bf36505d2add87e7edeb5a33eb14a57b01f4b87",
+      "decision": "carry",
+      "gate": "PASS",
+      "reason": "real held-input SIGKILL crash containment only; restart recovery still blocked"
     }
   ],
   "blockers": [
