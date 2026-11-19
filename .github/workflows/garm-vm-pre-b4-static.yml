@@ -28,7 +28,7 @@ jobs:
           python3 -m unittest -v tests/test_truenas_garm_vm_pre_b4.py tests/test_truenas_garm_vm_template_preflight.py
       - name: Export exact public GARM VM source fixture
         env:
-          PROVIDER_REF: 5944d1dc62b4da2a247dda9754cfe674caedf5cf
+          PROVIDER_REF: 5cb856c688d7f68bc9a2b42d7b3e3b634caa2335
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/garm-vm-provider" "$RUNNER_TEMP/garm-vm-evidence"
@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           python3 scripts/truenas_garm_vm_pre_b4_fixture.py \
             --fixture "$RUNNER_TEMP/garm-vm-evidence/garm-provider-vm-pre-b4-fixture.json" \
-            --producer-commit 5944d1dc62b4da2a247dda9754cfe674caedf5cf \
+            --producer-commit 5cb856c688d7f68bc9a2b42d7b3e3b634caa2335 \
             --out "$RUNNER_TEMP/garm-vm-evidence/consumer-static-receipt.json"
           python3 - "$RUNNER_TEMP/garm-vm-evidence/consumer-static-receipt.json" <<'PY'
           import json, sys
