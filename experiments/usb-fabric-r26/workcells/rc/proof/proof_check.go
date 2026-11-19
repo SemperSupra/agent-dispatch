@@ -17,26 +17,7 @@ type Ledger struct{
  ReleaseReady bool `json:"release_ready"`
 }
 var sha=regexp.MustCompile(`^[0-9a-f]{40}$`)
-var statement=regexp.MustCompile(`^[A-Z][A-Z0-9_]*=(PASS|REPRODUCED)package main
-import("encoding/json";"errors";"fmt";"os";"regexp";"strings")
-type Proof struct{
- Cell string `json:"cell"`
- SourceSHA string `json:"source_sha"`
- RunID int64 `json:"run_id"`
- JobID int64 `json:"job_id"`
- Conclusion string `json:"conclusion"`
- Disposition string `json:"disposition"`
- Assertion string `json:"assertion"`
- Boundary string `json:"boundary"`
- IndependentlyVerified bool `json:"independently_verified"`
-}
-type Ledger struct{
- Schema int `json:"schema"`
- Proofs []Proof `json:"proofs"`
- ReleaseReady bool `json:"release_ready"`
-}
-var sha=regexp.MustCompile(`^[0-9a-f]{40}$`)
-)
+var statement=regexp.MustCompile(`^[A-Z][A-Z0-9_]*=(PASS|REPRODUCED)$`)
 var redLabel=regexp.MustCompile(`(^|_)RED(_|=|$)`)
 func check(m Ledger)error{
  if m.Schema!=1||len(m.Proofs)<2{return errors.New("missing immutable proof inventory")}
