@@ -1,0 +1,46 @@
+name: USB Fabric R23-B dynamic blue lease host pinned guest Ed25519 contract
+on:
+  push:
+    branches: [test/issue-481-dynamic-signed-lease]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r23-dynamic-signed-lease.yml'
+      - 'experiments/pi-usb-fabric-r23/dynamic-signed-lease/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r23-dynamic-signed-lease.yml'
+      - 'experiments/pi-usb-fabric-r23/dynamic-signed-lease/**'
+permissions:
+  contents: read
+jobs:
+  host-approved-dynamic-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test real blue.Lease generation, host-approved Ed25519 and refused byte-changing forged receipts
+        working-directory: experiments/pi-usb-fabric-r23/dynamic-signed-lease
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -timeout 90s -v ./... | tee "$RUNNER_TEMP/r23-b-dynamic-sign.log"
+          go vet ./...
+          grep -q 'R23_B_DYNAMIC_BLUE_LEASE_ED25519_R26_GATE_AND_LEDGER=PASS' "$RUNNER_TEMP/r23-b-dynamic-sign.log"
+          grep -q 'R23_B_PINNED_KEY_ATTACKER_FIRST_DYNAMIC_EPOCH_REPLAY_DENIED=PASS' "$RUNNER_TEMP/r23-b-dynamic-sign.log"
+          echo R23_B_DYNAMIC_SIGNED_LEASE_TEST_ONLY_CONTRACT=PASS
+          echo R23_B_ACTUAL_VM_DYNAMICAL_KEY_PROVISIONING=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Preserve dynamic scope critic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r23-b-dynamic-blue-lease-host-pinned-test-ed25519
+          path: ${{ runner.temp }}/r23-b-dynamic-sign.log
+          retention-days: 7
+          if-no-files-found: warn
