@@ -1,0 +1,72 @@
+{
+  "schema": "usb-fabric.batch.v1",
+  "iteration": "R21",
+  "max_concurrent": 4,
+  "min_independent_active": 3,
+  "critical_path_policy": "start P0 before P1; do not idle unrelated P1",
+  "resource_policy": {
+    "public_github_actions": true,
+    "private_paid_minutes": false,
+    "host_modules": false,
+    "secrets": false,
+    "production": false,
+    "auto_merge": false
+  },
+  "workcells": [
+    {
+      "id": "r21a",
+      "dle": 467,
+      "priority": "P0",
+      "branch": "test/issue-467-restart-fence",
+      "base": "5d77145076731740b49acfc05dc1a8dc022b6fed",
+      "write_prefixes": [
+        "experiments/pi-usb-fabric-r21/restart-fence/",
+        ".github/workflows/pi-usb-fabric-r21-restart-fence.yml"
+      ],
+      "oracle": "new broker process reads persisted HELD; before valid release B direct import denied"
+    },
+    {
+      "id": "r21b",
+      "dle": 468,
+      "priority": "P0",
+      "branch": "test/issue-468-live-evdev-proof",
+      "base": "9a3e2de9d12873a51553c5ad3332940f32e6a7f5",
+      "write_prefixes": [
+        "experiments/pi-usb-fabric-r21/live-evdev-proof/",
+        ".github/workflows/pi-usb-fabric-r21-live-evdev.yml"
+      ],
+      "oracle": "real guest evdev event cryptographically bound to held journal, bad/replayed proof denied"
+    },
+    {
+      "id": "r21c",
+      "dle": 469,
+      "priority": "P1",
+      "branch": "test/issue-469-arm64-capability-matrix",
+      "base": "main",
+      "write_prefixes": [
+        "experiments/pi-usb-fabric-r21/arm64-capability/",
+        ".github/workflows/pi-usb-fabric-r21-arm64.yml"
+      ],
+      "oracle": "machine-readable architecture/capability results, unknown never promoted to pass"
+    }
+  ],
+  "required_each_iteration": [
+    "read current issue and PR head",
+    "detect branch ownership conflicts",
+    "admit up to four runnable independent workcells",
+    "launch ready workcells concurrently rather than sequentially",
+    "observe each and capture run IDs",
+    "preserve RED logs",
+    "reconcile DLE with evidence and limitations",
+    "report active/blocked/completed and next-ready"
+  ],
+  "states": [
+    "NOT_STARTED",
+    "RUNNING",
+    "BLOCKED",
+    "RED",
+    "QUALIFIED_TEST_ONLY",
+    "QUALIFIED_PRODUCTION"
+  ],
+  "fail_closed": true
+}
