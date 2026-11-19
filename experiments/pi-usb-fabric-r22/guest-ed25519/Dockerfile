@@ -6,11 +6,12 @@ FROM ${GO_BASE} AS go-builder
 WORKDIR /src
 COPY experiments/usb-fabric-r26/releasegate/ /src/
 COPY experiments/pi-usb-fabric-r22/guest-ed25519/guest-signing-main.go /src/guestwire/cmd/guest/main.go
+COPY experiments/pi-usb-fabric-r22/guest-ed25519/host-ed25519-main.go /src/guestwire/cmd/host/main.go
 COPY experiments/pi-usb-fabric-r22/guest-ed25519/ /r22/
 ENV GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local
 RUN go test -race -count=1 ./... && go vet ./... && \
     CGO_ENABLED=0 go build -tags r22_guest -trimpath -o /out/guestwire-observer ./guestwire/cmd/guest && \
-    CGO_ENABLED=0 go build -trimpath -o /out/hostbridge ./guestwire/cmd/host
+    CGO_ENABLED=0 go build -tags r22_host -trimpath -o /out/hostbridge ./guestwire/cmd/host
 RUN cd /r22 && go mod edit -replace example.org/usb-fabric-r26-releasegate=/src && \
     GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 ./... && \
     GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet ./... && \
