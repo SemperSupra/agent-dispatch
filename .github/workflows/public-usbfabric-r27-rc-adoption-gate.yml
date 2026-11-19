@@ -18,4 +18,4 @@ jobs:
       - name: Validate exact-head adoption decisions and preserve known RED
         run: |
           GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/rc/rc_gate.go experiments/usb-fabric-r26/workcells/rc/manifest.json
-          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/rc/rc_gate.go experiments/usb-fabric-r26/workcells/rc/rc_gate_test.go experiments/usb-fabric-r26/workcells/rc/rc_mitigation_test.go
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/rc/rc_gate.go experiments/usb-fabric-r26/workcells/rc/rc_gate_test.go experiments/usb-fabric-r26/workcells/rc/rc_mitigation_test.go experiments/usb-fabric-r26/workcells/rc/rc_scope_test.go
