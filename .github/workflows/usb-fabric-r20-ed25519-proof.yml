@@ -1,0 +1,36 @@
+name: USB Fabric R20 Ed25519 scoped TEST-ONLY guest release proof critic
+on:
+  push:
+    branches: [test/issue-466-ed25519-guest-proof-critic]
+    paths:
+      - '.github/workflows/usb-fabric-r20-ed25519-proof.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/usb-fabric-r20-ed25519-proof.yml'
+      - 'experiments/usb-fabric-r26/integrated/heldledger/**'
+permissions:
+  contents: read
+jobs:
+  existing-heldledger-ed25519-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise existing Go durable journal and scoped Ed25519 test-only verifier
+        working-directory: experiments/usb-fabric-r26/integrated
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -race -count=1 -timeout 90s -v ./heldledger
+          go vet ./heldledger
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R20_ED25519_EXISTING_HELDLEDGER_NO_TAINT=PASS
