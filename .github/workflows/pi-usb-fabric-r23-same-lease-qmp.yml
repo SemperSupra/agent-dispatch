@@ -1,0 +1,58 @@
+name: USB Fabric R23-A existing R26 same lease release gate and UDC refusal contract
+on:
+  push:
+    branches: [test/issue-480-same-lease-qmp-fence]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r23-same-lease-qmp.yml'
+      - 'experiments/pi-usb-fabric-r23/same-lease-qmp/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r23-same-lease-qmp.yml'
+      - 'experiments/pi-usb-fabric-r23/same-lease-qmp/**'
+permissions:
+  contents: read
+jobs:
+  scoped-policy-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r23-existing-go
+          persist-credentials: false
+      - name: Require existing pinned Go Manager, heldledger and QMP guest-gate source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .r23-existing-go rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          test -f .r23-existing-go/experiments/usb-fabric-r26/integrated/heldledger/ledger.go
+      - name: Fail-closed same lease simulated-QMP to exporter gate critic
+        shell: bash
+        working-directory: experiments/pi-usb-fabric-r23/same-lease-qmp
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -timeout 90s -v ./... | tee "$RUNNER_TEMP/r23-a-policy.log"
+          go vet ./...
+          grep -q 'R23_A_SAME_LEASE_QMP_AND_GUEST_GATE_ONLY_ONCE=PASS' "$RUNNER_TEMP/r23-a-policy.log"
+          grep -q 'R23_A_RESTART_DROPS_UNATTESTED_QMP_ONLY_RELEASE=PASS' "$RUNNER_TEMP/r23-a-policy.log"
+          echo R23_A_SOURCE_CONTRACT_ONLY=PASS
+          echo R23_A_REAL_QMP_USBIP_SAME_RUN=NOT_TESTED
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r23-existing-go')"
+      - name: Retain positive and negative policy log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r23-a-same-lease-fail-closed-policy
+          path: ${{ runner.temp }}/r23-a-policy.log
+          if-no-files-found: warn
+          retention-days: 7
