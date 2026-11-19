@@ -1,0 +1,20 @@
+name: USB Fabric R27-H3 - disposable cross-container namespace abstract owner falsifier
+on:
+  push:
+    branches: [test/issue-470-r27h-container-namespace-owner]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unprivileged-container-netns:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Reproduce same abstract owner name in two restricted Docker network namespaces
+        shell: bash
+        run: bash experiments/usb-fabric-r26/r27h/container_namespace_verify.sh
