@@ -10,21 +10,26 @@ cleanup(){
 trap cleanup EXIT
 chmod 0700 "$root"
 mkdir -m 0700 "$root/state"
+# Upstream swtpm TCTI over UNIX sockets; no loopback network needed.
+# startup-clear is necessary for a fresh TPM state to accept commands.
 swtpm socket --tpm2 --tpmstate "dir=$root/state" \
- --server "type=tcp,port=2321,bindaddr=127.0.0.1" \
- --ctrl "type=tcp,port=2322,bindaddr=127.0.0.1" \
- --flags not-need-init >"$root/swtpm.log" 2>&1 &
+ --server "type=unixio,path=$root/swtpm.sock" \
+ --ctrl "type=unixio,path=$root/swtpm.ctrl" \
+ --flags not-need-init,startup-clear >"$root/swtpm.log" 2>&1 &
 pid=$!
-export TPM2TOOLS_TCTI="swtpm:host=127.0.0.1,port=2321"
+export TPM2TOOLS_TCTI="swtpm:path=$root/swtpm.sock"
 cd "$root"
 ready=no
 for i in $(seq 1 80);do
  if ! kill -0 "$pid" 2>/dev/null;then cat swtpm.log;exit 11;fi
- if tpm2_getrandom -Q 16 -o random.bin >/dev/null 2>&1;then ready=yes;break;fi
+ if tpm2_getrandom -Q 16 -o random.bin >getrandom.log 2>&1;then ready=yes;break;fi
  sleep 0.1
 done
 if [[ "$ready" != yes ]] || [[ "$(wc -c < random.bin)" != 16 ]];then
- echo R23_C_REAL_TPM2_GETRANDOM=RED;exit 12
+ echo R23_C_REAL_TPM2_GETRANDOM=RED
+ test -f getrandom.log && cat getrandom.log || :
+ test -f swtpm.log && tail -n 50 swtpm.log || :
+ exit 12
 fi
 echo R23_C_REAL_SWTMP_TPM2_GETRANDOM=PASS
 tpm2_pcrread -Q -o pcr-origin.bin sha256:0,1,2
