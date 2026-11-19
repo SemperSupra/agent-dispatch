@@ -20,4 +20,4 @@ jobs:
         run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/waves.go experiments/usb-fabric-r26/workcells/iteration-r27.json
       - name: Verify adversarial manifest rejection cases
         shell: bash
-        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/waves.go experiments/usb-fabric-r26/workcells/validate_test.go experiments/usb-fabric-r26/workcells/waves_test.go
+        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/waves.go experiments/usb-fabric-r26/workcells/validate_test.go experiments/usb-fabric-r26/workcells/waves_test.go experiments/usb-fabric-r26/workcells/qualification.go experiments/usb-fabric-r26/workcells/qualification_test.go
