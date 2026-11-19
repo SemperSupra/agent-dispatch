@@ -57,6 +57,15 @@ class ContainerPreB4Tests(unittest.TestCase):
                 doc, "rdtepool", name, f"rdtepool/foreign_layout/{name}"
             )
 
+    def test_rootfs_projection_rejects_noncanonical_pool_and_name(self):
+        doc = self.fixture()
+        for pool, name in ((".", "garm-test"), ("..", "garm-test"),
+                           ("rdtepool/..", "garm-test"), ("rdtepool", "../other"),
+                           ("rdtepool", ".")):
+            with self.subTest(pool=pool, name=name), self.assertRaises(probe.ProbeError):
+                dataset = f"{pool}/.truenas_containers/containers/{name}"
+                probe.derive_rootfs_mountpoint(doc, pool, name, dataset)
+
     def test_load_rejects_hidden_dataset_query_reintroduction(self):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
