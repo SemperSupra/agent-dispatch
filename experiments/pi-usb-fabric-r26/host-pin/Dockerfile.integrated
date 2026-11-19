@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1.7
+ARG GO_BASE=golang:1.23-bookworm
+ARG R15_IMAGE
+FROM ${GO_BASE} AS go-builder
+WORKDIR /src/integrated
+COPY experiments/usb-fabric-r26/integrated/ /src/integrated/
+COPY experiments/usb-fabric-r26/releasegate/ /src/releasegate/
+COPY experiments/pi-usb-fabric-r22/guest-ed25519/ /src/r22/
+COPY experiments/pi-usb-fabric-r24/dynamic-real-qmp/host-main.go /src/integrated/cmd/actuator/main.go
+COPY experiments/pi-usb-fabric-r24/dynamic-real-qmp/host-scoped.go /src/integrated/cmd/actuator/scoped.go
+ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
+RUN go mod edit -require=example.org/usb-fabric-r22-guest-ed25519@v0.0.0 -replace=example.org/usb-fabric-r22-guest-ed25519=/src/r22 && \
+    go test ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -o /out/r26-broker . && CGO_ENABLED=0 go build -trimpath -o /out/r26-actuator ./cmd/actuator && CGO_ENABLED=0 go build -trimpath -o /out/r26-frontend ./cmd/frontend
+
+FROM ${R15_IMAGE}
+COPY --from=go-builder /out/r26-broker /guest/r26-broker
+COPY --from=go-builder /out/r26-actuator /guest/r26-actuator
+COPY --from=go-builder /out/r26-frontend /guest/r26-frontend
+COPY experiments/usb-fabric-r26/integrated/orchestrator.py /guest/r26-orchestrator.py
+COPY experiments/usb-fabric-r26/integrated/actuator_oracle.py /guest/r26-actuator-oracle.py
+COPY experiments/usb-fabric-r26/integrated/actuator_restart_oracle.py /guest/r26-actuator-restart-oracle.py
+COPY experiments/usb-fabric-r26/integrated/l5_missing_journal_oracle.py /guest/r26-l5-missing-journal-oracle.py
+COPY experiments/usb-fabric-r26/integrated/l6_dual_qmp_owner_oracle.py /guest/r26-l6-dual-qmp-owner-oracle.py
+COPY experiments/usb-fabric-r26/integrated/l7_alternate_journal_oracle.py /guest/r26-l7-alternate-journal-oracle.py
+COPY experiments/usb-fabric-r26/integrated/l9b_guest_readmission_oracle.py /guest/r26-l9b-guest-readmission-oracle.py
+COPY experiments/pi-usb-fabric-r26/host-pin/oracle.py /guest/r26-l9c-scoped-release-detach-oracle.py
+COPY experiments/usb-fabric-r26/integrated/l10_lockfile_inode_oracle.py /guest/r26-l10-lockfile-inode-oracle.py
+USER 65532:65532
+ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]
