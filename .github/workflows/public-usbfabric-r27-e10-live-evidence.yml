@@ -1,0 +1,28 @@
+name: USB Fabric R27-E10 - live Github job-log corroboration
+on:
+  push:
+    branches: [test/issue-447-r27-e10-github-verified-evidence]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  live-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline negative tests against mocked GitHub records
+        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/rc/liveverify/liveverify.go experiments/usb-fabric-r26/workcells/rc/liveverify/liveverify_test.go
+      - name: Independently corroborate actual H14 PASS and H7 RED with GitHub REST and logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/rc/liveverify/liveverify.go experiments/usb-fabric-r26/workcells/rc/liveverify/evidence.json
+          echo R27_E10_INDEPENDENT_CLAIMS_CORROBORATED=PASS
+          echo R27_E10_RELEASE_ACCEPTANCE=NOT_TESTED
