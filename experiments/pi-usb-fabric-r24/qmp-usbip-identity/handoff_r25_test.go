@@ -108,9 +108,17 @@ func TestR25BDirectImportDeniedUntilMatchedPairAndDurableGuestUP(t *testing.T){
 }
 func TestR25MismatchedManagerAndCrashStageQuarantine(t *testing.T){
     s:=r25Setup(t)
-    wrong:=*s.handoff.pair
-    wrong.Lease.Generation++
-    if _,err:=NewHandoff(&wrong,s.guard);!errors.Is(err,ErrHandoff){
+    wrongLease:=s.handoff.pair.Lease
+    wrongLease.Generation++
+    wrongScope:=s.handoff.pair.Scope
+    wrongScope.Generation++
+    // Construct a new independent Pair. Copying an existing Pair would
+    // copy its sync.Mutex and violate the race/vet contract.
+    wrong,err:=New(wrongLease,wrongScope,s.handoff.pair.Topology,
+        func(QMPWitness)bool{return true},
+        func(USBIPWitness)bool{return true})
+    if err!=nil{t.Fatal(err)}
+    if _,err:=NewHandoff(wrong,s.guard);!errors.Is(err,ErrHandoff){
         t.Fatal("foreign generation manager combined with exporter")
     }
     if err:=s.guard.ObserveDown(s.down);err!=nil{t.Fatal(err)}
