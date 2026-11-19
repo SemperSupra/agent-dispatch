@@ -110,7 +110,7 @@ def main():
             preapproved=Path("/guest/r26-preapproved-pub.hex").read_text().strip()
             if len(preapproved)!=64 or any(c not in "0123456789abcdef" for c in preapproved):
                 raise RuntimeError("invalid build-provisioned TEST-only Ed25519 public key")
-            approved.write_text(preapproved+"\\n")
+            approved.write_text(preapproved+"\n")
             os.chmod(approved,0o600)
             print("R26_B_HOST_PIN_WRITTEN_BEFORE_REAL_QEMU_GUEST_BOOT=PASS",flush=True)
             qemu=subprocess.Popen([
