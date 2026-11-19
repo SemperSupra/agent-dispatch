@@ -107,6 +107,18 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "model_inference":False,"native_pst_qualified":False,
             "fixture_sha256":"a"*64,"verdict_sha256":"b"*64,
         }
+    elif profile_id == "mail-temporal-xtdb-r2":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "xtdb_engine_executed":True,
+            "image_digest":"aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe",
+            "source_occurrences":3,"system_history_verified":True,
+            "valid_time_verified":True,"restart_verified":True,
+            "private_internal_network":True,
+            "same_eight_case_oracle_qualified":False,
+            "model_inference":False,"native_pst_qualified":False,
+            "source_sha256":"a"*64,"verdict_sha256":"b"*64,
+        }
     elif profile_id == "mail-evidence-go-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
