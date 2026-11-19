@@ -46,6 +46,28 @@ for marker in \
  R26_B_SAME_RUN_ACTUAL_USBIP_VUDC=NOT_TESTED; do
  grep -Fq "$marker" "$log" || { echo "R24_B_MISSING_EXPECTED_PROOF=$marker";exit 23; }
 done
+# A second independently observed *real* QEMU session, reusing the
+# unchanged disposable guest initrd but pre-enrolling the WRONG host key.
+neg="$RUNNER_TEMP/r26-b-wrong-pin-real-qmp.log"
+set +e
+timeout 170s docker run --rm --network none --read-only --user 65532:65532 \
+ --cap-drop ALL --security-opt no-new-privileges \
+ --memory 2560m --memory-swap 2560m --cpus 2 --pids-limit 128 \
+ --tmpfs /tmp:rw,exec,nosuid,nodev,size=128m,mode=1777 \
+ --entrypoint python3 "$image" -B /guest/r26-wrong-pin-oracle.py \
+ >"$neg" 2>&1
+neg_rc=$?
+set -e
+cat "$neg"
+if [[ "$neg_rc" -ne 0 ]];then echo "R26_B_WRONG_PIN_ACTUAL_QEMU=RED rc=$neg_rc";exit 24;fi
+for marker in \
+ R26_B_WRONG_HOST_PIN_ESTABLISHED_BEFORE_QEMU_BOOT=PASS \
+ R26_B_WRONG_ED25519_SIGNER_ACTUAL_GUEST_RECEIPT_DENIED=PASS \
+ R26_B_WRONG_KEY_SECOND_LEASE_DENIED=PASS \
+ R26_B_WRONG_HOST_PIN_HELD_AND_NO_READMISSION=PASS \
+ R26_B_WRONG_KEY_ALL_DISPOSABLE_PROCESSES_STOPPED=PASS; do
+ grep -Fq "$marker" "$neg" || { echo "R26_B_WRONG_PIN_MISSING=$marker";exit 25;}
+done
 test "$(git status --porcelain --untracked-files=all)" = "$before"
 cleanup;trap - EXIT
 echo R24_B_PUBLIC_DISPOSABLE_QMP_GUEST_PROOF_CLEANUP=PASS
