@@ -1,0 +1,188 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {
+ };
+ objectVersion = 56;
+ objects = {
+
+/* Begin PBXBuildFile section */
+  A00000000000000000000007 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* AppDelegate.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+  A00000000000000000000005 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+  A00000000000000000000006 /* R50Companion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = R50Companion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+  A00000000000000000000008 = {
+    isa = PBXGroup;
+    children = (
+      A00000000000000000000009 /* R50Companion */,
+      A0000000000000000000000A /* Products */,
+    );
+    sourceTree = "<group>";
+  };
+  A00000000000000000000009 /* R50Companion */ = {
+    isa = PBXGroup;
+    children = (
+      A00000000000000000000005 /* AppDelegate.swift */,
+    );
+    path = R50Companion;
+    sourceTree = "<group>";
+  };
+  A0000000000000000000000A /* Products */ = {
+    isa = PBXGroup;
+    children = (
+      A00000000000000000000006 /* R50Companion.app */,
+    );
+    name = Products;
+    sourceTree = "<group>";
+  };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+  A00000000000000000000002 /* R50Companion */ = {
+    isa = PBXNativeTarget;
+    buildConfigurationList = A00000000000000000000011 /* Build configuration list for PBXNativeTarget "R50Companion" */;
+    buildPhases = (
+      A0000000000000000000000B /* Sources */,
+    );
+    buildRules = (
+    );
+    dependencies = (
+    );
+    name = R50Companion;
+    productName = R50Companion;
+    productReference = A00000000000000000000006 /* R50Companion.app */;
+    productType = "com.apple.product-type.application";
+  };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+  A00000000000000000000001 /* Project object */ = {
+    isa = PBXProject;
+    attributes = {
+      BuildIndependentTargetsInParallel = YES;
+      LastUpgradeCheck = 1600;
+      TargetAttributes = {
+        A00000000000000000000002 = {
+          CreatedOnToolsVersion = 16.0;
+        };
+      };
+    };
+    buildConfigurationList = A00000000000000000000010 /* Build configuration list for PBXProject "R50Companion" */;
+    compatibilityVersion = "Xcode 14.0";
+    developmentRegion = en;
+    hasScannedForEncodings = 0;
+    knownRegions = (
+      en,
+      Base,
+    );
+    mainGroup = A00000000000000000000008;
+    productRefGroup = A0000000000000000000000A /* Products */;
+    projectDirPath = "";
+    projectRoot = "";
+    targets = (
+      A00000000000000000000002 /* R50Companion */,
+    );
+  };
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+  A0000000000000000000000B /* Sources */ = {
+    isa = PBXSourcesBuildPhase;
+    buildActionMask = 2147483647;
+    files = (
+      A00000000000000000000007 /* AppDelegate.swift in Sources */,
+    );
+    runOnlyForDeploymentPostprocessing = 0;
+  };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+  A0000000000000000000000C /* Debug */ = {
+    isa = XCBuildConfiguration;
+    buildSettings = {
+      ALWAYS_SEARCH_USER_PATHS = NO;
+      CLANG_ENABLE_MODULES = YES;
+      DEBUG_INFORMATION_FORMAT = dwarf;
+      IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+      SDKROOT = iphoneos;
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+      SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+      SWIFT_VERSION = 5.0;
+    };
+    name = Debug;
+  };
+  A0000000000000000000000D /* Release */ = {
+    isa = XCBuildConfiguration;
+    buildSettings = {
+      ALWAYS_SEARCH_USER_PATHS = NO;
+      CLANG_ENABLE_MODULES = YES;
+      DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+      IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+      SDKROOT = iphoneos;
+      SWIFT_OPTIMIZATION_LEVEL = "-O";
+      SWIFT_VERSION = 5.0;
+    };
+    name = Release;
+  };
+  A0000000000000000000000E /* Debug */ = {
+    isa = XCBuildConfiguration;
+    buildSettings = {
+      CODE_SIGN_STYLE = Manual;
+      GENERATE_INFOPLIST_FILE = NO;
+      INFOPLIST_FILE = R50Companion/Info.plist;
+      IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+      PRODUCT_BUNDLE_IDENTIFIER = com.sempersupra.r50.ios;
+      PRODUCT_NAME = "$(TARGET_NAME)";
+      SDKROOT = iphoneos;
+      SUPPORTED_PLATFORMS = "iphonesimulator";
+      SWIFT_VERSION = 5.0;
+      TARGETED_DEVICE_FAMILY = "1";
+    };
+    name = Debug;
+  };
+  A0000000000000000000000F /* Release */ = {
+    isa = XCBuildConfiguration;
+    buildSettings = {
+      CODE_SIGN_STYLE = Manual;
+      GENERATE_INFOPLIST_FILE = NO;
+      INFOPLIST_FILE = R50Companion/Info.plist;
+      IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+      PRODUCT_BUNDLE_IDENTIFIER = com.sempersupra.r50.ios;
+      PRODUCT_NAME = "$(TARGET_NAME)";
+      SDKROOT = iphoneos;
+      SUPPORTED_PLATFORMS = "iphonesimulator";
+      SWIFT_VERSION = 5.0;
+      TARGETED_DEVICE_FAMILY = "1";
+    };
+    name = Release;
+  };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+  A00000000000000000000010 /* Build configuration list for PBXProject "R50Companion" */ = {
+    isa = XCConfigurationList;
+    buildConfigurations = (
+      A0000000000000000000000C /* Debug */,
+      A0000000000000000000000D /* Release */,
+    );
+    defaultConfigurationIsVisible = 0;
+    defaultConfigurationName = Debug;
+  };
+  A00000000000000000000011 /* Build configuration list for PBXNativeTarget "R50Companion" */ = {
+    isa = XCConfigurationList;
+    buildConfigurations = (
+      A0000000000000000000000E /* Debug */,
+      A0000000000000000000000F /* Release */,
+    );
+    defaultConfigurationIsVisible = 0;
+    defaultConfigurationName = Debug;
+  };
+/* End XCConfigurationList section */
+ };
+ rootObject = A00000000000000000000001 /* Project object */;
+}

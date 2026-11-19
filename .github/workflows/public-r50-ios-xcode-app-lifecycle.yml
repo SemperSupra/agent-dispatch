@@ -1,0 +1,69 @@
+name: Public R50 real Xcode project iPhone Simulator app lifecycle
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'tools/r50-ios-app/**'
+      - 'scripts/r50_ios_xcode_app_lifecycle.py'
+      - 'tests/test_r50_ios_xcode_app_lifecycle.py'
+      - '.github/workflows/public-r50-ios-xcode-app-lifecycle.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-r50-ios-xcode-app
+  cancel-in-progress: false
+jobs:
+  offline-project-contract:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-r50-ios-xcode-app-lifecycle'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Ensure native Xcode project and independent launch marker semantics
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile scripts/r50_ios_xcode_app_lifecycle.py
+          python3 -m unittest -v tests/test_r50_ios_xcode_app_lifecycle.py
+          echo R50_IOS_XCODE_OFFLINE_BUNDLE_CONTRACT=PASS
+  real-xcode-ios-simulator:
+    needs: offline-project-contract
+    runs-on: macos-26-intel
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build original signed-only-for-Simulator app and verify installed guest app lifecycle
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/r50-ios"
+          python3 scripts/r50_ios_xcode_app_lifecycle.py --out "$RUNNER_TEMP/r50-ios/receipt.json"
+          python3 - "$RUNNER_TEMP/r50-ios/receipt.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert d["classification"]=="SUPPORTED",d["reason"]
+          e=d["evidence"]
+          assert e["xcode_project_build"]=="PASS"
+          assert e["simulator_boot"]=="BOOTED"
+          assert e["simulator_signature"]=="ADHOC_VERIFIED_NONPRODUCTION"
+          assert e["simulator_app_install"]=="PASS"
+          assert e["simulator_app_launch"]=="EXIT_ZERO"
+          assert e["independent_app_sandbox_oracle"]=="PERSISTED"
+          assert e["simulator_app_terminate"]=="PASS"
+          assert d["ios_background_tasks_mdm_appstore"]=="NOT_TESTED"
+          print("R50_XCODE_PROJECT_APP_INSTALL_LAUNCH_STATE_TERMINATE=PASS")
+          print("R50_PHYSICAL_IPHONE_AND_APP_BACKGROUND=NOT_TESTED")
+          PY
+      - name: Preserve only public-safe JSON test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r50-ios-xcode-app-lifecycle-receipt
+          path: ${{ runner.temp }}/r50-ios/receipt.json
+          if-no-files-found: warn
+          retention-days: 7
