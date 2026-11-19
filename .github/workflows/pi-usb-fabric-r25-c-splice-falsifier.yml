@@ -1,0 +1,58 @@
+name: USB Fabric R25-C signed-guest and actual-VHCI event splice RED BLUE
+on:
+  push:
+    branches: [test/issue-511-r25-security-falsifiers]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-c-splice-falsifier.yml'
+      - 'experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25*'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-c-splice-falsifier.yml'
+      - 'experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25*'
+permissions:
+  contents: read
+jobs:
+  causal-event-splice-red-blue:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin original Go broker, journal and release evidence
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r23-existing-go
+          persist-credentials: false
+      - name: Prove cross-event splice cannot clear durable HELD or bind export
+        working-directory: experiments/pi-usb-fabric-r24/qmp-usbip-identity
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE/.r23-existing-go" rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          go test -race -count=1 -timeout 100s -run '^TestR25C' -v ./... | tee "$RUNNER_TEMP/r25-c-splice.log"
+          go vet ./...
+          for marker in \
+            R25_C_CROSS_EVENT_SIGNED_GUEST_UP_SPLICE_REFUSED=PASS \
+            R25_C_MISMATCHED_SIGNED_UP_PRESERVES_HELD_BYTES=PASS \
+            R25_C_SAME_EVENT_SIGNED_GUEST_UP_AUTHORIZED_ONCE=PASS \
+            R25_C_TRANSPORT_SCOPE_AND_KEY_REJECTED_BEFORE_EXPORT=PASS; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r25-c-splice.log"
+          done
+          echo R25_C_SOURCE_FIRST_SIGNED_EVENT_CAUSAL_BINDING_TEST_ONLY=PASS
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r23-existing-go')"
+      - name: Preserve negative and positive proof receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r25-c-guest-event-splice-falsifier
+          path: ${{ runner.temp }}/r25-c-splice.log
+          retention-days: 7
+          if-no-files-found: warn
