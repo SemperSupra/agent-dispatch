@@ -1,0 +1,35 @@
+name: USB Fabric R22-C upstream QEMU swtpm TPM2 userspace feasibility
+on:
+  push:
+    branches: [test/issue-476-swtpm-qemu-tpm2]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-swtpm.yml'
+      - 'experiments/pi-usb-fabric-r22/swtpm-feasibility/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-swtpm.yml'
+      - 'experiments/pi-usb-fabric-r22/swtpm-feasibility/**'
+permissions:
+  contents: read
+jobs:
+  swtpm-tpm2-qmp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: QEMU QMP TPM2 emulator device query and missing-backend refusal
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r22/swtpm-feasibility/verify.sh
+      - name: Preserve test-only QEMU/swtpm positive and negative evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r22c-swtpm-tpm2-qmp-nonprivileged
+          path: ${{ runner.temp }}/r22-c-swtpm-qmp.log
+          retention-days: 7
+          if-no-files-found: warn
