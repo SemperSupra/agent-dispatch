@@ -1,0 +1,41 @@
+name: USB Fabric R21-A restart fence predecessor qualification (NOT restart PASS)
+on:
+  push:
+    branches: [test/issue-467-restart-fence]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-restart-fence.yml'
+      - 'experiments/pi-usb-fabric-r21/restart-fence/**'
+permissions:
+  contents: read
+jobs:
+  r21a-predecessor-fence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r18-existing-go
+          persist-credentials: false
+      - name: Requalify exact inherited actual broker-kill and native USB/IP fence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r20/kill-fence/verify.sh
+          echo R21_A_CRASH_PREDECESSOR_ONLY=PASS
+          echo R21_A_BROKER_RESTART=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Retain R20 predecessor serial receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r21a-predecessor-kill-fence-not-restart
+          path: ${{ runner.temp }}/r20-kill-465.log
+          retention-days: 7
+          if-no-files-found: warn
