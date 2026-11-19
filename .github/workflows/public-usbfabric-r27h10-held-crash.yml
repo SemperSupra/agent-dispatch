@@ -1,0 +1,19 @@
+name: USB Fabric R27-H10 - SIGKILL held signed guest with sealed QMP
+on:
+  push:
+    branches: [test/issue-470-r27h10-held-crash-qmp-sealed]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  held-crash-qmp-sealed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Crash the actuator after real signed Linux guest DOWN, preserve HELD and sealed QMP
+        run: bash experiments/usb-fabric-r26/integrated/r27h10_held_crash_sealed_qmp_verify.sh
