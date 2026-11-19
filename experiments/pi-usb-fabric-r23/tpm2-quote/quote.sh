@@ -55,18 +55,55 @@ if tpm2_checkquote -Q -u akpub.pem -m quote.msg -s quote.sig -f quote.pcrs -g sh
  echo R23_C_WRONG_QUOTE_CHALLENGE=RED;exit 13
 fi
 echo R23_C_WRONG_QUOTE_CHALLENGE_DENIED=PASS
-cp quote.pcrs altered-pcrs
+# PCR-semantics RED/BLUE: do not mutate arbitrary trailing bytes of the
+# serialized PCR file; they may be padding rather than quoted digest data.
+# Measure a new event AFTER the quote, then independently read the selected
+# PCRs. The ORIGINAL signed quote MUST reject the new measured state.
+printf 'USB-FABRIC-R23-C-POST-QUOTE-PCR-EVENT\\n' > pcr0-change.data
+tpm2_pcrevent 0 pcr0-change.data >/dev/null
+tpm2_pcrread -Q --pcrs_format serialized -o changed-current-pcrs sha256:0,1,2
+if cmp -s quote.pcrs changed-current-pcrs;then
+ echo R23_C_PCR_EVENT_DID_NOT_CHANGE_MEASUREMENT=RED;exit 14
+fi
+if tpm2_checkquote -Q -u akpub.pem -m quote.msg -s quote.sig -f changed-current-pcrs -g sha256 -q "$nonce" >wrong-pcr.log 2>&1;then
+ echo R23_C_CHANGED_MEASURED_PCRS_STILL_ACCEPTED=RED
+ cat wrong-pcr.log
+ exit 15
+fi
+echo R23_C_ACTUAL_CHANGED_MEASURED_PCRS_DENIED=PASS
+# Regression for GHSA-8rjm-5f5f-h4q6 (patched upstream in 5.7):
+# preserve digests but swap the serialized PCR selection header. Do not
+# misattribute a result without independently checking installed tool version.
+tpm2_pcrread -Q --pcrs_format serialized -o other-selection.bin sha256:7,8,9
 python3 - <<'PY'
 from pathlib import Path
-p=Path("altered-pcrs")
-b=bytearray(p.read_bytes())
-if not b:raise RuntimeError("empty PCR list")
-b[-1]^=0x80
+a=Path("quote.pcrs").read_bytes()
+b=Path("other-selection.bin").read_bytes()
+if len(a)<132 or len(b)<132:raise RuntimeError("missing PCR selection header")
+forged=bytearray(a)
+forged[:132]=b[:132]
+if bytes(forged)==a:raise RuntimeError("swap did not change PCR selection")
+Path("swapped-selection.bin").write_bytes(forged)
+PY
+if tpm2_checkquote -Q -u akpub.pem -m quote.msg -s quote.sig -f swapped-selection.bin -g sha256 -q "$nonce" >wrong-selection.log 2>&1;then
+ echo R23_C_PCR_SELECTION_SWAP_ACCEPTED=RED
+ cat wrong-selection.log
+ exit 16
+fi
+echo R23_C_PCR_SELECTION_SWAP_DENIED=PASS
+# Signature-byte tampering remains independent of PCR parser interpretation.
+cp quote.sig altered-sig
+python3 - <<'PY'
+from pathlib import Path
+p=Path("altered-sig");b=bytearray(p.read_bytes())
+if not b:raise RuntimeError("no signed quote signature")
+b[len(b)//2]^=0x40
 p.write_bytes(bytes(b))
 PY
-if tpm2_checkquote -Q -u akpub.pem -m quote.msg -s quote.sig -f altered-pcrs -g sha256 -q "$nonce" >wrong-pcr.log 2>&1;then
- echo R23_C_ALTERED_PCRS=RED;exit 14
+if tpm2_checkquote -Q -u akpub.pem -m quote.msg -s altered-sig -f quote.pcrs -g sha256 -q "$nonce" >wrong-signature.log 2>&1;then
+ echo R23_C_SIGNATURE_TAMPER_ACCEPTED=RED;exit 17
 fi
+echo R23_C_TPM2_QUOTE_SIGNATURE_TAMPER_DENIED=PASS
 echo R23_C_ALTERED_PCRS_DENIED=PASS
 test -s quote.sig
 echo R23_C_TPM2_QUOTE_IN_GUEST=NOT_TESTED
