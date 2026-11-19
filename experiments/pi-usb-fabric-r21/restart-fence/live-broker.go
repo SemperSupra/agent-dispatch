@@ -1,3 +1,5 @@
+//go:build ignore
+
 // R18 disposable host-only bridge. Uses EXISTING blue.Manager and heldledger,
 // not another controller. It admits live USB/IP B only after independently
 // observed Linux guest UART/evdev evidence AND a test-only signed journal release.
