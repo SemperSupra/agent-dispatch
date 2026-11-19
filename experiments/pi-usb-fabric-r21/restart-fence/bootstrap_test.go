@@ -31,9 +31,8 @@ func TestR21RecoveryBootMustFenceBeforePublishingManager(t *testing.T){
  if _,err=store.AcknowledgeQMPRelease(held.Sequence);err!=nil{t.Fatal(err)}
  // Boot construction must occur in private unpublished scope. No Reserve
  // request may be routed to this instance until persisted state is checked.
- recovered:=blue.New("keyboard","xhci0/auto",nil)
- state,err:=store.Read()
- if err!=nil || state.Held { recovered.Offline() }
+ recovered,state,err:=BootFenced(store,"keyboard","xhci0/auto")
+ if !errors.Is(err,ErrNeedsIndependentRelease){t.Fatalf("unsafe boot recovery: %v",err)}
  if state.Held {
   if _,err=recovered.Reserve("consumer-B","keyboard","xhci0/auto");!errors.Is(err,blue.ErrQuarantined){
    t.Fatalf("HELD not fenced before manager publication: %v",err)
@@ -50,8 +49,17 @@ func TestR21InvalidJournalQuarantinesBootManager(t *testing.T){
  // Missing initial journal also needs explicit physical/QMP release before
  // allowing an attachment, which is outside this test contract.
  if err:=os.WriteFile(store.Path,[]byte("{not-json"),0600);err!=nil{t.Fatal(err)}
- recovered:=blue.New("keyboard","xhci0/auto",nil)
- if _,err:=store.Read();err!=nil { recovered.Offline() }
+ recovered,_,err:=BootFenced(store,"keyboard","xhci0/auto")
+ if !errors.Is(err,ledger.ErrInvalid){t.Fatalf("invalid journal was not reported: %v",err)}
  if _,err:=recovered.Reserve("consumer-B","keyboard","xhci0/auto");!errors.Is(err,blue.ErrQuarantined){t.Fatalf("corrupt journal admitted B: %v",err)}
  t.Log("R21_A_BLUE_CORRUPT_JOURNAL_BOOT_FAIL_CLOSED=PASS")
+}
+
+func TestR21CleanJournalStillRequiresExternalIsolation(t *testing.T){
+ store:=ledger.Store{Path:filepath.Join(t.TempDir(),"missing.json")}
+ recovered,state,err:=BootFenced(store,"keyboard","xhci0/auto")
+ if !errors.Is(err,ErrNeedsIndependentRelease){t.Fatalf("missing external isolation gate %v",err)}
+ if state.Held{t.Fatal("unexpected held")}
+ if _,err=recovered.Reserve("consumer-B","keyboard","xhci0/auto");!errors.Is(err,blue.ErrQuarantined){t.Fatalf("missing journal admitted B: %v",err)}
+ t.Log("R21_A_CLEAN_DISK_NOT_EQUAL_SAFE_USBIP_EXPORT=PASS")
 }
