@@ -38,6 +38,16 @@ func NewHandoff(pair *Pair, guard *samelease.Guard) (*Handoff, error) {
 // owner must quarantine and create a new verified epoch on failure.
 func (h *Handoff) Commit(q QMPWitness, u USBIPWitness, up evidence.Event) error {
     if h == nil {return ErrHandoff}
+    // R25-C: a verified VHCI guest-UP receipt and a separately verified
+    // signed guest-UP must reference the SAME actual event, not just the
+    // same VM and lease. Reject *before* consuming the one-use QMP pair
+    // or changing the durable held journal / physical exporter.
+    if up.Scope != h.pair.Scope || up.Down ||
+        up.Source != "guest.evdev" || up.KeyCode != "key-a" ||
+        up.EventSequence == 0 || up.EventSequence != u.EventSequence ||
+        !u.GuestUP {
+        return ErrHandoff
+    }
     if err:=h.pair.Authorize(q,u);err!=nil {return err}
     if err:=h.guard.ConfirmAndBind(up);err!=nil{return err}
     return nil
