@@ -1,0 +1,35 @@
+name: USB Fabric R24-B real QMP dynamic guest Ed25519 in one QEMU session
+on:
+  push:
+    branches: [test/issue-487-r24-qmp-ed25519]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r24-qmp-ed25519.yml'
+      - 'experiments/pi-usb-fabric-r24/dynamic-real-qmp/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r24-qmp-ed25519.yml'
+      - 'experiments/pi-usb-fabric-r24/dynamic-real-qmp/**'
+permissions:
+  contents: read
+jobs:
+  real-qmp-dynamic-guest-ed25519:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 42
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Boot real Linux QEMU, reuse original R26 sole-QMP actor, demand dynamically scoped Ed25519 evdev and durable held journal
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r24/dynamic-real-qmp/verify.sh
+      - name: Preserve positive and adversarial real guest/actuator/QMP evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r24-b-real-qmp-dynamic-guest-ed25519
+          path: ${{ runner.temp }}/r24-b-qmp-ed25519.log
+          retention-days: 7
+          if-no-files-found: warn
