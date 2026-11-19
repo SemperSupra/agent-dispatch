@@ -22,8 +22,8 @@ from truenas_middleware_ddp_probe import WebSocket, ddp_call, wait_for
 EXPECTED_SCHEMA = "semper-supra.garm-provider-truenas-container-pre-b4-fixture/3"
 EXPECTED_VERSION = "TrueNAS-26.0.0-BETA.3"
 EXPECTED_DATASET_TEMPLATE = "{pool}/.truenas_containers/containers/{name}"
-EXPECTED_MOUNTPOINT_TEMPLATE = "/.truenas_containers/{pool}/containers/{name}"
-EXPECTED_ROOTFS_SOURCE = "src/middlewared/middlewared/plugins/container/utils.py"
+EXPECTED_MOUNTPOINT_TEMPLATE = "/mnt/.truenas_containers/{pool}/containers/{name}"
+EXPECTED_ROOTFS_SOURCE = "src/middlewared/middlewared/plugins/container/lifecycle.py"
 
 
 class ProbeError(RuntimeError):
@@ -75,7 +75,7 @@ def derive_rootfs_mountpoint(fixture: dict, pool: str, name: str, dataset: str) 
             f"container dataset drifted from source projection: got {dataset!r}, expected {expected_dataset!r}"
         )
     mountpoint = projection["mountpoint_template"].replace("{pool}", pool).replace("{name}", name)
-    if not mountpoint.startswith("/.truenas_containers/"):
+    if not mountpoint.startswith("/mnt/.truenas_containers/"):
         raise ProbeError(f"unsafe source-derived container mountpoint: {mountpoint!r}")
     return mountpoint
 
