@@ -1,0 +1,135 @@
+name: WinBot native desktop and KVM qualification (free, disposable)
+on:
+  push:
+    branches: [experiment/winbot-free-runner-admission-20261119]
+    paths: [.github/workflows/winbot-native-desktop-kvm.yml]
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-native-desktop-kvm.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-native-desktop:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - name: Observe disposable native Windows desktop and UIA without private source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $receipt = [ordered]@{
+            schema = 'winbot-native-admission/v1'
+            run_id = $env:GITHUB_RUN_ID
+            venue = 'windows-2025'
+            classification = 'HOST_NATIVE_DESKTOP_PROBE'
+            desktop_attached = $false
+            test_window_observed = $false
+            uia_element_observed = $false
+            screenshot_performed = $false
+            windows_guest_installed = $false
+            winbot_control_hil_accepted = $false
+            first_failure = $null
+          }
+          $child = $null
+          try {
+            Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class WinBotDesktopProbe {
+              [DllImport("user32.dll", SetLastError=true)]
+              public static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+              [DllImport("user32.dll", SetLastError=true)]
+              public static extern bool CloseDesktop(IntPtr desktop);
+          }
+          '@
+            $desktop = [WinBotDesktopProbe]::OpenInputDesktop(0, $false, 0x0100)
+            if ($desktop -ne [IntPtr]::Zero) {
+              $receipt.desktop_attached = $true
+              [void][WinBotDesktopProbe]::CloseDesktop($desktop)
+            } else {
+              $receipt.first_failure = 'NO_INPUT_DESKTOP'
+            }
+            if ($receipt.desktop_attached) {
+              $child = Start-Process -FilePath "$env:WINDIR\system32\notepad.exe" -PassThru
+              for ($i = 0; $i -lt 25; $i++) {
+                Start-Sleep -Milliseconds 200
+                $child.Refresh()
+                if ($child.MainWindowHandle -ne [IntPtr]::Zero) { break }
+                if ($child.HasExited) { break }
+              }
+              if ($child.MainWindowHandle -ne [IntPtr]::Zero) {
+                $receipt.test_window_observed = $true
+                try {
+                  Add-Type -AssemblyName UIAutomationClient
+                  $element = [System.Windows.Automation.AutomationElement]::FromHandle($child.MainWindowHandle)
+                  $receipt.uia_element_observed = ($null -ne $element)
+                  if (-not $receipt.uia_element_observed) {
+                    $receipt.first_failure = 'NO_UIA_ELEMENT'
+                  }
+                } catch {
+                  $receipt.first_failure = 'UIA_UNAVAILABLE'
+                }
+              } else {
+                $receipt.first_failure = 'NO_NATIVE_TEST_WINDOW'
+              }
+            }
+          } catch {
+            $receipt.first_failure = 'HOST_PROBE_EXCEPTION'
+          } finally {
+            if ($null -ne $child) {
+              try { if (-not $child.HasExited) { Stop-Process -Id $child.Id -Force -ErrorAction Stop } } catch {}
+            }
+            $receipt | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 windows-desktop.json
+            $receipt | ConvertTo-Json -Depth 5
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-windows-native-${{ github.run_id }}
+          path: windows-desktop.json
+          retention-days: 2
+          if-no-files-found: error
+  ubuntu-kvm-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Qualify disposable KVM access after standard tool setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n apt-get update -qq
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends qemu-system-x86 libvirt-clients swtpm >/dev/null
+          python3 - <<'PY'
+          import json, os, pathlib, shutil, subprocess
+          result = {
+            "schema": "winbot-native-admission/v1",
+            "run_id": os.getenv("GITHUB_RUN_ID"),
+            "venue": "ubuntu-24.04",
+            "classification": "KVM_TOOLCHAIN_PREFLIGHT_ONLY",
+            "kvm_present": pathlib.Path("/dev/kvm").exists(),
+            "runner_user_kvm_access": os.access("/dev/kvm", os.R_OK | os.W_OK),
+            "qemu_present": bool(shutil.which("qemu-system-x86_64")),
+            "virsh_present": bool(shutil.which("virsh")),
+            "swtpm_present": bool(shutil.which("swtpm")),
+            "windows_guest_installed": False,
+            "winbot_control_hil_accepted": False,
+            "first_failure": None,
+          }
+          test = subprocess.run(["sudo", "-n", "test", "-r", "/dev/kvm"])
+          write = subprocess.run(["sudo", "-n", "test", "-w", "/dev/kvm"])
+          result["root_kvm_access"] = test.returncode == 0 and write.returncode == 0
+          if not result["root_kvm_access"]:
+            result["first_failure"] = "KVM_NOT_ACCESSIBLE_AFTER_SETUP"
+          elif not all(result[k] for k in ("qemu_present", "virsh_present", "swtpm_present")):
+            result["first_failure"] = "MISSING_TOOL_AFTER_SETUP"
+          pathlib.Path("ubuntu-kvm.json").write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+          print(json.dumps(result, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-ubuntu-kvm-${{ github.run_id }}
+          path: ubuntu-kvm.json
+          retention-days: 2
+          if-no-files-found: error
