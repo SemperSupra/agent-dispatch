@@ -35,9 +35,14 @@ echo R23_C_REAL_SWTMP_TPM2_GETRANDOM=PASS
 tpm2_pcrread -Q -o pcr-origin.bin sha256:0,1,2
 test -s pcr-origin.bin
 echo R23_C_REAL_SWTMP_PCR_READ=PASS
-tpm2_createek -Q -c ek.ctx -G rsa -u ekpub.pem -f pem
-tpm2_createak -Q -C ek.ctx -c ak.ctx -G rsa -s rsassa -g sha256 -u akpub.pem -f pem -n ak.name
+# Persist only the disposable EK within this throwaway software TPM.
+# This avoids occupying the simulator's limited transient context slots
+# across tpm2-tools' separate command processes.
+tpm2_createek -Q -c 0x81010001 -G rsa -u ekpub.pem -f pem
+tpm2_createak -Q -C 0x81010001 -c ak.ctx -G rsa -s rsassa -g sha256 -u akpub.pem -f pem -n ak.name
 test -s akpub.pem
+tpm2_flushcontext -t
+echo R23_C_TRANSIENT_OBJECT_CONTEXTS_FLUSHED=PASS
 nonce="$(python3 -c 'import secrets;print(secrets.token_hex(16))')"
 tpm2_quote -Q -c ak.ctx -l sha256:0,1,2 -q "$nonce" \
  -m quote.msg -s quote.sig -o quote.pcrs -g sha256
