@@ -1,0 +1,31 @@
+name: USB Fabric Network N2 disposable nftables enforcement
+on:
+  pull_request:
+    paths:
+      - 'experiments/usb-fabric-network-n1/firewall/**'
+      - '.github/workflows/usb-fabric-network-n2-firewall.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nftables:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build test-only image
+        run: docker build --pull -f experiments/usb-fabric-network-n1/firewall/Dockerfile -t usbnet-n2-firewall:${{ github.sha }} .
+      - name: Prove actual IPv4/IPv6 TCP enforcement in disposable isolated container
+        run: |
+          timeout 90s docker run --rm --network none --read-only \
+            --cap-drop ALL --cap-add NET_ADMIN --security-opt no-new-privileges \
+            --memory 384m --memory-swap 384m --cpus 1 --pids-limit 64 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=16m \
+            usbnet-n2-firewall:${{ github.sha }}
+      - name: Evidence boundary
+        if: always()
+        run: |
+          echo 'N2 actual disposable container netfilter test. No USB/IP kernel, host routing, broker lease or physical device tested.' >> "${GITHUB_STEP_SUMMARY}"
+          echo "head=${GITHUB_SHA} run=${GITHUB_RUN_ID}" >> "${GITHUB_STEP_SUMMARY}"
