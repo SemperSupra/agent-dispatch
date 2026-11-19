@@ -1,0 +1,41 @@
+name: USB Fabric R21 parallel workcell manifest validation
+on:
+  push:
+    branches: [test/usb-fabric-r21-parallel-workcells]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-batch-contract.yml'
+      - 'experiments/pi-usb-fabric-r21/batch.json'
+      - 'experiments/pi-usb-fabric-r21/README.md'
+permissions:
+  contents: read
+jobs:
+  fail-closed-manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Assert three disjoint executable workcells
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          d=json.load(open('experiments/pi-usb-fabric-r21/batch.json'))
+          assert d['schema']=='usb-fabric.batch.v1'
+          assert d['min_independent_active']>=3 and d['max_concurrent']>=d['min_independent_active']
+          assert not d['resource_policy']['private_paid_minutes'] and not d['resource_policy']['auto_merge']
+          tasks=d['workcells']; assert len(tasks)>=3
+          assert len({x['id'] for x in tasks})==len(tasks)
+          assert len({x['dle'] for x in tasks})==len(tasks)
+          assert len({x['branch'] for x in tasks})==len(tasks)
+          paths=[p for x in tasks for p in x['write_prefixes']]
+          assert len(paths)==len(set(paths))
+          assert all(x['oracle'] and x['base'] and x['priority'] for x in tasks)
+          print('R21_PARALLEL_THREE_DISJOINT_WORKCELLS_CONTRACT=PASS')
+          print('R21_REAL_EXECUTION_EVIDENCE=NOT_TESTED')
+          PY
+          test -z "$(git status --porcelain --untracked-files=all)"
