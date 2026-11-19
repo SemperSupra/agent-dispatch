@@ -152,6 +152,27 @@ func (m *Manager)RestoreAfterVerifiedGuestUp(
  return nil
 }
 
+// RestoreAfterVerifiedKernelUp is the ORIGINAL Manager's locked durable
+// kernel USB/IP handoff path. Neither a QMP-native device_del ACK nor a guest
+// TCP A_DETACHED may grant B; the paired host isolation+guest-UP proof must
+// clear the fsynced HELD state while holding this same Manager mutex.
+// Independent witness callbacks are TEST-ONLY until bound to real sources.
+func(m *Manager)RestoreAfterVerifiedKernelUp(
+ journal heldledger.Store, expected uint64,
+ isolated heldledger.KernelIsolationClaim,
+ verifyKernel heldledger.KernelIsolationVerifier,
+ released heldledger.ReleaseClaim, verifyGuest heldledger.ReleaseVerifier,
+)error{
+ m.mu.Lock();defer m.mu.Unlock()
+ if m.state!=Quarantined{return ErrDenied}
+ if _,err:=journal.ConfirmGuestKernelRelease(
+  expected,isolated,verifyKernel,released,verifyGuest);err!=nil{return err}
+ m.generation++
+ m.active=Lease{}
+ m.state=Available
+ return nil
+}
+
 // BeginDetach atomically fences new reservations before QMP device_del.
 // The device remains Quarantined; a later independent topology witness is
 // required before advertising a reusable port. No frontend can renew it.
