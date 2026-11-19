@@ -135,6 +135,23 @@
       "changed_paths": [
         "experiments/pi-usb-fabric-r26/host-pin/wrong_pin_oracle.py"
       ]
+    },
+    {
+      "id": "r27a-real-configfs-raw-b-denial",
+      "pr": 912,
+      "head": "740d1eb115fe1b62364118ee07e5867f0625683b",
+      "run": 44635362912,
+      "job": 135952358167,
+      "kind": "real-usbip",
+      "domain": "usbip-kernel",
+      "outcome": "PASS",
+      "marker": "R27_A_REAL_RAW_B_LATE_IMPORT_DENIED_BEFORE_HOST_GRANT=PASS",
+      "artifact_id": 14585105586,
+      "artifact_sha256": "087cd943e5d70a281f3e213aa098415af8ad2c87d0be6a7664b6251dd366b7af",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r27/udc-admission/provider.init",
+        "experiments/pi-usb-fabric-r27/udc-admission/consumer-b.init"
+      ]
     }
   ],
   "gates": [
@@ -229,6 +246,14 @@
       "required_kind": "real-qemu",
       "required_domain": "qmp-native",
       "receipt_id": "r26b-preboot-pinned-guest-wrong-key"
+    },
+    {
+      "id": "r27a_kernel_udc_raw_b_pregrant_negative",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "required_domain": "usbip-kernel",
+      "receipt_id": "r27a-real-configfs-raw-b-denial"
     }
   ]
 }
