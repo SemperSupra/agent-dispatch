@@ -94,6 +94,19 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "model_inference":False,"native_pst_qualified":False,
             "verdict_sha256":"b"*64,
         }
+    elif profile_id == "mail-temporal-postgres-r2":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "native_postgres_executed":True,"engine_version":"18.7",
+            "image_digest":"e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61",
+            "source_occurrences":6,"qualified_cases":8,
+            "valid_knowledge_separate":True,"same_source_overlap_denied":True,
+            "different_source_overlap_preserved":True,
+            "immutable_source_denied":True,"restart_verified":True,
+            "cross_tenant_blocked":True,"network_port_published":False,
+            "model_inference":False,"native_pst_qualified":False,
+            "fixture_sha256":"a"*64,"verdict_sha256":"b"*64,
+        }
     elif profile_id == "mail-evidence-go-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
