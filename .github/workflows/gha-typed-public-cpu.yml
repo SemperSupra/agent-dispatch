@@ -191,9 +191,6 @@ jobs:
           - runner: ubuntu-24.04
             request: requests/gha/mail-evidence-go-v1.json
             artifact_suffix: mail-go
-          - runner: ubuntu-24.04
-            request: requests/gha/mail-temporal-swipl-r2.json
-            artifact_suffix: temporal-swipl
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
@@ -205,13 +202,6 @@ jobs:
         env:
           REQUEST: ${{ matrix.request }}
         run: python3 scripts/gha_workload_request.py --action plan --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
-      - name: Install original Ubuntu SWI-Prolog for fixed temporal workcell only
-        if: matrix.request == 'requests/gha/mail-temporal-swipl-r2.json'
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends swi-prolog-nox
-          swipl --version
       - name: Execute typed CPU workload with independent verdict
         env:
           REQUEST: ${{ matrix.request }}
@@ -285,6 +275,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Install original Ubuntu SWI-Prolog for explicitly admitted temporal profile
+        if: inputs.request == 'requests/gha/mail-temporal-swipl-r2.json'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends swi-prolog-nox
+          swipl --version
       - name: Execute one previously admitted fixed CPU workload
         env:
           REQUEST: ${{ inputs.request }}
