@@ -57,6 +57,12 @@ RESULT_FIELDS = {
         "different_source_overlap_preserved","immutable_source_denied",
         "restart_verified","cross_tenant_blocked","network_port_published",
         "model_inference","native_pst_qualified","fixture_sha256","verdict_sha256"},
+    "mail-temporal-xtdb-r2": {
+        "classification","oracle_verified","xtdb_engine_executed",
+        "image_digest","source_occurrences","system_history_verified",
+        "valid_time_verified","restart_verified","private_internal_network",
+        "same_eight_case_oracle_qualified","model_inference",
+        "native_pst_qualified","source_sha256","verdict_sha256"},
     "mail-evidence-go-challenge": {
         "classification", "oracle_verified", "typed_only", "model_inference",
         "question_count", "source_occurrences", "attachment_occurrences",
@@ -232,6 +238,23 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"),str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("NATIVE_POSTGRES_TEMPORAL_SCOPE_INVALID")
+    if p["workload"] == "mail-temporal-xtdb-r2":
+        if (result.get("xtdb_engine_executed") is not True or
+                result.get("image_digest")!=
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe" or
+                result.get("source_occurrences")!=3 or
+                result.get("system_history_verified") is not True or
+                result.get("valid_time_verified") is not True or
+                result.get("restart_verified") is not True or
+                result.get("private_internal_network") is not True or
+                result.get("same_eight_case_oracle_qualified") is not False or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                not isinstance(result.get("source_sha256"),str) or
+                not HEX64.fullmatch(result["source_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("ORIGINAL_XTDB_TEMPORAL_SCOPE_INVALID")
     if p["workload"] == "mail-evidence-go-challenge":
         if (result.get("typed_only") is not True or
                 result.get("model_inference") is not False or
