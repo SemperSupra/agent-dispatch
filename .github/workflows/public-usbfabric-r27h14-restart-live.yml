@@ -1,0 +1,19 @@
+name: USB Fabric R27-H14 - live QMP emergency release stays HELD
+on:
+  push:
+    branches: [test/issue-470-r27h14-held-restart-live-qmp]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  held-restart-live-qmp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify live QMP key-up only, do not release durable held journal
+        run: bash experiments/usb-fabric-r26/integrated/r27h14_held_restart_live_qmp_verify.sh
