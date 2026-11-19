@@ -176,6 +176,30 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertIn("if: inputs.request == 'requests/gha/mail-temporal-swipl-r2.json'",admitted)
         self.assertIn("sudo apt-get install -y -qq --no-install-recommends swi-prolog-nox",admitted)
 
+    def test_native_postgres18_profile_and_offline_source_guard(self):
+        plan=m.plan("requests/gha/mail-temporal-postgres-r2.json")
+        self.assertEqual(plan["workload"],"mail-temporal-postgres-r2")
+        self.assertEqual(plan["runner"],"ubuntu-24.04")
+        self.assertLessEqual(plan["timeout_seconds"],240)
+        self.assertEqual(plan["max_attempts"],1)
+        self.assertEqual(plan["max_cost_usd"],0)
+        import subprocess
+        cp=subprocess.run(
+            [sys.executable,"-m","unittest","discover","-s","tests",
+             "-p","test_qualify_temporal_postgres18.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=25,check=False)
+        self.assertEqual(cp.returncode,0,cp.stderr.decode("utf-8","replace"))
+
+    def test_postgres_research_remains_on_demand_not_every_pr(self):
+        workflow=(ROOT/".github"/"workflows"/"gha-typed-public-cpu.yml").read_text()
+        normal=workflow.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("requests/gha/mail-temporal-postgres-r2.json",normal)
+        self.assertIn("  execute:",workflow)
+        req=m.plan("requests/gha/mail-temporal-postgres-r2.json")
+        self.assertEqual(req["max_cost_usd"],0)
+        self.assertEqual(req["max_attempts"],1)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
