@@ -1,0 +1,94 @@
+name: WinBot native UIA actuation witness (free Windows host)
+on:
+  push:
+    branches: [experiment/winbot-free-runner-admission-20261119]
+    paths: [.github/workflows/winbot-native-uia-actuation.yml]
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-native-uia-actuation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-uia-actuation:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - name: Build and actuate owned disposable WinForms desktop fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP "winbot-uia-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $ready = Join-Path $dir 'ready.txt'
+          $fixture = Join-Path $dir 'fixture.ps1'
+          $script = @'
+          param([string]$Ready)
+          Add-Type -AssemblyName System.Windows.Forms
+          $form = New-Object System.Windows.Forms.Form
+          $form.Text = "WinBot Original Synthetic UIA Fixture"
+          $form.Width = 480
+          $form.Height = 180
+          $edit = New-Object System.Windows.Forms.TextBox
+          $edit.Name = "WinBotFixtureInput"
+          $edit.AccessibleName = "WinBot Fixture Input"
+          $edit.Width = 420
+          $edit.Left = 15
+          $edit.Top = 35
+          [void]$form.Controls.Add($edit)
+          $form.Add_Shown({ Set-Content -LiteralPath $Ready -Value $form.Handle.ToInt64() })
+          [System.Windows.Forms.Application]::Run($form)
+          '@
+          Set-Content -LiteralPath $fixture -Value $script -Encoding utf8
+          $child = $null
+          $receipt = [ordered]@{
+            schema = 'winbot-native-uia/v1'
+            run_id = $env:GITHUB_RUN_ID
+            venue = 'windows-2025'
+            classification = 'HOST_UIA_SET_AND_READBACK'
+            window_observed = $false
+            edit_observed = $false
+            set_value_readback = $false
+            windows_guest_installed = $false
+            winbot_control_hil_accepted = $false
+            first_failure = $null
+          }
+          try {
+            $child = Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile','-STA','-File',("`"$fixture`""),'-Ready',("`"$ready`"")) -PassThru
+            for ($i = 0; $i -lt 60; $i++) {
+              if (Test-Path -LiteralPath $ready) { break }
+              if ($child.HasExited) { break }
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path -LiteralPath $ready)) { throw 'FIXTURE_WINDOW_NOT_READY' }
+            Add-Type -AssemblyName UIAutomationClient
+            $handle = [IntPtr]([int64](Get-Content -LiteralPath $ready -Raw))
+            $element = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
+            if ($null -eq $element) { throw 'FIXTURE_WINDOW_NOT_FOUND' }
+            $receipt.window_observed = $true
+            $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+            $edit = $element.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+            if ($null -eq $edit) { throw 'FIXTURE_EDIT_NOT_FOUND' }
+            $receipt.edit_observed = $true
+            $pattern = [System.Windows.Automation.ValuePattern]$edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $nonce = "WB-UIA-$env:GITHUB_RUN_ID"
+            $pattern.SetValue($nonce)
+            if ($pattern.Current.Value -ne $nonce) { throw 'UIA_VALUE_READBACK_MISMATCH' }
+            $receipt.set_value_readback = $true
+          } catch {
+            $receipt.first_failure = $_.Exception.Message
+          } finally {
+            if ($null -ne $child) {
+              try { if (-not $child.HasExited) { Stop-Process -Id $child.Id -Force -ErrorAction Stop } } catch {}
+            }
+            $receipt | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath 'uia-actuation.json' -Encoding utf8
+            $receipt | ConvertTo-Json -Depth 4
+          }
+          if (-not $receipt.set_value_readback) { throw "NATIVE_UIA_FIRST_FAILURE: $($receipt.first_failure)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-native-uia-${{ github.run_id }}
+          path: uia-actuation.json
+          retention-days: 2
+          if-no-files-found: error
