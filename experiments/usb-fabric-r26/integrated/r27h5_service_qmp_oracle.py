@@ -45,10 +45,10 @@ def main():
         os.chown(secret,SERVICE,SERVICE)
         api_root=root/"broker";api_root.mkdir(mode=0o755)
         os.chown(api_root,SERVICE,SERVICE)
-        media=root/"media.img"; media.write_bytes(b"R27H5-PUBLIC-TEST-ONLY"+bytes(1024*1024))
+        media=secret/"media.img"; media.write_bytes(b"R27H5-PUBLIC-TEST-ONLY"+bytes(1024*1024))
         digest=hashlib.sha256(media.read_bytes()).hexdigest()
         os.chown(media,SERVICE,SERVICE)
-        journal=root/"held.json";capture=root/"capture.pcap"
+        journal=secret/"held.json";capture=secret/"capture.pcap"
         qmp=secret/"qmp.sock";api=api_root/"api.sock"
         qemu=actuator=None
         try:
@@ -80,8 +80,7 @@ def main():
                 obj=json.loads(result.stdout.strip())
                 if not obj.get("ok"):raise RuntimeError(op+" returned failure")
                 print("R27H5_DISTINCT_UID_READ_ONLY_"+op.upper()+"_ALLOWED=PASS",flush=True)
-            denied=run_client(["/guest/r26ctl","--socket",str(api),"--batch"],CLIENT)
-            # --batch without stdin contains zero requests; use an actual request below.
+            # Send a genuine forbidden mutation on the read-only broker.
             denied=subprocess.run(["/guest/r26ctl","--socket",str(api),"--batch"],
                 input="reserve\n",text=True,capture_output=True,timeout=10,
                 preexec_fn=as_uid(CLIENT))
