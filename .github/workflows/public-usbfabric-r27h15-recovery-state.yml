@@ -1,0 +1,22 @@
+name: USB Fabric R27-H15 - recovered guest proof state machine
+on:
+  push:
+    branches: [test/issue-470-r27h15-recovery-state-contract]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovery-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prove QMP key-up never admits a lease before fresh guest proof, topology and fsync
+        run: |
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v -race experiments/usb-fabric-r26/recovery/state.go experiments/usb-fabric-r26/recovery/state_test.go
+          echo R27H15_OFFLINE_RECOVERY_STATE_CONTRACT=PASS
+          echo R27H15_REAL_RUNTIME_RECOVERY_WIRING=NOT_TESTED

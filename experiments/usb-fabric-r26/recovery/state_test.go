@@ -1,0 +1,17 @@
+package recovery
+
+import "testing"
+func valid()Evidence{return Evidence{GuestReleaseSigned:true,HostPinnedGuest:true,FreshChallenge:true,SameVMIncarnation:true,SameHostEpoch:true,SameGuestEpoch:true,SameLeaseEpoch:true,FreshReleaseSequence:true,RealGuestEvdevUp:true,TopologyAbsent:true,ExclusiveQMPControl:true,JournalFsyncedClear:true}}
+func held(t *testing.T)State{t.Helper();s,e:=NewHeld("test-vm",1);if e!=nil{t.Fatal(e)};return s}
+func TestNoReadmissionAfterQMPUp(t *testing.T){s,e:=held(t).EmergencyQMPUp();if e!=nil||!s.Held||s.Reserve()==nil{t.Fatal("QMP ACK spoofed guest release")}}
+func TestHappyPathRequiresFourExplicitTransitions(t *testing.T){s:=held(t);var err error;s,err=s.EmergencyQMPUp();if err!=nil{t.Fatal(err)};s,err=s.GuestProof(valid());if err!=nil{t.Fatal(err)};s,err=s.Reconcile(valid());if err!=nil{t.Fatal(err)};s,err=s.CommitClear(valid());if err!=nil||s.Held||s.Generation!=2||s.Reserve()!=nil{t.Fatal(s,err)}}
+func TestGuestProofMatrixRejectsAnyMissingClaim(t *testing.T){cases:=map[string]func(*Evidence){"signed":func(e *Evidence){e.GuestReleaseSigned=false},"host-pin":func(e *Evidence){e.HostPinnedGuest=false},"challenge":func(e *Evidence){e.FreshChallenge=false},"vm":func(e *Evidence){e.SameVMIncarnation=false},"host-epoch":func(e *Evidence){e.SameHostEpoch=false},"guest-epoch":func(e *Evidence){e.SameGuestEpoch=false},"lease":func(e *Evidence){e.SameLeaseEpoch=false},"sequence":func(e *Evidence){e.FreshReleaseSequence=false},"evdev":func(e *Evidence){e.RealGuestEvdevUp=false}}
+ for name,mutate:=range cases{t.Run(name,func(t *testing.T){s,_:=held(t).EmergencyQMPUp();e:=valid();mutate(&e);out,err:=s.GuestProof(e);if err==nil||out!=s||out.Reserve()==nil{t.Fatal("incomplete guest proof cleared HELD")}})}
+}
+func TestTopologyFailClosed(t *testing.T){s,_:=held(t).EmergencyQMPUp();s,_=s.GuestProof(valid());e:=valid();e.TopologyAbsent=false;out,err:=s.Reconcile(e);if err==nil||out!=s{t.Fatal("topology unproven")}}
+func TestControllerOwnershipFailClosed(t *testing.T){s,_:=held(t).EmergencyQMPUp();s,_=s.GuestProof(valid());e:=valid();e.ExclusiveQMPControl=false;out,err:=s.Reconcile(e);if err==nil||out!=s{t.Fatal("dual QMP owner accepted")}}
+func TestFsyncRequired(t *testing.T){s,_:=held(t).EmergencyQMPUp();s,_=s.GuestProof(valid());s,_=s.Reconcile(valid());e:=valid();e.JournalFsyncedClear=false;out,err:=s.CommitClear(e);if err==nil||out!=s||!out.Held{t.Fatal("uncommitted journal accepted")}}
+func TestIllegalTransitions(t *testing.T){s:=held(t);if _,e:=s.GuestProof(valid());e==nil{t.Fatal("guest proof before emergency")};if _,e:=s.Reconcile(valid());e==nil{t.Fatal("reconcile before proof")};if _,e:=s.CommitClear(valid());e==nil{t.Fatal("clear before proof")};if s.Reserve()==nil{t.Fatal("held accepted")}}
+func TestQuarantineSticky(t *testing.T){s,_:=held(t).EmergencyQMPUp();s=s.Quarantine();if s.Reserve()==nil{t.Fatal("quarantine allowed lease")};if _,e:=s.GuestProof(valid());e==nil{t.Fatal("quarantine bypassed")};if _,e:=s.EmergencyQMPUp();e==nil{t.Fatal("quarantine resurrected")}}
+func TestIdentityConstructorRejectsMissingVM(t *testing.T){if _,e:=NewHeld("",1);e==nil{t.Fatal("unknown VM")};if _,e:=NewHeld("vm",0);e==nil{t.Fatal("zero generation")}}
+func TestRejectedProofNoStateMutation(t *testing.T){s,_:=held(t).EmergencyQMPUp();e:=valid();e.FreshChallenge=false;out,_:=s.GuestProof(e);if s!=out||!s.Held{t.Fatal("mutation on failed claim")}}
