@@ -50,6 +50,13 @@ RESULT_FIELDS = {
         "source_occurrences","independent_test_cases","contradiction_preserved",
         "derivation_quarantined","cross_tenant_blocked","model_inference",
         "native_pst_qualified","verdict_sha256"},
+    "mail-temporal-postgres-r2": {
+        "classification","oracle_verified","native_postgres_executed",
+        "engine_version","image_digest","source_occurrences","qualified_cases",
+        "valid_knowledge_separate","same_source_overlap_denied",
+        "different_source_overlap_preserved","immutable_source_denied",
+        "restart_verified","cross_tenant_blocked","network_port_published",
+        "model_inference","native_pst_qualified","fixture_sha256","verdict_sha256"},
     "mail-evidence-go-challenge": {
         "classification", "oracle_verified", "typed_only", "model_inference",
         "question_count", "source_occurrences", "attachment_occurrences",
@@ -203,6 +210,28 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"),str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("ORIGINAL_PROLOG_EVIDENCE_SCOPE_INVALID")
+    if p["workload"] == "mail-temporal-postgres-r2":
+        if (result.get("native_postgres_executed") is not True or
+                not isinstance(result.get("engine_version"),str) or
+                not result["engine_version"].startswith("18.7") or
+                result.get("image_digest") !=
+                    "e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61" or
+                result.get("source_occurrences") != 6 or
+                result.get("qualified_cases") != 8 or
+                result.get("valid_knowledge_separate") is not True or
+                result.get("same_source_overlap_denied") is not True or
+                result.get("different_source_overlap_preserved") is not True or
+                result.get("immutable_source_denied") is not True or
+                result.get("restart_verified") is not True or
+                result.get("cross_tenant_blocked") is not True or
+                result.get("network_port_published") is not False or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                not isinstance(result.get("fixture_sha256"),str) or
+                not HEX64.fullmatch(result["fixture_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("NATIVE_POSTGRES_TEMPORAL_SCOPE_INVALID")
     if p["workload"] == "mail-evidence-go-challenge":
         if (result.get("typed_only") is not True or
                 result.get("model_inference") is not False or
