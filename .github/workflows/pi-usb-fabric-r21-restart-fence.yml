@@ -1,4 +1,4 @@
-name: USB Fabric R21-A restart fence predecessor qualification (NOT restart PASS)
+name: USB Fabric R21-A same-binary Go broker restart while USBIP export fenced
 on:
   push:
     branches: [test/issue-467-restart-fence]
@@ -12,7 +12,7 @@ permissions:
 jobs:
   r21a-predecessor-fence:
     runs-on: ubuntu-24.04
-    timeout-minutes: 28
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -23,13 +23,13 @@ jobs:
           ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
           path: .r18-existing-go
           persist-credentials: false
-      - name: Requalify exact inherited actual broker-kill and native USB/IP fence
+      - name: Actual three-kernel USBIP Go broker SIGKILL, SAME binary restart, second untrusted import denial
         shell: bash
         run: |
           set -Eeuo pipefail
-          bash experiments/pi-usb-fabric-r20/kill-fence/verify.sh
-          echo R21_A_CRASH_PREDECESSOR_ONLY=PASS
-          echo R21_A_BROKER_RESTART=NOT_TESTED
+          bash experiments/pi-usb-fabric-r21/restart-fence/live-verify.sh
+          echo R21_A_LIVE_SAME_BINARY_RESTART_RAW_B_PROBE=PASS
+          echo R21_A_REAL_QMP_AND_GUEST_ATTESTATION=NOT_TESTED
           test -z "$(git status --porcelain --untracked-files=all)"
       - name: Test independent Go processes recovering the existing fsynced HELD journal
         working-directory: experiments/pi-usb-fabric-r21/restart-fence
@@ -48,7 +48,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: r21a-predecessor-kill-fence-not-restart
-          path: ${{ runner.temp }}/r20-kill-465.log
+          name: r21a-live-same-binary-restart-and-real-usbip-denial
+          path: ${{ runner.temp }}/r21-restart-467.log
           retention-days: 7
           if-no-files-found: warn
