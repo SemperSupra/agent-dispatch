@@ -28,5 +28,6 @@ COPY experiments/usb-fabric-r26/integrated/r27d_readonly_oracle.py /guest/r27d_r
 COPY experiments/usb-fabric-r26/integrated/r27e_joint_signed_cli_oracle.py /guest/r27e_joint_signed_cli_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27f_wrong_pinned_key_oracle.py /guest/r27f_wrong_pinned_key_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27h5_service_qmp_oracle.py /guest/r27h5_service_qmp_oracle.py
+COPY experiments/usb-fabric-r26/integrated/r27h6_joint_signed_private_qmp_oracle.py /guest/r27h6_joint_signed_private_qmp_oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]
