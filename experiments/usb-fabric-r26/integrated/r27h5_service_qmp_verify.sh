@@ -20,7 +20,7 @@ DOCKER_BUILDKIT=1 docker build --no-cache \
  -f experiments/usb-fabric-r26/integrated/Dockerfile \
  --build-arg "R15_IMAGE=$guest" --build-arg "GO_BASE=$go" -t "$image" .
 timeout 230s docker run --rm --network none --read-only --user 0:0 \
- --cap-drop ALL --cap-add SETUID --cap-add SETGID \
+ --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add CHOWN --cap-add FOWNER \
  --security-opt no-new-privileges \
  --memory 2048m --memory-swap 2048m --cpus 2 --pids-limit 128 \
  --tmpfs /tmp:rw,exec,nosuid,nodev,size=128m,mode=1777 \
