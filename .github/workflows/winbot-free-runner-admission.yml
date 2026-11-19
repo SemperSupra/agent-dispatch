@@ -3,6 +3,9 @@ on:
   push:
     branches: [experiment/winbot-free-runner-admission-20261119]
     paths: [.github/workflows/winbot-free-runner-admission.yml]
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-free-runner-admission.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -95,3 +98,45 @@ jobs:
           path: ubuntu-admission.json
           retention-days: 2
           if-no-files-found: error
+  adjudicate:
+    runs-on: ubuntu-24.04
+    needs: [windows-host, ubuntu-host]
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve independently produced host observations
+        uses: actions/download-artifact@v4
+        with:
+          pattern: winbot-admission-*-${{ github.run_id }}
+          path: receipts
+          merge-multiple: true
+      - name: Check provenance, typed observations and non-admission
+        shell: bash
+        env:
+          EXPECTED_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          root = pathlib.Path("receipts")
+          expected = {"windows-admission.json": "windows-2025", "ubuntu-admission.json": "ubuntu-24.04"}
+          for name, runner in expected.items():
+              path = root / name
+              if not path.is_file():
+                  raise SystemExit(f"MISSING_RECEIPT: {name}")
+              data = json.loads(path.read_text(encoding="utf-8-sig"))
+              required = ("schema", "classification", "executor", "github_run_id",
+                          "windows_guest_installed", "winbot_interactive_desktop_accepted",
+                          "mutation_performed")
+              if any(k not in data for k in required):
+                  raise SystemExit(f"INVALID_SCHEMA: {name}")
+              if (data["schema"] != "winbot-runner-admission/v1"
+                  or data["classification"] != "HOST_OBSERVATION_ONLY"
+                  or data["executor"] != runner
+                  or str(data["github_run_id"]) != os.environ["EXPECTED_RUN"]):
+                  raise SystemExit(f"INVALID_PROVENANCE: {name}")
+              for key in ("windows_guest_installed", "winbot_interactive_desktop_accepted",
+                          "mutation_performed"):
+                  if data[key] is not False:
+                      raise SystemExit(f"UNSUPPORTED_PRODUCT_CLAIM: {name}/{key}")
+              print(f"HOST_OBSERVATION_ONLY: {runner} receipt valid; NO GUEST ADMISSION")
+          PY
