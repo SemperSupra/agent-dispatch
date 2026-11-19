@@ -1,0 +1,66 @@
+name: USB Fabric R23-C actual upstream swtpm TPM2 quote and nonce critic
+on:
+  push:
+    branches: [test/issue-482-tpm2-quote]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r23-tpm2-quote.yml'
+      - 'experiments/pi-usb-fabric-r23/tpm2-quote/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r23-tpm2-quote.yml'
+      - 'experiments/pi-usb-fabric-r23/tpm2-quote/**'
+permissions:
+  contents: read
+jobs:
+  tpm2-software-quote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Upstream software TPM2 random/PCR/quote nonce and tamper critics
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+          docker pull debian:trixie-slim >/dev/null
+          base="$(docker image inspect --format '{{index .RepoDigests 0}}' debian:trixie-slim)"
+          [[ "$base" == *@sha256:* ]]
+          echo "R23_C_BASE_DIGEST=$base"
+          image="r23-tpm2-quote-${GITHUB_SHA:0:12}"
+          trap 'docker image rm -f "$image" >/dev/null 2>&1 || true' EXIT
+          DOCKER_BUILDKIT=1 docker build --no-cache --build-arg "BASE=$base" \
+            -f experiments/pi-usb-fabric-r23/tpm2-quote/Dockerfile -t "$image" .
+          set +e
+          timeout 180s docker run --rm --network none --read-only --user 65532:65532 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --memory 1536m --memory-swap 1536m --cpus 2 --pids-limit 90 \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=128m,mode=1777 \
+            "$image" >"$RUNNER_TEMP/r23-c-tpm2.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/r23-c-tpm2.log"
+          if [ "$rc" -ne 0 ]; then echo "R23_C_TPM2_QUOTE=RED rc=$rc"; exit 22; fi
+          for marker in R23_C_REAL_SWTMP_TPM2_GETRANDOM=PASS \
+            R23_C_REAL_SWTMP_PCR_READ=PASS \
+            R23_C_REAL_SWTMP_NONCE_PCR_QUOTE_VERIFIED=PASS \
+            R23_C_WRONG_QUOTE_CHALLENGE_DENIED=PASS \
+            R23_C_ACTUAL_CHANGED_MEASURED_PCRS_DENIED=PASS \
+            R23_C_PCR_SELECTION_SWAP_DENIED=PASS \
+            R23_C_TPM2_QUOTE_SIGNATURE_TAMPER_DENIED=PASS \
+            R23_C_ALTERED_PCRS_DENIED=PASS \
+            R23_C_TPM2_QUOTE_IN_GUEST=NOT_TESTED; do
+            grep -q "$marker" "$RUNNER_TEMP/r23-c-tpm2.log"
+          done
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R23_C_SWTMP_HOST_SIMULATOR_QUOTE_TEST_ONLY=PASS
+      - name: Preserve real swtpm TPM2 command and falsifier receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r23-c-upstream-tpm2-host-quote
+          path: ${{ runner.temp }}/r23-c-tpm2.log
+          retention-days: 7
+          if-no-files-found: warn
