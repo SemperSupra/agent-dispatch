@@ -1,0 +1,57 @@
+name: USB Fabric R24-A cross VM QMP and USBIP physical identity refusal
+on:
+  push:
+    branches: [test/issue-486-r24-qmp-usbip]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r24-qmp-usbip-identity.yml'
+      - 'experiments/pi-usb-fabric-r24/qmp-usbip-identity/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r24-qmp-usbip-identity.yml'
+      - 'experiments/pi-usb-fabric-r24/qmp-usbip-identity/**'
+permissions:
+  contents: read
+jobs:
+  cross-vm-device-refusal-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Checkout only already qualified original R26 sole QMP Manager/policy source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r23-existing-go
+          persist-credentials: false
+      - name: Fail closed when QMP ACK names a different VM/device than real USBIP VHCI witness
+        working-directory: experiments/pi-usb-fabric-r24/qmp-usbip-identity
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE/.r23-existing-go" rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          go test -race -count=1 -timeout 90s -v ./... | tee "$RUNNER_TEMP/r24-a-identity.log"
+          go vet ./...
+          for marker in R24_A_CROSS_VM_AND_CROSS_DEVICE_QMP_USBIP_WITNESS_DENIED=PASS \
+            R24_A_SAME_LEASE_QMP_AND_USBIP_WITNESS_ONCE_ONLY=PASS \
+            R24_A_MISSING_INDEPENDENT_QMP_OR_GUEST_PROVER_REFUSED=PASS \
+            R24_A_ACTUAL_SOLE_QMP_TO_REAL_VUDC_SAME_RUN=NOT_TESTED; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r24-a-identity.log"
+          done
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r23-existing-go')"
+          echo R24_A_CROSS_VM_RELEASE_POLICY_TEST_ONLY=PASS
+      - name: Preserve exact RED/green cross VM and QMP input ownership results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r24-a-qmp-usbip-cross-vm-identity-policy
+          path: ${{ runner.temp }}/r24-a-identity.log
+          retention-days: 7
+          if-no-files-found: warn
