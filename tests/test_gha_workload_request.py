@@ -155,6 +155,27 @@ class TypedWorkRequestTests(unittest.TestCase):
                 self.assertEqual(plan["max_cost_usd"], 0)
                 self.assertEqual(plan["max_attempts"], 1)
 
+    def test_original_prolog_fixed_public_synthetic_profile_and_source(self):
+        planned=m.plan("requests/gha/mail-temporal-swipl-r2.json")
+        self.assertEqual(planned["workload"],"mail-temporal-swipl-r2")
+        self.assertEqual(planned["runner"],"ubuntu-24.04")
+        self.assertEqual(planned["max_cost_usd"],0)
+        self.assertEqual(planned["max_attempts"],1)
+        self.assertLessEqual(planned["timeout_seconds"],180)
+        source=(ROOT/"tools/mail-evidence-challenge/temporal_prolog/qualify.pl").read_text()
+        for must in ("source(", "claim(", "rule_proof(","run_tests(","begin_tests("):
+            self.assertIn(must,source)
+        self.assertNotIn("shell(",source)
+        self.assertNotIn("process_create(",source)
+
+    def test_original_prolog_uses_on_demand_install_not_default_cpu_matrix(self):
+        text=(ROOT/".github/workflows/gha-typed-public-cpu.yml").read_text()
+        routine=text.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("requests/gha/mail-temporal-swipl-r2.json",routine)
+        admitted=text.split("\n  execute:",1)[1]
+        self.assertIn("if: inputs.request == 'requests/gha/mail-temporal-swipl-r2.json'",admitted)
+        self.assertIn("sudo apt-get install -y -qq --no-install-recommends swi-prolog-nox",admitted)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",

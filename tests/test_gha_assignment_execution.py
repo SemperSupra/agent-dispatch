@@ -82,6 +82,18 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "real_mail": False, "model_inference": False,
             "headless_engine_run": False, "verdict_sha256": "e"*64,
         }
+    elif profile_id == "mail-temporal-swipl-r2":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "native_engine_executed":True,
+            "interpreter_version":"SWI-Prolog version 9.0.4",
+            "source_sha256":"a"*64,
+            "clean_replay_verified":True,"source_occurrences":8,
+            "independent_test_cases":9,"contradiction_preserved":True,
+            "derivation_quarantined":True,"cross_tenant_blocked":True,
+            "model_inference":False,"native_pst_qualified":False,
+            "verdict_sha256":"b"*64,
+        }
     elif profile_id == "mail-evidence-go-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
