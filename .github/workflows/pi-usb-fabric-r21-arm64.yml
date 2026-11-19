@@ -1,0 +1,42 @@
+name: USB Fabric R21-C independent linux amd64 arm64 userspace build matrix
+on:
+  push:
+    branches: [test/issue-469-arm64-capability-matrix]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-arm64.yml'
+      - 'experiments/pi-usb-fabric-r21/arm64-capability/**'
+permissions:
+  contents: read
+jobs:
+  cross-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Compile existing Go heldledger test binary for target architecture
+        shell: bash
+        working-directory: experiments/usb-fabric-r26/integrated
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+          GOOS: linux
+          CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -Eeuo pipefail
+          go version
+          go test -c -o "/tmp/usb-fabric-heldledger-${GOARCH}.test" ./heldledger
+          file "/tmp/usb-fabric-heldledger-${GOARCH}.test"
+          sha256sum "/tmp/usb-fabric-heldledger-${GOARCH}.test"
+          echo "R21_C_GO_USERSPACE_COMPILED_${GOARCH}=PASS"
+          echo R21_C_REAL_PI_USBIP_KERNEL_HIL=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
