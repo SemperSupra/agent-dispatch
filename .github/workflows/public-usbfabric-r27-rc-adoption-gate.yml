@@ -1,0 +1,21 @@
+name: USB Fabric R27 RC - deterministic adoption manifest negative qualification
+on:
+  push:
+    branches: [test/issue-447-r27-rc-adoption-manifest]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-manifest-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate exact-head adoption decisions and preserve known RED
+        run: |
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/rc/rc_gate.go experiments/usb-fabric-r26/workcells/rc/manifest.json
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/rc/rc_gate.go experiments/usb-fabric-r26/workcells/rc/rc_gate_test.go
