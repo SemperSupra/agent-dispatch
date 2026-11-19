@@ -218,6 +218,21 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertIn("postgres:18.7-trixie@sha256:", pinned)
         self.assertIn("FROM source_occurrence", pinned)
 
+    def test_original_xtdb_fixed_zero_cost_source_bound(self):
+        plan=m.plan("requests/gha/mail-temporal-xtdb-r2.json")
+        self.assertEqual(plan["workload"],"mail-temporal-xtdb-r2")
+        self.assertEqual(plan["runner"],"ubuntu-24.04")
+        self.assertLessEqual(plan["timeout_seconds"],240)
+        self.assertEqual(plan["max_attempts"],1)
+        self.assertEqual(plan["max_cost_usd"],0)
+        import subprocess
+        cp=subprocess.run(
+            [sys.executable,"-m","unittest","discover","-s","tests",
+             "-p","test_qualify_temporal_xtdb.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=30,check=False)
+        self.assertEqual(cp.returncode,0,cp.stderr.decode("utf-8","replace"))
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
