@@ -1,5 +1,5 @@
 package main
-import("encoding/json";"errors";"fmt";"os")
+import("encoding/json";"errors";"fmt";"os";"path";"strings")
 type Cell struct{ID string `json:"id"`;Priority string `json:"priority"`;Lane string `json:"lane"`;Base string `json:"base"`;Writes []string `json:"write_paths"`;Depends []string `json:"depends_on"`;Acceptance string `json:"acceptance"`}
 type Manifest struct{Schema int `json:"schema"`;MaxParallel int `json:"max_parallel"`;Cells []Cell `json:"workcells"`}
 func validate(m Manifest)error{
@@ -10,8 +10,12 @@ func validate(m Manifest)error{
   if c.ID==""||seen[c.ID]||c.Priority==""||c.Lane==""||len(c.Base)<12||c.Acceptance==""||len(c.Writes)==0{return fmt.Errorf("invalid workcell %q",c.ID)}
   seen[c.ID]=true
   for _,p:=range c.Writes{
-   if p==""||p[0]=='/' {return fmt.Errorf("invalid path for %s",c.ID)}
-   if who:=owners[p];who!=""{return fmt.Errorf("parallel write collision %s and %s: %s",who,c.ID,p)}
+   if p==""||path.IsAbs(p)||path.Clean(p)!=p||p=="."||p==".."||strings.HasPrefix(p,"../")||strings.ContainsRune(p,92) {return fmt.Errorf("invalid or ambiguous write path %q for %s",p,c.ID)}
+   for existing,who:=range owners{
+    if existing==p||strings.HasPrefix(p,existing+"/")||strings.HasPrefix(existing,p+"/"){
+     return fmt.Errorf("parallel write collision %s and %s: %s versus %s",who,c.ID,existing,p)
+    }
+   }
    owners[p]=c.ID
   }
  }
