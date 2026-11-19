@@ -1,0 +1,19 @@
+name: USB Fabric R27-H13 - corrupt HELD journal denial with live QMP
+on:
+  push:
+    branches: [test/issue-470-r27h13-corrupt-journal-qmp-live]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  corruption-independent-qmp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Falsify journal parser with actual independently live QMP monitor
+        run: bash experiments/usb-fabric-r26/integrated/r27h13_corrupt_journal_live_qmp_verify.sh
