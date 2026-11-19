@@ -117,20 +117,6 @@ if /bin/busybox nc -l -p 3333 > /tmp/r08-command.txt 2>/dev/console; then
 else
  echo R08_PROVIDER_REMOTE_CONTROL_TRIGGER=RED >/dev/console
 fi
-# R27-A REAL provider-side kernel ConfigFS fence. BEFORE A is instructed
-# to detach, revoke UDC export so any direct raw USBIP import cannot bypass
-# the host-only Go B retry permission. The source A/B still have separate
-# independent Linux kernels.
-if [ "$(cat "$g/UDC")" != usbip-vudc.0 ]; then
- echo R27_A_PROVIDER_UDC_PRE_FENCE=RED >/dev/console
- sync;poweroff -f || reboot -f
-fi
-if printf '\\n' > "$g/UDC" && [ -z "$(cat "$g/UDC")" ]; then
- echo R27_A_PROVIDER_REAL_CONFIGFS_UDC_UNBOUND_BEFORE_A_DETACH=PASS >/dev/console
-else
- echo R27_A_PROVIDER_REAL_CONFIGFS_UDC_UNBOUND_BEFORE_A_DETACH=RED >/dev/console
- sync;poweroff -f || reboot -f
-fi
 # Only signal consumer B after A has established HID transport.
 # B completes its attempted import while consumer A still holds the device.
 if /bin/busybox nc -l -p 3334 > /tmp/r10-ready.txt 2>/dev/console && grep -qx B_HELLO /tmp/r10-ready.txt; then
@@ -142,6 +128,20 @@ if /bin/busybox nc -l -p 3335 > /tmp/r10-bdone.txt 2>/dev/console && grep -qx B_
  echo R10_PROVIDER_B_RESULT_RECEIVED=PASS >/dev/console
 else
  echo R10_PROVIDER_B_RESULT_RECEIVED=RED >/dev/console
+fi
+# R27-A REAL provider-side kernel ConfigFS fence. BEFORE A is instructed
+# to detach, revoke UDC export so any direct raw USBIP import cannot bypass
+# the host-only Go B retry permission. The source A/B still have separate
+# independent Linux kernels.
+if [ "$(cat "$g/UDC")" != usbip-vudc.0 ]; then
+ echo R27_A_PROVIDER_UDC_PRE_FENCE=RED >/dev/console
+ sync;poweroff -f || reboot -f
+fi
+if printf '\n' > "$g/UDC" && [ -z "$(cat "$g/UDC")" ]; then
+ echo R27_A_PROVIDER_REAL_CONFIGFS_UDC_UNBOUND_BEFORE_A_DETACH=PASS >/dev/console
+else
+ echo R27_A_PROVIDER_REAL_CONFIGFS_UDC_UNBOUND_BEFORE_A_DETACH=RED >/dev/console
+ sync;poweroff -f || reboot -f
 fi
 sent=no
 for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -165,7 +165,7 @@ if [ "$allowed" = yes ]; then
  # attempts a real import across its Ethernet at the now unbound UDC.
  sentprobe=no
  for tick in 1 2 3 4 5 6 7 8 9 10; do
-  if /bin/busybox printf 'PROBE_B\\n' | /bin/busybox nc -w 2 10.78.0.2 3338 > /tmp/r27-probe-send.txt 2>&1; then sentprobe=yes; break; fi
+  if /bin/busybox printf 'PROBE_B\n' | /bin/busybox nc -w 2 10.78.0.2 3338 > /tmp/r27-probe-send.txt 2>&1; then sentprobe=yes; break; fi
   sleep 1
  done
  if [ "$sentprobe" != yes ]; then
@@ -190,7 +190,7 @@ if [ "$allowed" = yes ]; then
     echo R27_A_UDC_BOUND_BEFORE_HOST_GRANT=RED >/dev/console
     sync;poweroff -f || reboot -f
    fi
-   if printf 'usbip-vudc.0\\n' > "$g/UDC" && [ "$(cat "$g/UDC")" = usbip-vudc.0 ]; then
+   if printf 'usbip-vudc.0\n' > "$g/UDC" && [ "$(cat "$g/UDC")" = usbip-vudc.0 ]; then
     echo R27_A_REAL_CONFIGFS_UDC_REBOUND_AFTER_HOST_GRANT=PASS >/dev/console
     echo R18_PROVIDER_B_RETRY_AFTER_HOST_GATE=PASS >/dev/console
    else
