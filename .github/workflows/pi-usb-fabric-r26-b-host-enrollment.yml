@@ -30,6 +30,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: r26-b-real-qmp-preapproved-guest-ed25519
-          path: ${{ runner.temp }}/r26-b-qmp-host-pinned.log
+          path: |
+            ${{ runner.temp }}/r26-b-qmp-host-pinned.log
+            ${{ runner.temp }}/r26-b-wrong-pin-real-qmp.log
           retention-days: 7
           if-no-files-found: warn
