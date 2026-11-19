@@ -1,0 +1,99 @@
+name: USB Fabric R21-B live QEMU evdev UART to test-only Ed25519 journal bridge
+on:
+  push:
+    branches: [test/issue-468-live-evdev-proof]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-live-evdev.yml'
+      - 'experiments/pi-usb-fabric-r21/live-evdev-proof/**'
+permissions:
+  contents: read
+jobs:
+  r21b-predecessor-ed25519:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 36
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run inherited real Go durable-journal and test-only Ed25519 scope verifier
+        working-directory: experiments/usb-fabric-r26/integrated
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -timeout 90s -v ./heldledger
+          go vet ./heldledger
+          echo R21_B_ED25519_VERIFIER_PREDECESSOR_ONLY=PASS
+          echo R21_B_REAL_GUEST_SIGNED_EVDEV=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Qualify strict guest console marker parser and test-only signed durable release adapter
+        working-directory: experiments/pi-usb-fabric-r21/live-evdev-proof
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo R21_B_TEST_ONLY_TRACE_PARSER_TO_LEDGER=PASS
+          echo R21_B_REAL_GUEST_HELD_SIGNATURE=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Checkout exact previously qualified real three-Linux-kernel QEMU USBIP source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 5d77145076731740b49acfc05dc1a8dc022b6fed
+          path: .r21-r20-live
+          persist-credentials: false
+      - name: Checkout exact existing Go manager for separate R20 Docker named build context
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r21-r20-live/.r18-existing-go
+          persist-credentials: false
+      - name: Run genuine QEMU Linux USBIP HID evdev + adversarial direct-import test, retaining RED
+        shell: bash
+        working-directory: .r21-r20-live
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = 5d77145076731740b49acfc05dc1a8dc022b6fed
+          test "$(git -C .r18-existing-go rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          bash experiments/pi-usb-fabric-r20/kill-fence/verify.sh
+          test -s "$RUNNER_TEMP/r20-kill-465.log"
+          sha256sum "$RUNNER_TEMP/r20-kill-465.log"
+          echo R21_B_REAL_LINUX_QEMU_SOURCE_TRACE=PASS
+      - name: Bridge first-hand consumer-A QEMU evdev console to test-only Ed25519 durable release
+        shell: bash
+        working-directory: experiments/pi-usb-fabric-r21/live-evdev-proof
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+          R21_REQUIRE_QEMU_TRACE: "1"
+        run: |
+          set -Eeuo pipefail
+          export R21_REAL_QEMU_LOG="$RUNNER_TEMP/r20-kill-465.log"
+          test -s "$R21_REAL_QEMU_LOG"
+          go test -race -count=1 -timeout 90s -run '^TestR21ObservedQEMUEvdevToSignedHeldRelease$' -v ./... | tee "$RUNNER_TEMP/r21-b-live-bridge.log"
+          grep -q 'R21_B_LIVE_QEMU_EVDEV_TEST_BRIDGE=PASS' "$RUNNER_TEMP/r21-b-live-bridge.log"
+          grep -q 'R21_B_GUEST_HELD_SIGNATURE_AND_REAL_QMP=NOT_TESTED' "$RUNNER_TEMP/r21-b-live-bridge.log"
+          echo R21_B_REAL_GUEST_UART_PLUS_HOST_TEST_SIGNER_INTEGRATION=PASS
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r21-r20-live')"
+      - name: Retain real QEMU kernel and test-only bridge logs on GREEN or RED
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r21-b-qemu-evdev-host-test-signer
+          path: |
+            ${{ runner.temp }}/r20-kill-465.log
+            ${{ runner.temp }}/r21-b-live-bridge.log
+          retention-days: 7
+          if-no-files-found: warn
