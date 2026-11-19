@@ -15,7 +15,8 @@ RUN go test -race -count=1 ./... && go vet ./... && \
 RUN cd /r22 && go mod edit -replace example.org/usb-fabric-r26-releasegate=/src && \
     GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 ./... && \
     GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet ./... && \
-    GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -o /out/r22-verifier ./cmd/verify
+    GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -o /out/r22-verifier ./cmd/verify && \
+    GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -o /out/r22-attacker ./cmd/attack
 
 FROM ${DEBIAN_BASE} AS kernel-builder
 ENV DEBIAN_FRONTEND=noninteractive
@@ -49,6 +50,7 @@ COPY --from=kernel-builder /out/kernel /guest/kernel
 COPY --from=kernel-builder /out/initrd.gz /guest/initrd.gz
 COPY --from=go-builder /out/hostbridge /guest/r26-hostbridge
 COPY --from=go-builder /out/r22-verifier /guest/r22-verifier
+COPY --from=go-builder /out/r22-attacker /guest/r22-attacker
 COPY experiments/pi-usb-fabric-r22/guest-ed25519/real-guest-oracle.py /guest/oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/oracle.py"]
