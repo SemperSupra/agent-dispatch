@@ -42,12 +42,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix="r27h5-qmp-dac-",dir="/tmp") as d:
         root=Path(d);root.chmod(0o711)
         secret=root/"controller-only";secret.mkdir(mode=0o700)
-        os.chown(secret,SERVICE,SERVICE)
-        api_root=root/"broker";api_root.mkdir(mode=0o755)
-        os.chown(api_root,SERVICE,SERVICE)
         media=secret/"media.img"; media.write_bytes(b"R27H5-PUBLIC-TEST-ONLY"+bytes(1024*1024))
         digest=hashlib.sha256(media.read_bytes()).hexdigest()
         os.chown(media,SERVICE,SERVICE)
+        os.chown(secret,SERVICE,SERVICE)
+        api_root=root/"broker";api_root.mkdir(mode=0o755)
+        os.chown(api_root,SERVICE,SERVICE)
         journal=secret/"held.json";capture=secret/"capture.pcap"
         qmp=secret/"qmp.sock";api=api_root/"api.sock"
         qemu=actuator=None
@@ -95,5 +95,10 @@ def main():
             print("R27H5_MULTI_HOST=NOT_TESTED",flush=True)
         finally:
             for proc in (actuator,qemu):stop(proc)
+            # Release private service ownership only after killing QEMU and
+            # the actuator; root harness has no CAP_DAC_OVERRIDE.
+            os.chown(secret,0,0)
+            secret.chmod(0o700)
+            os.chown(api_root,0,0)
             print("R27H5_DISPOSABLE_QEMU_STOPPED=PASS",flush=True)
 if __name__=="__main__":main()
