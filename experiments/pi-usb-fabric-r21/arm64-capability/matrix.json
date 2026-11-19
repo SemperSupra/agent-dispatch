@@ -1,0 +1,51 @@
+{
+  "schema": "usb-fabric.pi-arm64-capabilities.v1",
+  "status": "UNQUALIFIED_PENDING_RUN",
+  "platforms": [
+    {
+      "name": "Pi 3 / 3B",
+      "arch": "armv7",
+      "usb_device_gadget": "UNKNOWN_HIL_REQUIRED",
+      "usb_host_usbip": "UNKNOWN_HIL_REQUIRED"
+    },
+    {
+      "name": "Pi 4",
+      "arch": "aarch64",
+      "usb_device_gadget": "UNKNOWN_HIL_REQUIRED",
+      "usb_host_usbip": "UNKNOWN_HIL_REQUIRED"
+    },
+    {
+      "name": "Wyse 5070",
+      "arch": "x86_64",
+      "usb_device_gadget": "UNKNOWN_HIL_REQUIRED",
+      "usb_host_usbip": "UNKNOWN_HIL_REQUIRED"
+    }
+  ],
+  "checks": [
+    {
+      "name": "linux_amd64_userspace_build",
+      "class": "cross_compile",
+      "status": "PENDING"
+    },
+    {
+      "name": "linux_arm64_userspace_build",
+      "class": "cross_compile",
+      "status": "PENDING"
+    },
+    {
+      "name": "real_usbip_vudc_vhci",
+      "class": "booted_kernel_or_HIL",
+      "status": "UNKNOWN_HIL_REQUIRED"
+    },
+    {
+      "name": "real_pi_gpio_camera_to_usb",
+      "class": "hardware_adapter",
+      "status": "UNKNOWN_HIL_REQUIRED"
+    }
+  ],
+  "limitations": [
+    "Compilation or static inspection does not prove host kernel modules or gadget controller",
+    "Do not infer Raspberry Pi OTG physical support from architecture",
+    "Only record observed runner execution as PASS"
+  ]
+}
