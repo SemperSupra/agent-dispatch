@@ -31,6 +31,19 @@ jobs:
           echo R21_A_CRASH_PREDECESSOR_ONLY=PASS
           echo R21_A_BROKER_RESTART=NOT_TESTED
           test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Test independent Go processes recovering the existing fsynced HELD journal
+        working-directory: experiments/pi-usb-fabric-r21/restart-fence
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo R21_A_SEPARATE_PROCESS_RESTART_LEDGER_CRITIC=PASS
+          echo R21_A_ACTUAL_BROKER_RESTART_WITH_NATIVE_USBIP=NOT_TESTED
       - name: Retain R20 predecessor serial receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
