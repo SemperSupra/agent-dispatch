@@ -1,0 +1,60 @@
+name: USB Fabric R25-D offline DLE exact evidence and release gate refusal
+on:
+  push:
+    branches: [test/issue-512-r25-dle-release-manifest]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-d-release-manifest.yml'
+      - 'experiments/pi-usb-fabric-r25/release-manifest/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-d-release-manifest.yml'
+      - 'experiments/pi-usb-fabric-r25/release-manifest/**'
+permissions:
+  contents: read
+jobs:
+  offline-dle-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require adversarial evidence semantics and no premature release
+        working-directory: experiments/pi-usb-fabric-r25/release-manifest
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -timeout 90s -v ./... | tee "$RUNNER_TEMP/r25-d-go.log"
+          go vet ./...
+          for marker in \
+            R25_D_SOURCE_SNAPSHOT_VALID_BUT_RELEASE_BLOCKED=PASS \
+            R25_D_UNQUALIFIED_P0_EVEN_OWNER_APPROVED_REFUSED=PASS \
+            R25_D_CONTRACT_TO_REAL_USBIP_EVIDENCE_INFLATION_DENIED=PASS \
+            R25_D_UNAPPROVED_CONFLICTING_OR_UNSOURCED_RELEASE_DENIED=PASS \
+            R25_D_EXACT_PARENT_HEAD_STACKED_PATCH_ADMITTED=PASS \
+            R25_D_FALSE_STACKED_ANCESTRY_COLLISION_REFUSED=PASS; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r25-d-go.log"
+          done
+          go run . -manifest manifest.json -format human | tee "$RUNNER_TEMP/r25-d-human.log"
+          go run . -manifest manifest.json -format json | tee "$RUNNER_TEMP/r25-d-verdict.json"
+          grep -Fq '"valid": true' "$RUNNER_TEMP/r25-d-verdict.json"
+          grep -Fq '"release_eligible": false' "$RUNNER_TEMP/r25-d-verdict.json"
+          grep -Fq 'P0 NOT QUALIFIED: real_qmp_same_usbip_device_causal_interlock' "$RUNNER_TEMP/r25-d-human.log"
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all)"
+          echo R25_D_REPRODUCIBLE_OFFLINE_DLE_RELEASE_REFUSAL=PASS
+      - name: Preserve exact test critic and human+machine evidence snapshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r25-d-offline-dle-release-verdict
+          path: |
+            ${{ runner.temp }}/r25-d-go.log
+            ${{ runner.temp }}/r25-d-human.log
+            ${{ runner.temp }}/r25-d-verdict.json
+          retention-days: 7
+          if-no-files-found: warn
