@@ -11,13 +11,13 @@ func example() Manifest {
         Authority:"mark-e-deyoung/infrastructure-as-code-private",
         ObservationDate:"2026-11-19",
         Receipts:[]Receipt{
-            {ID:"r24b",PR:876,Head:"49930c8fb8a8b2171d6483dc26b6ed87937e6ed8",Run:44570236188,Job:135722949490,Kind:"real-qemu",Outcome:"PASS",Marker:"R24_B_ONE_REAL_QMP_DYNAMIC_ED25519_GUEST_LEASE_FSYNCED=PASS",ArtifactID:14554925410,ArtifactSHA256:"8eadaf171c7e6bb9c8eb6c145fbe8be1d60a8514a20b7c6912cc7e8f86f25308",ChangedPaths:[]string{"experiments/r24/qmp.go"}},
-            {ID:"r25a",PR:884,Head:"fcf79544ed617e196ac03461b6ce079ec5d1ac35",Run:44606660454,Job:135852039364,Kind:"contract",Outcome:"PASS",Marker:"R25_A_EXISTING_R24_R23_R22_COMPOSITION_TEST_ONLY=PASS",ArtifactID:14570448721,ArtifactSHA256:"26e26f869cc5345c82e4d4f68e443c5e968da2e988638f357e1aca042bea5360",ChangedPaths:[]string{"experiments/r25/interlock.go"}},
+            {ID:"r24b",PR:876,Head:"49930c8fb8a8b2171d6483dc26b6ed87937e6ed8",Run:44570236188,Job:135722949490,Kind:"real-qemu",Domain:"qmp-native",Outcome:"PASS",Marker:"R24_B_ONE_REAL_QMP_DYNAMIC_ED25519_GUEST_LEASE_FSYNCED=PASS",ArtifactID:14554925410,ArtifactSHA256:"8eadaf171c7e6bb9c8eb6c145fbe8be1d60a8514a20b7c6912cc7e8f86f25308",ChangedPaths:[]string{"experiments/r24/qmp.go"}},
+            {ID:"r25a",PR:884,Head:"fcf79544ed617e196ac03461b6ce079ec5d1ac35",Run:44606660454,Job:135852039364,Kind:"contract",Domain:"control-contract",Outcome:"PASS",Marker:"R25_A_EXISTING_R24_R23_R22_COMPOSITION_TEST_ONLY=PASS",ArtifactID:14570448721,ArtifactSHA256:"26e26f869cc5345c82e4d4f68e443c5e968da2e988638f357e1aca042bea5360",ChangedPaths:[]string{"experiments/r25/interlock.go"}},
         },
         Gates:[]Gate{
-            {ID:"real-qmp",Priority:"P0",State:"PASS",RequiredKind:"real-qemu",ReceiptID:"r24b"},
-            {ID:"offline-policy",Priority:"P0",State:"PASS",RequiredKind:"contract",ReceiptID:"r25a"},
-            {ID:"causal-usbip",Priority:"P0",State:"NOT_TESTED",RequiredKind:"real-usbip"},
+            {ID:"real-qmp",Priority:"P0",State:"PASS",RequiredKind:"real-qemu",RequiredDomain:"qmp-native",ReceiptID:"r24b"},
+            {ID:"offline-policy",Priority:"P0",State:"PASS",RequiredKind:"contract",RequiredDomain:"control-contract",ReceiptID:"r25a"},
+            {ID:"causal-usbip",Priority:"P0",State:"NOT_TESTED",RequiredKind:"real-usbip",RequiredDomain:"qmp-usbip-causal"},
         },
     }
 }
