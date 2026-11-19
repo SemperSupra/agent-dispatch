@@ -1,0 +1,82 @@
+name: USB Fabric R21-C independent linux amd64 arm64 userspace build matrix
+on:
+  push:
+    branches: [test/issue-469-arm64-capability-matrix]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-arm64.yml'
+      - 'experiments/pi-usb-fabric-r21/arm64-capability/**'
+permissions:
+  contents: read
+jobs:
+  cross-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fetch exact previously qualified existing Go source, not a copied controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r21-go
+          persist-credentials: false
+      - name: Compile existing Go heldledger test binary for target architecture
+        shell: bash
+        working-directory: .r21-go/experiments/usb-fabric-r26/integrated
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+          GOOS: linux
+          CGO_ENABLED: "0"
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -Eeuo pipefail
+          go version
+          test "$(git -C "$GITHUB_WORKSPACE/.r21-go" rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          go test -c -o "/tmp/usb-fabric-heldledger-${GOARCH}.test" ./heldledger
+          file "/tmp/usb-fabric-heldledger-${GOARCH}.test"
+          sha256sum "/tmp/usb-fabric-heldledger-${GOARCH}.test"
+          echo "R21_C_GO_USERSPACE_COMPILED_${GOARCH}=PASS"
+          echo R21_C_REAL_PI_USBIP_KERNEL_HIL=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all | grep -v '.r21-go' || true)"
+
+  native-arm64-execute:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin and fetch previously qualified existing Go module
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r21-go
+          persist-credentials: false
+      - name: Run actual Go heldledger AND blue lease-manager test suites on native ARM64 host
+        shell: bash
+        working-directory: .r21-go/experiments/usb-fabric-r26/integrated
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          uname -m | grep -Eq '^(aarch64|arm64)$'
+          test "$(git -C "$GITHUB_WORKSPACE/.r21-go" rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          go test -race -count=1 -timeout 120s -v ./heldledger ./blue
+          go vet ./heldledger ./blue
+          echo R21_C_NATIVE_ARM64_GO_HELDLEDGER_EXECUTION=PASS
+          echo R21_C_NATIVE_ARM64_BLUE_MANAGER_LEASE_FENCING=PASS
+          echo R21_C_PI_USBIP_KERNEL_HIL=NOT_TESTED
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r21-go')"
