@@ -1,0 +1,42 @@
+name: Public Source Hygiene Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check PR title and body for private repository coordinates
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+           combined="${PR_TITLE}"$'\n'"${PR_BODY}"
+          if printf '%s\n' "$combined" | grep -Eiq 'SemperSupra/[A-Za-z0-9._-]+-private'; then
+            echo "::error::PR title or description contains a private repository coordinate."
+            exit 1
+          fi
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check added diff lines for private repository coordinates
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          if git diff -U0 "$BASE_SHA" "$HEAD_SHA" -- . ':!.github/workflows/public-source-hygiene-guard.yml' \
+            | grep -E '^\+[^+]' \
+            | grep -Eiq 'SemperSupra/[A-Za-z0-9._-]+-private|BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY'; then
+            echo "::error::Added lines contain a private repository coordinate or private key header."
+            exit 1
+          fi
