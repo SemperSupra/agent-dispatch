@@ -1,0 +1,118 @@
+name: USB Fabric R22-B existing R26 QMP guest proof plus R21 journal composition critic
+on:
+  push:
+    branches: [test/issue-473-qmp-usbip-compose]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-qmp-usbip-compose.yml'
+      - 'experiments/pi-usb-fabric-r22/qmp-usbip-compose/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-qmp-usbip-compose.yml'
+      - 'experiments/pi-usb-fabric-r22/qmp-usbip-compose/**'
+permissions:
+  contents: read
+jobs:
+  existing-r26-r21-gate-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exact source checkout of existing R26 Go Manager, QMP gate and guestwire
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r22-existing-go
+          persist-credentials: false
+      - name: Exercise existing R26 releasegate and R21 durable journal interlock
+        working-directory: experiments/pi-usb-fabric-r22/qmp-usbip-compose
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE/.r22-existing-go" rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo R22_B_TEST_ONLY_EXISTING_R26_R21_POLICY_COMPOSITION=PASS
+          echo R22_B_TEST_ONLY_GUEST_PROOF_TO_EXPORTER_BIND_CONTRACT=PASS
+          echo R22_B_REAL_CONFIGFS_VUDC_BIND=NOT_TESTED
+          echo R22_B_REAL_QMP_SAME_RUN_REAL_USBIP=NOT_TESTED
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r22-existing-go')"
+
+  real-r26-qmp-guest-proof-predecessor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Read exact qualified real-QMP guest source without copying implementations
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r22-r26-qmp
+          persist-credentials: false
+      - name: Execute actual R26 Linux QMP guest evdev and scoped journal integration
+        shell: bash
+        working-directory: .r22-r26-qmp
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          bash experiments/usb-fabric-r26/integrated/l9c_scoped_release_detach_verify.sh | tee "$RUNNER_TEMP/r22-b-real-r26-qmp-predecessor.log"
+          grep -q 'R26_L9C_SAME_RUN_TWO_SCOPED_RELEASES_AND_GUEST_DETACH=PASS' "$RUNNER_TEMP/r22-b-real-r26-qmp-predecessor.log"
+          grep -q 'R26_L9C_TEST_ONLY_PUBLIC_MAC_PRODUCTION_AUTH=NOT_TESTED' "$RUNNER_TEMP/r22-b-real-r26-qmp-predecessor.log"
+          echo R22_B_GENUINE_QMP_AND_IN_GUEST_EVDEV_PREDECESSOR=PASS
+          echo R22_B_QMP_TO_REAL_USBIP_VUDC_INTERLOCK=NOT_TESTED
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r22-r26-qmp')"
+      - name: Retain real QMP guest evidence on GREEN or RED
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r22-b-actual-qmp-evdev-predecessor
+          path: ${{ runner.temp }}/r22-b-real-r26-qmp-predecessor.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  signed-guest-real-usbip-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Get exact existing R26 Go Manager and heldledger source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r22-existing-go
+          persist-credentials: false
+      - name: Pin previously qualified real-QEMU guest Ed25519 signer source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: dc96c80b78540bc5b05ad70179c7afff647c3cbc
+          path: .r22-a-qualified
+          persist-credentials: false
+      - name: Actual three-kernel USBIP HID handoff after Linux guest-origin Ed25519 verified release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r22/qmp-usbip-compose/usbip-guest-signing/verify.sh
+          echo R22_B_GUEST_ED25519_TO_REAL_USBIP_HANDOFF_TEST_ONLY=PASS
+          echo R22_B_INDEPENDENT_DYNAMIC_GUEST_ATTESTATION_AND_REAL_QMP=NOT_TESTED
+      - name: Preserve real guest/USBIP provider/Go broker/consumer evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r22-b-guest-signed-real-configfs-vudc-usbip-handoff
+          path: ${{ runner.temp }}/r22-b-real-usbip-signed-guest.log
+          retention-days: 7
+          if-no-files-found: warn
