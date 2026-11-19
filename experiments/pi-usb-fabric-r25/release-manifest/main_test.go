@@ -64,3 +64,20 @@ func TestDLEUnapprovedOrConflictingEvidenceRejected(t *testing.T) {
     if r.Valid{t.Fatal("missing real workflow ID accepted")}
     t.Log("R25_D_UNAPPROVED_CONFLICTING_OR_UNSOURCED_RELEASE_DENIED=PASS")
 }
+
+func TestDLEExplicitParentAncestryAllowsOnlyReviewedStackedPatch(t *testing.T) {
+    m:=example()
+    parent:=m.Receipts[0]
+    child:=m.Receipts[1]
+    child.ParentHead=parent.Head
+    child.ChangedPaths=[]string{parent.ChangedPaths[0],"experiments/r25/security_fix.go"}
+    m.Receipts[1]=child
+    res:=Validate(m)
+    if !res.Valid {t.Fatalf("valid direct-parent stacked security patch refused: %+v",res)}
+    t.Log("R25_D_EXACT_PARENT_HEAD_STACKED_PATCH_ADMITTED=PASS")
+
+    m.Receipts[1].ParentHead="ffffffffffffffffffffffffffffffffffffffff"
+    res=Validate(m)
+    if res.Valid {t.Fatalf("fake parent SHA laundered conflicting ownership: %+v",res)}
+    t.Log("R25_D_FALSE_STACKED_ANCESTRY_COLLISION_REFUSED=PASS")
+}
