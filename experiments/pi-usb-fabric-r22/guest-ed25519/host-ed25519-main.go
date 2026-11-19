@@ -57,6 +57,15 @@ func (v *verifier) decode(raw json.RawMessage)(evidence.Event,error){
  if err!=nil||len(key)!=ed25519.PublicKeySize||len(extra.Signature)!=128{
   return evidence.Event{},fmt.Errorf("R22 missing guest-origin Ed25519 sidecar")
  }
+ // A signed event with a caller-provided key is not sufficient to enroll
+ // an identity. Reject semantically invalid first-event claims BEFORE any
+ // TOFU pinning; otherwise a console/transport impostor can permanently
+ // seize the per-run test key slot even though the gate rejects its event.
+ if evt.Scope!=guestwire.Scope() || evt.Source!="guest.evdev" ||
+  evt.KeyCode!="key-a" || evt.EventSequence==0 ||
+  (v.pub==nil && !evt.Down) {
+  return evidence.Event{},fmt.Errorf("R22 unauthorized first key/source/scope")
+ }
  evt.Proof=extra.Signature // reject legacy public HMAC as admission evidence
  if v.pub==nil{
   if !evt.Down{return evidence.Event{},fmt.Errorf("unbound guest identity cannot admit UP")}
