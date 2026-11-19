@@ -1,0 +1,23 @@
+name: USB Fabric R27-H1 - live raw QMP bypass RED falsifier
+on:
+  push:
+    branches: [test/issue-470-r27h-raw-qmp-bypass]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-usbfabric-r27h1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  raw-qmp-bypass-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Independent real QEMU raw socket device-add bypass falsifier
+        shell: bash
+        run: bash experiments/usb-fabric-r26/integrated/r27h_raw_qmp_verify.sh
