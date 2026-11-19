@@ -147,7 +147,7 @@ def main():
             pub=lines[0].split("R24_B_GUEST_PUBLIC_KEY=",1)[1].strip()
             if len(pub)!=64 or any(c not in "0123456789abcdef" for c in pub):
                 raise RuntimeError("invalid guest-origin serial public key")
-            approved.write_text(pub+"\\n")
+            approved.write_text(pub+"\n")
             os.chmod(approved,0o600)
             print("R24_B_GUEST_RUNTIME_KEY_TEST_PINNED_FROM_QEMU_SERIAL=PASS",flush=True)
             qlogs.wait("R26_L8_REAL_GUEST_VIRTIO_EVDEV_OBSERVER_READY=PASS")
