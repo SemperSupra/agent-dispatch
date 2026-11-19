@@ -34,5 +34,6 @@ COPY experiments/usb-fabric-r26/integrated/r27h10_held_crash_sealed_qmp_oracle.p
 COPY experiments/usb-fabric-r26/integrated/r27h11_restart_denied_sealed_qmp_oracle.py /guest/r27h11_restart_denied_sealed_qmp_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27h12_corrupt_journal_restart_oracle.py /guest/r27h12_corrupt_journal_restart_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27h14_held_restart_live_qmp_oracle.py /guest/r27h14_held_restart_live_qmp_oracle.py
+COPY experiments/usb-fabric-r26/integrated/r27h16_runtime_held_guard_oracle.py /guest/r27h16_runtime_held_guard_oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]
