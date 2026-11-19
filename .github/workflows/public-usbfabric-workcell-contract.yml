@@ -1,0 +1,23 @@
+name: USB Fabric workcell scheduler manifest offline gate
+on:
+  push:
+    branches: [test/issue-447-usbfabric-parallel-workcell-contract]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deterministic-workcell-manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate parallel independent workcells without network dependencies
+        shell: bash
+        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/iteration-r27.json
+      - name: Verify adversarial manifest rejection cases
+        shell: bash
+        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/validate_test.go
