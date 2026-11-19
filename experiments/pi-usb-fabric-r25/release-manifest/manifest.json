@@ -103,6 +103,38 @@
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25_splice_test.go"
       ],
       "domain": "control-contract"
+    },
+    {
+      "id": "r26a-qmp-pci-real-linux-vhci",
+      "pr": 905,
+      "head": "33aec28731b59774fcbf29c38b14266b2dadf6e8",
+      "run": 44627286222,
+      "job": 135924363766,
+      "kind": "real-usbip",
+      "domain": "vm-provenance",
+      "outcome": "PASS",
+      "marker": "R26_A_REAL_LINUX_VHCI_AND_HOST_QMP_PCI_SAME_RUN=PASS",
+      "artifact_id": 14580691492,
+      "artifact_sha256": "558c3951613a803fec8df5bfd2b0b21a3687693045de200498a34cd09318b1a4",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r26/qmp-vhci-domain/qmp_pci.py"
+      ]
+    },
+    {
+      "id": "r26b-preboot-pinned-guest-wrong-key",
+      "pr": 907,
+      "head": "1a3b17e664eb6fe1127575a509492ef5baa67802",
+      "run": 44629004847,
+      "job": 135930362909,
+      "kind": "real-qemu",
+      "domain": "qmp-native",
+      "outcome": "PASS",
+      "marker": "R26_B_WRONG_HOST_PIN_HELD_AND_NO_READMISSION=PASS",
+      "artifact_id": 14580378138,
+      "artifact_sha256": "08098ab7a2b9e82b61ab57f348025851eade68c0fb5eb3f91218e17a946b19fa",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r26/host-pin/wrong_pin_oracle.py"
+      ]
     }
   ],
   "gates": [
@@ -181,6 +213,22 @@
       "required_kind": "contract",
       "receipt_id": "r25c-event-splice-repaired",
       "required_domain": "control-contract"
+    },
+    {
+      "id": "r26a_qmp_pci_and_real_vhci_provenance_only",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "required_domain": "vm-provenance",
+      "receipt_id": "r26a-qmp-pci-real-linux-vhci"
+    },
+    {
+      "id": "r26b_test_preboot_host_pinned_wrong_key_fence",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-qemu",
+      "required_domain": "qmp-native",
+      "receipt_id": "r26b-preboot-pinned-guest-wrong-key"
     }
   ]
 }
