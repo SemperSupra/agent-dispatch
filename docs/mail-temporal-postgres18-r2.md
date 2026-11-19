@@ -1,3 +1,13 @@
+# Historical R2 PostgreSQL witness — superseded by pinned typed profile
+
+**Status (19 November 2026): RETAINED AS EVIDENCE ONLY.** The original public SQL run [#44531615420](https://github.com/SemperSupra/agent-dispatch/actions/runs/44531615420) and rebased integration [#44532047055](https://github.com/SemperSupra/agent-dispatch/actions/runs/44532047055) did execute the real PostgreSQL 18.3 engine with independently checked fictional temporal outcomes. However, this first lane used a **mutable image tag** and its own branch-triggered job and oracle.
+
+Concurrent, fully merged [PR #868](https://github.com/SemperSupra/agent-dispatch/pull/868) subsequently qualified a **stronger canonical typed profile** `requests/gha/mail-temporal-postgres-r2.json`, `scripts/qualify_temporal_postgres18.py` and independent standard `verify_gha_typed_receipt.py`: official Docker image `postgres:18.7-trixie@sha256:e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61`, bounded memory/CPU/pids and local-only network, mounted ephemeral volume, **same frozen source rows and oracle as SQLite** rather than another near-duplicate fixture, native source identity/restart/overlap guards and provider-bound independently verified [public run #44530988063](https://github.com/SemperSupra/agent-dispatch/actions/runs/44530988063). The typed profile is the **only** continuing PostgreSQL qualification authority. This cleanup retires the older executable and its separate CI job. The older original failures, the missing `btree_gist` lesson and all exact historical provider receipts remain in Git history and this note.
+
+**No loss of native source/claim semantics is accepted:** before promotion, future experiments compare current pinned PostgreSQL with SQLite from #860, branch scope authorization, substantive source preservation, trust/authority and true cross-engine equivalence rather than merely matching classification counts. No real PST or mailbox was tested.
+
+---
+
 # Temporal R2 — original PostgreSQL 18 database qualification (public synthetic)
 
 Authority: [Mail Evidence private #4](https://github.com/SupraShellScripts/mail-evidence-private/issues/4), reasoning comparison [#39](https://github.com/SupraShellScripts/mail-evidence-private/issues/39). Public-only controlled benchmark, not a migration to PostgreSQL and not a real PST/mail reader.
