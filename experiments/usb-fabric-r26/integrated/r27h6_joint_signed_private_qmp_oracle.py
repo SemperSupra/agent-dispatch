@@ -182,8 +182,8 @@ def main():
         marker=b"R26-L9B-PUBLIC-SYNTHETIC"
         media.write_bytes(marker+bytes(2097152-len(marker)))
         original=hashlib.sha256(media.read_bytes()).hexdigest()
-        journal=root/"held.json"
-        capture=root/"usb.pcap"
+        journal=private/"held.json"
+        capture=private/"usb.pcap"
         qmp=str(private/"qmp.sock")
         receipt=str(private/"receipt.sock")
         api=str(root/"api.sock")
