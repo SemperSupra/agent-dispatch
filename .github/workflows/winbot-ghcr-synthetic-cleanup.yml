@@ -1,0 +1,98 @@
+name: WinBot GHCR owned synthetic version cleanup
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-ghcr-synthetic-cleanup.yml]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  delete-exact-own-synthetic-version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Delete only the exact synthetic cache-bakeoff tag and OCI manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.request
+
+          BASE = "https://api.github.com/orgs/SemperSupra/packages/container/agent-dispatch-cache-rdte"
+          EXPECTED = "sha256:83d302b2828640d0c486598524d242ef4f7a9c8347a7dc610201901fc45f0b50"
+          TAG = "synthetic-44614900975"
+          headers = {
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "winbot-synthetic-cache-hygiene",
+          }
+
+          def request(url, method="GET"):
+              req = urllib.request.Request(url, headers=headers, method=method)
+              with urllib.request.urlopen(req, timeout=25) as resp:
+                  return resp.status, resp.read()
+
+          receipt = {
+              "schema": "winbot-ghcr-synthetic-cleanup/v1",
+              "expected_digest": EXPECTED,
+              "expected_tag": TAG,
+              "other_versions_touched": False,
+              "version_found": False,
+              "version_deleted": False,
+              "verified_tag_absent": False,
+              "first_failure": None,
+          }
+          try:
+              _, content = request(BASE + "/versions?per_page=100")
+              versions = json.loads(content)
+              matching = []
+              for item in versions:
+                  tags = item.get("metadata", {}).get("container", {}).get("tags", [])
+                  if TAG in tags:
+                      matching.append(item)
+              if len(matching) != 1:
+                  raise RuntimeError("EXPECTED_TAG_NOT_UNIQUE_OR_NOT_VISIBLE")
+              item = matching[0]
+              receipt["version_found"] = True
+              tags = item.get("metadata", {}).get("container", {}).get("tags", [])
+              if item.get("name") != EXPECTED or tags != [TAG]:
+                  raise RuntimeError("EXACT_VERSION_DIGEST_OR_TAG_GUARD_REFUSED")
+              version_id = item.get("id")
+              if type(version_id) is not int or version_id <= 0:
+                  raise RuntimeError("MALFORMED_PACKAGE_VERSION_ID")
+              status, _ = request(BASE + f"/versions/{version_id}", method="DELETE")
+              if status != 204:
+                  raise RuntimeError("DELETE_DID_NOT_RETURN_204")
+              receipt["version_deleted"] = True
+              _, after = request(BASE + "/versions?per_page=100")
+              latest = json.loads(after)
+              receipt["verified_tag_absent"] = all(
+                  TAG not in version.get("metadata",{}).get("container",{}).get("tags",[])
+                  for version in latest
+              )
+              if not receipt["verified_tag_absent"]:
+                  raise RuntimeError("TAG_STILL_PRESENT_AFTER_DELETE")
+          except Exception as exc:
+              receipt["first_failure"] = type(exc).__name__ + ": " + str(exc)
+          finally:
+              pathlib.Path("ghcr-synthetic-cleanup.json").write_text(
+                  json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+              print(json.dumps(receipt, indent=2, sort_keys=True))
+          if not receipt["version_deleted"] or not receipt["verified_tag_absent"]:
+              raise SystemExit("EXACT_GHCR_SYNTHETIC_CLEANUP_NOT_QUALIFIED")
+          PY
+      - name: Preserve bounded cleanup receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-ghcr-owned-synthetic-cleanup
+          path: ghcr-synthetic-cleanup.json
+          retention-days: 2
+          if-no-files-found: error
