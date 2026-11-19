@@ -67,8 +67,21 @@ jobs:
             if ($null -eq $element) { throw 'FIXTURE_WINDOW_NOT_FOUND' }
             $receipt.window_observed = $true
             $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
-            $edit = $element.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-            if ($null -eq $edit) { throw 'FIXTURE_EDIT_NOT_FOUND' }
+            $edit = $null
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              $edit = $element.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+              if ($null -ne $edit) { break }
+              Start-Sleep -Milliseconds 200
+            }
+            if ($null -eq $edit) {
+              $all = $element.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+              $types = @()
+              for ($i = 0; $i -lt [Math]::Min(15, $all.Count); $i++) {
+                $types += [string]$all.Item($i).Current.ControlType.ProgrammaticName
+              }
+              $receipt.discovered_control_types = $types
+              throw 'FIXTURE_EDIT_NOT_FOUND'
+            }
             $receipt.edit_observed = $true
             $pattern = [System.Windows.Automation.ValuePattern]$edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
             $nonce = "WB-UIA-$env:GITHUB_RUN_ID"
