@@ -51,7 +51,6 @@ def main():
         root=Path(tmp)
         state=root/"state"
         state.mkdir(mode=0o700)
-        data=root/"swtpm.sock"
         ctrl=root/"swtpm.sock.ctrl"
         qmpSocket=root/"qmp.sock"
         tpm=qemu=None
@@ -59,12 +58,10 @@ def main():
             tpm=subprocess.Popen([
                 "swtpm","socket","--tpm2","--tpmstate","dir="+str(state),
                 "--ctrl","type=unixio,path="+str(ctrl),
-                "--server","type=unixio,path="+str(data),
                 "--flags","not-need-init,startup-clear",
             ],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-            ready(data,tpm,"swtpm")
             ready(ctrl,tpm,"swtpm control")
-            print("R24_C_UPSTREAM_SOFTWARE_TPM2_DUAL_SOCKETS=PASS",flush=True)
+            print("R25_C_UPSTREAM_SWTMP_CONTROL_ONLY_FOR_QEMU_DATAFD=PASS",flush=True)
             qemu=subprocess.Popen([
                 "qemu-system-x86_64","-machine","q35,accel=tcg",
                 "-m","768","-smp","1","-kernel","/guest/kernel",
