@@ -1,0 +1,212 @@
+name: WinBot exact projection candidate review (source-free)
+on:
+  push:
+    branches: [experiment/winbot-projection-review-20261119]
+    paths: [.github/workflows/winbot-exact-projection-candidate.yml]
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-exact-projection-candidate.yml]
+permissions:
+  contents: read
+jobs:
+  reconstruct-candidate-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Rehash approved Git objects and overlay two pre-reviewed SHA-256 identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import concurrent.futures
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.request
+
+          PUBLIC_REPO = "SemperSupra/agent-dispatch"
+          PARENT_MASTER = "2c45ff5e113603fe016982bcc411915f2d6d6d01"
+          PARENT_REVISION = "90d5d8a7244b781c28d438d9ba01155735c765b7"
+          PARENT_IDENTITY = "d4120a901d7855a9e0d7bc5f805d5e4b0dad8380abf52322c90f9981094d8b45"
+          CANDIDATE_REVISION = "8aa88e4bc448c979da4a6a528fbbf4673de38858"
+
+          # Approved baseline contained 82 source files. Only two eligible
+          # guest paths changed in the private owner Git comparison.
+          # These are hashes/lengths only; no private file bytes are published.
+          OVERLAY = {
+              "guest/build-master.ps1": {
+                  "bytes": 31457,
+                  "sha256": "51c4c810f08eaf7eea59071b3f3298d59b2dc8e3ba695a54354ab086475cbf69",
+                  "git_blob_sha": "1d7ef17cbe18a4218190a154c0f9e05a60f8080c",
+              },
+              "guest/tools/stage-provision.ps1": {
+                  "bytes": 47102,
+                  "sha256": "76c209c7895a0ee584683dc4ebac04cad238236d7a3ca78dc9e64b15168d3deb",
+                  "git_blob_sha": "fea7b9871e8d569f5cd868b85f2f9870249be71c",
+              },
+          }
+          token = os.environ["GH_TOKEN"]
+          def fetch(sha):
+              if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  raise ValueError("BAD_OBJECT_ID")
+              url = f"https://api.github.com/repos/{PUBLIC_REPO}/git/blobs/{sha}"
+              request = urllib.request.Request(url, headers={
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "User-Agent": "winbot-source-free-projection-review",
+              })
+              with urllib.request.urlopen(request, timeout=35) as response:
+                  data = json.load(response)
+              if data.get("sha") != sha or data.get("encoding") != "base64":
+                  raise ValueError("UNTRUSTED_BLOB_ID_OR_ENCODING")
+              raw = base64.b64decode(data["content"], validate=False)
+              if len(raw) != data.get("size"):
+                  raise ValueError("GIT_OBJECT_SIZE_MISMATCH")
+              actual_git_sha = hashlib.sha1(
+                  f"blob {len(raw)}\0".encode("ascii") + raw
+              ).hexdigest()
+              if actual_git_sha != sha:
+                  raise ValueError("GIT_OBJECT_CONTENT_MISMATCH")
+              return raw
+
+          master = json.loads(fetch(PARENT_MASTER))
+          if (master.get("source_revision") != PARENT_REVISION
+              or master.get("projection_identity_sha256") != PARENT_IDENTITY
+              or master.get("projected_file_count") != 82):
+              raise SystemExit("BASELINE_MASTER_AUTHORITY_MISMATCH")
+          batch_shas = master.get("source_batch_manifests")
+          if not isinstance(batch_shas, list) or len(batch_shas) != 9:
+              raise SystemExit("BASELINE_BATCH_TOPOLOGY_MISMATCH")
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              batches = list(pool.map(fetch, batch_shas))
+          entries = []
+          for idx, raw in enumerate(batches):
+              b = json.loads(raw)
+              if (b.get("source_revision") != PARENT_REVISION
+                  or b.get("batch_index") != idx):
+                  raise SystemExit("BASELINE_BATCH_IDENTITY_MISMATCH")
+              entries.extend(b["entries"])
+          paths = [x["path"] for x in entries]
+          if len(paths) != 82 or len(set(paths)) != 82:
+              raise SystemExit("BASELINE_PATH_SET_MISMATCH")
+          if not set(OVERLAY).issubset(paths):
+              raise SystemExit("CANDIDATE_PATH_NOT_IN_BASELINE")
+          object_ids = sorted({x["git_blob_sha"] for x in entries})
+          with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+              objects = dict(zip(object_ids, pool.map(fetch, object_ids)))
+          base_files = []
+          candidate_files = []
+          for entry in sorted(entries, key=lambda x: x["path"]):
+              raw = objects[entry["git_blob_sha"]]
+              if len(raw) != entry["size"]:
+                  raise SystemExit("BASELINE_FILE_SIZE_MISMATCH")
+              path = entry["path"]
+              base_files.append({
+                  "bytes": len(raw), "path": path,
+                  "sha256": hashlib.sha256(raw).hexdigest(),
+              })
+              overlay = OVERLAY.get(path)
+              candidate_files.append({
+                  "bytes": overlay["bytes"] if overlay else len(raw),
+                  "path": path,
+                  "sha256": overlay["sha256"] if overlay else hashlib.sha256(raw).hexdigest(),
+              })
+          def identity(source_revision, projected_files):
+              payload = {"source_revision": source_revision,
+                         "projected_files": projected_files}
+              raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+              return hashlib.sha256(raw).hexdigest()
+          baseline_computed = identity(PARENT_REVISION, base_files)
+          if baseline_computed != PARENT_IDENTITY:
+              raise SystemExit("BASELINE_SHA256_RECONSTRUCTION_FAILED")
+          if sum(x["bytes"] for x in base_files) != 1053198:
+              raise SystemExit("BASELINE_BYTE_COUNT_MISMATCH")
+          candidate_id = identity(CANDIDATE_REVISION, candidate_files)
+          candidate_bytes = sum(x["bytes"] for x in candidate_files)
+          if candidate_bytes != 1056915:
+              raise SystemExit("CANDIDATE_SIZE_UNEXPECTED")
+          receipt = {
+              "schema": "winbot-projection-review/v1",
+              "classification": "EXACT_PROJECTION_CANDIDATE_ONLY",
+              "authorization_state": "NOT_AUTHORIZED",
+              "baseline_source": PARENT_REVISION,
+              "baseline_projection_identity": PARENT_IDENTITY,
+              "baseline_reconstruction_verified": True,
+              "candidate_source": CANDIDATE_REVISION,
+              "candidate_projection_identity": candidate_id,
+              "projected_file_count": len(candidate_files),
+              "projected_bytes": candidate_bytes,
+              "changed_files": [
+                  {"path": path, **OVERLAY[path]} for path in sorted(OVERLAY)
+              ],
+              "private_code_fetched": False,
+              "private_code_published": False,
+              "source_projection_dispatched": False,
+              "windows_guest_installed": False,
+              "winbot_mvp_accepted": False,
+          }
+          pathlib.Path("projection-candidate.json").write_text(
+              json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+          )
+          print(json.dumps({
+              "classification": receipt["classification"],
+              "baseline_reconstruction_verified": True,
+              "candidate_source": CANDIDATE_REVISION,
+              "candidate_projection_identity": candidate_id,
+              "projected_file_count": len(candidate_files),
+              "projected_bytes": candidate_bytes,
+              "changed_paths": sorted(OVERLAY),
+              "authorization_state": receipt["authorization_state"],
+          }, sort_keys=True))
+          PY
+      - name: Preserve bounded receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-projection-candidate
+          path: projection-candidate.json
+          retention-days: 3
+          if-no-files-found: error
+  independent-identity-adjudicator:
+    runs-on: ubuntu-24.04
+    needs: [reconstruct-candidate-identity]
+    timeout-minutes: 5
+    steps:
+      - name: Obtain candidate receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: winbot-projection-candidate
+          path: receipt
+      - name: Require known baseline and no implicit authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+          p = pathlib.Path("receipt/projection-candidate.json")
+          if not p.is_file():
+              raise SystemExit("MISSING_PROJECTION_RECEIPT")
+          r = json.loads(p.read_text(encoding="utf-8"))
+          if (r.get("classification") != "EXACT_PROJECTION_CANDIDATE_ONLY"
+              or r.get("authorization_state") != "NOT_AUTHORIZED"
+              or r.get("baseline_reconstruction_verified") is not True):
+              raise SystemExit("UNQUALIFIED_PROJECTION_CANDIDATE")
+          if (r.get("projected_file_count") != 82
+              or r.get("projected_bytes") != 1056915
+              or not re.fullmatch(r"[0-9a-f]{64}", r.get("candidate_projection_identity", ""))):
+              raise SystemExit("MALFORMED_PROJECTION_CANDIDATE")
+          for denied in ("private_code_fetched", "private_code_published",
+                         "source_projection_dispatched", "windows_guest_installed",
+                         "winbot_mvp_accepted"):
+              if r.get(denied) is not False:
+                  raise SystemExit("FALSE_ACCEPTANCE_CLAIM_" + denied)
+          print("EXACT_PROJECTION_DIGEST_CANDIDATE_ONLY: authorization still closed")
+          PY
