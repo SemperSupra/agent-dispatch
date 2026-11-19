@@ -96,9 +96,10 @@ def main():
         qemu=host=None
         qmp=conn=channel=None
         try:
+            hostenv=dict(os.environ,R22_CHALLENGE=challenge)
             host=subprocess.Popen(["/guest/r26-hostbridge"],
                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,text=True,bufsize=1)
+                stderr=subprocess.PIPE,text=True,bufsize=1,env=hostenv)
             qemu=subprocess.Popen([
                 "qemu-system-x86_64","-machine","q35","-accel","tcg",
                 "-cpu","qemu64","-m","1024M","-smp","1","-S",
@@ -176,7 +177,7 @@ def main():
             r22_verify(wrong_source,challenge,pinned_public,expected=False)
             print("R22_A_REAL_QEMU_GUEST_ED25519_UP_VERIFIED=PASS",flush=True)
             print("R22_A_TAMPERED_EVENT_AND_TRANSPORT_PROOF_DENIED=PASS",flush=True)
-            wrong=dict(up);wrong["Proof"]="forged"+up.get("Proof","")
+            wrong=dict(up);wrong["r22_sig"]="00"*64
             bad=send(host,{"op":"event","event":wrong})
             if bad["ok"] or bad["reclaimable"]:
                 raise RuntimeError("forged guest proof accepted")
@@ -185,6 +186,7 @@ def main():
             if not good["ok"] or not good["reclaimable"]:
                 raise RuntimeError("actual guest evdev release proof not accepted: "+str(good))
             print("R26_L8_REAL_GUEST_VIRTIO_RECEIPT_GATE_RELEASED=PASS",flush=True)
+            print("R22_A_ACTUAL_GUEST_ED25519_IS_R26_RELEASE_GATE_AUTHORITY=PASS",flush=True)
             replay=send(host,{"op":"event","event":up})
             if replay["ok"]:
                 raise RuntimeError("guest event replay accepted")
