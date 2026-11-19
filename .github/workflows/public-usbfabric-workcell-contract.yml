@@ -17,4 +17,4 @@ jobs:
           persist-credentials: false
       - name: Validate parallel independent workcells without network dependencies
         shell: bash
-        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/iteration-r27.json
+        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/iteration-r27.json\n      - name: Verify adversarial manifest rejection cases\n        shell: bash\n        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/validate.go experiments/usb-fabric-r26/workcells/validate_test.go
