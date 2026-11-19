@@ -16,3 +16,11 @@ func TestRejectMultilineAssertion(t *testing.T){m:=ledger();m.Proofs[0].Assertio
 func TestRejectMissingBoundary(t *testing.T){m:=ledger();m.Proofs[0].Boundary="";if check(m)==nil{t.Fatal("unscoped claim")}}
 func TestRejectDuplicateEvidence(t *testing.T){m:=ledger();m.Proofs[1].Cell="R27H9";if check(m)==nil{t.Fatal("duplicate evidence")}}
 func TestRejectRedWithoutActualReproduction(t *testing.T){m:=ledger();m.Proofs[1].Assertion="R27H7_BYPASS=PASS";if check(m)==nil{t.Fatal("RED without witness")}}
+func TestRequiredMarkerNotConfusedWithRED(t *testing.T){
+ m:=ledger();m.Proofs[0].Assertion="R27H9_GUEST_PROOF_REQUIRED_HELD=PASS"
+ if e:=check(m);e!=nil{t.Fatal("substring RED in REQUIRED must be valid: ",e)}
+}
+func TestExplicitREDTokenCannotMasqueradeAsPASS(t *testing.T){
+ m:=ledger();m.Proofs[0].Assertion="R27H9_RED_BYPASS=PASS"
+ if e:=check(m);e==nil{t.Fatal("explicit RED token admitted as green")}
+}
