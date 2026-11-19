@@ -1,0 +1,10 @@
+{
+  "schema": "gha-kvm-truenas-run-request/v1",
+  "request_id": "tn-25-04-2-6-t6-vanilla-263-op4b-001",
+  "version": "25.04.2.6",
+  "rung": "t6",
+  "product": "minecraft-vanilla-263",
+  "authority_issue": 423,
+  "consumer_authority_issue": 627,
+  "purpose": "Source-only eligibility for a new isolated TrueNAS 25.04.2.6 vanilla26.3 Java25 native T6 product, with distinct exact Foundry control, pinned catalog image and independently owned world. This document is NOT wired to request-edge GHA, not a live guest admission, and never physical TrueNAS APPLY."
+}

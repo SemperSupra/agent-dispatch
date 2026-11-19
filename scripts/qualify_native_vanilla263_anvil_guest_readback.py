@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Bounded G4 quiesced native world Anvil file readback seam (source-only).
+
+This is a fixed-path read-only adapter for the existing disposable native T6
+DDP session and its already admitted owned App/world. It has no network client,
+credential issuance, provider mutation or disk export. Neither a synthetic
+test nor a caller-provided bytes callback is an independent live guest receipt.
+"""
+from __future__ import annotations
+
+import re
+
+try:
+    from .qualify_native_vanilla263_anvil_blocks import (
+        MAX_REGION, SCHEMA, Refused, inspect, require)
+    from .qualify_vanilla263_native_world_rollback import (
+        APP, WORLD, app_state)
+except ImportError:
+    from qualify_native_vanilla263_anvil_blocks import (
+        MAX_REGION, SCHEMA, Refused, inspect, require)
+    from qualify_vanilla263_native_world_rollback import (
+        APP, WORLD, app_state)
+
+# Minecraft Java 26.1 Snapshot 6 migrated the Overworld (including region)
+# into dimensions/minecraft/overworld. The root region/ is legacy 1.21.11;
+# never fall back there for the exact 26.3 signed source target.
+REGION_DIRECTORY = WORLD + "/dimensions/minecraft/overworld/region"
+PATH = REGION_DIRECTORY + "/r.0.0.mca"
+REGION_BASENAME = "r.0.0.mca"
+# Fixed component census. TrueNAS filesystem.stat uses a no-follow statx
+# entry and reports SYMLINK rather than DIRECTORY for a symlinked component.
+# The subsequent middleware filesystem.get(path) would otherwise follow
+# symlinked ancestors through os.path.isfile/open. Only read existing entries;
+# this cannot prove absence of races or replace guest owner/session admission.
+REGION_PARENT_DIRECTORIES = (
+    WORLD,
+    WORLD + "/dimensions",
+    WORLD + "/dimensions/minecraft",
+    WORLD + "/dimensions/minecraft/overworld",
+    REGION_DIRECTORY,
+)
+MAX_OWNED_REGION_ENTRIES = 4096
+STAGES = ("preaction", "candidate", "rollback")
+# Only these literal, non-sensitive phases may escape as a public diagnostic.
+PHASES = (
+    "app_state_query", "app_stopped_verified",
+    "file_stat", "file_stat_verified",
+    "directory_chain_check", "directory_chain_verified",
+    "file_stat_listing_absent", "file_stat_listing_present",
+    "file_stat_listing_inconclusive",
+    "download_request", "download_route_verified",
+    "download_job", "download_job_completed",
+    "bytes_fetch", "bytes_verified", "anvil_decode", "anvil_verified",
+)
+
+
+def record_phase(stage: str, phase: str, reporter=None) -> None:
+    require(stage in STAGES and phase in PHASES, "BACKEND_PHASE_CODE_INVALID")
+    if reporter is not None:
+        reporter(stage + "." + phase)
+
+
+
+def classify_failed_stat(*, call, stage: str, on_phase=None) -> None:
+    """One extra fixed-path, read-only census after a failed native stat.
+
+    This is a diagnostic, never a fallback source of world bytes or authority.
+    A missing directory, provider error or malformed list is INCONCLUSIVE.
+    No raw paths, listing names, provider responses or errors reach the caller.
+    """
+    try:
+        rows = call("filesystem.listdir", [REGION_DIRECTORY])
+    except Exception:
+        record_phase(stage, "file_stat_listing_inconclusive", on_phase)
+        raise Refused("BACKEND_REGION_STAT_CENSUS_INCONCLUSIVE") from None
+    if (type(rows) is not list or len(rows) > MAX_OWNED_REGION_ENTRIES
+            or any(type(row) is not dict
+                   or type(row.get("name")) is not str
+                   or type(row.get("type")) is not str
+                   for row in rows)):
+        record_phase(stage, "file_stat_listing_inconclusive", on_phase)
+        raise Refused("BACKEND_REGION_STAT_CENSUS_INVALID") from None
+    matched = [row for row in rows if row["name"] == REGION_BASENAME]
+    if not matched:
+        record_phase(stage, "file_stat_listing_absent", on_phase)
+        raise Refused("BACKEND_REGION_NOT_LISTED_AFTER_STOP") from None
+    if len(matched) != 1 or matched[0]["type"] != "FILE":
+        record_phase(stage, "file_stat_listing_inconclusive", on_phase)
+        raise Refused("BACKEND_REGION_CENSUS_ENTRY_UNSAFE") from None
+    record_phase(stage, "file_stat_listing_present", on_phase)
+    raise Refused("BACKEND_REGION_STAT_REFUSED_BUT_FILE_LISTED") from None
+
+
+
+def validate_single_use_download(row: object) -> tuple[int, str]:
+    """Accept only the exact job-bound TrueNAS single-use download URL.
+
+    Pinned truenas/middleware@244b717 service/core_service.py issues
+    /_download/{job.id}?auth_token={token}. file_app.py validates both
+    token and job ID. Never print or copy the bearer URL into a receipt.
+    This adapter cannot grant a token or broaden the underlying credential.
+    """
+    require(type(row) is list and len(row) == 2 and
+            type(row[0]) is int and 0 < row[0] < 10**12 and
+            type(row[1]) is str and len(row[1]) < 400,
+            "BACKEND_DOWNLOAD_ROUTE_INVALID")
+    job, route = row
+    # One fixed-origin relative path; exactly one job-bound query parameter.
+    # No foreign authority, fragment, traversal, percent escapes or extra args.
+    require(re.fullmatch(
+        rf"/_download/{job}\?auth_token=[A-Za-z0-9_-]{{16,256}}", route
+    ) is not None, "BACKEND_DOWNLOAD_ROUTE_INVALID")
+    return job, route
+
+
+def verify_fixed_world_directory_chain(*, call, stage: str, on_phase=None) -> None:
+    """Fail closed if any fixed stopped-world ancestor is not a directory.
+
+    Per pinned TrueNAS 25.04.2.6 filesystem.stat source, this is a no-follow
+    entry statx; symlinked ancestors have type SYMLINK. filesystem.get later
+    uses an ordinary open, so rejecting symlinks beforehand prevents accepting
+    a known foreign parent at observation time. All RPCs use the existing
+    read-only stat permission; no identity or privileges are expanded.
+    """
+    record_phase(stage, "directory_chain_check", on_phase)
+    for fixed in REGION_PARENT_DIRECTORIES:
+        try:
+            entry = call("filesystem.stat", [fixed])
+        except Exception:
+            raise Refused("BACKEND_REGION_PARENT_STAT_INCONCLUSIVE") from None
+        require(type(entry) is dict and entry.get("type") == "DIRECTORY",
+                "BACKEND_REGION_PARENT_NOT_DIRECTORY")
+    record_phase(stage, "directory_chain_verified", on_phase)
+
+
+def capture(*, call, wait_job, fetch_bytes, stage: str, on_phase=None) -> dict:
+    """Only after existing *actual* guest runner verified owned App then stop.
+
+    The runner MUST independently bind the current authenticated DDP session,
+    exact native service/world, player action, signed request, and App stop.
+    It must not publish the raw Anvil region, signed session or download URL.
+    """
+    require(stage in STAGES, "BACKEND_STAGE_NOT_ADMITTED")
+    record_phase(stage, "app_state_query", on_phase)
+    require(app_state(call) == "STOPPED", "BACKEND_QUIESCENCE_NOT_OBSERVED")
+    record_phase(stage, "app_stopped_verified", on_phase)
+    record_phase(stage, "file_stat", on_phase)
+    try:
+        stat = call("filesystem.stat", [PATH])
+    except Exception:
+        # The 019 real guest died here with only RuntimeError. Distinguish a
+        # missing fixed region entry from a provider/stat refusal, without
+        # reflecting private middleware error strings or accepting a fallback.
+        classify_failed_stat(call=call, stage=stage, on_phase=on_phase)
+        raise AssertionError("unreachable")
+    require(type(stat) is dict and stat.get("type") == "FILE" and
+            type(stat.get("size")) is int and
+            8192 <= stat["size"] <= MAX_REGION, "BACKEND_REGION_FILE_NOT_EXACT")
+    record_phase(stage, "file_stat_verified", on_phase)
+    # Final file lstat alone cannot detect symlinks in the parent path.
+    # Check only these fixed world-owned ancestors before requesting a
+    # job-bound download; no fallback to a different world or realpath.
+    verify_fixed_world_directory_chain(call=call, stage=stage, on_phase=on_phase)
+    record_phase(stage, "download_request", on_phase)
+    row = call("core.download", [
+        "filesystem.get", [PATH], "g4-owned-region-" + stage + ".mca", True])
+    job_id, single_use_route = validate_single_use_download(row)
+    record_phase(stage, "download_route_verified", on_phase)
+    record_phase(stage, "download_job", on_phase)
+    wait_job(job_id, "G4 read-only owned Anvil file download")
+    record_phase(stage, "download_job_completed", on_phase)
+    record_phase(stage, "bytes_fetch", on_phase)
+    blob = fetch_bytes(single_use_route)
+    require(type(blob) is bytes and len(blob) == stat["size"],
+            "BACKEND_DOWNLOADED_FILE_DRIFT")
+    record_phase(stage, "bytes_verified", on_phase)
+    record_phase(stage, "anvil_decode", on_phase)
+    result = inspect(blob, stage)
+    record_phase(stage, "anvil_verified", on_phase)
+    # The host transfer API is separate from independent receipt admission:
+    # this module cannot prove the caller ran under authorized guest identity.
+    result.update({
+        "classification": "SOURCE_ONLY_OWNED_ANVIL_DOWNLOAD_SEAM",
+        "downloaded_file_size": len(blob),
+        "requested_native_app": APP,
+        "requested_native_world_file_fixed": True,
+        "requested_native_world": "rdtepool/minecraft-vanilla-263-t6-world",
+        "read_only_middleware_calls": True,
+        "live_guest_identity_independently_verified": False,
+        "backend_independent_world_oracle_pass": False,
+        "raw_region_published": False,
+        "next_gate": "EXACT_LIVE_GUEST_RUNNER_AND_INDEPENDENT_RECEIPT_BINDING",
+    })
+    return result
