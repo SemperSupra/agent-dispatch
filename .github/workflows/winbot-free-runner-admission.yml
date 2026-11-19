@@ -1,0 +1,97 @@
+name: WinBot free runner admission (read-only)
+on:
+  push:
+    branches: [experiment/winbot-free-runner-admission-20261119]
+    paths: [.github/workflows/winbot-free-runner-admission.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: winbot-free-runner-admission-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-host:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - name: Observe native Windows, Hyper-V and desktop-session surfaces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $os = Get-CimInstance Win32_OperatingSystem
+          $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+          $proc = Get-Process -Id $PID
+          $hyperv = Get-Command Get-VM -ErrorAction SilentlyContinue
+          $vmhost = $null
+          if ($hyperv) {
+            try {
+              $vmhost = Get-VMHost -ErrorAction Stop
+            } catch {}
+          }
+          $interactive = [Environment]::UserInteractive
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $receipt = [ordered]@{
+            schema = 'winbot-runner-admission/v1'
+            classification = 'HOST_OBSERVATION_ONLY'
+            executor = 'windows-2025'
+            github_run_id = $env:GITHUB_RUN_ID
+            os_caption = $os.Caption
+            os_version = $os.Version
+            ram_bytes = [long]$os.TotalVisibleMemorySize * 1024
+            logical_processors = $cpu.NumberOfLogicalProcessors
+            process_session_id = $proc.SessionId
+            environment_user_interactive = $interactive
+            identity_is_system = $identity.IsSystem
+            hyperv_cmdlet_present = [bool]$hyperv
+            hyperv_host_observed = ($null -ne $vmhost)
+            windows_guest_installed = $false
+            winbot_interactive_desktop_accepted = $false
+            mutation_performed = $false
+          }
+          $receipt | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 windows-admission.json
+          $receipt | ConvertTo-Json -Depth 6
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-admission-windows-${{ github.run_id }}
+          path: windows-admission.json
+          retention-days: 2
+          if-no-files-found: error
+  ubuntu-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Observe KVM/libvirt availability without VM installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, platform, shutil
+          p = '/dev/kvm'
+          result = {
+            "schema": "winbot-runner-admission/v1",
+            "classification": "HOST_OBSERVATION_ONLY",
+            "executor": "ubuntu-24.04",
+            "github_run_id": os.getenv("GITHUB_RUN_ID"),
+            "kernel": platform.release(),
+            "arch": platform.machine(),
+            "kvm_device_present": os.path.exists(p),
+            "kvm_device_accessible": os.access(p, os.R_OK | os.W_OK),
+            "qemu_system_x86_64_present": bool(shutil.which("qemu-system-x86_64")),
+            "virsh_present": bool(shutil.which("virsh")),
+            "swtpm_present": bool(shutil.which("swtpm")),
+            "windows_guest_installed": False,
+            "winbot_interactive_desktop_accepted": False,
+            "mutation_performed": False,
+          }
+          with open("ubuntu-admission.json", "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2, sort_keys=True)
+          print(json.dumps(result, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-admission-ubuntu-${{ github.run_id }}
+          path: ubuntu-admission.json
+          retention-days: 2
+          if-no-files-found: error
