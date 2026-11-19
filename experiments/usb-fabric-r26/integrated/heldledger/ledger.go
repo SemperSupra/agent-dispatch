@@ -32,6 +32,10 @@ type State struct {
  // None, release-intent, or qmp-acked. Guest evidence is still required
  // after the QMP acknowledgment. All stages remain Held=true until proof.
  ReleasePhase string `json:"release_phase,omitempty"`
+ // R27-C: SHA256 of independently verified host kernel-isolation witness.
+ // Present ONLY while held=true and release_phase=kernel-isolated; never a
+ // bearer credential or proof that survives restart as fresh authority.
+ KernelWitnessHash string `json:"kernel_witness_hash,omitempty"`
  // Audit-only receipt fingerprint and guest event monotonic sequence.
  // Neither field alone constitutes a fresh proof on process restart.
  LastReleaseEventSequence uint64 `json:"last_release_event_sequence,omitempty"`
@@ -83,7 +87,13 @@ func (s Store) Read()(State,error){
   if err!=nil||len(d)!=32{return State{},ErrInvalid}
  }
  if state.ReleasePhase!="" && state.ReleasePhase!="release-intent" &&
-  state.ReleasePhase!="qmp-acked" {return State{},ErrInvalid}
+  state.ReleasePhase!="qmp-acked" && state.ReleasePhase!="kernel-isolated" {
+  return State{},ErrInvalid
+ }
+ if state.ReleasePhase=="kernel-isolated" {
+  digest,err:=hex.DecodeString(state.KernelWitnessHash)
+  if err!=nil||len(digest)!=32 {return State{},ErrInvalid}
+ } else if state.KernelWitnessHash!="" {return State{},ErrInvalid}
  if !state.Held && state.ReleasePhase!="" {return State{},ErrInvalid}
  return state,nil
 }
