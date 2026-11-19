@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "release": "R27 synthetic MVP RC candidate",
+  "authority": "mark-e-deyoung/infrastructure-as-code-private#443",
+  "baseline": "eb8e0ced9ed085e263b5d8d7eb7182323fa0f507",
+  "scope": "synthetic-only",
+  "candidates": [
+    {
+      "id": "H6",
+      "pr": 856,
+      "head": "c7949046d5cec6bbdb60f4d7c39a0eceb77a9bba",
+      "decision": "carry",
+      "gate": "PASS",
+      "reason": "single run signed two lease guest and distinct UID private QMP"
+    },
+    {
+      "id": "H7",
+      "pr": 858,
+      "head": "eceb8405f5c9f35ba215f38bfc39417810abf11b",
+      "decision": "preserve-red",
+      "gate": "RED",
+      "reason": "same service UID new second QMP monitor bypass demonstrated"
+    },
+    {
+      "id": "H9",
+      "pr": 881,
+      "head": "eb8e0ced9ed085e263b5d8d7eb7182323fa0f507",
+      "decision": "carry",
+      "gate": "PASS",
+      "reason": "signed two leases after QMP pathname sealing"
+    },
+    {
+      "id": "B6",
+      "pr": 880,
+      "head": "92ac041755a6fd5aa8129cfec1cf6929582a04c4",
+      "decision": "carry",
+      "gate": "PASS",
+      "reason": "workcell deterministic evidence guard 37 tests"
+    },
+    {
+      "id": "H10",
+      "pr": 0,
+      "head": "0000000000000000000000000000000000000000",
+      "decision": "pending",
+      "gate": "NOT_TESTED",
+      "reason": "held-input SIGKILL crash and restart require qualification"
+    }
+  ],
+  "blockers": [
+    "controller SIGKILL and restart recovery",
+    "production-grade guest key custody / approved test-only MVP scope",
+    "one immutable adoption head with full CI and artifact evidence",
+    "owner approval before merge"
+  ]
+}
