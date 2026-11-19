@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "release_ready": false,
+  "proofs": [
+    {
+      "cell": "R27H9",
+      "source_sha": "eb8e0ced9ed085e263b5d8d7eb7182323fa0f507",
+      "run_id": 44569967945,
+      "job_id": 135722011257,
+      "conclusion": "success",
+      "disposition": "PASS",
+      "assertion": "R27H9_SIGNED_TWO_LEASES_AFTER_QMP_UNLINK=PASS",
+      "boundary": "synthetic signed dual-lease test key extractable; no FD/ptrace or production attestation",
+      "independently_verified": true
+    },
+    {
+      "cell": "R27H14",
+      "source_sha": "defaf191aed5d1d5cf9e0b8b92dc37f89e375110",
+      "run_id": 44626260705,
+      "job_id": 135920785201,
+      "conclusion": "success",
+      "disposition": "PASS",
+      "assertion": "R27H14_GUEST_PROOF_REQUIRED_JOURNAL_STILL_HELD=PASS",
+      "boundary": "actual QMP emergency up; no authenticated guest proof after crash or safe lease readmission",
+      "independently_verified": true
+    },
+    {
+      "cell": "R27H7",
+      "source_sha": "eceb8405f5c9f35ba215f38bfc39417810abf11b",
+      "run_id": 44566541728,
+      "job_id": 135709732915,
+      "conclusion": "success",
+      "disposition": "RED",
+      "assertion": "R27H7_SAME_UID_RAW_QMP_DEVICE_ADD_DEL=REPRODUCED",
+      "boundary": "different same-UID actor on second accessible QMP monitor; raw device mutation bypass",
+      "independently_verified": true
+    }
+  ]
+}
