@@ -55,6 +55,31 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
+    elif profile_id == "mail-qwen-real-cpu-v1":
+        fake_cases = [
+            {"id":case_id,"language":language,
+             "source_id":"INVALID","value":"INVALID",
+             "valid_json":False,"exact":False,
+             "incorrect_source":True,"abstained":False,
+             "duration_ms":1,"output_sha256":"e"*64}
+            for case_id,language in (
+                ("H1","en"),("H2","en"),("H3","de"),("H4","th"),
+                ("H5","en"),("H6","de"),("H7","en"))
+        ]
+        fixed_result = {
+            "oracle_verified": True, "classification": "PASS",
+            "real_model_inference": True, "automatic_promotion": False,
+            "model_sha256": "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8",
+            "engine_commit": "b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed",
+            "question_count": 7, "model_calls": 20, "selected_policy": "plain",
+            "heldout_exact": 0, "baseline_exact": 0,
+            "heldout_valid": 0,"baseline_valid": 0,
+            "selected_cases": fake_cases,
+            "baseline_cases": fake_cases,
+            "dev_exact_scores": {"plain":0,"evidence-first":0},
+            "unsupported_source_count": 7, "semantic_quality_gate": False,
+            "corpus_sha256": "d"*64,"verdict_sha256":"a"*64,
+        }
     elif profile_id == "mail-openworker-scripted-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",

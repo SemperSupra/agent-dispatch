@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted" ,"mail-qwen-real-cpu"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -54,7 +54,7 @@ def read_request(name: str) -> tuple[dict, str]:
         raise Denied("RUNNER_SHAPE_NOT_ALLOWED")
     if not isinstance(obj["workload"], str) or obj["workload"] not in WORKLOADS:
         raise Denied("WORKLOAD_NOT_ALLOWED")
-    if type(obj["timeout_seconds"]) is not int or not 1 <= obj["timeout_seconds"] <= 240:
+    if type(obj["timeout_seconds"]) is not int or not 1 <= obj["timeout_seconds"] <= (420 if obj["workload"] == "mail-qwen-real-cpu" else 240):
         raise Denied("RUNTIME_BUDGET_OUT_OF_BOUNDS")
     if obj["data_class"] != "public-synthetic":
         raise Denied("DATA_CLASS_NOT_ALLOWED")
@@ -155,6 +155,95 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
+    if workload == "mail-qwen-real-cpu":
+        # Actually execute pinned 0.5B GGUF on no-paid-API standard CPU.
+        # Independent heldout model accuracy can be low: this gate proves
+        # measured actual inference, never automatic source/model promotion.
+        try:
+            cp = subprocess.run(
+                [sys.executable, "scripts/qualify_mail_qwen_real_cpu.py"],
+                cwd=ROOT, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=timeout, check=False)
+            if cp.returncode or len(cp.stdout)>16384:
+                # Emit only a single controlled failure class, not raw download,
+                # compiler or model stderr, which could contain untrusted text.
+                failure=re.search(
+                    r"MODEL_PUBLIC_REP_BLOCKED=([A-Za-z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_MODEL_FIRST_FAILURE=" +
+                      (failure.group(1).upper() if failure else "UNCLASSIFIED_SUBPROCESS"),
+                      flush=True)
+                raise ValueError("PINNED_MODEL_OR_ENGINE_RUNTIME_FAIL")
+            obs=json.loads(cp.stdout)
+            dev=obs.get("dev",{})
+            held=obs.get("holdout",{})
+            chosen=obs.get("selected_policy")
+            sel=obs.get("heldout_selected",{})
+            admitted=(
+                isinstance(obs,dict)
+                and obs.get("schema")=="mail-public-real-cpu-model-doe/v1"
+                and obs.get("classification")=="REAL_CPU_MODEL_MEASURED_NO_PROMOTION"
+                and obs.get("engine_commit")=="b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed"
+                and obs.get("model_commit")=="9217f5db79a29953eb74d5343926648285ec7e67"
+                and obs.get("model_sha256")=="9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8"
+                and obs.get("model_license")=="Apache-2.0"
+                and obs.get("engine_license")=="MIT"
+                and obs.get("model_inference") is True
+                and obs.get("hosted_api_calls")==0
+                and obs.get("no_private_data") is True
+                and obs.get("public_synthetic_only") is True
+                and obs.get("model_weights_updated") is False
+                and obs.get("automatic_promotion") is False
+                and obs.get("request_count")==20
+                and obs.get("dev_questions")==3
+                and obs.get("holdout_questions")==7
+                and chosen in ("plain","evidence-first")
+                and isinstance(dev,dict) and isinstance(held,dict)
+                and set(dev)=={"plain","evidence-first"}
+                and set(held)=={"plain","evidence-first"}
+                and all(dev[k].get("count")==3 and 0<=dev[k].get("exact",-1)<=3
+                        for k in dev)
+                and all(held[k].get("count")==7 and 0<=held[k].get("exact",-1)<=7
+                        for k in held)
+                and isinstance(sel,dict) and sel==held[chosen]
+                and len(obs.get("outputs",[]))==7
+                and len(obs.get("baseline_outputs",[]))==7
+                and isinstance(obs.get("dev_exact_scores"),dict)
+                and set(obs["dev_exact_scores"])=={"plain","evidence-first"}
+                and all(type(n) is int and 0<=n<=3 for n in obs["dev_exact_scores"].values())
+                and chosen==sorted(("plain","evidence-first"),
+                    key=lambda k:(-obs["dev_exact_scores"][k],
+                                   ("plain","evidence-first").index(k)))[0]
+                and isinstance(obs.get("corpus_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",obs["corpus_sha256"]) is not None
+                and isinstance(obs.get("expected_quality_gate_passed"),bool))
+        except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError, TypeError):
+            admitted=False
+            obs={}
+            cp=None
+        return {
+            "oracle_verified":bool(admitted),
+            "classification":"PASS" if admitted else "FAIL_REAL_MODEL_RUNTIME_OR_ORACLE",
+            "real_model_inference":bool(admitted),
+            "automatic_promotion":False,
+            "model_sha256":obs.get("model_sha256") if admitted else None,
+            "engine_commit":obs.get("engine_commit") if admitted else None,
+            "question_count":7 if admitted else 0,
+            "model_calls":20 if admitted else 0,
+            "selected_policy":obs.get("selected_policy") if admitted else None,
+            "heldout_exact":obs.get("heldout_selected",{}).get("exact",0) if admitted else 0,
+            "heldout_valid":obs.get("heldout_selected",{}).get("valid",0) if admitted else 0,
+            "baseline_valid":obs.get("holdout",{}).get("plain",{}).get("valid",0) if admitted else 0,
+            "selected_cases":obs.get("outputs",[]) if admitted else [],
+            "baseline_cases":obs.get("baseline_outputs",[]) if admitted else [],
+            "dev_exact_scores":obs.get("dev_exact_scores",{}) if admitted else {},
+            "baseline_exact":obs.get("holdout",{}).get("plain",{}).get("exact",0) if admitted else 0,
+            "unsupported_source_count":obs.get("heldout_selected",{}).get("unsupported_source",0) if admitted else 0,
+            "semantic_quality_gate":obs.get("expected_quality_gate_passed") if admitted else False,
+            "corpus_sha256":obs.get("corpus_sha256") if admitted else None,
+            "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
     if workload == "mail-openworker-scripted":
         # Exact source-pinned public MIT OpenWorker engine only; disposable venv.
         # All runtime inference is fake scripted-model replay, no real mailbox.
