@@ -2,10 +2,10 @@
 set -Eeuo pipefail
 cd "$(git rev-parse --show-toplevel)"
 before="$(git status --porcelain --untracked-files=all)"
-[[ -z "$before" ]] || {echo R24_C_DIRTY_SOURCE=RED;exit 10;}
+[[ -z "$before" ]] || { echo R24_C_DIRTY_SOURCE=RED; exit 10; }
 image="r24c-qemu-linux-guest-tpm-${GITHUB_SHA:0:12}"
 log="$RUNNER_TEMP/r24-c-real-guest-tpm.log"
-cleanup(){docker image rm -f "$image" >/dev/null 2>&1 || true;}
+cleanup(){ docker image rm -f "$image" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker pull debian:trixie-slim >/dev/null
 base="$(docker image inspect --format '{{index .RepoDigests 0}}' debian:trixie-slim)"
@@ -23,7 +23,7 @@ timeout 230s docker run --rm --network none --read-only --user 65532:65532 \
 rc=$?
 set -e
 cat "$log"
-if [[ "$rc" -ne 0 ]];then echo "R24_C_LINUX_GUEST_TPM=RED rc=$rc";exit 22;fi
+if [[ "$rc" -ne 0 ]];then echo "R24_C_LINUX_GUEST_TPM=RED rc=$rc"; exit 22; fi
 for marker in \
  R24_C_UPSTREAM_SOFTWARE_TPM2_DUAL_SOCKETS=PASS \
  R24_C_SAME_QEMU_TPM_TIS_QMP_OBSERVED=PASS \
@@ -35,7 +35,7 @@ for marker in \
  R24_C_REAL_GUEST_CHANGED_PCR_QUOTE_DENIED=PASS \
  R24_C_REAL_IN_GUEST_TPM2_PCR_QUOTE_TEST_ONLY=PASS \
  R24_C_TRUSTED_HARDWARE_EK_ATTESTATION=NOT_TESTED; do
- grep -Fq "$marker" "$log" || {echo "R24_C_PROOF_MARKER_MISSING=$marker";exit 23;}
+ grep -Fq "$marker" "$log" || { echo "R24_C_PROOF_MARKER_MISSING=$marker"; exit 23; }
 done
 [[ "$(git status --porcelain --untracked-files=all)" == "$before" ]] || exit 24
 cleanup;trap - EXIT
