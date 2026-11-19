@@ -1,0 +1,19 @@
+name: USB Fabric R27-H12 - corrupt held ledger restart fail closed
+on:
+  push:
+    branches: [test/issue-470-r27h12-corrupt-held-journal]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  corrupt-held-restart:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fail closed on corrupt held journal after signed DOWN and controller SIGKILL
+        run: bash experiments/usb-fabric-r26/integrated/r27h12_corrupt_journal_restart_verify.sh
