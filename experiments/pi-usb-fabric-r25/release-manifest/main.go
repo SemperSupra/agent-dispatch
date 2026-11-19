@@ -22,6 +22,8 @@ type Receipt struct {
     Kind string `json:"kind"` // contract, real-qemu, real-usbip, software-tpm
     Outcome string `json:"outcome"` // PASS, RED
     Marker string `json:"marker"`
+    ArtifactID int64 `json:"artifact_id"`
+    ArtifactSHA256 string `json:"artifact_sha256"`
     ChangedPaths []string `json:"changed_paths"`
 }
 type Gate struct {
@@ -47,7 +49,110 @@ type Result struct {
     CriticalRemaining []string `json:"critical_remaining"`
     Errors []string `json:"errors"`
 }
-var sha40 = regexp.MustCompile(`^[a-f0-9]{40}$`)
+var sha40 = regexp.MustCompile(`^[a-f0-9]{40}// r25-release-manifest validates a *snapshot* of immutable DLE receipts.
+// It never mutates GitHub, starts a scheduler, or promotes a test-only PASS
+// to production acceptance. Current PR heads MUST be independently re-read.
+package main
+
+import (
+    "encoding/json"
+    "errors"
+    "flag"
+    "fmt"
+    "os"
+    "regexp"
+    "sort"
+)
+
+type Receipt struct {
+    ID string `json:"id"`
+    PR int `json:"pr"`
+    Head string `json:"head"`
+    Run int64 `json:"run"`
+    Job int64 `json:"job"`
+    Kind string `json:"kind"` // contract, real-qemu, real-usbip, software-tpm
+    Outcome string `json:"outcome"` // PASS, RED
+    Marker string `json:"marker"`
+    ArtifactID int64 `json:"artifact_id"`
+    ArtifactSHA256 string `json:"artifact_sha256"`
+    ChangedPaths []string `json:"changed_paths"`
+}
+type Gate struct {
+    ID string `json:"id"`
+    Priority string `json:"priority"` // P0, P1
+    State string `json:"state"` // PASS, RED, NOT_TESTED, BLOCKED
+    RequiredKind string `json:"required_kind"`
+    ReceiptID string `json:"receipt_id,omitempty"`
+}
+type Manifest struct {
+    Schema string `json:"schema"`
+    EvidenceRepository string `json:"evidence_repository"`
+    Authority string `json:"authority"`
+    ObservationDate string `json:"observation_date"`
+    OwnerApproved bool `json:"owner_approved"`
+    ReleaseRequested bool `json:"release_requested"`
+    Receipts []Receipt `json:"receipts"`
+    Gates []Gate `json:"gates"`
+}
+type Result struct {
+    Valid bool `json:"valid"`
+    ReleaseEligible bool `json:"release_eligible"`
+    CriticalRemaining []string `json:"critical_remaining"`
+    Errors []string `json:"errors"`
+}
+)
+var sha64 = regexp.MustCompile(`^[a-f0-9]{64}// r25-release-manifest validates a *snapshot* of immutable DLE receipts.
+// It never mutates GitHub, starts a scheduler, or promotes a test-only PASS
+// to production acceptance. Current PR heads MUST be independently re-read.
+package main
+
+import (
+    "encoding/json"
+    "errors"
+    "flag"
+    "fmt"
+    "os"
+    "regexp"
+    "sort"
+)
+
+type Receipt struct {
+    ID string `json:"id"`
+    PR int `json:"pr"`
+    Head string `json:"head"`
+    Run int64 `json:"run"`
+    Job int64 `json:"job"`
+    Kind string `json:"kind"` // contract, real-qemu, real-usbip, software-tpm
+    Outcome string `json:"outcome"` // PASS, RED
+    Marker string `json:"marker"`
+    ArtifactID int64 `json:"artifact_id"`
+    ArtifactSHA256 string `json:"artifact_sha256"`
+    ChangedPaths []string `json:"changed_paths"`
+}
+type Gate struct {
+    ID string `json:"id"`
+    Priority string `json:"priority"` // P0, P1
+    State string `json:"state"` // PASS, RED, NOT_TESTED, BLOCKED
+    RequiredKind string `json:"required_kind"`
+    ReceiptID string `json:"receipt_id,omitempty"`
+}
+type Manifest struct {
+    Schema string `json:"schema"`
+    EvidenceRepository string `json:"evidence_repository"`
+    Authority string `json:"authority"`
+    ObservationDate string `json:"observation_date"`
+    OwnerApproved bool `json:"owner_approved"`
+    ReleaseRequested bool `json:"release_requested"`
+    Receipts []Receipt `json:"receipts"`
+    Gates []Gate `json:"gates"`
+}
+type Result struct {
+    Valid bool `json:"valid"`
+    ReleaseEligible bool `json:"release_eligible"`
+    CriticalRemaining []string `json:"critical_remaining"`
+    Errors []string `json:"errors"`
+}
+)
 var kinds = map[string]bool{"contract":true,"real-qemu":true,"real-usbip":true,"software-tpm":true}
 var states = map[string]bool{"PASS":true,"RED":true,"NOT_TESTED":true,"BLOCKED":true}
 
@@ -72,6 +177,9 @@ func Validate(m Manifest) Result {
             fail("unsupported evidence kind/outcome: "+r.ID)
         }
         if r.Marker=="" {fail("missing first-hand CI marker: "+r.ID)}
+        if r.ArtifactID<1 || !sha64.MatchString(r.ArtifactSHA256) {
+            fail("missing exact evidence artifact ID and sha256: "+r.ID)
+        }
         if len(r.ChangedPaths)==0 {fail("no scoped changed paths: "+r.ID)}
         for _,p:=range r.ChangedPaths {
             if p=="" {fail("empty changed path: "+r.ID);continue}
