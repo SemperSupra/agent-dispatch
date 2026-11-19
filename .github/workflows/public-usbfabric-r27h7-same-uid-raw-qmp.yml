@@ -1,0 +1,19 @@
+name: USB Fabric R27-H7 - hostile same-service-UID raw QMP adversarial RED
+on:
+  push:
+    branches: [test/issue-470-r27h7-same-uid-raw-qmp-red]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  same-uid-protected-qmp-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Confirm H5 distinct UID denial but same service UID direct QMP bypass RED
+        run: bash experiments/usb-fabric-r26/integrated/r27h7_same_uid_raw_qmp_verify.sh
