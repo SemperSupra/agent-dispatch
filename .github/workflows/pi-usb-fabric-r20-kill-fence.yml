@@ -1,0 +1,40 @@
+name: USB Fabric R20 real broker SIGKILL while provider USBIP export is fenced
+on:
+  push:
+    branches: [test/issue-465-usbip-kill-fence]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r20-kill-fence.yml'
+      - 'experiments/pi-usb-fabric-r20/kill-fence/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r20-kill-fence.yml'
+      - 'experiments/pi-usb-fabric-r20/kill-fence/**'
+permissions:
+  contents: read
+jobs:
+  real-broker-crash-while-unexported:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check out exact qualified existing Go Manager and heldledger (not copied controller)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r18-existing-go
+          persist-credentials: false
+      - name: Kill actual running test-only Go broker process and test real Linux USBIP post-crash denial
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r20/kill-fence/verify.sh
+      - name: Preserve original RED, SIGKILL, guest kernel and USBIP export evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-r20-broker-kill-serial
+          path: ${{ runner.temp }}/r20-kill-465.log
+          retention-days: 7
+          if-no-files-found: warn
