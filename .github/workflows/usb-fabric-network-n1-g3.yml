@@ -1,0 +1,28 @@
+name: USB Fabric Network N1 G3 reuse two real QEMU USBIP guests
+on:
+  pull_request:
+    paths:
+      - 'experiments/usb-fabric-network-n1/g3/**'
+      - '.github/workflows/usb-fabric-network-n1-g3.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-two-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exercise pinned existing dual-kernel USBIP source and non-mock HID oracle
+        shell: bash
+        run: bash experiments/usb-fabric-network-n1/g3/verify_source_and_transport.sh
+      - name: Preserve bounded QEMU serial and negative evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: usbnet-n1-g3-real-two-guest
+          path: ${{ runner.temp }}/r08-two-guest.log
+          retention-days: 7
+          if-no-files-found: warn
