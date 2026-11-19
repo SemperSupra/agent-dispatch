@@ -23,6 +23,7 @@ import (
 
  blue "example.org/usb-fabric-r26-integrated/blue"
  heldledger "example.org/usb-fabric-r26-integrated/heldledger"
+ recoveryguard "example.org/usb-fabric-r26-integrated/recoveryguard"
  releasegate "example.org/usb-fabric-r26-releasegate"
  "example.org/usb-fabric-r26-releasegate/evidence"
  "example.org/usb-fabric-r26-releasegate/guestwire"
@@ -602,6 +603,16 @@ func main(){
    fmt.Fprintln(os.Stderr,"R26_L3_RECOVERY_RELEASE_FAILED_QUARANTINE=RED",err)
    os.Exit(9)
   }
+  post,checkErr:=journal.Read()
+  if checkErr!=nil {
+   fmt.Fprintln(os.Stderr,"R27H16_EMERGENCY_POST_QMP_JOURNAL_UNTRUSTED=RED",checkErr)
+   os.Exit(14)
+  }
+  if checkErr=recoveryguard.VerifyEmergencyHold(recovered,post);checkErr!=nil{
+   fmt.Fprintln(os.Stderr,"R27H16_EMERGENCY_POST_QMP_JOURNAL_UNTRUSTED=RED",checkErr)
+   os.Exit(14)
+  }
+  fmt.Println("R27H16_RUNTIME_EMERGENCY_HELD_RECHECK=PASS")
   fmt.Println("R26_L3_ACTUATOR_RESTART_FORCED_QMP_KEY_UP=PASS")
   fmt.Println("R26_L3_JOURNAL_REMAINS_HELD_PENDING_GUEST_ATTESTATION=PASS")
   fmt.Println("R26_L3_RECOVERY_HOLD_REQUIRES_TOPOLOGY_RECONCILIATION=PASS")
