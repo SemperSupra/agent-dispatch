@@ -1,0 +1,25 @@
+{
+  "repository": "SemperSupra/agent-dispatch",
+  "proofs": [
+    {
+      "cell": "R27H14",
+      "pr": 902,
+      "source_sha": "defaf191aed5d1d5cf9e0b8b92dc37f89e375110",
+      "run_id": 44626260705,
+      "job_id": 135920785201,
+      "conclusion": "success",
+      "disposition": "PASS",
+      "assertion": "R27H14_GUEST_PROOF_REQUIRED_JOURNAL_STILL_HELD=PASS"
+    },
+    {
+      "cell": "R27H7",
+      "pr": 858,
+      "source_sha": "eceb8405f5c9f35ba215f38bfc39417810abf11b",
+      "run_id": 44566541728,
+      "job_id": 135709732915,
+      "conclusion": "success",
+      "disposition": "RED",
+      "assertion": "R27H7_SAME_UID_RAW_QMP_DEVICE_ADD_DEL=REPRODUCED"
+    }
+  ]
+}
