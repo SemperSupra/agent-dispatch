@@ -200,6 +200,24 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertEqual(req["max_cost_usd"],0)
         self.assertEqual(req["max_attempts"],1)
 
+    def test_temporal_postgres_has_single_digest_pinned_typed_authority(self):
+        request = m.plan("requests/gha/mail-temporal-postgres-r2.json")
+        self.assertEqual(request["workload"], "mail-temporal-postgres-r2")
+        self.assertEqual(request["max_attempts"], 1)
+        self.assertEqual(request["max_cost_usd"], 0)
+        workflow = (ROOT / ".github" / "workflows" /
+                    "gha-typed-public-cpu.yml").read_text(encoding="utf-8")
+        self.assertIn("temporal-swi-prolog-native:", workflow)
+        self.assertNotIn("temporal-postgres18-native:", workflow)
+        self.assertNotIn("scripts/qualify_postgres18_temporal.py", workflow)
+        self.assertTrue((ROOT/"scripts"/"qualify_temporal_postgres18.py").is_file())
+        self.assertFalse((ROOT/"scripts"/"qualify_postgres18_temporal.py").exists())
+        self.assertFalse((ROOT/"scripts"/"verify_postgres18_temporal.py").exists())
+        pinned = (ROOT/"scripts"/"qualify_temporal_postgres18.py").read_text(
+            encoding="utf-8")
+        self.assertIn("postgres:18.7-trixie@sha256:", pinned)
+        self.assertIn("FROM source_occurrence", pinned)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
