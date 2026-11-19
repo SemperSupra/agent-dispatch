@@ -65,6 +65,38 @@
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go"
       ]
+    },
+    {
+      "id": "r25b-real-qmp-readonly-with-usbip",
+      "pr": 894,
+      "head": "74b34a9cb2dbe745caf9d66bbf995bfd33fac2f6",
+      "run": 44621347893,
+      "job": 135903537495,
+      "kind": "real-usbip",
+      "outcome": "PASS",
+      "marker": "R25_B_REAL_USBIP_GUEST_AND_QMP_VM_QUERY_SAME_RUN=PASS",
+      "artifact_id": 14578710320,
+      "artifact_sha256": "ccf48e6dc467a021e844f67397a2092014b6fcbeffd38a4cbc077787204324df",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r25/qmp-usbip-vm-observer/qmp_observer.py"
+      ]
+    },
+    {
+      "id": "r25c-event-splice-repaired",
+      "pr": 895,
+      "head": "f0342dbf578dcb7c6395f311de8e13d8b9f0d17b",
+      "parent_head": "fcf79544ed617e196ac03461b6ce079ec5d1ac35",
+      "run": 44621966407,
+      "job": 135905693743,
+      "kind": "contract",
+      "outcome": "PASS",
+      "marker": "R25_C_CROSS_EVENT_SIGNED_GUEST_UP_SPLICE_REFUSED=PASS",
+      "artifact_id": 14577377456,
+      "artifact_sha256": "8d7263f11eb74f4b50e80e0b9c18db475f816ea0d42dbc13e97d4e60851959ac",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go",
+        "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25_splice_test.go"
+      ]
     }
   ],
   "gates": [
@@ -119,6 +151,20 @@
       "state": "PASS",
       "required_kind": "software-tpm",
       "receipt_id": "r24c-real-guest-swtpm"
+    },
+    {
+      "id": "r25b_readonly_qmp_vm_observation_same_real_usbip_run",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "receipt_id": "r25b-real-qmp-readonly-with-usbip"
+    },
+    {
+      "id": "r25c_cross_event_splice_contract_fixed",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "contract",
+      "receipt_id": "r25c-event-splice-repaired"
     }
   ]
 }
