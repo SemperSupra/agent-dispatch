@@ -14,7 +14,7 @@ mkdir -m 0700 "$root/state"
 # startup-clear is necessary for a fresh TPM state to accept commands.
 swtpm socket --tpm2 --tpmstate "dir=$root/state" \
  --server "type=unixio,path=$root/swtpm.sock" \
- --ctrl "type=unixio,path=$root/swtpm.ctrl" \
+ --ctrl "type=unixio,path=$root/swtpm.sock.ctrl" \
  --flags not-need-init,startup-clear >"$root/swtpm.log" 2>&1 &
 pid=$!
 export TPM2TOOLS_TCTI="swtpm:path=$root/swtpm.sock"
