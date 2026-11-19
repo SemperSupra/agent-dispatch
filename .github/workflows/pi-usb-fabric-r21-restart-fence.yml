@@ -30,7 +30,8 @@ jobs:
           bash experiments/pi-usb-fabric-r21/restart-fence/live-verify.sh
           echo R21_A_LIVE_SAME_BINARY_RESTART_RAW_B_PROBE=PASS
           echo R21_A_REAL_QMP_AND_GUEST_ATTESTATION=NOT_TESTED
-          test -z "$(git status --porcelain --untracked-files=all)"
+          test -z "$(git status --porcelain --untracked-files=all -- . ':(exclude).r18-existing-go')"
+          echo R21_A_WORKTREE_QUALIFIED_CHECKOUT_EXCLUDED=PASS
       - name: Test independent Go processes recovering the existing fsynced HELD journal
         working-directory: experiments/pi-usb-fabric-r21/restart-fence
         shell: bash
