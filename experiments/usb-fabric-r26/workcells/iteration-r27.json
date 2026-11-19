@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "max_parallel": 4,
+  "workcells": [
+    {
+      "id": "R27G",
+      "priority": "P0",
+      "lane": "guest-key-negative",
+      "base": "15a3b7a1b18b7b5af3ed0ece65b33bf4941eb5d8",
+      "write_paths": [
+        "integrated/r27f_wrong_pinned_key_oracle.py"
+      ],
+      "depends_on": [],
+      "acceptance": "17/17 exact-head public GHA; log evidence"
+    },
+    {
+      "id": "R27H1",
+      "priority": "P0",
+      "lane": "raw-qmp-red",
+      "base": "15a3b7a1b18b7b5af3ed0ece65b33bf4941eb5d8",
+      "write_paths": [
+        "integrated/r27h_raw_qmp_oracle.py"
+      ],
+      "depends_on": [],
+      "acceptance": "real QEMU direct raw QMP device_add RED oracle"
+    },
+    {
+      "id": "R27H2",
+      "priority": "P0",
+      "lane": "namespace-red",
+      "base": "15a3b7a1b18b7b5af3ed0ece65b33bf4941eb5d8",
+      "write_paths": [
+        "r27h/namespace_probe.py"
+      ],
+      "depends_on": [],
+      "acceptance": "real namespace evidence or explicit NOT_TESTED"
+    },
+    {
+      "id": "R27BATCH",
+      "priority": "P0",
+      "lane": "orchestration",
+      "base": "15a3b7a1b18b7b5af3ed0ece65b33bf4941eb5d8",
+      "write_paths": [
+        "workcells/validate.go"
+      ],
+      "depends_on": [],
+      "acceptance": "offline manifest validator PASS"
+    }
+  ]
+}
