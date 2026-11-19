@@ -1,0 +1,35 @@
+name: USB Fabric R24-C actual Linux guest TPM2 quote over QEMU swtpm
+on:
+  push:
+    branches: [test/issue-488-r24-guest-tpm]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r24-guest-tpm.yml'
+      - 'experiments/pi-usb-fabric-r24/guest-tpm/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r24-guest-tpm.yml'
+      - 'experiments/pi-usb-fabric-r24/guest-tpm/**'
+permissions:
+  contents: read
+jobs:
+  real-linux-guest-swtpm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build initrd with upstream tpm2-tools and verify actual guest TPM0 quote and PCR rejection
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r24/guest-tpm/verify.sh
+      - name: Preserve kernel QMP and guest TPM evidence, including RED
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r24-c-real-linux-guest-swtpm-quote
+          path: ${{ runner.temp }}/r24-c-real-guest-tpm.log
+          retention-days: 7
+          if-no-files-found: warn
