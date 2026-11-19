@@ -40,6 +40,8 @@ jobs:
           go test -race -count=1 -v ./...
           go vet ./...
           echo R22_B_TEST_ONLY_EXISTING_R26_R21_POLICY_COMPOSITION=PASS
+          echo R22_B_TEST_ONLY_GUEST_PROOF_TO_EXPORTER_BIND_CONTRACT=PASS
+          echo R22_B_REAL_CONFIGFS_VUDC_BIND=NOT_TESTED
           echo R22_B_REAL_QMP_SAME_RUN_REAL_USBIP=NOT_TESTED
           test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r22-existing-go')"
 
