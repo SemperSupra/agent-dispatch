@@ -1,0 +1,19 @@
+name: USB Fabric R27-H5 - actual QEMU service UID and separate broker peer
+on:
+  push:
+    branches: [test/issue-470-r27h5-real-qemu-service-dac]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-qemu-service-qmp-private:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify actual QEMU private management socket and distinct-UID read-only broker
+        run: bash experiments/usb-fabric-r26/integrated/r27h5_service_qmp_verify.sh
