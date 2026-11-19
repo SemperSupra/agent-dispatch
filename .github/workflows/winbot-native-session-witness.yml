@@ -29,7 +29,7 @@ jobs:
             first_failure=$null
           }
           try {
-            Add-Type -TypeDefinition @'
+            $nativeSource=@'
           using System;
           using System.Runtime.InteropServices;
           using System.Text;
@@ -126,7 +126,8 @@ jobs:
               }
             }
           }
-          '@ -ErrorAction Stop
+          '@
+            Add-Type -TypeDefinition $nativeSource -ErrorAction Stop
             $evidence=[WinBotSyntheticWitness.LocalProcess]::Observe()
             if ($evidence.Count -ne 4) { throw 'INCOMPLETE_NATIVE_OBSERVATION' }
             $receipt.process_session_nonzero=[bool]$evidence[0]
