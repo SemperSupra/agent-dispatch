@@ -63,6 +63,17 @@ if [ "$killready" = yes ] && kill -0 "$G" 2>/dev/null && kill -KILL "$G" 2>/dev/
 else
  echo R20_REAL_GO_MANAGER_SIGKILL_WHILE_HELD=RED
 fi
+# Independently re-read the FSYNCED host journal AFTER the actual owner dies.
+# Neither a pre-kill stdout marker nor a QMP-ACK-simulated phase clears held.
+if [ -f /tmp/r18-held-ledger.json ] &&
+ grep -Eq '"held"[[:space:]]*:[[:space:]]*true' /tmp/r18-held-ledger.json &&
+ grep -Eq '"release_phase"[[:space:]]*:[[:space:]]*"qmp-acked"' /tmp/r18-held-ledger.json; then
+ echo R20_POST_SIGKILL_ON_DISK_JOURNAL_STILL_HELD=PASS
+ heldfile=yes
+else
+ echo R20_POST_SIGKILL_ON_DISK_JOURNAL_STILL_HELD=RED
+ heldfile=no
+fi
 set +e
 wait "$A"; arc=$?
 wait "$B"; brc=$?
@@ -83,7 +94,7 @@ echo R10_CONSUMER_B_SERIAL_BEGIN
 cat "$b"
 echo R10_CONSUMER_B_SERIAL_END
 echo "R10_VM_EXITS provider=$prc consumer_a=$arc consumer_b=$brc broker=$grc"
-if [ "$prc" != 0 ] || [ "$arc" != 0 ] || [ "$brc" != 0 ] || [ "$grc" != 137 ] || [ "$killready" != yes ]; then
+if [ "$prc" != 0 ] || [ "$arc" != 0 ] || [ "$brc" != 0 ] || [ "$grc" != 137 ] || [ "$killready" != yes ] || [ "$heldfile" != yes ]; then
  echo R10_THREE_GUEST_PROCESS_STATUS=RED
  exit 31
 fi
