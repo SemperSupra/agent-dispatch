@@ -152,6 +152,40 @@
         "experiments/pi-usb-fabric-r27/udc-admission/provider.init",
         "experiments/pi-usb-fabric-r27/udc-admission/consumer-b.init"
       ]
+    },
+    {
+      "id": "r27b-preapproved-key-real-vhci",
+      "pr": 915,
+      "head": "39bfbd3f0631f3e5915c0e934206c25e6d21eeac",
+      "run": 44635950793,
+      "job": 135954374521,
+      "kind": "real-usbip",
+      "domain": "usbip-kernel",
+      "outcome": "PASS",
+      "marker": "R27_B_REAL_LINUX_USBIP_ED25519_PREBOOT_PIN_SAME_RUN=PASS",
+      "artifact_id": 14584762033,
+      "artifact_sha256": "c07999c2d1dc3daf05f6c19d1595788766af725426c0c90333ba0d544b61c600",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r27/usbip-hostpin/broker.go",
+        "experiments/pi-usb-fabric-r27/usbip-hostpin/Dockerfile.base"
+      ]
+    },
+    {
+      "id": "r27c-original-go-kernel-stage",
+      "pr": 917,
+      "head": "bed9ad362be32cff3e200699ea3491ae114b9f33",
+      "run": 44637767425,
+      "job": 135960631045,
+      "kind": "contract",
+      "domain": "control-contract",
+      "outcome": "PASS",
+      "marker": "R27_C_QMP_ACK_CANNOT_AUTHORIZE_LINUX_VHCI_RELEASE=PASS",
+      "artifact_id": 14584626791,
+      "artifact_sha256": "2e2347ccd36d7bd589b45256779651e672e7600f2a755747016a5db1f9c1825e",
+      "changed_paths": [
+        "experiments/usb-fabric-r26/integrated/heldledger/kernel_release.go",
+        "experiments/usb-fabric-r26/integrated/blue/model.go"
+      ]
     }
   ],
   "gates": [
@@ -254,6 +288,22 @@
       "required_kind": "real-usbip",
       "required_domain": "usbip-kernel",
       "receipt_id": "r27a-real-configfs-raw-b-denial"
+    },
+    {
+      "id": "r27b_real_vhci_guest_preboot_key_test_only",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "required_domain": "usbip-kernel",
+      "receipt_id": "r27b-preapproved-key-real-vhci"
+    },
+    {
+      "id": "r27c_original_manager_typed_kernel_stage_contract",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "contract",
+      "required_domain": "control-contract",
+      "receipt_id": "r27c-original-go-kernel-stage"
     }
   ]
 }
