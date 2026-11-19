@@ -1,0 +1,78 @@
+name: R69 native artifact producer-consumer proof
+on:
+  pull_request:
+    paths:
+      - 'experiments/fencing/artifact-r69/**'
+      - '.github/workflows/qualify-fencing-artifact-r69.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: r69-artifact-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  produce:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact_name: ${{ steps.receipt.outputs.name }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Generate public-only native run identity receipt
+        id: receipt
+        env:
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/r69-evidence"
+          python3 - <<'PY'
+          import json,os,pathlib
+          env=os.environ
+          assert env["GITHUB_REPOSITORY"]=="SemperSupra/agent-dispatch"
+          assert env["GITHUB_EVENT_NAME"]=="pull_request"
+          data={"class":"synthetic-evidence-only","repository":env["GITHUB_REPOSITORY"],
+                "run_id":int(env["GITHUB_RUN_ID"]),"run_attempt":int(env["GITHUB_RUN_ATTEMPT"]),
+                "event":"pull_request","source_head":env["SOURCE_HEAD_SHA"]}
+          (pathlib.Path(env["RUNNER_TEMP"])/"r69-evidence"/"receipt.json").write_text(json.dumps(data,sort_keys=True)+"\n")
+          PY
+          echo "name=r69-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Upload one synthetic receipt to native public Actions artifact store
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.receipt.outputs.name }}
+          path: ${{ runner.temp }}/r69-evidence/receipt.json
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+  consume:
+    needs: produce
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Offline negative oracles
+        run: python3 -m unittest discover -s experiments/fencing/artifact-r69 -p 'test_*.py' -v
+      - name: Native read-only API metadata and independent content digest verification
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_ARTIFACT_ID: ${{ needs.produce.outputs.artifact_id }}
+          EXPECTED_ARTIFACT_NAME: ${{ needs.produce.outputs.artifact_name }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ needs.produce.outputs.artifact_digest }}
+        run: python3 experiments/fencing/artifact-r69/verify.py --native
+      - name: Read-only native workflow run candidate enumeration
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 experiments/fencing/artifact-r69/discover.py --native
+      - name: Non-promotion scope
+        if: always()
+        run: echo 'Public native artifact correlation only. No real actuator, trusted external signer, lost-ACK discovery, or production effect release.' >> "$GITHUB_STEP_SUMMARY"
