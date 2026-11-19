@@ -1,0 +1,57 @@
+name: USB Fabric R22-A reuse R26 evidence Bridge with scoped test Ed25519
+on:
+  push:
+    branches: [test/issue-472-guest-ed25519]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-guest-ed25519.yml'
+      - 'experiments/pi-usb-fabric-r22/guest-ed25519/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-guest-ed25519.yml'
+      - 'experiments/pi-usb-fabric-r22/guest-ed25519/**'
+permissions:
+  contents: read
+jobs:
+  scoped-ed25519-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Reject wrong guest challenge and scope using existing R26 gate
+        working-directory: experiments/pi-usb-fabric-r22/guest-ed25519
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo R22_A_TEST_ONLY_ED25519_R26_GATE_CONTRACT=PASS
+          echo R22_A_ACTUAL_QEMU_GUEST_HELD_KEY=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+  real-qemu-guest-key-signing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Observe real Linux guest evdev and guest-generated Ed25519 receipts over virtio
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r22/guest-ed25519/real-guest-verify.sh
+      - name: Preserve real guest receipt acceptance and rejection traces
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r22-a-real-qemu-guest-runtime-ed25519
+          path: ${{ runner.temp }}/r22-a-real-qemu-guest-ed25519.log
+          retention-days: 7
+          if-no-files-found: warn
