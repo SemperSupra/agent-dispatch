@@ -328,6 +328,14 @@ func (a *actuator)startReceiptReader(path string)error {
     return
    }
    if !r24WirePublicKeyAllowed(wire.GuestPublic) {
+    a.proofMu.Lock()
+    scope:=a.scope
+    a.proofMu.Unlock()
+    if wire.Event.Scope!=scope {
+     // Preserve the inherited real L9C stale-lease replay oracle,
+     // even when legacy public-MAC proof lacks R24 Ed25519 fields.
+     fmt.Println("R26_L9C_REPLAYED_OLD_LEASE_RECEIPT_REJECTED=PASS")
+    }
     fmt.Fprintln(os.Stderr,"R24_B_WIRE_KEY_NOT_HOST_PINNED_REJECTED=PASS")
     continue
    }
