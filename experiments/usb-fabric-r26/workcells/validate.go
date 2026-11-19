@@ -42,4 +42,9 @@ func main(){
  if err=json.Unmarshal(b,&m);err!=nil{panic(err)}
  if err=validate(m);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
  fmt.Printf("USB_FABRIC_PARALLEL_WORKCELL_MANIFEST=PASS cells=%d slots=%d\n",len(m.Cells),m.MaxParallel)
+ waves,err:=planWaves(m)
+ if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ encoded,err:=json.Marshal(waves)
+ if err!=nil{panic(err)}
+ fmt.Printf("USB_FABRIC_DETERMINISTIC_EXECUTION_WAVES=%s\n",string(encoded))
 }
