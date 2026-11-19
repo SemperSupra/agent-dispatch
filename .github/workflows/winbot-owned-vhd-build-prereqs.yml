@@ -1,0 +1,162 @@
+name: WinBot public Windows build prerequisites (native)
+on:
+  push:
+    branches: [experiment/winbot-owned-vhd-guard-20261119]
+    paths: [.github/workflows/winbot-owned-vhd-build-prereqs.yml]
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-owned-vhd-build-prereqs.yml]
+permissions:
+  contents: read
+concurrency:
+  group: winbot-public-build-prereqs-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  disk-owned-write:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - name: Partition only exact owned disposable VHDX
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP "wb-owned-gpt-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          $vhdPath = Join-Path $root 'owned-gpt.vhdx'
+          $mounted = $false
+          $diskNum = -1
+          $receipt = [ordered]@{
+            schema='winbot-build-prereq/v1'
+            venue='windows-2025'
+            run_id=$env:GITHUB_RUN_ID
+            classification='OWNED_VHDX_GPT_WRITE_ONLY'
+            exact_owned_mapping=$false
+            guarded_gpt_initialized=$false
+            efi_partition_observed=$false
+            cleanup_complete=$false
+            windows_guest_installed=$false
+            winbot_accepted=$false
+            first_failure=$null
+          }
+          try {
+            if (Test-Path -LiteralPath $vhdPath) { throw 'OWNED_FILE_COLLISION_REFUSED' }
+            New-VHD -Path $vhdPath -SizeBytes 1GB -Dynamic -ErrorAction Stop | Out-Null
+            $mount = Mount-VHD -Path $vhdPath -Passthru -ErrorAction Stop
+            $mounted = $true
+            $vhd = Get-VHD -Path $vhdPath -ErrorAction Stop
+            $disks = @($mount | Get-Disk -ErrorAction Stop)
+            $diskNum = [int]$vhd.DiskNumber
+            if (-not $vhd.Attached -or $vhd.Path -ine $vhdPath -or $diskNum -le 0 -or
+                $disks.Count -ne 1 -or [int]$disks[0].Number -ne $diskNum) {
+              throw 'UNPROVEN_VHD_DISK_MAPPING'
+            }
+            $disk = Get-Disk -Number $diskNum -ErrorAction Stop
+            if ($disk.IsBoot -or $disk.IsSystem -or $disk.PartitionStyle -ne 'RAW' -or
+                @($disk | Get-Partition -ErrorAction SilentlyContinue).Count -ne 0) {
+              throw 'HOST_OR_NONBLANK_DISK_REFUSED'
+            }
+            $again = Get-VHD -Path $vhdPath -ErrorAction Stop
+            if (-not $again.Attached -or $again.Path -ine $vhdPath -or
+                [int]$again.DiskNumber -ne $diskNum) {
+              throw 'OWNED_DISK_IDENTITY_CHANGED'
+            }
+            $receipt.exact_owned_mapping = $true
+            Initialize-Disk -Number $diskNum -PartitionStyle GPT -ErrorAction Stop | Out-Null
+            $receipt.guarded_gpt_initialized = $true
+            $efi = New-Partition -DiskNumber $diskNum -Size 100MB -GptType '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' -ErrorAction Stop
+            $observed = @(Get-Partition -DiskNumber $diskNum -ErrorAction Stop |
+              Where-Object { $_.PartitionNumber -eq $efi.PartitionNumber })
+            $receipt.efi_partition_observed = ($observed.Count -eq 1 -and
+              $observed[0].GptType -eq '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}')
+            if (-not $receipt.efi_partition_observed) { throw 'OWNED_EFI_PARTITION_NOT_OBSERVED' }
+          } catch {
+            $receipt.first_failure = $_.Exception.Message
+          } finally {
+            if ($mounted) {
+              try { Dismount-VHD -Path $vhdPath -ErrorAction Stop } catch {
+                $receipt.cleanup_failure = $_.Exception.Message
+              }
+            }
+            if (Test-Path -LiteralPath $vhdPath) {
+              try { Remove-Item -LiteralPath $vhdPath -Force -ErrorAction Stop } catch {
+                $receipt.cleanup_failure = $_.Exception.Message
+              }
+            }
+            $receipt.cleanup_complete = -not (Test-Path -LiteralPath $vhdPath)
+            $receipt | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 owned-gpt-receipt.json
+            $receipt | ConvertTo-Json -Depth 5
+          }
+          if (-not $receipt.guarded_gpt_initialized -or
+              -not $receipt.efi_partition_observed -or
+              -not $receipt.cleanup_complete) {
+            throw "OWNED_GPT_FIRST_FAILURE: $($receipt.first_failure); cleanup=$($receipt.cleanup_failure)"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-owned-gpt-${{ github.run_id }}
+          path: owned-gpt-receipt.json
+          retention-days: 2
+          if-no-files-found: error
+  exact-microsoft-media:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Fetch and verify existing pinned Windows Enterprise Evaluation media
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expectedHash='bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38'
+          $expectedBytes=[int64]8225329152
+          $url='https://software-static.download.prss.microsoft.com/dbazure/26300.9457.260913-1737.26h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso'
+          $path=Join-Path $env:RUNNER_TEMP "winbot-media-$env:GITHUB_RUN_ID.iso"
+          $receipt=[ordered]@{
+            schema='winbot-build-prereq/v1'
+            classification='PINNED_OFFICIAL_MEDIA_REVALIDATION'
+            run_id=$env:GITHUB_RUN_ID
+            venue='windows-2025'
+            expected_sha256=$expectedHash
+            expected_size_bytes=$expectedBytes
+            size_matches=$false
+            hash_matches=$false
+            media_deleted=$false
+            windows_guest_installed=$false
+            winbot_accepted=$false
+            first_failure=$null
+          }
+          try {
+            if (Test-Path -LiteralPath $path) { throw 'MEDIA_PATH_COLLISION' }
+            $uri=[uri]$url
+            if ($uri.Scheme -ne 'https' -or $uri.Host -ne 'software-static.download.prss.microsoft.com') {
+              throw 'UNTRUSTED_MEDIA_HOST'
+            }
+            & curl.exe --fail --location --retry 2 --retry-delay 3 --max-time 1200 --output $path $url
+            if ($LASTEXITCODE -ne 0) { throw "MEDIA_DOWNLOAD_FAILED_EXIT_$LASTEXITCODE" }
+            $actualBytes=(Get-Item -LiteralPath $path -ErrorAction Stop).Length
+            $receipt.size_matches=($actualBytes -eq $expectedBytes)
+            if (-not $receipt.size_matches) { throw "MEDIA_SIZE_MISMATCH_$actualBytes" }
+            $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt.hash_matches=($hash -ceq $expectedHash)
+            if (-not $receipt.hash_matches) { throw 'MEDIA_DIGEST_MISMATCH' }
+          } catch {
+            $receipt.first_failure=$_.Exception.Message
+          } finally {
+            if (Test-Path -LiteralPath $path) {
+              try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop } catch {
+                $receipt.cleanup_failure=$_.Exception.Message
+              }
+            }
+            $receipt.media_deleted=-not (Test-Path -LiteralPath $path)
+            $receipt | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 media-receipt.json
+            $receipt | ConvertTo-Json -Depth 5
+          }
+          if (-not $receipt.hash_matches -or -not $receipt.media_deleted) {
+            throw "PINNED_MEDIA_FIRST_FAILURE: $($receipt.first_failure); cleanup=$($receipt.cleanup_failure)"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-pinned-media-${{ github.run_id }}
+          path: media-receipt.json
+          retention-days: 2
+          if-no-files-found: error
