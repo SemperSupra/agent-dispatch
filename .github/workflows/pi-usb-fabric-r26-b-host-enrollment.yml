@@ -1,0 +1,37 @@
+name: USB Fabric R26-B real QEMU preboot host-pinned Ed25519 guest key test
+on:
+  push:
+    branches: [test/issue-518-r26-host-pinned-guest-key]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r26-b-host-enrollment.yml'
+      - 'experiments/pi-usb-fabric-r26/host-pin/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r26-b-host-enrollment.yml'
+      - 'experiments/pi-usb-fabric-r26/host-pin/**'
+permissions:
+  contents: read
+jobs:
+  real-qemu-preboot-key-enrollment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify disposable test identity pre-approved before actual QEMU guest boots
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r26/host-pin/verify.sh
+      - name: Retain genuine QEMU / in-guest Ed25519 and QMP provenance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r26-b-real-qmp-preapproved-guest-ed25519
+          path: |
+            ${{ runner.temp }}/r26-b-qmp-host-pinned.log
+            ${{ runner.temp }}/r26-b-wrong-pin-real-qmp.log
+          retention-days: 7
+          if-no-files-found: warn
