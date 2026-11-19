@@ -36,7 +36,7 @@ jobs:
           $edit.Left = 15
           $edit.Top = 35
           [void]$form.Controls.Add($edit)
-          $form.Add_Shown({ Set-Content -LiteralPath $Ready -Value $form.Handle.ToInt64() })
+          $form.Add_Shown({ Set-Content -LiteralPath $Ready -Value "$($form.Handle.ToInt64()),$($edit.Handle.ToInt64())" })
           [System.Windows.Forms.Application]::Run($form)
           '@
           Set-Content -LiteralPath $fixture -Value $script -Encoding utf8
@@ -48,6 +48,8 @@ jobs:
             classification = 'HOST_UIA_SET_AND_READBACK'
             window_observed = $false
             edit_observed = $false
+            semantic_tree_discovery = $false
+            exact_owned_child_handle_used = $false
             set_value_readback = $false
             windows_guest_installed = $false
             winbot_control_hil_accepted = $false
@@ -62,7 +64,10 @@ jobs:
             }
             if (-not (Test-Path -LiteralPath $ready)) { throw 'FIXTURE_WINDOW_NOT_READY' }
             Add-Type -AssemblyName UIAutomationClient
-            $handle = [IntPtr]([int64](Get-Content -LiteralPath $ready -Raw))
+            $ownedHandles = (Get-Content -LiteralPath $ready -Raw).Trim().Split(',')
+            if ($ownedHandles.Length -ne 2) { throw 'MALFORMED_OWNED_FIXTURE_HANDLES' }
+            $handle = [IntPtr]([int64]$ownedHandles[0])
+            $childHandle = [IntPtr]([int64]$ownedHandles[1])
             $element = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
             if ($null -eq $element) { throw 'FIXTURE_WINDOW_NOT_FOUND' }
             $receipt.window_observed = $true
@@ -80,7 +85,13 @@ jobs:
                 $types += [string]$all.Item($i).Current.ControlType.ProgrammaticName
               }
               $receipt.discovered_control_types = $types
-              throw 'FIXTURE_EDIT_NOT_FOUND'
+              # Distinguish UIA tree discovery from actuation at an exact owned
+              # fixture HWND. This fallback is NOT semantic discovery proof.
+              $edit = [System.Windows.Automation.AutomationElement]::FromHandle($childHandle)
+              $receipt.exact_owned_child_handle_used = $true
+              if ($null -eq $edit) { throw 'UIA_EXACT_CHILD_HANDLE_NOT_FOUND' }
+            } else {
+              $receipt.semantic_tree_discovery = $true
             }
             $receipt.edit_observed = $true
             $pattern = [System.Windows.Automation.ValuePattern]$edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
