@@ -130,6 +130,17 @@ def main():
             call(qmp,channel,"qmp_capabilities")
             call(qmp,channel,"cont")
             wait_serial(qemu,"R26_L8_REAL_GUEST_VIRTIO_EVDEV_OBSERVER_READY=PASS")
+            # RED/BLUE: adversary can supply a valid signature with its OWN
+            # newly-generated key, but on a semantically untrusted console
+            # source. This must not poison first-key enrollment.
+            attack=subprocess.run(["/guest/r22-attacker",challenge],
+                capture_output=True,text=True,timeout=8)
+            if attack.returncode!=0:raise RuntimeError("attack fixture failed")
+            attacker_event=json.loads(attack.stdout)
+            denied=send(host,{"op":"event","event":attacker_event})
+            if denied["ok"] or denied["reclaimable"]:
+                raise RuntimeError("signed wrong-source first enrollment admitted")
+            print("R22_A_SIGNED_WRONG_SOURCE_FIRST_KEY_ENROLLMENT_DENIED=PASS",flush=True)
             # Arbitrary console/actor text MUST not pass the typed proof gate.
             forged=send(host,{"op":"event","event":{"Source":"qemu.serial",
                 "KeyCode":"key-a","Down":False,"EventSequence":500,
