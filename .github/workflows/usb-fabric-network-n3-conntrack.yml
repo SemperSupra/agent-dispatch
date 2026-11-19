@@ -1,0 +1,30 @@
+name: USB Fabric Network N3 G2C established TCP revoke
+on:
+  pull_request:
+    paths:
+      - 'experiments/usb-fabric-network-n1/conntrack/**'
+      - '.github/workflows/usb-fabric-network-n3-conntrack.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  established-conntrack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build isolated kernel netfilter oracle
+        run: docker build --pull -f experiments/usb-fabric-network-n1/conntrack/Dockerfile -t usbnet-n3:${{ github.sha }} .
+      - name: Prove established connection bypass and explicit teardown
+        run: |
+          timeout 90s docker run --rm --network none --read-only \
+            --cap-drop ALL --cap-add NET_ADMIN --security-opt no-new-privileges \
+            --memory 384m --memory-swap 384m --cpus 1 --pids-limit 64 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=16m usbnet-n3:${{ github.sha }}
+      - name: Qualification scope
+        if: always()
+        run: |
+          echo 'Real isolated TCP established/deny behavior only. NOT USBIP or broker lease proof.' >> "${GITHUB_STEP_SUMMARY}"
+          echo "head=${GITHUB_SHA} run=${GITHUB_RUN_ID}" >> "${GITHUB_STEP_SUMMARY}"
