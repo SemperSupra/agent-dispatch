@@ -55,6 +55,8 @@ on:
       - 'scripts/verify_gha_typed_receipt.py'
       - 'requests/gha/**'
       - 'tools/mail-evidence-challenge/**'
+      - 'scripts/qualify_swi_prolog_temporal.py'
+      - 'scripts/verify_swi_prolog_temporal.py'
       - '.github/workflows/gha-typed-public-cpu.yml'
 
 permissions:
@@ -324,3 +326,43 @@ jobs:
             .gha-typed/verified.json
           if-no-files-found: error
           retention-days: 7
+
+  temporal-swi-prolog-native:
+    # Ubuntu 24.04 distro interpreter; no private/paid input.
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/mail-temporal-prolog-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install actual distro packaged SWI-Prolog interpreter
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get -y -qq install --no-install-recommends swi-prolog-nox
+          swipl --version
+      - name: Execute fixed fictional Prolog evidence twice
+        run: python3 scripts/qualify_swi_prolog_temporal.py --out .gha-typed/temporal-prolog.json
+      - name: Independently check source hash and native receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          sum=$(sha256sum .gha-typed/temporal-prolog.json | cut -d ' ' -f1)
+          python3 scripts/verify_swi_prolog_temporal.py \
+            --receipt .gha-typed/temporal-prolog.json \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --sha256 "$sum" --out .gha-typed/temporal-prolog-verified.json
+      - name: Retain bounded native interpreter proof
+        if: always() && hashFiles('.gha-typed/temporal-prolog.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-temporal-prolog-${{ github.run_attempt }}
+          path: |
+            .gha-typed/temporal-prolog.json
+            .gha-typed/temporal-prolog-verified.json
+          if-no-files-found: error
+          retention-days: 3
