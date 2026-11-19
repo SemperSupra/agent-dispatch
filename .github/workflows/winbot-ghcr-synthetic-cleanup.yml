@@ -46,6 +46,7 @@ jobs:
               "other_versions_touched": False,
               "version_found": False,
               "version_deleted": False,
+              "package_deleted": False,
               "verified_tag_absent": False,
               "first_failure": None,
           }
@@ -67,16 +68,45 @@ jobs:
               version_id = item.get("id")
               if type(version_id) is not int or version_id <= 0:
                   raise RuntimeError("MALFORMED_PACKAGE_VERSION_ID")
-              status, _ = request(BASE + f"/versions/{version_id}", method="DELETE")
-              if status != 204:
-                  raise RuntimeError("DELETE_DID_NOT_RETURN_204")
-              receipt["version_deleted"] = True
-              _, after = request(BASE + "/versions?per_page=100")
-              latest = json.loads(after)
-              receipt["verified_tag_absent"] = all(
-                  TAG not in version.get("metadata",{}).get("container",{}).get("tags",[])
-                  for version in latest
-              )
+              try:
+                  status, _ = request(BASE + f"/versions/{version_id}", method="DELETE")
+                  if status != 204:
+                      raise RuntimeError("VERSION_DELETE_NON_204")
+                  receipt["version_deleted"] = True
+              except urllib.error.HTTPError as exc:
+                  # GitHub can reject deleting the sole version with 400.
+                  # Only then consider deleting the exact synthetic package.
+                  if exc.code != 400:
+                      raise
+                  _, package_data = request(BASE)
+                  package = json.loads(package_data)
+                  _, listing = request(BASE + "/versions?per_page=100")
+                  sole = json.loads(listing)
+                  if (package.get("name") != "agent-dispatch-cache-rdte"
+                      or package.get("version_count") != 1 or len(sole) != 1
+                      or sole[0].get("id") != version_id
+                      or sole[0].get("name") != EXPECTED
+                      or sole[0].get("metadata",{}).get("container",{}).get("tags") != [TAG]):
+                      raise RuntimeError("WHOLE_PACKAGE_DELETE_GUARD_REFUSED")
+                  status, _ = request(BASE, method="DELETE")
+                  if status != 204:
+                      raise RuntimeError("EXACT_SOLE_PACKAGE_DELETE_NON_204")
+                  receipt["package_deleted"] = True
+              if receipt["package_deleted"]:
+                  try:
+                      request(BASE)
+                      raise RuntimeError("PACKAGE_STILL_PRESENT_AFTER_DELETE")
+                  except urllib.error.HTTPError as exc:
+                      if exc.code != 404:
+                          raise
+                      receipt["verified_tag_absent"] = True
+              else:
+                  _, after = request(BASE + "/versions?per_page=100")
+                  latest = json.loads(after)
+                  receipt["verified_tag_absent"] = all(
+                      TAG not in version.get("metadata",{}).get("container",{}).get("tags",[])
+                      for version in latest
+                  )
               if not receipt["verified_tag_absent"]:
                   raise RuntimeError("TAG_STILL_PRESENT_AFTER_DELETE")
           except Exception as exc:
@@ -85,7 +115,7 @@ jobs:
               pathlib.Path("ghcr-synthetic-cleanup.json").write_text(
                   json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
               print(json.dumps(receipt, indent=2, sort_keys=True))
-          if not receipt["version_deleted"] or not receipt["verified_tag_absent"]:
+          if not (receipt["version_deleted"] or receipt["package_deleted"]) or not receipt["verified_tag_absent"]:
               raise SystemExit("EXACT_GHCR_SYNTHETIC_CLEANUP_NOT_QUALIFIED")
           PY
       - name: Preserve bounded cleanup receipt
