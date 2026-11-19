@@ -1,0 +1,49 @@
+name: USB Fabric R25-B same real USBIP guest plus read-only QEMU QMP observation
+on:
+  push:
+    branches: [test/issue-510-r25-qmp-usbip-observer]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-b-qmp-observer.yml'
+      - 'experiments/pi-usb-fabric-r25/qmp-usbip-vm-observer/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r25-b-qmp-observer.yml'
+      - 'experiments/pi-usb-fabric-r25/qmp-usbip-vm-observer/**'
+permissions:
+  contents: read
+jobs:
+  real-linux-usbip-qmp-readonly-witness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin exact original R26 Go Manager and journal
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r25-existing-go
+          persist-credentials: false
+      - name: Pin previously qualified original in-guest Ed25519 signer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: dc96c80b78540bc5b05ad70179c7afff647c3cbc
+          path: .r25-guest-signer
+          persist-credentials: false
+      - name: Real QEMU USBIP A/B handoff plus independently verified consumer-A QMP name UUID
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r25/qmp-usbip-vm-observer/verify.sh
+      - name: Preserve source-qualified QMP and actual Linux VHCI evdev logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r25-b-real-qemu-usbip-qmp-readonly
+          path: ${{ runner.temp }}/r25-b-qmp-usbip-real-guest.log
+          retention-days: 7
+          if-no-files-found: warn
