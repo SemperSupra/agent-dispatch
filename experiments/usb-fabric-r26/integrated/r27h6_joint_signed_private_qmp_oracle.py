@@ -246,8 +246,7 @@ def main():
             if not held.get("held") or held.get("sequence")!=1:
                 raise RuntimeError("host did not write-ahead durable key down")
             print("R26_L9C_REAL_GUEST_DOWN_HELD_JOURNAL=PASS",flush=True)
-            first.kill()
-            first.wait(timeout=5)
+            stop_as(first,CLIENT_UID)
             first=None
             print("R26_L9C_FRONTEND_SIGKILL_AFTER_REAL_GUEST_DOWN=PASS",flush=True)
             alogs.wait("R27C_ACTUAL_ED25519_UP_FSYNC_AND_READMISSION=PASS generation="+str(lease["generation"])+" release=1",35)
