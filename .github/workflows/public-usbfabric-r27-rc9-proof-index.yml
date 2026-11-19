@@ -1,0 +1,22 @@
+name: USB Fabric R27 RC9 - source and job evidence index
+on:
+  push:
+    branches: [test/issue-447-r27-rc9-evidence-coverage]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  proof-index:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate evidence pointers and protect RED versus PASS semantics
+        run: |
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/rc/proof/proof_check.go experiments/usb-fabric-r26/workcells/rc/proof/evidence.json
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/rc/proof/proof_check.go experiments/usb-fabric-r26/workcells/rc/proof/proof_check_test.go
+          echo R27_RC_INDEPENDENT_GITHUB_LOG_REFETCH=NOT_TESTED
