@@ -1,0 +1,55 @@
+name: USB Fabric R21-A same-binary Go broker restart while USBIP export fenced
+on:
+  push:
+    branches: [test/issue-467-restart-fence]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-restart-fence.yml'
+      - 'experiments/pi-usb-fabric-r21/restart-fence/**'
+permissions:
+  contents: read
+jobs:
+  r21a-predecessor-fence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r18-existing-go
+          persist-credentials: false
+      - name: Actual three-kernel USBIP Go broker SIGKILL, SAME binary restart, second untrusted import denial
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r21/restart-fence/live-verify.sh
+          echo R21_A_LIVE_SAME_BINARY_RESTART_RAW_B_PROBE=PASS
+          echo R21_A_REAL_QMP_AND_GUEST_ATTESTATION=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all -- . ':(exclude).r18-existing-go')"
+          echo R21_A_WORKTREE_QUALIFIED_CHECKOUT_EXCLUDED=PASS
+      - name: Test independent Go processes recovering the existing fsynced HELD journal
+        working-directory: experiments/pi-usb-fabric-r21/restart-fence
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo R21_A_SEPARATE_PROCESS_RESTART_LEDGER_CRITIC=PASS
+          echo R21_A_ACTUAL_BROKER_RESTART_WITH_NATIVE_USBIP=NOT_TESTED
+      - name: Retain R20 predecessor serial receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r21a-live-same-binary-restart-and-real-usbip-denial
+          path: ${{ runner.temp }}/r21-restart-467.log
+          retention-days: 7
+          if-no-files-found: warn
