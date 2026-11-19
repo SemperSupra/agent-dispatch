@@ -1,0 +1,71 @@
+name: USB Fabric R21 parallel workcell manifest validation
+on:
+  push:
+    branches: [test/usb-fabric-r21-parallel-workcells]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-batch-contract.yml'
+      - 'experiments/pi-usb-fabric-r21/batch.json'
+      - 'experiments/pi-usb-fabric-r21/README.md'
+      - 'experiments/pi-usb-fabric-r21/scheduler/**'
+permissions:
+  contents: read
+jobs:
+  fail-closed-manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Assert three disjoint executable workcells
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          d=json.load(open('experiments/pi-usb-fabric-r21/batch.json'))
+          assert d['schema']=='usb-fabric.batch.v1'
+          assert d['min_independent_active']>=3 and d['max_concurrent']>=d['min_independent_active']
+          assert not d['resource_policy']['private_paid_minutes'] and not d['resource_policy']['auto_merge']
+          tasks=d['workcells']; assert len(tasks)>=3
+          assert len({x['id'] for x in tasks})==len(tasks)
+          assert len({x['dle'] for x in tasks})==len(tasks)
+          assert len({x['branch'] for x in tasks})==len(tasks)
+          paths=[p for x in tasks for p in x['write_prefixes']]
+          assert len(paths)==len(set(paths))
+          assert all(x['oracle'] and x['base'] and x['priority'] for x in tasks)
+          print('R21_PARALLEL_THREE_DISJOINT_WORKCELLS_CONTRACT=PASS')
+          print('R21_REAL_EXECUTION_EVIDENCE=NOT_TESTED')
+          PY
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Run offline deterministic Go batch planner critics
+        shell: bash
+        working-directory: experiments/pi-usb-fabric-r21/scheduler
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -v ./...
+          go vet ./...
+          go run ./cmd/batchplan ../batch.json | tee "$RUNNER_TEMP/r21-batch-plan.json"
+          python3 - <<'PY'
+          import json,os
+          p=json.load(open(os.environ["RUNNER_TEMP"]+"/r21-batch-plan.json"))
+          assert [x["id"] for x in p["admit"]]==["r21a","r21b","r21c"],p
+          assert p["shortfall"]==0,p
+          print("R21_BATCH_OFFLINE_THREE_PARALLEL_ADMISSIONS=PASS")
+          print("R21_BATCH_ACTUAL_DISPATCH=NOT_TESTED")
+          PY
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Preserve deterministic planning evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r21-batch-offline-three-lane-planning
+          path: ${{ runner.temp }}/r21-batch-plan.json
+          retention-days: 7
+          if-no-files-found: warn
