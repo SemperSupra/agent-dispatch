@@ -1,0 +1,118 @@
+name: WinBot GHCR synthetic cache bakeoff (free)
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-ghcr-cache-bakeoff.yml]
+permissions:
+  contents: read
+concurrency:
+  group: winbot-ghcr-synthetic-cache-bakeoff
+  cancel-in-progress: false
+jobs:
+  publish-synthetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Produce non-Windows original synthetic payload and publish one private GHCR test image
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+          IMAGE="ghcr.io/sempersupra/agent-dispatch-cache-rdte:synthetic-$GITHUB_RUN_ID"
+          printf 'FROM scratch\nLABEL org.opencontainers.image.source="https://github.com/SemperSupra/agent-dispatch"\nCOPY fixture.bin /fixture.bin\nCMD ["/not-executed"]\n' > Dockerfile
+          # Deliberately incompressible, non-proprietary, nonsecret 64 MiB data.
+          dd if=/dev/urandom of=fixture.bin bs=1M count=64 status=none
+          SRC=$(sha256sum fixture.bin | awk '{print $1}')
+          t0=$(date +%s)
+          docker build --quiet -t "$IMAGE" .
+          t1=$(date +%s)
+          docker push "$IMAGE" > push.log
+          t2=$(date +%s)
+          DIGEST=$(docker image inspect --format='{{index .RepoDigests 0}}' "$IMAGE" || true)
+          # Do not print credentials, publish license-restricted OS files, or
+          # treat a tag as immutable; later reader MUST verify byte SHA-256.
+          python3 - "$IMAGE" "$SRC" "$DIGEST" "$t0" "$t1" "$t2" <<'PY'
+          import json, sys, pathlib
+          image, source_sha, digest = sys.argv[1:4]
+          a,b,c = map(int,sys.argv[4:7])
+          data={"schema":"winbot-ghcr-cache-bakeoff/v1","classification":"ORIGINAL_SYNTHETIC_64M_ONLY",
+                "image":image,"sha256":source_sha,"repo_digest":digest,
+                "bytes":67108864,"build_seconds":b-a,"push_seconds":c-b,
+                "windows_iso_cached":False,"windows_vm_cached":False,
+                "private_winbot_source_cached":False}
+          pathlib.Path("published.json").write_text(json.dumps(data,indent=2,sort_keys=True))
+          print(json.dumps(data,indent=2,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winbot-ghcr-publish-receipt
+          path: published.json
+          retention-days: 2
+          if-no-files-found: error
+  restore-synthetic:
+    runs-on: ubuntu-24.04
+    needs: [publish-synthetic]
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: winbot-ghcr-publish-receipt
+      - name: Pull exact OCI digest to fresh worker and verify file hash
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null
+          python3 - <<'PY'
+          import json
+          p=json.load(open("published.json"))
+          if(p.get("schema")!="winbot-ghcr-cache-bakeoff/v1"
+             or p.get("classification")!="ORIGINAL_SYNTHETIC_64M_ONLY"
+             or p.get("bytes")!=67108864
+             or not p.get("repo_digest","").startswith("ghcr.io/sempersupra/")):
+              raise SystemExit("PUBLISH_RECEIPT_UNTRUSTED")
+          for denied in ("windows_iso_cached","windows_vm_cached","private_winbot_source_cached"):
+              if p.get(denied) is not False:
+                  raise SystemExit("UNAUTHORIZED_CONTENT_CLAIM")
+          PY
+          REF=$(python3 -c 'import json;print(json.load(open("published.json"))["repo_digest"])')
+          t0=$(date +%s)
+          docker pull "$REF" >/dev/null
+          t1=$(date +%s)
+          CID=$(docker create "$REF")
+          trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
+          docker cp "$CID:/fixture.bin" fixture-restored.bin >/dev/null
+          t2=$(date +%s)
+          python3 - "$t0" "$t1" "$t2" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=json.load(open("published.json"))
+          path=pathlib.Path("fixture-restored.bin")
+          source=hashlib.sha256(path.read_bytes()).hexdigest()
+          if source!=p["sha256"] or path.stat().st_size!=p["bytes"]:
+              raise SystemExit("SYNTHETIC_RESTORATION_DIGEST_MISMATCH")
+          a,b,c=map(int,sys.argv[1:4])
+          receipt={"schema":"winbot-ghcr-cache-bakeoff/v1",
+                   "classification":"SYNTHETIC_CROSS_RUNNER_GHCR_RESTORE_ONLY",
+                   "source_digest_verified":True,
+                   "bytes":p["bytes"],"pull_seconds":b-a,
+                   "extract_seconds":c-b,
+                   "windows_iso_cached":False,"windows_vm_cached":False,
+                   "private_winbot_source_cached":False}
+          pathlib.Path("restore.json").write_text(json.dumps(receipt,indent=2,sort_keys=True))
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winbot-ghcr-restore-receipt
+          path: restore.json
+          retention-days: 2
+          if-no-files-found: error
