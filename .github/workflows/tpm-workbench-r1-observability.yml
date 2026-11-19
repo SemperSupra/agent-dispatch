@@ -1,0 +1,109 @@
+name: TPM Workbench R1 independent free-tier trace qualification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/tpm-workbench-r1-observability.yml'
+      - 'experiments/tpm-workbench-r1/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  header-decoder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Local-only Go standard-library header, pairing and negative tests
+        working-directory: experiments/tpm-workbench-r1
+        run: |
+          set -euo pipefail
+          go version
+          go test -count=1 ./...
+          go vet ./...
+          echo R1_TPM2_HEADER_AND_PAIRING_FIXTURES=PASS
+  contract-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Independent strict CLI JSON schema, unknown caller, redaction and failure critic
+        working-directory: experiments/tpm-workbench-r1
+        run: |
+          set -euo pipefail
+          printf 'request 80010000000a0000017b\nresponse 80010000000a00000000\n' | go run ./cmd/tpmtrace > "$RUNNER_TEMP/events.jsonl"
+          python3 - "$RUNNER_TEMP/events.jsonl" <<'PY'
+          import json,sys
+          rows=[json.loads(x) for x in open(sys.argv[1])]
+          assert len(rows)==2
+          assert [x["direction"] for x in rows]==["request","response"]
+          assert all(x["caller"]=="UNKNOWN" and x["attribution"]=="UNKNOWN" for x in rows)
+          assert all(x["origin"]=="TPM2_HEADER_ONLY" for x in rows)
+          assert rows[0]["frame"]["name"]=="GetRandom"
+          assert rows[1]["request_code"]==379
+          assert all("payload" not in x and "guest_memory" not in x for x in rows)
+          PY
+          if printf 'request 80010000000b0000017b\n' | go run ./cmd/tpmtrace >/dev/null 2>&1; then
+            echo R1_MALFORMED_FRAME_NOT_REJECTED=RED; exit 28
+          fi
+          if printf 'request 80010000000a0000017b\n' | go run ./cmd/tpmtrace >/dev/null 2>&1; then
+            echo R1_UNMATCHED_REQUEST_NOT_REJECTED=RED; exit 29
+          fi
+          rm -f "$RUNNER_TEMP/events.jsonl"
+          echo R1_THREE_AUDIENCE_EVENT_CONTRACT_AND_NEGATIVES=PASS
+  native-swtpm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Real upstream host-only swtpm command capture capability check
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq swtpm swtpm-tools tpm2-tools libtss2-tcti-swtpm0
+          swtpm --version
+          tpm2_getrandom --version || true
+          work=$(mktemp -d)
+          chmod 700 "$work"
+          mkdir "$work/state"
+          pid=""
+          cleanup() { if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; rm -rf "$work"; }
+          trap cleanup EXIT
+          args=(socket --tpm2 --tpmstate "dir=$work/state" --server "type=unixio,path=$work/swtpm.sock" --ctrl "type=unixio,path=$work/swtpm.sock.ctrl" --flags not-need-init --log "file=$work/debug.log,level=20")
+          if swtpm socket --print-capabilities | grep -q 'cmdarg-pcap'; then
+            args+=(--pcap "file=$work/tpm.pcapng")
+            capture=pcap
+          else
+            capture=legacy_log
+          fi
+          swtpm "${args[@]}" >/dev/null 2>&1 &
+          pid=$!
+          for i in $(seq 1 40); do test -S "$work/swtpm.sock" && break; sleep 0.2; done
+          test -S "$work/swtpm.sock"
+          export TPM2TOOLS_TCTI="swtpm:path=$work/swtpm.sock"
+          tpm2_startup -c >/dev/null
+          tpm2_getrandom 8 >/dev/null
+          tpm2_pcrread sha256:0 >/dev/null
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          pid=""
+          test -s "$work/debug.log"
+          echo R1_REAL_SOFTWARE_TPM_GETRANDOM_AND_PCR=PASS
+          if [ "$capture" = pcap ]; then
+            test -s "$work/tpm.pcapng"
+            test "$(wc -c < "$work/tpm.pcapng")" -gt 100
+            echo R1_NATIVE_SWTMP_PCAP_NONEMPTY=PASS
+          else
+            echo R1_NATIVE_SWTMP_PCAP=UNSUPPORTED_BY_HOST_PACKAGE
+            echo R1_LEGACY_DEBUG_CAPTURE=NONEMPTY
+          fi
+          echo R1_GUEST_PROCESS_ATTRIBUTION=NOT_TESTED
+          echo R1_PCAP_COMPLETENESS=NOT_PROVEN
+          echo R1_GUEST_TPM_DRIVER=NOT_TESTED
