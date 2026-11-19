@@ -44,6 +44,12 @@ RESULT_FIELDS = {
         "classification", "oracle_verified", "upstream_commit", "source_blob_sha",
         "evidence_loss_confirmed", "dropped_messages", "dropped_attachments",
         "reader_qualified", "verdict_sha256"},
+    "mail-temporal-swipl-r2": {
+        "classification","oracle_verified","native_engine_executed",
+        "interpreter_version","source_sha256","clean_replay_verified",
+        "source_occurrences","independent_test_cases","contradiction_preserved",
+        "derivation_quarantined","cross_tenant_blocked","model_inference",
+        "native_pst_qualified","verdict_sha256"},
     "mail-evidence-go-challenge": {
         "classification", "oracle_verified", "typed_only", "model_inference",
         "question_count", "source_occurrences", "attachment_occurrences",
@@ -180,6 +186,23 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("ORIGINAL_OPENWORKER_FAKE_MAIL_SCOPE_INVALID")
+    if p["workload"] == "mail-temporal-swipl-r2":
+        if (result.get("native_engine_executed") is not True or
+                result.get("clean_replay_verified") is not True or
+                result.get("contradiction_preserved") is not True or
+                result.get("derivation_quarantined") is not True or
+                result.get("cross_tenant_blocked") is not True or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                result.get("source_occurrences") != 8 or
+                result.get("independent_test_cases") != 9 or
+                not isinstance(result.get("interpreter_version"),str) or
+                not result["interpreter_version"].startswith("SWI-Prolog version 9.") or
+                not isinstance(result.get("source_sha256"),str) or
+                not HEX64.fullmatch(result["source_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("ORIGINAL_PROLOG_EVIDENCE_SCOPE_INVALID")
     if p["workload"] == "mail-evidence-go-challenge":
         if (result.get("typed_only") is not True or
                 result.get("model_inference") is not False or
