@@ -1,6 +1,6 @@
 package main
 import("encoding/json";"fmt";"os";"regexp")
-type Candidate struct{ID string `json:"id"`;PR int `json:"pr"`;Head string `json:"head"`;Decision string `json:"decision"`;Gate string `json:"gate"`;Reason string `json:"reason"`;MitigatedBy string `json:"mitigated_by,omitempty"`}
+type Candidate struct{ID string `json:"id"`;PR int `json:"pr"`;Head string `json:"head"`;Decision string `json:"decision"`;Gate string `json:"gate"`;Reason string `json:"reason"`;MitigatedBy string `json:"mitigated_by,omitempty"`;ThreatScope string `json:"threat_scope,omitempty"`;MitigationScope string `json:"mitigation_scope,omitempty"`;ResidualRisks []string `json:"residual_risks,omitempty"`}
 type RC struct{Schema int `json:"schema"`;Release string `json:"release"`;Authority string `json:"authority"`;Baseline string `json:"baseline"`;Scope string `json:"scope"`;Candidates []Candidate `json:"candidates"`;Blockers []string `json:"blockers"`}
 var hexSHA=regexp.MustCompile(`^[0-9a-f]{40}$`)
 func assess(m RC)(bool,error){
@@ -27,6 +27,10 @@ func assess(m RC)(bool,error){
  for _,c:=range m.Candidates{
   if c.Decision!="preserve-red"{continue}
   if c.MitigatedBy==""{blocked=true;continue}
+  if c.ThreatScope==""||c.MitigationScope==""||c.ThreatScope!=c.MitigationScope||len(c.ResidualRisks)>0{
+   // Partial or conditional mitigation never establishes full acceptance.
+   blocked=true
+  }
   m,ok:=byID[c.MitigatedBy]
   if !ok||m.Decision!="carry"||m.Gate!="PASS"||!hexSHA.MatchString(m.Head){
    return false,fmt.Errorf("RED %s has invalid mitigation %s",c.ID,c.MitigatedBy)

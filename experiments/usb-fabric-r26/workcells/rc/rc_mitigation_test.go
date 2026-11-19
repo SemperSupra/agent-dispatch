@@ -3,6 +3,8 @@ import ("testing";"strings")
 func mitigated()RC {
  m:=baseRC()
  m.Candidates[1].MitigatedBy="H9"
+ m.Candidates[1].ThreatScope="postseal-new-qmp-session"
+ m.Candidates[1].MitigationScope="postseal-new-qmp-session"
  return m
 }
 func TestMitigatedRedCanBePreservedWithoutPermanentDeadlock(t *testing.T){
