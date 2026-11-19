@@ -22,3 +22,15 @@ The manifest is an offline point-in-time DLE *snapshot*. Its PR numbers, commit 
 ## Workflow
 
 Observe → Plan → Apply → Verify, updating exact evidence receipts *after* an independently reviewed source+CI run. New R25-B/C workcells have different source ownership and cannot be marked PASS in this manifest until their exact source/run/job evidence is verified. Keep all PRs draft; no paid private minutes, physical Pi HIL, site secrets or production.
+
+## R25-B/C qualified follow-up
+
+R25-B #894 is a real three-kernel USBIP HID and actual consumer-A QMP
+**read-only VM query** in one run. It does NOT satisfy R26 QMP device-release
+authority or guest identity attestation. R25-C #895 is a legitimate,
+independently tested **stacked security correction** to R25-A #884. Their
+recorded changed-path overlap on `handoff_r25.go` is allowed only with the
+explicit exact `parent_head` of #884's qualified head; sibling conflicts
+remain forbidden. An offline declared parent is still NOT live proof of
+Git ancestry and cannot authorize merge. Re-fetch exact PR bases/heads
+before any owner-reviewed adoption.
