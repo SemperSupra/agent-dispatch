@@ -1,3 +1,5 @@
+//go:build r22_guest
+
 // Synthetic TEST-ONLY Linux guest evdev sensor. It emits only signed key
 // transitions over a virtio-serial character device, NOT host serial console.
 // This key is public; no production authentication or real USB/IP implied.
