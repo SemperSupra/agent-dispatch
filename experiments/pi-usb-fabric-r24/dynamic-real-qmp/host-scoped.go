@@ -54,7 +54,15 @@ func r24LoadPin(){
 }
 func r24WirePublicKeyAllowed(s string)bool{
  r24LoadPin()
- return r24Pinned.err==nil && strings.EqualFold(s,hex.EncodeToString(r24Pinned.pub))
+ if r24Pinned.err!=nil {
+  fmt.Fprintln(os.Stderr,"R24_B_HOST_ENROLLMENT_ERROR=OBSERVED",r24Pinned.err)
+  return false
+ }
+ if !strings.EqualFold(s,hex.EncodeToString(r24Pinned.pub)) {
+  fmt.Fprintf(os.Stderr,"R24_B_GUEST_WIRE_PUB_MISMATCH=OBSERVED wireLen=%d pinnedLen=%d\\n",len(s),len(hex.EncodeToString(r24Pinned.pub)))
+  return false
+ }
+ return true
 }
 func r24Verify(e evidence.Event)bool{
  r24LoadPin()
