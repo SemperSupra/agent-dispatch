@@ -1,0 +1,33 @@
+name: USB Fabric R21-B Ed25519 predecessor contract (NOT live signed evdev PASS)
+on:
+  push:
+    branches: [test/issue-468-live-evdev-proof]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r21-live-evdev.yml'
+      - 'experiments/pi-usb-fabric-r21/live-evdev-proof/**'
+permissions:
+  contents: read
+jobs:
+  r21b-predecessor-ed25519:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run inherited real Go durable-journal and test-only Ed25519 scope verifier
+        working-directory: experiments/usb-fabric-r26/integrated
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -timeout 90s -v ./heldledger
+          go vet ./heldledger
+          echo R21_B_ED25519_VERIFIER_PREDECESSOR_ONLY=PASS
+          echo R21_B_REAL_GUEST_SIGNED_EVDEV=NOT_TESTED
+          test -z "$(git status --porcelain --untracked-files=all)"
