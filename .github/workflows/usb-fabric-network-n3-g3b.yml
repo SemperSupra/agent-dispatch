@@ -1,0 +1,29 @@
+name: USB Fabric Network N3 G3B guest nftables plus real USBIP
+on:
+  pull_request:
+    paths:
+      - 'experiments/usb-fabric-network-n1/g3b/**'
+      - '.github/workflows/usb-fabric-network-n3-g3b.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  usbip-network:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Build immutable overlay and prove guest-native firewall with USB/IP evdev
+        shell: bash
+        run: bash experiments/usb-fabric-network-n1/g3b/verify.sh
+      - name: Preserve red/blue evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: n3-g3b-guest-nft-serial
+          path: ${{ runner.temp }}/usbnet-g3b-two-guest.log
+          retention-days: 7
+          if-no-files-found: warn
