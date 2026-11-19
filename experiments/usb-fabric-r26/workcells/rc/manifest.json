@@ -20,7 +20,14 @@
       "decision": "preserve-red",
       "gate": "RED",
       "reason": "same service UID new second QMP monitor bypass demonstrated",
-      "mitigated_by": "H9"
+      "mitigated_by": "H9",
+      "threat_scope": "same-uid-any-raw-qmp-connect",
+      "mitigation_scope": "postseal-new-qmp-path-connect",
+      "residual_risks": [
+        "existing-open-qmp-file-descriptor",
+        "controller-or-service-principal-compromise",
+        "alternate-QMP-monitor-admission-before-sealing"
+      ]
     },
     {
       "id": "H9",
