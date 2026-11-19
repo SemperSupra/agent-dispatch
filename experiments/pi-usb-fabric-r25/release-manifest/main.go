@@ -64,10 +64,18 @@ func Validate(m Manifest) Result {
     }
     if m.ObservationDate=="" {fail("missing explicit observation date")}
     known:=map[string]Receipt{}
-    owners:=map[string]string{}
+    owners:=map[string]Receipt{}
     for _,r:=range m.Receipts {
         if r.ID=="" {fail("receipt without id");continue}
         if _,ok:=known[r.ID];ok{fail("duplicate receipt "+r.ID)}
+        if r.ParentHead!="" {
+            if !sha40.MatchString(r.ParentHead) {fail("invalid parent SHA: "+r.ID)}
+            found:=false
+            for _,prior:=range known {
+                if prior.Head==r.ParentHead && prior.ID!=r.ID {found=true;break}
+            }
+            if !found{fail("unknown earlier reviewed parent head: "+r.ID)}
+        }
         known[r.ID]=r
         if r.PR<1||!sha40.MatchString(r.Head)||r.Run<1||r.Job<1 {
             fail("receipt lacks exact PR/head/run/job: "+r.ID)
@@ -82,8 +90,15 @@ func Validate(m Manifest) Result {
         if len(r.ChangedPaths)==0 {fail("no scoped changed paths: "+r.ID)}
         for _,p:=range r.ChangedPaths {
             if p=="" {fail("empty changed path: "+r.ID);continue}
-            if old,ok:=owners[p];ok {fail("path ownership collision "+p+" "+old+" "+r.ID)}
-            owners[p]=r.ID
+            if old,ok:=owners[p];ok {
+                // Two independent owners may not edit one path. A child
+                // may revise that path ONLY if its declared exact parent
+                // equals the immediately preceding recorded owner's head.
+                if r.ParentHead!=old.Head {
+                    fail("path ownership collision "+p+" "+old.ID+" "+r.ID)
+                }
+            }
+            owners[p]=r
         }
     }
     gates:=map[string]bool{}
