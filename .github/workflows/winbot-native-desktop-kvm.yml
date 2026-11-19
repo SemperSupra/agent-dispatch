@@ -133,3 +133,41 @@ jobs:
           path: ubuntu-kvm.json
           retention-days: 2
           if-no-files-found: error
+  independently-adjudicate:
+    runs-on: ubuntu-24.04
+    needs: [windows-native-desktop, ubuntu-kvm-preflight]
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve both native qualification receipts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: winbot-*-${{ github.run_id }}
+          path: receipts
+          merge-multiple: true
+      - name: Admit only bounded host observations
+        env:
+          EXPECTED_RUN: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          expected = {
+              "windows-desktop.json": ("windows-2025", "HOST_NATIVE_DESKTOP_PROBE"),
+              "ubuntu-kvm.json": ("ubuntu-24.04", "KVM_TOOLCHAIN_PREFLIGHT_ONLY"),
+          }
+          for filename, (venue, classification) in expected.items():
+              path = pathlib.Path("receipts", filename)
+              if not path.is_file():
+                  raise SystemExit("MISSING_RECEIPT: " + filename)
+              receipt = json.loads(path.read_text(encoding="utf-8-sig"))
+              if (receipt.get("schema") != "winbot-native-admission/v1"
+                  or receipt.get("venue") != venue
+                  or receipt.get("classification") != classification
+                  or str(receipt.get("run_id")) != os.environ["EXPECTED_RUN"]):
+                  raise SystemExit("INVALID_PROVENANCE: " + filename)
+              if receipt.get("windows_guest_installed") is not False or receipt.get("winbot_control_hil_accepted") is not False:
+                  raise SystemExit("ILLEGITIMATE_GUEST_ADMISSION: " + filename)
+              print(json.dumps(receipt, sort_keys=True))
+          print("HOST_ONLY_QUALIFICATION_RECEIPTS_VALID; NO WINDOWS GUEST OR WINBOT HIL ADMISSION")
+          PY
