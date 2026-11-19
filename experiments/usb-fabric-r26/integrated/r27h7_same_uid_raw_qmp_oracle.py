@@ -100,7 +100,7 @@ def main():
         api_root=root/"broker";api_root.mkdir(mode=0o755)
         os.chown(api_root,SERVICE,SERVICE)
         journal=secret/"held.json";capture=secret/"capture.pcap"
-        qmp=secret/"qmp.sock";api=api_root/"api.sock"
+        qmp=secret/"qmp.sock";secondary=secret/"same-uid-qmp.sock";api=api_root/"api.sock"
         qemu=actuator=None
         try:
             qemu=launch(["qemu-system-x86_64","-machine","q35",
@@ -108,7 +108,8 @@ def main():
                 "-S","-nodefaults","-display","none","-monitor","none",
                 "-serial","none","-net","none","-no-reboot",
                 "-device","qemu-xhci,id=xhci0",
-                "-qmp","unix:"+str(qmp)+",server=on,wait=off"],SERVICE)
+                "-qmp","unix:"+str(qmp)+",server=on,wait=off",
+                "-qmp","unix:"+str(secondary)+",server=on,wait=off"],SERVICE)
             actuator=launch(["/guest/r26-actuator","--qmp",str(qmp),
                 "--socket",str(api),"--media",str(media),"--capture",str(capture),
                 "--journal",str(journal),"--authorized-peer-uid",str(CLIENT),
@@ -122,7 +123,7 @@ def main():
             if before.returncode==0 or "Permission denied" not in before.stderr:
                 raise RuntimeError("P0: client reached raw QMP: "+repr((before.returncode,before.stderr)))
             print("R27H5_DISTINCT_UID_RAW_REAL_QMP_DENIED=PASS",flush=True)
-            same_uid_direct_mutation(qmp)
+            same_uid_direct_mutation(secondary)
             print("R27H7_SERVICE_UID_IS_NOT_A_MALICIOUS_SAME_UID_BOUNDARY=RED",flush=True)
             # Only expose the broker socket to a distinct principal. SO_PEERCRED
             # and the host allowlist must admit status/ports and reject reserve.
