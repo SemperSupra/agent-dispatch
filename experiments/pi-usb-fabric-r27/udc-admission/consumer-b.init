@@ -1,0 +1,167 @@
+#!/bin/sh
+# Independent third Linux kernel, USB/IP *competing consumer*, never same-kernel A.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p /proc /sys /dev /var/run /tmp
+mount -t proc proc /proc || :
+mount -t sysfs sysfs /sys || :
+mount -t devtmpfs devtmpfs /dev || :
+echo R10_CONSUMER_B_DISTINCT_KERNEL_BOOT=PASS >/dev/console
+uname -r >/dev/console
+for m in usbip_core vhci_hcd usbhid hid_generic evdev e1000; do
+ if modprobe "$m" >/dev/console 2>&1; then
+   echo "R10_CONSUMER_B_MODULE_$m=PASS" >/dev/console
+ else
+   echo "R10_CONSUMER_B_MODULE_$m=RED" >/dev/console
+ fi
+done
+if /bin/busybox ip addr add 10.78.0.2/24 dev eth0 >/dev/console 2>&1 && /bin/busybox ip link set eth0 up >/dev/console 2>&1; then
+ echo R10_CONSUMER_B_NETWORK=PASS >/dev/console
+else
+ echo R10_CONSUMER_B_NETWORK=RED >/dev/console
+fi
+/bin/busybox ip link set lo up >/dev/console 2>&1 || :
+# Provider opens 3334 only after consumer A has successfully attached
+# and received actual kernel evdev KEY_A down/up. No fixed sleep race.
+reachable=no
+for probe in 1 2 3 4 5; do
+ if /bin/busybox ping -c 1 -W 1 10.78.0.1 >/tmp/r10-ping.txt 2>&1; then reachable=yes; break; fi
+ sleep 1
+done
+if [ "$reachable" = yes ]; then echo R10_CONSUMER_B_ETHERNET_REACHABILITY=PASS >/dev/console; else echo R10_CONSUMER_B_ETHERNET_REACHABILITY=RED >/dev/console; fi
+ready=no
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if /bin/busybox printf 'B_HELLO\n' | /bin/busybox nc -w 2 10.78.0.1 3334 >/tmp/r10-ready.txt 2>&1; then
+    ready=yes
+    break
+  fi
+  sleep 1
+done
+if [ "$ready" = yes ]; then
+ echo R10_CONSUMER_B_PROVIDER_CONFIRMED_A_ATTACHED=PASS >/dev/console
+ # Actual remote endpoint differs from A, but the provider USBIP VUDC is the SAME object.
+ # Demand second import cannot seize a held physical-equivalent controller.
+ /bin/busybox timeout 12 /usr/sbin/usbip attach --remote 10.78.0.1 --busid usbip-vudc.0 >/tmp/r10-attach.txt 2>&1
+ attach_rc="$?"
+ cat /tmp/r10-attach.txt >/dev/console
+ # A timeout, networking error or generic client failure is NOT proof of
+ # exclusive provider ownership. Require the actual USBIP SDEV_ST_USED
+ # device-busy rejection from upstream usbipd (same as passing R09B).
+ if [ "$attach_rc" -ne 0 ] && [ "$attach_rc" -ne 124 ] && [ "$attach_rc" -ne 137 ] && grep -q 'Device busy (exported)' /tmp/r10-attach.txt; then
+   echo R10_CONSUMER_B_CROSS_KERNEL_DUPLICATE_DENIED=PASS >/dev/console
+ else
+   echo R10_CONSUMER_B_CROSS_KERNEL_DUPLICATE_DENIED=RED >/dev/console
+ fi
+ if /usr/sbin/usbip port >/tmp/r10-port.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r10-port.txt; then
+   echo R10_CONSUMER_B_NO_GHOST_VHCI=PASS >/dev/console
+ else
+   cat /tmp/r10-port.txt >/dev/console
+   echo R10_CONSUMER_B_NO_GHOST_VHCI=RED >/dev/console
+ fi
+ if /bin/busybox printf 'B_DONE\n' | /bin/busybox nc -w 2 10.78.0.1 3335 >/tmp/r10-bdone.txt 2>&1; then
+   echo R10_CONSUMER_B_RESULT_SENT=PASS >/dev/console
+ else
+   echo R10_CONSUMER_B_RESULT_SENT=RED >/dev/console
+ fi
+ # R27-A independently probe raw bypass AFTER A's real VHCI detach but
+ # BEFORE the host-Go B authorization. This is a separate Linux VM,
+ # untouched by provider or host broker device state.
+ if /bin/busybox timeout 30 /bin/busybox nc -l -p 3338 > /tmp/r27-probe.txt 2>/dev/console && grep -qx PROBE_B /tmp/r27-probe.txt; then
+  echo R27_A_B_LATE_RAW_USBIP_IMPORT_ATTEMPTED=PASS >/dev/console
+  /bin/busybox timeout 12 /usr/sbin/usbip attach --remote 10.78.0.1 --busid usbip-vudc.0 > /tmp/r27-raw-attach.txt 2>&1
+  probe_rc="$?"
+  cat /tmp/r27-raw-attach.txt >/dev/console
+  if [ "$probe_rc" -ne 0 ] && [ "$probe_rc" -ne 124 ] && [ "$probe_rc" -ne 137 ] &&
+      /usr/sbin/usbip port > /tmp/r27-no-ghost.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r27-no-ghost.txt; then
+   echo R27_A_B_LATE_RAW_USBIP_IMPORT_DENIED_WHILE_UNBOUND=PASS >/dev/console
+   sentprobe=no
+   for tick in 1 2 3 4 5 6 7 8 9 10; do
+    if /bin/busybox printf 'B_PROBE_REJECTED\n' | /bin/busybox nc -w 2 10.78.0.1 3342 > /tmp/r27-probe-ack.txt 2>&1; then sentprobe=yes; break; fi
+    sleep 1
+   done
+   if [ "$sentprobe" != yes ]; then
+    echo R27_A_B_LATE_PROBE_PROOF=RED >/dev/console
+    sync;poweroff -f || reboot -f
+   fi
+  else
+   echo "R27_A_B_LATE_RAW_USBIP_IMPORT_DENIED_WHILE_UNBOUND=RED rc=$probe_rc" >/dev/console
+   sync;poweroff -f || reboot -f
+  fi
+ else
+  echo R27_A_B_LATE_RAW_USBIP_IMPORT_ATTEMPTED=RED >/dev/console
+  sync;poweroff -f || reboot -f
+ fi
+ # Provider promises RETRY_B only AFTER consumer A's true kernel VHCI
+ # port disappears. No reattach permitted on timeout/untrusted message.
+ if /bin/busybox timeout 30 /bin/busybox nc -l -p 3337 >/tmp/r11-retry-command.txt 2>/dev/console && grep -qx RETRY_B /tmp/r11-retry-command.txt; then
+  echo R11_CONSUMER_B_WAITED_FOR_A_RELEASE=PASS >/dev/console
+  if /bin/busybox timeout 12 /usr/sbin/usbip attach --remote 10.78.0.1 --busid usbip-vudc.0 >/tmp/r11-b-attach.txt 2>&1; then
+   attached=no
+   for tick in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if /usr/sbin/usbip port >/tmp/r11-b-port.txt 2>&1 && grep -q '10.78.0.1:3240/usbip-vudc.0' /tmp/r11-b-port.txt; then attached=yes; break; fi
+    sleep 1
+   done
+   cat /tmp/r11-b-port.txt >/dev/console
+   if [ "$attached" = yes ]; then
+    echo R11_CONSUMER_B_REAL_USBIP_REASSIGNMENT=PASS >/dev/console
+    eventdev=""
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     eventdev="$(/bin/busybox awk '/Name="USBFabric SyntheticHID"/{matched=1;next} matched && /Handlers=/ {for(i=1;i<=NF;i++)if($i ~ /^event[0-9]+$/){print $i;exit}}' /proc/bus/input/devices)"
+     if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then break; fi
+     sleep 1
+    done
+    if [ -n "$eventdev" ] && [ -c "/dev/input/$eventdev" ]; then
+     /usr/bin/hid_evdev_observer "/dev/input/$eventdev" >/tmp/r11-b-evdev.txt 2>&1 &
+     observerpid="$!"
+     sleep 1
+     go=no
+     for tick in 1 2 3 4 5 6 7 8 9 10; do
+      if /bin/busybox printf 'GO_B\n' | /bin/busybox nc -w 2 10.78.0.1 3340 >/tmp/r11-b-go.txt 2>&1; then go=yes; break; fi
+      sleep 1
+     done
+     if [ "$go" = yes ]; then echo R11_CONSUMER_B_SECOND_EVENT_REQUEST=PASS >/dev/console; else echo R11_CONSUMER_B_SECOND_EVENT_REQUEST=RED >/dev/console; fi
+     if wait "$observerpid"; then
+      cat /tmp/r11-b-evdev.txt >/dev/console
+      echo R11_CONSUMER_B_INDEPENDENT_SECOND_HID_EVENTS=PASS >/dev/console
+     else
+      cat /tmp/r11-b-evdev.txt >/dev/console
+      echo R11_CONSUMER_B_INDEPENDENT_SECOND_HID_EVENTS=RED >/dev/console
+     fi
+    else
+     echo R11_CONSUMER_B_INDEPENDENT_SECOND_HID_EVENTS=RED >/dev/console
+    fi
+   else
+    echo R11_CONSUMER_B_REAL_USBIP_REASSIGNMENT=RED >/dev/console
+   fi
+   if /usr/sbin/usbip detach --port 0 >/dev/console 2>&1; then
+    released=no
+    for tick in 1 2 3 4 5 6 7 8 9 10; do
+     if /usr/sbin/usbip port >/tmp/r11-b-final-port.txt 2>&1 && ! grep -q '<Port in Use>' /tmp/r11-b-final-port.txt; then released=yes; break; fi
+     sleep 1
+    done
+    if [ "$released" = yes ]; then
+     echo R11_CONSUMER_B_FINAL_VHCI_QUIESCENT=PASS >/dev/console
+     sent=no
+     for tick in 1 2 3 4 5 6 7 8 9 10; do
+      if /bin/busybox printf 'B_DETACHED\n' | /bin/busybox nc -w 2 10.78.0.1 3341 >/tmp/r11-b-done.txt 2>&1; then sent=yes; break; fi
+      sleep 1
+     done
+     if [ "$sent" = yes ]; then echo R11_CONSUMER_B_RELEASE_RECEIPT_SENT=PASS >/dev/console; else echo R11_CONSUMER_B_RELEASE_RECEIPT_SENT=RED >/dev/console; fi
+    else
+     echo R11_CONSUMER_B_FINAL_VHCI_QUIESCENT=RED >/dev/console
+    fi
+   else
+    echo R11_CONSUMER_B_FINAL_VHCI_QUIESCENT=RED >/dev/console
+   fi
+  else
+   cat /tmp/r11-b-attach.txt >/dev/console
+   echo R11_CONSUMER_B_REAL_USBIP_REASSIGNMENT=RED >/dev/console
+  fi
+ else
+  echo R11_CONSUMER_B_WAITED_FOR_A_RELEASE=RED >/dev/console
+ fi
+else
+ echo R10_CONSUMER_B_PROVIDER_CONFIRMED_A_ATTACHED=RED >/dev/console
+fi
+echo R10_CONSUMER_B_FINISHED=YES >/dev/console
+sync
+poweroff -f || reboot -f
