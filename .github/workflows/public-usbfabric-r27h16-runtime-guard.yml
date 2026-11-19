@@ -1,0 +1,19 @@
+name: USB Fabric R27-H16 - real QEMU runtime emergency HELD recheck
+on:
+  push:
+    branches: [test/issue-470-r27h16-recovery-host-guard]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-qemu-emergency-held-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run real signed Linux guest SIGKILL/restart; require runtime journal invariant
+        run: bash experiments/usb-fabric-r26/integrated/r27h16_runtime_held_guard_verify.sh
