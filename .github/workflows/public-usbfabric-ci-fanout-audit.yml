@@ -1,0 +1,25 @@
+name: USB Fabric CI fanout offline inventory
+on:
+  push:
+    branches: [test/issue-447-usbfabric-ci-fanout-audit]
+    paths:
+      - '.github/workflows/public-usbfabric-ci-fanout-audit.yml'
+      - 'experiments/usb-fabric-r26/workcells/ci_fanout_audit.py'
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '.github/workflows/public-usbfabric-ci-fanout-audit.yml'
+      - 'experiments/usb-fabric-r26/workcells/ci_fanout_audit.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Enumerate broad PR-triggered USB Fabric workflows and explicit test limits
+        run: python3 experiments/usb-fabric-r26/workcells/ci_fanout_audit.py
