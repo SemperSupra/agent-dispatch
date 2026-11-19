@@ -66,7 +66,7 @@ jobs:
             $element = [System.Windows.Automation.AutomationElement]::FromHandle($handle)
             if ($null -eq $element) { throw 'FIXTURE_WINDOW_NOT_FOUND' }
             $receipt.window_observed = $true
-            $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+            $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
             $edit = $element.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
             if ($null -eq $edit) { throw 'FIXTURE_EDIT_NOT_FOUND' }
             $receipt.edit_observed = $true
