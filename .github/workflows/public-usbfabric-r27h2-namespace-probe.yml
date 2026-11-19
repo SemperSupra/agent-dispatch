@@ -1,0 +1,19 @@
+name: USB Fabric R27-H2 - no-privilege Linux abstract namespace RED probe
+on:
+  push:
+    branches: [test/issue-470-r27h-namespace-probe]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  abstract-unix-namespace-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Probe abstract socket uniqueness across unprivileged network namespaces
+        run: python3 experiments/usb-fabric-r26/r27h/namespace_probe.py
