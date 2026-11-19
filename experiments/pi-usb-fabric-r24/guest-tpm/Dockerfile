@@ -21,8 +21,8 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends -y \
   cp /bin/busybox /tmp/repacked/bin/busybox && \
   for name in tpm2_getrandom tpm2_pcrread tpm2_createek tpm2_createak tpm2_flushcontext tpm2_quote tpm2_checkquote tpm2_pcrevent; do \
     cp "/usr/bin/$name" "/tmp/repacked/usr/bin/$name"; \
-    ldd "/usr/bin/$name" | awk '/=> \\//{print $3} /^\\//{print $1}' | \
-      while read -r lib; do if test -f "$lib"; then cp -L --parents "$lib" /tmp/repacked; fi; done; \
+    ldd "/usr/bin/$name" | grep -Eo '/[^[:space:]]+' | \
+      while read -r lib; do if test -f "$lib"; then mkdir -p "/tmp/repacked$(dirname "$lib")"; cp -L "$lib" "/tmp/repacked$lib"; fi; done; \
   done && \
   find /usr/lib/x86_64-linux-gnu -maxdepth 1 -name 'libtss2-tcti-device.so*' -exec cp -L --parents {} /tmp/repacked \; && \
   find /lib/x86_64-linux-gnu -maxdepth 1 -name 'libtss2-tcti-device.so*' -exec cp -L --parents {} /tmp/repacked \; && \
