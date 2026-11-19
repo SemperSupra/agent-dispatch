@@ -19,7 +19,8 @@
       "artifact_sha256": "65a1cc588bdb6556d3559304d733a3cda40e13156428330e89c6c649bc6b8d1b",
       "changed_paths": [
         "experiments/pi-usb-fabric-r22/qmp-usbip-compose/usbip-guest-signing/broker.go"
-      ]
+      ],
+      "domain": "usbip-kernel"
     },
     {
       "id": "r24b-real-qmp-guest-signed",
@@ -34,7 +35,8 @@
       "artifact_sha256": "8eadaf171c7e6bb9c8eb6c145fbe8be1d60a8514a20b7c6912cc7e8f86f25308",
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/dynamic-real-qmp/oracle.py"
-      ]
+      ],
+      "domain": "qmp-native"
     },
     {
       "id": "r24c-real-guest-swtpm",
@@ -49,7 +51,8 @@
       "artifact_sha256": "35b9b540e207e6871b8e01a88998e2ef6d33e66d99102165b723d2a2b666f0a3",
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/guest-tpm/oracle.py"
-      ]
+      ],
+      "domain": "software-tpm"
     },
     {
       "id": "r25a-simulated-qmp-usbip-interlock",
@@ -64,7 +67,8 @@
       "artifact_sha256": "26e26f869cc5345c82e4d4f68e443c5e968da2e988638f357e1aca042bea5360",
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go"
-      ]
+      ],
+      "domain": "control-contract"
     },
     {
       "id": "r25b-real-qmp-readonly-with-usbip",
@@ -79,7 +83,8 @@
       "artifact_sha256": "ccf48e6dc467a021e844f67397a2092014b6fcbeffd38a4cbc077787204324df",
       "changed_paths": [
         "experiments/pi-usb-fabric-r25/qmp-usbip-vm-observer/qmp_observer.py"
-      ]
+      ],
+      "domain": "vm-provenance"
     },
     {
       "id": "r25c-event-splice-repaired",
@@ -96,7 +101,8 @@
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go",
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25_splice_test.go"
-      ]
+      ],
+      "domain": "control-contract"
     }
   ],
   "gates": [
@@ -105,66 +111,76 @@
       "priority": "P0",
       "state": "PASS",
       "required_kind": "real-usbip",
-      "receipt_id": "r22b-three-kernel-ed25519"
+      "receipt_id": "r22b-three-kernel-ed25519",
+      "required_domain": "usbip-kernel"
     },
     {
       "id": "r24b_real_qmp_signed_test_guest",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "real-qemu",
-      "receipt_id": "r24b-real-qmp-guest-signed"
+      "receipt_id": "r24b-real-qmp-guest-signed",
+      "required_domain": "qmp-native"
     },
     {
       "id": "r25a_offline_qmp_usbip_policy",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "contract",
-      "receipt_id": "r25a-simulated-qmp-usbip-interlock"
+      "receipt_id": "r25a-simulated-qmp-usbip-interlock",
+      "required_domain": "control-contract"
     },
     {
       "id": "real_qmp_same_usbip_device_causal_interlock",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-usbip"
+      "required_kind": "real-usbip",
+      "required_domain": "qmp-usbip-causal"
     },
     {
       "id": "independently_pinned_guest_vm_identity",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-qemu"
+      "required_kind": "real-qemu",
+      "required_domain": "qmp-native"
     },
     {
       "id": "combined_crash_restart_and_raw_import_bypass",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-usbip"
+      "required_kind": "real-usbip",
+      "required_domain": "usbip-kernel"
     },
     {
       "id": "release_candidate_one_command_full_acceptance",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-qemu"
+      "required_kind": "real-qemu",
+      "required_domain": "qmp-native"
     },
     {
       "id": "guest_software_tpm2_quote",
       "priority": "P1",
       "state": "PASS",
       "required_kind": "software-tpm",
-      "receipt_id": "r24c-real-guest-swtpm"
+      "receipt_id": "r24c-real-guest-swtpm",
+      "required_domain": "software-tpm"
     },
     {
       "id": "r25b_readonly_qmp_vm_observation_same_real_usbip_run",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "real-usbip",
-      "receipt_id": "r25b-real-qmp-readonly-with-usbip"
+      "receipt_id": "r25b-real-qmp-readonly-with-usbip",
+      "required_domain": "vm-provenance"
     },
     {
       "id": "r25c_cross_event_splice_contract_fixed",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "contract",
-      "receipt_id": "r25c-event-splice-repaired"
+      "receipt_id": "r25c-event-splice-repaired",
+      "required_domain": "control-contract"
     }
   ]
 }
