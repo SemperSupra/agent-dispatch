@@ -13,3 +13,8 @@ func TestRejectCycles(t *testing.T){m:=validManifest();m.Cells[0].Depends=[]stri
 func TestRejectOneCellSerialDrift(t *testing.T){m:=validManifest();m.Cells=m.Cells[:1];if validate(m)==nil{t.Fatal("silent serial drift admitted")}}
 func TestRejectSelfDependency(t *testing.T){m:=validManifest();m.Cells[1].Depends=[]string{"b"};if validate(m)==nil{t.Fatal("self dependency admitted")}}
 func TestRejectOverBudget(t *testing.T){m:=validManifest();m.MaxParallel=5;if validate(m)==nil{t.Fatal("overbudget slots admitted")}}
+
+func TestRejectDirectoryFileOverlap(t *testing.T){m:=validManifest();m.Cells[0].Writes=[]string{"src"};m.Cells[1].Writes=[]string{"src/pkg/handler.go"};if validate(m)==nil{t.Fatal("directory writer overlapped file writer")}}
+func TestRejectReverseDirectoryOverlap(t *testing.T){m:=validManifest();m.Cells[0].Writes=[]string{"src/pkg/handler.go"};m.Cells[1].Writes=[]string{"src"};if validate(m)==nil{t.Fatal("file writer overlapped directory writer")}}
+func TestAllowAdjacentPrefix(t *testing.T){m:=validManifest();m.Cells[0].Writes=[]string{"src/pkg"};m.Cells[1].Writes=[]string{"src/package"};if e:=validate(m);e!=nil{t.Fatal(e)}}
+func TestRejectTraversal(t *testing.T){for _,bad:=range []string{"../source","src/../other","./file","src//file","src\\\\pkg","."}{m:=validManifest();m.Cells[0].Writes=[]string{bad};if validate(m)==nil{t.Errorf("ambiguous path admitted: %q",bad)}}}
