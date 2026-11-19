@@ -110,17 +110,23 @@ def resolve_image_identity(
             raise ProbeError("legacy image alias contract missing")
         if legacy_image is not None and legacy_image != alias:
             raise ProbeError(f"explicit legacy image {legacy_image!r} does not match admitted alias {alias!r}")
+        resolved_alias = alias
         observed = choices.get(alias)
+        if not isinstance(observed, dict) and not alias.endswith("/default"):
+            candidate = f"{alias}/default"
+            if isinstance(choices.get(candidate), dict):
+                resolved_alias = candidate
+                observed = choices.get(candidate)
         if not isinstance(observed, dict):
             raise ProbeError(f"admitted legacy image alias unavailable: {alias!r}")
         if selection.get("instance_type") not in set(observed.get("instance_types") or []):
             raise ProbeError(f"legacy image lacks required instance type: {observed!r}")
         if selection.get("arch") not in set(observed.get("archs") or []):
             raise ProbeError(f"legacy image lacks required architecture: {observed!r}")
-        return {"legacy_image": alias}, {
+        return {"legacy_image": resolved_alias}, {
             "method": method,
             "source": discovery.get("source"),
-            "selected": {"alias": alias},
+            "selected": {"alias": resolved_alias, "admitted_alias": alias},
             "observed": observed,
         }
 
@@ -354,6 +360,11 @@ def main() -> int:
 
         if query_one() is not None:
             raise ProbeError(f"preexisting instance {a.name!r} blocks ownership-safe apply")
+
+        if adapter_id == "truenas-virt-incus-container" and a.pool:
+            virt_cfg = call("virt.global.config", [])
+            if isinstance(virt_cfg, dict) and not virt_cfg.get("pool"):
+                wait_job(call("virt.global.update", [{"pool": a.pool}]), "virt-global-init")
 
         shapes = method_shapes(adapter_id, a.name)
         create_method = shapes.get("create", (adapter["required_methods"][1], [], True))[0]

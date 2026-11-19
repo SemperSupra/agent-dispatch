@@ -75,6 +75,22 @@ class ContainerProbeContractTests(unittest.TestCase):
         self.assertEqual(resolved, {"legacy_image": "debian/trixie"})
         self.assertEqual(evidence["selected"]["alias"], "debian/trixie")
 
+    def test_legacy_image_resolution_accepts_linuxcontainers_default_suffix(self):
+        adapter = {
+            "id": "truenas-virt-incus-container",
+            "image_discovery": {
+                "method": "virt.instance.image_choices",
+                "request": {"remote": "LINUX_CONTAINERS"},
+                "source": "https://images.linuxcontainers.org",
+                "selection": {"alias": "debian/trixie", "instance_type": "CONTAINER", "arch": "amd64"},
+            },
+        }
+        def call(method, params):
+            return {"debian/trixie/default": {"instance_types": ["CONTAINER"], "archs": ["amd64"]}}
+        resolved, evidence = resolve_image_identity(adapter, call)
+        self.assertEqual(resolved, {"legacy_image": "debian/trixie/default"})
+        self.assertEqual(evidence["selected"]["admitted_alias"], "debian/trixie")
+
     def test_lxc_image_resolution_retains_exact_returned_version(self):
         adapter = {
             "id": "truenas-container-lxc",
