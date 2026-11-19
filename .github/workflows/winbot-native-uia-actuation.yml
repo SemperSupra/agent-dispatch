@@ -51,6 +51,7 @@ jobs:
             semantic_tree_discovery = $false
             exact_owned_child_handle_used = $false
             set_value_readback = $false
+            win32_set_readback = $false
             windows_guest_installed = $false
             winbot_control_hil_accepted = $false
             first_failure = $null
@@ -101,6 +102,31 @@ jobs:
             $receipt.set_value_readback = $true
           } catch {
             $receipt.first_failure = $_.Exception.Message
+            # A separate, explicitly lower-level native Win32 actuator witness.
+            # This cannot promote UIA semantic selection or WinBot product control.
+            if ($null -ne $childHandle -and $childHandle -ne [IntPtr]::Zero) {
+              try {
+                Add-Type -TypeDefinition @'
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class WinBotNativeText {
+              [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+              public static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, string text);
+              [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+              public static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, StringBuilder text);
+          }
+          '@
+                $expected = "WB-WIN32-$env:GITHUB_RUN_ID"
+                [void][WinBotNativeText]::SendMessage($childHandle, 0x000C, [IntPtr]::Zero, $expected)
+                $buffer = [System.Text.StringBuilder]::new(256)
+                [void][WinBotNativeText]::SendMessage($childHandle, 0x000D, [IntPtr]256, $buffer)
+                $receipt.win32_set_readback = ($buffer.ToString() -ceq $expected)
+                if (-not $receipt.win32_set_readback) { $receipt.win32_failure = 'WM_SETTEXT_READBACK_MISMATCH' }
+              } catch {
+                $receipt.win32_failure = $_.Exception.Message
+              }
+            }
           } finally {
             if ($null -ne $child) {
               try { if (-not $child.HasExited) { Stop-Process -Id $child.Id -Force -ErrorAction Stop } } catch {}
@@ -108,7 +134,7 @@ jobs:
             $receipt | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath 'uia-actuation.json' -Encoding utf8
             $receipt | ConvertTo-Json -Depth 4
           }
-          if (-not $receipt.set_value_readback) { throw "NATIVE_UIA_FIRST_FAILURE: $($receipt.first_failure)" }
+          if (-not $receipt.set_value_readback -and -not $receipt.win32_set_readback) { throw "NATIVE_ACTUATION_FIRST_FAILURE: $($receipt.first_failure); WIN32: $($receipt.win32_failure)" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
