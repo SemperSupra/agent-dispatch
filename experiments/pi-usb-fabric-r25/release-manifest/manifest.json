@@ -1,0 +1,124 @@
+{
+  "schema": "usb-fabric-r25/1",
+  "evidence_repository": "SemperSupra/agent-dispatch",
+  "authority": "mark-e-deyoung/infrastructure-as-code-private",
+  "observation_date": "2026-11-19",
+  "owner_approved": false,
+  "release_requested": false,
+  "receipts": [
+    {
+      "id": "r22b-three-kernel-ed25519",
+      "pr": 850,
+      "head": "0ac7ad9d4274cfb692ad2cdf2e55bdb2cc45cbf6",
+      "run": 44473963055,
+      "job": 135389891747,
+      "kind": "real-usbip",
+      "outcome": "PASS",
+      "marker": "R22_B_REAL_GUEST_ED25519_TO_REAL_USBIP_B_HANDOFF=PASS",
+      "artifact_id": 14505497959,
+      "artifact_sha256": "65a1cc588bdb6556d3559304d733a3cda40e13156428330e89c6c649bc6b8d1b",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r22/qmp-usbip-compose/usbip-guest-signing/broker.go"
+      ]
+    },
+    {
+      "id": "r24b-real-qmp-guest-signed",
+      "pr": 876,
+      "head": "49930c8fb8a8b2171d6483dc26b6ed87937e6ed8",
+      "run": 44570236188,
+      "job": 135722949490,
+      "kind": "real-qemu",
+      "outcome": "PASS",
+      "marker": "R24_B_ONE_REAL_QMP_DYNAMIC_ED25519_GUEST_LEASE_FSYNCED=PASS",
+      "artifact_id": 14554925410,
+      "artifact_sha256": "8eadaf171c7e6bb9c8eb6c145fbe8be1d60a8514a20b7c6912cc7e8f86f25308",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r24/dynamic-real-qmp/oracle.py"
+      ]
+    },
+    {
+      "id": "r24c-real-guest-swtpm",
+      "pr": 877,
+      "head": "d9e7f33b38395b46e57f27c29a5aff8498968557",
+      "run": 44604833006,
+      "job": 135845628102,
+      "kind": "software-tpm",
+      "outcome": "PASS",
+      "marker": "R24_C_REAL_IN_GUEST_TPM2_PCR_QUOTE_TEST_ONLY=PASS",
+      "artifact_id": 14569152441,
+      "artifact_sha256": "35b9b540e207e6871b8e01a88998e2ef6d33e66d99102165b723d2a2b666f0a3",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r24/guest-tpm/oracle.py"
+      ]
+    },
+    {
+      "id": "r25a-simulated-qmp-usbip-interlock",
+      "pr": 884,
+      "head": "fcf79544ed617e196ac03461b6ce079ec5d1ac35",
+      "run": 44606660454,
+      "job": 135852039364,
+      "kind": "contract",
+      "outcome": "PASS",
+      "marker": "R25_A_EXISTING_R24_R23_R22_COMPOSITION_TEST_ONLY=PASS",
+      "artifact_id": 14570448721,
+      "artifact_sha256": "26e26f869cc5345c82e4d4f68e443c5e968da2e988638f357e1aca042bea5360",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "r22b_real_usbip_signed_test_handoff",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "receipt_id": "r22b-three-kernel-ed25519"
+    },
+    {
+      "id": "r24b_real_qmp_signed_test_guest",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-qemu",
+      "receipt_id": "r24b-real-qmp-guest-signed"
+    },
+    {
+      "id": "r25a_offline_qmp_usbip_policy",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "contract",
+      "receipt_id": "r25a-simulated-qmp-usbip-interlock"
+    },
+    {
+      "id": "real_qmp_same_usbip_device_causal_interlock",
+      "priority": "P0",
+      "state": "NOT_TESTED",
+      "required_kind": "real-usbip"
+    },
+    {
+      "id": "independently_pinned_guest_vm_identity",
+      "priority": "P0",
+      "state": "NOT_TESTED",
+      "required_kind": "real-qemu"
+    },
+    {
+      "id": "combined_crash_restart_and_raw_import_bypass",
+      "priority": "P0",
+      "state": "NOT_TESTED",
+      "required_kind": "real-usbip"
+    },
+    {
+      "id": "release_candidate_one_command_full_acceptance",
+      "priority": "P0",
+      "state": "NOT_TESTED",
+      "required_kind": "real-qemu"
+    },
+    {
+      "id": "guest_software_tpm2_quote",
+      "priority": "P1",
+      "state": "PASS",
+      "required_kind": "software-tpm",
+      "receipt_id": "r24c-real-guest-swtpm"
+    }
+  ]
+}
