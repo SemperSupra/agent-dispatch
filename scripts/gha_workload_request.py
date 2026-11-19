@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -201,6 +201,69 @@ def _execute(workload: str, timeout: int) -> dict:
             "cross_tenant_blocked":bool(admitted),
             "model_inference":False,
             "native_pst_qualified":False,
+            "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
+    if workload == "mail-temporal-postgres-r2":
+        # Actual official PG18 server in one ephemeral no-port Docker container.
+        # Fixed original container digest and fixed source fixture only.
+        try:
+            cp=subprocess.run(
+                [sys.executable,"scripts/qualify_temporal_postgres18.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>8192:
+                error=re.search(r"POSTGRES_FIRST_FAILURE=([A-Z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_POSTGRES_FIRST_FAILURE="+
+                    (error.group(1) if error else "UNCLASSIFIED_RUNTIME"),
+                    flush=True)
+                raise ValueError("NATIVE_POSTGRES_RUN_FAILED")
+            observed=json.loads(cp.stdout)
+            admitted=(
+                isinstance(observed,dict)
+                and observed.get("schema")=="mail-temporal-native-postgresql18-r2"
+                and observed.get("classification")=="NATIVE_POSTGRES18_TEMPORAL_ONLY"
+                and observed.get("postgres_version","").startswith("18.7")
+                and observed.get("image_digest")=="e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61"
+                and observed.get("image_immutable") is True
+                and observed.get("qualified_cases")==8
+                and observed.get("source_occurrences")==6
+                and observed.get("claims")==6
+                and observed.get("four_valued_source_support") is True
+                and observed.get("valid_at_and_known_at_separate") is True
+                and observed.get("overlap_constraint_qualified") is True
+                and observed.get("same_source_overlap_denied") is True
+                and observed.get("different_source_overlap_preserved") is True
+                and observed.get("cross_tenant_denied") is True
+                and observed.get("immutable_source_denied") is True
+                and observed.get("restart_verified") is True
+                and observed.get("local_only_no_published_ports") is True
+                and observed.get("model_inference") is False
+                and observed.get("native_pst_qualified") is False
+                and isinstance(observed.get("fixture_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["fixture_sha256"]) is not None
+                and type(observed.get("elapsed_seconds")) in (float,int)
+                and 0<=observed["elapsed_seconds"]<=timeout)
+        except (ValueError,OSError,subprocess.TimeoutExpired,AttributeError,TypeError):
+            admitted,observed,cp=False,{},None
+        return {
+            "oracle_verified":bool(admitted),
+            "classification":"PASS" if admitted else "FAIL_POSTGRES_NATIVE",
+            "native_postgres_executed":bool(admitted),
+            "engine_version":observed.get("postgres_version") if admitted else None,
+            "image_digest":observed.get("image_digest") if admitted else None,
+            "source_occurrences":6 if admitted else 0,
+            "qualified_cases":8 if admitted else 0,
+            "valid_knowledge_separate":bool(admitted),
+            "same_source_overlap_denied":bool(admitted),
+            "different_source_overlap_preserved":bool(admitted),
+            "immutable_source_denied":bool(admitted),
+            "restart_verified":bool(admitted),
+            "cross_tenant_blocked":bool(admitted),
+            "network_port_published":False,
+            "model_inference":False,
+            "native_pst_qualified":False,
+            "fixture_sha256":observed.get("fixture_sha256") if admitted else None,
             "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
         }
     if workload == "mail-openworker-scripted":
