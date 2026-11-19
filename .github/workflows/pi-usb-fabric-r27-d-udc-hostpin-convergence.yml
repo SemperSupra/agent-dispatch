@@ -1,0 +1,63 @@
+name: USB Fabric R27-D real ConfigFS raw B fence and preboot host pinned USBIP Ed25519 one-run
+on:
+  push:
+    branches: [test/issue-534-r27-udc-hostpin-convergence]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r27-d-udc-hostpin-convergence.yml'
+      - 'experiments/pi-usb-fabric-r27/convergence/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r27-d-udc-hostpin-convergence.yml'
+      - 'experiments/pi-usb-fabric-r27/convergence/**'
+permissions:
+  contents: read
+jobs:
+  real-configfs-udc-kernel-fenced-preapproved-usbip-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 42
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin original real R26 Manager and HELD source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r25-existing-go
+          persist-credentials: false
+      - name: Pin original test guest signed Ed25519 observer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: dc96c80b78540bc5b05ad70179c7afff647c3cbc
+          path: .r25-guest-signer
+          persist-credentials: false
+      - name: Pin qualified R26-B preboot guest-key provisioner and signer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 1a3b17e664eb6fe1127575a509492ef5baa67802
+          path: .r27-preenrollment
+          persist-credentials: false
+      - name: Pin qualified real ConfigFS VUDC kernel unbind and late raw consumer B negative
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 740d1eb115fe1b62364118ee07e5867f0625683b
+          path: .r27-udc-qualified
+          persist-credentials: false
+      - name: Require same real three Linux kernels UDC preunbind/late raw B denial + host-preapproved signed guest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r27/convergence/verify.sh
+      - name: Preserve complete three kernel actual USBIP/QMP witness logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r27-d-real-udc-preapproved-signed-vhci
+          path: ${{ runner.temp }}/r27-d-real-udc-preboot-guest-composed.log
+          retention-days: 7
+          if-no-files-found: warn
