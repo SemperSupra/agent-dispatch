@@ -1,0 +1,19 @@
+name: USB Fabric R27-H9 - two signed Linux guest leases after QMP listener unlink
+on:
+  push:
+    branches: [test/issue-470-r27h9-signed-guest-qmp-unlink]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-guest-qmp-path-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test signed two-lease QEMU release with sealed QMP socket pathname
+        run: bash experiments/usb-fabric-r26/integrated/r27h9_signed_qmp_unlink_verify.sh
