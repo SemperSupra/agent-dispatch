@@ -193,6 +193,9 @@ jobs:
           - runner: ubuntu-24.04
             request: requests/gha/mail-evidence-go-v1.json
             artifact_suffix: mail-go
+          - runner: ubuntu-24.04
+            request: requests/gha/mail-temporal-xtdb-r2.json
+            artifact_suffix: temporal-xtdb
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
