@@ -66,7 +66,7 @@ def main():
                 "console=ttyS0 rdinit=/init panic=1 loglevel=5",
                 "-nodefaults","-display","none","-serial","stdio",
                 "-monitor","none","-net","none","-no-reboot",
-                "-chardev","socket,id=chrtpm,path="+str(data),
+                "-chardev","socket,id=chrtpm,path="+str(ctrl),
                 "-tpmdev","emulator,id=tpm0,chardev=chrtpm",
                 "-device","tpm-tis,tpmdev=tpm0",
                 "-qmp","unix:"+str(qmpSocket)+",server=on,wait=off",
@@ -74,7 +74,7 @@ def main():
                 stderr=subprocess.STDOUT)
             ready(qmpSocket,qemu,"QEMU QMP")
             with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as conn:
-                conn.settimeout(8)
+                conn.settimeout(30)
                 conn.connect(str(qmpSocket))
                 channel=conn.makefile("rwb",buffering=0)
                 greeting=json.loads(channel.readline())
