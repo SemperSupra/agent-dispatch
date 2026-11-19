@@ -55,6 +55,8 @@ on:
       - 'scripts/verify_gha_typed_receipt.py'
       - 'requests/gha/**'
       - 'tools/mail-evidence-challenge/**'
+      - 'scripts/qualify_postgres18_temporal.py'
+      - 'scripts/verify_postgres18_temporal.py'
       - 'scripts/qualify_swi_prolog_temporal.py'
       - 'scripts/verify_swi_prolog_temporal.py'
       - '.github/workflows/gha-typed-public-cpu.yml'
@@ -371,5 +373,38 @@ jobs:
           path: |
             .gha-typed/temporal-prolog.json
             .gha-typed/temporal-prolog-verified.json
+          if-no-files-found: error
+          retention-days: 3
+
+  temporal-postgres18-native:
+    # Disposable original official image, no published ports, --network none.
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/mail-temporal-postgres18-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify actual PostgreSQL 18 SQL on isolated Docker service
+        run: python3 scripts/qualify_postgres18_temporal.py --out .gha-typed/postgres18.json
+      - name: Independently grade source/temporal outcomes and GitHub receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum .gha-typed/postgres18.json | cut -d ' ' -f1)
+          python3 scripts/verify_postgres18_temporal.py \
+            --receipt .gha-typed/postgres18.json --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --sha256 "$sha" \
+            --out .gha-typed/postgres18-verified.json
+      - name: Retain public fictional engine identity and verdict
+        if: always() && hashFiles('.gha-typed/postgres18.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-temporal-postgres18-${{ github.run_attempt }}
+          path: |
+            .gha-typed/postgres18.json
+            .gha-typed/postgres18-verified.json
           if-no-files-found: error
           retention-days: 3
