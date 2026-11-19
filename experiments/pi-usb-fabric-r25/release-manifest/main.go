@@ -22,6 +22,7 @@ type Receipt struct {
     Kind string `json:"kind"` // contract, real-qemu, real-usbip, software-tpm
     Outcome string `json:"outcome"` // PASS, RED
     Marker string `json:"marker"`
+    ParentHead string `json:"parent_head,omitempty"`
     ArtifactID int64 `json:"artifact_id"`
     ArtifactSHA256 string `json:"artifact_sha256"`
     ChangedPaths []string `json:"changed_paths"`
