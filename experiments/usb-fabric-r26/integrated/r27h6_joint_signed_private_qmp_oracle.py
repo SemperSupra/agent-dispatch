@@ -186,7 +186,10 @@ def main():
         capture=private/"usb.pcap"
         qmp=str(private/"qmp.sock")
         receipt=str(private/"receipt.sock")
-        api=str(root/"api.sock")
+        broker_dir=root/"broker"
+        broker_dir.mkdir(mode=0o755)
+        os.chown(broker_dir,SERVICE_UID,SERVICE_UID)
+        api=str(broker_dir/"api.sock")
         os.chown(media,SERVICE_UID,SERVICE_UID)
         os.chown(private,SERVICE_UID,SERVICE_UID)
         qemu=actuator=first=second=third=None
@@ -332,6 +335,7 @@ def main():
             for p in (actuator,qemu):stop_as(p,SERVICE_UID)
             os.chown(private,0,0)
             private.chmod(0o700)
+            os.chown(broker_dir,0,0)
             print("R26_L9C_ALL_SYNTHETIC_PROCESSES_STOPPED=PASS",flush=True)
 
 if __name__=="__main__":
