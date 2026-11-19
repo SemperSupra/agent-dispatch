@@ -168,6 +168,14 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertNotIn("shell(",source)
         self.assertNotIn("process_create(",source)
 
+    def test_original_prolog_uses_on_demand_install_not_default_cpu_matrix(self):
+        text=(ROOT/".github/workflows/gha-typed-public-cpu.yml").read_text()
+        routine=text.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("requests/gha/mail-temporal-swipl-r2.json",routine)
+        admitted=text.split("\n  execute:",1)[1]
+        self.assertIn("if: inputs.request == 'requests/gha/mail-temporal-swipl-r2.json'",admitted)
+        self.assertIn("sudo apt-get install -y -qq --no-install-recommends swi-prolog-nox",admitted)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
