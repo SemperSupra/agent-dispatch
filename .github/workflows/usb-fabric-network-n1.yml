@@ -1,0 +1,33 @@
+name: USB Fabric Network N1 source policy qualification
+on:
+  pull_request:
+    paths:
+      - 'experiments/usb-fabric-network-n1/**'
+      - '.github/workflows/usb-fabric-network-n1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: experiments/usb-fabric-network-n1/go.mod
+          cache: false
+      - name: Offline stdlib test and race oracle
+        working-directory: experiments/usb-fabric-network-n1
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          go test -count=1 -race ./...
+          go vet ./...
+      - name: Emit bounded non-secret source receipt
+        if: always()
+        run: |
+          printf 'sha=%s\nrun_id=%s\nworkflow=%s\ngate=G1-source-only\n' "${GITHUB_SHA}" "${GITHUB_RUN_ID}" "${GITHUB_WORKFLOW}" >> "${GITHUB_STEP_SUMMARY}"
+          echo 'No network namespace, host firewall, USB kernel, physical hardware or USB/IP traffic exercised.' >> "${GITHUB_STEP_SUMMARY}"
