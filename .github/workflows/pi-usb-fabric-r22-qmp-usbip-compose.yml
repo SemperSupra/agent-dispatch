@@ -1,0 +1,44 @@
+name: USB Fabric R22-B existing R26 QMP guest proof plus R21 journal composition critic
+on:
+  push:
+    branches: [test/issue-473-qmp-usbip-compose]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-qmp-usbip-compose.yml'
+      - 'experiments/pi-usb-fabric-r22/qmp-usbip-compose/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r22-qmp-usbip-compose.yml'
+      - 'experiments/pi-usb-fabric-r22/qmp-usbip-compose/**'
+permissions:
+  contents: read
+jobs:
+  existing-r26-r21-gate-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exact source checkout of existing R26 Go Manager, QMP gate and guestwire
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r22-existing-go
+          persist-credentials: false
+      - name: Exercise existing R26 releasegate and R21 durable journal interlock
+        working-directory: experiments/pi-usb-fabric-r22/qmp-usbip-compose
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE/.r22-existing-go" rev-parse HEAD)" = 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          go test -race -count=1 -v ./...
+          go vet ./...
+          echo R22_B_TEST_ONLY_EXISTING_R26_R21_POLICY_COMPOSITION=PASS
+          echo R22_B_REAL_QMP_SAME_RUN_REAL_USBIP=NOT_TESTED
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all -- . ':(exclude).r22-existing-go')"
