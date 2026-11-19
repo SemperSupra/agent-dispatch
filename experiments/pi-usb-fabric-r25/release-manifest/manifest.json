@@ -19,7 +19,8 @@
       "artifact_sha256": "65a1cc588bdb6556d3559304d733a3cda40e13156428330e89c6c649bc6b8d1b",
       "changed_paths": [
         "experiments/pi-usb-fabric-r22/qmp-usbip-compose/usbip-guest-signing/broker.go"
-      ]
+      ],
+      "domain": "usbip-kernel"
     },
     {
       "id": "r24b-real-qmp-guest-signed",
@@ -34,7 +35,8 @@
       "artifact_sha256": "8eadaf171c7e6bb9c8eb6c145fbe8be1d60a8514a20b7c6912cc7e8f86f25308",
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/dynamic-real-qmp/oracle.py"
-      ]
+      ],
+      "domain": "qmp-native"
     },
     {
       "id": "r24c-real-guest-swtpm",
@@ -49,7 +51,8 @@
       "artifact_sha256": "35b9b540e207e6871b8e01a88998e2ef6d33e66d99102165b723d2a2b666f0a3",
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/guest-tpm/oracle.py"
-      ]
+      ],
+      "domain": "software-tpm"
     },
     {
       "id": "r25a-simulated-qmp-usbip-interlock",
@@ -64,7 +67,8 @@
       "artifact_sha256": "26e26f869cc5345c82e4d4f68e443c5e968da2e988638f357e1aca042bea5360",
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go"
-      ]
+      ],
+      "domain": "control-contract"
     },
     {
       "id": "r25b-real-qmp-readonly-with-usbip",
@@ -79,7 +83,8 @@
       "artifact_sha256": "ccf48e6dc467a021e844f67397a2092014b6fcbeffd38a4cbc077787204324df",
       "changed_paths": [
         "experiments/pi-usb-fabric-r25/qmp-usbip-vm-observer/qmp_observer.py"
-      ]
+      ],
+      "domain": "vm-provenance"
     },
     {
       "id": "r25c-event-splice-repaired",
@@ -96,6 +101,90 @@
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go",
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25_splice_test.go"
+      ],
+      "domain": "control-contract"
+    },
+    {
+      "id": "r26a-qmp-pci-real-linux-vhci",
+      "pr": 905,
+      "head": "33aec28731b59774fcbf29c38b14266b2dadf6e8",
+      "run": 44627286222,
+      "job": 135924363766,
+      "kind": "real-usbip",
+      "domain": "vm-provenance",
+      "outcome": "PASS",
+      "marker": "R26_A_REAL_LINUX_VHCI_AND_HOST_QMP_PCI_SAME_RUN=PASS",
+      "artifact_id": 14580691492,
+      "artifact_sha256": "558c3951613a803fec8df5bfd2b0b21a3687693045de200498a34cd09318b1a4",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r26/qmp-vhci-domain/qmp_pci.py"
+      ]
+    },
+    {
+      "id": "r26b-preboot-pinned-guest-wrong-key",
+      "pr": 907,
+      "head": "1a3b17e664eb6fe1127575a509492ef5baa67802",
+      "run": 44629004847,
+      "job": 135930362909,
+      "kind": "real-qemu",
+      "domain": "qmp-native",
+      "outcome": "PASS",
+      "marker": "R26_B_WRONG_HOST_PIN_HELD_AND_NO_READMISSION=PASS",
+      "artifact_id": 14580378138,
+      "artifact_sha256": "08098ab7a2b9e82b61ab57f348025851eade68c0fb5eb3f91218e17a946b19fa",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r26/host-pin/wrong_pin_oracle.py"
+      ]
+    },
+    {
+      "id": "r27a-real-configfs-raw-b-denial",
+      "pr": 912,
+      "head": "740d1eb115fe1b62364118ee07e5867f0625683b",
+      "run": 44635362912,
+      "job": 135952358167,
+      "kind": "real-usbip",
+      "domain": "usbip-kernel",
+      "outcome": "PASS",
+      "marker": "R27_A_REAL_RAW_B_LATE_IMPORT_DENIED_BEFORE_HOST_GRANT=PASS",
+      "artifact_id": 14585105586,
+      "artifact_sha256": "087cd943e5d70a281f3e213aa098415af8ad2c87d0be6a7664b6251dd366b7af",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r27/udc-admission/provider.init",
+        "experiments/pi-usb-fabric-r27/udc-admission/consumer-b.init"
+      ]
+    },
+    {
+      "id": "r27b-preapproved-key-real-vhci",
+      "pr": 915,
+      "head": "39bfbd3f0631f3e5915c0e934206c25e6d21eeac",
+      "run": 44635950793,
+      "job": 135954374521,
+      "kind": "real-usbip",
+      "domain": "usbip-kernel",
+      "outcome": "PASS",
+      "marker": "R27_B_REAL_LINUX_USBIP_ED25519_PREBOOT_PIN_SAME_RUN=PASS",
+      "artifact_id": 14584762033,
+      "artifact_sha256": "c07999c2d1dc3daf05f6c19d1595788766af725426c0c90333ba0d544b61c600",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r27/usbip-hostpin/broker.go",
+        "experiments/pi-usb-fabric-r27/usbip-hostpin/Dockerfile.base"
+      ]
+    },
+    {
+      "id": "r27c-original-go-kernel-stage",
+      "pr": 917,
+      "head": "bed9ad362be32cff3e200699ea3491ae114b9f33",
+      "run": 44637767425,
+      "job": 135960631045,
+      "kind": "contract",
+      "domain": "control-contract",
+      "outcome": "PASS",
+      "marker": "R27_C_QMP_ACK_CANNOT_AUTHORIZE_LINUX_VHCI_RELEASE=PASS",
+      "artifact_id": 14584626791,
+      "artifact_sha256": "2e2347ccd36d7bd589b45256779651e672e7600f2a755747016a5db1f9c1825e",
+      "changed_paths": [
+        "experiments/usb-fabric-r26/integrated/heldledger/kernel_release.go",
+        "experiments/usb-fabric-r26/integrated/blue/model.go"
       ]
     }
   ],
@@ -105,66 +194,116 @@
       "priority": "P0",
       "state": "PASS",
       "required_kind": "real-usbip",
-      "receipt_id": "r22b-three-kernel-ed25519"
+      "receipt_id": "r22b-three-kernel-ed25519",
+      "required_domain": "usbip-kernel"
     },
     {
       "id": "r24b_real_qmp_signed_test_guest",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "real-qemu",
-      "receipt_id": "r24b-real-qmp-guest-signed"
+      "receipt_id": "r24b-real-qmp-guest-signed",
+      "required_domain": "qmp-native"
     },
     {
       "id": "r25a_offline_qmp_usbip_policy",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "contract",
-      "receipt_id": "r25a-simulated-qmp-usbip-interlock"
+      "receipt_id": "r25a-simulated-qmp-usbip-interlock",
+      "required_domain": "control-contract"
     },
     {
       "id": "real_qmp_same_usbip_device_causal_interlock",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-usbip"
+      "required_kind": "real-usbip",
+      "required_domain": "qmp-usbip-causal"
     },
     {
       "id": "independently_pinned_guest_vm_identity",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-qemu"
+      "required_kind": "real-qemu",
+      "required_domain": "qmp-native"
     },
     {
       "id": "combined_crash_restart_and_raw_import_bypass",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-usbip"
+      "required_kind": "real-usbip",
+      "required_domain": "usbip-kernel"
     },
     {
       "id": "release_candidate_one_command_full_acceptance",
       "priority": "P0",
       "state": "NOT_TESTED",
-      "required_kind": "real-qemu"
+      "required_kind": "real-qemu",
+      "required_domain": "qmp-native"
     },
     {
       "id": "guest_software_tpm2_quote",
       "priority": "P1",
       "state": "PASS",
       "required_kind": "software-tpm",
-      "receipt_id": "r24c-real-guest-swtpm"
+      "receipt_id": "r24c-real-guest-swtpm",
+      "required_domain": "software-tpm"
     },
     {
       "id": "r25b_readonly_qmp_vm_observation_same_real_usbip_run",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "real-usbip",
-      "receipt_id": "r25b-real-qmp-readonly-with-usbip"
+      "receipt_id": "r25b-real-qmp-readonly-with-usbip",
+      "required_domain": "vm-provenance"
     },
     {
       "id": "r25c_cross_event_splice_contract_fixed",
       "priority": "P0",
       "state": "PASS",
       "required_kind": "contract",
-      "receipt_id": "r25c-event-splice-repaired"
+      "receipt_id": "r25c-event-splice-repaired",
+      "required_domain": "control-contract"
+    },
+    {
+      "id": "r26a_qmp_pci_and_real_vhci_provenance_only",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "required_domain": "vm-provenance",
+      "receipt_id": "r26a-qmp-pci-real-linux-vhci"
+    },
+    {
+      "id": "r26b_test_preboot_host_pinned_wrong_key_fence",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-qemu",
+      "required_domain": "qmp-native",
+      "receipt_id": "r26b-preboot-pinned-guest-wrong-key"
+    },
+    {
+      "id": "r27a_kernel_udc_raw_b_pregrant_negative",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "required_domain": "usbip-kernel",
+      "receipt_id": "r27a-real-configfs-raw-b-denial"
+    },
+    {
+      "id": "r27b_real_vhci_guest_preboot_key_test_only",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "required_domain": "usbip-kernel",
+      "receipt_id": "r27b-preapproved-key-real-vhci"
+    },
+    {
+      "id": "r27c_original_manager_typed_kernel_stage_contract",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "contract",
+      "required_domain": "control-contract",
+      "receipt_id": "r27c-original-go-kernel-stage"
     }
   ]
 }

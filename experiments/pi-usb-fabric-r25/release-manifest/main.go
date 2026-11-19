@@ -20,6 +20,7 @@ type Receipt struct {
     Run int64 `json:"run"`
     Job int64 `json:"job"`
     Kind string `json:"kind"` // contract, real-qemu, real-usbip, software-tpm
+    Domain string `json:"domain"` // actuator/control domain, never inferred from same VM
     Outcome string `json:"outcome"` // PASS, RED
     Marker string `json:"marker"`
     ParentHead string `json:"parent_head,omitempty"`
@@ -32,6 +33,7 @@ type Gate struct {
     Priority string `json:"priority"` // P0, P1
     State string `json:"state"` // PASS, RED, NOT_TESTED, BLOCKED
     RequiredKind string `json:"required_kind"`
+    RequiredDomain string `json:"required_domain"`
     ReceiptID string `json:"receipt_id,omitempty"`
 }
 type Manifest struct {
@@ -54,6 +56,17 @@ var sha40 = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var sha64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var kinds = map[string]bool{"contract":true,"real-qemu":true,"real-usbip":true,"software-tpm":true}
 var states = map[string]bool{"PASS":true,"RED":true,"NOT_TESTED":true,"BLOCKED":true}
+// Domains qualify WHICH actuator controls the device. A real QMP receipt
+// cannot qualify Linux kernel vhci_hcd/ConfigFS USBIP release merely because
+// QMP and USBIP report the same VM incarnation.
+var domainKind = map[string]string{
+    "control-contract":"contract",
+    "qmp-native":"real-qemu",
+    "usbip-kernel":"real-usbip",
+    "vm-provenance":"real-usbip",
+    "qmp-usbip-causal":"real-usbip",
+    "software-tpm":"software-tpm",
+}
 
 func Validate(m Manifest) Result {
     v:=Result{Valid:true}
@@ -83,6 +96,9 @@ func Validate(m Manifest) Result {
         if !kinds[r.Kind] || (r.Outcome!="PASS"&&r.Outcome!="RED") {
             fail("unsupported evidence kind/outcome: "+r.ID)
         }
+        if expected,ok:=domainKind[r.Domain];!ok||expected!=r.Kind {
+            fail("evidence domain/kind mismatch: "+r.ID)
+        }
         if r.Marker=="" {fail("missing first-hand CI marker: "+r.ID)}
         if r.ArtifactID<1 || !sha64.MatchString(r.ArtifactSHA256) {
             fail("missing exact evidence artifact ID and sha256: "+r.ID)
@@ -106,12 +122,14 @@ func Validate(m Manifest) Result {
     for _,g:=range m.Gates {
         if g.ID==""||gates[g.ID] {fail("empty or duplicate gate "+g.ID)}
         gates[g.ID]=true
-        if (g.Priority!="P0"&&g.Priority!="P1") || !states[g.State] || !kinds[g.RequiredKind] {
+        if (g.Priority!="P0"&&g.Priority!="P1") || !states[g.State] ||
+            !kinds[g.RequiredKind] || domainKind[g.RequiredDomain]!=g.RequiredKind {
             fail("invalid gate fields: "+g.ID)
         }
         if g.State=="PASS" {
             r,found:=known[g.ReceiptID]
-            if !found || r.Outcome!="PASS" || r.Kind!=g.RequiredKind {
+            if !found || r.Outcome!="PASS" || r.Kind!=g.RequiredKind ||
+                r.Domain!=g.RequiredDomain {
                 fail("unproved gate PASS (wrong/missing evidence class): "+g.ID)
             }
             if g.Priority=="P0" {p0pass++}
