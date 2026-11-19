@@ -79,3 +79,40 @@ jobs:
           path: ${{ runner.temp }}/r22-b-real-r26-qmp-predecessor.log
           retention-days: 7
           if-no-files-found: warn
+
+  signed-guest-real-usbip-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Get exact existing R26 Go Manager and heldledger source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 2e580a0162452a6f59a449f769f9bfc5153e0aa3
+          path: .r22-existing-go
+          persist-credentials: false
+      - name: Pin previously qualified real-QEMU guest Ed25519 signer source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: dc96c80b78540bc5b05ad70179c7afff647c3cbc
+          path: .r22-a-qualified
+          persist-credentials: false
+      - name: Actual three-kernel USBIP HID handoff after Linux guest-origin Ed25519 verified release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r22/qmp-usbip-compose/usbip-guest-signing/verify.sh
+          echo R22_B_GUEST_ED25519_TO_REAL_USBIP_HANDOFF_TEST_ONLY=PASS
+          echo R22_B_INDEPENDENT_DYNAMIC_GUEST_ATTESTATION_AND_REAL_QMP=NOT_TESTED
+      - name: Preserve real guest/USBIP provider/Go broker/consumer evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r22-b-guest-signed-real-configfs-vudc-usbip-handoff
+          path: ${{ runner.temp }}/r22-b-real-usbip-signed-guest.log
+          retention-days: 7
+          if-no-files-found: warn
