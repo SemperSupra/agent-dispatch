@@ -2,15 +2,18 @@ package main
 
 import "testing"
 
-// R26-C RED oracle: changing the self-described evidence "kind" must not
-// turn a QMP-native actuation receipt into proof of kernel USBIP handoff.
-// A transport endpoint is controlled by Linux vhci_hcd + provider VUDC,
-// not by QMP's unrelated USB device object.
+// Source-authored RED first (Actions 44626894872): the old checker accepted
+// a self-described kind as proof of a different actuator domain. These
+// new cases require both a compatible receipt domain/kind and an EXACT
+// evidence-domain match with the gate. Neither change grants real device
+// authority: live job/source revalidation remains mandatory.
 func TestR26RejectsQMPNativeEvidenceForKernelUSBIPGate(t *testing.T) {
     m:=example()
-    m.Receipts[0].Kind="real-qemu"
-    m.Receipts[0].Marker="R24_B_ONE_REAL_QMP_DYNAMIC_ED25519_GUEST_LEASE_FSYNCED=PASS"
-    m.Gates[0].RequiredKind="real-qemu"
+    m.Receipts[0].Kind="real-usbip" // deliberately inflated self-description
+    m.Receipts[0].Domain="qmp-native" // source still QMP-native
+    m.Gates[0].ID="kernel-usbip-release"
+    m.Gates[0].RequiredKind="real-usbip"
+    m.Gates[0].RequiredDomain="usbip-kernel"
     if verdict:=Validate(m);verdict.Valid {
         t.Fatalf("R26_C_RED cross-domain QMP-native evidence laundered into kernel USBIP release: %+v",verdict)
     }
@@ -19,11 +22,12 @@ func TestR26RejectsQMPNativeEvidenceForKernelUSBIPGate(t *testing.T) {
 
 func TestR26ReadOnlyVMQMPCannotQualifyUSBIPKernelRelease(t *testing.T) {
     m:=example()
-    // Even a real-QEMU receipt with a matching VM UUID cannot discharge
-    // transport release. The assertion requires separate actuator domain.
-    m.Receipts[0].Kind="real-qemu"
+    m.Receipts[0].Kind="real-usbip"
+    m.Receipts[0].Domain="vm-provenance" // valid label; only VM observation
     m.Receipts[0].Marker="R25_B_QMP_CONSUMER_A_VM_NAME_UUID_STATUS=PASS"
-    m.Gates[0].RequiredKind="real-qemu"
+    m.Gates[0].ID="kernel-usbip-release"
+    m.Gates[0].RequiredKind="real-usbip"
+    m.Gates[0].RequiredDomain="usbip-kernel"
     if verdict:=Validate(m);verdict.Valid {
         t.Fatalf("R26_C_RED read-only QMP VM identity was accepted as kernel USBIP release: %+v",verdict)
     }
