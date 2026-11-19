@@ -24,7 +24,13 @@ def ready(path,proc,label,timeout=15):
     deadline=time.monotonic()+timeout
     while time.monotonic()<deadline:
         if proc.poll() is not None:
-            raise RuntimeError(label+" process died: "+str(proc.returncode))
+            stderr=b""
+            if proc.stdout is not None:
+                stderr=proc.stdout.read(65536)
+            elif proc.stderr is not None:
+                stderr=proc.stderr.read(65536)
+            raise RuntimeError(label+" process died: "+str(proc.returncode)+
+                " output-tail="+stderr.decode(errors="replace")[-4000:])
         if path.exists():return
         time.sleep(.1)
     raise RuntimeError(label+" socket missing")
