@@ -1,0 +1,56 @@
+name: WinBot first-logon prior-run receipt recovery (read only)
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-firstlogon-receipt-recovery.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-receipt-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve exact prior Windows producer artifact without repeating guest
+        uses: actions/download-artifact@v4
+        with:
+          name: winbot-firstlogon-psdirect
+          repository: SemperSupra/agent-dispatch
+          run-id: 44608439342
+          github-token: ${{ github.token }}
+          path: receipt
+      - name: Classify exact first-logon, PowerShell Direct, and cleanup receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import pathlib
+          p = pathlib.Path("receipt/firstlogon-receipt.json")
+          if not p.is_file():
+              raise SystemExit("FIRSTLOGON_RECEIPT_MISSING")
+          r = json.loads(p.read_text(encoding="utf-8-sig"))
+          if (r.get("schema") != "winbot-public-windows-guest-boot/v1"
+              or r.get("classification") != "PUBLIC_WINDOWS_FIRSTLOGON_WITNESS_ONLY"
+              or str(r.get("run_id")) != "44608439342"
+              or r.get("runner") != "windows-2025"):
+              raise SystemExit("FIRSTLOGON_RECEIPT_PROVENANCE_UNTRUSTED")
+          required = (
+              "official_iso_hash_matched", "wimlib_hash_matched", "exact_owned_disk",
+              "efi_ntfs_formatted", "windows_image_applied", "uefi_bcdboot_complete",
+              "owned_vm_registered", "guest_vm_started", "windows_heartbeat_observed",
+              "oobe_unattend_staged", "powershell_direct_observed",
+              "first_logon_marker_observed", "cleanup_complete",
+          )
+          for key in required:
+              if r.get(key) is not True:
+                  raise SystemExit("FIRSTLOGON_NOT_QUALIFIED: " + key)
+          for key in ("guest_network_attached", "winbot_product_installed",
+                      "winbot_mvp_accepted"):
+              if r.get(key) is not False:
+                  raise SystemExit("FALSE_WINBOT_OR_ISOLATION_CLAIM: " + key)
+          if r.get("first_failure") is not None:
+              raise SystemExit("PRODUCER_REPORTED_FAILURE")
+          print("PUBLIC_WINDOWS_GUEST_FIRSTLOGON_AND_PSDIRECT_ACCEPTED_FROM_RUN_44608439342")
+          print("ISOLATED_SYNTHETIC_GUEST_ONLY; WINBOT_PRODUCT_NOT_INSTALLED")
+          PY
