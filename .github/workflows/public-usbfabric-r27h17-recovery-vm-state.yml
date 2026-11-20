@@ -1,0 +1,21 @@
+name: USB Fabric R27-H17 - running VM recovery guard
+on:
+  push:
+    branches: [test/issue-470-r27h17-recovery-live-vm-state]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runtime-recovery-runstate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline running/paused/prelaunch QMP checks
+        run: cd experiments/usb-fabric-r26/integrated && GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -run 'TestRecovery|TestPrelaunch|TestPaused|TestStopped|TestContradictory|TestMissingState|TestMalformedState|TestQMPError|TestUnrecognized' -v ./cmd/actuator
+      - name: Disposable real QEMU signed guest recovery marker
+        run: bash experiments/usb-fabric-r26/integrated/r27h17_recovery_live_vm_verify.sh
