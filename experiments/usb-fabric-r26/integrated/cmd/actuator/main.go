@@ -595,6 +595,12 @@ func main(){
  }
  ex:=&executor{q:q,journal:journal}
  if recovered.Held {
+  actuallyRunning,stateErr:=q.recoveryRunning()
+  if stateErr!=nil || !actuallyRunning{
+   fmt.Fprintln(os.Stderr,"R27H17_UNKNOWN_OR_STOPPED_RECOVERY_VM_QUARANTINED=PASS",stateErr)
+   os.Exit(17)
+  }
+  fmt.Println("R27H17_LIVE_VM_RECOVERY_RUNSTATE_VERIFIED=PASS")
   // QMP ACK cannot prove that the guest input driver actually observed
   // key-up. Preserve the held journal and refuse client admission until
   // a separately authenticated guest/port reconciliation can clear it.
