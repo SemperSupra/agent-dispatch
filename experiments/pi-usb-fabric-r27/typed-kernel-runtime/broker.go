@@ -2,7 +2,8 @@
 
 // R18 disposable host-only bridge. Uses EXISTING blue.Manager and heldledger,
 // not another controller. It admits live USB/IP B only after independently
-// observed Linux guest UART/evdev evidence AND a test-only signed journal release.
+// observed Linux guest UART/evdev evidence and original typed A kernel release.
+// B's final state stays HELD until separately authenticated release.
 // Neither UART text nor this PUBLIC test MAC is production guest attestation.
 package main
 
@@ -48,9 +49,9 @@ func(e *journalExecutor)Input(command string)error {
   // QMP-owned native keyboard. Preserve release-intent, NEVER use QMP
   // ACK for A. B's final TEST-ONLY cleanup still uses old simulated
   // QMP stage and is explicitly NOT a qualifying signed B kernel release.
-  if st.Sequence>1 {
-    if _,err=e.s.AcknowledgeQMPRelease(st.Sequence);err!=nil{return err}
-  }
+  // Both A and B are kernel-owned USB/IP VHCI inputs. Never fabricate
+  // a QMP-native release ACK for either endpoint. B without its own
+  // independently signed kernel UP must remain held/quarantined.
   return pendingGuest
  default:return blue.ErrDenied
  }
@@ -308,19 +309,41 @@ func run()error{
  if err=m.Revoke(leaseB);!errors.Is(err,pendingGuest){
   return fmt.Errorf("R18_B_HELD_RELEASE_PENDING_PROOF=%v",err)
  }
+ // B's *actual* kernel HID events were observed, but it has NO second
+ // in-guest Ed25519 release receipt nor separately verified kernel-isolation
+ // witness. Keep the original heldledger release-intent, even on clean
+ // process exit, rather than invoking QMP-native ACK for a Linux VHCI input.
+ beforeB,err:=journal.Read()
+ if err!=nil||!beforeB.Held||beforeB.Sequence!=3||beforeB.ReleasePhase!="release-intent"{
+  return fmt.Errorf("R27_I_B_NOT_HELD_IN_RELEASE_INTENT %+v %v",beforeB,err)
+ }
+ frozenB,err:=os.ReadFile(journal.Path);if err!=nil{return err}
  if err=m.RestoreAfterVerifiedGuestUp(journal,3,claim(leaseA,1,10,11),verifier(leaseA));!errors.Is(err,heldledger.ErrUnverified){
-  return fmt.Errorf("R18_REPLAYED_A_RELEASE_B_LEASE=%v",err)
+  return fmt.Errorf("R27_I_STALE_A_RELEASE_ADMITTED_FOR_B=%v",err)
  }
- if err=m.RestoreAfterVerifiedGuestUp(journal,3,claim(leaseB,3,12,13),verifier(leaseB));err!=nil{return err}
+ if err=m.RestoreAfterVerifiedGuestUp(journal,3,claim(leaseB,3,12,13),verifier(leaseB));!errors.Is(err,heldledger.ErrUnverified){
+  return fmt.Errorf("R27_I_TEST_MAC_ONLY_B_RELEASE_ADMITTED=%v",err)
+ }
+ afterBytes,err:=os.ReadFile(journal.Path)
+ if err!=nil||!bytes.Equal(frozenB,afterBytes){
+  return errors.New("R27_I_INVALID_B_PROOF_MUTATED_DURABLE_HELD")
+ }
  final,err:=journal.Read()
- if err!=nil||final.Held||final.Sequence!=4||final.LastReleaseEventSequence!=13{
-  return fmt.Errorf("R18_FINAL_HELD_JOURNAL %+v %v",final,err)
+ if err!=nil||!final.Held||final.Sequence!=3||final.ReleasePhase!="release-intent"{
+  return fmt.Errorf("R27_I_FINAL_B_HELD_STATE_LOST %+v %v",final,err)
  }
- fmt.Println("R27_G_B_FINAL_CLEANUP_QMP_SIMULATED_ONLY=NOT_TESTED")
+ if _,err=m.Reserve("consumer-C","keyboard","xhci0/auto");!errors.Is(err,blue.ErrQuarantined){
+  return fmt.Errorf("R27_I_CONSUMER_C_ADMITTED_WITHOUT_B_KERNEL_RELEASE=%v",err)
+ }
+ fmt.Println("R27_I_NO_FAKE_QMP_ACK_FOR_LINUX_VHCI_B=PASS")
+ fmt.Println("R27_I_TEST_ONLY_B_RELEASE_PROOF_REJECTED_JOURNAL_BYTE_IDENTICAL=PASS")
+ fmt.Println("R27_I_B_DURABLE_HELD_RELEASE_INTENT_AFTER_REAL_HID=PASS")
+ fmt.Println("R27_I_CONSUMER_C_DENIED_UNTIL_INDEPENDENT_B_RELEASE=PASS")
+ fmt.Println("R27_I_GUEST_SIGNED_B_KERNEL_RELEASE=NOT_TESTED")
  fmt.Println("R27_G_PRIVILEGED_HOST_KERNEL_SENSORS=NOT_TESTED")
  fmt.Println("R27_G_DYNAMIC_BLUE_LEASE_SIGNED_IN_GUEST=NOT_TESTED")
  fmt.Println("R18_B_ACTUAL_KERNEL_EVDEV_AFTER_GO_B_GATE=PASS")
- fmt.Println("R18_STALE_A_PROOF_DENIED_AND_B_FRESH_RELEASE=PASS")
+ fmt.Println("R18_STALE_A_PROOF_DENIED_AND_B_HELD_QUARANTINED=PASS")
  fmt.Println("R18_EXISTING_GO_MANAGER_CONTROLLED_REAL_USBIP_B_TRIGGER=PASS")
  fmt.Println("R22_B_SIGNED_GUEST_A_PROOF_TO_REAL_CONFIGFS_VUDC_REBIND=PASS")
  fmt.Println("R27_B_PREBOOT_HOSTPIN_REAL_LINUX_USBIP_A_TO_B=PASS")
