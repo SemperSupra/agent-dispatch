@@ -50,6 +50,16 @@
       "conclusion": "success",
       "disposition": "PASS",
       "assertion": "R27H16_REAL_QEMU_ACTUATOR_RECHECKED_HELD=PASS"
+    },
+    {
+      "cell": "R27H20",
+      "pr": 925,
+      "source_sha": "53ca3a5e74c5b23a00420f11db438be61aacd24b",
+      "run_id": 44676642327,
+      "job_id": 136089933211,
+      "conclusion": "success",
+      "disposition": "PASS",
+      "assertion": "R27H20_SAME_QEMU_FRESH_GUEST_SIGNATURES_AFTER_SIGKILL=PASS"
     }
   ]
 }
