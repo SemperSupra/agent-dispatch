@@ -1,0 +1,59 @@
+name: USB Fabric R27-H exact security successor DLE and release refusal
+on:
+  push:
+    branches: [test/issue-563-r27h-proof-lineage]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r27-h-proof-lineage.yml'
+      - 'experiments/pi-usb-fabric-r25/release-manifest/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r27-h-proof-lineage.yml'
+      - 'experiments/pi-usb-fabric-r25/release-manifest/**'
+permissions:
+  contents: read
+jobs:
+  exact-source-security-successor-and-no-go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify fixed parent-child security lineage, evidence domains, four P0 holds
+        working-directory: experiments/pi-usb-fabric-r25/release-manifest
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -timeout 90s -v ./... | tee "$RUNNER_TEMP/r27-h-go-critic.log"
+          go vet ./...
+          for marker in \
+            R27_H_EXACT_PARENT_SECURITY_CHILD_REQUIRED_AND_PRESENT=PASS \
+            R27_H_SNAPSHOT_FOUR_P0_GATES_REMAIN_BLOCKED=PASS \
+            R27_H_MISSING_FALSE_PARENT_RED_CHILD_AND_KIND_INFLATION_REFUSED=PASS \
+            R27_H_ACTUAL_WRONG_PIN_NEGATIVE_CANNOT_PROMOTE_SAME_CAUSAL_RUN=PASS \
+            R27_H_REAL_UDC_F_SAME_RUN_NOT_TYPED_KERNEL_RELEASE=PASS; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r27-h-go-critic.log"
+          done
+          go run . -manifest manifest.json -format human | tee "$RUNNER_TEMP/r27-h-human.txt"
+          go run . -manifest manifest.json -format json | tee "$RUNNER_TEMP/r27-h-verdict.json"
+          grep -Fq '"valid": true' "$RUNNER_TEMP/r27-h-verdict.json"
+          grep -Fq '"release_eligible": false' "$RUNNER_TEMP/r27-h-verdict.json"
+          grep -Fq 'P0 NOT QUALIFIED: real_qmp_same_usbip_device_causal_interlock' "$RUNNER_TEMP/r27-h-human.txt"
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain --untracked-files=all)"
+          echo R27_H_GO_RACE_VET_SECURITY_LINEAGE_AND_NO_TAINT=PASS
+      - name: Retain machine and human release snapshot + adversarial critic logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r27-h-dle-ancestor-child-release-hold
+          path: |
+            ${{ runner.temp }}/r27-h-go-critic.log
+            ${{ runner.temp }}/r27-h-human.txt
+            ${{ runner.temp }}/r27-h-verdict.json
+          retention-days: 7
+          if-no-files-found: warn
