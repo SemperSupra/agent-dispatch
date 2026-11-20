@@ -182,6 +182,14 @@ if [ "$allowed" = yes ]; then
  # Only the host Go manager+fsynced journal gate can deliver ALLOW_B on an
  # independent guest /dev/ttyS1 QEMU ISA serial channel. TEST-ONLY source.
  if [ -c /dev/ttyS1 ]; then
+  # ttyS1 defaults to terminal ECHO, which reflected ALLOW_B to the host as
+  # a fake inbound line. Disable ECHO before READY or any permission bytes.
+  # Failure to configure the guest UART must keep the UDC unbound.
+  if ! /bin/busybox stty -F /dev/ttyS1 -echo -echoe -echok -echonl 2>/dev/console; then
+   echo R27_L_PROVIDER_UART_NO_ECHO=RED >/dev/console
+   sync;poweroff -f || reboot -f
+  fi
+  echo R27_L_PROVIDER_UART_NO_ECHO=PASS >/dev/console
   echo R18_PROVIDER_HOST_SERIAL_GATE_WAITING=PASS >/dev/console
   # R27-L: guest-side readiness on the QEMU-host-only UART. The host must
   # receive this actual guest write before sending a serialized ALLOW_B.
