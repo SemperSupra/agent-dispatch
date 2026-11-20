@@ -1,0 +1,28 @@
+name: USB Fabric R27-H23 - QMP DEVICE_DELETED plus QOM absence
+on:
+  push:
+    branches: [test/issue-470-r27h23-device-deleted-event]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qmp-event-and-qom:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Unit tests for asynchronous exact DEVICE_DELETED matching
+        run: |
+          cd experiments/usb-fabric-r26/integrated
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 ./topology ./cmd/recoveryprobe
+      - name: Disposable QEMU fresh signed UP then DEVICE_DELETED and QOM absent
+        run: bash experiments/usb-fabric-r26/integrated/r27h23_device_deleted_event_verify.sh
+      - name: Preserve unreconciled threats
+        run: |
+          echo R27H23_RAW_QMP_SAME_UID_SECURITY=RED
+          echo R27H23_VM_EPOCH_AND_EXCLUSIVE_CONTROL=NOT_TESTED
+          echo R27H23_FSYNC_HELD_CLEAR_AND_NEW_LEASE=NOT_TESTED
