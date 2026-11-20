@@ -15,7 +15,7 @@ func r27KernelWitness(sequence,guestUp uint64)KernelIsolationClaim{
   HostEpoch:"host1",GuestEpoch:"g1",
   LeaseEpoch:func()string{if sequence==1{return "lease-1"};return "lease-3"}(),
   Generation:sequence,ReleaseSequence:sequence,
-  GuestUpEventSequence:guestUp,ExporterBusID:"usbip-vudc.0",
+  GuestDownEventSequence:guestUp-1,GuestUpEventSequence:guestUp,ExporterBusID:"usbip-vudc.0",
   ConsumerVHCIPort:"vhci_hcd/port0",ProviderUDCUnbound:true,
   ConsumerVHCIQuiescent:true,
  }
