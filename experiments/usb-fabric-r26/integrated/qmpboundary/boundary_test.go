@@ -11,6 +11,7 @@ import (
  "strings"
  "syscall"
  "testing"
+ "time"
 )
 
 func TestChildDeniedByPrivateQMPDirectory(t *testing.T) {
