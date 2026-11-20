@@ -68,7 +68,8 @@
       "changed_paths": [
         "experiments/pi-usb-fabric-r24/qmp-usbip-identity/handoff_r25.go"
       ],
-      "domain": "control-contract"
+      "domain": "control-contract",
+      "requires_successor": "r25c-event-splice-repaired"
     },
     {
       "id": "r25b-real-qmp-readonly-with-usbip",
@@ -185,6 +186,42 @@
       "changed_paths": [
         "experiments/usb-fabric-r26/integrated/heldledger/kernel_release.go",
         "experiments/usb-fabric-r26/integrated/blue/model.go"
+      ],
+      "requires_successor": "r27d-current-down-up-security-fix"
+    },
+    {
+      "id": "r27d-current-down-up-security-fix",
+      "pr": 924,
+      "head": "45a4e97e1d7a521d9d15ed44027fee9eee39884d",
+      "parent_head": "bed9ad362be32cff3e200699ea3491ae114b9f33",
+      "run": 44676825009,
+      "job": 136090529135,
+      "kind": "contract",
+      "domain": "control-contract",
+      "outcome": "PASS",
+      "marker": "R27_D_CURRENT_DOWN_REQUIRED_FOR_SIGNED_UP=PASS",
+      "artifact_id": 14602596712,
+      "artifact_sha256": "cc11d9369f095fc3505044a3d6c1bccf63c5646cc1d5619bad2e8d3b30b405b2",
+      "changed_paths": [
+        "experiments/usb-fabric-r26/integrated/heldledger/kernel_release.go",
+        "experiments/usb-fabric-r26/integrated/heldledger/r27_down_splice_test.go"
+      ]
+    },
+    {
+      "id": "r27e-real-linux-vhci-wrong-pin",
+      "pr": 926,
+      "head": "1e253aea516716cc96d58a0561c4a7961b178bc9",
+      "parent_head": "39bfbd3f0631f3e5915c0e934206c25e6d21eeac",
+      "run": 44678032876,
+      "job": 136094476329,
+      "kind": "real-usbip",
+      "domain": "usbip-kernel",
+      "outcome": "PASS",
+      "marker": "R27_E_PREBOOT_WRONG_HOST_PIN_REJECTED_BY_GO_BROKER=PASS",
+      "artifact_id": 14602927731,
+      "artifact_sha256": "45328f4e6c9c10d2817674d0f9e6735650e2b8b6efae1853e3c76d27d313da94",
+      "changed_paths": [
+        "experiments/pi-usb-fabric-r27/wrong-pin-vhci/deny.sh"
       ]
     }
   ],
@@ -304,6 +341,22 @@
       "required_kind": "contract",
       "required_domain": "control-contract",
       "receipt_id": "r27c-original-go-kernel-stage"
+    },
+    {
+      "id": "r27d_current_down_up_security_contract_source",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "contract",
+      "required_domain": "control-contract",
+      "receipt_id": "r27d-current-down-up-security-fix"
+    },
+    {
+      "id": "r27e_real_linux_vhci_wrong_preboot_pin_denial",
+      "priority": "P0",
+      "state": "PASS",
+      "required_kind": "real-usbip",
+      "required_domain": "usbip-kernel",
+      "receipt_id": "r27e-real-linux-vhci-wrong-pin"
     }
   ]
 }
