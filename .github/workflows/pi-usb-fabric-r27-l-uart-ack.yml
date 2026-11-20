@@ -1,0 +1,80 @@
+name: USB Fabric R27-L actual QEMU provider UART READY ALLOW ACK with typed HELD B
+on:
+  push:
+    branches: [test/issue-577-r27l-real-provider-uart-ack]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r27-l-uart-ack.yml'
+      - 'experiments/pi-usb-fabric-r27/typed-kernel-runtime/**'
+      - 'experiments/pi-usb-fabric-r27/uart-ack/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r27-l-uart-ack.yml'
+      - 'experiments/pi-usb-fabric-r27/typed-kernel-runtime/**'
+permissions:
+  contents: read
+jobs:
+  real-linux-uart-ack-typed-kernel-b-held:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin original security-corrected R27-D typed Go Manager and heldledger
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 45a4e97e1d7a521d9d15ed44027fee9eee39884d
+          path: .r27-typed-go
+          persist-credentials: false
+      - name: Pin original test guest signed Ed25519 observer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: dc96c80b78540bc5b05ad70179c7afff647c3cbc
+          path: .r25-guest-signer
+          persist-credentials: false
+      - name: Pin qualified R26-B preboot guest-key provisioner and signer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 1a3b17e664eb6fe1127575a509492ef5baa67802
+          path: .r27-preenrollment
+          persist-credentials: false
+      - name: Pin independently qualified R27-A ConfigFS UDC pre-unbind and raw consumer B bypass sources
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 740d1eb115fe1b62364118ee07e5867f0625683b
+          path: .r27-udc-source
+          persist-credentials: false
+      - name: Qualify exact original R27-D Go Manager source and all ledger replay critics
+        shell: bash
+        working-directory: .r27-typed-go/experiments/usb-fabric-r26/integrated
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -Eeuo pipefail
+          go test -race -count=1 -timeout 100s -v ./... | tee "$RUNNER_TEMP/r27-g-original-go-ledger.log"
+          go vet ./...
+          grep -Fq 'R27_D_CURRENT_DOWN_REQUIRED_FOR_SIGNED_UP=PASS' "$RUNNER_TEMP/r27-g-original-go-ledger.log"
+          grep -Fq 'R27_D_FSYNCED_HOST_DOWN_WITNESS_TAMPER_REFUSED=PASS' "$RUNNER_TEMP/r27-g-original-go-ledger.log"
+          echo R27_G_EXACT_ORIGINAL_GO_R27_D_RACE_VET=PASS
+      - name: Require actual A to B USBIP and refuse B-to-C without signed kernel release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash experiments/pi-usb-fabric-r27/typed-kernel-runtime/verify.sh
+      - name: Preserve original three kernel RED and quarantine evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r27-l-real-qemu-provider-uart-ack-held-quarantine
+          path: |
+            ${{ runner.temp }}/r27-g-original-kernel-isolated-a-usbip.log
+            ${{ runner.temp }}/r27-g-original-go-ledger.log
+          retention-days: 7
+          if-no-files-found: warn
