@@ -7,10 +7,8 @@ import(
  "fmt"
  "io"
  "net/http"
- "os"
  "strconv"
  "strings"
- "time"
 )
 type Head struct{SHA string `json:"sha"`;Ref string `json:"ref"`}
 type RemotePR struct{
@@ -60,18 +58,4 @@ func verify(ctx context.Context,s Source,m Manifest)error{
   fmt.Printf("R27_E15_GITHUB_PR_%d_HEAD_BASE_ATTESTED=PASS\n",p.Number)
  }
  return nil
-}
-func main(){
- if len(os.Args)!=2{fmt.Fprintln(os.Stderr,"usage: live.go inventory.json");os.Exit(2)}
- raw,e:=os.ReadFile(os.Args[1]);if e!=nil{panic(e)}
- var m Manifest;if e=json.Unmarshal(raw,&m);e!=nil{panic(e)}
- token:=os.Getenv("GH_TOKEN")
- if token==""{fmt.Fprintln(os.Stderr,"GH_TOKEN required; no unauthenticated adoption");os.Exit(1)}
- ctx,cancel:=context.WithTimeout(context.Background(),60*time.Second);defer cancel()
- client:=Source{Endpoint:"https://api.github.com",Token:token,HTTP:&http.Client{Timeout:15*time.Second}}
- if e=verify(ctx,client,m);e!=nil{fmt.Fprintln(os.Stderr,e);os.Exit(1)}
- fmt.Printf("R27_E15_LIVE_DRAFT_PR_ANCESTRY=PASS count=%d\n",len(m.Nodes))
- fmt.Println("R27_E15_GIT_MERGE_BASE_VERIFIED=NOT_TESTED")
- fmt.Println("R27_E15_ONE_HEAD_RC=NOT_TESTED")
- fmt.Println("R27_E15_RELEASE_ADMISSION=BLOCKED")
 }
