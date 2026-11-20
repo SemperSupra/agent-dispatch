@@ -1,0 +1,22 @@
+name: USB Fabric R27-E16 - RED-preserving QMP evidence critic
+on:
+  push:
+    branches: [test/issue-447-r27e16-rc-threat-evidence]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-premature-qmp-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Red/blue scope and source authority cannot be rewritten
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc/securityinventory
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 -v "$d/check.go" "$d/check_test.go"
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run "$d/check.go" "$d/current.json"
