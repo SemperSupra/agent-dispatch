@@ -27,8 +27,8 @@
       "cell": "H27",
       "pr": 945,
       "commit": "a5c26d1ea06cc6877712fb21bd02168b4f9af806",
-      "result": "NOT_TESTED",
-      "surface": "real QEMU private QMP path across UID under public CI"
+      "result": "PASS_LIMITED",
+      "surface": "actual QEMU owner QMP query and different-UID hostile connect denied; original same UID and explicit inherited FD still RED"
     }
   ],
   "known_gates": {
