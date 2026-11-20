@@ -1,0 +1,24 @@
+name: USB Fabric R27-H26 - separate QMP uid and CLOEXEC primitives
+on:
+  push:
+    branches: [test/issue-470-r27h26-qmp-uid-fd-boundary]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  privilege-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Root-only disposable test for isolated Unix QMP service principal
+        run: |
+          cd experiments/usb-fabric-r26/integrated
+          sudo env PATH="$PATH" GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v -count=1 ./qmpboundary
+          echo R27H26_SYNTHETIC_QMP_PRINCIPAL_SEPARATION=PASS
+          echo R27H26_ACTUAL_QEMU_RAW_QMP_H7_REMEDIATION=NOT_TESTED
+          echo R27H26_DELIBERATE_INHERITED_FD=RED
