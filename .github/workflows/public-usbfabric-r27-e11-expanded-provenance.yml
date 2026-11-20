@@ -1,0 +1,28 @@
+name: USB Fabric R27-E11 - expanded authenticated Github evidence coverage
+on:
+  push:
+    branches: [test/issue-447-r27-e11-expanded-live-provenance]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  live-expanded-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify GitHub output marker cannot be spoofed by shell command log
+        run: GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v experiments/usb-fabric-r26/workcells/rc/liveverify/liveverify.go experiments/usb-fabric-r26/workcells/rc/liveverify/liveverify_test.go
+      - name: Independently verify five immutable PR run job log records including H7 RED
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run experiments/usb-fabric-r26/workcells/rc/liveverify/liveverify.go experiments/usb-fabric-r26/workcells/rc/liveverify/evidence.json
+          echo R27_E11_FIVE_LIVE_GITHUB_PROOFS=PASS
+          echo R27_E11_RELEASE_ACCEPTANCE=NOT_TESTED
