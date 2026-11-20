@@ -155,7 +155,7 @@ func observeSignedGuest(path string,deadline time.Time)(evidence.Event,evidence.
 func run()error{
  if len(os.Args)!=5 {return errors.New("usage r18-broker provider-log A-log B-log provider-serial-socket")}
  p,a,b,socket:=os.Args[1],os.Args[2],os.Args[3],os.Args[4]
- deadline:=time.Now().Add(175*time.Second)
+ deadline:=time.Now().Add(255*time.Second)
  rawPreapproved,err:=os.ReadFile("/guest/r27-approved-public.hex")
  if err!=nil{return fmt.Errorf("missing host pre-approved test public key: %w",err)}
  preapproved,err:=hex.DecodeString(strings.TrimSpace(string(rawPreapproved)))
@@ -295,10 +295,25 @@ func run()error{
  if err=m.Attach(leaseB);err!=nil{return err}
  // The *actual* USB/IP B import is now unblocked by the existing Go lease
  // decision, via host-only serial, NOT by a guest-controlled network string.
- if e:=c.SetWriteDeadline(time.Now().Add(5*time.Second));e!=nil{return e}
- if _,err=c.Write([]byte("ALLOW_B\n"));err!=nil{return err}
+ // R27-L: host socket creation/write does not prove receipt by the
+ // independently running Linux provider. Read exact READY from its UART,
+ // issue allow only after original Go kernel isolation fsync, and demand
+ // exact post-UDC-rebind ACK. This channel remains test-only, not attested.
+ if e:=c.SetDeadline(time.Now().Add(35*time.Second));e!=nil{return e}
+ uart:=bufio.NewReader(c)
+ readyLine,e:=uart.ReadString('\n')
+ if e!=nil||strings.TrimSuffix(strings.TrimSuffix(readyLine,"\n"),"\r")!="READY R27-L"{
+  return fmt.Errorf("R27_L_GUEST_UART_READY_MISSING_OR_INVALID line=%q err=%v",readyLine,e)
+ }
+ fmt.Println("R27_L_HOST_OBSERVED_ACTUAL_PROVIDER_UART_READY=PASS")
+ if _,err=c.Write([]byte("ALLOW_B R27-L\n"));err!=nil{return err}
  fmt.Println("R18_EXISTING_GO_BROKER_GRANTED_HOST_SERIAL_B_AFTER_FSYNC=PASS")
- if err=wait(p,deadline,"R18_PROVIDER_B_RETRY_AFTER_HOST_GATE=PASS");err!=nil{return err}
+ ackLine,e:=uart.ReadString('\n')
+ if e!=nil||strings.TrimSuffix(strings.TrimSuffix(ackLine,"\n"),"\r")!="ACK R27-L"{
+  return fmt.Errorf("R27_L_GUEST_UART_POST_UDC_ACK_MISSING_OR_INVALID line=%q err=%v",ackLine,e)
+ }
+ fmt.Println("R27_L_HOST_RECEIVED_ACTUAL_PROVIDER_POST_UDC_ACK=PASS")
+ if err=wait(p,deadline,"R27_L_PROVIDER_REAL_UDC_REBOUND_BEFORE_UART_ACK=PASS","R18_PROVIDER_B_RETRY_AFTER_HOST_GATE=PASS");err!=nil{return err}
  if err=wait(b,deadline,
   "R11_CONSUMER_B_REAL_USBIP_REASSIGNMENT=PASS",
   "R11_CONSUMER_B_INDEPENDENT_SECOND_HID_EVENTS=PASS",

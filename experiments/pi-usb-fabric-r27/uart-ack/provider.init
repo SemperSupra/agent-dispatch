@@ -1,0 +1,266 @@
+#!/bin/sh
+# Runs ONLY inside disposable QEMU Linux guest.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p /proc /sys /dev
+if mount -t proc proc /proc; then echo USBFABRIC_R04_PROC_MOUNT=PASS >/dev/console; else echo USBFABRIC_R04_PROC_MOUNT=RED >/dev/console; fi
+if mount -t sysfs sysfs /sys; then echo USBFABRIC_R04_SYSFS_MOUNT=PASS >/dev/console; else echo USBFABRIC_R04_SYSFS_MOUNT=RED >/dev/console; fi
+mount -t devtmpfs devtmpfs /dev || :
+echo USBFABRIC_R04_GUEST_BOOT=PASS >/dev/console
+uname -r >/dev/console
+for m in usbip_core usbip_host vhci_hcd usbip_vudc libcomposite dummy_hcd; do
+ if modprobe "$m" >/dev/console 2>&1; then
+   echo "USBFABRIC_R04_MODULE_${m}=LOADED" >/dev/console
+ else
+   echo "USBFABRIC_R04_MODULE_${m}=FAILED" >/dev/console
+ fi
+done
+# Upstream USB/IP vUDC example explicitly requests num=1; otherwise no UDC may register.
+modprobe -r usbip_vudc >/dev/console 2>&1 || :
+if modprobe usbip_vudc num=1 >/dev/console 2>&1; then
+ echo USBFABRIC_R04_VUDC_NUM1_LOAD=PASS >/dev/console
+else
+ echo USBFABRIC_R04_VUDC_NUM1_LOAD=RED >/dev/console
+fi
+mkdir -p /sys/kernel/config
+if mount -t configfs configfs /sys/kernel/config >/dev/console 2>&1; then
+ echo USBFABRIC_R04_CONFIGFS_MOUNT=PASS >/dev/console
+else
+ echo USBFABRIC_R04_CONFIGFS_MOUNT=RED >/dev/console
+fi
+if [ -d /sys/class/udc ]; then
+ echo USBFABRIC_R04_UDC_ENUM_BEGIN >/dev/console
+ ls -1 /sys/class/udc >/dev/console
+ echo USBFABRIC_R04_UDC_ENUM_END >/dev/console
+else
+ echo USBFABRIC_R04_UDC_ENUM=ABSENT >/dev/console
+fi
+# First actual gadget binding gate: synthetic HID keyboard (no host keyboard or real USB).
+g=/sys/kernel/config/usb_gadget/usbfabric_r05
+if [ ! -d /sys/kernel/config/usb_gadget ] || [ ! -d /sys/class/udc/usbip-vudc.0 ]; then
+  echo USBFABRIC_R05_GADGET_PREREQUISITE=RED >/dev/console
+else
+  mkdir -p "$g" "$g/strings/0x409" "$g/configs/c.1/strings/0x409"
+  echo 0x1d6b > "$g/idVendor"
+  echo 0x0104 > "$g/idProduct"
+  echo 0x0100 > "$g/bcdDevice"
+  echo 0x0200 > "$g/bcdUSB"
+  echo R05SYNTHETIC > "$g/strings/0x409/serialnumber"
+  echo USBFabric > "$g/strings/0x409/manufacturer"
+  echo SyntheticHID > "$g/strings/0x409/product"
+  echo HIDtest > "$g/configs/c.1/strings/0x409/configuration"
+  echo 100 > "$g/configs/c.1/MaxPower"
+  if modprobe usb_f_hid >/dev/console 2>&1; then echo USBFABRIC_R05_HID_FUNCTION_MODULE=PASS >/dev/console; else echo USBFABRIC_R05_HID_FUNCTION_MODULE=RED >/dev/console; fi
+  mkdir -p "$g/functions/hid.usb0"
+  echo 1 > "$g/functions/hid.usb0/protocol"
+  echo 1 > "$g/functions/hid.usb0/subclass"
+  echo 8 > "$g/functions/hid.usb0/report_length"
+  printf '\x05\x01\x09\x06\xa1\x01\x05\x07\x19\xe0\x29\xe7\x15\x00\x25\x01\x75\x01\x95\x08\x81\x02\x95\x01\x75\x08\x81\x03\x95\x05\x75\x01\x05\x08\x19\x01\x29\x05\x91\x02\x95\x01\x75\x03\x91\x03\x95\x06\x75\x08\x15\x00\x25\x65\x05\x07\x19\x00\x29\x65\x81\x00\xc0' > "$g/functions/hid.usb0/report_desc"
+  if [ "$(wc -c < "$g/functions/hid.usb0/report_desc")" = 63 ]; then
+    echo USBFABRIC_R05_HID_DESCRIPTOR_63_BYTES=PASS >/dev/console
+  else
+    echo USBFABRIC_R05_HID_DESCRIPTOR_63_BYTES=RED >/dev/console
+  fi
+  ln -s "$g/functions/hid.usb0" "$g/configs/c.1/hid.usb0"
+  if echo usbip-vudc.0 > "$g/UDC"; then
+    if [ "$(cat "$g/UDC")" = usbip-vudc.0 ]; then
+      echo USBFABRIC_R05_GADGET_UDC_BOUND=PASS >/dev/console
+    else
+      echo USBFABRIC_R05_GADGET_UDC_BOUND=RED >/dev/console
+    fi
+  else
+    echo USBFABRIC_R05_GADGET_UDC_BOUND=RED >/dev/console
+  fi
+  if [ -c /dev/hidg0 ]; then
+    echo USBFABRIC_R05_HIDG0_CHAR_DEVICE=PASS >/dev/console
+  else
+    echo USBFABRIC_R05_HIDG0_CHAR_DEVICE=RED >/dev/console
+  fi
+fi
+# Provider guest is its own QEMU Linux kernel with isolated Ethernet.
+modprobe e1000 >/dev/console 2>&1 || :
+if /bin/busybox ip addr add 10.77.0.1/24 dev eth0 >/dev/console 2>&1 && /bin/busybox ip link set eth0 up >/dev/console 2>&1; then
+ echo R08_PROVIDER_ETHERNET=PASS >/dev/console
+else
+ echo R08_PROVIDER_ETHERNET=RED >/dev/console
+fi
+if /bin/busybox ip addr add 10.78.0.1/24 dev eth1 >/dev/console 2>&1 && /bin/busybox ip link set eth1 up >/dev/console 2>&1; then
+ echo R10_PROVIDER_SECOND_CONSUMER_NETWORK=PASS >/dev/console
+else
+ echo R10_PROVIDER_SECOND_CONSUMER_NETWORK=RED >/dev/console
+fi
+/bin/busybox ip link set lo up >/dev/console 2>&1 || :
+mkdir -p /tmp /var/run
+echo R08_PROVIDER_DISTINCT_KERNEL_BOOT=PASS >/dev/console
+/usr/sbin/usbipd --device --debug >/dev/console 2>&1 &
+daemonpid="$!"
+sleep 2
+echo R08_PROVIDER_USBIPD_READY=PASS >/dev/console
+# A one-shot control channel is separate from USB/IP; trigger only once the
+# consumer has opened its *kernel evdev observer* after virtual enumeration.
+if /bin/busybox nc -l -p 3333 > /tmp/r08-command.txt 2>/dev/console; then
+ if /bin/busybox grep -qx GO /tmp/r08-command.txt; then
+  echo R08_PROVIDER_REMOTE_CONTROL_TRIGGER=PASS >/dev/console
+  if /bin/busybox printf '\x00\x00\x04\x00\x00\x00\x00\x00' > /dev/hidg0; then
+    sleep 1
+    if /bin/busybox printf '\x00\x00\x00\x00\x00\x00\x00\x00' > /dev/hidg0; then
+      echo R08_PROVIDER_SYNTHETIC_HID_REPORTS=PASS >/dev/console
+      echo R10_PROVIDER_A_HID_COMPLETE=PASS >/dev/console
+    else
+      echo R08_PROVIDER_SYNTHETIC_HID_REPORTS=RED >/dev/console
+    fi
+  else
+    echo R08_PROVIDER_SYNTHETIC_HID_REPORTS=RED >/dev/console
+  fi
+ else
+  echo R08_PROVIDER_REMOTE_CONTROL_TRIGGER=RED >/dev/console
+ fi
+else
+ echo R08_PROVIDER_REMOTE_CONTROL_TRIGGER=RED >/dev/console
+fi
+# Only signal consumer B after A has established HID transport.
+# B completes its attempted import while consumer A still holds the device.
+if /bin/busybox nc -l -p 3334 > /tmp/r10-ready.txt 2>/dev/console && grep -qx B_HELLO /tmp/r10-ready.txt; then
+ echo R10_PROVIDER_B_CHALLENGE_ISSUED=PASS >/dev/console
+else
+ echo R10_PROVIDER_B_CHALLENGE_ISSUED=RED >/dev/console
+fi
+if /bin/busybox nc -l -p 3335 > /tmp/r10-bdone.txt 2>/dev/console && grep -qx B_DONE /tmp/r10-bdone.txt; then
+ echo R10_PROVIDER_B_RESULT_RECEIVED=PASS >/dev/console
+else
+ echo R10_PROVIDER_B_RESULT_RECEIVED=RED >/dev/console
+fi
+# R27-A REAL provider-side kernel ConfigFS fence. BEFORE A is instructed
+# to detach, revoke UDC export so any direct raw USBIP import cannot bypass
+# the host-only Go B retry permission. The source A/B still have separate
+# independent Linux kernels.
+if [ "$(cat "$g/UDC")" != usbip-vudc.0 ]; then
+ echo R27_A_PROVIDER_UDC_PRE_FENCE=RED >/dev/console
+ sync;poweroff -f || reboot -f
+fi
+if printf '\n' > "$g/UDC" && [ -z "$(cat "$g/UDC")" ]; then
+ echo R27_A_PROVIDER_REAL_CONFIGFS_UDC_UNBOUND_BEFORE_A_DETACH=PASS >/dev/console
+else
+ echo R27_A_PROVIDER_REAL_CONFIGFS_UDC_UNBOUND_BEFORE_A_DETACH=RED >/dev/console
+ sync;poweroff -f || reboot -f
+fi
+sent=no
+for i in 1 2 3 4 5 6 7 8 9 10; do
+ if /bin/busybox printf 'RELEASE\n' | /bin/busybox nc -w 2 10.77.0.2 3336 >/tmp/r10-a-release.txt 2>&1; then sent=yes; break; fi
+ sleep 1
+done
+if [ "$sent" = yes ]; then echo R10_PROVIDER_A_RELEASE_SIGNAL=PASS >/dev/console; else echo R10_PROVIDER_A_RELEASE_SIGNAL=RED >/dev/console; fi
+# Provider must independently receive A's post-detach acknowledgment before
+# allowing B to import. This control signal is a TEST synchronization marker,
+# not a durable authenticated broker attestation.
+if /bin/busybox timeout 25 /bin/busybox nc -l -p 3339 > /tmp/r11-a-detached.txt 2>/dev/console && grep -qx A_DETACHED /tmp/r11-a-detached.txt; then
+ echo R11_PROVIDER_A_DETACH_CONFIRMED_BEFORE_B_RETRY=PASS >/dev/console
+ allowed=yes
+else
+ echo R11_PROVIDER_A_DETACH_CONFIRMED_BEFORE_B_RETRY=RED >/dev/console
+ allowed=no
+fi
+if [ "$allowed" = yes ]; then
+ # An actual late raw consumer-B USB/IP import is required BEFORE the
+ # ALLOW_B host gate is even requested. Source B's separate QEMU kernel
+ # attempts a real import across its Ethernet at the now unbound UDC.
+ sentprobe=no
+ for tick in 1 2 3 4 5 6 7 8 9 10; do
+  if /bin/busybox printf 'PROBE_B\n' | /bin/busybox nc -w 2 10.78.0.2 3338 > /tmp/r27-probe-send.txt 2>&1; then sentprobe=yes; break; fi
+  sleep 1
+ done
+ if [ "$sentprobe" != yes ]; then
+  echo R27_A_PROVIDER_LATE_RAW_B_PROBE=RED >/dev/console
+  sync;poweroff -f || reboot -f
+ fi
+ if /bin/busybox timeout 30 /bin/busybox nc -l -p 3342 > /tmp/r27-late-b-denied.txt 2>/dev/console && grep -qx B_PROBE_REJECTED /tmp/r27-late-b-denied.txt; then
+  echo R27_A_REAL_RAW_B_LATE_IMPORT_DENIED_BEFORE_HOST_GRANT=PASS >/dev/console
+ else
+  echo R27_A_REAL_RAW_B_LATE_IMPORT_DENIED_BEFORE_HOST_GRANT=RED >/dev/console
+  sync;poweroff -f || reboot -f
+ fi
+ # R18: An unauthenticated A_DETACHED TCP message must NEVER grant B access.
+ # Only the host Go manager+fsynced journal gate can deliver ALLOW_B on an
+ # independent guest /dev/ttyS1 QEMU ISA serial channel. TEST-ONLY source.
+ if [ -c /dev/ttyS1 ]; then
+  # ttyS1 defaults to terminal ECHO, which reflected ALLOW_B to the host as
+  # a fake inbound line. Disable ECHO before READY or any permission bytes.
+  # Failure to configure the guest UART must keep the UDC unbound.
+  if ! /bin/busybox stty -F /dev/ttyS1 -echo -echoe -echok -echonl 2>/dev/console; then
+   echo R27_L_PROVIDER_UART_NO_ECHO=RED >/dev/console
+   sync;poweroff -f || reboot -f
+  fi
+  echo R27_L_PROVIDER_UART_NO_ECHO=PASS >/dev/console
+  echo R18_PROVIDER_HOST_SERIAL_GATE_WAITING=PASS >/dev/console
+  # R27-L: guest-side readiness on the QEMU-host-only UART. The host must
+  # receive this actual guest write before sending a serialized ALLOW_B.
+  # This is LAB synchronization, not authenticated guest/kernel identity.
+  if ! printf 'READY R27-L\n' >/dev/ttyS1; then
+   echo R27_L_PROVIDER_UART_READY=RED >/dev/console
+   sync;poweroff -f || reboot -f
+  fi
+  echo R27_L_PROVIDER_UART_READY=PASS >/dev/console
+  /bin/busybox timeout 190 /bin/busybox head -n 1 /dev/ttyS1 >/tmp/r18-host-allow.txt 2>/dev/console || :
+  if grep -qx 'ALLOW_B R27-L' /tmp/r18-host-allow.txt; then
+   # The ACTUAL UDC kernel export remains absent until host-Go ALLOW_B.
+   if [ -n "$(cat "$g/UDC")" ]; then
+    echo R27_A_UDC_BOUND_BEFORE_HOST_GRANT=RED >/dev/console
+    sync;poweroff -f || reboot -f
+   fi
+   if printf 'usbip-vudc.0\n' > "$g/UDC" && [ "$(cat "$g/UDC")" = usbip-vudc.0 ]; then
+    echo R27_A_REAL_CONFIGFS_UDC_REBOUND_AFTER_HOST_GRANT=PASS >/dev/console
+    # Confirm the actual UDC is bound BEFORE acknowledging to the host.
+    # A socket write by the host alone is never sufficient as a guest ACK.
+    if printf 'ACK R27-L\n' >/dev/ttyS1; then
+     echo R27_L_PROVIDER_REAL_UDC_REBOUND_BEFORE_UART_ACK=PASS >/dev/console
+     echo R18_PROVIDER_B_RETRY_AFTER_HOST_GATE=PASS >/dev/console
+    else
+     echo R27_L_PROVIDER_UART_ACK=RED >/dev/console
+     sync;poweroff -f || reboot -f
+    fi
+   else
+    echo R27_A_REAL_CONFIGFS_UDC_REBOUND_AFTER_HOST_GRANT=RED >/dev/console
+    sync;poweroff -f || reboot -f
+   fi
+  else
+   echo R18_PROVIDER_B_RETRY_AFTER_HOST_GATE=RED >/dev/console
+   # No B retry on missing/invalid gate. Preserve RED, do not forge pass.
+   sync
+   poweroff -f || reboot -f
+  fi
+ else
+  echo R18_PROVIDER_HOST_SERIAL_GATE_WAITING=RED >/dev/console
+  sync
+  poweroff -f || reboot -f
+ fi
+ sent=no
+ for tick in 1 2 3 4 5 6 7 8 9 10; do
+  if /bin/busybox printf 'RETRY_B\n' | /bin/busybox nc -w 2 10.78.0.2 3337 >/tmp/r11-retry-b.txt 2>&1; then sent=yes; break; fi
+  sleep 1
+ done
+ if [ "$sent" = yes ]; then echo R11_PROVIDER_B_RETRY_AUTHORIZED=PASS >/dev/console; else echo R11_PROVIDER_B_RETRY_AUTHORIZED=RED >/dev/console; fi
+ if /bin/busybox timeout 30 /bin/busybox nc -l -p 3340 > /tmp/r11-b-go.txt 2>/dev/console && grep -qx GO_B /tmp/r11-b-go.txt; then
+  echo R11_PROVIDER_SECOND_CONSUMER_EVENT_TRIGGER=PASS >/dev/console
+  if /bin/busybox printf '\x00\x00\x04\x00\x00\x00\x00\x00' > /dev/hidg0; then
+   sleep 1
+   if /bin/busybox printf '\x00\x00\x00\x00\x00\x00\x00\x00' > /dev/hidg0; then
+    echo R11_PROVIDER_SECOND_SYNTHETIC_HID_PAIR=PASS >/dev/console
+   else
+    echo R11_PROVIDER_SECOND_SYNTHETIC_HID_PAIR=RED >/dev/console
+   fi
+  else
+   echo R11_PROVIDER_SECOND_SYNTHETIC_HID_PAIR=RED >/dev/console
+  fi
+ else
+  echo R11_PROVIDER_SECOND_CONSUMER_EVENT_TRIGGER=RED >/dev/console
+ fi
+ if /bin/busybox timeout 25 /bin/busybox nc -l -p 3341 > /tmp/r11-b-finished.txt 2>/dev/console && grep -qx B_DETACHED /tmp/r11-b-finished.txt; then
+  echo R11_PROVIDER_B_DETACHED_CONFIRMED=PASS >/dev/console
+ else
+  echo R11_PROVIDER_B_DETACHED_CONFIRMED=RED >/dev/console
+ fi
+fi
+sleep 2
+kill "$daemonpid" >/dev/console 2>&1 || :
+echo R08_PROVIDER_FINISHED=YES >/dev/console
+sync
+poweroff -f || reboot -f
