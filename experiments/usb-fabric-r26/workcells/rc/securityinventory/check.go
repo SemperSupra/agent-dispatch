@@ -32,7 +32,7 @@ type Manifest struct{
  Gates Gates `json:"known_gates"`
 }
 var sha=regexp.MustCompile(`^[0-9a-f]{40}$`)
-var expected=map[string]string{"H7":"RED","H24":"RED","H26":"PASS_LIMITED","H27":"NOT_TESTED"}
+var expected=map[string]string{"H7":"RED","H24":"RED","H26":"PASS_LIMITED","H27":"PASS_LIMITED"}
 func validate(m Manifest)error{
  if m.Schema!=1||m.ReleaseAdmission!="BLOCKED"{return errors.New("premature or unsupported release assertion")}
  if len(m.Evidence)!=len(expected){return errors.New("missing or extra evidence")}
