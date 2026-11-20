@@ -66,3 +66,25 @@ func TestR27HWrongKeyAdmissionCannotPromoteCausalKernelRelease(t *testing.T){
  }
  t.Log("R27_H_ACTUAL_WRONG_PIN_NEGATIVE_CANNOT_PROMOTE_SAME_CAUSAL_RUN=PASS")
 }
+
+func TestR27HRealUDCPrebootCompositionCannotClaimTypedFullRelease(t *testing.T) {
+ m:=r27hSnapshot(t)
+ exact:=r27hFind(t,&m,"r27f-same-run-real-udc-preboot-hostpin")
+ if exact.Kind!="real-usbip"||exact.Domain!="usbip-kernel"||
+    exact.PR!=931||exact.Run!=44692784166||exact.Job!=136142324995 {
+  t.Fatalf("source receipt widened or altered: %+v",exact)
+ }
+ // A real combined data-plane witness with a test-only simulated QMP ACK
+ // cannot establish privileged original typed kernel release authority.
+ for i:=range m.Gates {
+  if m.Gates[i].ID=="real_qmp_same_usbip_device_causal_interlock" {
+   m.Gates[i].State="PASS"
+   m.Gates[i].ReceiptID=exact.ID
+  }
+ }
+ v:=Validate(m)
+ if v.Valid || !strings.Contains(strings.Join(v.Errors," | "),"unproved gate PASS"){
+  t.Fatalf("real A+B test-only QMP ACK laundered into complete causal release: %+v",v)
+ }
+ t.Log("R27_H_REAL_UDC_F_SAME_RUN_NOT_TYPED_KERNEL_RELEASE=PASS")
+}
