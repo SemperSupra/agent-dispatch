@@ -1,0 +1,37 @@
+name: USB Fabric R27-H19 - guest EVIOCGKEY state and signed lease regression
+on:
+  push:
+    branches: [test/issue-470-r27h19-guest-evdev-recovery-rebind]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guest-kernel-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Guest kernel state parser and Ed25519 recovery contract
+        run: |
+          cd experiments/usb-fabric-r26/releasegate
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 ./guestwire/cmd/runtimeguest ./recoveryproof
+      - name: Real signed Linux guest kernel EVIOCGKEY under held input
+        run: bash experiments/usb-fabric-r26/integrated/r27h19_guest_kernel_rebind_verify.sh
+      - name: Explicit remaining proof gaps
+        run: |
+          echo R27H19_REAL_EVDEV_HELD_STATE_OBSERVED=PASS
+          echo R27H19_POSTCRASH_RECOVERY_REBIND_RECEIVED=NOT_TESTED
+          echo R27H19_POSTCRASH_GUEST_UP_VERIFIED=NOT_TESTED
+  legacy-two-lease-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Two actual signed guest leases with replay denial and QMP detach
+        run: bash experiments/usb-fabric-r26/integrated/r27h9_signed_qmp_unlink_verify.sh
