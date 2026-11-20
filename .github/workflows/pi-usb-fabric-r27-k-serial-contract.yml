@@ -1,0 +1,37 @@
+name: Pi USB Fabric R27-K offline serial READY-ALLOW-ACK contract
+on:
+  push:
+    branches:
+      - test/issue-576-r27k-serial-handshake-contract
+  pull_request:
+    branches:
+      - test/issue-568-r27i-b-held-quarantine
+    paths:
+      - experiments/pi-usb-fabric-r27/critics/r27k_serial_handshake.go
+      - .github/workflows/pi-usb-fabric-r27-k-serial-contract.yml
+permissions:
+  contents: read
+jobs:
+  fail-closed-causal-serial-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Qualify host receipt rather than host socket write
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run experiments/pi-usb-fabric-r27/critics/r27k_serial_handshake.go | tee "$RUNNER_TEMP/r27-k-serial.log"
+          for marker in             R27_K_SILENT_NO_GRANT_WITHOUT_RECEIPT=PASS             R27_K_WRONG_READY_NO_GRANT_WITHOUT_RECEIPT=PASS             R27_K_NO_ACK_NO_GRANT_WITHOUT_RECEIPT=PASS             R27_K_WRONG_ACK_NO_GRANT_WITHOUT_RECEIPT=PASS             R27_K_EXACT_READY_ALLOW_ACK_CAUSAL_CONTRACT=PASS             R27_K_SOCKET_WRITE_IS_NOT_GUEST_RECEIPT=PASS             R27_K_ACTUAL_QEMU_UART_RETRY_RECOVERY=NOT_TESTED; do
+            grep -Fxq "$marker" "$RUNNER_TEMP/r27-k-serial.log"
+          done
+      - name: Preserve test-only UART contract receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r27-k-offline-serial-ready-allow-ack
+          path: ${{ runner.temp }}/r27-k-serial.log
+          if-no-files-found: warn
+          retention-days: 7
