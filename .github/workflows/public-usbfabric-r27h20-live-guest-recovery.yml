@@ -1,0 +1,30 @@
+name: USB Fabric R27-H20 - real QEMU postcrash guest signed recovery proof
+on:
+  push:
+    branches: [test/issue-470-r27h20-live-postcrash-signed-up]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postcrash-signed-guest-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prove signed recovery verifier and actual Linux guest binder compile in sealed sources
+        run: |
+          cd experiments/usb-fabric-r26/releasegate
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 ./recoveryproof ./guestwire/cmd/runtimeguest
+          cd ../integrated
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -count=1 ./cmd/recoveryprobe
+      - name: Same real QEMU Linux guest postcrash fresh signed HELD and EV_KEY UP
+        run: bash experiments/usb-fabric-r26/integrated/r27h20_postcrash_signed_up_verify.sh
+      - name: Preserve fail-closed scope
+        run: |
+          echo R27H20_SYNTHETIC_SIGNED_GUEST_PROOF=PASS
+          echo R27H20_PRODUCTION_GUEST_ATTESTATION=NOT_TESTED
+          echo R27H20_SAFE_LEASE_READMISSION=NOT_TESTED
