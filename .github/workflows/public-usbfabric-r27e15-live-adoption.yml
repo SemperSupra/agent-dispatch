@@ -25,5 +25,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           d=experiments/usb-fabric-r26/workcells/rc/adoption
-          R27_E15_REQUIRE_LIVE=1 R27_E15_INVENTORY="$d/inventory.json" GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v -count=1 -run '^TestAuthenticatedLiveGithubDraftAncestry$' "$d/adoption.go" "$d/adoption_test.go" "$d/live.go" "$d/live_test.go" "$d/live_runner_test.go"
+          R27_E15_REQUIRE_LIVE=1 R27_E15_INVENTORY="$PWD/$d/inventory.json" GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v -count=1 -run '^TestAuthenticatedLiveGithubDraftAncestry$' "$d/adoption.go" "$d/adoption_test.go" "$d/live.go" "$d/live_test.go" "$d/live_runner_test.go"
           echo R27_E15_OWNER_MERGE_AUTHORITY=NOT_TESTED
