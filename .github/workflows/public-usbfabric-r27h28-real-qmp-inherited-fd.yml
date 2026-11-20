@@ -1,0 +1,37 @@
+name: USB Fabric R27-H28 - real QEMU explicitly inherited FD hostile bypass RED
+on:
+  push:
+    branches: [test/issue-581-r27h28-real-qmp-inherited-fd]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-qemu-fd-falsifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline syntax qualification
+        run: python3 -m py_compile experiments/usb-fabric-r26/integrated/r27h28_real_qemu_inherited_fd.py
+      - name: Install distro QEMU only in disposable public runner
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qemu-system-x86
+      - name: Real QEMU explicit FD bypass is security RED, not a mitigation PASS
+        run: |
+          set -euo pipefail
+          sudo python3 experiments/usb-fabric-r26/integrated/r27h28_real_qemu_inherited_fd.py | tee r27h28.log
+          grep -Fx 'R27H28_PATH_ACL_DENIED_FRESH_CONNECT=PASS' r27h28.log
+          grep -Fx 'R27H28_CLOEXEC_SET_ON_PARENT_FD=PASS' r27h28.log
+          grep -Fx 'R27H28_ATTACKER_DIFFERENT_UID_REAL_QMP_GREETING=PASS' r27h28.log
+          grep -Fx 'R27H28_ATTACKER_QMP_DEVICE_ADD_RECEIPT=RED' r27h28.log
+          grep -Fx 'R27H28_ATTACKER_QMP_DEVICE_DELETED_EVENT=RED' r27h28.log
+          grep -Fx 'R27H28_EXPLICIT_INHERITED_FD_ACTUAL_QEMU_BYPASS=RED' r27h28.log
+          grep -Fx 'R27H28_DISPOSABLE_QEMU_AND_SOCKET_CLEANUP=PASS' r27h28.log
+      - name: Preserve release NO-GO
+        run: |
+          echo R27H28_RAW_QMP_CAPABILITY_REVOCATION=RED
+          echo R27H28_ACTUAL_PRIVILEGED_GO_BROKER=NOT_TESTED
+          echo R27H28_FULL_RELEASE_GATE=BLOCKED
