@@ -1,0 +1,41 @@
+name: USB Fabric R27-E13 - authenticated H20 proof before release admission critique
+on:
+  push:
+    branches: [test/issue-447-r27-e13-live-admission-proof]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  authenticated-recovery-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Fail closed on forged live GitHub proof and incomplete release evidence
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 -v "$d/liveverify/liveverify.go" "$d/liveverify/liveverify_test.go"
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 -v "$d/recoveryadmission/main.go" "$d/recoveryadmission/main_test.go"
+      - name: First independently corroborate H20 and five earlier immutable GitHub job logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run "$d/liveverify/liveverify.go" "$d/liveverify/evidence.json"
+          echo R27_E13_H20_LIVE_GITHUB_PROVENANCE_VERIFIED=PASS
+      - name: Only after authenticated proof, require release gate BLOCKED for nine remaining conditions
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc
+          output=$(GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run "$d/recoveryadmission/main.go" "$d/recoveryadmission/current.json")
+          printf '%s\n' "$output"
+          printf '%s\n' "$output" | grep -Fx 'R27_E12_RELEASE_ADMISSION=BLOCKED blockers=9'
+          printf '%s\n' "$output" | grep -Fx 'BLOCKED: hostile-raw-qmp-red'
+          printf '%s\n' "$output" | grep -Fx 'BLOCKED: post-recovery-safe-new-lease'
+          echo R27_E13_LIVE_EVIDENCE_CANNOT_OVERRIDE_RELEASE_BLOCK=PASS
+          echo R27_E13_RELEASE_ADMISSION=BLOCKED
