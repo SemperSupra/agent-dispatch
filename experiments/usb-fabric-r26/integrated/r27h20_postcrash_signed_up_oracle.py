@@ -1,0 +1,566 @@
+#!/usr/bin/env python3
+"""R26-L9C: actual QEMU Linux evdev => trusted-TEST-ONLY virtio receipt
+=> host actuator verifies QMP+receipt => fsynced journal => fresh lease.
+
+The guest key is built by the host and the private half is extractable from
+the synthetic initramfs. This is NOT measured boot or production attestation.
+No physical devices, network API, host device access, passwords or secrets.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import tempfile
+import threading
+import time
+import importlib.util
+
+# Reuse R27-B independently qualified actual CLI test helper, installed
+# under its immutable hyphenated Docker path.
+spec=importlib.util.spec_from_file_location("r27_broker_helpers","/guest/r27-broker-cli-oracle.py")
+helpers=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helpers)
+control_snapshot=helpers.control_snapshot  # superseded by protected H6 wrapper
+
+class Lines:
+    """Continuously drain a real process' stdout without false readiness."""
+    def __init__(self, proc):
+        self.proc=proc
+        self.cv=threading.Condition()
+        self.lines=[]
+        self.done=False
+        threading.Thread(target=self.drain,daemon=True).start()
+    def drain(self):
+        pending=b""
+        try:
+            while True:
+                data=os.read(self.proc.stdout.fileno(),65536)
+                if not data:
+                    break
+                pending+=data
+                while b"\n" in pending:
+                    line,pending=pending.split(b"\n",1)
+                    decoded=line.decode("utf-8","replace").strip()
+                    with self.cv:
+                        self.lines.append(decoded)
+                        if len(self.lines)>4000:self.lines=self.lines[-2000:]
+                        self.cv.notify_all()
+        finally:
+            with self.cv:
+                self.done=True
+                self.cv.notify_all()
+    def wait(self,marker,timeout=140):
+        deadline=time.monotonic()+timeout
+        with self.cv:
+            while not any(marker in line for line in self.lines):
+                left=deadline-time.monotonic()
+                if left<=0 or self.done:
+                    raise RuntimeError("missing live marker "+marker+
+                        "; tail="+repr(self.lines[-16:]))
+                self.cv.wait(min(0.8,left))
+        print(marker,flush=True)
+
+def ready(proc,label,seconds=15):
+    limit=time.monotonic()+seconds
+    while time.monotonic()<limit:
+        if proc.poll() is not None:
+            raise RuntimeError("frontend closed before readiness "+label)
+        readable,_,_=select.select([proc.stdout],[],[],0.2)
+        if readable:
+            line=proc.stdout.readline()
+            if label not in line:
+                raise RuntimeError("unexpected frontend readiness "+line)
+            return
+    raise RuntimeError("frontend readiness timeout "+label)
+
+def request(proc,payload,timeout=15):
+    proc.stdin.write(json.dumps(payload)+"\n")
+    proc.stdin.flush()
+    readable,_,_=select.select([proc.stdout],[],[],timeout)
+    if not readable:
+        raise RuntimeError("frontend response timeout "+payload["op"])
+    line=proc.stdout.readline()
+    if not line:
+        raise RuntimeError("frontend closed during "+payload["op"])
+    return json.loads(line)
+
+def expect(result,ok,label):
+    if bool(result.get("ok"))!=ok:
+        raise RuntimeError(label+" unexpected result "+repr(result))
+    print(label+"=PASS",flush=True)
+
+def stop(proc):
+    if proc is not None and proc.poll() is None:
+        proc.kill()
+        proc.wait(timeout=7)
+
+# R27-H6: keep host service and client in distinct Linux principals.
+SERVICE_UID=65532
+CLIENT_UID=65533
+
+def as_uid(uid):
+    def drop():
+        os.setgroups([])
+        os.setgid(uid)
+        os.setuid(uid)
+    return drop
+
+def user_run(args,uid,**kwargs):
+    return subprocess.run(args,preexec_fn=as_uid(uid),timeout=12,**kwargs)
+
+def service_chmod(path,mode):
+    command=["python3","-c","import os,sys;os.chmod(sys.argv[1],int(sys.argv[2],8))",
+             str(path),oct(mode)]
+    result=user_run(command,SERVICE_UID,text=True,capture_output=True)
+    if result.returncode!=0:
+        raise RuntimeError("service socket chmod failed: "+result.stderr)
+
+def service_json(path):
+    code="import pathlib,sys;print(pathlib.Path(sys.argv[1]).read_text())"
+    result=user_run(["python3","-c",code,str(path)],SERVICE_UID,
+                    text=True,capture_output=True)
+    if result.returncode!=0:raise RuntimeError("service journal read failed: "+result.stderr)
+    return json.loads(result.stdout)
+
+def service_file_size(path):
+    code="import os,sys;print(os.stat(sys.argv[1]).st_size)"
+    result=user_run(["python3","-c",code,str(path)],SERVICE_UID,
+                    text=True,capture_output=True)
+    if result.returncode!=0:raise RuntimeError("service capture stat failed: "+result.stderr)
+    return int(result.stdout.strip())
+
+def service_media_hash(path):
+    code="import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())"
+    result=user_run(["python3","-c",code,str(path)],SERVICE_UID,
+                    text=True,capture_output=True)
+    if result.returncode!=0:raise RuntimeError("service media hash failed: "+result.stderr)
+    return result.stdout.strip()
+
+def hostile_qmp_denied(path):
+    code="import socket,sys;s=socket.socket(socket.AF_UNIX);s.settimeout(3);s.connect(sys.argv[1])"
+    result=user_run(["python3","-c",code,str(path)],CLIENT_UID,
+                    text=True,capture_output=True)
+    if result.returncode==0 or "Permission denied" not in result.stderr:
+        raise RuntimeError("P0 raw QMP access was not denied: "+repr((result.returncode,result.stderr)))
+    print("R27H6_REAL_QEMU_HOSTILE_RAW_QMP_DENIED=PASS",flush=True)
+
+def seal_qmp_listener(path):
+    code="import os,sys;os.unlink(sys.argv[1]);print('UNLINKED')"
+    result=user_run(["python3","-c",code,str(path)],SERVICE_UID,text=True,capture_output=True)
+    if result.returncode!=0 or "UNLINKED" not in result.stdout:
+        raise RuntimeError("service failed to seal QMP pathname: "+repr(result.stderr))
+    print("R27H9_QMP_PATH_UNLINKED_AFTER_CONTROLLER_HANDSHAKE=PASS",flush=True)
+
+def deny_same_uid_new_qmp(path):
+    code="import socket,sys;s=socket.socket(socket.AF_UNIX);s.settimeout(3);s.connect(sys.argv[1])"
+    result=user_run(["python3","-c",code,str(path)],SERVICE_UID,text=True,capture_output=True)
+    if result.returncode==0 or "No such file or directory" not in result.stderr:
+        raise RuntimeError("same-service UID could open new QMP after seal: "+repr((result.returncode,result.stderr)))
+    print("R27H9_SAME_UID_NEW_QMP_SESSION_DENIED=PASS",flush=True)
+
+def service_qmp_status(path):
+    script="""
+import json,socket,sys
+s=socket.socket(socket.AF_UNIX);s.settimeout(5);s.connect(sys.argv[1])
+f=s.makefile("rwb",buffering=0)
+g=json.loads(f.readline())
+if "QMP" not in g:raise RuntimeError("QMP greeting not received")
+for name in ("qmp_capabilities","query-status"):
+    f.write((json.dumps({"execute":name})+"\\n").encode())
+    for _ in range(25):
+        response=json.loads(f.readline())
+        if "event" in response:continue
+        if "return" not in response:raise RuntimeError(repr(response))
+        break
+    else:raise RuntimeError("QMP response not found")
+print("LIVE_QMP_STATUS_ACCEPTED")
+"""
+    result=user_run(["python3","-c",script,path],SERVICE_UID,text=True,capture_output=True)
+    if result.returncode!=0 or "LIVE_QMP_STATUS_ACCEPTED" not in result.stdout:
+        raise RuntimeError("independent QMP monitor is not actually available: "+repr(result.stderr))
+    print("R27H13_INDEPENDENT_QMP_STATUS_LIVE=PASS",flush=True)
+
+def protected_control_snapshot(api,op,expected_state,occupied,held):
+    result=user_run(["/guest/r26ctl","--socket",api,"--op",op],CLIENT_UID,
+                    text=True,capture_output=True)
+    if result.returncode!=0:raise RuntimeError("client CLI failed: "+result.stderr)
+    response=json.loads(result.stdout.strip())
+    if not response.get("ok"):raise RuntimeError("client CLI denied "+repr(response))
+    ports=response.get("ports") if op=="ports" else [response.get("port")]
+    if not isinstance(ports,list) or len(ports)!=1:
+        raise RuntimeError("invalid broker ports "+repr(response))
+    p=ports[0]
+    if (p.get("state")!=expected_state or p.get("occupied")!=occupied or
+        p.get("held")!=held or p.get("credential_mode")!="linux-so-peercred-uid"):
+        raise RuntimeError("unexpected protected broker state "+repr(p))
+    if "qmp" in json.dumps(p).lower() or "private_key" in json.dumps(p).lower():
+        raise RuntimeError("internal QMP data leaked")
+    print("R27H6_DISTINCT_UID_BROKER_"+op.upper()+"_"+expected_state.upper()+"=PASS",flush=True)
+
+def stop_as(proc,uid):
+    if proc is None or proc.poll() is not None:return
+    code="import os,signal,sys;os.kill(int(sys.argv[1]),signal.SIGKILL)"
+    r=user_run(["python3","-c",code,str(proc.pid)],uid,text=True,capture_output=True)
+    if r.returncode!=0:raise RuntimeError("unable to stop "+str(uid)+" process: "+r.stderr)
+    proc.wait(timeout=8)
+
+def main():
+    if os.geteuid()!=0:
+        raise RuntimeError("disposable identity constructor requires root test harness")
+    with tempfile.TemporaryDirectory(prefix="r27h6-signed-protected-",dir="/tmp") as d:
+        root=Path(d)
+        root.chmod(0o755)
+        private=root/"service-qmp"
+        private.mkdir(mode=0o700)
+        media=root/"media.img"
+        marker=b"R26-L9B-PUBLIC-SYNTHETIC"
+        media.write_bytes(marker+bytes(2097152-len(marker)))
+        original=hashlib.sha256(media.read_bytes()).hexdigest()
+        journal=private/"held.json"
+        capture=private/"usb.pcap"
+        qmp=str(private/"qmp.sock")
+        recovery_qmp=str(private/"recovery-monitor.sock")
+        receipt=str(private/"receipt.sock")
+        broker_dir=root/"broker"
+        broker_dir.mkdir(mode=0o755)
+        os.chown(broker_dir,SERVICE_UID,SERVICE_UID)
+        api=str(broker_dir/"api.sock")
+        os.chown(media,SERVICE_UID,SERVICE_UID)
+        os.chown(private,SERVICE_UID,SERVICE_UID)
+        qemu=actuator=first=second=third=None
+        qlogs=alogs=None
+        try:
+            qemu=subprocess.Popen([
+                "qemu-system-x86_64","-machine","q35","-accel","tcg",
+                "-cpu","qemu64","-m","1024M","-smp","1","-S",
+                "-nodefaults","-display","none","-monitor","none",
+                "-serial","stdio","-net","none","-no-reboot",
+                "-kernel","/guest/kernel","-initrd","/guest/initrd.gz",
+                "-append","console=ttyS0 rdinit=/init loglevel=7 panic=-1 r27_signed=1",
+                "-device","qemu-xhci,id=xhci0",
+                "-device","virtio-serial-pci,id=vs0",
+                "-chardev","socket,id=receipt,path="+receipt+",server=on,wait=off",
+                "-device","virtserialport,chardev=receipt,name=org.r26.receipts",
+                "-qmp","unix:"+qmp+",server=on,wait=off",
+                "-qmp","unix:"+recovery_qmp+",server=on,wait=off",
+            ],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+              preexec_fn=as_uid(SERVICE_UID))
+            qlogs=Lines(qemu)
+            actuator=subprocess.Popen([
+                "/guest/r26-actuator","--qmp",qmp,"--socket",api,
+                "--media",str(media),"--capture",str(capture),
+                "--journal",str(journal),"--receipt",receipt,"--scoped-receipts",
+                "--runtime-guest-public","/guest/r27-guest-public",
+                "--authorized-peer-uid","65533",
+                "--permitted-operations","status,ports,reserve,attach,start,input,detach",
+            ],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,preexec_fn=as_uid(SERVICE_UID))
+            alogs=Lines(actuator)
+            alogs.wait("R26_L_SOLE_QMP_ACTUATOR_LISTENING=PASS",20)
+            service_chmod(qmp,0o666)
+            service_chmod(api,0o666)
+            hostile_qmp_denied(qmp)
+            seal_qmp_listener(qmp)
+            deny_same_uid_new_qmp(qmp)
+            if qemu.poll() is not None or actuator.poll() is not None:
+                raise RuntimeError("established QEMU/actuator failed after QMP pathname seal")
+            print("R27H9_ESTABLISHED_QMP_ACTUATOR_SURVIVED_UNLINK=PASS",flush=True)
+            protected_control_snapshot(api,"status","available",False,False)
+            protected_control_snapshot(api,"ports","available",False,False)
+            print("R27E_COMBINED_SIGNED_GUEST_PEER_GATED_AVAILABLE=PASS",flush=True)
+            first=subprocess.Popen([
+                "/guest/r26-frontend","--socket",api,
+            ],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,text=True,bufsize=1,preexec_fn=as_uid(CLIENT_UID))
+            ready(first,'"state":"frontend-ready"')
+            lease=request(first,{"op":"reserve","actor":"approved-agent"})
+            expect(lease,True,"R26_L9C_INITIAL_LEASE")
+            base={"actor":"approved-agent","epoch":lease["epoch"],
+                  "generation":lease["generation"]}
+            expect(request(first,dict(base,op="attach")),True,"R26_L9C_GUEST_USB_ATTACHED")
+            expect(request(first,dict(base,op="start")),True,"R26_L9C_GUEST_BOOTED_BY_ACTUATOR")
+            qlogs.wait("R27C_REAL_LINUX_ED25519_EVDEV_READY=PASS")
+            qlogs.wait("R27C_GUEST_HOST_CHALLENGE_BOUND=PASS")
+            alogs.wait("R27C_HOST_BUILDER_GUEST_PUBLIC_KEY_PINNED=PASS")
+            alogs.wait("R27C_HOST_FRESH_ED25519_SCOPE_BOUND=PASS generation="+str(lease["generation"])+" release=1")
+            expect(request(first,dict(base,op="input",command="key-a-down")),
+                   True,"R26_L9C_FIRST_HOST_QMP_KEY_DOWN")
+            alogs.wait("R27C_REAL_ED25519_GUEST_DOWN_VERIFIED=PASS generation="+str(lease["generation"]))
+            qlogs.wait("R27H19_REAL_KERNEL_EVDEV_HELD_SAMPLED=PASS",25)
+            print("R27H19_ACTUAL_QEMU_KERNEL_EVDEV_KEY_STATE=PASS",flush=True)
+            held=service_json(journal)
+            if not held.get("held") or held.get("sequence")!=1:
+                raise RuntimeError("host did not write-ahead durable key down")
+            print("R26_L9C_REAL_GUEST_DOWN_HELD_JOURNAL=PASS",flush=True)
+            # H10 intentionally interrupts the actuator while the guest's
+            # first-hand signed key-down remains durably HELD.
+            stop_as(actuator,SERVICE_UID)
+            actuator=None
+            print("R27H10_ACTUATOR_SIGKILL_WHILE_GUEST_INPUT_HELD=PASS",flush=True)
+            if qemu.poll() is not None:
+                raise RuntimeError("QEMU unexpectedly exited with actuator")
+            still=service_json(journal)
+            if not still.get("held") or still.get("sequence")!=1:
+                raise RuntimeError("SIGKILL improperly cleared HELD journal: "+repr(still))
+            print("R27H10_POSTKILL_DURABLE_HELD_REMAINS=PASS",flush=True)
+            deny_same_uid_new_qmp(qmp)
+            print("R27H10_POSTKILL_NO_RAW_QMP_RECONNECT=PASS",flush=True)
+            client=user_run(["/guest/r26ctl","--socket",api,"--op","status"],CLIENT_UID,
+                            text=True,capture_output=True)
+            if client.returncode==0:
+                raise RuntimeError("dead broker unexpectedly answered status")
+            print("R27H10_POSTKILL_BROKER_UNAVAILABLE_FAIL_CLOSED=PASS",flush=True)
+            if service_media_hash(media)!=original:
+                raise RuntimeError("SIGKILL altered synthetic media")
+            print("R27H10_POSTKILL_MEDIA_UNCHANGED=PASS",flush=True)
+            # Retry with a FRESH broker socket path so the test cannot pass
+            # simply from a stale API socket name collision. The sealed QMP
+            # endpoint itself must remain inaccessible.
+            restart_api=str(broker_dir/"restart.sock")
+            restart=subprocess.Popen([
+                "/guest/r26-actuator","--qmp",qmp,"--socket",restart_api,
+                "--media",str(media),"--capture",str(capture),
+                "--journal",str(journal),"--receipt",receipt,"--scoped-receipts",
+                "--runtime-guest-public","/guest/r27-guest-public",
+                "--authorized-peer-uid","65533",
+                "--permitted-operations","status,ports,reserve,attach,start,input,detach",
+            ],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+              preexec_fn=as_uid(SERVICE_UID))
+            try:
+                restart.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                stop_as(restart,SERVICE_UID)
+                raise RuntimeError("replacement actuator did not fail closed without sealed QMP")
+            if restart.returncode==0:
+                raise RuntimeError("replacement actuator unexpectedly succeeded without QMP")
+            print("R27H11_REPLACEMENT_ACTUATOR_FAILED_WITH_SEALED_QMP=PASS",flush=True)
+            after_restart=service_json(journal)
+            if after_restart.get("held") is not True or after_restart.get("sequence")!=1:
+                raise RuntimeError("restart mutated held state: "+repr(after_restart))
+            print("R27H11_RESTART_DID_NOT_CLEAR_DURABLE_HELD=PASS",flush=True)
+            deny_same_uid_new_qmp(qmp)
+            print("R27H11_RESTART_CANNOT_NEW_CONNECT_RAW_QMP=PASS",flush=True)
+            # A separate disposable host recovery-proof observer sends a
+            # fresh recovery bind to the *surviving* QEMU guest virtio port
+            # before issuing QMP key-up. This deliberately exposed second
+            # QMP monitor is an RDTE test-only privilege, not a deployment.
+            probe=subprocess.Popen([
+                "/guest/r27-recoveryprobe",
+                "--qmp",recovery_qmp,
+                "--receipt",receipt,
+                "--journal",str(journal),
+                "--public","/guest/r27-guest-public",
+                "--epoch",str(lease["epoch"]),
+                "--generation",str(lease["generation"]),
+                "--release","1",
+                "--down-event","10",
+            ],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+              preexec_fn=as_uid(SERVICE_UID))
+            try:probe.wait(timeout=38)
+            except subprocess.TimeoutExpired:
+                stop_as(probe,SERVICE_UID)
+                raise RuntimeError("fresh signed postcrash guest proof timed out")
+            probe_output=probe.stdout.read().decode("utf-8","replace") if probe.stdout else ""
+            if probe.returncode!=0:
+                raise RuntimeError("fresh guest recovery proof failed closed: "+repr(probe_output[-4000:]))
+            for assertion in (
+                "R27H20_FRESH_HOST_RECOVERY_BIND_SENT=PASS",
+                "R27H20_FRESH_SIGNED_GUEST_KERNEL_HELD_SNAPSHOT=PASS",
+                "R27H20_LIVE_QEMU_STATUS_BEFORE_EMERGENCY_UP=PASS",
+                "R27H20_EMERGENCY_QMP_ACK_NOT_GUEST_PROOF=PASS",
+                "R27H20_REAL_GUEST_EVDEV_POSTCRASH_SIGNED_UP=PASS",
+                "R27H20_GUEST_UP_SIGNED_BUT_DURABLE_HELD_RETAINED=PASS",
+            ):
+                if assertion not in probe_output:
+                    raise RuntimeError("missing authenticated recovery proof "+assertion+": "+repr(probe_output[-4000:]))
+            qlogs.wait("R27H19_REAL_KERNEL_EVDEV_HELD_RECOVERY_SNAPSHOT_SIGNED=PASS",20)
+            qlogs.wait("R27H19_REAL_EVDEV_RECOVERY_KEY_UP_SIGNED=PASS",20)
+            if service_json(journal).get("held") is not True:
+                raise RuntimeError("recovery proof cleared durable HELD without topology reconciliation")
+            print("R27H20_SAME_QEMU_FRESH_GUEST_SIGNATURES_AFTER_SIGKILL=PASS",flush=True)
+            print("R27H20_POSTCRASH_HELD_NOT_RE_ADMITTED=PASS",flush=True)
+            print("R27H20_AUTHORITATIVE_TOPOLOGY_EPOCH_RECONCILIATION=NOT_TESTED",flush=True)
+            print("R27H20_SAFE_LEASE_READMISSION=NOT_TESTED",flush=True)
+            return
+
+            service_qmp_status(recovery_qmp)
+            print("R27H14_AUTHORIZED_TEST_RECOVERY_MONITOR_LIVE=PASS",flush=True)
+            valid_before=service_json(journal)
+            if valid_before.get("held") is not True or valid_before.get("sequence")!=1:
+                raise RuntimeError("valid durable journal changed before recovery")
+            healthy_api=str(broker_dir/"authorized-recovery.sock")
+            healthy=subprocess.Popen([
+                "/guest/r26-actuator","--qmp",recovery_qmp,"--socket",healthy_api,
+                "--media",str(media),"--capture",str(capture),
+                "--journal",str(journal),"--receipt",receipt,"--scoped-receipts",
+                "--runtime-guest-public","/guest/r27-guest-public",
+                "--authorized-peer-uid","65533",
+                "--permitted-operations","status,ports,reserve,attach,start,input,detach",
+            ],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+              preexec_fn=as_uid(SERVICE_UID))
+            try:healthy.wait(timeout=12)
+            except subprocess.TimeoutExpired:
+                stop_as(healthy,SERVICE_UID)
+                raise RuntimeError("recovery bootstrap failed to terminate after quarantine")
+            output=healthy.stdout.read().decode("utf-8","replace") if healthy.stdout else ""
+            if healthy.returncode!=0:
+                raise RuntimeError("recovery controller did not reach quarantined key-up path: "+repr(output[-2400:]))
+            required=("R26_L3_ACTUATOR_RESTART_FORCED_QMP_KEY_UP=PASS",
+                      "R26_L3_JOURNAL_REMAINS_HELD_PENDING_GUEST_ATTESTATION=PASS",
+                      "R26_L3_RECOVERY_HOLD_REQUIRES_TOPOLOGY_RECONCILIATION=PASS")
+            for assertion in required:
+                if assertion not in output:
+                    raise RuntimeError("missing explicit recovery assertion "+assertion+" "+repr(output[-2400:]))
+            if "R27H16_RUNTIME_EMERGENCY_HELD_RECHECK=PASS" not in output:
+                raise RuntimeError("runtime emergency safety postcondition missing: "+repr(output[-3000:]))
+            print("R27H16_REAL_QEMU_ACTUATOR_RECHECKED_HELD=PASS",flush=True)
+            print("R27H14_RECOVERY_QMP_KEY_UP_SENT_WITH_HELD=PASS",flush=True)
+            remaining=service_json(journal)
+            if remaining.get("held") is not True or remaining.get("sequence")!=1:
+                raise RuntimeError("QMP key up falsely cleared held journal: "+repr(remaining))
+            print("R27H14_GUEST_PROOF_REQUIRED_JOURNAL_STILL_HELD=PASS",flush=True)
+            service_qmp_status(recovery_qmp)
+            print("R27H14_LIVE_QMP_STILL_AVAILABLE_AFTER_QUARANTINED_EXIT=PASS",flush=True)
+            print("R27H14_AUTHENTICATED_GUEST_UP_AFTER_RESTART=NOT_TESTED",flush=True)
+            print("R27H14_SAFE_LEASE_READMISSION=NOT_TESTED",flush=True)
+            return
+
+            # Synthetic corruption while the service is stopped. Corruption
+            # does not authorize a fresh actuator or erase HELD state.
+            corrupt=b'{"held":true,"sequence":1,"release_phase":"truncated"'
+            write_code="import pathlib,sys;pathlib.Path(sys.argv[1]).write_bytes(bytes.fromhex(sys.argv[2]))"
+            wrote=user_run(["python3","-c",write_code,str(journal),corrupt.hex()],
+                           SERVICE_UID,text=True,capture_output=True)
+            if wrote.returncode!=0:
+                raise RuntimeError("service failed to stage corrupt journal: "+wrote.stderr)
+            print("R27H12_CORRUPT_HELD_JOURNAL_INJECTED=PASS",flush=True)
+            bad_api=str(broker_dir/"restart-corrupt.sock")
+            bad=subprocess.Popen([
+                "/guest/r26-actuator","--qmp",qmp,"--socket",bad_api,
+                "--media",str(media),"--capture",str(capture),
+                "--journal",str(journal),"--receipt",receipt,"--scoped-receipts",
+                "--runtime-guest-public","/guest/r27-guest-public",
+                "--authorized-peer-uid","65533",
+                "--permitted-operations","status,ports,reserve,attach,start,input,detach",
+            ],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+              preexec_fn=as_uid(SERVICE_UID))
+            try:bad.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                stop_as(bad,SERVICE_UID)
+                raise RuntimeError("replacement with corrupt journal did not fail closed")
+            if bad.returncode==0:
+                raise RuntimeError("corrupt journal wrongly admitted a replacement actuator")
+            print("R27H12_CORRUPT_JOURNAL_RESTART_DENIED=PASS",flush=True)
+            check_code="import pathlib,sys;print(pathlib.Path(sys.argv[1]).read_bytes().hex())"
+            result=user_run(["python3","-c",check_code,str(journal)],SERVICE_UID,
+                            text=True,capture_output=True)
+            if result.returncode!=0 or result.stdout.strip()!=corrupt.hex():
+                raise RuntimeError("replacement mutated corrupt held evidence")
+            print("R27H12_CORRUPT_LEDGER_EVIDENCE_NOT_REWRITTEN=PASS",flush=True)
+            deny_same_uid_new_qmp(qmp)
+            print("R27H12_CORRUPT_RESTART_RAW_QMP_STILL_SEALED=PASS",flush=True)
+            print("R27H12_CORRUPT_JOURNAL_WITH_ACCESSIBLE_QMP=NOT_TESTED",flush=True)
+
+            print("R27H11_RECOVERY_WITH_NEW_APPROVED_QMP_ENDPOINT=NOT_TESTED",flush=True)
+
+            print("R27H10_RELAUNCH_AND_VM_RECONCILIATION=NOT_TESTED",flush=True)
+            print("R27H10_GUEST_RELEASE_AFTER_KILL=NOT_TESTED",flush=True)
+            print("R27H10_EXISTING_QMP_FD_COMPROMISE=NOT_TESTED",flush=True)
+            return
+
+            stop_as(first,CLIENT_UID)
+            first=None
+            print("R26_L9C_FRONTEND_SIGKILL_AFTER_REAL_GUEST_DOWN=PASS",flush=True)
+            alogs.wait("R27C_ACTUAL_ED25519_UP_FSYNC_AND_READMISSION=PASS generation="+str(lease["generation"])+" release=1",35)
+            released=service_json(journal)
+            if released.get("held") or released.get("sequence")!=2 or (
+                released.get("last_release_event_sequence")!=11 or
+                len(released.get("last_release_proof_hash",""))!=64 or
+                released.get("release_phase","")!=""):
+                raise RuntimeError("guest UP did not durably clear held journal: "+repr(released))
+            print("R26_L9C_ACTUAL_GUEST_UP_FSYNCED_HELD_FALSE=PASS",flush=True)
+
+            second=subprocess.Popen([
+                "/guest/r26-frontend","--socket",api,
+            ],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,text=True,bufsize=1,preexec_fn=as_uid(CLIENT_UID))
+            ready(second,'"state":"frontend-ready"')
+            fresh=request(second,{"op":"reserve","actor":"approved-agent"})
+            expect(fresh,True,"R26_L9C_NEW_FRONTEND_RE_ADMITTED_AFTER_GUEST_PROOF")
+            if fresh["generation"]==lease["generation"] or fresh["epoch"]!=lease["epoch"]:
+                raise RuntimeError("lease generation not advanced or actor epoch changed")
+            new={"actor":"approved-agent","epoch":fresh["epoch"],
+                 "generation":fresh["generation"]}
+            expect(request(second,dict(new,op="attach")),True,
+                   "R26_L9C_SECOND_GUEST_LEASE_ATTACHED")
+            expect(request(second,dict(new,op="start")),True,
+                   "R26_L9C_SECOND_GUEST_LEASE_STARTED")
+            alogs.wait("R27C_HOST_FRESH_ED25519_SCOPE_BOUND=PASS generation="+str(fresh["generation"])+" release=3")
+            qlogs.wait("R27C_GUEST_SIGNED_PRIOR_CHALLENGE_REPLAY_SENT=PASS")
+            alogs.wait("R27C_OLD_SIGNED_GUEST_SCOPE_REPLAY_REJECTED=PASS")
+            expect(request(second,dict(new,op="input",command="key-a-down")),
+                   True,"R26_L9C_SECOND_HOST_KEY_DOWN")
+            qlogs.wait("R27C_REAL_SIGNED_GUEST_DOWN=PASS cycle=2",25)
+            # Each distinct lease requires its own scoped signed DOWN and
+            # UP; a QMP ACK alone must remain untrusted.
+            up=request(second,dict(new,op="input",command="key-a-up"))
+            expect(up,False,"R26_L9C_SECOND_QMP_ACK_ALONE_DENIED")
+            qlogs.wait("R27C_REAL_SIGNED_GUEST_UP=PASS cycle=2",25)
+            alogs.wait("R27C_ACTUAL_ED25519_UP_FSYNC_AND_READMISSION=PASS generation="+str(fresh["generation"])+" release=3",35)
+            again=service_json(journal)
+            if (again.get("held") or again.get("sequence")!=4 or
+                again.get("release_phase","")!="" or
+                again.get("last_release_event_sequence")!=13 or
+                len(again.get("last_release_proof_hash",""))!=64 or
+                again.get("last_release_proof_hash")==released.get("last_release_proof_hash")):
+                raise RuntimeError("second lease guest proof failed to fsync clean: "+repr(again))
+            print("R26_L9C_SECOND_DISTINCT_LEASE_UP_FSYNCED=PASS",flush=True)
+            # Detach is a separate, fail-closed port transition: manager
+            # quarantines BEFORE QMP device_del; DEVICE_DELETED is required.
+            expect(request(second,dict(new,op="detach")),True,
+                   "R26_L9C_KEYBOARD_DEVICE_DEL_REQUEST_CONFIRMED")
+            alogs.wait("R26_L9C_QMP_DEVICE_DELETED_EVENT=PASS id=r26-l-kbd")
+            alogs.wait("R26_L9C_HOST_QMP_KEYBOARD_DETACHED=PASS")
+            qlogs.wait("R27C_GUEST_SYSFS_KEYBOARD_ABSENT=PASS",35)
+            print("R26_L9C_HOST_AND_GUEST_TOPOLOGY_DETACH_CONVERGED=PASS",flush=True)
+            third=subprocess.Popen([
+                "/guest/r26-frontend","--socket",api,
+            ],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,text=True,bufsize=1,preexec_fn=as_uid(CLIENT_UID))
+            ready(third,'"state":"frontend-ready"')
+            denied=request(third,{"op":"reserve","actor":"approved-agent"})
+            expect(denied,False,"R26_L9C_NO_REASSIGN_DURING_POST_DETACH_QUARANTINE")
+            protected_control_snapshot(api,"status","quarantined",True,False)
+            protected_control_snapshot(api,"ports","quarantined",True,False)
+            print("R27E_COMBINED_SIGNED_GUEST_PEER_GATED_QUARANTINE=PASS",flush=True)
+            if service_media_hash(media)!=original:
+                raise RuntimeError("synthetic storage content mutated")
+            if service_file_size(capture)<=24:
+                raise RuntimeError("real QEMU USB pcap missing")
+            print("R26_L9C_ACTUAL_QEMU_USB_PCAP=PASS bytes="+str(service_file_size(capture)),flush=True)
+            public=Path("/guest/r27-guest-public")
+            if not public.is_file() or len(public.read_bytes())!=32:
+                raise RuntimeError("host did not independently pin exact 32-byte guest builder public key")
+            print("R27C_HOST_PINNED_PUBLIC_KEY_STAGED_OUT_OF_BAND=PASS",flush=True)
+            print("R27C_REAL_QEMU_TWO_ED25519_GUEST_RELEASES_AND_DETACH=PASS",flush=True)
+            print("R27E_SAME_RUN_ED25519_GUEST_PEER_CAPABILITIES_AND_CLI=PASS",flush=True)
+            print("R27H6_PROTECTED_SERVICE_TWO_SIGNED_RELEASES_AND_DETACH=PASS",flush=True)
+            print("R27H9_SIGNED_TWO_LEASES_AFTER_QMP_UNLINK=PASS",flush=True)
+            print("R27H9_EXISTING_FD_OR_PTRACE_ATTACK=NOT_TESTED",flush=True)
+            print("R27H9_CRASH_RECONNECT_FAILURE_MODE=NOT_TESTED",flush=True)
+            print("R27H6_SAME_UID_ATTACKER=NOT_TESTED",flush=True)
+            print("R27H6_PRODUCTION_GUEST_ATTESTATION=NOT_TESTED",flush=True)
+            print("R27C_EXTRACTABLE_INITRAMFS_PRODUCTION_ATTESTATION=NOT_TESTED",flush=True)
+            print("R27C_SEALED_HARDWARE_GUEST_IDENTITY=NOT_TESTED",flush=True)
+        finally:
+            for p in (third,second,first):stop_as(p,CLIENT_UID)
+            for p in (actuator,qemu):stop_as(p,SERVICE_UID)
+            os.chown(private,0,0)
+            private.chmod(0o700)
+            os.chown(broker_dir,0,0)
+            print("R26_L9C_ALL_SYNTHETIC_PROCESSES_STOPPED=PASS",flush=True)
+
+if __name__=="__main__":
+    main()
