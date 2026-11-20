@@ -18,6 +18,7 @@ import(
  heldledger "example.org/usb-fabric-r26-integrated/heldledger"
  "example.org/usb-fabric-r26-integrated/recoveryguard"
  "example.org/usb-fabric-r26-integrated/recoveryfence"
+ "example.org/usb-fabric-r26-integrated/topology"
  "example.org/usb-fabric-r26-releasegate/guestwire"
  "example.org/usb-fabric-r26-releasegate/recoveryproof"
 )
@@ -109,6 +110,15 @@ func run()error{
  if err=auth.ConfirmGuestKeyUp(up);err!=nil{return fmt.Errorf("postcrash signed UP untrusted: %w",err)}
  if !auth.Reclaimable(){return errors.New("fresh guest UP did not satisfy signed recovery verifier")}
  fmt.Println("R27H20_REAL_GUEST_EVDEV_POSTCRASH_SIGNED_UP=PASS")
+ // Detach only AFTER independently signed guest-UP under the same fresh
+ // recovery challenge. A QMP topology observation alone cannot clear HELD.
+ query:=func(name string,args map[string]any)(json.RawMessage,error){
+  return qmpCall(qmp,qe,qd,name,args)
+ }
+ removed,err:=topology.DetachAndConfirm(query,"r26-l-kbd")
+ if err!=nil||!removed{return fmt.Errorf("R27H22_USB_TOPOLOGY_UNTRUSTED: %w",err)}
+ fmt.Println("R27H22_REAL_QOM_DEVICE_REMOVAL_AFTER_GUEST_UP=PASS")
+
  after,err:=store.Read();if err!=nil{return err}
  if err=recoveryguard.VerifyEmergencyHold(before,after);err!=nil{return err}
  fmt.Println("R27H20_GUEST_UP_SIGNED_BUT_DURABLE_HELD_RETAINED=PASS")

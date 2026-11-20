@@ -39,5 +39,6 @@ COPY experiments/usb-fabric-r26/integrated/r27h16_runtime_held_guard_oracle.py /
 COPY experiments/usb-fabric-r26/integrated/r27h19_guest_kernel_rebind_oracle.py /guest/r27h19_guest_kernel_rebind_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27h20_postcrash_signed_up_oracle.py /guest/r27h20_postcrash_signed_up_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27h21_fenced_signed_recovery_oracle.py /guest/r27h21_fenced_signed_recovery_oracle.py
+COPY experiments/usb-fabric-r26/integrated/r27h22_signed_up_topology_oracle.py /guest/r27h22_signed_up_topology_oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]

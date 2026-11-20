@@ -1,0 +1,28 @@
+name: USB Fabric R27-H22 - signed recovery QOM topology confirmation
+on:
+  push:
+    branches: [test/issue-470-r27h22-topology-after-signed-up]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-up-qom-topology:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline QOM topology positive and adversarial tests
+        run: |
+          cd experiments/usb-fabric-r26/integrated
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 ./topology ./cmd/recoveryprobe ./recoveryfence
+      - name: Real QEMU signed guest UP, QOM detach and journal HELD preserved
+        run: bash experiments/usb-fabric-r26/integrated/r27h22_signed_up_topology_verify.sh
+      - name: Never promote cooperation to hostile same-UID isolation
+        run: |
+          echo R27H22_HOSTILE_EXISTING_RAW_QMP_FD=NOT_TESTED
+          echo R27H22_EXCLUSIVE_PRIVILEGED_QMP_CUSTODY=NOT_TESTED
+          echo R27H22_DURABLE_JOURNAL_CLEAR_AND_READMISSION=NOT_TESTED
