@@ -1,0 +1,47 @@
+name: Pi USB Fabric R27-J AST anti-fabricated-QMP-ACK critic
+on:
+  push:
+    branches:
+      - test/issue-570-r27j-kernel-ack-ast-critic
+  pull_request:
+    branches:
+      - test/issue-568-r27i-b-held-quarantine
+    paths:
+      - experiments/pi-usb-fabric-r27/critics/r27j_kernel_ack_ast.go
+      - .github/workflows/pi-usb-fabric-r27-j-ast-critic.yml
+permissions:
+  contents: read
+jobs:
+  offline-ast-negative-positive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require actual Go AST source and in-memory known-vulnerable RED mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f experiments/pi-usb-fabric-r27/typed-kernel-runtime/broker.go
+          go version
+          go run experiments/pi-usb-fabric-r27/critics/r27j_kernel_ack_ast.go -selftest | tee "$RUNNER_TEMP/r27-j-negative.log"
+          grep -Fxq 'R27_J_IN_MEMORY_SIMULATED_QMP_ACK_MUTATION=RED_EXPECTED' "$RUNNER_TEMP/r27-j-negative.log"
+          grep -Fxq 'R27_J_REAL_KERNEL_INPUT_AST_REJECTS_MUTATION=PASS' "$RUNNER_TEMP/r27-j-negative.log"
+          grep -Fxq 'R27_J_MISSING_INPUT_METHOD_DENIED=PASS' "$RUNNER_TEMP/r27-j-negative.log"
+      - name: Require actual R27-I kernel-owned Input free of fabricated native QMP ACK
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run experiments/pi-usb-fabric-r27/critics/r27j_kernel_ack_ast.go | tee "$RUNNER_TEMP/r27-j-positive.log"
+          grep -Fxq 'R27_J_KERNEL_INPUT_AST_GATE=PASS' "$RUNNER_TEMP/r27-j-positive.log"
+          grep -Fxq 'R27_J_RUNTIME_KERNEL_WITNESS=NOT_TESTED' "$RUNNER_TEMP/r27-j-positive.log"
+          grep -Fxq 'R27_J_CRASH_RESTART_ABA=NOT_TESTED' "$RUNNER_TEMP/r27-j-positive.log"
+      - name: Preserve independent offline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r27-j-go-ast-source-mutation-critic
+          path: ${{ runner.temp }}/r27-j-*.log
+          if-no-files-found: warn
+          retention-days: 7
