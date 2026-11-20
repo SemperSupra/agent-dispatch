@@ -115,8 +115,22 @@ func run()error{
  query:=func(name string,args map[string]any)(json.RawMessage,error){
   return qmpCall(qmp,qe,qd,name,args)
  }
- removed,err:=topology.DetachAndConfirm(query,"r26-l-kbd")
- if err!=nil||!removed{return fmt.Errorf("R27H22_USB_TOPOLOGY_UNTRUSTED: %w",err)}
+ found,err:=topology.Present(query,"r26-l-kbd")
+ if err!=nil||!found{return fmt.Errorf("R27H23_DEVICE_NOT_PRESENT_BEFORE_DETACH: %w",err)}
+ if err=topology.DetachWithEvent(qe,qd,"r26-l-kbd");err!=nil{
+  return fmt.Errorf("R27H23_DEVICE_DELETED_EVENT_MISSING: %w",err)
+ }
+ fmt.Println("R27H23_ACTUAL_DEVICE_DELETED_QMP_EVENT=PASS")
+ // DEVICE_DELETED must be corroborated by QOM absence; neither alone
+ // authorizes journal clearance or readmission.
+ removed:=false
+ for i:=0;i<60;i++{
+  present,checkErr:=topology.Present(query,"r26-l-kbd")
+  if checkErr!=nil{return checkErr}
+  if !present{removed=true;break}
+  time.Sleep(50*time.Millisecond)
+ }
+ if !removed{return errors.New("DEVICE_DELETED event without QOM disappearance")}
  fmt.Println("R27H22_REAL_QOM_DEVICE_REMOVAL_AFTER_GUEST_UP=PASS")
 
  after,err:=store.Read();if err!=nil{return err}
