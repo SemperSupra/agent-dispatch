@@ -51,7 +51,9 @@ func TestSeparatePrincipalAndNonInheritableSocket(t *testing.T) {
  if !strings.HasPrefix(inode,"socket:["){t.Fatal("unexpected FD target",inode)}
  // Go's temporary build directory may be root-only; stage exactly this
  // disposable test binary in a traversable directory for the uid-drop.
- helperDir:=t.TempDir()
+ helperDir,err:=os.MkdirTemp("/tmp","r27h26-uid-exec-")
+ if err!=nil{t.Fatal(err)}
+ defer os.RemoveAll(helperDir)
  if err=os.Chmod(helperDir,0755);err!=nil{t.Fatal(err)}
  helper:=filepath.Join(helperDir,"qmp-boundary-test")
  binary,err:=os.ReadFile(os.Args[0]);if err!=nil{t.Fatal(err)}
