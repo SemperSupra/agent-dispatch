@@ -48,7 +48,7 @@ func TestMissingSourceRejected(t *testing.T){i:=example();i.Proofs[0].SourceSHA=
 func TestHistoricalRedCannotBeRelabeled(t *testing.T){i:=example();i.Proofs[1].Disposition="PASS";if err:=valid(i);err==nil{t.Fatal("RED witness promoted")}}
 func TestRequiredSubstringIsNotREDToken(t *testing.T){i:=example();if err:=valid(i);err!=nil{t.Fatal(err)}}
 func TestNoMissingOrDuplicateProof(t *testing.T){i:=example();i.Proofs[1].Cell="R27H14";if err:=valid(i);err==nil{t.Fatal("duplicate")}}
-func TestLogMarkerRequiresExactToken(t *testing.T){if markerInLog("PREFIX=R27H14_KEY=PASS_suffix","R27H14_KEY=PASS"){t.Fatal("substring witness admitted")};if !markerInLog("time R27H14_KEY=PASS\n","R27H14_KEY=PASS"){t.Fatal("actual token rejected")}}
+func TestLogMarkerRequiresExactToken(t *testing.T){if markerInLog("PREFIX=R27H14_KEY=PASS_suffix","R27H14_KEY=PASS"){t.Fatal("substring witness admitted")};if !markerInLog("2026-11-20T00:00:00Z R27H14_KEY=PASS\n","R27H14_KEY=PASS"){t.Fatal("actual token rejected")}}
 func TestUnscopedRunDenied(t *testing.T){i:=example();i.Proofs[0].RunID=0;if valid(i)==nil{t.Fatal("missing run")}}
 
 func TestRejectEchoedButNeverExecutedMarker(t *testing.T){
