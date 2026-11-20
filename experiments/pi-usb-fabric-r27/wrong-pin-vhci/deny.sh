@@ -12,7 +12,7 @@ cleanup(){
  fi
 }
 trap cleanup EXIT INT TERM
-/bin/sh /guest/run.sh >/tmp/r27-e-three-guest-run.log 2>&1 &
+/bin/sh /guest/r27-b-run.sh >/tmp/r27-e-three-guest-run.log 2>&1 &
 runner=$!
 good=0
 i=0
