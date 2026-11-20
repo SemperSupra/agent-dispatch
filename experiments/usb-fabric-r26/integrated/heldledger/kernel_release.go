@@ -24,6 +24,7 @@ type KernelIsolationClaim struct {
  LeaseEpoch string
  Generation uint64
  ReleaseSequence uint64
+ GuestDownEventSequence uint64 // independently observed CURRENT USBIP VHCI key-down
  GuestUpEventSequence uint64
  ExporterBusID string
  ConsumerVHCIPort string
@@ -35,7 +36,9 @@ type KernelIsolationVerifier func(KernelIsolationClaim)bool
 func(k KernelIsolationClaim)valid()bool {
  return k.VMIncarnation!="" && k.GuestID!="" && k.DeviceID!="" &&
   k.HostEpoch!="" && k.GuestEpoch!="" && k.LeaseEpoch!="" &&
-  k.Generation>0 && k.ReleaseSequence>0 && k.GuestUpEventSequence>0 &&
+  k.Generation>0 && k.ReleaseSequence>0 &&
+  k.GuestDownEventSequence>0 &&
+  k.GuestUpEventSequence>k.GuestDownEventSequence &&
   k.ExporterBusID!="" && k.ConsumerVHCIPort!="" &&
   k.ProviderUDCUnbound && k.ConsumerVHCIQuiescent
 }
@@ -85,6 +88,7 @@ func(s Store)ConfirmGuestKernelRelease(expected uint64,k KernelIsolationClaim,
   c.LeaseEpoch!=k.LeaseEpoch || c.Generation!=k.Generation ||
   c.ReleaseSequence!=k.ReleaseSequence ||
   c.EventSequence!=k.GuestUpEventSequence ||
+  c.DownEventSequence!=k.GuestDownEventSequence ||
   c.DownEventSequence<=state.LastReleaseEventSequence ||
   c.EventSequence<=state.LastReleaseEventSequence {
   return State{},ErrUnverified
