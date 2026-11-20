@@ -6,13 +6,14 @@ WORKDIR /src/integrated
 COPY experiments/usb-fabric-r26/integrated/ /src/integrated/
 COPY experiments/usb-fabric-r26/releasegate/ /src/releasegate/
 ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
-RUN go test ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -o /out/r26-broker . && CGO_ENABLED=0 go build -trimpath -o /out/r26-actuator ./cmd/actuator && CGO_ENABLED=0 go build -trimpath -o /out/r26-frontend ./cmd/frontend && CGO_ENABLED=0 go build -trimpath -o /out/r26ctl ./cmd/controlcli
+RUN go test ./... && go vet ./... && CGO_ENABLED=0 go build -trimpath -o /out/r26-broker . && CGO_ENABLED=0 go build -trimpath -o /out/r26-actuator ./cmd/actuator && CGO_ENABLED=0 go build -trimpath -o /out/r26-frontend ./cmd/frontend && CGO_ENABLED=0 go build -trimpath -o /out/r26ctl ./cmd/controlcli && CGO_ENABLED=0 go build -trimpath -o /out/r27-recoveryprobe ./cmd/recoveryprobe
 
 FROM ${R15_IMAGE}
 COPY --from=go-builder /out/r26-broker /guest/r26-broker
 COPY --from=go-builder /out/r26-actuator /guest/r26-actuator
 COPY --from=go-builder /out/r26-frontend /guest/r26-frontend
 COPY --from=go-builder /out/r26ctl /guest/r26ctl
+COPY --from=go-builder /out/r27-recoveryprobe /guest/r27-recoveryprobe
 COPY experiments/usb-fabric-r26/integrated/orchestrator.py /guest/r26-orchestrator.py
 COPY experiments/usb-fabric-r26/integrated/actuator_oracle.py /guest/r26-actuator-oracle.py
 COPY experiments/usb-fabric-r26/integrated/actuator_restart_oracle.py /guest/r26-actuator-restart-oracle.py
@@ -36,5 +37,6 @@ COPY experiments/usb-fabric-r26/integrated/r27h12_corrupt_journal_restart_oracle
 COPY experiments/usb-fabric-r26/integrated/r27h14_held_restart_live_qmp_oracle.py /guest/r27h14_held_restart_live_qmp_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27h16_runtime_held_guard_oracle.py /guest/r27h16_runtime_held_guard_oracle.py
 COPY experiments/usb-fabric-r26/integrated/r27h19_guest_kernel_rebind_oracle.py /guest/r27h19_guest_kernel_rebind_oracle.py
+COPY experiments/usb-fabric-r26/integrated/r27h20_postcrash_signed_up_oracle.py /guest/r27h20_postcrash_signed_up_oracle.py
 USER 65532:65532
 ENTRYPOINT ["python3","-B","/guest/r26-orchestrator.py"]
