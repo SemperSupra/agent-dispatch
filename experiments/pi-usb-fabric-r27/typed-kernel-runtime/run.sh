@@ -16,7 +16,7 @@ cleanup() {
  done
 }
 trap cleanup EXIT INT TERM
-timeout 220s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
+timeout 285s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
  -m 768 -smp 1 -kernel /guest/kernel -initrd /guest/provider.gz \
  -append 'console=ttyS0 rdinit=/init panic=1' \
  -nographic -monitor none -no-reboot -serial stdio \
@@ -29,7 +29,7 @@ timeout 220s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
 P=$!
 # START sole test-only host Go broker after provider socket creation and before
 # consumer starts. Host process controls the ONLY B handoff authorization wire.
-timeout 190s /guest/r18-broker "$p" "$a" "$b" /tmp/r18-provider-gate.sock >/tmp/r18-broker.log 2>&1 &
+timeout 260s /guest/r18-broker "$p" "$a" "$b" /tmp/r18-provider-gate.sock >/tmp/r18-broker.log 2>&1 &
 G=$!
 socket_ready=no
 for tick in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
@@ -50,7 +50,7 @@ if [ "$pin_ready" != yes ]; then
  exit 89
 fi
 echo R27_B_INDEPENDENT_PUBLIC_KEY_ENROLLED_BEFORE_REAL_CONSUMER_A_BOOT=PASS
-timeout 195s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
+timeout 275s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
  -m 768 -smp 1 -kernel /guest/kernel -initrd /guest/consumer-a.gz \
  -append "console=ttyS0 rdinit=/init panic=1 r22_challenge=$challenge" \
  -nographic -monitor none -no-reboot \
@@ -74,7 +74,7 @@ R25NEG=$!
 python3 /guest/r26-qmp-pci.py /tmp/r25-consumer-a-qmp.sock r25-usbip-consumer-a d2e44f29-6a7b-44a9-8e16-49f351e22881 \
  >/tmp/r26-qmp-pci.log 2>&1 &
 R26PCI=$!
-timeout 195s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
+timeout 275s qemu-system-x86_64 -machine q35 -accel tcg -cpu qemu64 \
  -m 768 -smp 1 -kernel /guest/kernel -initrd /guest/consumer-b.gz \
  -append 'console=ttyS0 rdinit=/init panic=1' \
  -nographic -monitor none -no-reboot \
@@ -130,7 +130,8 @@ for marker in R08_PROVIDER_DISTINCT_KERNEL_BOOT=PASS R08_PROVIDER_ETHERNET=PASS 
  R10_PROVIDER_A_HID_COMPLETE=PASS R10_PROVIDER_B_CHALLENGE_ISSUED=PASS \
  R10_PROVIDER_B_RESULT_RECEIVED=PASS R10_PROVIDER_A_RELEASE_SIGNAL=PASS \
  R11_PROVIDER_A_DETACH_CONFIRMED_BEFORE_B_RETRY=PASS R18_PROVIDER_HOST_SERIAL_GATE_WAITING=PASS \
- R18_PROVIDER_B_RETRY_AFTER_HOST_GATE=PASS R11_PROVIDER_B_RETRY_AUTHORIZED=PASS \
+ R18_PROVIDER_B_RETRY_AFTER_HOST_GATE=PASS R27_L_PROVIDER_UART_READY=PASS \
+ R27_L_PROVIDER_REAL_UDC_REBOUND_BEFORE_UART_ACK=PASS R11_PROVIDER_B_RETRY_AUTHORIZED=PASS \
  R11_PROVIDER_SECOND_CONSUMER_EVENT_TRIGGER=PASS R11_PROVIDER_SECOND_SYNTHETIC_HID_PAIR=PASS \
  R11_PROVIDER_B_DETACHED_CONFIRMED=PASS R08_PROVIDER_FINISHED=YES; do
  grep -q "$marker" "$p" || { echo "R10_MISSING_PROVIDER=$marker"; exit 32; }
@@ -168,6 +169,8 @@ for marker in R18_HOST_ONLY_QEMU_ISA_SERIAL_CHANNEL=PASS \
  R27_G_ORIGINAL_MANAGER_SIGNED_CURRENT_DOWN_UP_UNLOCKED_B=PASS \
  R18_GUEST_TRANSPORT_SIGNAL_NOT_AUTHORIZED_FOR_REASSIGNMENT=PASS \
  R18_EXISTING_GO_BROKER_GRANTED_HOST_SERIAL_B_AFTER_FSYNC=PASS \
+ R27_L_HOST_OBSERVED_ACTUAL_PROVIDER_UART_READY=PASS \
+ R27_L_HOST_RECEIVED_ACTUAL_PROVIDER_POST_UDC_ACK=PASS \
  R18_B_ACTUAL_KERNEL_EVDEV_AFTER_GO_B_GATE=PASS \
  R18_STALE_A_PROOF_DENIED_AND_B_HELD_QUARANTINED=PASS \
  R18_EXISTING_GO_MANAGER_CONTROLLED_REAL_USBIP_B_TRIGGER=PASS \
