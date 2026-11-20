@@ -1,0 +1,52 @@
+name: WinBot synthetic Ruff import ordering
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-ruff-import-order.yml]
+permissions:
+  contents: read
+jobs:
+  isort-oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Ruff 0.17.6 synthetic import-order oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q ruff==0.17.6
+          mkdir -p probe
+          cat > probe/dashboard.py <<'PY'
+          """Synthetic imports only."""
+
+          import unittest
+          from pathlib import Path
+          PY
+          cat > probe/session.py <<'PY'
+          """Synthetic imports only."""
+
+          import asyncio
+          import unittest
+          from types import SimpleNamespace
+          from unittest.mock import patch
+
+          from fastapi import HTTPException
+
+          from endpoints import control
+          PY
+          cat > probe/main.py <<'PY'
+          """Synthetic imports only."""
+
+          import sys
+          sys.path.insert(0, "fake")
+          from core.control_interlock import ControlInterlockMiddleware
+          from endpoints import control
+          PY
+          printf '[tool.ruff]\nline-length=120\ntarget-version="py311"\n[tool.ruff.lint]\nselect=["I"]\n' > pyproject.toml
+          echo 'RUFF_IMPORT_DIFF_START'
+          ruff check --select I --fix --diff probe || true
+          echo 'RUFF_IMPORT_DIFF_END'
+          ruff check --select I --fix probe
+          echo 'RUFF_FORMATTED_START'
+          for p in probe/*.py; do echo "FILE $p"; cat "$p"; done
+          echo 'RUFF_FORMATTED_END'
