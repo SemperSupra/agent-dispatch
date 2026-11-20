@@ -1,0 +1,175 @@
+name: WinBot native local IPC peer witness (synthetic)
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-native-ipc-peer-witness.yml]
+permissions:
+  contents: read
+jobs:
+  native-windows-ipc:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - name: Build original .NET named pipe peer witness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          dotnet new console --framework net8.0 --name Witness --output witness --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'DOTNET_PROJECT_CREATE_FAILED' }
+          @'
+          using System;
+          using System.Diagnostics;
+          using System.IO;
+          using System.IO.Pipes;
+          using System.Runtime.InteropServices;
+          using System.Security.Principal;
+          using System.Text.Json;
+          using System.Threading.Tasks;
+          using Microsoft.Win32.SafeHandles;
+
+          internal static class Program {
+              [DllImport("kernel32.dll", SetLastError=true)]
+              private static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint clientPid);
+
+              private static async Task<int> Main(string[] args) {
+                  if (args.Length == 3 && args[0] == "client") {
+                      using var pipe = new NamedPipeClientStream(".", args[1],
+                          PipeDirection.InOut, PipeOptions.None,
+                          TokenImpersonationLevel.Impersonation);
+                      await pipe.ConnectAsync(15000);
+                      using var writer = new StreamWriter(pipe) { AutoFlush=true };
+                      using var reader = new StreamReader(pipe);
+                      var claimed = args[2] == "valid" ? Environment.ProcessId : 0;
+                      await writer.WriteLineAsync(JsonSerializer.Serialize(new {
+                          ClaimedPid=claimed,
+                          TestLabel=args[2],
+                          GrantedConsent=false,
+                          RequestedActuation=false
+                      }));
+                      var response = await reader.ReadLineAsync();
+                      return response == (args[2] == "valid" ? "PEER_WITNESS_ACCEPT" : "PEER_WITNESS_DENY") ? 0 : 25;
+                  }
+                  if (args.Length != 2 || args[0] != "server") return 26;
+                  var receipt = new System.Collections.Generic.Dictionary<string, object?> {
+                      ["schema"]="winbot-native-ipc-peer-witness/v1",
+                      ["classification"]="CURRENT_USER_NAMED_PIPE_PEER_SENSOR_ONLY",
+                      ["run_id"]=Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                      ["os_peer_pid_match"]=false,
+                      ["os_user_identity_match"]=false,
+                      ["spoofed_claim_rejected"]=false,
+                      ["legitimate_claim_recognized"]=false,
+                      ["pipes_closed"]=false,
+                      ["human_consent_issued"]=false,
+                      ["winbot_actuator_enabled"]=false,
+                      ["winbot_product_accepted"]=false,
+                      ["first_failure"]=null
+                  };
+                  try {
+                      string ownUser = WindowsIdentity.GetCurrent().Name;
+                      bool negative = await RoundTrip("spoof", ownUser, false);
+                      bool positive = await RoundTrip("valid", ownUser, true);
+                      receipt["spoofed_claim_rejected"]=negative;
+                      receipt["legitimate_claim_recognized"]=positive;
+                      receipt["os_peer_pid_match"]=positive;
+                      receipt["os_user_identity_match"]=positive;
+                      receipt["pipes_closed"]=true;
+                      if (!negative || !positive) throw new Exception("WITNESS_ROUNDTRIP_UNQUALIFIED");
+                  } catch (Exception e) {
+                      receipt["first_failure"]=e.GetType().Name+": "+e.Message;
+                  } finally {
+                      await File.WriteAllTextAsync(args[1],JsonSerializer.Serialize(receipt,new JsonSerializerOptions{WriteIndented=true}));
+                      Console.WriteLine(JsonSerializer.Serialize(receipt));
+                  }
+                  return receipt["first_failure"] is null ? 0 : 27;
+              }
+
+              private static async Task<bool> RoundTrip(string mode, string ownUser, bool expectAccept) {
+                  var pipeName="winbot-synthetic-"+Guid.NewGuid().ToString("N");
+                  using var server = new NamedPipeServerStream(pipeName,PipeDirection.InOut,1,
+                      PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+                  var start = new ProcessStartInfo("dotnet") {
+                      UseShellExecute=false,
+                      RedirectStandardOutput=true,
+                      RedirectStandardError=true
+                  };
+                  start.ArgumentList.Add(typeof(Program).Assembly.Location);
+                  start.ArgumentList.Add("client");
+                  start.ArgumentList.Add(pipeName);
+                  start.ArgumentList.Add(mode);
+                  using var child = Process.Start(start) ?? throw new Exception("CHILD_NOT_STARTED");
+                  using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(20));
+                  await server.WaitForConnectionAsync(timeout.Token);
+                  if (!GetNamedPipeClientProcessId(server.SafePipeHandle,out uint osPid))
+                      throw new Exception("OS_CLIENT_PID_UNAVAILABLE");
+                  using var reader=new StreamReader(server,leaveOpen:true);
+                  using var writer=new StreamWriter(server,leaveOpen:true) {AutoFlush=true};
+                  var raw = await reader.ReadLineAsync(timeout.Token) ?? throw new Exception("CLIENT_MESSAGE_MISSING");
+                  using var envelope = JsonDocument.Parse(raw);
+                  var root=envelope.RootElement;
+                  int claimedPid=root.GetProperty("ClaimedPid").GetInt32();
+                  if (root.GetProperty("GrantedConsent").GetBoolean() ||
+                      root.GetProperty("RequestedActuation").GetBoolean())
+                      throw new Exception("UNAUTHORIZED_CLIENT_INTENT");
+                  var nativeUser=server.GetImpersonationUserName();
+                  bool osMatch=(osPid==(uint)child.Id);
+                  bool sameUser=String.Equals(nativeUser,ownUser,StringComparison.OrdinalIgnoreCase);
+                  bool claimMatch=(claimedPid==child.Id);
+                  bool allowed=osMatch&&sameUser&&claimMatch;
+                  await writer.WriteLineAsync(allowed ? "PEER_WITNESS_ACCEPT" : "PEER_WITNESS_DENY");
+                  await child.WaitForExitAsync(timeout.Token);
+                  if(child.ExitCode!=0)throw new Exception("CHILD_HANDSHAKE_FAILED");
+                  if (!osMatch || !sameUser)throw new Exception("OS_PEER_ATTESTATION_FAILED");
+                  if(allowed!=expectAccept)throw new Exception("SPOOF_ACCEPTANCE_MISMATCH");
+                  return true;
+              }
+          }
+          '@ | Set-Content -LiteralPath witness/Program.cs -Encoding utf8
+          dotnet build witness/Witness.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'DOTNET_WITNESS_BUILD_FAILED' }
+          dotnet witness/bin/Release/net8.0/Witness.dll server native-ipc-receipt.json
+          if ($LASTEXITCODE -ne 0) { throw 'NATIVE_IPC_WITNESS_FAILED' }
+      - name: Preserve bounded non-sensitive receipt
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: winbot-native-ipc-peer-receipt
+          path: native-ipc-receipt.json
+          retention-days: 2
+          if-no-files-found: error
+  independent-adjudicator:
+    runs-on: ubuntu-24.04
+    needs: native-windows-ipc
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: winbot-native-ipc-peer-receipt
+          path: receipt
+      - name: Verify provenance and reject product-acceptance claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path("receipt/native-ipc-receipt.json")
+          if not p.is_file():
+              raise SystemExit("MISSING_NATIVE_IPC_RECEIPT")
+          r=json.loads(p.read_text(encoding="utf-8-sig"))
+          if r.get("schema")!="winbot-native-ipc-peer-witness/v1":
+              raise SystemExit("WRONG_RECEIPT_SCHEMA")
+          if r.get("classification")!="CURRENT_USER_NAMED_PIPE_PEER_SENSOR_ONLY":
+              raise SystemExit("UNTRUSTED_CLASSIFICATION")
+          if str(r.get("run_id"))!=os.environ.get("GITHUB_RUN_ID"):
+              raise SystemExit("WRONG_RUN_PROVENANCE")
+          for key in ("os_peer_pid_match","os_user_identity_match",
+                      "spoofed_claim_rejected","legitimate_claim_recognized","pipes_closed"):
+              if r.get(key) is not True:
+                  raise SystemExit("PEER_SENSOR_UNQUALIFIED: "+key)
+          for key in ("human_consent_issued","winbot_actuator_enabled","winbot_product_accepted"):
+              if r.get(key) is not False:
+                  raise SystemExit("FALSE_AUTHORITY_CLAIM: "+key)
+          if r.get("first_failure") is not None:
+              raise SystemExit("NATIVE_PRODUCER_FAILED")
+          print("OS_NAMED_PIPE_PEER_WITNESS_PASS; NO_HUMAN_CONSENT_OR_ACTUATION")
+          PY
