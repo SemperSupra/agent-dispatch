@@ -1,0 +1,28 @@
+name: USB Fabric R27-H21 - kernel peer fenced signed recovery
+on:
+  push:
+    branches: [test/issue-470-r27h21-recovery-peer-fence]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  live-qemu-recovery-fence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify cooperative lock and same-kernel-peer identity offline
+        run: |
+          cd experiments/usb-fabric-r26/integrated
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 ./recoveryfence ./cmd/recoveryprobe
+      - name: Signed guest recovery on actual surviving QEMU with peer fence
+        run: bash experiments/usb-fabric-r26/integrated/r27h21_fenced_signed_recovery_verify.sh
+      - name: Preserve adversarial RED and missing release gates
+        run: |
+          echo R27H21_EXPOSED_SECOND_RAW_QMP_MONITOR=RED
+          echo R27H21_HOSTILE_SAME_UID_EXISTING_QMP_FD=NOT_TESTED
+          echo R27H21_AUTHORITATIVE_LEASE_READMISSION=NOT_TESTED
