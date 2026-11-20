@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "repo": "SemperSupra/agent-dispatch",
+  "release_ready": false,
+  "owner_merge_approved": false,
+  "integrated_single_head": "",
+  "security_red": [
+    "H7-same-service-uid-raw-qmp",
+    "H24-inherited-qmp-fd-primitive"
+  ],
+  "nodes": [
+    {
+      "id": "H20",
+      "pr": 925,
+      "head": "53ca3a5e74c5b23a00420f11db438be61aacd24b",
+      "role": "carry",
+      "parent": "",
+      "scope": "synthetic signed postcrash HELD and evdev UP; journal remains HELD"
+    },
+    {
+      "id": "H21",
+      "pr": 929,
+      "head": "e0c0f6423d3f1d06f1a3c0f24b395b75b1b7fdbe",
+      "role": "carry",
+      "parent": "H20",
+      "scope": "cooperative kernel peer and abstract owner fence; not hostile same-UID guard"
+    },
+    {
+      "id": "H22",
+      "pr": 934,
+      "head": "68990e43e4f01cbf849a9a983d99b0da4b339e6c",
+      "role": "carry",
+      "parent": "H21",
+      "scope": "signed guest UP followed by QOM device disappearance"
+    },
+    {
+      "id": "H23",
+      "pr": 937,
+      "head": "40123405310b4d48c964a911c22670346c34d3e3",
+      "role": "carry",
+      "parent": "H22",
+      "scope": "exact DEVICE_DELETED event and QOM absent with HELD retained"
+    },
+    {
+      "id": "E12",
+      "pr": 930,
+      "head": "308b482c4bfd230616a449f348d0a24dde1cbb8f",
+      "role": "critic",
+      "parent": "",
+      "scope": "offline nine known release blockers"
+    },
+    {
+      "id": "E13",
+      "pr": 935,
+      "head": "1281bddb9255c99c8e55e5c6693f3a49391dc94f",
+      "role": "critic",
+      "parent": "E12",
+      "scope": "six live source PR run job log proofs, admission still blocked"
+    }
+  ],
+  "blockers": [
+    "hostile-raw-qmp",
+    "trusted-VM-epochs",
+    "exclusive-QMP-controller",
+    "fsynced-journal-release",
+    "safe-next-lease",
+    "production-guest-attestation",
+    "owner-release-approval"
+  ]
+}
