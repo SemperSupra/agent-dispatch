@@ -1,0 +1,11 @@
+# R27-H28: actual QEMU deliberately inherited QMP descriptor (security RED)
+
+DLE: [private #581](https://github.com/mark-e-deyoung/infrastructure-as-code-private/issues/581); [threat parent #470](https://github.com/mark-e-deyoung/infrastructure-as-code-private/issues/470). Exact source parent: [H27 draft #945](https://github.com/SemperSupra/agent-dispatch/pull/945) at \`a5c26d1ea06cc6877712fb21bd02168b4f9af806\`. Parent 35/35 public free CI success, narrow QEMU different-UID path isolation **PASS_LIMITED**.
+
+This child tests a **different, explicitly hostile case** in genuine QEMU: an attacker UID 65534 cannot open a new Unix QMP connection through owner UID 65532's 0700 directory / 0600 socket. A disposable privileged test orchestrator nevertheless opens a legitimate QMP client, sets close-on-exec, then **deliberately passes the already-connected FD** to a child process running UID 65534. The unprivileged child reads actual QEMU greeting, enables QMP capabilities, sends \`device_add\` / \`device_del\` to a disposable USB keyboard and must observe an actual \`DEVICE_DELETED\` event. Child exits zero only if security bypass is demonstrated. A successful Actions job proves **RED attack reproducibility** and no taint; it is never an isolation mitigation.
+
+Boundary: an arbitrary attacker cannot conjure the descriptor; it needs a leak, inherited handle, explicit transfer, or equivalent breach. This test does not emulate SCM_RIGHTS or ptrace, and does not assert a compromised host privileged broker is safe. **H7 same-UID real-QEMU raw QMP RED and H24 Linux inherited-FD RED persist.** H26/H27 positive controls remain narrow PASS_LIMITED. Original typed Go manager still owns USB/IP admission; no production QMP adapter introduced.
+
+Free public Ubuntu runner only, synthetic QEMU TCG, temporary root in disposable runner, no paid private minutes, hardware, host USB modules, secrets, production use, merges or branch rewrites. Record source SHA, exact run/job and full markers in DLE. Rollback discard only this child draft.
+
+Next critical-path release work: a protected actual QMP owner/broker capability boundary, trusted host/guest epoch-scoped release witnesses, fsynced durable HELD release and safe subsequent lease, one exact-source end-to-end acceptance, owner approval. **NO-GO** until all gates pass.
