@@ -1,0 +1,23 @@
+name: USB Fabric R27-E12 - recovery release admission evidence matrix
+on:
+  push:
+    branches: [test/issue-447-r27-e12-recovery-admission-gate]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovery-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Adversarial matrix blocks signed-UP-only and incomplete security
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc/recoveryadmission
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v -race "$d/main.go" "$d/main_test.go"
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run "$d/main.go" "$d/current.json"
+          echo R27_E12_NO_AUTOMATIC_RELEASE_AUTHORIZATION=PASS
