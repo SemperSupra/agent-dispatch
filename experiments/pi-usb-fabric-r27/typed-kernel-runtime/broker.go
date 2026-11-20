@@ -272,9 +272,9 @@ func run()error{
    strings.Contains(read(b),"R27_A_B_LATE_RAW_USBIP_IMPORT_DENIED_WHILE_UNBOUND=PASS") &&
    strings.Contains(read("/tmp/r26-qmp-pci.log"),"R26_A_UPSTREAM_QMP_PCI_GRAPH_OBSERVED=PASS")
  }
- if st,err=journal.AcknowledgeKernelIsolation(1,witness,hostSensor);
-    err!=nil||!st.Held||st.ReleasePhase!="kernel-isolated"||len(st.KernelWitnessHash)!=64{
-  return fmt.Errorf("R27_G_ORIGINAL_KERNEL_ISOLATION_FSYNC_FAIL: %+v %v",st,err)
+ stage,stageErr:=journal.AcknowledgeKernelIsolation(1,witness,hostSensor)
+ if stageErr!=nil||!stage.Held||stage.ReleasePhase!="kernel-isolated"||len(stage.KernelWitnessHash)!=64{
+  return fmt.Errorf("R27_G_ORIGINAL_KERNEL_ISOLATION_FSYNC_FAIL: %+v %v",stage,stageErr)
  }
  fmt.Println("R27_G_ORIGINAL_GO_KERNEL_ISOLATION_STAGE_FSYNCED=PASS")
  if err=m.RestoreAfterVerifiedKernelUp(journal,1,witness,hostSensor,good,signedVerifier);err!=nil{return err}
