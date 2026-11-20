@@ -1,0 +1,24 @@
+name: USB Fabric R27-H18 - signed post-crash recovery binding contract
+on:
+  push:
+    branches: [test/issue-470-r27h18-signed-recovery-handshake]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  signed-recovery-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate fresh Ed25519 recovery snapshot and actual guest UP protocol
+        run: |
+          cd experiments/usb-fabric-r26/releasegate
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -v -count=1 ./recoveryproof
+          echo R27H18_SIGNED_POSTCRASH_REBIND_CONTRACT=PASS
+          echo R27H18_GUEST_EVDEV_SNAPSHOT_IMPLEMENTED=NOT_TESTED
+          echo R27H18_ACTUAL_POSTCRASH_RELEASE=NOT_TESTED
