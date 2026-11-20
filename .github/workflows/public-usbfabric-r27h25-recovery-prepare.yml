@@ -1,0 +1,24 @@
+name: USB Fabric R27-H25 - fail-closed durable recovery prepare
+on:
+  push:
+    branches: [test/issue-470-r27h25-recovery-journal-prepare]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovery-prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Race-qualified no-clear hold and all-claim failclosed gate
+        run: |
+          cd experiments/usb-fabric-r26/integrated
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 -v ./recoveryprepare
+          echo R27H25_OFFLINE_PREPARE_WITHOUT_CLEAR=PASS
+          echo R27H25_ACTUAL_RECOVERY_RUNTIME_WIRING=NOT_TESTED
+          echo R27H25_H7_RAW_QMP_MITIGATION=RED
