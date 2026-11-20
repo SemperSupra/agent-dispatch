@@ -24,6 +24,7 @@ type KernelIsolationClaim struct {
  LeaseEpoch string
  Generation uint64
  ReleaseSequence uint64
+ GuestDownEventSequence uint64 // independently observed CURRENT USBIP VHCI key-down
  GuestUpEventSequence uint64
  ExporterBusID string
  ConsumerVHCIPort string
