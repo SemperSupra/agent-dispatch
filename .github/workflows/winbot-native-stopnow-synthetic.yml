@@ -1,0 +1,218 @@
+name: WinBot native STOP_NOW event-fence synthetic qualification
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/winbot-native-stopnow-synthetic.yml]
+permissions:
+  contents: read
+jobs:
+  windows-event-fence:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - name: Compile and execute original synthetic Windows native event sequencer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          dotnet new console --framework net8.0 --name Witness --output witness --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'CREATE_PROJECT_FAILED' }
+          @'
+          using System;
+          using System.Diagnostics;
+          using System.IO;
+          using System.Text.Json;
+          using System.Threading;
+          using System.Threading.Tasks;
+
+          // Original, non-privileged, in-memory synthetic event source.
+          // This is not SendInput, UIA, VNC, WinInspect, or WinBot product code.
+          internal sealed class SyntheticSequencer {
+              private readonly object gate = new();
+              private long epoch = 0;
+              private bool stopped = true;
+              private string actor = "";
+              private long deadline;
+              private int effects = 0;
+              private int stopCutoff = -1;
+              private bool effectAfterStop = false;
+              public readonly record struct Lease(string Actor, long Epoch);
+
+              public Lease Grant(string identity, int durationMs) {
+                  lock (gate) {
+                      if (string.IsNullOrWhiteSpace(identity) || durationMs < 1)
+                          throw new UnauthorizedAccessException("INVALID_GRANT");
+                      epoch++;
+                      actor = identity;
+                      deadline = Stopwatch.GetTimestamp() +
+                          (long)(durationMs * (double)Stopwatch.Frequency / 1000.0);
+                      stopped = false;
+                      return new Lease(identity,epoch);
+                  }
+              }
+              public void Emit(Lease lease) {
+                  lock (gate) {
+                      if(stopped || lease.Epoch != epoch ||
+                          !String.Equals(lease.Actor,actor,StringComparison.Ordinal) ||
+                          Stopwatch.GetTimestamp() >= deadline)
+                          throw new UnauthorizedAccessException("FENCED_EVENT_DENIED");
+                      effects++;
+                      if (stopCutoff >= 0) effectAfterStop = true;
+                  }
+              }
+              public void StopNow() {
+                  lock(gate) {
+                      stopped = true;
+                      epoch++;
+                      stopCutoff = effects;
+                  }
+              }
+              public (int Effects,int Cutoff,bool AfterStop,long Epoch,bool Stopped)
+                  Snapshot() {
+                  lock(gate) return(effects,stopCutoff,effectAfterStop,epoch,stopped);
+              }
+          }
+
+          internal static class Program {
+              private static void Must(bool condition,string message) {
+                  if(!condition) throw new Exception(message);
+              }
+              private static bool Denied(Action action) {
+                  try { action(); return false; }
+                  catch(UnauthorizedAccessException) { return true; }
+              }
+              private static async Task Main() {
+                  var results = new System.Collections.Generic.Dictionary<string,object?> {
+                      ["schema"]="winbot-native-stopnow-synthetic/v1",
+                      ["classification"]="IN_MEMORY_WINDOWS_EVENT_FENCE_ONLY",
+                      ["run_id"]=Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+                      ["legitimate_event_observed"]=false,
+                      ["wrong_actor_denied"]=false,
+                      ["stale_epoch_denied"]=false,
+                      ["expired_event_denied"]=false,
+                      ["stop_race_ordered"]=false,
+                      ["post_stop_events_zero"]=false,
+                      ["bounded_stop_return"]=false,
+                      ["stop_milliseconds"]=null,
+                      ["stop_cutoff_count"]=null,
+                      ["human_consent_issued"]=false,
+                      ["os_desktop_event_emitted"]=false,
+                      ["winbot_product_accepted"]=false,
+                      ["first_failure"]=null
+                  };
+                  try {
+                      var seq=new SyntheticSequencer();
+                      var lease=seq.Grant("synthetic-agent-a",5000);
+                      seq.Emit(lease);
+                      results["legitimate_event_observed"]=seq.Snapshot().Effects == 1;
+                      results["wrong_actor_denied"]=Denied(() => seq.Emit(
+                          new SyntheticSequencer.Lease("synthetic-agent-b",lease.Epoch)));
+                      var newer=seq.Grant("synthetic-agent-a",5000);
+                      results["stale_epoch_denied"]=Denied(() => seq.Emit(lease));
+                      seq.StopNow();
+
+                      var expiry=new SyntheticSequencer();
+                      var expLease=expiry.Grant("synthetic-agent-a",50);
+                      await Task.Delay(100);
+                      results["expired_event_denied"]=Denied(() => expiry.Emit(expLease));
+
+                      var race=new SyntheticSequencer();
+                      var raceLease=race.Grant("synthetic-agent-a",5000);
+                      using var started=new ManualResetEventSlim(false);
+                      var worker=Task.Run(() => {
+                          for(var i=0;i<1000;i++) {
+                              try { race.Emit(raceLease); }
+                              catch(UnauthorizedAccessException) { return; }
+                              started.Set();
+                              Thread.Sleep(2);
+                          }
+                      });
+                      Must(started.Wait(3000),"WORKER_NEVER_EMITTED");
+                      await Task.Delay(25);
+                      var timer=Stopwatch.StartNew();
+                      race.StopNow();
+                      timer.Stop();
+                      var atStop=race.Snapshot();
+                      await worker.WaitAsync(TimeSpan.FromSeconds(3));
+                      await Task.Delay(30);
+                      var later=race.Snapshot();
+                      results["stop_milliseconds"]=timer.Elapsed.TotalMilliseconds;
+                      results["stop_cutoff_count"]=atStop.Cutoff;
+                      results["bounded_stop_return"]=timer.ElapsedMilliseconds < 1000;
+                      results["stop_race_ordered"]=
+                          atStop.Cutoff > 0 && atStop.Stopped && later.Stopped;
+                      results["post_stop_events_zero"]=
+                          later.Effects == atStop.Cutoff && !later.AfterStop &&
+                          Denied(() => race.Emit(raceLease));
+                      Must((bool)results["legitimate_event_observed"]! &&
+                          (bool)results["wrong_actor_denied"]! &&
+                          (bool)results["stale_epoch_denied"]! &&
+                          (bool)results["expired_event_denied"]! &&
+                          (bool)results["bounded_stop_return"]! &&
+                          (bool)results["stop_race_ordered"]! &&
+                          (bool)results["post_stop_events_zero"]!,
+                          "SYNTHETIC_EVENT_FENCE_UNQUALIFIED");
+                  } catch(Exception exc) {
+                      results["first_failure"]=exc.GetType().Name+": "+exc.Message;
+                  } finally {
+                      await File.WriteAllTextAsync("native-stopnow-receipt.json",
+                          JsonSerializer.Serialize(results,new JsonSerializerOptions {WriteIndented=true}));
+                      Console.WriteLine(JsonSerializer.Serialize(results));
+                  }
+                  if(results["first_failure"] is not null) Environment.ExitCode=3;
+              }
+          }
+          '@ | Set-Content -LiteralPath witness/Program.cs -Encoding utf8
+          dotnet build witness/Witness.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'NATIVE_SYNTHETIC_BUILD_FAILED' }
+          dotnet witness/bin/Release/net8.0/Witness.dll
+          if ($LASTEXITCODE -ne 0) { throw 'NATIVE_SYNTHETIC_FENCE_FAILED' }
+      - name: Preserve synthetic and non-sensitive receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-native-stopnow-synthetic
+          path: native-stopnow-receipt.json
+          if-no-files-found: error
+          retention-days: 2
+  independent-oracle:
+    runs-on: ubuntu-24.04
+    needs: windows-event-fence
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: winbot-native-stopnow-synthetic
+          path: receipt
+      - name: Require actual event count, zero effects after STOP, and no false authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib
+          path=pathlib.Path("receipt/native-stopnow-receipt.json")
+          if not path.is_file():
+              raise SystemExit("MISSING_STOPNOW_EVIDENCE")
+          r=json.loads(path.read_text(encoding="utf-8-sig"))
+          if (r.get("schema")!="winbot-native-stopnow-synthetic/v1"
+              or r.get("classification")!="IN_MEMORY_WINDOWS_EVENT_FENCE_ONLY"
+              or str(r.get("run_id"))!=os.environ["GITHUB_RUN_ID"]):
+              raise SystemExit("UNTRUSTED_STOPNOW_RECEIPT_PROVENANCE")
+          for key in ("legitimate_event_observed","wrong_actor_denied",
+                      "stale_epoch_denied","expired_event_denied",
+                      "stop_race_ordered","post_stop_events_zero",
+                      "bounded_stop_return"):
+              if r.get(key) is not True:
+                  raise SystemExit("STOPNOW_REFERENCE_GATE_FAILED: "+key)
+          for key in ("human_consent_issued","os_desktop_event_emitted",
+                      "winbot_product_accepted"):
+              if r.get(key) is not False:
+                  raise SystemExit("FALSE_PRODUCT_AUTHORITY_CLAIM: "+key)
+          if (r.get("first_failure") is not None or
+              type(r.get("stop_cutoff_count")) is not int or
+              r["stop_cutoff_count"] < 1 or
+              type(r.get("stop_milliseconds")) not in (int,float) or
+              not 0 <= r["stop_milliseconds"] < 1000):
+              raise SystemExit("INVALID_STOPNOW_MEASUREMENT")
+          print("SYNTHETIC_WINDOWS_EVENT_STOP_NOW_ORDERING_PASS; REAL_DESKTOP_NOT_TESTED")
+          PY
