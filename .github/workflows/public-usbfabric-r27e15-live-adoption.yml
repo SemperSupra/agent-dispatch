@@ -1,0 +1,29 @@
+name: USB Fabric R27-E15 - live draft ancestry attestation
+on:
+  push:
+    branches: [test/issue-447-r27e15-live-ancestry-adoption]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  live-draft-ancestry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Offline negative tests for source and PR ancestry
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc/adoption
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 -v "$d/adoption.go" "$d/adoption_test.go" "$d/live.go" "$d/live_test.go" "$d/live_runner_test.go"
+      - name: Refetch six real exact PR heads and pinned base source SHA from GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc/adoption
+          R27_E15_REQUIRE_LIVE=1 R27_E15_INVENTORY="$PWD/$d/inventory.json" GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v -count=1 -run '^TestAuthenticatedLiveGithubDraftAncestry$' "$d/adoption.go" "$d/adoption_test.go" "$d/live.go" "$d/live_test.go" "$d/live_runner_test.go"
+          echo R27_E15_OWNER_MERGE_AUTHORITY=NOT_TESTED
