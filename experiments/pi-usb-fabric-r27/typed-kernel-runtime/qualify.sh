@@ -1,7 +1,7 @@
 #!/bin/sh
 # Reuse actual three-QEMU-Linux-kernel R27-F A+B ConfigFS+preboot signer.
 # Consumer A now uses ORIGINAL Go corrected kernel-isolated phase; B final
-# cleanup remains explicitly nonqualifying legacy test-only QMP ACK.
+# final release remains unqualified; unsigned consumer B stays durably HELD.
 set -eu
 /bin/sh /guest/r27-f-run.sh
 host=/tmp/r18-broker.log
