@@ -302,14 +302,14 @@ func run()error{
  if e:=c.SetDeadline(time.Now().Add(35*time.Second));e!=nil{return e}
  uart:=bufio.NewReader(c)
  readyLine,e:=uart.ReadString('\n')
- if e!=nil||readyLine!="READY R27-L\n"{
+ if e!=nil||strings.TrimSuffix(strings.TrimSuffix(readyLine,"\n"),"\r")!="READY R27-L"{
   return fmt.Errorf("R27_L_GUEST_UART_READY_MISSING_OR_INVALID line=%q err=%v",readyLine,e)
  }
  fmt.Println("R27_L_HOST_OBSERVED_ACTUAL_PROVIDER_UART_READY=PASS")
  if _,err=c.Write([]byte("ALLOW_B R27-L\n"));err!=nil{return err}
  fmt.Println("R18_EXISTING_GO_BROKER_GRANTED_HOST_SERIAL_B_AFTER_FSYNC=PASS")
  ackLine,e:=uart.ReadString('\n')
- if e!=nil||ackLine!="ACK R27-L\n"{
+ if e!=nil||strings.TrimSuffix(strings.TrimSuffix(ackLine,"\n"),"\r")!="ACK R27-L"{
   return fmt.Errorf("R27_L_GUEST_UART_POST_UDC_ACK_MISSING_OR_INVALID line=%q err=%v",ackLine,e)
  }
  fmt.Println("R27_L_HOST_RECEIVED_ACTUAL_PROVIDER_POST_UDC_ACK=PASS")
