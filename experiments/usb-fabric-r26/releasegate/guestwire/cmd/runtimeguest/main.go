@@ -180,6 +180,9 @@ func run()error{
    if err!=nil{return err}
    if err:=enc.Encode(event);err!=nil{return err}
    if down{
+    actualHeld,readErr:=kernelHeldKey(ev.Fd())
+    if readErr!=nil||!actualHeld{return fmt.Errorf("real evdev DOWN not corroborated by kernel key state: %v",readErr)}
+    fmt.Println("R27H19_REAL_KERNEL_EVDEV_HELD_SAMPLED=PASS")
     seenDown=true
     fmt.Printf("R27C_REAL_SIGNED_GUEST_DOWN=PASS cycle=%d\n",cycle+1)
     continue
