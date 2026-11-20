@@ -5,7 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -qq -y --no-install-recommends \
   linux-image-amd64 initramfs-tools kmod usbip gcc libc6-dev golang-go \
   busybox-static cpio gzip zstd xz-utils && mkdir -p /out /tmp/root /tmp/merged
-COPY --from=udcsource experiments/pi-usb-fabric-r27/udc-admission/provider.init /tmp/provider.init
+# R27-L exact R27-A provider source copied once, with only UART gate changed.
+COPY experiments/pi-usb-fabric-r27/uart-ack/provider.init /tmp/provider.init
 COPY experiments/pi-usb-fabric-r22/qmp-usbip-compose/usbip-guest-signing/consumer-a.init /tmp/consumer-a.init
 COPY --from=udcsource experiments/pi-usb-fabric-r27/udc-admission/consumer-b.init /tmp/consumer-b.init
 COPY experiments/pi-usb-fabric-r06/transport/hid_evdev_observer.c /tmp/evdev.c
