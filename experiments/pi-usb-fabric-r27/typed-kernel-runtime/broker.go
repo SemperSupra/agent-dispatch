@@ -155,7 +155,7 @@ func observeSignedGuest(path string,deadline time.Time)(evidence.Event,evidence.
 func run()error{
  if len(os.Args)!=5 {return errors.New("usage r18-broker provider-log A-log B-log provider-serial-socket")}
  p,a,b,socket:=os.Args[1],os.Args[2],os.Args[3],os.Args[4]
- deadline:=time.Now().Add(175*time.Second)
+ deadline:=time.Now().Add(255*time.Second)
  rawPreapproved,err:=os.ReadFile("/guest/r27-approved-public.hex")
  if err!=nil{return fmt.Errorf("missing host pre-approved test public key: %w",err)}
  preapproved,err:=hex.DecodeString(strings.TrimSpace(string(rawPreapproved)))
