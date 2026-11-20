@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "guest_signed_up": {
+    "cell": "R27H20",
+    "commit": "53ca3a5e74c5b23a00420f11db438be61aacd24b",
+    "run_id": 44676642327,
+    "job_id": 136089933211,
+    "verified": true
+  },
+  "same_vm_owner_verified": false,
+  "no_hostile_raw_qmp": false,
+  "epoch_reconciled": false,
+  "topology_absent": false,
+  "controller_exclusive": false,
+  "journal_fsynced_clear": false,
+  "new_lease_observed": false,
+  "production_guest_trust": false,
+  "owner_release_approval": false
+}
