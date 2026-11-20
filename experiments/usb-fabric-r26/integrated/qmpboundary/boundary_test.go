@@ -11,7 +11,6 @@ import (
  "strings"
  "syscall"
  "testing"
- "time"
 )
 
 func TestChildDeniedByPrivateQMPDirectory(t *testing.T) {
@@ -49,15 +48,22 @@ func TestSeparatePrincipalAndNonInheritableSocket(t *testing.T) {
  inode,err:=os.Readlink(fmt.Sprintf("/proc/self/fd/%d",raw.Fd()))
  if err!=nil{t.Fatal(err)}
  if !strings.HasPrefix(inode,"socket:["){t.Fatal("unexpected FD target",inode)}
+ // Go's temporary build directory may be root-only; stage exactly this
+ // disposable test binary in a traversable directory for the uid-drop.
+ helperDir:=t.TempDir()
+ if err=os.Chmod(helperDir,0755);err!=nil{t.Fatal(err)}
+ helper:=filepath.Join(helperDir,"qmp-boundary-test")
+ binary,err:=os.ReadFile(os.Args[0]);if err!=nil{t.Fatal(err)}
+ if err=os.WriteFile(helper,binary,0755);err!=nil{t.Fatal(err)}
  // The dropped principal still receives an inherited *environment*, but
  // not a QMP client FD: the child scans /proc/self/fd by socket inode.
- cmd:=exec.Command(os.Args[0],"-test.run=^TestChildCannotSeeQMPFD$")
+ cmd:=exec.Command(helper,"-test.run=^TestChildCannotSeeQMPFD$")
  cmd.Env=append(os.Environ(),"R27H26_INHERIT_CHILD=1","R27H26_SOCKET_INODE="+inode)
  cmd.SysProcAttr=&syscall.SysProcAttr{Credential:&syscall.Credential{Uid:65534,Gid:65534,NoSetGroups:true}}
  out,err:=cmd.CombinedOutput()
  if err!=nil{t.Fatalf("no-FD child failed: %v %s",err,out)}
  // The separate UID must fail even when it knows the exact QMP pathname.
- outsider:=exec.Command(os.Args[0],"-test.run=^TestChildDeniedByPrivateQMPDirectory$")
+ outsider:=exec.Command(helper,"-test.run=^TestChildDeniedByPrivateQMPDirectory$")
  outsider.Env=append(os.Environ(),"R27H26_DENIED_CHILD=1","R27H26_QMP_PATH="+socket)
  outsider.SysProcAttr=&syscall.SysProcAttr{Credential:&syscall.Credential{Uid:65534,Gid:65534,NoSetGroups:true}}
  out,err=outsider.CombinedOutput()
