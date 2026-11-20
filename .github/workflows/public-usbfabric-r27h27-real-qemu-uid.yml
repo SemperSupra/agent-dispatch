@@ -1,0 +1,26 @@
+name: USB Fabric R27-H27 - actual QEMU private UID QMP boundary
+on:
+  push:
+    branches: [test/issue-470-r27h27-real-qemu-private-uid]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-qemu-host-principal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install distro QEMU only (public disposable runner)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qemu-system-x86
+      - name: Real QEMU QMP owner query and different UID hostile denial
+        run: sudo python3 experiments/usb-fabric-r26/integrated/r27h27_real_qemu_private_uid.py
+      - name: Residual threats remain blocked
+        run: |
+          echo R27H27_PRODUCTION_QMP_CONTROLLER=NOT_TESTED
+          echo R27H27_H7_SAME_UID_ATTACKER=RED
+          echo R27H27_H24_EXPLICIT_INHERITED_FD=RED
