@@ -1,0 +1,23 @@
+name: USB Fabric R27-E14 - draft PR adoption inventory (offline)
+on:
+  push:
+    branches: [test/issue-447-r27e14-pr-adoption-inventory]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  adoption-inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check source-scoped DAG and preserve RED and merge authority
+        run: |
+          d=experiments/usb-fabric-r26/workcells/rc/adoption
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -race -count=1 -v "$d/adoption.go" "$d/adoption_test.go"
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run "$d/adoption.go" "$d/inventory.json"
+          echo R27_E14_GITHUB_LIVE_MERGE_BASE=NOT_TESTED
