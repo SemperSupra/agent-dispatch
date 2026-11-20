@@ -1,0 +1,23 @@
+name: USB Fabric R27-H24 - inherited QMP FD RED primitive
+on:
+  push:
+    branches: [test/issue-470-r27h24-inherited-fd-red]
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inherited-fd-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Linux socket inherited FD remains usable after unlink
+        run: |
+          cd experiments/usb-fabric-r26/integrated
+          GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test -v -count=1 -race ./qmpfdcritic
+          echo R27H24_INHERITED_FD_RAW_QMP_RISK=RED
+          echo R27H24_PRODUCTION_QMP_PRIVILEGE_BOUNDARY=NOT_TESTED
