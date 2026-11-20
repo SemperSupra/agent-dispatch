@@ -1,0 +1,57 @@
+name: Pi USB Fabric R27-M exact blue.Lease Ed25519 scope negatives
+on:
+  push:
+    branches:
+      - test/issue-579-r27m-dynamic-blue-lease-signer
+  pull_request:
+    branches:
+      - test/issue-568-r27i-b-held-quarantine
+    paths:
+      - 'experiments/pi-usb-fabric-r27/lease-scope/**'
+      - '.github/workflows/pi-usb-fabric-r27-m-lease-scope.yml'
+permissions:
+  contents: read
+jobs:
+  exact-r27d-go-dynamic-lease-cryptographic-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin exact original R27-D corrected Go Manager Lease implementation
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 45a4e97e1d7a521d9d15ed44027fee9eee39884d
+          path: .r27m-original-go
+          persist-credentials: false
+      - name: Require no changes to the original authoritative Go module before critic injection
+        run: |
+          test "$(git -C .r27m-original-go rev-parse HEAD)" = 45a4e97e1d7a521d9d15ed44027fee9eee39884d
+          test -z "$(git -C .r27m-original-go status --porcelain)"
+      - name: Qualify dynamic Lease scope, exact DOWN UP and replay denial offline
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -euo pipefail
+          cp experiments/pi-usb-fabric-r27/lease-scope/r27m_dynamic_lease_test.go .r27m-original-go/experiments/usb-fabric-r26/integrated/blue/r27m_dynamic_lease_test.go
+          cd .r27m-original-go/experiments/usb-fabric-r26/integrated
+          go test -race -count=1 -timeout 90s -run '^TestR27M' -v ./blue | tee "$RUNNER_TEMP/r27-m-original-lease-signed-contract.log"
+          go vet ./blue
+          for marker in             R27_M_ACTUAL_BLUE_LEASE_TYPE_DYNAMIC_SCOPE=PASS             R27_M_WRONG_DEVICE_PORT_ACTOR_EPOCH_GENERATION=DENIED             R27_M_STALE_CHALLENGE_EVENT_SPLICE_ORDER_AND_WRONG_KEY=DENIED             R27_M_CANONICAL_LENGTH_PREFIX_COLLISION_CRITIC=PASS; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r27-m-original-lease-signed-contract.log"
+          done
+          echo R27_M_REAL_QEMU_IN_GUEST_DYNAMIC_LEASE_SIGNATURE=NOT_TESTED
+          echo R27_M_INDEPENDENT_VM_IDENTITY_AND_PRIVILEGED_SENSOR=NOT_TESTED
+      - name: Preserve public/free exact-source Go cryptographic test receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r27-m-original-go-dynamic-lease-scope
+          path: ${{ runner.temp }}/r27-m-original-lease-signed-contract.log
+          retention-days: 7
+          if-no-files-found: warn
