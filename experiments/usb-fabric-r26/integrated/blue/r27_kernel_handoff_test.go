@@ -37,7 +37,7 @@ func TestR27OriginalManagerKernelIsolationLockedReadmission(t *testing.T){
  witness:=heldledger.KernelIsolationClaim{
   VMIncarnation:"host-observed-qemu-A",GuestID:"qemu-test-guest",DeviceID:a.Device,
   HostEpoch:"host-R17-test",GuestEpoch:"guest-R17-test",LeaseEpoch:a.Epoch,
-  Generation:a.Generation,ReleaseSequence:1,GuestUpEventSequence:11,
+  Generation:a.Generation,ReleaseSequence:1,GuestDownEventSequence:10,GuestUpEventSequence:11,
   ExporterBusID:"usbip-vudc.0",ConsumerVHCIPort:"vhci_hcd/0",
   ProviderUDCUnbound:true,ConsumerVHCIQuiescent:true,
  }
