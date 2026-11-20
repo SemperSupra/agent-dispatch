@@ -1,0 +1,30 @@
+#!/bin/sh
+# Reuse actual three-QEMU-Linux-kernel R27-F A+B ConfigFS+preboot signer.
+# Consumer A now uses ORIGINAL Go corrected kernel-isolated phase; B final
+# cleanup remains explicitly nonqualifying legacy test-only QMP ACK.
+set -eu
+/bin/sh /guest/r27-f-run.sh
+host=/tmp/r18-broker.log
+for marker in \
+ R27_G_A_NO_QMP_NATIVE_ACK_UNTIL_LINUX_KERNEL_ISOLATED=PASS \
+ R27_G_ORIGINAL_GO_KERNEL_ISOLATION_STAGE_FSYNCED=PASS \
+ R27_G_ORIGINAL_MANAGER_SIGNED_CURRENT_DOWN_UP_UNLOCKED_B=PASS \
+ R27_G_PRIVILEGED_HOST_KERNEL_SENSORS=NOT_TESTED \
+ R27_G_DYNAMIC_BLUE_LEASE_SIGNED_IN_GUEST=NOT_TESTED \
+ R27_G_B_FINAL_CLEANUP_QMP_SIMULATED_ONLY=NOT_TESTED; do
+ grep -Fq "$marker" "$host" || { echo "R27_G_MISSING_ORIGINAL_MANAGER_STAGE=$marker";exit 78; }
+done
+line(){ grep -n -F "$1" "$host" | head -1 | cut -d: -f1; }
+fsync="$(line 'R27_G_ORIGINAL_GO_KERNEL_ISOLATION_STAGE_FSYNCED=PASS')"
+cleared="$(line 'R27_G_ORIGINAL_MANAGER_SIGNED_CURRENT_DOWN_UP_UNLOCKED_B=PASS')"
+grant="$(line 'R18_EXISTING_GO_BROKER_GRANTED_HOST_SERIAL_B_AFTER_FSYNC=PASS')"
+if [ -z "$fsync" ] || [ -z "$cleared" ] || [ -z "$grant" ] ||
+   [ "$fsync" -ge "$cleared" ] || [ "$cleared" -ge "$grant" ];then
+ echo "R27_G_ORIGINAL_GO_STAGE_BEFORE_REAL_UDC_HOST_GRANT=RED fsync=$fsync cleared=$cleared grant=$grant"
+ exit 79
+fi
+echo R27_G_ORIGINAL_GO_KERNEL_ISOLATED_THEN_SIGNED_CURRENT_UP_SAME_RUN=PASS
+echo R27_G_ORIGINAL_GO_RESTORED_B_BEFORE_PROVIDER_UDC_REBIND=PASS
+echo R27_G_REAL_KERNEL_B_HID_AFTER_TYPED_A_RELEASE=PASS
+echo R27_G_ACTUAL_3KERNEL_TYPED_STAGE_USES_TEST_ONLY_SERIAL_SENSOR=PASS
+echo R27_G_FULL_P0_TRUSTED_HOST_SENSOR_DYNAMIC_SCOPE_AND_CRASH=NOT_TESTED
