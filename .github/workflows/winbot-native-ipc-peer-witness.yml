@@ -37,8 +37,8 @@ jobs:
                           PipeDirection.InOut, PipeOptions.None,
                           TokenImpersonationLevel.Impersonation);
                       await pipe.ConnectAsync(15000);
-                      using var writer = new StreamWriter(pipe) { AutoFlush=true };
-                      using var reader = new StreamReader(pipe);
+                      using var writer = new StreamWriter(pipe,new System.Text.UTF8Encoding(false),1024,true) { AutoFlush=true };
+                      using var reader = new StreamReader(pipe,System.Text.Encoding.UTF8,true,1024,true);
                       var claimed = args[2] == "valid" ? Environment.ProcessId : 0;
                       await writer.WriteLineAsync(JsonSerializer.Serialize(new {
                           ClaimedPid=claimed,
@@ -65,9 +65,9 @@ jobs:
                       ["first_failure"]=null
                   };
                   try {
-                      string ownUser = WindowsIdentity.GetCurrent().Name;
-                      bool negative = await RoundTrip("spoof", ownUser, false);
-                      bool positive = await RoundTrip("valid", ownUser, true);
+                      string ownUserSid = WindowsIdentity.GetCurrent().User?.Value ?? throw new Exception("OWN_WINDOWS_SID_MISSING");
+                      bool negative = await RoundTrip("spoof", ownUserSid, false);
+                      bool positive = await RoundTrip("valid", ownUserSid, true);
                       receipt["spoofed_claim_rejected"]=negative;
                       receipt["legitimate_claim_recognized"]=positive;
                       receipt["os_peer_pid_match"]=positive;
@@ -83,7 +83,7 @@ jobs:
                   return receipt["first_failure"] is null ? 0 : 27;
               }
 
-              private static async Task<bool> RoundTrip(string mode, string ownUser, bool expectAccept) {
+              private static async Task<bool> RoundTrip(string mode, string ownUserSid, bool expectAccept) {
                   var pipeName="winbot-synthetic-"+Guid.NewGuid().ToString("N");
                   using var server = new NamedPipeServerStream(pipeName,PipeDirection.InOut,1,
                       PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
@@ -110,9 +110,12 @@ jobs:
                   if (root.GetProperty("GrantedConsent").GetBoolean() ||
                       root.GetProperty("RequestedActuation").GetBoolean())
                       throw new Exception("UNAUTHORIZED_CLIENT_INTENT");
-                  var nativeUser=server.GetImpersonationUserName();
+                  string? nativeClientSid = null;
+                  server.RunAsClient(() => {
+                      nativeClientSid = WindowsIdentity.GetCurrent().User?.Value;
+                  });
                   bool osMatch=(osPid==(uint)child.Id);
-                  bool sameUser=String.Equals(nativeUser,ownUser,StringComparison.OrdinalIgnoreCase);
+                  bool sameUser=String.Equals(nativeClientSid,ownUserSid,StringComparison.Ordinal);
                   bool claimMatch=(claimedPid==child.Id);
                   bool allowed=osMatch&&sameUser&&claimMatch;
                   await writer.WriteLineAsync(allowed ? "PEER_WITNESS_ACCEPT" : "PEER_WITNESS_DENY");
