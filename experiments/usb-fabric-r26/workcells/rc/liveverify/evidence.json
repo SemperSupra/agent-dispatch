@@ -20,6 +20,36 @@
       "conclusion": "success",
       "disposition": "RED",
       "assertion": "R27H7_SAME_UID_RAW_QMP_DEVICE_ADD_DEL=REPRODUCED"
+    },
+    {
+      "cell": "R27H9",
+      "pr": 881,
+      "source_sha": "eb8e0ced9ed085e263b5d8d7eb7182323fa0f507",
+      "run_id": 44569967945,
+      "job_id": 135722011257,
+      "conclusion": "success",
+      "disposition": "PASS",
+      "assertion": "R27H9_SIGNED_TWO_LEASES_AFTER_QMP_UNLINK=PASS"
+    },
+    {
+      "cell": "R27H13",
+      "pr": 900,
+      "source_sha": "7e033076369be0bfdd67216d425cbdd2ec987ec8",
+      "run_id": 44625689836,
+      "job_id": 135918773851,
+      "conclusion": "success",
+      "disposition": "PASS",
+      "assertion": "R27H13_CORRUPT_JOURNAL_WITH_ACCESSIBLE_QMP=PASS"
+    },
+    {
+      "cell": "R27H16",
+      "pr": 913,
+      "source_sha": "0f63609a277c11c32f4b37c72572d286eafac055",
+      "run_id": 44635536722,
+      "job_id": 135952941556,
+      "conclusion": "success",
+      "disposition": "PASS",
+      "assertion": "R27H16_REAL_QEMU_ACTUATOR_RECHECKED_HELD=PASS"
     }
   ]
 }

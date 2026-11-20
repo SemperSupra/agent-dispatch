@@ -73,10 +73,15 @@ func(c Client)logs(ctx context.Context,path string)(string,error){
  return string(raw),nil
 }
 func markerInLog(log,assertion string)bool{
+ // GitHub emits timestamped job output. A shell run instruction such as
+ // "echo MARKER=PASS" must not qualify without the corresponding emitted
+ // output line. Exact token position also rejects substring spoofing.
  for _,line:=range strings.Split(log,"\n"){
-  for _,field:=range strings.Fields(line){
-   if strings.TrimSpace(field)==assertion{return true}
-  }
+  idx:=strings.Index(line,"Z ")
+  if idx<19||idx>45{continue}
+  rendered:=line[idx+2:]
+  if !strings.HasPrefix(rendered,assertion){continue}
+  if len(rendered)==len(assertion)||rendered[len(assertion)]==' '||rendered[len(assertion)]=='\t'{return true}
  }
  return false
 }
