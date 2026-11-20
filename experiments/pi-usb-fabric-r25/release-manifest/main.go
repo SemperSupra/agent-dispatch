@@ -24,6 +24,7 @@ type Receipt struct {
     Outcome string `json:"outcome"` // PASS, RED
     Marker string `json:"marker"`
     ParentHead string `json:"parent_head,omitempty"`
+    RequiresSuccessor string `json:"requires_successor,omitempty"`
     ArtifactID int64 `json:"artifact_id"`
     ArtifactSHA256 string `json:"artifact_sha256"`
     ChangedPaths []string `json:"changed_paths"`
@@ -115,6 +116,19 @@ func Validate(m Manifest) Result {
                 }
             }
             owners[p]=r
+        }
+    }
+    // A known-vulnerable qualified test source may not be treated as a
+    // complete provenance family without its reviewed exact-parent
+    // security correction. This checks typed *snapshot* ancestry only;
+    // it cannot substitute for independently querying live Git history.
+    for _,r:=range m.Receipts {
+        if r.RequiresSuccessor==""{continue}
+        successor,ok:=known[r.RequiresSuccessor]
+        if !ok || successor.ID==r.ID || successor.ParentHead!=r.Head ||
+            successor.Outcome!="PASS" || successor.Kind!=r.Kind ||
+            successor.Domain!=r.Domain || successor.Head==r.Head {
+            fail("missing qualified exact-parent security successor: "+r.ID)
         }
     }
     gates:=map[string]bool{}
