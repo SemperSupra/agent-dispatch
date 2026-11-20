@@ -117,7 +117,7 @@ jobs:
                   bool allowed=osMatch&&sameUser&&claimMatch;
                   await writer.WriteLineAsync(allowed ? "PEER_WITNESS_ACCEPT" : "PEER_WITNESS_DENY");
                   await child.WaitForExitAsync(timeout.Token);
-                  if(child.ExitCode!=0)throw new Exception("CHILD_HANDSHAKE_FAILED");
+                  if(child.ExitCode!=0)throw new Exception($"CHILD_HANDSHAKE_FAILED_{mode}_os_{osMatch}_user_{sameUser}_claim_{claimMatch}_allowed_{allowed}_exit_{child.ExitCode}");
                   if (!osMatch || !sameUser)throw new Exception("OS_PEER_ATTESTATION_FAILED");
                   if(allowed!=expectAccept)throw new Exception("SPOOF_ACCEPTANCE_MISMATCH");
                   return true;
