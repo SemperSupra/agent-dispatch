@@ -17,6 +17,7 @@ import(
 
  heldledger "example.org/usb-fabric-r26-integrated/heldledger"
  "example.org/usb-fabric-r26-integrated/recoveryguard"
+ "example.org/usb-fabric-r26-integrated/recoveryfence"
  "example.org/usb-fabric-r26-releasegate/guestwire"
  "example.org/usb-fabric-r26-releasegate/recoveryproof"
 )
@@ -67,6 +68,19 @@ func run()error{
  receipt,err:=net.DialTimeout("unix",*receiptPath,8*time.Second);if err!=nil{return err}
  defer receipt.Close()
  _=receipt.SetDeadline(time.Now().Add(35*time.Second))
+ // Acquire both QMP and guest-receipt kernel peers BEFORE sending a
+ // recovery command. Match PID/UID/starttime/boot and hold the bounded
+ // abstract single-owner lock through signed guest UP verification.
+ qmp,err:=net.DialTimeout("unix",*qmpPath,8*time.Second)
+ if err!=nil{return err}
+ defer qmp.Close()
+ owner,err:=recoveryfence.Acquire(qmp,receipt)
+ if err!=nil{return fmt.Errorf("R27H21_RECOVERY_PEER_OWNERSHIP_DENIED: %w",err)}
+ defer owner.Close()
+ fmt.Println("R27H21_QMP_RECEIPT_KERNEL_PEERS_MATCH=PASS")
+ fmt.Println("R27H21_COOPERATIVE_RECOVERY_OWNER_LOCK_HELD=PASS")
+ _=qmp.SetDeadline(time.Now().Add(35*time.Second))
+
  reader:=json.NewDecoder(bufio.NewReader(receipt))
  writer:=json.NewEncoder(receipt)
  if err=writer.Encode(binding{Op:"recover",Scope:scope,Challenge:challenge});err!=nil{return err}
@@ -75,9 +89,6 @@ func run()error{
  if err=reader.Decode(&snapshot);err!=nil{return fmt.Errorf("guest held snapshot absent: %w",err)}
  if err=auth.ObserveHeldSnapshot(snapshot);err!=nil{return fmt.Errorf("guest held snapshot untrusted: %w",err)}
  fmt.Println("R27H20_FRESH_SIGNED_GUEST_KERNEL_HELD_SNAPSHOT=PASS")
- qmp,err:=net.DialTimeout("unix",*qmpPath,8*time.Second);if err!=nil{return err}
- defer qmp.Close()
- _=qmp.SetDeadline(time.Now().Add(35*time.Second))
  qe:=json.NewEncoder(qmp);qd:=json.NewDecoder(bufio.NewReader(qmp))
  var greeting map[string]json.RawMessage
  if err=qd.Decode(&greeting);err!=nil{return err}
