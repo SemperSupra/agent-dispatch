@@ -1,0 +1,71 @@
+name: Synthetic Runner UID and 0700 Bind-Mount Qualification
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/gha-synthetic-uid-mount-canary.yml
+      - tools/gha-custody-canary/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-uid-bind-mount:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Read reviewed public source without persisting checkout credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build static synthetic probe and qualify runner UID against 0700 custody
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != "0"
+          test "$(id -u)" != "65532"
+          command -v docker
+          command -v go
+          temp="$(mktemp -d)"
+          image="r112-synthetic-uid-mount:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'docker image rm -f "$image" >/dev/null 2>&1 || true; rm -rf "$temp"' EXIT
+          mkdir -m 0700 "$temp/custody" "$temp/ledger"
+          printf 'synthetic-only\n' > "$temp/custody/fixture.txt"
+          chmod 0600 "$temp/custody/fixture.txt"
+          (
+            cd tools/gha-custody-canary
+            go vet ./...
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o "$temp/probe" .
+          )
+          docker build --pull=false --network=none --no-cache \
+            -f tools/gha-custody-canary/Dockerfile -t "$image" "$temp"
+          common_args=(
+            --rm --network none --read-only --cap-drop=ALL
+            --security-opt=no-new-privileges --pids-limit=32
+            --memory=128m --cpus=1
+            --mount "type=bind,source=$temp/custody,target=/custody,readonly"
+            --mount "type=bind,source=$temp/ledger,target=/ledger"
+          )
+          # Existing fixed UID is normally NOT the owner of fresh runner 0700 mounts.
+          # It must fail at the custody read, before a ledger write.
+          if docker run "${common_args[@]}" --user 65532:65532 \
+            -e EXPECTED_UID=65532 "$image" > "$temp/denied.log" 2>&1; then
+            echo "::error::Fixed foreign UID traversed runner-owned 0700 custody"
+            exit 1
+          fi
+          grep -q CUSTODY_READ_DENIED "$temp/denied.log"
+          test ! -e "$temp/ledger/uid-witness.txt"
+          # The intended runner's unprivileged UID can read custody and write
+          # only the writable ledger, while rootfs and custody remain read-only.
+          docker run "${common_args[@]}" --user "$(id -u):$(id -g)" \
+            -e "EXPECTED_UID=$(id -u)" "$image" | tee "$temp/allowed.log"
+          grep -q SYNTHETIC_RUNNER_UID_MOUNT_PASS "$temp/allowed.log"
+          test "$(cat "$temp/ledger/uid-witness.txt")" = synthetic-ledger-witness
+          test ! -e "$temp/custody/forbidden.txt"
+          test ! -e "$temp/ledger/forbidden-rootfs.txt"
+          echo SYNTHETIC_UID_MOUNT_HIL_PASS
