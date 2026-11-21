@@ -1,7 +1,7 @@
 package proof
 import ("strings";"testing")
 func goodReceipt()Receipt{
- r:=Receipt{Schema:"public-guest-service-rdte/v1",RunID:"12345",SourceSHA:strings.Repeat("a",40),Runner:"windows-2025",
+ r:=Receipt{Schema:"public-guest-service-rdte/v1",Classification:"PUBLIC_SYNTHETIC_SERVICE_GUEST_ONLY",RunID:"12345",SourceSHA:strings.Repeat("a",40),Runner:"windows-2025",
   OfficialISOHashMatched:true,WimlibHashMatched:true,ExactOwnedDisk:true,EFINTFSFormatted:true,WindowsImageApplied:true,
   UEFIBoot:true,OwnedVM:true,GuestStarted:true,GuestHeartbeat:true,FirstLogon:true,PowerShellDirect:true,OOBEStaged:true,
   PublicBinaryPrepared:true,GuestServiceCleanup:true,CleanupComplete:true,ServiceBinarySHA:strings.Repeat("b",64)}
