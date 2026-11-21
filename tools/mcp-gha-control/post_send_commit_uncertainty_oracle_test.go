@@ -61,6 +61,8 @@ func (s *syntheticAmbiguousSink) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	switch s.mode {
 	case "403-after-commit", "deny-before-commit":
 		http.Error(w, "synthetic forbidden", http.StatusForbidden)
+	case "403-after-commit-sensitive":
+		http.Error(w, "fictional credential: DO-NOT-LEAK-R113", http.StatusForbidden)
 	case "409-after-commit":
 		http.Error(w, "synthetic conflict", http.StatusConflict)
 	case "malformed-200":
@@ -136,6 +138,7 @@ func TestSyntheticPostSendACKNeverTreatsUnverifiedStatusAsNoEffect(t *testing.T)
 		commits int
 	}{
 		{"403-after-commit", syntheticACKUnknown, 1},
+		{"403-after-commit-sensitive", syntheticACKUnknown, 1},
 		{"409-after-commit", syntheticACKUnknown, 1},
 		{"malformed-200", syntheticACKUnknown, 1},
 		{"unsigned-200", syntheticACKUnknown, 1},
@@ -155,6 +158,9 @@ func TestSyntheticPostSendACKNeverTreatsUnverifiedStatusAsNoEffect(t *testing.T)
 			}
 			if (tc.want == syntheticACKVerified && err != nil) || (tc.want == syntheticACKUnknown && err == nil) {
 				t.Fatalf("inconsistent verification error: mode=%s outcome=%s err=%v", tc.name, got, err)
+			}
+			if err != nil && bytes.Contains([]byte(err.Error()), []byte("DO-NOT-LEAK-R113")) {
+				t.Fatalf("untrusted remote response leaked into diagnostic: %v", err)
 			}
 			if hits, commits := sink.counts(); hits != 1 || commits != tc.commits {
 				t.Fatalf("client performed blind retry or sink miscount: hits=%d commits=%d", hits, commits)
