@@ -1,0 +1,72 @@
+name: R58 public disposable Wyse USB UEFI and isolated QEMU PXE boot
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r41-frozen-uki]
+    paths:
+      - '.github/workflows/public-wyse-r58-uefi-boot.yml'
+      - 'scripts/public_wyse_r58_uefi_boot.sh'
+      - 'scripts/public_wyse_r28_owned_kernel.sh'
+      - 'tools/wyse-buildroot/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r58-uefi-boot
+  cancel-in-progress: false
+jobs:
+  source-preflight:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r58-uefi-boot-rdte'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Validate source-only contract and prohibits host-side boot writes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r58_uefi_boot.sh
+          bash -n scripts/public_wyse_r28_owned_kernel.sh
+          sh tools/wyse-buildroot/preflight-r19.sh
+          test -f tools/wyse-buildroot/overlay/etc/init.d/S01wyse-volatile
+          grep -Fq WYSE_CORE_TMPFS_NO_EMMC_WRITES=ACTIVE tools/wyse-buildroot/overlay/etc/init.d/S01wyse-volatile
+          grep -Fq 'R58_REAL_HYPERV_USB_DHCP_SSH_CONTROLLER_PHYSICAL_WYSE=NOT_TESTED' scripts/public_wyse_r58_uefi_boot.sh
+          echo R58_OFFLINE_SOURCE_AND_SCOPE_PREFLIGHT=PASS
+  real-ovmf-boot:
+    needs: [source-preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install tools in disposable public runner ONLY
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y             build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev             rsync unzip xz-utils wget curl cpio zstd perl             sbsigntool openssl systemd-ukify faketime libfaketime             qemu-system-x86 ovmf mtools dosfstools
+          echo R58_EPHEMERAL_TOOLS=PASS
+      - name: Build source-owned pinned Linux 6.12.113 and Buildroot rootfs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r28_owned_kernel.sh
+          echo R58_SOURCE_OWNED_KERNEL_AND_ROOTFS=PASS
+      - name: Actual OVMF USB-like ESP boot then in-QEMU isolated PXE UEFI boot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r58_uefi_boot.sh
+          echo R58_REAL_QEMU_FIRMWARE_BOOT_ORACLES=PASS
+      - name: Publish only sanitized public textual receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r58-public-text-receipts
+          path: evidence/public/wyse-r58-boot.txt
+          if-no-files-found: warn
+          retention-days: 7
