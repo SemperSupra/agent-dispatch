@@ -1,0 +1,64 @@
+name: Pi USB Fabric R27-N original Manager restart-held adversarial RED
+on:
+  push:
+    branches:
+      - test/issue-611-r27n-restart-held-red-critic
+  pull_request:
+    branches:
+      - test/issue-568-r27i-b-held-quarantine
+    paths:
+      - 'experiments/pi-usb-fabric-r27/restart/**'
+      - '.github/workflows/pi-usb-fabric-r27-n-restart-held-red.yml'
+permissions:
+  contents: read
+jobs:
+  original-r27d-restart-held-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 45a4e97e1d7a521d9d15ed44027fee9eee39884d
+          path: .r27n-original-go
+          persist-credentials: false
+      - name: Observe real original Go Manager constructor vs fsynced HELD
+        shell: bash
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        run: |
+          set -euo pipefail
+          test "$(git -C .r27n-original-go rev-parse HEAD)" = 45a4e97e1d7a521d9d15ed44027fee9eee39884d
+          cp experiments/pi-usb-fabric-r27/restart/r27n_restart_held_red_test.go .r27n-original-go/experiments/usb-fabric-r26/integrated/blue/
+          cd .r27n-original-go/experiments/usb-fabric-r26/integrated
+          # Negative test MUST fail with a precise security marker if the
+          # bug exists. A silent success is not negative evidence.
+          set +e
+          go test -race -count=1 -timeout 90s -run '^TestR27NRestartHeldJournalMustFenceFreshAdmission$' -v ./blue >"$RUNNER_TEMP/r27-n-original-restart-held.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/r27-n-original-restart-held.log"
+          if [ "$rc" -ne 0 ] && grep -Fq 'R27_N_RESTART_HELD_ADMISSION_BYPASS=RED:' "$RUNNER_TEMP/r27-n-original-restart-held.log"; then
+            echo R27_N_ORIGINAL_RESTART_HELD_ADMISSION_BYPASS=RED_CONFIRMED
+          elif [ "$rc" -eq 0 ] && grep -Fq 'R27_N_RESTART_PERSISTED_HELD_DENIES_NEW_LEASE=PASS' "$RUNNER_TEMP/r27-n-original-restart-held.log"; then
+            echo R27_N_ORIGINAL_RESTART_HELD_ADMISSION_FENCED=PASS
+          else
+            echo R27_N_INCONCLUSIVE_TEST_OR_BUILD=RED
+            exit 21
+          fi
+          go test -race -count=1 -timeout 90s -run '^TestR27OriginalManagerKernelIsolationLockedReadmission$' -v ./blue | tee "$RUNNER_TEMP/r27-n-original-positive.log"
+          go vet ./blue
+          echo R27_N_ACTUAL_PROCESS_SIGKILL_RESTART=NOT_TESTED
+      - name: Preserve original-source expected RED and positive control logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r27-n-original-restart-held-negative
+          path: ${{ runner.temp }}/r27-n-original-*.log
+          retention-days: 7
+          if-no-files-found: warn
