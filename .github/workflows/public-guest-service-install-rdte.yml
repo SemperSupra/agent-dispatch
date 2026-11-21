@@ -1,0 +1,520 @@
+name: Public booted Windows guest synthetic Go service RDTE
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/public-guest-service-install-rdte.yml'
+      - 'experiments/public-guest-service-rdte/**'
+permissions:
+  contents: read
+concurrency:
+  group: public-guest-service-rdte-608
+  cancel-in-progress: true
+
+jobs:
+  windows-guest-boot:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: '1.25.13'
+          cache: false
+      - name: Build public Go service and install into exact public guest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $run=$env:GITHUB_RUN_ID
+          $work=Join-Path $env:RUNNER_TEMP ("wb-public-guest-" + $run)
+          $iso=Join-Path $work 'windows-eval.iso'
+          $wimZip=Join-Path $work 'wimlib.zip'
+          $wimDir=Join-Path $work 'wimlib'
+          $vhd=Join-Path $work 'owned-guest.vhdx'
+          $vmName='WB-Public-Guest-' + $run
+          $vmCreated=$false
+          $vhdMounted=$false
+          $isoMounted=$false
+          $expectedIso='bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38'
+          $expectedWimlib='2f446d6fa3866582175f1a22a7be198eeee0aec7aba5b4e04ad25c99eae2d265'
+          $receipt=[ordered]@{
+            schema='public-guest-service-rdte/v1'
+            classification='PUBLIC_SYNTHETIC_SERVICE_GUEST_ONLY'
+            source_sha=$env:GITHUB_SHA
+            run_id=$run
+            runner='windows-2025'
+            official_iso_hash_matched=$false
+            wimlib_hash_matched=$false
+            exact_owned_disk=$false
+            efi_ntfs_formatted=$false
+            windows_image_applied=$false
+            uefi_bcdboot_complete=$false
+            owned_vm_registered=$false
+            guest_vm_started=$false
+            windows_heartbeat_observed=$false
+            first_logon_marker_observed=$false
+            powershell_direct_observed=$false
+            public_binary_prepared=$false
+            service_binary_sha256=''
+            guest_service_cleanup=$false
+            guest_service_events=@()
+            guest_service_failure=$null
+            actual_remote_access_product_installed=$false
+            oobe_unattend_staged=$false
+            guest_network_attached=$false
+            winbot_product_installed=$false
+            winbot_mvp_accepted=$false
+            cleanup_complete=$false
+            first_failure=$null
+          }
+          try {
+            if (Test-Path -LiteralPath $work) { throw 'RUN_DIRECTORY_ALREADY_EXISTS' }
+            if (Get-VM -Name $vmName -ErrorAction SilentlyContinue) { throw 'GUEST_VM_NAME_COLLISION' }
+            New-Item -ItemType Directory -Path $work -ErrorAction Stop | Out-Null
+            foreach ($letter in @('S','T')) {
+              if (Get-Volume -DriveLetter $letter -ErrorAction SilentlyContinue) {
+                throw "RESERVED_DRIVE_LETTER_OCCUPIED_$letter"
+              }
+            }
+            # The only writable disk is a fresh run-owned dynamic VHDX.
+            New-VHD -Path $vhd -SizeBytes 64GB -Dynamic -ErrorAction Stop | Out-Null
+            $mounted=Mount-VHD -Path $vhd -Passthru -ErrorAction Stop
+            $vhdMounted=$true
+            $vhdInfo=Get-VHD -Path $vhd -ErrorAction Stop
+            $diskCollection=@($mounted | Get-Disk -ErrorAction Stop)
+            $diskNum=[int]$vhdInfo.DiskNumber
+            if (-not $vhdInfo.Attached -or $vhdInfo.Path -ine $vhd -or
+                $diskNum -le 0 -or $diskCollection.Count -ne 1 -or
+                [int]$diskCollection[0].Number -ne $diskNum) {
+              throw 'UNPROVEN_OWNED_DISK_MAPPING'
+            }
+            $disk=Get-Disk -Number $diskNum -ErrorAction Stop
+            if ($disk.IsBoot -or $disk.IsSystem -or $disk.PartitionStyle -ne 'RAW' -or
+                @($disk | Get-Partition -ErrorAction SilentlyContinue).Count -ne 0) {
+              throw 'TARGET_NOT_BLANK_OWNED_DISK'
+            }
+            $repeat=Get-VHD -Path $vhd -ErrorAction Stop
+            if (-not $repeat.Attached -or $repeat.Path -ine $vhd -or [int]$repeat.DiskNumber -ne $diskNum) {
+              throw 'DISK_MAPPING_CHANGED_BEFORE_WRITE'
+            }
+            $receipt.exact_owned_disk=$true
+            Initialize-Disk -Number $diskNum -PartitionStyle GPT -ErrorAction Stop | Out-Null
+            $efi=New-Partition -DiskNumber $diskNum -Size 260MB -GptType '{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' -ErrorAction Stop
+            $win=New-Partition -DiskNumber $diskNum -UseMaximumSize -GptType '{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}' -ErrorAction Stop
+            $efi | Set-Partition -NewDriveLetter S -ErrorAction Stop
+            $win | Set-Partition -NewDriveLetter T -ErrorAction Stop
+            $efiExact=Get-Partition -DiskNumber $diskNum -PartitionNumber $efi.PartitionNumber -ErrorAction Stop
+            $winExact=Get-Partition -DiskNumber $diskNum -PartitionNumber $win.PartitionNumber -ErrorAction Stop
+            if ($efiExact.DriveLetter -ne 'S' -or $winExact.DriveLetter -ne 'T' -or
+                [int]$efiExact.DiskNumber -ne $diskNum -or
+                [int]$winExact.DiskNumber -ne $diskNum) {
+              throw 'PARTITION_DRIVE_OWNERSHIP_MISMATCH'
+            }
+            $efiExact | Format-Volume -FileSystem FAT32 -NewFileSystemLabel WB-EFI -Force -Confirm:$false -ErrorAction Stop | Out-Null
+            $winExact | Format-Volume -FileSystem NTFS -NewFileSystemLabel WB-Windows -Force -Confirm:$false -ErrorAction Stop | Out-Null
+            $receipt.efi_ntfs_formatted=$true
+            $url='https://software-static.download.prss.microsoft.com/dbazure/26300.9457.260913-1737.26h2_ge_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso'
+            & curl.exe --fail --location --retry 2 --retry-delay 3 --max-time 1200 --output $iso $url
+            if ($LASTEXITCODE -ne 0) { throw "ISO_DOWNLOAD_EXIT_$LASTEXITCODE" }
+            if ((Get-Item -LiteralPath $iso).Length -ne 8225329152) { throw 'ISO_SIZE_MISMATCH' }
+            if ((Get-FileHash -LiteralPath $iso -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedIso) { throw 'ISO_HASH_MISMATCH' }
+            $receipt.official_iso_hash_matched=$true
+            $isoDisk=Mount-DiskImage -ImagePath $iso -PassThru -ErrorAction Stop
+            $isoMounted=$true
+            $isoVolume=$isoDisk | Get-Volume | Where-Object DriveLetter | Select-Object -First 1
+            if (-not $isoVolume) { throw 'ISO_VOLUME_NOT_FOUND' }
+            $wim=Join-Path ($isoVolume.DriveLetter + ':\') 'sources\install.wim'
+            if (-not (Test-Path -LiteralPath $wim)) {
+              $wim=Join-Path ($isoVolume.DriveLetter + ':\') 'sources\install.esd'
+            }
+            if (-not (Test-Path -LiteralPath $wim)) { throw 'PINNED_MEDIA_NO_INSTALL_IMAGE' }
+            $images=@(Get-WindowsImage -ImagePath $wim -ErrorAction Stop)
+            $matches=@($images | Where-Object { $_.ImageName -like '*Enterprise Evaluation*' })
+            if ($matches.Count -ne 1) { throw 'AMBIGUOUS_WINDOWS_ENTERPRISE_EVAL_IMAGE' }
+            $index=[int]$matches[0].ImageIndex
+            $wimUrl='https://wimlib.net/downloads/wimlib-1.14.5-windows-x86_64-bin.zip'
+            Invoke-WebRequest -Uri $wimUrl -OutFile $wimZip -UseBasicParsing -ErrorAction Stop
+            if ((Get-FileHash -LiteralPath $wimZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedWimlib) {
+              throw 'PINNED_WIMLIB_HASH_MISMATCH'
+            }
+            $receipt.wimlib_hash_matched=$true
+            Expand-Archive -LiteralPath $wimZip -DestinationPath $wimDir -ErrorAction Stop
+            $wimlibExe=Get-ChildItem -LiteralPath $wimDir -Filter wimlib-imagex.exe -Recurse | Select-Object -First 1
+            if (-not $wimlibExe) { throw 'WIMLIB_EXECUTABLE_MISSING' }
+            & $wimlibExe.FullName apply $wim $index 'T:\'
+            if ($LASTEXITCODE -ne 0) { throw "WIMLIB_IMAGE_APPLY_EXIT_$LASTEXITCODE" }
+            if (-not (Test-Path -LiteralPath 'T:\Windows\System32\ntoskrnl.exe')) { throw 'WINDOWS_KERNEL_NOT_APPLIED' }
+            $receipt.windows_image_applied=$true
+            & bcdboot.exe 'T:\Windows' '/s' 'S:' '/f' 'UEFI'
+            if ($LASTEXITCODE -ne 0) { throw "BCDBOOT_EXIT_$LASTEXITCODE" }
+            $receipt.uefi_bcdboot_complete=$true
+            # Synthetic-only, one-run fixture: never use product credentials.
+            $randomBytes=New-Object byte[] 18
+            [Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes)
+            $fixturePassword='Wb!' + [Convert]::ToHexString($randomBytes)
+            New-Item -ItemType Directory -Path 'T:\RDTE' -Force -ErrorAction Stop | Out-Null
+            # Stage PUBLIC-SAFE Go service only onto the exact owned guest VHDX.
+            Push-Location (Join-Path $env:GITHUB_WORKSPACE 'experiments\public-guest-service-rdte')
+            try {
+              & go mod verify
+              if ($LASTEXITCODE -ne 0) { throw 'GO_MODULE_INTEGRITY_FAILURE' }
+              & go build -trimpath -buildvcs=false '-ldflags=-buildid=' -o 'T:\RDTE\public-rdte-service.exe' './cmd/service'
+              if ($LASTEXITCODE -ne 0) { throw 'PUBLIC_GO_SERVICE_BUILD_FAILURE' }
+            } finally { Pop-Location }
+            $serviceSha=(Get-FileHash -LiteralPath 'T:\RDTE\public-rdte-service.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($serviceSha -notmatch '^[a-f0-9]{64}
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'C:\RDTE' -Force -ErrorAction Stop | Out-Null
+          Set-Content -LiteralPath 'C:\RDTE\firstlogon.ok' -Value 'synthetic-firstlogon-complete' -Encoding ASCII -ErrorAction Stop
+          '@
+            Set-Content -LiteralPath 'T:\RDTE\firstlogon.ps1' -Value $fixtureScript -Encoding ASCII -ErrorAction Stop
+            New-Item -ItemType Directory -Path 'T:\Windows\Panther' -Force -ErrorAction Stop | Out-Null
+            $unattend=@"
+          <?xml version="1.0" encoding="utf-8"?>
+          <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+            <settings pass="oobeSystem">
+              <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+                <InputLocale>en-US</InputLocale><SystemLocale>en-US</SystemLocale><UILanguage>en-US</UILanguage><UserLocale>en-US</UserLocale>
+              </component>
+              <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+                <OOBE>
+                  <HideEULAPage>true</HideEULAPage>
+                  <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+                  <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+                  <ProtectYourPC>3</ProtectYourPC>
+                </OOBE>
+                <UserAccounts>
+                  <LocalAccounts>
+                    <LocalAccount wcm:action="add">
+                      <Name>rdte</Name><Group>Administrators</Group><DisplayName>Disposable RDTE</DisplayName>
+                      <Password><Value>$fixturePassword</Value><PlainText>true</PlainText></Password>
+                    </LocalAccount>
+                  </LocalAccounts>
+                </UserAccounts>
+                <AutoLogon>
+                  <Enabled>true</Enabled><LogonCount>1</LogonCount><Username>rdte</Username>
+                  <Password><Value>$fixturePassword</Value><PlainText>true</PlainText></Password>
+                </AutoLogon>
+                <FirstLogonCommands>
+                  <SynchronousCommand wcm:action="add">
+                    <Order>1</Order><Description>Run disposable first logon witness</Description>
+                    <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\RDTE\firstlogon.ps1</CommandLine>
+                  </SynchronousCommand>
+                </FirstLogonCommands>
+              </component>
+            </settings>
+          </unattend>
+          "@
+            $unattend | Set-Content -LiteralPath 'T:\Windows\Panther\unattend.xml' -Encoding utf8 -ErrorAction Stop
+            $receipt.oobe_unattend_staged=$true
+            Dismount-DiskImage -ImagePath $iso -ErrorAction Stop | Out-Null
+            $isoMounted=$false
+            Dismount-VHD -Path $vhd -ErrorAction Stop | Out-Null
+            $vhdMounted=$false
+            if (-not (Test-VHD -Path $vhd -ErrorAction Stop)) { throw 'TEST_VHD_REJECTED' }
+            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 4GB -NoVHD -Path $work -ErrorAction Stop | Out-Null
+            $vmCreated=$true
+            Add-VMHardDiskDrive -VMName $vmName -Path $vhd -ErrorAction Stop
+            $drive=Get-VMHardDiskDrive -VMName $vmName -ErrorAction Stop | Where-Object Path -eq $vhd
+            if (@($drive).Count -ne 1) { throw 'GUEST_DISK_NOT_EXACTLY_OWNED' }
+            Set-VMFirmware -VMName $vmName -EnableSecureBoot On -SecureBootTemplate MicrosoftWindows -FirstBootDevice $drive -ErrorAction Stop
+            Set-VMKeyProtector -VMName $vmName -NewLocalKeyProtector -ErrorAction Stop
+            Enable-VMTPM -VMName $vmName -ErrorAction Stop
+            $receipt.owned_vm_registered=$true
+            $receipt.guest_network_attached=@(Get-VMNetworkAdapter -VMName $vmName -ErrorAction Stop | Where-Object SwitchName).Count -gt 0
+            if ($receipt.guest_network_attached) { throw 'ISOLATION_VIOLATION_NETWORK_ATTACHED' }
+            Start-VM -Name $vmName -ErrorAction Stop
+            $receipt.guest_vm_started=$true
+            for ($i=0; $i -lt 90; $i++) {
+              $hb=Get-VMIntegrationService -VMName $vmName -Name 'Heartbeat' -ErrorAction SilentlyContinue
+              if ($hb -and $hb.PrimaryStatusDescription -eq 'OK') {
+                $receipt.windows_heartbeat_observed=$true
+                break
+              }
+              Start-Sleep -Seconds 10
+            }
+            if (-not $receipt.windows_heartbeat_observed) { throw 'WINDOWS_GUEST_HEARTBEAT_NOT_OBSERVED' }
+            # Require first-logon product-independent witness and PS Direct,
+            # not just the integration heartbeat that can precede OOBE.
+            $cred=[Management.Automation.PSCredential]::new(
+              'rdte', (ConvertTo-SecureString $fixturePassword -AsPlainText -Force))
+            for ($i=0; $i -lt 100; $i++) {
+              try {
+                $probe=Invoke-Command -VMName $vmName -Credential $cred -ErrorAction Stop -ScriptBlock {
+                  $p='C:\RDTE\firstlogon.ok'
+                  [PSCustomObject]@{ MarkerExists=Test-Path -LiteralPath $p;
+                    MarkerValue=if(Test-Path -LiteralPath $p) { (Get-Content -LiteralPath $p -Raw).Trim() } else { $null } }
+                }
+                $receipt.powershell_direct_observed=$true
+                if ($probe.MarkerExists -and $probe.MarkerValue -eq 'synthetic-firstlogon-complete') {
+                  $receipt.first_logon_marker_observed=$true
+                  break
+                }
+              } catch {
+                # Guest may be between OOBE, account creation, and first logon.
+              }
+              Start-Sleep -Seconds 10
+            }
+            if (-not $receipt.powershell_direct_observed) { throw 'POWERSHELL_DIRECT_NOT_OBSERVED' }
+            if (-not $receipt.first_logon_marker_observed) { throw 'FIRST_LOGON_MARKER_NOT_OBSERVED' }
+            # Invoke a static, reviewed fixture INSIDE guest through PS Direct.
+            $serviceScriptPath=Join-Path $env:GITHUB_WORKSPACE 'experiments\public-guest-service-rdte\scripts\Invoke-GuestServiceProof.ps1'
+            $serviceScript=[scriptblock]::Create((Get-Content -LiteralPath $serviceScriptPath -Raw -ErrorAction Stop))
+            $guest=Invoke-Command -VMName $vmName -Credential $cred -ScriptBlock $serviceScript -ArgumentList $serviceSha -ErrorAction Stop
+            if ($null -eq $guest -or $guest.schema -ne 'public-guest-service-rdte/guest-v1') {
+              throw 'UNEXPECTED_GUEST_SERVICE_EVIDENCE'
+            }
+            $receipt.guest_service_events=@($guest.events)
+            $receipt.guest_service_cleanup=[bool]$guest.guest_service_cleanup
+            $receipt.guest_service_failure=$guest.guest_failure
+            if (-not $receipt.guest_service_cleanup -or $null -ne $receipt.guest_service_failure -or
+                $receipt.guest_service_events.Count -ne 8) {
+              throw 'GUEST_SERVICE_LIFECYCLE_DENIED'
+            }
+          } catch {
+            $receipt.first_failure=$_.Exception.Message
+          } finally {
+            try {
+              if ($vmCreated) {
+                $owned=Get-VM -Name $vmName -ErrorAction SilentlyContinue
+                if ($owned) {
+                  if ($owned.State -ne 'Off') { Stop-VM -VM $owned -TurnOff -Force -ErrorAction Stop }
+                  Remove-VM -VM $owned -Force -ErrorAction Stop
+                }
+              }
+              if ($isoMounted) { Dismount-DiskImage -ImagePath $iso -ErrorAction Stop | Out-Null }
+              if ($vhdMounted) { Dismount-VHD -Path $vhd -ErrorAction Stop | Out-Null }
+              if (Test-Path -LiteralPath $work) {
+                Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop
+              }
+              $receipt.cleanup_complete=(-not (Test-Path -LiteralPath $work) -and
+                -not (Get-VM -Name $vmName -ErrorAction SilentlyContinue))
+            } catch {
+              $receipt.cleanup_error=$_.Exception.Message
+              $receipt.cleanup_complete=$false
+            }
+            $last=[pscustomobject]@{stage='GUEST_REMOVED';success=[bool]$receipt.cleanup_complete}
+            $receipt.guest_service_events=@(@($receipt.guest_service_events)+@($last))
+            $receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath guest-service-receipt.json -Encoding utf8
+            $receipt | ConvertTo-Json -Depth 5
+          }
+          if (-not $receipt.windows_heartbeat_observed -or -not $receipt.first_logon_marker_observed -or
+              -not $receipt.powershell_direct_observed -or -not $receipt.cleanup_complete -or
+              -not $receipt.guest_service_cleanup -or $null -ne $receipt.guest_service_failure) {
+            throw "GUEST_BOOT_NOT_QUALIFIED: $($receipt.first_failure); cleanup=$($receipt.cleanup_error)"
+          }
+      - name: Preserve bounded guest boot evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-guest-service-install-receipt
+          path: guest-service-receipt.json
+          if-no-files-found: error
+          retention-days: 2
+) { throw 'PUBLIC_BINARY_HASH_MISSING' }
+            $receipt.service_binary_sha256=$serviceSha
+            $receipt.public_binary_prepared=$true
+            $fixtureScript=@'
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'C:\RDTE' -Force -ErrorAction Stop | Out-Null
+          Set-Content -LiteralPath 'C:\RDTE\firstlogon.ok' -Value 'synthetic-firstlogon-complete' -Encoding ASCII -ErrorAction Stop
+          '@
+            Set-Content -LiteralPath 'T:\RDTE\firstlogon.ps1' -Value $fixtureScript -Encoding ASCII -ErrorAction Stop
+            New-Item -ItemType Directory -Path 'T:\Windows\Panther' -Force -ErrorAction Stop | Out-Null
+            $unattend=@"
+          <?xml version="1.0" encoding="utf-8"?>
+          <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+            <settings pass="oobeSystem">
+              <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+                <InputLocale>en-US</InputLocale><SystemLocale>en-US</SystemLocale><UILanguage>en-US</UILanguage><UserLocale>en-US</UserLocale>
+              </component>
+              <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+                <OOBE>
+                  <HideEULAPage>true</HideEULAPage>
+                  <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+                  <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+                  <ProtectYourPC>3</ProtectYourPC>
+                </OOBE>
+                <UserAccounts>
+                  <LocalAccounts>
+                    <LocalAccount wcm:action="add">
+                      <Name>rdte</Name><Group>Administrators</Group><DisplayName>Disposable RDTE</DisplayName>
+                      <Password><Value>$fixturePassword</Value><PlainText>true</PlainText></Password>
+                    </LocalAccount>
+                  </LocalAccounts>
+                </UserAccounts>
+                <AutoLogon>
+                  <Enabled>true</Enabled><LogonCount>1</LogonCount><Username>rdte</Username>
+                  <Password><Value>$fixturePassword</Value><PlainText>true</PlainText></Password>
+                </AutoLogon>
+                <FirstLogonCommands>
+                  <SynchronousCommand wcm:action="add">
+                    <Order>1</Order><Description>Run disposable first logon witness</Description>
+                    <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\RDTE\firstlogon.ps1</CommandLine>
+                  </SynchronousCommand>
+                </FirstLogonCommands>
+              </component>
+            </settings>
+          </unattend>
+          "@
+            $unattend | Set-Content -LiteralPath 'T:\Windows\Panther\unattend.xml' -Encoding utf8 -ErrorAction Stop
+            $receipt.oobe_unattend_staged=$true
+            Dismount-DiskImage -ImagePath $iso -ErrorAction Stop | Out-Null
+            $isoMounted=$false
+            Dismount-VHD -Path $vhd -ErrorAction Stop | Out-Null
+            $vhdMounted=$false
+            if (-not (Test-VHD -Path $vhd -ErrorAction Stop)) { throw 'TEST_VHD_REJECTED' }
+            New-VM -Name $vmName -Generation 2 -MemoryStartupBytes 4GB -NoVHD -Path $work -ErrorAction Stop | Out-Null
+            $vmCreated=$true
+            Add-VMHardDiskDrive -VMName $vmName -Path $vhd -ErrorAction Stop
+            $drive=Get-VMHardDiskDrive -VMName $vmName -ErrorAction Stop | Where-Object Path -eq $vhd
+            if (@($drive).Count -ne 1) { throw 'GUEST_DISK_NOT_EXACTLY_OWNED' }
+            Set-VMFirmware -VMName $vmName -EnableSecureBoot On -SecureBootTemplate MicrosoftWindows -FirstBootDevice $drive -ErrorAction Stop
+            Set-VMKeyProtector -VMName $vmName -NewLocalKeyProtector -ErrorAction Stop
+            Enable-VMTPM -VMName $vmName -ErrorAction Stop
+            $receipt.owned_vm_registered=$true
+            $receipt.guest_network_attached=@(Get-VMNetworkAdapter -VMName $vmName -ErrorAction Stop | Where-Object SwitchName).Count -gt 0
+            if ($receipt.guest_network_attached) { throw 'ISOLATION_VIOLATION_NETWORK_ATTACHED' }
+            Start-VM -Name $vmName -ErrorAction Stop
+            $receipt.guest_vm_started=$true
+            for ($i=0; $i -lt 90; $i++) {
+              $hb=Get-VMIntegrationService -VMName $vmName -Name 'Heartbeat' -ErrorAction SilentlyContinue
+              if ($hb -and $hb.PrimaryStatusDescription -eq 'OK') {
+                $receipt.windows_heartbeat_observed=$true
+                break
+              }
+              Start-Sleep -Seconds 10
+            }
+            if (-not $receipt.windows_heartbeat_observed) { throw 'WINDOWS_GUEST_HEARTBEAT_NOT_OBSERVED' }
+            # Require first-logon product-independent witness and PS Direct,
+            # not just the integration heartbeat that can precede OOBE.
+            $cred=[Management.Automation.PSCredential]::new(
+              'rdte', (ConvertTo-SecureString $fixturePassword -AsPlainText -Force))
+            for ($i=0; $i -lt 100; $i++) {
+              try {
+                $probe=Invoke-Command -VMName $vmName -Credential $cred -ErrorAction Stop -ScriptBlock {
+                  $p='C:\RDTE\firstlogon.ok'
+                  [PSCustomObject]@{ MarkerExists=Test-Path -LiteralPath $p;
+                    MarkerValue=if(Test-Path -LiteralPath $p) { (Get-Content -LiteralPath $p -Raw).Trim() } else { $null } }
+                }
+                $receipt.powershell_direct_observed=$true
+                if ($probe.MarkerExists -and $probe.MarkerValue -eq 'synthetic-firstlogon-complete') {
+                  $receipt.first_logon_marker_observed=$true
+                  break
+                }
+              } catch {
+                # Guest may be between OOBE, account creation, and first logon.
+              }
+              Start-Sleep -Seconds 10
+            }
+            if (-not $receipt.powershell_direct_observed) { throw 'POWERSHELL_DIRECT_NOT_OBSERVED' }
+            if (-not $receipt.first_logon_marker_observed) { throw 'FIRST_LOGON_MARKER_NOT_OBSERVED' }
+          } catch {
+            $receipt.first_failure=$_.Exception.Message
+          } finally {
+            try {
+              if ($vmCreated) {
+                $owned=Get-VM -Name $vmName -ErrorAction SilentlyContinue
+                if ($owned) {
+                  if ($owned.State -ne 'Off') { Stop-VM -VM $owned -TurnOff -Force -ErrorAction Stop }
+                  Remove-VM -VM $owned -Force -ErrorAction Stop
+                }
+              }
+              if ($isoMounted) { Dismount-DiskImage -ImagePath $iso -ErrorAction Stop | Out-Null }
+              if ($vhdMounted) { Dismount-VHD -Path $vhd -ErrorAction Stop | Out-Null }
+              if (Test-Path -LiteralPath $work) {
+                Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop
+              }
+              $receipt.cleanup_complete=(-not (Test-Path -LiteralPath $work) -and
+                -not (Get-VM -Name $vmName -ErrorAction SilentlyContinue))
+            } catch {
+              $receipt.cleanup_error=$_.Exception.Message
+              $receipt.cleanup_complete=$false
+            }
+            $receipt | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath firstlogon-receipt.json -Encoding utf8
+            $receipt | ConvertTo-Json -Depth 5
+          }
+          if (-not $receipt.windows_heartbeat_observed -or -not $receipt.first_logon_marker_observed -or
+              -not $receipt.powershell_direct_observed -or -not $receipt.cleanup_complete) {
+            throw "GUEST_BOOT_NOT_QUALIFIED: $($receipt.first_failure); cleanup=$($receipt.cleanup_error)"
+          }
+      - name: Preserve bounded guest boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbot-firstlogon-psdirect
+          path: firstlogon-receipt.json
+          if-no-files-found: error
+          retention-days: 2
+  linux-independent-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: '1.25.13'
+          cache: false
+      - name: Run independent proof race/vet and Windows Go cross-build
+        working-directory: experiments/public-guest-service-rdte
+        shell: bash
+        run: |
+          go mod verify
+          go test -race -count=1 ./internal/proof
+          go vet ./internal/proof ./cmd/verify
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-buildid=" -o /tmp/public-rdte-service.exe ./cmd/service
+          sha256sum /tmp/public-rdte-service.exe
+
+  windows-ps51-contract:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: '1.25.13'
+          cache: false
+      - name: Native Windows Go test, build and PowerShell parser
+        working-directory: experiments/public-guest-service-rdte
+        shell: pwsh
+        run: |
+          go mod verify
+          go test -count=1 ./...
+          go vet ./...
+          go build -trimpath -buildvcs=false '-ldflags=-buildid=' -o "$env:RUNNER_TEMP/public-rdte-service.exe" ./cmd/service
+          if ($LASTEXITCODE -ne 0) { throw 'Native service build failed' }
+          $tokens=$null; $errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) 'scripts/Invoke-GuestServiceProof.ps1'),[ref]$tokens,[ref]$errors)
+          if ($errors.Count -ne 0) { throw 'PowerShell guest proof parser rejected source' }
+          Write-Host 'PASS: Native Go Windows service build and guest proof parser'
+
+  independent-evidence-gate:
+    runs-on: ubuntu-24.04
+    needs: [windows-guest-boot]
+    if: always()
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version: '1.25.13'
+          cache: false
+      - name: Download bounded actual guest evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: public-guest-service-install-receipt
+          path: receipt
+      - name: Independently verify source, guest, native service and no residue
+        working-directory: experiments/public-guest-service-rdte
+        shell: bash
+        run: |
+          go test -count=1 ./internal/proof
+          go run ./cmd/verify ../../receipt/guest-service-receipt.json "$GITHUB_RUN_ID" "$GITHUB_SHA"
