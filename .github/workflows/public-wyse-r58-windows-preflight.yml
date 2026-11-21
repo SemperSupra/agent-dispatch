@@ -1,0 +1,33 @@
+name: R58 public Windows PS5.1 no-install installer preflight
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r41-frozen-uki]
+    paths:
+      - '.github/workflows/public-wyse-r58-windows-preflight.yml'
+      - 'scripts/public_wyse_r58_windows_host.ps1'
+      - 'scripts/tests/public_wyse_r58_windows_host_test.ps1'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r58-windows-preflight
+  cancel-in-progress: false
+jobs:
+  windows-ps51:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r58-uefi-boot-rdte'
+    runs-on: windows-2022
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Native Windows PowerShell 5.1 no-tool-install qualification
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) { throw 'Incorrect shell' }
+          & .\scripts\tests\public_wyse_r58_windows_host_test.ps1
+          if (-not $?) { throw 'Windows synthetic contract failed.' }
+          Write-Output 'R58_PUBLIC_GHA_WINDOWS_HOSTED_NATIVE_PS51_TEST=PASS'
+          Write-Output 'R58_REAL_HYPERV_VM_USB_DRIVER_WYSE_HIL=NOT_TESTED'
