@@ -3,7 +3,9 @@ set -Eeuo pipefail
 cd "$(git rev-parse --show-toplevel)"
 clean(){ git status --porcelain --untracked-files=all -- . ':(exclude).r27-typed-go' ':(exclude).r25-guest-signer' ':(exclude).r27-preenrollment' ':(exclude).r27-udc-source'; }
 [[ -z "$(clean)" ]] || { echo R25_B_SOURCE_DIRTY=RED; exit 10; }
-test "$(git -C .r27-typed-go rev-parse HEAD)" = 45a4e97e1d7a521d9d15ed44027fee9eee39884d
+# R27-T reuses the original Go module lineage INCLUDING qualified R27-S
+# write-ahead admission and protected Linux recovered-owner additions.
+test "$(git -C .r27-typed-go rev-parse HEAD)" = bb842a13447b520d4a548fbba6e3556669b070c1
 test "$(git -C .r25-guest-signer rev-parse HEAD)" = dc96c80b78540bc5b05ad70179c7afff647c3cbc
 test "$(git -C .r27-preenrollment rev-parse HEAD)" = 1a3b17e664eb6fe1127575a509492ef5baa67802
 test "$(git -C .r27-udc-source rev-parse HEAD)" = 740d1eb115fe1b62364118ee07e5867f0625683b
