@@ -14,7 +14,11 @@ import (
 
 func r27QCleanJournal(t *testing.T) heldledger.Store{
  t.Helper()
- path:=filepath.Join(t.TempDir(),"held.json")
+ // CI Go test runners may create their parent test dirs with wider
+ // permissions. Model the required private host-owned journal root explicitly.
+ dir:=t.TempDir()
+ if err:=os.Chmod(dir,0700);err!=nil{t.Fatal(err)}
+ path:=filepath.Join(dir,"held.json")
  if err:=os.WriteFile(path,[]byte("{\"version\":1,\"sequence\":2,\"held\":false}\n"),0600);err!=nil{t.Fatal(err)}
  return heldledger.Store{Path:path}
 }
@@ -64,6 +68,7 @@ func TestR27QTwoPIDOwner(t *testing.T){
 
 func TestR27QRejectHeldAndUntrustedJournal(t *testing.T){
  dir:=t.TempDir()
+ if err:=os.Chmod(dir,0700);err!=nil{t.Fatal(err)}
  cases:=[]string{"missing","held","symlink"}
  for _,mode:=range cases{
   t.Run(mode,func(t *testing.T){
