@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: SemperSupra/agent-dispatch
-          ref: 45a4e97e1d7a521d9d15ed44027fee9eee39884d
+          ref: bb842a13447b520d4a548fbba6e3556669b070c1
           path: .r27-typed-go
           persist-credentials: false
       - name: Pin original test guest signed Ed25519 observer
@@ -62,6 +62,10 @@ jobs:
           go vet ./...
           grep -Fq 'R27_D_CURRENT_DOWN_REQUIRED_FOR_SIGNED_UP=PASS' "$RUNNER_TEMP/r27-g-original-go-ledger.log"
           grep -Fq 'R27_D_FSYNCED_HOST_DOWN_WITNESS_TAMPER_REFUSED=PASS' "$RUNNER_TEMP/r27-g-original-go-ledger.log"
+          grep -Fq 'R27_S_SIGKILL_ATTACHED_RESTART_QUARANTINED=PASS' "$RUNNER_TEMP/r27-g-original-go-ledger.log"
+          grep -Fq 'R27_S_WRITE_AHEAD_ADMISSION_INTENT_FSYNC_RESTART=PASS' "$RUNNER_TEMP/r27-g-original-go-ledger.log"
+          grep -Fq 'R27_Q_TRUE_TWO_PID_SAME_USBIP_PORT_FENCED=PASS' "$RUNNER_TEMP/r27-g-original-go-ledger.log"
+          echo R27_T_ORIGINAL_GO_R27_S_ADMISSION_AND_TWO_PID_RACE_VET=PASS
           echo R27_G_EXACT_ORIGINAL_GO_R27_D_RACE_VET=PASS
       - name: Require actual A to B USBIP and refuse B-to-C without signed kernel release
         shell: bash
