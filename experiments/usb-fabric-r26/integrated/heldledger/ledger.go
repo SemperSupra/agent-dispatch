@@ -29,6 +29,10 @@ type State struct {
  Sequence uint64 `json:"sequence"`
  Key string `json:"key,omitempty"`
  Held bool `json:"held"`
+ // R27-S: write-ahead host admission intent, before any external lease or
+ // USBIP device actuator can be exposed. An unobserved SIGKILL MUST leave a
+ // durable non-clean state; only independently verified release can clear it.
+ AdmissionIntent bool `json:"admission_intent,omitempty"`
  // None, release-intent, or qmp-acked. Guest evidence is still required
  // after the QMP acknowledgment. All stages remain Held=true until proof.
  ReleasePhase string `json:"release_phase,omitempty"`
@@ -95,6 +99,8 @@ func (s Store) Read()(State,error){
   if err!=nil||len(digest)!=32 {return State{},ErrInvalid}
  } else if state.KernelWitnessHash!="" {return State{},ErrInvalid}
  if !state.Held && state.ReleasePhase!="" {return State{},ErrInvalid}
+ if state.AdmissionIntent && (state.Held || state.ReleasePhase!="" ||
+  state.Sequence<2 || state.Sequence%2!=0) {return State{},ErrInvalid}
  return state,nil
 }
 
@@ -155,4 +161,20 @@ func (s Store) writeAtomic(state State)error{
  parent,e:=os.Open(dir);if e!=nil{return e}
  defer parent.Close()
  return parent.Sync()
+}
+
+// BeginAdmission is the original heldledger's durable write-ahead fence.
+// Call only while holding the canonical host-local OS owner, before handing
+// the original Go Manager to any client capable of Reserve/Attach/Input.
+// A crash after this fsync but before key-down must quarantine successors.
+// Never clear AdmissionIntent simply because a process/lock died.
+func (s Store) BeginAdmission(expected uint64)(State,error){
+ st,err:=s.Read();if err!=nil{return State{},err}
+ if st.Sequence!=expected || st.Sequence<2 || st.Sequence%2!=0 ||
+  st.Held || st.AdmissionIntent || st.ReleasePhase!="" {
+  return State{},ErrConflict
+ }
+ st.AdmissionIntent=true
+ if err:=s.writeAtomic(st);err!=nil{return State{},err}
+ return st,nil
 }
