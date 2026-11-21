@@ -32,7 +32,7 @@ func NewAfterJournalRecovery(device,port string,exec Executor,store heldledger.S
   return m,ErrQuarantined
  }
  state,err:=store.Read()
- if err!=nil || state.Held || state.ReleasePhase!="" ||
+ if err!=nil || state.Held || state.AdmissionIntent || state.ReleasePhase!="" ||
   state.Sequence<2 || state.Sequence%2!=0 {
   m.Offline()
   return m,ErrQuarantined
