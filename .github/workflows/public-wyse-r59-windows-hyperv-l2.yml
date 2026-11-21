@@ -1,0 +1,71 @@
+name: R59 public Windows 2025 nested Hyper-V installer substrate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r41-frozen-uki]
+    paths:
+      - '.github/workflows/public-wyse-r59-windows-hyperv-l2.yml'
+permissions:
+  contents: read
+concurrency:
+  group: wyse-r59-windows-hyperv-substrate
+  cancel-in-progress: false
+jobs:
+  hyperv-l2-substrate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r58-uefi-boot-rdte'
+    runs-on: windows-2025
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Preflight actual Hyper-V and bounded storage (no installations)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion.Major -ne 5) { throw 'Native PS5.1 required' }
+          if (-not (Get-Command New-VM -ErrorAction SilentlyContinue)) { throw 'No Hyper-V New-VM' }
+          if (-not (Get-Command New-VMSwitch -ErrorAction SilentlyContinue)) { throw 'No Hyper-V switch provider' }
+          if (-not (Get-Command New-NetNat -ErrorAction SilentlyContinue)) { throw 'No WinNAT provider' }
+          if ((Get-PSDrive C).Free -lt 8GB) { throw 'Insufficient scratch disk' }
+          Write-Output 'R59_WINDOWS2025_L2_PREFLIGHT=PASS'
+      - name: Reuse pinned independently qualified WinInspect nested Hyper-V L2 probe
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ref = 'f0580823b3b2efcb21e7951cbbb5f66597f307f4'
+          $expectedBlob = 'beb2fd14ce4004ff43ab91241fd9f095368cd73a'
+          $target = Join-Path $env:RUNNER_TEMP 'r59-pinned-wininspect-hyperv-l2.ps1'
+          $url = "https://raw.githubusercontent.com/SemperSupra/WinInspect/$ref/tools/hyperv-linux-l2-nonce.ps1"
+          Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $target
+          $observedBlob = (& git hash-object -- $target).Trim()
+          if ($LASTEXITCODE -ne 0 -or $observedBlob -cne $expectedBlob) { throw 'Pinned WinInspect source blob mismatch' }
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($target,[ref]$tokens,[ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) { throw 'Pinned probe is not PS5.1 parseable' }
+          Write-Output 'R59_PINNED_WININSPECT_SOURCE_IDENTITY=PASS'
+          & $target -MemoryMB 768 -HeartbeatTimeoutSeconds 75 -GuestSettleSeconds 25
+          $receiptFile = Join-Path $env:RUNNER_TEMP 'hyperv-linux-l2-amd64.json'
+          if (-not (Test-Path -LiteralPath $receiptFile)) { throw 'Missing guest witness receipt' }
+          $receipt = Get-Content -LiteralPath $receiptFile -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($receipt.l2Executed -ne $true -or $receipt.oracleSatisfied -ne $true) {
+            throw ('Nested guest execution not proven: '+$receipt.classification)
+          }
+          Write-Output 'R59_NESTED_HYPERV_L2_EXECUTION=PASS'
+          if ($receipt.l1L2NetworkProven -ne $true) {
+            throw ('Isolated guest networking not proven: '+$receipt.classification)
+          }
+          Write-Output 'R59_NESTED_HYPERV_L1_L2_NETWORK=PASS'
+          $ownedVmName = [string]$receipt.vmName
+          if (-not $ownedVmName -or $ownedVmName -cnotmatch '^l2-[0-9a-f]{8}$') { throw 'Invalid VM ownership name' }
+          if (Get-VM -Name $ownedVmName -ErrorAction SilentlyContinue) { throw 'Owned Hyper-V VM not removed' }
+          if ($null -ne $receipt.networkSwitch -and $receipt.networkSwitch.createdForProbe) {
+            if (Get-VMSwitch -Name ([string]$receipt.networkSwitch.name) -ErrorAction SilentlyContinue) {
+              throw 'Owned isolated switch not removed'
+            }
+          }
+          if (Get-NetNat -Name ($ownedVmName+'-nat') -ErrorAction SilentlyContinue) { throw 'Owned WinNAT not removed' }
+          Write-Output 'R59_HYPERV_VM_SWITCH_NAT_TEARDOWN=PASS'
+          Write-Output 'R59_PRIVATE_R56_INSTALLER_DELL_MEDIA_KVM_HIL=NOT_TESTED'
