@@ -1,0 +1,46 @@
+name: Pi USB Fabric R27-O recovered original Go Manager fail-closed journal startup
+on:
+  push:
+    branches:
+      - test/issue-612-r27o-recovered-manager-startup
+  pull_request:
+    branches:
+      - test/issue-549-r27d-down-event-splice
+    paths:
+      - 'experiments/usb-fabric-r26/integrated/blue/recovery.go'
+      - 'experiments/usb-fabric-r26/integrated/blue/r27o_recovery_test.go'
+      - '.github/workflows/pi-usb-fabric-r27-o-recovered-startup.yml'
+permissions:
+  contents: read
+jobs:
+  hardened-startup-original-go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test original R27-D module with bounded additive recovery constructor
+        working-directory: experiments/usb-fabric-r26/integrated
+        env:
+          GOPROXY: "off"
+          GOSUMDB: "off"
+          GOTOOLCHAIN: "local"
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -timeout 100s -v ./... | tee "$RUNNER_TEMP/r27-o-go-full-suite.log"
+          go vet ./...
+          for marker in             R27_O_ABSENT_JOURNAL_MUST_NOT_BOOTSTRAP_UNFENCED=PASS             R27_O_RESTART_DURABLE_HELD_DENIES_B=PASS             R27_O_RELEASE_INTENT_DENIES_B=PASS             R27_O_CORRUPT_DUPLICATE_KEYS_DENIED=PASS             R27_O_SYMLINK_NONREGULAR_JOURNAL_DENIED=PASS             R27_O_VALID_PERSISTED_CLEAN_STARTUP_AVAILABLE=PASS             R27_D_CURRENT_DOWN_REQUIRED_FOR_SIGNED_UP=PASS; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r27-o-go-full-suite.log"
+          done
+          echo R27_O_LEGACY_NEW_CALLERS_MIGRATED=NOT_TESTED
+          echo R27_O_OS_PROCESS_SIGKILL_RECOVERY_AND_EXCLUSIVE_OWNER=NOT_TESTED
+      - name: Preserve test logs for DLE audit
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r27-o-recovery-original-go-full-suite
+          path: ${{ runner.temp }}/r27-o-go-full-suite.log
+          retention-days: 7
+          if-no-files-found: warn
