@@ -98,7 +98,7 @@ func acquireUSBIPRecoveredOwner(device,port,journalPath string)(*USBIPRecoveredO
 func NewAfterExclusiveJournalRecovery(device,port string,exec Executor,
  store heldledger.Store)(*Manager,*USBIPRecoveredOwner,error){
  owner,err:=acquireUSBIPRecoveredOwner(device,port,store.Path)
- if err!=nil{return nil,nil,ErrQuarantined}
+ if err!=nil{return nil,nil,err}
  m,err:=NewAfterJournalRecovery(device,port,exec,store)
  if err!=nil{
   _=owner.Close()
