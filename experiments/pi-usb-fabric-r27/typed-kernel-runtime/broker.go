@@ -186,7 +186,16 @@ func run()error{
   "R10_CONSUMER_B_CROSS_KERNEL_DUPLICATE_DENIED=PASS",
   "R10_CONSUMER_B_NO_GHOST_VHCI=PASS");err!=nil{return err}
  fmt.Println("R18_TWO_INDEPENDENT_QEMU_KERNEL_EVDEV_AND_BUSY_OBSERVED=PASS")
- journal:=heldledger.Store{Path:"/tmp/r18-held-ledger.json"}
+ // R27-T: protected, host-owned journal root for the R27-S recovered
+ // startup API. This disposable three-QEMU experiment runs on an isolated
+ // /tmp tmpfs; a real deployment MUST pin a durable protected host path.
+ const journalRoot="/tmp/r27-t-host-ledger"
+ if err=os.Mkdir(journalRoot,0700);err!=nil{return fmt.Errorf("R27_T_JOURNAL_ROOT_CREATE: %w",err)}
+ rootInfo,rootErr:=os.Lstat(journalRoot)
+ if rootErr!=nil || !rootInfo.IsDir() || rootInfo.Mode().Perm()!=0700 {
+  return errors.New("R27_T_HOST_JOURNAL_ROOT_NOT_PRIVATE")
+ }
+ journal:=heldledger.Store{Path:journalRoot+"/held.json"}
  m:=blue.New("keyboard","xhci0/auto",&journalExecutor{s:journal})
  leaseA,err:=m.Reserve("consumer-A","keyboard","xhci0/auto")
  if err!=nil{return err}
@@ -350,6 +359,34 @@ func run()error{
  if _,err=m.Reserve("consumer-C","keyboard","xhci0/auto");!errors.Is(err,blue.ErrQuarantined){
   return fmt.Errorf("R27_I_CONSUMER_C_ADMITTED_WITHOUT_B_KERNEL_RELEASE=%v",err)
  }
+ // R27-T: in the same exact actual 3-Linux-QEMU-kernel handoff, prove
+ // a fresh R27-S host owner cannot restart/admit with original B still
+ // durably HELD in release-intent. No B proof is manufactured or journal
+ // cleared. Original Go Manager remains sole live control authority.
+ frozenRecovery,err:=os.ReadFile(journal.Path);if err!=nil{return err}
+ restart,owner,restartErr:=blue.NewAfterExclusiveDurableAdmission(
+  "keyboard","xhci0/auto",&journalExecutor{s:journal},journal)
+ if owner!=nil{
+  _=owner.Close()
+  return errors.New("R27_T_RECOVERED_OWNER_ACQUIRED_WHILE_B_HELD")
+ }
+ if !errors.Is(restartErr,blue.ErrQuarantined){
+  return fmt.Errorf("R27_T_B_HELD_RESTART_NOT_QUARANTINED=%v",restartErr)
+ }
+ if restart!=nil{
+  if _,e:=restart.Reserve("consumer-C","keyboard","xhci0/auto");
+   !errors.Is(e,blue.ErrQuarantined){
+   return fmt.Errorf("R27_T_RECOVERED_MANAGER_ADMITTED_C=%v",e)
+  }
+ }
+ afterRecovery,err:=os.ReadFile(journal.Path)
+ if err!=nil||!bytes.Equal(frozenRecovery,afterRecovery){
+  return errors.New("R27_T_UNVERIFIED_RESTART_MUTATED_DURABLE_B_HELD")
+ }
+ fmt.Println("R27_T_REAL_3_KERNEL_B_HELD_RESTART_OWNER_QUARANTINED=PASS")
+ fmt.Println("R27_T_RECOVERY_REFUSAL_JOURNAL_BYTE_IDENTICAL=PASS")
+ fmt.Println("R27_T_CLEAN_FIRST_BOOT_RUNTIME_OWNER_MIGRATION=NOT_TESTED")
+ fmt.Println("R27_T_LIVE_QEMU_SIGKILL_VHCI_RESTART=NOT_TESTED")
  fmt.Println("R27_I_NO_FAKE_QMP_ACK_FOR_LINUX_VHCI_B=PASS")
  fmt.Println("R27_I_TEST_ONLY_B_RELEASE_PROOF_REJECTED_JOURNAL_BYTE_IDENTICAL=PASS")
  fmt.Println("R27_I_B_DURABLE_HELD_RELEASE_INTENT_AFTER_REAL_HID=PASS")
