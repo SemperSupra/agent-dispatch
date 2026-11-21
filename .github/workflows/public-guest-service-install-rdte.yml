@@ -1,5 +1,10 @@
 name: Public booted Windows guest synthetic Go service RDTE
 on:
+  push:
+    branches: [experiment/issue-608-public-guest-service-rdte]
+    paths:
+      - '.github/workflows/public-guest-service-install-rdte.yml'
+      - 'experiments/public-guest-service-rdte/**'
   pull_request:
     branches: [main]
     paths:
