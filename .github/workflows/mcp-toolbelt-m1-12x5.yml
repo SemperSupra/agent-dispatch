@@ -1,0 +1,79 @@
+name: M1 synthetic 12-service 60-tool actual routing qualification
+on:
+  pull_request:
+    paths:
+      - .github/workflows/mcp-toolbelt-m1-12x5.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_catalog_m1.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py
+  push:
+    branches: [rdte/mcp-toolbelt-bakeoff-20261111]
+    paths:
+      - .github/workflows/mcp-toolbelt-m1-12x5.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_catalog_m1.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py
+permissions:
+  contents: read
+jobs:
+  agentgateway-12x5:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start 12 independent loopback-only synthetic MCPs and render config
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess,time,urllib.request
+          names=("research","github","dispatch","operations","calendar","files",
+                 "models","automation","diagnostics","inventory","docs","metrics")
+          for i,name in enumerate(names):
+              subprocess.Popen(["python3","experiments/mcp-toolbelt-bakeoff/synthetic_catalog_mcp.py",
+                                "--service",name,"--port",str(39101+i)],
+                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+          config=["binds:","- listeners:","  - routes:","    - backends:",
+                  "      - mcp:","          targets:"]
+          for i,name in enumerate(names):
+              config += ["          - name: "+name,"            mcp:",
+                         "              host: http://127.0.0.1:"+str(39101+i)+"/mcp"]
+          config += ["      matches:","      - path:","          exact: /mcp","  port: 39200"]
+          pathlib.Path("m1-config.yaml").write_text("\n".join(config)+"\n")
+          for i in range(len(names)):
+              url="http://127.0.0.1:"+str(39101+i)+"/health"
+              for j in range(40):
+                  try:
+                      if urllib.request.urlopen(url,timeout=1).status==200:break
+                  except Exception:time.sleep(.25)
+              else:raise RuntimeError("upstream not ready "+names[i])
+          print("12 upstreams ready, loopback only")
+          PY
+      - name: Run actual gateway against fixed synthetic catalog
+        run: |
+          docker pull cr.agentgateway.dev/agentgateway:v1.7.0
+          docker inspect --format '{{index .RepoDigests 0}}' cr.agentgateway.dev/agentgateway:v1.7.0 > m1-image-digest.txt
+          docker run -d --name m1-agentgateway --network host \
+            --mount "type=bind,source=$PWD/m1-config.yaml,target=/config.yaml,readonly" \
+            cr.agentgateway.dev/agentgateway:v1.7.0 -f /config.yaml
+          for i in $(seq 1 30); do
+            if curl -s --max-time 2 http://127.0.0.1:39200/mcp >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs m1-agentgateway || true
+          exit 1
+      - name: Verify 60 actual tool invocations
+        run: python3 experiments/mcp-toolbelt-bakeoff/probe_catalog_m1.py
+      - name: Destroy ephemeral gateway and record resource snapshot
+        if: always()
+        run: |
+          docker inspect --format 'state={{.State.Status}} exit={{.State.ExitCode}}' m1-agentgateway > m1-container.txt 2>/dev/null || true
+          docker stats --no-stream --format '{{json .}}' m1-agentgateway >> m1-container.txt 2>/dev/null || true
+          docker rm -f m1-agentgateway >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: agentgateway-m1-12x5
+          path: |
+            m1-runtime-receipt.json
+            m1-image-digest.txt
+            m1-container.txt
+            m1-config.yaml

@@ -1,0 +1,147 @@
+name: MCPHub public-safe authenticated aggregation qualification
+on:
+  push:
+    branches: [rdte/mcp-toolbelt-bakeoff-20261111]
+    paths:
+      - .github/workflows/mcp-toolbelt-mcphub-functional.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - experiments/mcp-toolbelt-bakeoff/probe_scopes.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py
+  pull_request:
+    paths:
+      - .github/workflows/mcp-toolbelt-mcphub-functional.yml
+      - experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - experiments/mcp-toolbelt-bakeoff/probe_scopes.py
+      - experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py
+permissions:
+  contents: read
+jobs:
+  mcphub-fanout-auth:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start isolated synthetic MCPs
+        run: |
+          docker network create --subnet 172.28.84.0/24 mcp-bakeoff-net
+          for name in alpha beta; do
+            port=39101; if [ "$name" = beta ]; then port=39102; fi
+            ip=172.28.84.2; if [ "$name" = beta ]; then ip=172.28.84.3; fi
+            docker run -d --name mcp-$name --network mcp-bakeoff-net --ip "$ip" \
+              --mount "type=bind,source=$PWD/experiments/mcp-toolbelt-bakeoff/synthetic_mcp.py,target=/synthetic_mcp.py,readonly" \
+              python:3.12-alpine python /synthetic_mcp.py --bind 0.0.0.0 --port "$port" --label "$name"
+          done
+          for name in alpha beta; do
+            for n in $(seq 1 30); do
+              if docker logs mcp-$name >/dev/null 2>&1 && docker ps --filter name=mcp-$name --format '{{.Names}}' | grep -qx "mcp-$name"; then break; fi
+              sleep 1
+            done
+          done
+      - name: Create hashed disposable key and minimal config
+        run: |
+          mkdir -p candidate-data
+          python3 - <<'PY'
+          import hashlib,json,secrets,pathlib
+          token=secrets.token_urlsafe(36)
+          data={
+            "mcpServers":{
+              "alpha":{"type":"streamable-http","url":"http://mcp-alpha:39101/mcp",
+                       "protocolNegotiation":"legacy","visibility":"public"},
+              "beta":{"type":"streamable-http","url":"http://mcp-beta:39102/mcp",
+                      "protocolNegotiation":"legacy","visibility":"public"}
+            },
+            "systemConfig":{"routing":{"enableGlobalRoute":True,"enableBearerAuth":True},
+                            "activityLog":{"storeToolPayload":False},
+                            "network":{"allowedCidrs":["172.28.84.2/32","172.28.84.3/32"]}},
+            "bearerKeys":[{
+              "id":"11111111-2222-4333-8444-555555555555","name":"synthetic-eval",
+              "tokenHash":hashlib.sha256(token.encode()).hexdigest(),
+              "tokenPrefix":token[:12],"enabled":True,"kind":"system",
+              "accessType":"all","allowedGroups":[],"allowedServers":[]
+            }],"users":[],"prompts":[],"resources":[]
+          }
+          pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(data))
+          pathlib.Path("ephemeral-token.txt").write_text(token)
+          scopes={}
+          for scope in ("alpha","beta"):
+            key=secrets.token_urlsafe(36)
+            scopes[scope]=key
+            data["bearerKeys"].append({
+              "id":secrets.token_hex(16),"name":"synthetic-"+scope,
+              "tokenHash":hashlib.sha256(key.encode()).hexdigest(),
+              "tokenPrefix":key[:12],"enabled":True,"kind":"system",
+              "accessType":"servers","allowedGroups":[],"allowedServers":[scope]
+            })
+          pathlib.Path("candidate-data/mcp_settings.json").write_text(json.dumps(data))
+          pathlib.Path("ephemeral-scope-tokens.json").write_text(json.dumps(scopes))
+          PY
+          chmod 600 ephemeral-token.txt candidate-data/mcp_settings.json
+      - name: Start MCPHub on loopback only
+        run: |
+          docker pull samanhappy/mcphub:latest
+          docker inspect --format '{{index .RepoDigests 0}}' samanhappy/mcphub:latest > mcphub-image-digest.txt
+          docker run -d --name mcp-mcphub --network mcp-bakeoff-net \
+            --publish 127.0.0.1:3300:3000 \
+            --mount "type=bind,source=$PWD/candidate-data,target=/app/data" \
+            -e ADMIN_PASSWORD=PublicSyntheticOnlyNeverReused-2026 \
+            -e DISABLE_WEB=true \
+            samanhappy/mcphub:latest
+          for i in $(seq 1 75); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:3300/mcp || true)
+            if [ "$status" != 000 ]; then echo "ready_status=$status" > startup.txt;exit 0;fi
+            if [ "$(docker inspect --format '{{.State.Running}}' mcp-mcphub)" != true ]; then
+              docker logs --tail 80 mcp-mcphub || true;exit 1
+            fi
+            sleep 1
+          done
+          docker logs --tail 80 mcp-mcphub || true
+          exit 1
+      - name: Record public-safe startup connector diagnostics
+        run: |
+          docker logs mcp-mcphub 2>&1 | grep -Ei 'alpha|beta|connected|disconnected|failed|error|config|server' | tail -n 120 > connector-diagnostics.txt || true
+          python3 - <<'PY'
+          import json
+          c=json.load(open("candidate-data/mcp_settings.json"))
+          print("configured_synthetic_upstreams:",sorted(c.get("mcpServers",{})))
+          PY
+          cat connector-diagnostics.txt
+      - name: Verify anonymous MCP call rejected
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://127.0.0.1:3300/mcp -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+          echo "unauthenticated_http_status=$status" > auth-receipt.txt
+          test "$status" = 401 -o "$status" = 403
+      - name: Actual authenticated MCP multi-upstream invocation
+        run: |
+          MCP_PROBE_URL=http://127.0.0.1:3300/mcp \
+          MCP_PROBE_TARGET=mcphub-current \
+          MCP_PROBE_DISCOVERY_RETRIES=30 \
+          MCP_PROBE_TOKEN="$(cat ephemeral-token.txt)" \
+          python3 experiments/mcp-toolbelt-bakeoff/probe_aggregate.py
+      - name: Prove scoped MCP tool access for two separate synthetic principals
+        run: python3 experiments/mcp-toolbelt-bakeoff/probe_scopes.py
+      - name: Capture bounded evidence, destroy synthetic runtime and key
+        if: always()
+        run: |
+          docker inspect --format 'status={{.State.Status}} exit={{.State.ExitCode}}' mcp-mcphub > mcphub-runtime.txt 2>/dev/null || true
+          docker stats --no-stream --format '{{json .}}' mcp-mcphub >> mcphub-runtime.txt || true
+          docker logs --tail 40 mcp-mcphub 2>&1 | sed -E 's/(token|secret|password)[=:][^ ]+/\1=[REDACTED]/Ig' >> mcphub-runtime.txt || true
+          docker rm -f mcp-mcphub mcp-alpha mcp-beta >/dev/null 2>&1 || true
+          rm -f ephemeral-token.txt ephemeral-scope-tokens.json
+          docker network rm mcp-bakeoff-net >/dev/null 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: mcphub-authenticated-fanout
+          path: |
+            functional-receipt.json
+            startup.txt
+            auth-receipt.txt
+            scope-receipt.json
+            mcphub-runtime.txt
+            connector-diagnostics.txt
+            mcphub-image-digest.txt
