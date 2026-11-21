@@ -11,6 +11,10 @@ var digestPat=regexp.MustCompile("^[a-f0-9]{64}$")
 const IsoHash="bc3f24086ebadc94489066b5ad78089e2cf5c3491e90e790bb81a2b199c10e38"
 type Receipt struct {
  Schema string `json:"schema"`
+ Classification string `json:"classification"`
+ WinbotProductInstalled bool `json:"winbot_product_installed"`
+ WinbotMVPAccepted bool `json:"winbot_mvp_accepted"`
+ CleanupError *string `json:"cleanup_error,omitempty"`
  RunID string `json:"run_id"`
  SourceSHA string `json:"source_sha"`
  Runner string `json:"runner"`
@@ -44,7 +48,8 @@ func VerifyReceipt(r Receipt,run,source string) error{
  !r.OwnedVM||!r.GuestStarted||!r.GuestHeartbeat||!r.FirstLogon||!r.PowerShellDirect||!r.OOBEStaged||!r.PublicBinaryPrepared{
   return errors.New("Windows image, boot or public service provenance unqualified")
  }
- if r.GuestNetworkAttached||r.ProductInstalled{return errors.New("forbidden network/product effect")}
+ if r.GuestNetworkAttached||r.ProductInstalled||r.WinbotProductInstalled||r.WinbotMVPAccepted{return errors.New("forbidden network/product effect")}
+ if r.Classification!="PUBLIC_SYNTHETIC_SERVICE_GUEST_ONLY" || r.CleanupError!=nil{return errors.New("unqualified public guest classification or cleanup")}
  if !digestPat.MatchString(r.ServiceBinarySHA) ||r.GuestServiceFailure!=nil||r.FirstFailure!=nil{return errors.New("binary hash or guest service failure")}
  if !r.GuestServiceCleanup||!r.CleanupComplete{return errors.New("guest service or VM teardown not verified")}
  if e:=Verify(r.Events);e!=nil{return fmt.Errorf("independent service lifecycle oracle: %w",e)}
