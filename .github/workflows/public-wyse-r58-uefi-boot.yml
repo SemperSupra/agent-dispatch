@@ -2,7 +2,7 @@ name: R58 public disposable Wyse USB UEFI and isolated QEMU PXE boot
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [experiment/public-wyse-r41-frozen-uki]
+    branches: [experiment/public-wyse-r41-frozen-uki, experiment/public-wyse-r58-uefi-boot-rdte]
     paths:
       - '.github/workflows/public-wyse-r58-uefi-boot.yml'
       - 'scripts/public_wyse_r58_uefi_boot.sh'
@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   source-preflight:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'experiment/public-wyse-r58-uefi-boot-rdte'
+    if: github.event.pull_request.head.repo.full_name == github.repository && (github.head_ref == 'experiment/public-wyse-r58-uefi-boot-rdte' || github.head_ref == 'fix/issue-599-r58-boot-diagnostics')
     runs-on: ubuntu-24.04
     timeout-minutes: 4
     steps:
@@ -34,6 +34,22 @@ jobs:
           grep -Fq WYSE_CORE_TMPFS_NO_EMMC_WRITES=ACTIVE tools/wyse-buildroot/overlay/etc/init.d/S01wyse-volatile
           grep -Fq 'R58_REAL_HYPERV_USB_DHCP_SSH_CONTROLLER_PHYSICAL_WYSE=NOT_TESTED' scripts/public_wyse_r58_uefi_boot.sh
           echo R58_OFFLINE_SOURCE_AND_SCOPE_PREFLIGHT=PASS
+      - name: Negative oracle - failed first stage leaves a RED receipt
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          diagnostic_temp="$(mktemp -d "$RUNNER_TEMP/r58-diag-negative-XXXXXX")"
+          trap 'rm -rf -- "$diagnostic_temp"; rm -f evidence/public/wyse-r58-boot.txt' EXIT
+          set +e
+          RUNNER_TEMP="$diagnostic_temp" bash scripts/public_wyse_r58_uefi_boot.sh > "$diagnostic_temp/output.log" 2>&1
+          outcome=$?
+          set -e
+          test "$outcome" -ne 0
+          grep -Fxq 'R58_BOOT_RESULT=RED' evidence/public/wyse-r58-boot.txt
+          grep -Fxq 'R58_FAILURE_STAGE=kernel_images' evidence/public/wyse-r58-boot.txt
+          grep -Fq 'R58_FAILURE_STAGE=kernel_images' "$diagnostic_temp/output.log"
+          if grep -Fq 'R58_BOOT_RESULT=PASS' evidence/public/wyse-r58-boot.txt; then exit 1; fi
+          echo R58_FAILURE_STAGE_RECEIPT_NEGATIVE=PASS
   real-ovmf-boot:
     needs: [source-preflight]
     runs-on: ubuntu-24.04
