@@ -29,6 +29,8 @@ jobs:
           sh tools/wyse-buildroot/preflight-r19.sh
           grep -Fq 'R62_PRODUCTION_PAIRING_SIGNING_HARDWARE=NOT_TESTED' scripts/public_wyse_r62_ssh_bridge.sh
           grep -Fq 'R62_TEST_ONLY_SYNTHETIC_PAIRING=ACTIVE' scripts/public_wyse_r62_ssh_bridge.sh
+          grep -Fq 'R62_UNPAIRED_SOURCE_IMAGE_SSH_DENIED=PASS' scripts/public_wyse_r62_ssh_bridge.sh
+          grep -Fq 'R62_UNTRUSTED_OPERATOR_KEY_DENIED=PASS' scripts/public_wyse_r62_ssh_bridge.sh
           echo R62_SOURCE_SCOPE=PASS
       - name: Negative test - missing images cannot create positive SSH receipt
         shell: bash
