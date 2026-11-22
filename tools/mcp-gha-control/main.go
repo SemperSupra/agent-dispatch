@@ -135,6 +135,11 @@ func observe(ctx context.Context, client *http.Client, endpoint string,id string
  }
  allowed:=map[string]bool{"queued":true,"in_progress":true,"completed":true,"waiting":true,"pending":true,"requested":true}
  if !allowed[x.Status]{return Observation{},errors.New("unknown native status")}
+ // GitHub's native lifecycle has no terminal conclusion before completion.
+ // Contradictory evidence cannot be treated as a valid in-progress snapshot.
+ if x.Status!="completed" && x.Conclusion!=nil {
+  return Observation{},errors.New("native run state and conclusion conflict")
+ }
  concl:="UNKNOWN"
  if x.Conclusion!=nil{concl=*x.Conclusion}
  state:="OBSERVING_NATIVE"
