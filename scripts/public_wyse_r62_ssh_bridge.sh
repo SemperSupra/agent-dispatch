@@ -34,19 +34,20 @@ STAGE=original_images
 test -s "$K" && test -s "$I"
 test "$(sha256sum "$K" | cut -d' ' -f1)" = d51edcfc59aafabd11e7eb39bf1a5630bbfb3480c8bf7a2f25606d21121cc5ac
 test "$(sha256sum "$I" | cut -d' ' -f1)" = 4023a48f55908bd4b9b3df3e0df4e6f2249f64812debc8f2f19a2896bcc0be81
-for tool in qemu-system-x86_64 cpio dropbearkey ssh-keygen ssh sha256sum timeout; do command -v "$tool" >/dev/null; done
+for tool in qemu-system-x86_64 cpio dropbearkey ssh-keygen ssh ssh-keyscan sha256sum timeout; do command -v "$tool" >/dev/null; done
 W=$(mktemp -d "$RUNNER_TEMP/wyse-r62-ssh-XXXXXX")
 # First boot the original UNPAIRED source image with a working virtual NIC.
 # The service must withhold Dropbear rather than generating host keys or
 # opening a fallback password path. This is an actual guest serial witness.
 STAGE=unpaired_real_guest
+UNPAIRED_PORT=22063
 timeout -s TERM -k 5 42 qemu-system-x86_64 \
  -machine q35,accel=tcg -cpu max -m 1024 -smp 2 \
  -nodefaults -display none -monitor none -no-reboot \
  -serial "file:$W/serial-unpaired.log" \
  -kernel "$K" -initrd "$I" \
  -append 'console=ttyS0,115200n8 rdinit=/init panic=2' \
- -netdev 'user,id=unpaired,restrict=on' -device e1000,netdev=unpaired \
+ -netdev "user,id=unpaired,restrict=on,hostfwd=tcp:127.0.0.1:$UNPAIRED_PORT-:22" -device e1000,netdev=unpaired \
  >"$W/qemu-unpaired.log" 2>&1 &
 QP=$!
 for attempt in $(seq 1 30); do
@@ -65,10 +66,30 @@ grep -Fq 'WYSE_SSH=HOLD_UNENROLLED_NO_HOST_KEY' "$W/serial-unpaired.log" || {
 ! grep -Fq 'WYSE_SSH=KEY_ONLY_START' "$W/serial-unpaired.log" || {
  echo R62_UNPAIRED_SSH_STARTED=RED >&2; exit 68;
 }
+# A serial HOLD marker alone is insufficient: a buggy daemon may start
+# after the marker. Keep QEMU live and challenge the actual loopback-forwarded
+# SSH transport for a bounded period, rejecting any exposed SSH host key.
+STAGE=unpaired_real_ssh_negative
+grep -Fq 'WYSE_CORE_TMPFS_NO_EMMC_WRITES=ACTIVE' "$W/serial-unpaired.log"
+for attempt in 1 2 3; do
+ if ! kill -0 "$QP" 2>/dev/null; then
+  echo R62_UNPAIRED_QEMU_NOT_RUNNING_FOR_NEGATIVE=RED >&2; exit 71
+ fi
+ ssh-keyscan -T 2 -p "$UNPAIRED_PORT" -t ed25519,rsa,ecdsa 127.0.0.1 \
+  >"$W/unpaired-host-identities.txt" 2>"$W/unpaired-keyscan.log" || true
+ if test -s "$W/unpaired-host-identities.txt"; then
+  echo R62_UNPAIRED_SSH_SERVICE_EXPOSED=RED >&2; exit 72
+ fi
+ sleep 2
+done
+! grep -Fq 'WYSE_SSH=KEY_ONLY_START' "$W/serial-unpaired.log" || {
+ echo R62_UNPAIRED_LATE_SSH_STARTED=RED >&2; exit 73;
+}
 kill "$QP" 2>/dev/null || true
 wait "$QP" 2>/dev/null || true
 QP=
 echo R62_UNPAIRED_SOURCE_IMAGE_SSH_DENIED=PASS
+echo R62_UNPAIRED_REAL_SSH_HOSTKEY_SCAN_DENIED=PASS
 STAGE=synthetic_keys
 dropbearkey -t ed25519 -f "$W/hostkey" >"$W/dropbear.log" 2>&1
 ssh-keygen -q -t ed25519 -N '' -f "$W/client" >"$W/client-keygen.log" 2>&1
@@ -116,7 +137,7 @@ QP=$!
 STAGE=keyonly_positive
 result=
 for attempt in $(seq 1 65); do
-  if result=$(ssh -p "$PORT" -i "$W/client" -o IdentitiesOnly=yes \
+  if result=$(ssh -F /dev/null -p "$PORT" -i "$W/client" -o IdentitiesOnly=yes -o IdentityAgent=none \
     -o BatchMode=yes -o ConnectTimeout=2 \
     -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$W/known_hosts" \
     root@127.0.0.1 'echo WYSE_R62_REAL_KEY_ONLY_LOGIN=PASS' 2>"$W/ssh.log"); then
@@ -140,7 +161,7 @@ grep -Fq 'WYSE_R62_TEST_ONLY_SYNTHETIC_PAIRING=ACTIVE' "$W/serial.log"
 grep -Fq 'WYSE_SSH=KEY_ONLY_START' "$W/serial.log"
 STAGE=wrong_operator_key_negative
 ssh-keygen -q -t ed25519 -N '' -f "$W/wrong-client" >"$W/wrong-keygen.log" 2>&1
-if ssh -p "$PORT" -i "$W/wrong-client" -o IdentitiesOnly=yes \
+if ssh -F /dev/null -p "$PORT" -i "$W/wrong-client" -o IdentitiesOnly=yes -o IdentityAgent=none \
  -o BatchMode=yes -o NumberOfPasswordPrompts=0 -o ConnectTimeout=3 \
  -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$W/known_hosts" \
  root@127.0.0.1 'echo WRONG_OPERATOR_KEY_ACCEPTED' >"$W/wrong-operator.log" 2>&1; then
@@ -149,7 +170,19 @@ fi
 if grep -Fq WRONG_OPERATOR_KEY_ACCEPTED "$W/wrong-operator.log"; then
  echo R62_WRONG_OPERATOR_COMMAND_EXECUTED=RED >&2; exit 70
 fi
-echo R62_WRONG_OPERATOR_KEY_DENIED=PASS
+# A wrong-key failure without a second good-key login can be a dead-SSH
+# false positive. Require the same pinned legitimate key to work afterward.
+STAGE=wrongkey_liveness_control
+liveness=$(ssh -F /dev/null -p "$PORT" -i "$W/client" -o IdentitiesOnly=yes \
+ -o IdentityAgent=none -o BatchMode=yes -o ConnectTimeout=3 \
+ -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$W/known_hosts" \
+ root@127.0.0.1 'echo WYSE_R62_GOOD_KEY_AFTER_WRONG=PASS' 2>"$W/liveness.log") || {
+ echo R62_POST_WRONGKEY_SERVICE_UNREACHABLE=RED >&2; exit 74;
+}
+test "$liveness" = 'WYSE_R62_GOOD_KEY_AFTER_WRONG=PASS' || {
+ echo R62_POST_WRONGKEY_CORRECT_LOGIN_MISSING=RED >&2; exit 75;
+}
+echo R62_WRONG_OPERATOR_KEY_DENIED_WITH_LIVE_SERVER=PASS
 STAGE=password_negative
 if ssh -p "$PORT" -o PubkeyAuthentication=no -o PasswordAuthentication=yes \
  -o PreferredAuthentications=password -o KbdInteractiveAuthentication=no \
@@ -169,7 +202,9 @@ R62_ORIGINAL_KERNEL_SHA256=$(sha256sum "$K" | cut -d' ' -f1)
 R62_ORIGINAL_ROOTFS_SHA256=$(sha256sum "$I" | cut -d' ' -f1)
 R62_SYNTHETIC_TEST_ONLY_CPIO=DESTROYED_ON_EXIT
 R62_UNPAIRED_SOURCE_IMAGE_SSH_DENIED=PASS
+R62_UNPAIRED_REAL_SSH_HOSTKEY_SCAN_DENIED=PASS
 R62_UNTRUSTED_OPERATOR_KEY_DENIED=PASS
+R62_POST_WRONGKEY_GOODKEY_LOGIN=PASS
 R62_REAL_GUEST_KEY_ONLY_SSH=PASS
 R62_REAL_GUEST_PASSWORD_ONLY_DENIED=PASS
 R62_REAL_GUEST_RECOVERY_TMPFS=PASS
