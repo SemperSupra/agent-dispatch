@@ -112,6 +112,31 @@ func syntheticReadState(root string) (syntheticDurableState, error) {
 	if err := json.Unmarshal(raw, &state); err != nil || state.Receipts == nil || state.BudgetUsed > syntheticBudgetCeiling || state.Commits != uint64(len(state.Receipts)) {
 		return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
 	}
+	// Do not trust merely well-formed JSON and a matching receipt count:
+	// under-reported usage or duplicated sequence IDs could silently grant
+	// an extra budget after recovery. Validate the entire synthetic journal.
+	var sum, maxEpoch uint64
+	seqs := make(map[uint64]bool, len(state.Receipts))
+	for effectID, receipt := range state.Receipts {
+		in := receipt.Intent
+		if strings.TrimSpace(effectID) == "" || in.EffectID != effectID ||
+			len(in.IntentSHA256) != 64 || in.Epoch == 0 || in.BudgetUnits == 0 ||
+			in.BudgetUnits > syntheticBudgetCeiling-sum ||
+			receipt.Seq == 0 || receipt.Seq > state.Commits || seqs[receipt.Seq] {
+			return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
+		}
+		if _, err := hex.DecodeString(in.IntentSHA256); err != nil {
+			return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
+		}
+		seqs[receipt.Seq] = true
+		sum += in.BudgetUnits
+		if in.Epoch > maxEpoch {
+			maxEpoch = in.Epoch
+		}
+	}
+	if sum != state.BudgetUsed || maxEpoch != state.HighWater {
+		return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
+	}
 	return state, nil
 }
 
@@ -319,6 +344,52 @@ func TestSyntheticReceiverCorruptionFailsClosed(t *testing.T) {
 	}
 	if _, _, err := syntheticReadOnlyReceipt(root, "fake-effect"); err == nil {
 		t.Fatal("corrupt journal falsely produced safe readback")
+	}
+}
+
+// A JSON ledger can be syntactically valid yet understate spent budget or
+// contain forged receipts. These negative oracles must fail before any effect.
+func TestSyntheticReceiverReceiptInvariantsDenyBudgetReset(t *testing.T) {
+	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil { t.Fatal(err) }
+	for _, in := range []syntheticDurableIntent{
+		syntheticIntent("alpha", 7, 2),
+		syntheticIntent("beta", 8, 1),
+	} {
+		if _, _, err := syntheticApply(root, in); err != nil { t.Fatal(err) }
+	}
+	original, err := syntheticReadState(root)
+	if err != nil { t.Fatal(err) }
+	for _, tc := range []struct {
+		name string
+		mutate func(*syntheticDurableState)
+	}{
+		{"underreported-budget", func(s *syntheticDurableState) { s.BudgetUsed = 0 }},
+		{"high-water-rollback", func(s *syntheticDurableState) { s.HighWater = 7 }},
+		{"inflated-high-water", func(s *syntheticDurableState) { s.HighWater = 99 }},
+		{"duplicated-sequence", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Seq = 1; s.Receipts["beta"] = r }},
+		{"zero-sequence", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Seq = 0; s.Receipts["beta"] = r }},
+		{"mismatched-effect-key", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Intent.EffectID = "other"; s.Receipts["beta"] = r }},
+		{"zero-receipt-budget", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Intent.BudgetUnits = 0; s.Receipts["beta"] = r }},
+		{"malformed-intent-digest", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Intent.IntentSHA256 = strings.Repeat("z", 64); s.Receipts["beta"] = r }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Each subtest receives independent map copies; never mutate
+			// the source fixture or turn a prior failure into a later case.
+			state := original
+			state.Receipts = make(map[string]syntheticDurableReceipt, len(original.Receipts))
+			for k, r := range original.Receipts { state.Receipts[k] = r }
+			tc.mutate(&state)
+			raw, err := json.Marshal(state)
+			if err != nil { t.Fatal(err) }
+			if err := os.WriteFile(filepath.Join(root, "state.json"), raw, 0600); err != nil { t.Fatal(err) }
+			if _, _, err := syntheticApply(root, syntheticIntent("gamma", 9, 1)); err == nil || !strings.Contains(err.Error(), "SYNTHETIC_LEDGER_UNTRUSTED_DENIED") {
+				t.Fatalf("corrupted receipt admitted new budget: %v", err)
+			}
+			if _, found, err := syntheticReadOnlyReceipt(root, "alpha"); err == nil || found {
+				t.Fatalf("corrupt receipt falsely became trusted readback: found=%v err=%v", found, err)
+			}
+		})
 	}
 }
 
