@@ -105,3 +105,31 @@ func TestDiscoveryThreeAudiences(t *testing.T){
   if !strings.Contains(string(s),item){t.Errorf("missing user-visible capability %q",item)}
  }
 }
+
+func TestObserveRejectsContradictoryNativeLifecycle(t *testing.T) {
+ for _, state := range []struct{ status, conclusion string }{
+  {"queued", "success"},
+  {"in_progress", "failure"},
+  {"pending", "cancelled"},
+  {"waiting", "success"},
+  {"requested", "success"},
+ } {
+  run := mockRun(40448376152, state.status, state.conclusion)
+  s := serverRun(t, run)
+  _, err := observe(context.Background(), s.Client(), s.URL+"/", "40448376152")
+  s.Close()
+  if err == nil {
+   t.Fatalf("accepted premature terminal conclusion: status=%s conclusion=%s", state.status, state.conclusion)
+  }
+ }
+ // Missing terminal conclusion must be retained as unresolved terminal
+ // evidence, rather than reported as completion success or retried.
+ run := mockRun(40448376152, "completed", "")
+ s := serverRun(t, run)
+ defer s.Close()
+ got, err := observe(context.Background(), s.Client(), s.URL+"/", "40448376152")
+ if err != nil || got.ControlState != "TERMINAL_UNCLASSIFIED" ||
+  got.ScienceState != "UNJUDGED_NEEDS_TRUSTED_PRIVATE_INGEST" {
+  t.Fatalf("misclassified unknown terminal evidence: %+v, err=%v", got, err)
+ }
+}
