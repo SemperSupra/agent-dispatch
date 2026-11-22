@@ -4,39 +4,88 @@
 set -Eeuo pipefail
 umask 077
 export LC_ALL=C TZ=UTC
+# A failed build/firmware invocation must yield a durable RED stage rather than
+# an opaque shell exit and an empty artifact upload. Never retain keys or media.
+BOOT_STAGE=environment
+W=
+DIAG_RECEIPT=evidence/public/wyse-r58-boot.txt
+mkdir -p evidence/public
+r58_finish() {
+  local rc=$? logname=
+  trap - EXIT
+  if test "$rc" -ne 0; then
+    printf 'R58_BOOT_RESULT=RED\nR58_FAILURE_STAGE=%s\nR58_FAILURE_EXIT=%s\nR58_SOURCE_SHA=%s\nR58_PRODUCTION_SECURE_BOOT_ENFORCEMENT=NOT_TESTED\nR58_REAL_HYPERV_USB_DHCP_SSH_CONTROLLER_PHYSICAL_WYSE=NOT_TESTED\n' \
+      "$BOOT_STAGE" "$rc" "${GITHUB_SHA:-UNKNOWN}" > "$DIAG_RECEIPT"
+    printf 'R58_FAILURE_STAGE=%s R58_FAILURE_EXIT=%s\n' "$BOOT_STAGE" "$rc" >&2
+    case "$BOOT_STAGE" in
+      ukify_build) logname=ukify.log ;;
+      ukify_inspect) logname=inspect.txt ;;
+      signer_create) logname=keygen.log ;;
+      uki_sign) logname=sbsign.log ;;
+      uki_verify) logname=sbverify.log ;;
+      fat_esp) logname=mkfs.log ;;
+      qemu_esp) logname=qemu-esp.log ;;
+      qemu_pxe) logname=qemu-pxe.log ;;
+    esac
+    # Only print a bounded excerpt of named synthetic tool logs, never
+    # generated key/cert/UKI bytes or real host inventory.
+    if test -n "$logname" && test -n "$W" && test -s "$W/$logname"; then
+      printf 'R58_DIAGNOSTIC_LOG=%s\n' "$logname" >&2
+      tail -n 12 "$W/$logname" | sed -E 's@/home/runner/[^[:space:]]+@<runner-path>@g' >&2 || true
+    fi
+  fi
+  if test -n "$W" && test -d "$W"; then rm -rf -- "$W" || true; fi
+  exit "$rc"
+}
+trap r58_finish EXIT
+BOOT_STAGE=repository_identity
 : "${RUNNER_TEMP:?}"
 : "${GITHUB_WORKSPACE:?}"
 : "${GITHUB_SHA:?}"
 test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 test "$GITHUB_WORKSPACE" = "$(pwd)"
+BOOT_STAGE=kernel_images
 K="$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/bzImage"
 I="$RUNNER_TEMP/wyse-r28-owned-kernel/out/images/rootfs.cpio"
 test -s "$K" && test -s "$I"
 test "$(sha256sum "$K" | cut -d' ' -f1)" = d51edcfc59aafabd11e7eb39bf1a5630bbfb3480c8bf7a2f25606d21121cc5ac
 test "$(sha256sum "$I" | cut -d' ' -f1)" = 4023a48f55908bd4b9b3df3e0df4e6f2249f64812debc8f2f19a2896bcc0be81
+BOOT_STAGE=host_tools
 for t in qemu-system-x86_64 mmd mcopy mkfs.vfat sbsign sbverify openssl timeout sha256sum; do command -v "$t" >/dev/null; done
 if command -v ukify >/dev/null 2>&1; then UKIFY=$(command -v ukify); else UKIFY=/usr/lib/systemd/ukify; fi
 test -x "$UKIFY"
+test -s /usr/lib/systemd/boot/efi/linuxx64.efi.stub || { echo R58_LINUX_X64_EFI_STUB_MISSING=RED >&2; exit 19; }
 CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
 VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
 test -s "$CODE" && test -s "$VARS"
 W=$(mktemp -d "$RUNNER_TEMP/wyse-r58-boot-XXXXXX")
-trap 'rm -rf -- "$W"' EXIT
-mkdir -p evidence/public "$W/tftp/EFI/BOOT"
+mkdir -p "$W/tftp/EFI/BOOT"
+BOOT_STAGE=ukify_build
+echo R58_STAGE=ukify_build
 "$UKIFY" build --linux="$K" --initrd="$I" \
   --cmdline="console=ttyS0,115200n8 rdinit=/init panic=2" \
   --output="$W/unsigned.efi" >"$W/ukify.log" 2>&1
+BOOT_STAGE=ukify_inspect
+echo R58_STAGE=ukify_inspect
 "$UKIFY" inspect "$W/unsigned.efi" >"$W/inspect.txt" 2>&1
 for section in .linux .initrd .cmdline; do grep -Fq "$section" "$W/inspect.txt"; done
+BOOT_STAGE=signer_create
+echo R58_STAGE=signer_create
 openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 1 \
   -subj '/CN=Wyse R58 isolated public synthetic test signer ONLY' \
   -keyout "$W/test-only.key" -out "$W/test-only.crt" >"$W/keygen.log" 2>&1
 chmod 0600 "$W/test-only.key"
+BOOT_STAGE=uki_sign
+echo R58_STAGE=uki_sign
 sbsign --key "$W/test-only.key" --cert "$W/test-only.crt" \
   --output "$W/signed.efi" "$W/unsigned.efi" >"$W/sbsign.log" 2>&1
+BOOT_STAGE=uki_verify
+echo R58_STAGE=uki_verify
 sbverify --cert "$W/test-only.crt" "$W/signed.efi" >"$W/sbverify.log" 2>&1
 cp "$W/signed.efi" "$W/tftp/EFI/BOOT/BOOTX64.EFI"
 # QEMU FAT ESP is a scratch synthetic boot medium, never a host block device.
+BOOT_STAGE=fat_esp
+echo R58_STAGE=fat_esp
 truncate -s 64M "$W/esp.img"
 mkfs.vfat -F 16 "$W/esp.img" >"$W/mkfs.log" 2>&1
 mmd -i "$W/esp.img" ::/EFI ::/EFI/BOOT
@@ -83,15 +132,21 @@ run_qemu(){
   fi
   echo "R58_${mode^^}_LINUX_INIT=PASS"
 }
+BOOT_STAGE=qemu_esp
+echo R58_STAGE=qemu_esp
 run_qemu esp
 test "$(sha256sum "$W/esp.img" | cut -d' ' -f1)" = "$SHA_ESP"
 test "$(sha256sum "$W/mock-emmc.img" | cut -d' ' -f1)" = "$SHA_EMMC"
 test "$(sha256sum "$W/mock-sata.img" | cut -d' ' -f1)" = "$SHA_SATA"
 echo R58_UEFI_FAT_ESP_NO_INTERNAL_DRIVE_WRITES=PASS
+BOOT_STAGE=qemu_pxe
+echo R58_STAGE=qemu_pxe
 run_qemu pxe
 test "$(sha256sum "$W/mock-emmc.img" | cut -d' ' -f1)" = "$SHA_EMMC"
 test "$(sha256sum "$W/mock-sata.img" | cut -d' ' -f1)" = "$SHA_SATA"
+BOOT_STAGE=receipt
 cat > evidence/public/wyse-r58-boot.txt <<EOF
+R58_BOOT_RESULT=PASS
 R58_SOURCE_SHA=$GITHUB_SHA
 R58_KERNEL_SHA256=$(sha256sum "$K" | cut -d' ' -f1)
 R58_CPIO_SHA256=$(sha256sum "$I" | cut -d' ' -f1)
