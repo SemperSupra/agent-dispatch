@@ -42,7 +42,7 @@ deny '$(touch /tmp/unwanted)'
 deny "status; touch $scratch/should-not-exist"
 # Empty remote command is permitted ONLY for static help.
 test ! -e "$scratch/should-not-exist"
-test "$denied" -eq 9
+test "$denied" -eq 10
 echo R63_FORCED_CLI_ALLOWLIST_AND_INJECTION_NEGATIVES=PASS
 echo R63_ACTUAL_GUEST_SSH_AUTH_SHELL_AND_FORWARDING=NOT_TESTED
 echo R63_GO_RECOVERD_SIGNING_ENROLLMENT_AND_PHYSICAL=NOT_TESTED
