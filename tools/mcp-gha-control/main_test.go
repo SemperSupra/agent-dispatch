@@ -113,6 +113,9 @@ func TestObserveRejectsContradictoryNativeLifecycle(t *testing.T) {
   {"pending", "cancelled"},
   {"waiting", "success"},
   {"requested", "success"},
+  {"queued", "neutral"},
+  {"in_progress", "timed_out"},
+  {"waiting", "skipped"},
  } {
   run := mockRun(40448376152, state.status, state.conclusion)
   s := serverRun(t, run)
