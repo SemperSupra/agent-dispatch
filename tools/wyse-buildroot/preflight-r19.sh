@@ -14,7 +14,12 @@ grep -Fq 'key=/run/wyse-keys/ssh_host_ed25519_key' "$svc"
 grep -Fq 'auth=/run/wyse-keys/authorized_keys' "$svc"
 grep -Fq 'WYSE_SSH=HOLD_UNENROLLED_NO_HOST_KEY' "$svc"
 grep -Fq 'cp "$auth" /root/.ssh/authorized_keys' "$svc"
-grep -Fq '/usr/sbin/dropbear -s -g -p 22 -r "$key"' "$svc"
+# R63 requires server-enforced fixed command and both forwarding denials.
+# Do not accept an unrestricted key-only root shell as equivalent.
+cli="$here/overlay/usr/libexec/wyse-ssh-readonly"
+test -s "$cli"
+sh -n "$cli"
+grep -Fq -- "/usr/sbin/dropbear -s -g -j -k -c '/bin/sh /usr/libexec/wyse-ssh-readonly' -p 22 -r" "$svc"
 if grep -Eq '(^|[[:space:]])(-w|--disable-root-login)([[:space:]]|$)|dropbearkey|PasswordAuthentication[[:space:]]+yes' "$svc"; then
   echo "WYSE_SSH_STATIC_POLICY=FAIL"; exit 1
 fi
