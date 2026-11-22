@@ -7,6 +7,8 @@ on:
       - 'tools/wyse-buildroot/overlay/etc/init.d/S50dropbear'
       - 'tools/wyse-buildroot/overlay/usr/libexec/wyse-ssh-readonly'
       - 'scripts/public_wyse_r63_restricted_ssh.sh'
+      - 'scripts/public_wyse_r63_real_guest.sh'
+      - 'tools/wyse-buildroot/preflight-r19.sh'
       - '.github/workflows/public-wyse-r63-restricted-ssh.yml'
 permissions:
   contents: read
@@ -39,3 +41,42 @@ jobs:
           set -Eeuo pipefail
           bash scripts/public_wyse_r63_restricted_ssh.sh
           echo R63_READONLY_FORCED_CLI_TEST=PASS
+  actual-restricted-ssh-guest:
+    needs: [restricted-ssh-source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 52
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install ephemeral original Buildroot and isolated QEMU tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev \
+            rsync unzip xz-utils wget curl cpio zstd perl qemu-system-x86 \
+            dropbear-bin openssh-client
+          echo R63_EPHEMERAL_ORIGINAL_BUILD_TOOLS=PASS
+      - name: Build exact source owned Linux 6.12.113 and restricted recovery rootfs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r28_owned_kernel.sh
+          echo R63_SOURCE_OWNED_RESTRICTED_KERNEL_ROOTFS=PASS
+      - name: Probe real QEMU forced status and reject arbitrary root command and forwarding
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r63_real_guest.sh
+          echo R63_NATIVE_QEMU_RESTRICTED_SECURITY_ORACLES=PASS
+      - name: Upload sanitized R63 receipt only never keys or image
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r63-public-restricted-guest
+          path: evidence/public/wyse-r63-restricted-guest.txt
+          if-no-files-found: warn
+          retention-days: 7
