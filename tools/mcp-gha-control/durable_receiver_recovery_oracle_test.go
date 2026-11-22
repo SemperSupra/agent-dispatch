@@ -47,6 +47,31 @@ const syntheticBudgetCeiling uint64 = 5
 // Synthetic provisioning is an explicit operation, separate from a receiver
 // read. A missing journal after a prior commit must never reset the budget.
 func syntheticBootstrap(root string) error {
+	// Provisioning is create-once even if state.json later disappears. A
+	// marker that survives journal loss prevents an ordinary recovery path
+	// from silently reinitializing spent budget and committed effect IDs.
+	marker, err := os.OpenFile(filepath.Join(root, ".receiver-provisioned"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	if err := marker.Sync(); err != nil {
+		marker.Close()
+		return err
+	}
+	if err := marker.Close(); err != nil {
+		return err
+	}
+	markerDir, err := os.Open(root)
+	if err != nil {
+		return err
+	}
+	if err := markerDir.Sync(); err != nil {
+		markerDir.Close()
+		return err
+	}
+	if err := markerDir.Close(); err != nil {
+		return err
+	}
 	state := syntheticDurableState{Receipts: make(map[string]syntheticDurableReceipt)}
 	raw, err := json.Marshal(state)
 	if err != nil {
@@ -317,6 +342,9 @@ func TestSyntheticReceiverMissingJournalCannotResetCommittedEffect(t *testing.T)
 	}
 	if err := os.Remove(filepath.Join(root, "state.json")); err != nil {
 		t.Fatal(err)
+	}
+	if err := syntheticBootstrap(root); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("lost-ledger bootstrap must not reset committed state: %v", err)
 	}
 	for _, attempt := range []syntheticDurableIntent{intent, syntheticIntent("fictional-new-after-loss", 8, 1)} {
 		if _, _, err := syntheticApply(root, attempt); err == nil || !strings.Contains(err.Error(), "SYNTHETIC_LEDGER_MISSING_DENIED") {
