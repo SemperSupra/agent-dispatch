@@ -44,10 +44,41 @@ type syntheticDurableState struct {
 
 const syntheticBudgetCeiling uint64 = 5
 
+// Synthetic provisioning is an explicit operation, separate from a receiver
+// read. A missing journal after a prior commit must never reset the budget.
+func syntheticBootstrap(root string) error {
+	state := syntheticDurableState{Receipts: make(map[string]syntheticDurableReceipt)}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(root, "state.json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err // repeated bootstrap cannot overwrite committed state
+	}
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	dir, err := os.Open(root)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
 func syntheticReadState(root string) (syntheticDurableState, error) {
 	raw, err := os.ReadFile(filepath.Join(root, "state.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return syntheticDurableState{Receipts: make(map[string]syntheticDurableReceipt)}, nil
+		return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_MISSING_DENIED")
 	}
 	if err != nil {
 		return syntheticDurableState{}, err
@@ -183,6 +214,9 @@ func syntheticRunChild(root string, crashAfterCommit bool) ([]byte, error) {
 
 func TestSyntheticReceiverConcurrentIndependentProcessesAndBudget(t *testing.T) {
 	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
 	var wg sync.WaitGroup
 	failed := make(chan string, 12)
 	for i := 0; i < 12; i++ {
@@ -224,6 +258,9 @@ func TestSyntheticReceiverConcurrentIndependentProcessesAndBudget(t *testing.T) 
 
 func TestSyntheticReceiverCrashAfterJournalCommitReadOnlyRecovery(t *testing.T) {
 	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
 	out, err := syntheticRunChild(root, true)
 	exitErr, ok := err.(*exec.ExitError)
 	if !ok || exitErr.ExitCode() != 71 {
@@ -260,8 +297,45 @@ func TestSyntheticReceiverCorruptionFailsClosed(t *testing.T) {
 	}
 }
 
+func TestSyntheticReceiverMissingJournalCannotResetCommittedEffect(t *testing.T) {
+	root := t.TempDir()
+	intent := syntheticIntent("fictional-persisted-effect", 7, 2)
+	if _, _, err := syntheticApply(root, intent); err == nil || !strings.Contains(err.Error(), "SYNTHETIC_LEDGER_MISSING_DENIED") {
+		t.Fatalf("implicit empty-ledger bootstrap must deny: %v", err)
+	}
+	if _, found, err := syntheticReadOnlyReceipt(root, intent.EffectID); err == nil || found {
+		t.Fatalf("read-only missing-ledger result must be untrusted: found=%v err=%v", found, err)
+	}
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := syntheticBootstrap(root); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("second bootstrap overwrote active ledger: %v", err)
+	}
+	if _, replay, err := syntheticApply(root, intent); err != nil || replay {
+		t.Fatalf("first explicit-bootstrap commit failed: replay=%v err=%v", replay, err)
+	}
+	if err := os.Remove(filepath.Join(root, "state.json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, attempt := range []syntheticDurableIntent{intent, syntheticIntent("fictional-new-after-loss", 8, 1)} {
+		if _, _, err := syntheticApply(root, attempt); err == nil || !strings.Contains(err.Error(), "SYNTHETIC_LEDGER_MISSING_DENIED") {
+			t.Fatalf("lost ledger improperly reset dedupe or budget: intent=%+v err=%v", attempt, err)
+		}
+	}
+	if _, found, err := syntheticReadOnlyReceipt(root, intent.EffectID); err == nil || found {
+		t.Fatalf("lost ledger falsely recovered a receipt: found=%v err=%v", found, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "state.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("denied requests unexpectedly recreated a journal: %v", err)
+	}
+}
+
 func TestSyntheticReceiverNoImplicitBudgetExpansion(t *testing.T) {
 	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < int(syntheticBudgetCeiling); i++ {
 		id := "synth-" + strconv.Itoa(i)
 		if _, _, err := syntheticApply(root, syntheticIntent(id, 1, 1)); err != nil {
