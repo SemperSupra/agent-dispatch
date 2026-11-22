@@ -43,6 +43,9 @@ jobs:
           SYNTHETIC_TEST_FILTER: ${{ matrix.test_filter }}
         run: |
           set -euo pipefail
+          # A missing test selection is NOT a passing workcell.
+          selected_tests="$(go test -list "$SYNTHETIC_TEST_FILTER" .)"
+          grep -Eq '^TestSynthetic' <<< "$selected_tests"
           go test -race -count=3 -run "$SYNTHETIC_TEST_FILTER" ./...
           echo "SYNTHETIC_SHARD_PASS: ${SYNTHETIC_TEST_FILTER}"
 
