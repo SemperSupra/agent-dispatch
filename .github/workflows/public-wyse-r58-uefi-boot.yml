@@ -64,7 +64,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y             build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev             rsync unzip xz-utils wget curl cpio zstd perl             sbsigntool openssl systemd-ukify faketime libfaketime             qemu-system-x86 ovmf mtools dosfstools
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y             build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev             rsync unzip xz-utils wget curl cpio zstd perl             sbsigntool openssl systemd-ukify faketime libfaketime             qemu-system-x86 ovmf mtools dosfstools systemd-boot-efi
+          test -s /usr/lib/systemd/boot/efi/linuxx64.efi.stub || { echo R58_LINUX_X64_EFI_STUB_MISSING=RED; exit 19; }
+          echo R58_SYSTEMD_UKI_EFI_STUB=PASS
           echo R58_EPHEMERAL_TOOLS=PASS
       - name: Build source-owned pinned Linux 6.12.113 and Buildroot rootfs
         shell: bash
