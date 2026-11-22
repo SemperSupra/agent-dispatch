@@ -54,6 +54,7 @@ BOOT_STAGE=host_tools
 for t in qemu-system-x86_64 mmd mcopy mkfs.vfat sbsign sbverify openssl timeout sha256sum; do command -v "$t" >/dev/null; done
 if command -v ukify >/dev/null 2>&1; then UKIFY=$(command -v ukify); else UKIFY=/usr/lib/systemd/ukify; fi
 test -x "$UKIFY"
+test -s /usr/lib/systemd/boot/efi/linuxx64.efi.stub || { echo R58_LINUX_X64_EFI_STUB_MISSING=RED >&2; exit 19; }
 CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
 VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
 test -s "$CODE" && test -s "$VARS"
