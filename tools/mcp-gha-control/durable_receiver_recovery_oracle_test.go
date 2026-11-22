@@ -44,16 +44,97 @@ type syntheticDurableState struct {
 
 const syntheticBudgetCeiling uint64 = 5
 
+// Synthetic provisioning is an explicit operation, separate from a receiver
+// read. A missing journal after a prior commit must never reset the budget.
+func syntheticBootstrap(root string) error {
+	// Provisioning is create-once even if state.json later disappears. A
+	// marker that survives journal loss prevents an ordinary recovery path
+	// from silently reinitializing spent budget and committed effect IDs.
+	marker, err := os.OpenFile(filepath.Join(root, ".receiver-provisioned"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	if err := marker.Sync(); err != nil {
+		marker.Close()
+		return err
+	}
+	if err := marker.Close(); err != nil {
+		return err
+	}
+	markerDir, err := os.Open(root)
+	if err != nil {
+		return err
+	}
+	if err := markerDir.Sync(); err != nil {
+		markerDir.Close()
+		return err
+	}
+	if err := markerDir.Close(); err != nil {
+		return err
+	}
+	state := syntheticDurableState{Receipts: make(map[string]syntheticDurableReceipt)}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(root, "state.json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err // repeated bootstrap cannot overwrite committed state
+	}
+	if _, err := f.Write(raw); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	dir, err := os.Open(root)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
 func syntheticReadState(root string) (syntheticDurableState, error) {
 	raw, err := os.ReadFile(filepath.Join(root, "state.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return syntheticDurableState{Receipts: make(map[string]syntheticDurableReceipt)}, nil
+		return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_MISSING_DENIED")
 	}
 	if err != nil {
 		return syntheticDurableState{}, err
 	}
 	var state syntheticDurableState
 	if err := json.Unmarshal(raw, &state); err != nil || state.Receipts == nil || state.BudgetUsed > syntheticBudgetCeiling || state.Commits != uint64(len(state.Receipts)) {
+		return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
+	}
+	// Do not trust merely well-formed JSON and a matching receipt count:
+	// under-reported usage or duplicated sequence IDs could silently grant
+	// an extra budget after recovery. Validate the entire synthetic journal.
+	var sum, maxEpoch uint64
+	seqs := make(map[uint64]bool, len(state.Receipts))
+	for effectID, receipt := range state.Receipts {
+		in := receipt.Intent
+		if strings.TrimSpace(effectID) == "" || in.EffectID != effectID ||
+			len(in.IntentSHA256) != 64 || in.Epoch == 0 || in.BudgetUnits == 0 ||
+			in.BudgetUnits > syntheticBudgetCeiling-sum ||
+			receipt.Seq == 0 || receipt.Seq > state.Commits || seqs[receipt.Seq] {
+			return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
+		}
+		if _, err := hex.DecodeString(in.IntentSHA256); err != nil {
+			return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
+		}
+		seqs[receipt.Seq] = true
+		sum += in.BudgetUnits
+		if in.Epoch > maxEpoch {
+			maxEpoch = in.Epoch
+		}
+	}
+	if sum != state.BudgetUsed || maxEpoch != state.HighWater {
 		return syntheticDurableState{}, errors.New("SYNTHETIC_LEDGER_UNTRUSTED_DENIED")
 	}
 	return state, nil
@@ -101,6 +182,11 @@ func syntheticStoreState(root string, state syntheticDurableState) error {
 func syntheticApply(root string, intent syntheticDurableIntent) (syntheticDurableReceipt, bool, error) {
 	var denied syntheticDurableReceipt
 	if strings.TrimSpace(intent.EffectID) == "" || len(intent.IntentSHA256) != 64 || intent.Epoch == 0 || intent.BudgetUnits == 0 {
+		return denied, false, errors.New("INVALID_INTENT_DENIED")
+	}
+	// Input admission must preserve the same digest grammar that the durable
+	// journal reader verifies, or one new effect could poison all future reads.
+	if _, err := hex.DecodeString(intent.IntentSHA256); err != nil {
 		return denied, false, errors.New("INVALID_INTENT_DENIED")
 	}
 	lock, err := os.OpenFile(filepath.Join(root, ".receiver-lock"), os.O_CREATE|os.O_RDWR, 0600)
@@ -183,6 +269,9 @@ func syntheticRunChild(root string, crashAfterCommit bool) ([]byte, error) {
 
 func TestSyntheticReceiverConcurrentIndependentProcessesAndBudget(t *testing.T) {
 	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
 	var wg sync.WaitGroup
 	failed := make(chan string, 12)
 	for i := 0; i < 12; i++ {
@@ -224,6 +313,9 @@ func TestSyntheticReceiverConcurrentIndependentProcessesAndBudget(t *testing.T) 
 
 func TestSyntheticReceiverCrashAfterJournalCommitReadOnlyRecovery(t *testing.T) {
 	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
 	out, err := syntheticRunChild(root, true)
 	exitErr, ok := err.(*exec.ExitError)
 	if !ok || exitErr.ExitCode() != 71 {
@@ -260,8 +352,112 @@ func TestSyntheticReceiverCorruptionFailsClosed(t *testing.T) {
 	}
 }
 
+// A JSON ledger can be syntactically valid yet understate spent budget or
+// contain forged receipts. These negative oracles must fail before any effect.
+func TestSyntheticReceiverMalformedIntentCannotPoisonLedger(t *testing.T) {
+	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil { t.Fatal(err) }
+	bad := syntheticIntent("fictional-invalid-digest", 4, 1)
+	bad.IntentSHA256 = strings.Repeat("z", 64)
+	if _, _, err := syntheticApply(root, bad); err == nil || !strings.Contains(err.Error(), "INVALID_INTENT_DENIED") {
+		t.Fatalf("invalid hex digest was admitted: %v", err)
+	}
+	state, err := syntheticReadState(root)
+	if err != nil || state.Commits != 0 || state.BudgetUsed != 0 {
+		t.Fatalf("bad intent contaminated durable state: %+v err=%v", state, err)
+	}
+	good := syntheticIntent("fictional-valid-after-denial", 4, 1)
+	if _, _, err := syntheticApply(root, good); err != nil {
+		t.Fatalf("valid follow-up after denial failed: %v", err)
+	}
+}
+
+func TestSyntheticReceiverReceiptInvariantsDenyBudgetReset(t *testing.T) {
+	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil { t.Fatal(err) }
+	for _, in := range []syntheticDurableIntent{
+		syntheticIntent("alpha", 7, 2),
+		syntheticIntent("beta", 8, 1),
+	} {
+		if _, _, err := syntheticApply(root, in); err != nil { t.Fatal(err) }
+	}
+	original, err := syntheticReadState(root)
+	if err != nil { t.Fatal(err) }
+	for _, tc := range []struct {
+		name string
+		mutate func(*syntheticDurableState)
+	}{
+		{"underreported-budget", func(s *syntheticDurableState) { s.BudgetUsed = 0 }},
+		{"high-water-rollback", func(s *syntheticDurableState) { s.HighWater = 7 }},
+		{"inflated-high-water", func(s *syntheticDurableState) { s.HighWater = 99 }},
+		{"duplicated-sequence", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Seq = 1; s.Receipts["beta"] = r }},
+		{"zero-sequence", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Seq = 0; s.Receipts["beta"] = r }},
+		{"mismatched-effect-key", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Intent.EffectID = "other"; s.Receipts["beta"] = r }},
+		{"zero-receipt-budget", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Intent.BudgetUnits = 0; s.Receipts["beta"] = r }},
+		{"malformed-intent-digest", func(s *syntheticDurableState) { r := s.Receipts["beta"]; r.Intent.IntentSHA256 = strings.Repeat("z", 64); s.Receipts["beta"] = r }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Each subtest receives independent map copies; never mutate
+			// the source fixture or turn a prior failure into a later case.
+			state := original
+			state.Receipts = make(map[string]syntheticDurableReceipt, len(original.Receipts))
+			for k, r := range original.Receipts { state.Receipts[k] = r }
+			tc.mutate(&state)
+			raw, err := json.Marshal(state)
+			if err != nil { t.Fatal(err) }
+			if err := os.WriteFile(filepath.Join(root, "state.json"), raw, 0600); err != nil { t.Fatal(err) }
+			if _, _, err := syntheticApply(root, syntheticIntent("gamma", 9, 1)); err == nil || !strings.Contains(err.Error(), "SYNTHETIC_LEDGER_UNTRUSTED_DENIED") {
+				t.Fatalf("corrupted receipt admitted new budget: %v", err)
+			}
+			if _, found, err := syntheticReadOnlyReceipt(root, "alpha"); err == nil || found {
+				t.Fatalf("corrupt receipt falsely became trusted readback: found=%v err=%v", found, err)
+			}
+		})
+	}
+}
+
+func TestSyntheticReceiverMissingJournalCannotResetCommittedEffect(t *testing.T) {
+	root := t.TempDir()
+	intent := syntheticIntent("fictional-persisted-effect", 7, 2)
+	if _, _, err := syntheticApply(root, intent); err == nil || !strings.Contains(err.Error(), "SYNTHETIC_LEDGER_MISSING_DENIED") {
+		t.Fatalf("implicit empty-ledger bootstrap must deny: %v", err)
+	}
+	if _, found, err := syntheticReadOnlyReceipt(root, intent.EffectID); err == nil || found {
+		t.Fatalf("read-only missing-ledger result must be untrusted: found=%v err=%v", found, err)
+	}
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := syntheticBootstrap(root); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("second bootstrap overwrote active ledger: %v", err)
+	}
+	if _, replay, err := syntheticApply(root, intent); err != nil || replay {
+		t.Fatalf("first explicit-bootstrap commit failed: replay=%v err=%v", replay, err)
+	}
+	if err := os.Remove(filepath.Join(root, "state.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syntheticBootstrap(root); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("lost-ledger bootstrap must not reset committed state: %v", err)
+	}
+	for _, attempt := range []syntheticDurableIntent{intent, syntheticIntent("fictional-new-after-loss", 8, 1)} {
+		if _, _, err := syntheticApply(root, attempt); err == nil || !strings.Contains(err.Error(), "SYNTHETIC_LEDGER_MISSING_DENIED") {
+			t.Fatalf("lost ledger improperly reset dedupe or budget: intent=%+v err=%v", attempt, err)
+		}
+	}
+	if _, found, err := syntheticReadOnlyReceipt(root, intent.EffectID); err == nil || found {
+		t.Fatalf("lost ledger falsely recovered a receipt: found=%v err=%v", found, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "state.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("denied requests unexpectedly recreated a journal: %v", err)
+	}
+}
+
 func TestSyntheticReceiverNoImplicitBudgetExpansion(t *testing.T) {
 	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < int(syntheticBudgetCeiling); i++ {
 		id := "synth-" + strconv.Itoa(i)
 		if _, _, err := syntheticApply(root, syntheticIntent(id, 1, 1)); err != nil {

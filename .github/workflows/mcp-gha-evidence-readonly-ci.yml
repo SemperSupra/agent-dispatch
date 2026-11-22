@@ -11,6 +11,44 @@ permissions:
   contents: read
 
 jobs:
+  # Independent public-synthetic workcells. These two shards fan out without
+  # waiting for the full read-only controller's acceptance job below.
+  # No production data, private code, mutating provider, or paid runners.
+  synthetic-negative-oracles:
+    name: Public synthetic shard / ${{ matrix.shard }}
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - shard: signed-ack
+            test_filter: '^TestSyntheticPostSendACK'
+          - shard: crash-recovery
+            test_filter: '^TestSyntheticReceiver'
+    steps:
+      - name: Checkout immutable public PR source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run isolated race-enabled negative oracles
+        shell: bash
+        working-directory: tools/mcp-gha-control
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          SYNTHETIC_TEST_FILTER: ${{ matrix.test_filter }}
+        run: |
+          set -euo pipefail
+          # A missing test selection is NOT a passing workcell.
+          selected_tests="$(go test -list "$SYNTHETIC_TEST_FILTER" .)"
+          grep -Eq '^TestSynthetic' <<< "$selected_tests"
+          go test -race -count=3 -run "$SYNTHETIC_TEST_FILTER" ./...
+          echo "SYNTHETIC_SHARD_PASS: ${SYNTHETIC_TEST_FILTER}"
+
   readonly-contract:
     name: Fixed public read-only observer and sealed arm evidence validation
     runs-on: ubuntu-24.04
