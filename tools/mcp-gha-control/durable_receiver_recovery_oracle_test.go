@@ -184,6 +184,11 @@ func syntheticApply(root string, intent syntheticDurableIntent) (syntheticDurabl
 	if strings.TrimSpace(intent.EffectID) == "" || len(intent.IntentSHA256) != 64 || intent.Epoch == 0 || intent.BudgetUnits == 0 {
 		return denied, false, errors.New("INVALID_INTENT_DENIED")
 	}
+	// Input admission must preserve the same digest grammar that the durable
+	// journal reader verifies, or one new effect could poison all future reads.
+	if _, err := hex.DecodeString(intent.IntentSHA256); err != nil {
+		return denied, false, errors.New("INVALID_INTENT_DENIED")
+	}
 	lock, err := os.OpenFile(filepath.Join(root, ".receiver-lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return denied, false, err
@@ -349,6 +354,24 @@ func TestSyntheticReceiverCorruptionFailsClosed(t *testing.T) {
 
 // A JSON ledger can be syntactically valid yet understate spent budget or
 // contain forged receipts. These negative oracles must fail before any effect.
+func TestSyntheticReceiverMalformedIntentCannotPoisonLedger(t *testing.T) {
+	root := t.TempDir()
+	if err := syntheticBootstrap(root); err != nil { t.Fatal(err) }
+	bad := syntheticIntent("fictional-invalid-digest", 4, 1)
+	bad.IntentSHA256 = strings.Repeat("z", 64)
+	if _, _, err := syntheticApply(root, bad); err == nil || !strings.Contains(err.Error(), "INVALID_INTENT_DENIED") {
+		t.Fatalf("invalid hex digest was admitted: %v", err)
+	}
+	state, err := syntheticReadState(root)
+	if err != nil || state.Commits != 0 || state.BudgetUsed != 0 {
+		t.Fatalf("bad intent contaminated durable state: %+v err=%v", state, err)
+	}
+	good := syntheticIntent("fictional-valid-after-denial", 4, 1)
+	if _, _, err := syntheticApply(root, good); err != nil {
+		t.Fatalf("valid follow-up after denial failed: %v", err)
+	}
+}
+
 func TestSyntheticReceiverReceiptInvariantsDenyBudgetReset(t *testing.T) {
 	root := t.TempDir()
 	if err := syntheticBootstrap(root); err != nil { t.Fatal(err) }
