@@ -42,17 +42,28 @@ def call(args:list[str],timeout:int=20)->str:
 def docker(*args:str,timeout:int=25)->str:
     return call(["docker",*args],timeout)
 
+def last_result_row(output:str)->str:
+    """Successful psql -q commands may return ZERO rows (e.g. INSERT).
+
+    Preserve absence as absence, never treat an empty acknowledgement as an
+    IndexError or invent a fictitious query result.
+    """
+    lines=output.splitlines()
+    return lines[-1].strip() if lines else ""
+
+
 def psql(network:str,host:str,query:str,timeout:int=25)->str:
     # This is a fixed SQL string authored in the source file; no user SQL or
     # source-derived PST data is accepted. PG client container shares only a
     # private Docker internal network with original XTDB; no public host port.
-    return call([
+    output=call([
         "docker","run","--rm","--network",network,
         "--pids-limit","100","--memory","256m","--cpus","1",
         "-e","PGSSLMODE=disable","-e","PGCONNECT_TIMEOUT=5",
         CLIENT,
         "psql","-h",host,"-U","xtdb","-d","xtdb","-q","-X","-A","-t",
-        "-v","ON_ERROR_STOP=1","-c",query],timeout).splitlines()[-1].strip()
+        "-v","ON_ERROR_STOP=1","-c",query],timeout)
+    return last_result_row(output)
 
 def start(name:str,network:str,volume:str)->None:
     docker("run","-d","--name",name,
