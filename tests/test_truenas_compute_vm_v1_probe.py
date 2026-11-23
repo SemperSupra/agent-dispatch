@@ -94,6 +94,12 @@ class TrueNASVmV1ProbeTests(unittest.TestCase):
             self.assertFalse(rejected["cleanup"]["zero_residue"])
             self.assertTrue(rejected["guest_nonce_verified"])
 
+        missing_cleanup = copy.deepcopy(base)
+        missing_cleanup.pop("cleanup")
+        rejected = finalize_v1_receipt(missing_cleanup)
+        self.assertFalse(rejected["oracleSatisfied"])
+        self.assertFalse(rejected["cleanup"]["zero_residue"])
+
         no_guest = copy.deepcopy(base)
         no_guest["guest_oracle"]["oracleSatisfied"] = False
         rejected = finalize_v1_receipt(no_guest)
