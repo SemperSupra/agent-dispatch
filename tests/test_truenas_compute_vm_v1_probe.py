@@ -5,6 +5,7 @@ from scripts.truenas_compute_vm_v1_probe import (
     multipart_upload_body,
     plan,
     zvol_boot_device,
+    finalize_v1_receipt,
     seed_cdrom_device,
     stage_paths,
 )
@@ -61,6 +62,44 @@ class TrueNASVmV1ProbeTests(unittest.TestCase):
         self.assertIn(b'"params":["/mnt/rdtepool/rdtev1stage/seed.iso"]', body)
         self.assertIn(b'name="file"; filename="seed.iso"', body)
         self.assertTrue(body.endswith(b"--boundary--\r\n"))
+
+
+
+    def test_final_oracle_requires_guest_nonce_and_all_cleanup_absence(self):
+        base = {
+            "classification": "SUPPORTED",
+            "oracleSatisfied": True,
+            "v1_oracle_satisfied": True,
+            "guest_oracle": {"classification": "SUPPORTED", "oracleSatisfied": True},
+            "cleanup": {
+                "attempted": True,
+                "vm_absent": True,
+                "boot_zvol_absent": True,
+                "staging_dataset_absent": True,
+            },
+        }
+        import copy
+        accepted = finalize_v1_receipt(copy.deepcopy(base))
+        self.assertTrue(accepted["oracleSatisfied"])
+        self.assertTrue(accepted["v1_oracle_satisfied"])
+        self.assertTrue(accepted["cleanup"]["zero_residue"])
+
+        for missing in ("vm_absent", "boot_zvol_absent", "staging_dataset_absent", "attempted"):
+            receipt = copy.deepcopy(base)
+            receipt["cleanup"][missing] = False
+            rejected = finalize_v1_receipt(receipt)
+            self.assertFalse(rejected["oracleSatisfied"], missing)
+            self.assertFalse(rejected["v1_oracle_satisfied"], missing)
+            self.assertEqual(rejected["classification"], "ORACLE_FAILURE")
+            self.assertFalse(rejected["cleanup"]["zero_residue"])
+            self.assertTrue(rejected["guest_nonce_verified"])
+
+        no_guest = copy.deepcopy(base)
+        no_guest["guest_oracle"]["oracleSatisfied"] = False
+        rejected = finalize_v1_receipt(no_guest)
+        self.assertFalse(rejected["oracleSatisfied"])
+        self.assertFalse(rejected["guest_nonce_verified"])
+        self.assertEqual(rejected["classification"], "ORACLE_FAILURE")
 
 
 if __name__ == "__main__":
