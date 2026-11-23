@@ -17,6 +17,16 @@ class SourceRightsTests(unittest.TestCase):
           "postgres:18.7-trixie@sha256:e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61")
         self.assertNotIn("latest",q.ENGINE)
         self.assertLessEqual(q.MAX_SECONDS,240)
+    def test_psql_successful_dml_with_no_result_row(self):
+        # The first native red rep was diagnosed only as NATIVE_XTDB_IO.
+        # A successful fixed INSERT may produce no stdout under psql -q -t.
+        # Never turn an empty result into an IndexError or a fake SELECT row.
+        for output in ("","\\n","\\n\\n"):
+            self.assertEqual(q.last_result_row(output),"")
+        self.assertEqual(q.last_result_row("1\\n"),"1")
+        self.assertEqual(q.last_result_row("READY\\n"),"READY")
+        self.assertEqual(q.last_result_row(" \\n approved \\n"),"approved")
+
     def test_reviewed_full_source_is_no_port_and_no_paid_service(self):
         content=(ROOT/"scripts/qualify_temporal_xtdb.py").read_text()
         self.assertIn('docker("network","create","--internal"',content)
