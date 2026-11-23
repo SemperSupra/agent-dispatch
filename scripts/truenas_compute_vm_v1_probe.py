@@ -169,7 +169,10 @@ def finalize_v1_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
     evidence and source provenance remain separate qualification obligations.
     """
     guest = receipt.get("guest_oracle") or {}
-    cleanup = receipt.get("cleanup") or {}
+    cleanup = receipt.get("cleanup")
+    if not isinstance(cleanup, dict):
+        cleanup = {}
+        receipt["cleanup"] = cleanup
     guest_ok = (
         isinstance(guest, dict)
         and guest.get("classification") == "SUPPORTED"
@@ -180,8 +183,7 @@ def finalize_v1_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         for key in ("attempted", "vm_absent", "boot_zvol_absent", "staging_dataset_absent")
     )
     receipt["guest_nonce_verified"] = guest_ok
-    if isinstance(cleanup, dict):
-        cleanup["zero_residue"] = cleanup_ok
+    cleanup["zero_residue"] = cleanup_ok
     accepted = guest_ok and cleanup_ok
     receipt["oracleSatisfied"] = accepted
     receipt["v1_oracle_satisfied"] = accepted
@@ -389,7 +391,12 @@ def run_apply(a: argparse.Namespace) -> dict[str, Any]:
                     pass
             else:
                 receipt["cleanup"]["staging_dataset_absent"] = True
-            ws.close()
+            try:
+                ws.close()
+            except Exception as exc:
+                # Transport teardown failure must not suppress the final oracle
+                # and must remain visible in the evidence.
+                receipt["cleanup"]["transport_close_error"] = type(exc).__name__
         # Always classify after the finally cleanup, including return paths.
         # Guest nonce success alone cannot suppress deletion/absence failures.
         finalize_v1_receipt(receipt)
