@@ -18,14 +18,14 @@ class SourceRightsTests(unittest.TestCase):
         self.assertNotIn("latest",q.ENGINE)
         self.assertLessEqual(q.MAX_SECONDS,240)
     def test_psql_successful_dml_with_no_result_row(self):
-        # The first native red rep was diagnosed only as NATIVE_XTDB_IO.
-        # A successful fixed INSERT may produce no stdout under psql -q -t.
-        # Never turn an empty result into an IndexError or a fake SELECT row.
-        for output in ("","\\n","\\n\\n"):
+        # Successful psql -q -t INSERT may have empty stdout. Use chr(10)
+        # to avoid accidentally testing literal backslash-n instead of LF.
+        newline=chr(10)
+        for output in ("",newline,newline*2):
             self.assertEqual(q.last_result_row(output),"")
-        self.assertEqual(q.last_result_row("1\\n"),"1")
-        self.assertEqual(q.last_result_row("READY\\n"),"READY")
-        self.assertEqual(q.last_result_row(" \\n approved \\n"),"approved")
+        self.assertEqual(q.last_result_row("1"+newline),"1")
+        self.assertEqual(q.last_result_row("READY"+newline),"READY")
+        self.assertEqual(q.last_result_row(" "+newline+" approved "+newline),"approved")
 
     def test_reviewed_full_source_is_no_port_and_no_paid_service(self):
         content=(ROOT/"scripts/qualify_temporal_xtdb.py").read_text()
