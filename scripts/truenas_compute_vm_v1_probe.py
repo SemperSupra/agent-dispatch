@@ -162,6 +162,44 @@ def plan(pool: str, name: str, nonce: str) -> dict[str, Any]:
     }
 
 
+def finalize_v1_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Guest boot evidence cannot constitute acceptance without verified teardown.
+
+    This aggregates locally observed receipt fields; independent middleware
+    evidence and source provenance remain separate qualification obligations.
+    """
+    guest = receipt.get("guest_oracle") or {}
+    cleanup = receipt.get("cleanup")
+    if not isinstance(cleanup, dict):
+        cleanup = {}
+        receipt["cleanup"] = cleanup
+    guest_ok = (
+        isinstance(guest, dict)
+        and guest.get("classification") == "SUPPORTED"
+        and guest.get("oracleSatisfied") is True
+    )
+    cleanup_ok = isinstance(cleanup, dict) and all(
+        cleanup.get(key) is True
+        for key in ("attempted", "vm_absent", "boot_zvol_absent", "staging_dataset_absent")
+    )
+    receipt["guest_nonce_verified"] = guest_ok
+    cleanup["zero_residue"] = cleanup_ok
+    accepted = guest_ok and cleanup_ok
+    receipt["oracleSatisfied"] = accepted
+    receipt["v1_oracle_satisfied"] = accepted
+    if not accepted:
+        receipt["classification"] = "ORACLE_FAILURE"
+        if guest_ok and not cleanup_ok:
+            original = receipt.get("detail", "")
+            receipt["detail"] = (
+                "VM-V1 guest nonce observed but teardown/zero-residue verification failed"
+                + (f"; prior detail: {original}" if original else "")
+            )
+    else:
+        receipt["classification"] = "SUPPORTED"
+    return receipt
+
+
 def run_apply(a: argparse.Namespace) -> dict[str, Any]:
     validate_token(a.nonce, NONCE_RE, "nonce")
     source_sha = sha256_file(a.source_image)
@@ -353,7 +391,15 @@ def run_apply(a: argparse.Namespace) -> dict[str, Any]:
                     pass
             else:
                 receipt["cleanup"]["staging_dataset_absent"] = True
-            ws.close()
+            try:
+                ws.close()
+            except Exception as exc:
+                # Transport teardown failure must not suppress the final oracle
+                # and must remain visible in the evidence.
+                receipt["cleanup"]["transport_close_error"] = type(exc).__name__
+        # Always classify after the finally cleanup, including return paths.
+        # Guest nonce success alone cannot suppress deletion/absence failures.
+        finalize_v1_receipt(receipt)
 
 
 def main() -> int:
