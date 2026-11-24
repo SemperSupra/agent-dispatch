@@ -275,6 +275,25 @@ class TypedWorkRequestTests(unittest.TestCase):
             stderr=subprocess.PIPE,timeout=30,check=False)
         self.assertEqual(result.returncode,0,result.stderr.decode("utf-8","replace"))
 
+    def test_xtdb_frozen_r3_remains_reviewed_on_demand_only(self):
+        workflow=(ROOT/".github"/"workflows"/"gha-typed-public-cpu.yml").read_text(
+            encoding="utf-8")
+        matrix=workflow.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("requests/gha/mail-xtdb-frozen-oracle-r3.json",matrix)
+        self.assertEqual(matrix.count("request: requests/gha/"),4)
+        required=(
+            "cpu-x64-arithmetic-v1.json","cpu-arm64-contract-v1.json",
+            "mail-synthetic-baseline-v1.json","mail-evidence-go-v1.json",
+        )
+        for name in required:
+            self.assertEqual(matrix.count("request: requests/gha/"+name),1)
+        fixed=m.plan("requests/gha/mail-xtdb-frozen-oracle-r3.json")
+        self.assertEqual(fixed["max_cost_usd"],0)
+        self.assertEqual(fixed["max_attempts"],1)
+        self.assertEqual(fixed["timeout_seconds"],235)
+        self.assertIn("d23441a48e516b6c34aea4fa41551a30e30af803",workflow)
+        self.assertIn("b7c566a772e6b6bfb58ed0dc250532a479d7789f",workflow)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
