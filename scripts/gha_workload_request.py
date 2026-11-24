@@ -287,12 +287,14 @@ def _execute(workload: str, timeout: int) -> dict:
                 isinstance(observed,dict)
                 and observed.get("schema")=="mail-native-xtdb-frozen-eight-case-r3"
                 and observed.get("classification")==
-                    "ORIGINAL_XTDB_SQLITE_PG_GOLD_PREDICATE_PARITY"
+                    "ORIGINAL_XTDB_TWO_QUERY_APP_JOIN_TEMPORAL_GOLD"
                 and observed.get("engine_digest")==
                     "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe"
                 and observed.get("client_digest")==
                     "e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61"
                 and observed.get("same_frozen_eight_cases_verified") is True
+                and observed.get("xtdb_native_sql_join_verified") is False
+                and observed.get("adapter_source_join_verified") is True
                 and observed.get("case_count")==8
                 and observed.get("source_occurrences")==6
                 and observed.get("claim_occurrences")==6
@@ -322,6 +324,8 @@ def _execute(workload: str, timeout: int) -> dict:
             "source_occurrences":6 if admitted else 0,
             "claim_occurrences":6 if admitted else 0,
             "frozen_gold_parity":bool(admitted),
+            "native_sql_join_verified":False,
+            "adapter_source_join_verified":bool(admitted),
             "restart_verified":bool(admitted),
             "cross_tenant_filtered":bool(admitted),
             "source_upsert_risk":True,
