@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from scripts.truenas_compute_vm_v1_probe import (
     PINNED_CIRROS_SHA256,
@@ -64,6 +65,22 @@ class TrueNASVmV1ProbeTests(unittest.TestCase):
         self.assertTrue(body.endswith(b"--boundary--\r\n"))
 
 
+
+    def test_outer_shell_reducer_requires_all_cleanup_predicates(self):
+        source = (
+            Path(__file__).resolve().parents[1] / "scripts" / "gha_kvm_truenas_rdte.sh"
+        ).read_text(encoding="utf-8")
+        start = source.index('elif [[ "$COMPUTE_FIXTURE" == "vm-v1" ]]; then', source.index("COMPUTE_RESULT_JSON"))
+        end = source.index('write_receipt SUPPORTED true compute-vm-v1', start)
+        reducer = source[start:end]
+        for key in (
+            "attempted",
+            "vm_absent",
+            "boot_zvol_absent",
+            "staging_dataset_absent",
+            "zero_residue",
+        ):
+            self.assertIn(f'cleanup.get("{key}") is True', reducer)
 
     def test_final_oracle_requires_guest_nonce_and_all_cleanup_absence(self):
         base = {
