@@ -61,6 +61,7 @@ RESULT_FIELDS = {
         "classification","oracle_verified","native_xtdb_executed",
         "engine_digest","case_count","source_occurrences","claim_occurrences",
         "frozen_gold_parity","restart_verified","cross_tenant_filtered",
+        "native_sql_join_verified","adapter_source_join_verified",
         "source_upsert_risk","native_system_time_parity",
         "native_source_immutability","model_inference","native_pst_qualified",
         "fixture_sha256","verdict_sha256"},
@@ -253,6 +254,8 @@ def evaluate(
                 result.get("source_occurrences") != 6 or
                 result.get("claim_occurrences") != 6 or
                 result.get("frozen_gold_parity") is not True or
+                result.get("native_sql_join_verified") is not False or
+                result.get("adapter_source_join_verified") is not True or
                 result.get("restart_verified") is not True or
                 result.get("cross_tenant_filtered") is not True or
                 result.get("source_upsert_risk") is not True or
