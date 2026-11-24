@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2", "mail-temporal-xtdb-r2"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -264,6 +264,66 @@ def _execute(workload: str, timeout: int) -> dict:
             "model_inference":False,
             "native_pst_qualified":False,
             "fixture_sha256":observed.get("fixture_sha256") if admitted else None,
+            "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
+    if workload == "mail-temporal-xtdb-r2":
+        # Public original XTDB GHCR digest, internal-network-only pgwire
+        # and publisher's immutable original Postgres client image.
+        try:
+            cp=subprocess.run(
+                [sys.executable,"scripts/qualify_temporal_xtdb.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>8192:
+                failure=re.search(r"XTDB_FIRST_FAILURE=([A-Z0-9_]{3,85})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_XTDB_FIRST_FAILURE="+
+                    (failure.group(1) if failure else "UNCLASSIFIED_RUNTIME"),
+                    flush=True)
+                raise ValueError("NATIVE_XTDB_QUALIFICATION_FAILED")
+            observed=json.loads(cp.stdout)
+            admitted=(
+                isinstance(observed,dict)
+                and observed.get("schema")=="public-mail-xtdb-native-temporal-r2"
+                and observed.get("classification")=="ORIGINAL_XTDB_BITEMPORAL_RUNTIME_ONLY"
+                and observed.get("image_digest")==
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe"
+                and observed.get("client_digest")==
+                    "e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61"
+                and observed.get("actual_xtdb_executed") is True
+                and observed.get("source_occurrences")==3
+                and observed.get("two_valid_time_queries") is True
+                and observed.get("system_history_recorded") is True
+                and type(observed.get("historical_record_count_at_least")) is int
+                and observed["historical_record_count_at_least"]>=2
+                and observed.get("separate_unique_source_keys") is True
+                and observed.get("restart_verified") is True
+                and observed.get("no_public_ports") is True
+                and observed.get("different_source_conflict_preserved") is True
+                and observed.get("source_upsert_is_application_risk") is True
+                and observed.get("same_eight_case_oracle_qualified") is False
+                and observed.get("model_inference") is False
+                and observed.get("native_pst_qualified") is False
+                and isinstance(observed.get("fixed_public_source_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["fixed_public_source_sha256"]) is not None
+                and type(observed.get("elapsed_seconds")) in (float,int)
+                and 0<=observed["elapsed_seconds"]<=timeout)
+        except (OSError,ValueError,subprocess.TimeoutExpired,TypeError,AttributeError):
+            admitted,observed,cp=False,{},None
+        return {
+            "oracle_verified":bool(admitted),
+            "classification":"PASS" if admitted else "FAIL_NATIVE_XTDB",
+            "xtdb_engine_executed":bool(admitted),
+            "image_digest":observed.get("image_digest") if admitted else None,
+            "source_occurrences":3 if admitted else 0,
+            "system_history_verified":bool(admitted),
+            "valid_time_verified":bool(admitted),
+            "restart_verified":bool(admitted),
+            "private_internal_network":bool(admitted),
+            "same_eight_case_oracle_qualified":False,
+            "model_inference":False,
+            "native_pst_qualified":False,
+            "source_sha256":observed.get("fixed_public_source_sha256") if admitted else None,
             "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
         }
     if workload == "mail-openworker-scripted":

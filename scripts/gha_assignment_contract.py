@@ -35,6 +35,7 @@ PROFILES = {
     "mail-openworker-scripted-v1": "requests/gha/mail-openworker-scripted-v1.json",
     "mail-temporal-swipl-r2": "requests/gha/mail-temporal-swipl-r2.json",
     "mail-temporal-postgres-r2": "requests/gha/mail-temporal-postgres-r2.json",
+    "mail-temporal-xtdb-r2": "requests/gha/mail-temporal-xtdb-r2.json",
 }
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")

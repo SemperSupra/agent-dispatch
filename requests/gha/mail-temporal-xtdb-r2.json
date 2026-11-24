@@ -1,0 +1,10 @@
+{
+  "schema": "gha-workload-request/v1",
+  "assignment_id": "mail-temporal-xtdb-r2",
+  "runner": "ubuntu-24.04",
+  "workload": "mail-temporal-xtdb-r2",
+  "timeout_seconds": 235,
+  "data_class": "public-synthetic",
+  "max_attempts": 1,
+  "max_cost_usd": 0
+}
