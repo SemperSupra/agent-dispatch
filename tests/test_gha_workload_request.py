@@ -245,6 +245,21 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertIn("  execute:", text)
         self.assertIn("scripts/gha_workload_request.py --action run --request", text)
 
+    def test_typed_cpu_workflow_pins_only_reviewed_node24_actions(self):
+        workflow=(ROOT/".github"/"workflows"/"gha-typed-public-cpu.yml").read_text(
+            encoding="utf-8")
+        checkout="actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
+        upload="actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f"
+        self.assertEqual(workflow.count(checkout),7)
+        self.assertEqual(workflow.count(upload),5)
+        self.assertNotIn("11d5960a326750d5838078e36cf38b85af677262",workflow)
+        self.assertNotIn("ea165f8d65b6e75b540449e92b4886f43607fa02",workflow)
+        self.assertEqual(workflow.count("actions/checkout@"),7)
+        self.assertEqual(workflow.count("actions/upload-artifact@"),5)
+        self.assertIn("persist-credentials: false",workflow)
+        self.assertIn("gha-typed/receipt.json",workflow)
+        self.assertIn("verify_gha_typed_receipt.py",workflow)
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
