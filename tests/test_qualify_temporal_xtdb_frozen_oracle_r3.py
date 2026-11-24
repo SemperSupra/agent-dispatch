@@ -54,6 +54,15 @@ class OriginalXTDBFrozenGold(unittest.TestCase):
             q.query(original,"test-net","test-host","beta' OR 1=1--",
                     "2026-05-01T12:00:00Z","2026-05-11T00:00:00Z")
 
+    def test_native_join_limitation_is_not_hidden_by_fallback(self):
+        body=(ROOT/"scripts/qualify_temporal_xtdb_frozen_oracle_r3.py").read_text()
+        self.assertIn("ORIGINAL_XTDB_TWO_QUERY_APP_JOIN_TEMPORAL_GOLD",body)
+        self.assertIn('"xtdb_native_sql_join_verified":False',body)
+        self.assertIn('"adapter_source_join_verified":True',body)
+        self.assertIn("SELECT _id,lineage_id,tenant,acquired_at FROM mail_source_r3",body)
+        self.assertIn("SELECT _id,source_id,polarity,valid_from FROM mail_claim_r3",body)
+        self.assertNotIn("JOIN mail_source_r3 s ON",body)
+
     def test_no_contaminating_source_or_credentials(self):
         body=(ROOT/"scripts/qualify_temporal_xtdb_frozen_oracle_r3.py").read_text()
         self.assertIn('"--network",network',body)
