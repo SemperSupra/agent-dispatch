@@ -193,9 +193,6 @@ jobs:
           - runner: ubuntu-24.04
             request: requests/gha/mail-evidence-go-v1.json
             artifact_suffix: mail-go
-          - runner: ubuntu-24.04
-            request: requests/gha/mail-xtdb-frozen-oracle-r3.json
-            artifact_suffix: xtdb-frozen-r3
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
