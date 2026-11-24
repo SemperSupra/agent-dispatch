@@ -260,6 +260,21 @@ class TypedWorkRequestTests(unittest.TestCase):
         self.assertIn("gha-typed/receipt.json",workflow)
         self.assertIn("verify_gha_typed_receipt.py",workflow)
 
+    def test_xtdb_frozen_gold_r3_is_bounded_and_guarded(self):
+        fixed=m.plan("requests/gha/mail-xtdb-frozen-oracle-r3.json")
+        self.assertEqual(fixed["workload"],"mail-xtdb-frozen-oracle-r3")
+        self.assertEqual(fixed["runner"],"ubuntu-24.04")
+        self.assertEqual(fixed["max_cost_usd"],0)
+        self.assertEqual(fixed["max_attempts"],1)
+        self.assertLessEqual(fixed["timeout_seconds"],240)
+        import subprocess
+        result=subprocess.run(
+            [sys.executable,"-m","unittest","discover","-s","tests",
+             "-p","test_qualify_temporal_xtdb_frozen_oracle_r3.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=30,check=False)
+        self.assertEqual(result.returncode,0,result.stderr.decode("utf-8","replace"))
+
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",
                     "/tmp/public.json", "http://example.test/run.json",
