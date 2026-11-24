@@ -963,8 +963,11 @@ ok=(
     and data.get("v1_oracle_satisfied") is True
     and guest.get("classification")=="SUPPORTED"
     and guest.get("oracleSatisfied") is True
+    and cleanup.get("attempted") is True
     and cleanup.get("vm_absent") is True
+    and cleanup.get("boot_zvol_absent") is True
     and cleanup.get("staging_dataset_absent") is True
+    and cleanup.get("zero_residue") is True
 )
 print("true" if ok else "false")
 PY
