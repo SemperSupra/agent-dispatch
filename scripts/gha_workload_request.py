@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2", "mail-temporal-xtdb-r2"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2", "mail-temporal-xtdb-r2","mail-xtdb-frozen-oracle-r3"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -261,6 +261,76 @@ def _execute(workload: str, timeout: int) -> dict:
             "restart_verified":bool(admitted),
             "cross_tenant_blocked":bool(admitted),
             "network_port_published":False,
+            "model_inference":False,
+            "native_pst_qualified":False,
+            "fixture_sha256":observed.get("fixture_sha256") if admitted else None,
+            "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
+    if workload == "mail-xtdb-frozen-oracle-r3":
+        # Exact reviewed public fictional SQLite/PG source corpus compared
+        # against original XTDB source/claims at two explicit time cutoffs.
+        try:
+            cp=subprocess.run(
+                [sys.executable,"scripts/qualify_temporal_xtdb_frozen_oracle_r3.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>8192:
+                marker=re.search(r"XTDB_R3_FIRST_FAILURE=([A-Z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_XTDB_R3_FIRST_FAILURE="+
+                    (marker.group(1) if marker else "UNCLASSIFIED_SUBPROCESS"),
+                    flush=True)
+                raise ValueError("XTDB_R3_ORACLE_OR_RUNTIME_FAIL")
+            observed=json.loads(cp.stdout)
+            admitted=(
+                isinstance(observed,dict)
+                and observed.get("schema")=="mail-native-xtdb-frozen-eight-case-r3"
+                and observed.get("classification")==
+                    "ORIGINAL_XTDB_TWO_QUERY_APP_JOIN_TEMPORAL_GOLD"
+                and observed.get("engine_digest")==
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe"
+                and observed.get("client_digest")==
+                    "e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61"
+                and observed.get("same_frozen_eight_cases_verified") is True
+                and observed.get("xtdb_native_sql_join_verified") is False
+                and observed.get("adapter_source_join_verified") is True
+                and observed.get("case_count")==8
+                and observed.get("source_occurrences")==6
+                and observed.get("claim_occurrences")==6
+                and observed.get("cross_tenant_query_filtered") is True
+                and observed.get("original_records_preserved") is True
+                and observed.get("reacquired_lineage_not_extra_vote") is True
+                and observed.get("planned_not_completed") is True
+                and observed.get("restart_verified") is True
+                and observed.get("xtdb_native_system_time_parity") is False
+                and observed.get("xtdb_source_immutability_enforced") is False
+                and observed.get("model_inference") is False
+                and observed.get("native_pst_qualified") is False
+                and observed.get("source_history_risk")==
+                    "XTDB_UPSERT_ID_REQUIRES_APPLICATION_GUARD"
+                and isinstance(observed.get("fixture_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["fixture_sha256"]) is not None
+                and type(observed.get("elapsed_seconds")) in (int,float)
+                and 0<=observed["elapsed_seconds"]<=timeout)
+        except (ValueError,OSError,TypeError,AttributeError,subprocess.TimeoutExpired):
+            admitted,observed,cp=False,{},None
+        return {
+            "oracle_verified":bool(admitted),
+            "classification":"PASS" if admitted else "FAIL_NATIVE_XTDB_PARITY",
+            "native_xtdb_executed":bool(admitted),
+            "engine_digest":observed.get("engine_digest") if admitted else None,
+            "case_count":8 if admitted else 0,
+            "source_occurrences":6 if admitted else 0,
+            "claim_occurrences":6 if admitted else 0,
+            "frozen_gold_parity":bool(admitted),
+            "native_sql_join_verified":False,
+            "adapter_source_join_verified":bool(admitted),
+            "restart_verified":bool(admitted),
+            "cross_tenant_filtered":bool(admitted),
+            "source_upsert_risk":True,
+            "native_system_time_parity":False,
+            "native_source_immutability":False,
             "model_inference":False,
             "native_pst_qualified":False,
             "fixture_sha256":observed.get("fixture_sha256") if admitted else None,

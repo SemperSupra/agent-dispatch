@@ -107,6 +107,19 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "model_inference":False,"native_pst_qualified":False,
             "fixture_sha256":"a"*64,"verdict_sha256":"b"*64,
         }
+    elif profile_id == "mail-xtdb-frozen-oracle-r3":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "native_xtdb_executed":True,
+            "engine_digest":"aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe",
+            "case_count":8,"source_occurrences":6,"claim_occurrences":6,
+            "frozen_gold_parity":True,"restart_verified":True,
+            "native_sql_join_verified":False,"adapter_source_join_verified":True,
+            "cross_tenant_filtered":True,"source_upsert_risk":True,
+            "native_system_time_parity":False,"native_source_immutability":False,
+            "model_inference":False,"native_pst_qualified":False,
+            "fixture_sha256":"a"*64,"verdict_sha256":"b"*64,
+        }
     elif profile_id == "mail-temporal-xtdb-r2":
         fixed_result={
             "oracle_verified":True,"classification":"PASS",
