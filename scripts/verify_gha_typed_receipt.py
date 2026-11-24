@@ -57,6 +57,13 @@ RESULT_FIELDS = {
         "different_source_overlap_preserved","immutable_source_denied",
         "restart_verified","cross_tenant_blocked","network_port_published",
         "model_inference","native_pst_qualified","fixture_sha256","verdict_sha256"},
+    "mail-xtdb-frozen-oracle-r3": {
+        "classification","oracle_verified","native_xtdb_executed",
+        "engine_digest","case_count","source_occurrences","claim_occurrences",
+        "frozen_gold_parity","restart_verified","cross_tenant_filtered",
+        "source_upsert_risk","native_system_time_parity",
+        "native_source_immutability","model_inference","native_pst_qualified",
+        "fixture_sha256","verdict_sha256"},
     "mail-temporal-xtdb-r2": {
         "classification","oracle_verified","xtdb_engine_executed",
         "image_digest","source_occurrences","system_history_verified",
@@ -238,6 +245,26 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"),str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("NATIVE_POSTGRES_TEMPORAL_SCOPE_INVALID")
+    if p["workload"] == "mail-xtdb-frozen-oracle-r3":
+        if (result.get("native_xtdb_executed") is not True or
+                result.get("engine_digest") !=
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe" or
+                result.get("case_count") != 8 or
+                result.get("source_occurrences") != 6 or
+                result.get("claim_occurrences") != 6 or
+                result.get("frozen_gold_parity") is not True or
+                result.get("restart_verified") is not True or
+                result.get("cross_tenant_filtered") is not True or
+                result.get("source_upsert_risk") is not True or
+                result.get("native_system_time_parity") is not False or
+                result.get("native_source_immutability") is not False or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                not isinstance(result.get("fixture_sha256"),str) or
+                not HEX64.fullmatch(result["fixture_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("XTDB_FROZEN_TEMPORAL_GOLD_OR_SCOPE_INVALID")
     if p["workload"] == "mail-temporal-xtdb-r2":
         if (result.get("xtdb_engine_executed") is not True or
                 result.get("image_digest")!=
