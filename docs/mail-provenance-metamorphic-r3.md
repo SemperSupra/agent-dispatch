@@ -1,0 +1,11 @@
+# R3-B — provenance and temporal truth-maintenance metamorphic falsification
+
+This is an **independent public synthetic** native Go workcell under Mail Evidence #4/#39, using the existing already merged `tools/mail-evidence-challenge/temporal_logic` R1 symbolic source-support contract and its reviewed source fixture.
+
+The new Go test adds **64 independently re-acquired source occurrences** with different source IDs but the same original evidence lineage, cited bytes, claimed polarity and event-valid time. It must preserve each source occurrence (66 refuting IDs in the final fictional view) without creating 64 independent corroborating votes: refuting lineage count remains one. It verifies that none of these late acquisitions changes a previously evaluated knowledge cutoff and that another tenant's source view remains segregated.
+
+A second test permutes source rows, claim rows and rule order over **32 deterministic seeds** and compares **four knowledge/valid cutoff combinations** (128 independent result comparisons) against the original preserved fixtures. No new gold is derived from outputs under test; deterministic source-citation and derivation equality is the explicit oracle. A third test requires a later contradictory premise to quarantine a derived conclusion but preserve an earlier justified result under the earlier knowledge cutoff.
+
+The test imports no third-party modules and runs inside the existing four-core standard public CPU Go profile `requests/gha/mail-evidence-go-v1.json`; no network, Docker, Prolog install, model inference, private mail, real PST, new workflow, scheduler or cloud cost. This is **not proof of objective truth**, legal authority, original-PST parity, or a comprehensive ATMS system.
+
+**Red-team boundary:** The lineage relationship in this synthetic fixture is an independently supplied identity. Never infer source-copy equivalence from identical Internet Message-ID, subject, timestamps, filenames or message text alone. In production, only a separately qualified cross-reader provenance/equivalence witness may create such a link. Retain all physical source occurrence IDs and their original bytes even when their corresponding claim derives one lineage of epistemic support. Failure blocks merge and is reconciled into DLE rather than weakened by changing the oracle.
