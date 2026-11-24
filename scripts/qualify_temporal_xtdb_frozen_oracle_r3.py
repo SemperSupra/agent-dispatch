@@ -142,42 +142,72 @@ def xtdb_rows(mod,network:str,host:str,statement:str)->list[tuple[str,...]]:
     return rows
 
 def query(mod,network:str,host:str,tenant:str,valid_at:str,known_at:str)->dict:
-    # ISO UTC RFC3339 fixed inputs, text lexical ordering is valid ONLY for
-    # this normalized corpus. This is NOT native XTDB system-time travel.
-    for t in (valid_at,known_at):
-        if not re.fullmatch(r"20[0-9]{2}-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z",t):
+    """Two native original XTDB filtered SELECTs + deterministic source-ID join.
+
+    The original single XTDB SQL JOIN has a preserved RED planning witness;
+    this intentionally qualifies a narrower application-level reconciliation
+    path. NEVER report it as native SQL JOIN or XTDB system-time parity.
+    """
+    for moment in (valid_at,known_at):
+        if not re.fullmatch(
+            r"20[0-9]{2}-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z",
+            moment):
             raise Blocked("UNREVIEWED_QUERY_CLOCK")
     if tenant not in ("alpha","beta"):
         raise Blocked("UNREVIEWED_TENANT")
-    sql=(
-        "SELECT c._id, c.polarity, s._id, s.lineage_id "
-        "FROM mail_claim_r3 c JOIN mail_source_r3 s ON c.source_id=s._id "
-        "WHERE c.tenant="+quote(tenant)+" AND s.tenant="+quote(tenant)+
-        " AND c.proposition='coast.approved' AND c.modality='actual' "
-        "AND c.valid_from<="+quote(valid_at)+
-        # All frozen claim.valid_to values are None (verified at fixture import).
-        # No finite valid-to interval is dropped by omitting an all-NULL column.
-        "AND c.observed_at<="+quote(known_at)+
-        " AND s.acquired_at<="+quote(known_at)+";"
+    sql_sources=(
+        "SELECT _id,lineage_id,tenant,acquired_at FROM mail_source_r3 "
+        "WHERE tenant="+quote(tenant)+" AND acquired_at<="+quote(known_at)+";"
     )
-    result=xtdb_rows(mod,network,host,sql)
+    sql_claims=(
+        "SELECT _id,source_id,polarity,valid_from FROM mail_claim_r3 "
+        "WHERE tenant="+quote(tenant)+" AND proposition='coast.approved' "
+        "AND modality='actual' AND valid_from<="+quote(valid_at)+
+        " AND observed_at<="+quote(known_at)+";"
+    )
+    try:
+        source_rows=xtdb_rows(mod,network,host,sql_sources)
+    except ValueError as exc:
+        raise Blocked("SOURCE_FILTER_"+str(exc)) from exc
+    try:
+        claim_rows=xtdb_rows(mod,network,host,sql_claims)
+    except ValueError as exc:
+        raise Blocked("CLAIM_FILTER_"+str(exc)) from exc
+    sources={}
+    for source_id,lineage,source_tenant,acquired in source_rows:
+        if (source_id in sources or source_tenant!=tenant or
+                acquired>known_at or not lineage):
+            raise Blocked("SOURCE_VIEW_OR_ACQUISITION_INVALID")
+        sources[source_id]=lineage
     source_ids=set()
-    support=set()
-    refute=set()
-    for claim_id,polarity,source_id,lineage in result:
+    positive=set()
+    negative=set()
+    for claim_id,source_id,polarity,claim_valid in claim_rows:
+        if not claim_id or claim_valid>valid_at:
+            raise Blocked("CLAIM_VIEW_OR_VALID_TIME_INVALID")
+        lineage=sources.get(source_id)
+        if lineage is None:
+            # A valid, recorded claim may refer to a source not yet acquired
+            # for the requested knowledge cutoff. Never infer source deletion.
+            continue
         if source_id in source_ids:
             raise Blocked("DUPLICATE_CLAIM_OR_ID_COLLISION")
         source_ids.add(source_id)
-        if polarity=="1":support.add(lineage)
-        elif polarity=="-1":refute.add(lineage)
-        else:raise Blocked("POLARITY_UNREVIEWED")
+        if polarity=="1":
+            positive.add(lineage)
+        elif polarity=="-1":
+            negative.add(lineage)
+        else:
+            raise Blocked("POLARITY_UNREVIEWED")
     return {
-        "status":("BOTH" if support and refute else "SUPPORTED" if support
-                  else "REFUTED" if refute else "NEITHER"),
+        "status":("BOTH" if positive and negative else
+                  "SUPPORTED" if positive else
+                  "REFUTED" if negative else "NEITHER"),
         "source_ids":sorted(source_ids),
-        "support_lineages":len(support),
-        "refute_lineages":len(refute)
+        "support_lineages":len(positive),
+        "refute_lineages":len(negative)
     }
+
 
 def qualify()->dict:
     original=load_original()
@@ -251,10 +281,12 @@ def qualify()->dict:
         elapsed=round(time.monotonic()-started,2)
         return {
             "schema":SCHEMA,
-            "classification":"ORIGINAL_XTDB_SQLITE_PG_GOLD_PREDICATE_PARITY",
+            "classification":"ORIGINAL_XTDB_TWO_QUERY_APP_JOIN_TEMPORAL_GOLD",
             "engine_digest":original.XTDB_DIGEST,
             "client_digest":original.CLIENT.rsplit("@sha256:",1)[-1],
             "same_frozen_eight_cases_verified":True,
+            "xtdb_native_sql_join_verified":False,
+            "adapter_source_join_verified":True,
             "case_count":len(GOLD),
             "source_occurrences":len(sources),
             "claim_occurrences":len(claims),
