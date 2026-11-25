@@ -25,7 +25,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Execute policy mutation/negative-control tests
-        run: python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_policy.py' -v
+        run: |
+          python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_policy.py' -v
+          python3 -m unittest discover -s experiments/mullvad-hyperv-public-rdte/tests -p 'test_wan_ingress_oracle.py' -v
 
   provider-mock:
     name: Geography/device/telemetry mock

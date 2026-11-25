@@ -162,8 +162,36 @@ try {
             throw 'ORACLE_FAILURE: guest heartbeat not observed'
         }
         $receipt.GuestBoot = 'HYPERV_HEARTBEAT_OBSERVED'
-        $receipt.GuestOsIdentity = 'NOT_ATTESTED'
-        $receipt.Classification = 'H1_HEARTBEAT_ONLY_NEEDS_OS_IDENTITY'
+        # Attempt independent Alpine OS identity readback via Hyper-V KVP Data Exchange
+        # without any external/management network uplink.
+        $kvpOsIdentity = $null
+        try {
+            $vmCim = Get-CimInstance -Namespace 'root\virtualization\v2' -ClassName 'Msvm_ComputerSystem' -Filter "ElementName='$vmName'" -ErrorAction SilentlyContinue
+            if ($vmCim) {
+                $kvpComponents = Get-CimAssociatedInstance -InputObject $vmCim -ResultClassName 'Msvm_KvpExchangeComponent' -ErrorAction SilentlyContinue
+                foreach ($comp in @($kvpComponents)) {
+                    foreach ($xmlRaw in @($comp.GuestIntrinsicExchangeItems)) {
+                        if ($xmlRaw -match '<NAME>OSName</NAME>.*<VALUE>([^<]*Alpine[^<]*)</VALUE>' -or
+                            $xmlRaw -match '<NAME>FullyQualifiedDomainName</NAME>.*<VALUE>([^<]*alpine[^<]*)</VALUE>') {
+                            $kvpOsIdentity = $Matches[1].Trim()
+                            break
+                        }
+                    }
+                    if ($kvpOsIdentity) { break }
+                }
+            }
+        }
+        catch {
+            $kvpOsIdentity = $null
+        }
+        if ($kvpOsIdentity) {
+            $receipt.GuestOsIdentity = $kvpOsIdentity
+            $receipt.Classification = 'H1_GUEST_BOOT_AND_OS_IDENTITY_VERIFIED'
+        }
+        else {
+            $receipt.GuestOsIdentity = 'NOT_ATTESTED'
+            $receipt.Classification = 'H1_HEARTBEAT_ONLY_NEEDS_OS_IDENTITY'
+        }
     }
 }
 catch {

@@ -51,6 +51,7 @@ cleanup() {
     wait "$server_pid" >/dev/null 2>&1 || true
   fi
   [[ -n "${server_log:-}" ]] && rm -f -- "$server_log"
+  [[ -n "${ingress_log:-}" ]] && rm -f -- "$ingress_log"
   # Only processes in *this run's* namespace are terminated, if any.
   if [[ "$created_wan" == true ]]; then
     while read -r pid; do
@@ -130,9 +131,10 @@ done
 [[ "$dad_ready" == true ]] || { echo "WAN IPv6 DAD not ready"; exit 1; }
 
 server_log="$RUNNER_TEMP/rdte-witness-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log"
+ingress_log="$RUNNER_TEMP/rdte-wan-ingress-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
 # Logs are limited to errors from the public synthetic witness, no real traffic.
 : > "$server_log"
-sudo -n ip netns exec "$wan_ns" python3 -B "$witness" server >"$server_log" 2>&1 &
+sudo -n ip netns exec "$wan_ns" python3 -B "$witness" server --ingress-log "$ingress_log" >"$server_log" 2>&1 &
 server_pid=$!
 sleep 0.35
 if ! kill -0 "$server_pid" >/dev/null 2>&1; then
@@ -141,14 +143,27 @@ if ! kill -0 "$server_pid" >/dev/null 2>&1; then
   exit 1
 fi
 
-probe() { sudo -n ip netns exec "$lan_ns" python3 -B "$witness" probe --family "$1" --port "$2"; }
+wan_ingress_count() {
+  python3 -B -c 'import json,sys; d=json.load(open(sys.argv[1])); print(int(d.get("by_key",{}).get(f"v{sys.argv[2]}:{sys.argv[3]}",0)))' "$ingress_log" "$1" "$2"
+}
+probe() {
+  sudo -n ip netns exec "$lan_ns" python3 -B "$witness" probe --family "$1" --port "$2" --nonce "$3"
+}
 expect_accepted() {
-  if ! probe "$1" "$2"; then
+  local before after nonce="pos-$1-$2-$3"
+  before="$(wan_ingress_count "$1" "$2")"
+  if ! probe "$1" "$2" "$nonce"; then
     echo "native positive witness missing: family=$1 class=$3"; return 1
+  fi
+  after="$(wan_ingress_count "$1" "$2")"
+  if [[ "$after" -le "$before" ]]; then
+    echo "positive control did not increment WAN ingress counter: family=$1 port=$2"; return 1
   fi
 }
 expect_blocked() {
-  if probe "$1" "$2"; then
+  local before after rc=0 nonce="blk-$1-$2-$3"
+  before="$(wan_ingress_count "$1" "$2")"
+  if probe "$1" "$2" "$nonce"; then
     echo "actual plaintext escape detected: family=$1 class=$3"; return 1
   else
     rc=$?
@@ -156,14 +171,20 @@ expect_blocked() {
       echo "unverifiable negative (not expected receive timeout): family=$1 class=$3 code=$rc"; return 1
     fi
   fi
+  sleep 0.05
+  after="$(wan_ingress_count "$1" "$2")"
+  if [[ "$after" -ne "$before" ]]; then
+    echo "one-way outbound leak reached WAN ingress despite client timeout: family=$1 port=$2 class=$3 before=$before after=$after"
+    return 1
+  fi
 }
 
 # Before a guard exists, independently show real packets can cross both families.
 baseline4=false
 baseline6=false
 for n in 1 2 3 4 5 6 7 8 9 10; do
-  probe 4 42001 && baseline4=true || true
-  probe 6 42001 && baseline6=true || true
+  probe 4 42001 "base4-$n" && baseline4=true || true
+  probe 6 42001 "base6-$n" && baseline6=true || true
   [[ "$baseline4" == true && "$baseline6" == true ]] && break
   sleep 0.15
 done
@@ -177,9 +198,34 @@ fi
 echo "POSITIVE_CONTROL_IPV4=PASS"
 echo "POSITIVE_CONTROL_IPV6=PASS"
 
+# Reverse-path-drop mutant negative control: allow outbound LAN->WAN while
+# dropping only the WAN->LAN return reply. Client sees timeout (rc=4), but the
+# independent WAN ingress counter MUST detect the one-way outbound leak.
+sudo -n ip netns exec "$gw_ns" nft -f - <<'NFT'
+table inet rdte_gate {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+        iifname "gwlan" oifname "gwwan" accept
+    }
+}
+NFT
+for f in 4 6; do
+  b_mut="$(wan_ingress_count "$f" 42001)"
+  rc_mut=0
+  probe "$f" 42001 "mutant-revdrop-$f" || rc_mut=$?
+  sleep 0.05
+  a_mut="$(wan_ingress_count "$f" 42001)"
+  if [[ "$rc_mut" -ne 4 || "$a_mut" -le "$b_mut" ]]; then
+    echo "reverse-path-drop mutant failed to expose one-way WAN ingress: family=$f rc=$rc_mut before=$b_mut after=$a_mut"
+    exit 1
+  fi
+done
+echo "REVERSE_PATH_DROP_MUTANT_DETECTED=PASS"
+
 # Real nf_tables inet forward hook. Default drop is installed in the isolated
 # gateway namespace, never in the runner's host network namespace.
 sudo -n ip netns exec "$gw_ns" nft -f - <<'NFT'
+flush table inet rdte_gate
 table inet rdte_gate {
     chain forward {
         type filter hook forward priority 0; policy drop;
@@ -213,6 +259,7 @@ for f in 4 6; do
   expect_blocked "$f" 42002 "revoked-first-hop"
 done
 echo "NATIVE_NFT_REVOKE_DUALSTACK=PASS"
+echo "ZERO_OUTSIDE_CLEAR_TEXT_VERIFIED=PASS"
 echo "EVIDENCE_CLASS=PUBLIC_ISOLATED_LINUX_KERNEL_PACKET_WITNESS"
 echo "PRIVILEGED_SCOPE=RUN_OWNED_NETNS_ONLY"
 echo "MULLVAD_SERVICE=NOT_CALLED"
