@@ -1,0 +1,35 @@
+name: USB managed original owner retirement qualification
+on:
+  push:
+    branches: [qual/usb-managed-owner-retirement-20261126]
+permissions:
+  contents: read
+concurrency:
+  group: usb-managed-owner-retirement-20261126
+  cancel-in-progress: false
+jobs:
+  original-go-owner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify original baseline and full package suite
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOWORK: 'off'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = 6212b9e9fdc397ad241a1bff47235f861421b70c
+          go version
+          cd experiments/usb-fabric-r26/integrated
+          go test -race -count=3 -timeout=120s ./...
+          go vet ./...
+          go test -race -count=5 -timeout=100s -v ./blue -run '^Test(ClosedRecoveredOwnerCannotReuseManager|RecoveredOwnerCloseRacesReserve)$'
+          echo MANAGED_OWNER_RETIREMENT_SCOPE_ONLY_NOT_G4_OR_HIL

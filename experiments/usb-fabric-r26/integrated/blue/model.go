@@ -48,6 +48,8 @@ type Manager struct {
  generation uint64
  epoch string
  executor Executor
+ // retired is terminal for this Manager instance after its retained OS owner closes.
+ retired bool
 }
 
 // New creates one synthetic device on one logical port. No external effects.
@@ -142,7 +144,7 @@ func (m *Manager)RestoreAfterVerifiedGuestUp(
  claim heldledger.ReleaseClaim,verify heldledger.ReleaseVerifier,
 )error{
  m.mu.Lock();defer m.mu.Unlock()
- if m.state!=Quarantined{return ErrDenied}
+ if m.retired || m.state!=Quarantined{return ErrDenied}
  if _,err:=journal.ConfirmGuestRelease(expected,claim,verify);err!=nil{
   return err
  }
@@ -164,7 +166,7 @@ func(m *Manager)RestoreAfterVerifiedKernelUp(
  released heldledger.ReleaseClaim, verifyGuest heldledger.ReleaseVerifier,
 )error{
  m.mu.Lock();defer m.mu.Unlock()
- if m.state!=Quarantined{return ErrDenied}
+ if m.retired || m.state!=Quarantined{return ErrDenied}
  if _,err:=journal.ConfirmGuestKernelRelease(
   expected,isolated,verifyKernel,released,verifyGuest);err!=nil{return err}
  m.generation++
@@ -179,6 +181,19 @@ func(m *Manager)RestoreAfterVerifiedKernelUp(
 func (m *Manager)BeginDetach()error{
  m.mu.Lock();defer m.mu.Unlock()
  if m.state!=Available{return ErrDenied}
+ m.quarantine()
+ return nil
+}
+
+// retireOwner atomically excludes Reserve and all restoration operations
+// before the retained OS owner is relinquished. An active lease must first
+// be independently reconciled through the existing owner-controlled path.
+func(m *Manager)retireOwner()error{
+ m.mu.Lock()
+ defer m.mu.Unlock()
+ if m.retired{return nil}
+ if m.state==Reserved || m.state==Attached{return ErrDenied}
+ m.retired=true
  m.quarantine()
  return nil
 }

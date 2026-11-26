@@ -18,12 +18,14 @@ import (
  "net"
  "os"
  "path/filepath"
+ "sync"
  "syscall"
 
  "example.org/usb-fabric-r26-integrated/heldledger"
 )
 
 type USBIPRecoveredOwner struct {
+ mu sync.Mutex
  file *os.File
  alias net.Listener
  manager *Manager
@@ -31,12 +33,13 @@ type USBIPRecoveredOwner struct {
 
 func (o *USBIPRecoveredOwner) Close() error {
  if o==nil{return nil}
+ o.mu.Lock()
+ defer o.mu.Unlock()
  if o.manager!=nil {
-  state,_,_:=o.manager.Snapshot()
-  // Do not permit voluntary ownership relinquishment with an active lease.
-  // SIGKILL is different: OS releases locks, and durable HELD must still
-  // quarantine recovery. A Reserved state has no verified release yet.
-  if state==Reserved || state==Attached {return ErrDenied}
+  // Fence the original Manager under its own mutex BEFORE dropping either
+  // OS owner handle. Snapshot-then-close would race Reserve and permit
+  // a retained old Manager to claim a new lease after owner relinquishment.
+  if err:=o.manager.retireOwner();err!=nil{return err}
  }
  if o.alias!=nil { _=o.alias.Close();o.alias=nil }
  if o.file!=nil {err:=o.file.Close();o.file=nil;return err}
