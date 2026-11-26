@@ -127,6 +127,24 @@ class TypedWorkRequestTests(unittest.TestCase):
             stderr=subprocess.PIPE, timeout=25, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
 
+    def test_fixed_mail_model_profile_and_offline_controls(self):
+        import subprocess
+        plan=m.plan("requests/gha/mail-qwen-real-cpu-v1.json")
+        self.assertEqual(plan["workload"],"mail-qwen-real-cpu")
+        self.assertEqual(plan["timeout_seconds"],420)
+        self.assertEqual(plan["runner"],"ubuntu-24.04")
+        self.assertEqual(plan["max_attempts"],1)
+        self.assertEqual(plan["max_cost_usd"],0)
+        result=subprocess.run(
+            [sys.executable,"-m","unittest","discover","-s","tests",
+             "-p","test_qualify_mail_qwen_real_cpu.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=25,check=False)
+        self.assertEqual(result.returncode,0,result.stderr.decode("utf-8","replace"))
+        wf=(ROOT/".github/workflows/gha-typed-public-cpu.yml").read_text(encoding="utf-8")
+        routine=wf.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("mail-qwen-real-cpu-v1.json",routine)
+
     def test_public_cpu_pr_matrix_keeps_expensive_network_upstream_probes_on_demand(self):
         workflow = (ROOT / ".github" / "workflows" / "gha-typed-public-cpu.yml").read_text(
             encoding="utf-8")

@@ -83,6 +83,10 @@ RESULT_FIELDS = {
         "isolated_defaults", "same_name_second_unaddressable",
         "attachment_download_occurrence_complete", "real_mail", "model_inference",
         "headless_engine_run", "verdict_sha256"},
+    "mail-qwen-real-cpu": {
+        "classification","oracle_verified","model_inference","automatic_promotion",
+        "model_sha256","engine_commit","engine_asset_sha256","corpus_sha256",
+        "model_calls","transport","rows","verdict_sha256"},
     "mail-openworker-scripted": {
         "classification", "oracle_verified", "source_commit",
         "scripted_provider_only", "headless_engine_executed",
@@ -167,6 +171,15 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
+    if p["workload"] == "mail-qwen-real-cpu":
+        from verify_mail_qwen_cases import grade
+        try:
+            if (type(result["verdict_sha256"]) is not str or
+                    not HEX64.fullmatch(result["verdict_sha256"])):
+                raise ValueError("MODEL_SOURCE_OUTPUT_HASH_INVALID")
+            grade(result)
+        except ValueError as exc:
+            raise VerdictError(str(exc)) from exc
     if p["workload"] == "mail-openworker-scripted":
         if (result.get("source_commit") != "ecb445490fc054d52b8ea610d97ba947f57033d2" or
                 result.get("scripted_provider_only") is not True or
@@ -373,6 +386,10 @@ def main():
         if args.out:
             args.out.parent.mkdir(parents=True, exist_ok=True)
             args.out.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n")
+        if request.plan(args.request)["workload"] == "mail-qwen-real-cpu":
+            from verify_mail_qwen_cases import grade
+            scores=grade(strict_json(data)["result"])
+            print("GHA_MAIL_MODEL_SCORES="+json.dumps(scores,sort_keys=True,separators=(",",":")))
         print("GHA_RECEIPT_INDEPENDENT_VERDICT=PASS")
         return 0
     except (VerdictError, request.Denied, OSError) as exc:

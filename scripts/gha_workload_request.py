@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2", "mail-temporal-xtdb-r2","mail-xtdb-frozen-oracle-r3"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2", "mail-temporal-xtdb-r2","mail-xtdb-frozen-oracle-r3", "mail-qwen-real-cpu"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -54,7 +54,13 @@ def read_request(name: str) -> tuple[dict, str]:
         raise Denied("RUNNER_SHAPE_NOT_ALLOWED")
     if not isinstance(obj["workload"], str) or obj["workload"] not in WORKLOADS:
         raise Denied("WORKLOAD_NOT_ALLOWED")
-    if type(obj["timeout_seconds"]) is not int or not 1 <= obj["timeout_seconds"] <= 240:
+    if obj["workload"] == "mail-qwen-real-cpu":
+        if (name != "requests/gha/mail-qwen-real-cpu-v1.json" or
+                obj["assignment_id"] != "mail-qwen-real-cpu-v1" or
+                obj["runner"] != "ubuntu-24.04" or
+                type(obj["timeout_seconds"]) is not int or obj["timeout_seconds"] != 420):
+            raise Denied("MODEL_FIXED_PROFILE_REQUIRED")
+    elif type(obj["timeout_seconds"]) is not int or not 1 <= obj["timeout_seconds"] <= 240:
         raise Denied("RUNTIME_BUDGET_OUT_OF_BOUNDS")
     if obj["data_class"] != "public-synthetic":
         raise Denied("DATA_CLASS_NOT_ALLOWED")
@@ -396,6 +402,38 @@ def _execute(workload: str, timeout: int) -> dict:
             "source_sha256":observed.get("fixed_public_source_sha256") if admitted else None,
             "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
         }
+    if workload == "mail-qwen-real-cpu":
+        try:
+            cp = subprocess.run([sys.executable,"scripts/qualify_mail_qwen_real_cpu.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>16384:
+                failure=re.search(r"MODEL_PUBLIC_REP_BLOCKED=([A-Za-z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_MODEL_FIRST_FAILURE="+
+                      (failure.group(1).upper() if failure else "UNCLASSIFIED_SUBPROCESS"),
+                      flush=True)
+                raise ValueError("PINNED_MODEL_RUNTIME_FAILED")
+            obs=json.loads(cp.stdout)
+            fields={"schema","model_inference","model_sha256","engine_commit",
+                    "engine_asset_sha256","corpus_sha256","model_calls",
+                    "automatic_promotion","transport","rows"}
+            if (type(obs) is not dict or set(obs)!=fields or
+                    obs["schema"]!="mail-public-real-cpu-model-doe/v3" or
+                    obs["model_inference"] is not True or
+                    obs["automatic_promotion"] is not False or
+                    obs["transport"]!="pinned-loopback-completion" or
+                    obs["model_sha256"]!="9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8" or
+                    obs["engine_commit"]!="b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed" or
+                    obs["engine_asset_sha256"]!="a9b243a3bc4ca172010e96c64062fc02afd1dc4f8b699716f813ae6845ada4c6" or
+                    type(obs["rows"]) is not list or len(obs["rows"])!=20 or
+                    type(obs["model_calls"]) is not int or obs["model_calls"]!=20):
+                raise ValueError("MODEL_RECEIPT_SCOPE_INVALID")
+            return {"classification":"PASS","oracle_verified":True,
+                    **{k:v for k,v in obs.items() if k!="schema"},
+                    "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest()}
+        except (OSError,ValueError,TypeError,subprocess.TimeoutExpired):
+            return {"classification":"FAIL_REAL_MODEL_RUNTIME_OR_ORACLE","oracle_verified":False}
     if workload == "mail-openworker-scripted":
         # Exact source-pinned public MIT OpenWorker engine only; disposable venv.
         # All runtime inference is fake scripted-model replay, no real mailbox.
