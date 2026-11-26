@@ -1,0 +1,31 @@
+name: QEMU replay evidence projection
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/qemu-qtest-evidence.yml'
+      - 'experiments/qtest-evidence/**'
+permissions:
+  contents: read
+env:
+  GO111MODULE: 'off'
+  GOPROXY: 'off'
+  GOTOOLCHAIN: local
+jobs:
+  raw-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Qualify read-only evidence projector
+        working-directory: experiments/qtest-evidence
+        run: |
+          set -euo pipefail
+          go version
+          go vet .
+          go test -race -count=2 -v .
+          go build -o "$RUNNER_TEMP/qtest-evidence" .
+          "$RUNNER_TEMP/qtest-evidence" -h
+          rm -f "$RUNNER_TEMP/qtest-evidence"
