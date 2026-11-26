@@ -1,0 +1,62 @@
+name: QEMU qtest semantic qualification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/qemu-qtest-semantic.yml'
+      - 'scripts/qtest_semantic_smoke.py'
+      - 'experiments/qtest-contract/**'
+permissions:
+  contents: read
+jobs:
+  device:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [usb, virtio]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install distro QEMU and identify exact version
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends qemu-system-x86
+          qemu-system-x86_64 --version
+          dpkg-query -W qemu-system-x86
+          sha256sum "$(command -v qemu-system-x86_64)"
+      - name: Execute independent semantic smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          sha256sum scripts/qtest_semantic_smoke.py | tee "$RUNNER_TEMP/evidence/source.txt"
+          qemu-system-x86_64 --version > "$RUNNER_TEMP/evidence/version.txt"
+          timeout 90s python3 scripts/qtest_semantic_smoke.py "${{ matrix.lane }}" 2>&1 | tee "$RUNNER_TEMP/evidence/test.log"
+      - name: Retain result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qtest-semantic-${{ matrix.lane }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 7
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test bounded typed proposal decoder
+        working-directory: experiments/qtest-contract
+        env:
+          GO111MODULE: 'off'
+          GOPROXY: 'off'
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+          go version
+          go vet .
+          go test -race -count=2 -v .
