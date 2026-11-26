@@ -417,11 +417,12 @@ def _execute(workload: str, timeout: int) -> dict:
             obs=json.loads(cp.stdout)
             fields={"schema","model_inference","model_sha256","engine_commit",
                     "engine_asset_sha256","corpus_sha256","model_calls",
-                    "automatic_promotion","rows"}
+                    "automatic_promotion","transport","rows"}
             if (type(obs) is not dict or set(obs)!=fields or
-                    obs["schema"]!="mail-public-real-cpu-model-doe/v2" or
+                    obs["schema"]!="mail-public-real-cpu-model-doe/v3" or
                     obs["model_inference"] is not True or
                     obs["automatic_promotion"] is not False or
+                    obs["transport"]!="pinned-loopback-completion" or
                     obs["model_sha256"]!="9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8" or
                     obs["engine_commit"]!="b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed" or
                     obs["engine_asset_sha256"]!="a9b243a3bc4ca172010e96c64062fc02afd1dc4f8b699716f813ae6845ada4c6" or

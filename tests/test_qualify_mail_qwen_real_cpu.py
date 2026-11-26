@@ -12,9 +12,10 @@ def fixture_result():
     rows = []
     for identifier,(source,value,scope) in v.GOLD.items():
         for policy in v.POLICIES:
-            rows.append([identifier,policy,scope,"OK",source,value,"a"*64,"b"*64,1])
+            rows.append([identifier,policy,scope,"OK",source,value,"a"*64,"b"*64,1,12])
     return {**v.PINS,"model_inference":True,"automatic_promotion":False,
-            "corpus_sha256":q.corpus_digest(),"model_calls":20,"rows":rows}
+            "corpus_sha256":q.corpus_digest(),"model_calls":20,
+            "transport":q.TRANSPORT,"rows":rows}
 
 
 class RealModelContract(unittest.TestCase):
@@ -59,6 +60,23 @@ class RealModelContract(unittest.TestCase):
         self.assertEqual(q.parse_model_json(b'{"source_id":"NONE","value":"UNKNOWN"}',
                          ("a1",)),("OK","NONE","UNKNOWN"))
 
+    def test_server_envelope_is_not_the_model_output(self):
+        raw=b'{"content":"{\"source_id\":\"a1\",\"value\":\"120\"}","tokens":[1,2],"stop":true}'
+        # Use json serialization, not hand-crafted quoting.
+        import json
+        raw=json.dumps({"content":'{"source_id":"a1","value":"120"}',
+                        "tokens":[1,2],"stop":True}).encode()
+        content,count=q.parse_server_completion(200,raw)
+        self.assertEqual(count,2)
+        self.assertEqual(q.parse_model_json(content,("a1",)),("OK","a1","120"))
+        for obj in ({"content":"x","tokens":[],"stop":True},
+                    {"content":"x","tokens":[True],"stop":True},
+                    {"content":"x","tokens":[1],"stop":False}):
+            with self.assertRaises(q.Blocked):
+                q.parse_server_completion(200,json.dumps(obj).encode())
+        with self.assertRaises(q.Blocked):
+            q.parse_server_completion(503,raw)
+
     def test_independent_dev_selection_and_holdout_nonpromotion(self):
         doc=fixture_result()
         got=v.grade(doc)
@@ -78,7 +96,7 @@ class RealModelContract(unittest.TestCase):
 
     def test_tampered_receipt_rejected(self):
         for index,value in ((0,"H99"),(1,"unreviewed"),(2,"beta1"),
-                            (3,"PASS"),(4,"beta1"),(6,"bad"),(8,True)):
+                            (3,"PASS"),(4,"beta1"),(6,"bad"),(8,True),(9,0),(9,True)):
             doc=fixture_result()
             doc["rows"][0][index]=value
             with self.assertRaises(ValueError):

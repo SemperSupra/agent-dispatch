@@ -86,7 +86,7 @@ RESULT_FIELDS = {
     "mail-qwen-real-cpu": {
         "classification","oracle_verified","model_inference","automatic_promotion",
         "model_sha256","engine_commit","engine_asset_sha256","corpus_sha256",
-        "model_calls","rows","verdict_sha256"},
+        "model_calls","transport","rows","verdict_sha256"},
     "mail-openworker-scripted": {
         "classification", "oracle_verified", "source_commit",
         "scripted_provider_only", "headless_engine_executed",

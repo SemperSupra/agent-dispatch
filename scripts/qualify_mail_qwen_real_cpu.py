@@ -9,17 +9,19 @@ or automatic policy/model promotion. A low score is a valid scientific result.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import socket
 import sys
 import tarfile
 import tempfile
 import time
 
-SCHEMA = "mail-public-real-cpu-model-doe/v2"
+SCHEMA = "mail-public-real-cpu-model-doe/v3"
 LLAMA_COMMIT = "b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed"
 LLAMA_RELEASE = "b12428"
 LLAMA_ASSET_NAME = "llama-b12428-bin-ubuntu-x64.tar.gz"
@@ -178,9 +180,9 @@ def build_llama(root:Path,env:dict[str,str])->Path:
             if entry.islnk():
                 raise Blocked("ENGINE_ARCHIVE_HARDLINK_UNQUALIFIED")
         payload.extractall(destination,filter="data")
-    files=list(destination.rglob("llama-cli"))
+    files=list(destination.rglob("llama-server"))
     if len(files)!=1 or not files[0].is_file():
-        raise Blocked("ENGINE_LLAMA_CLI_MISSING")
+        raise Blocked("ENGINE_LLAMA_SERVER_MISSING")
     executable=files[0]
     if executable.read_bytes()[:4]!=bytes.fromhex("7f454c46"):
         raise Blocked("ENGINE_BINARY_NOT_ELF")
@@ -235,23 +237,106 @@ def parse_model_json(raw, ids):
     return "OK", source, value
 
 
-def infer(binary, model, root, env, policy, task):
-    ids = scope_ids(task)
-    text = prompt(policy, task)
-    commandline = [
-        str(binary),"-m",str(model),"-p",text,
-        "-j",response_schema(ids),"-n","75","--temp","0","-s","19",
-        "-t","2","-c","2048","-st","--simple-io","--no-display-prompt",
-        "--no-show-timings","--no-warmup","--log-disable",
-    ]
-    started = time.monotonic()
-    raw = command(commandline,root,env,22).stdout
-    duration = round((time.monotonic()-started)*1000)
-    status, source, value = parse_model_json(raw, ids)
-    # Only bounded, allowlisted normalized fields; never raw model text.
-    return [task[0],policy,",".join(ids),status,source,value,
+PORT = 18081
+TRANSPORT = "pinned-loopback-completion"
+
+
+def http_json(method,path,payload=None,timeout=22):
+    conn=http.client.HTTPConnection("127.0.0.1",PORT,timeout=timeout)
+    try:
+        body=None if payload is None else json.dumps(payload,ensure_ascii=False).encode()
+        conn.request(method,path,body=body,headers={"Content-Type":"application/json"})
+        resp=conn.getresponse()
+        raw=resp.read(65537)
+        if len(raw)>65536:
+            raise Blocked("SERVER_RESPONSE_BOUND")
+        return resp.status,raw
+    finally:
+        conn.close()
+
+
+def stop_server(proc):
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
+def start_server(binary,model,root,env):
+    # A disposable runner only; bind loopback and refuse an occupied port.
+    try:
+        with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1",PORT))
+    except OSError as exc:
+        raise Blocked("SERVER_PORT_OCCUPIED") from exc
+    proc=subprocess.Popen([str(binary),"-m",str(model),"--host","127.0.0.1",
+        "--port",str(PORT),"-t","2","-c","2048","--parallel","1"],
+        cwd=root,env=env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,close_fds=True)
+    try:
+        deadline=time.monotonic()+40
+        while time.monotonic()<deadline:
+            if proc.poll() is not None:
+                raise Blocked("SERVER_PROCESS_EXITED")
+            try:
+                status,raw=http_json("GET","/health",timeout=1)
+                if status==200 and json.loads(raw)=={"status":"ok"}:
+                    return proc
+            except (OSError,http.client.HTTPException,ValueError):
+                pass
+            time.sleep(.2)
+        raise Blocked("SERVER_HEALTH_TIMEOUT")
+    except BaseException:
+        stop_server(proc)
+        raise
+
+
+def parse_server_completion(status,raw):
+    def unique(pairs):
+        out={}
+        for k,v in pairs:
+            if k in out:
+                raise ValueError("duplicate envelope key")
+            out[k]=v
+        return out
+    if status!=200:
+        raise Blocked("SERVER_COMPLETION_HTTP_ERROR")
+    try:
+        doc=json.loads(raw.decode("utf-8","strict"),object_pairs_hook=unique)
+    except (ValueError,UnicodeError,RecursionError) as exc:
+        raise Blocked("SERVER_ENVELOPE_JSON_INVALID") from exc
+    if (type(doc) is not dict or type(doc.get("content")) is not str or
+            type(doc.get("tokens")) is not list or doc.get("stop") is not True or
+            not 1<=len(doc["tokens"])<=80 or
+            any(type(t) is not int or t<0 for t in doc["tokens"])):
+        raise Blocked("SERVER_GENERATION_EVIDENCE_INVALID")
+    return doc["content"].encode("utf-8"),len(doc["tokens"])
+
+
+def infer(proc,policy,task):
+    if proc.poll() is not None:
+        raise Blocked("SERVER_PROCESS_EXITED")
+    ids=scope_ids(task)
+    text=prompt(policy,task)
+    payload={"prompt":text,"json_schema":json.loads(response_schema(ids)),
+             "n_predict":75,"temperature":0,"seed":19,"stream":False,
+             "cache_prompt":False,"return_tokens":True,
+             "response_fields":["content","tokens","stop"],
+             "stop":["<|im_end|>"]}
+    started=time.monotonic()
+    try:
+        status,envelope=http_json("POST","/completion",payload)
+    except (OSError,http.client.HTTPException) as exc:
+        raise Blocked("SERVER_COMPLETION_IO_ERROR") from exc
+    raw,tokens=parse_server_completion(status,envelope)
+    duration=round((time.monotonic()-started)*1000)
+    parse_status,source,value=parse_model_json(raw,ids)
+    return [task[0],policy,",".join(ids),parse_status,source,value,
             hashlib.sha256(raw).hexdigest(),
-            hashlib.sha256(text.encode()).hexdigest(),duration]
+            hashlib.sha256(text.encode()).hexdigest(),duration,tokens]
 
 
 def qualify():
@@ -265,18 +350,21 @@ def qualify():
         model = get_model(root,env)
         binary = build_llama(root,env)
         rows = []
-        # Independent scoring chooses a policy from development after all
-        # recorded calls. No model call consumes a score or heldout answer.
-        for task in TASKS:
-            for policy in POLICIES:
-                rows.append(infer(binary,model,root,env,policy,task))
+        proc=start_server(binary,model,root,env)
+        try:
+            # Frozen prompts and independent scoring; no feedback from heldout.
+            for task in TASKS:
+                for policy in POLICIES:
+                    rows.append(infer(proc,policy,task))
+        finally:
+            stop_server(proc)
         if len(rows) != RUNS:
             raise Blocked("INFERENCE_COUNT_CHANGED")
         return {"schema":SCHEMA,"model_inference":True,
                 "model_sha256":MODEL_SHA256,"engine_commit":LLAMA_COMMIT,
                 "engine_asset_sha256":LLAMA_ASSET_SHA256,
                 "corpus_sha256":corpus_digest(),"model_calls":len(rows),
-                "automatic_promotion":False,"rows":rows}
+                "transport":TRANSPORT,"automatic_promotion":False,"rows":rows}
 
 
 def main():
