@@ -71,3 +71,12 @@ func TestHistoricalCheckpointAndEmptyInventory(t *testing.T){
 	got,err=Verify(m.Scope,pin,m,[]Entry{})
 	if err!=nil||got.SourceCount!=0||got.RevisionCount!=0{t.Fatal(got,err)}
 }
+
+func TestInventoryCanonicalWireRejectsInvalidUTF8(t *testing.T){
+	m,_:=fixture()
+	m.Scope.Predicate=string([]byte{0xff})
+	if _,err:=Digest(m);err==nil{t.Fatal("lossy scope encoding")}
+	m,_=fixture()
+	m.Entries[0].ID=string([]byte{0xff})
+	if _,err:=Digest(m);err==nil{t.Fatal("lossy entry identity")}
+}

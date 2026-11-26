@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"time"
+	"unicode/utf8"
 )
 
 const Schema="mail-review-inventory/v1"
@@ -40,6 +41,9 @@ func digest(b []byte)string{h:=sha256.Sum256(b);return hex.EncodeToString(h[:])}
 func isHash(s string)bool{b,e:=hex.DecodeString(s);return e==nil&&len(b)==32&&hex.EncodeToString(b)==s}
 func instant(s string)(time.Time,error){return time.Parse(time.RFC3339,s)}
 func validScope(s Scope)bool{
+	for _,v:=range []string{s.Tenant,s.Partition,s.TaskID,s.Group,s.Predicate,s.ValidAt,s.KnownAt,s.PolicySHA256,s.ContextSHA256}{
+		if !utf8.ValidString(v){return false}
+	}
 	if s.Tenant==""||s.TaskID==""||s.Group==""||s.Predicate==""||
 		(s.Partition!="dev"&&s.Partition!="heldout")||
 		!isHash(s.PolicySHA256)||!isHash(s.ContextSHA256){return false}
@@ -54,7 +58,7 @@ func normalize(scope Scope,entries []Entry)([]Entry,error){
 	for _,e:=range entries{
 		k:=key{e.Kind,e.ID}
 		at,err:=instant(e.RecordedAt)
-		if (e.Kind!="source"&&e.Kind!="revision")||e.ID==""||
+		if (e.Kind!="source"&&e.Kind!="revision")||e.ID==""||!utf8.ValidString(e.ID)||
 			!isHash(e.PayloadSHA256)||err!=nil||at.After(known)||seen[k]{
 			return nil,errors.New("INVENTORY_ENTRY_INVALID")
 		}
