@@ -1,0 +1,156 @@
+name: Scoped reference temporal qualification
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-scoped-reference-temporal.yml'
+permissions:
+  contents: read
+jobs:
+  temporal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Immutable epoch resolver and coverage oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          go mod init example.invalid/temporal
+          cat > temporal_test.go <<'EOF'
+          package temporal
+          import ("testing"; "sort"; "errors"; "math/rand")
+          type Scope struct{ Run, Branch, Space string }
+          type Extent struct{ Base, End, Generation uint64; Object string }
+          type Epoch struct{ From, Until uint64; Complete bool; Map []Extent }
+          type Result struct{ Status, Object string; Generation uint64 }
+          func validate(es []Epoch)error{
+            for i,e:=range es{
+              if e.From>=e.Until||(i>0&&es[i-1].Until>e.From){return errors.New("epoch overlap or invalid interval")}
+              for j,m:=range e.Map{if m.Base>=m.End||m.Generation==0||m.Object==""||(j>0&&e.Map[j-1].End>m.Base){return errors.New("invalid mapping")}}
+            };return nil
+          }
+          func resolve(all map[Scope][]Epoch,s Scope,at,addr uint64)Result{
+            if s.Run==""||s.Branch==""||s.Space==""{return Result{Status:"unknown_scope"}}
+            es,ok:=all[s];if !ok{return Result{Status:"unknown_scope"}}
+            i:=sort.Search(len(es),func(i int)bool{return es[i].Until>at})
+            if i==len(es)||es[i].From>at||!es[i].Complete{return Result{Status:"coverage_gap"}}
+            m:=es[i].Map;j:=sort.Search(len(m),func(j int)bool{return m[j].End>addr})
+            if j==len(m)||m[j].Base>addr{return Result{Status:"unmapped"}}
+            return Result{"resolved",m[j].Object,m[j].Generation}
+          }
+          func TestTemporal(t *testing.T){
+            a:=Scope{"r","root","p"}; b:=Scope{"r","restore","p"}; c:=Scope{"r","root","other"}
+            all:=map[Scope][]Epoch{a:{{0,10,true,[]Extent{{100,200,1,"A"}}},{10,20,false,nil},{20,30,true,[]Extent{{100,200,2,"B"}}},{40,50,true,nil}},b:{{20,30,true,[]Extent{{100,200,1,"A"}}}},c:{{0,50,true,[]Extent{{100,200,1,"C"}}}}}
+            for _,es:=range all{if e:=validate(es);e!=nil{t.Fatal(e)}}
+            cases:=[]struct{s Scope;t,x uint64;w Result}{
+              {a,9,100,Result{"resolved","A",1}},{a,10,100,Result{Status:"coverage_gap"}},{a,19,100,Result{Status:"coverage_gap"}},
+              {a,20,100,Result{"resolved","B",2}},{b,20,100,Result{"resolved","A",1}},{a,30,100,Result{Status:"coverage_gap"}},
+              {a,40,100,Result{Status:"unmapped"}},{a,9,200,Result{Status:"unmapped"}},{c,9,100,Result{"resolved","C",1}},
+              {Scope{"r","unknown","p"},9,100,Result{Status:"unknown_scope"}},
+            };for _,q:=range cases{if got:=resolve(all,q.s,q.t,q.x);got!=q.w{t.Fatal(q,got)}}
+            r:=rand.New(rand.NewSource(42));for i:=0;i<50000;i++{at:=uint64(r.Intn(60));x:=uint64(r.Intn(300));want:=Result{Status:"coverage_gap"}
+              switch{case at<10:want=Result{Status:"unmapped"};if x>=100&&x<200{want=Result{"resolved","A",1}}
+              case at>=20&&at<30:want=Result{Status:"unmapped"};if x>=100&&x<200{want=Result{"resolved","B",2}}
+              case at>=40&&at<50:want=Result{Status:"unmapped"}}
+              if got:=resolve(all,a,at,x);got!=want{t.Fatal(at,x,got,want)}
+            }
+            for _,bad:=range [][]Epoch{{{0,10,true,nil},{9,20,true,nil}},{{10,10,true,nil}},{{0,1,true,[]Extent{{0,10,0,"A"}}}},{{0,1,true,[]Extent{{0,10,1,"A"},{9,20,2,"B"}}}}}{if validate(bad)==nil{t.Fatal("invalid accepted")}}
+          }
+          EOF
+          go test -v -race .
+          go vet .
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Native ELF segment and process-map correspondence
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          cat > fixture.c <<'EOF'
+          #include <stdio.h>
+          #include <stdint.h>
+          __attribute__((noinline)) int marker(void){return 42;}
+          int main(void){printf("%jx\n",(uintmax_t)(uintptr_t)&marker);fflush(stdout);getchar();return marker()!=42;}
+          EOF
+          cc -g -O0 -fPIE -pie -o pie fixture.c
+          cc -g -O0 -fno-pie -no-pie -o exec fixture.c
+          python3 - <<'PY'
+          import hashlib, pathlib, subprocess, struct, json
+          for name in ("pie","exec"):
+              pth=pathlib.Path(name).resolve(); data=pth.read_bytes()
+              assert data[:6]==b"\x7fELF\x02\x01"
+              h=struct.unpack_from("<16sHHIQQQIHHHHHH",data)
+              phoff, phentsize, phnum=h[5],h[9],h[10]
+              segs=[struct.unpack_from("<IIQQQQQQ",data,phoff+i*phentsize) for i in range(phnum)]
+              nm=subprocess.check_output(["nm","-n",str(pth)],text=True)
+              expected=int(next(l.split()[0] for l in nm.splitlines() if l.split()[-1]=="marker"),16)
+              for i in range(3):
+                  p=subprocess.Popen([str(pth)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+                  try:
+                      addr=int(p.stdout.readline(),16)
+                      rows=[]
+                      for row in pathlib.Path(f"/proc/{p.pid}/maps").read_text().splitlines():
+                          fields=row.split(maxsplit=5)
+                          if len(fields)!=6 or fields[5]!=str(pth) or "x" not in fields[1]: continue
+                          lo,hi=(int(x,16) for x in fields[0].split("-"))
+                          if lo<=addr<hi: rows.append((lo,hi,int(fields[2],16)))
+                      assert len(rows)==1
+                      lo,hi,off=rows[0]; foff=addr-lo+off
+                      matches=[s for s in segs if s[0]==1 and s[1]&1 and s[2]<=foff<s[2]+s[5]]
+                      assert len(matches)==1
+                      s=matches[0]; virtual=s[3]+foff-s[2]
+                      assert virtual==expected,(name,virtual,expected)
+                      print(json.dumps({"fixture":name,"incarnation":i,"digest":hashlib.sha256(data).hexdigest(),"runtime":addr,"map_start":lo,"map_end":hi,"map_file_offset":off,"file_offset":foff,"segment_offset":s[2],"segment_vaddr":s[3],"symbol":expected}),flush=True)
+                      p.stdin.write("\n");p.stdin.flush();assert p.wait(timeout=3)==0
+                  finally:
+                      if p.poll() is None:p.kill();p.wait()
+          print("6 native mapping witnesses PASS")
+          PY
+  workload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - name: Higher-resolution paired boundary capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          cat > work.py <<'PY'
+          import sqlite3,sys,time,resource,json,hashlib,pathlib
+          path,mode=sys.argv[1:]; n=300000
+          a=time.perf_counter_ns(); c=sqlite3.connect(path)
+          c.execute("CREATE TABLE item(id INTEGER PRIMARY KEY,v INTEGER)")
+          c.executemany("INSERT INTO item VALUES(?,?)",((i,i*3) for i in range(n)));c.commit()
+          c.execute("CREATE INDEX ix ON item(v)");c.commit()
+          for i in range(300):c.execute("UPDATE item SET v=v+1 WHERE id>=? AND id<?",(i*1000,(i+1)*1000))
+          c.commit(); result=c.execute("SELECT count(*),sum(v) FROM item").fetchone()
+          assert result==(n,3*n*(n-1)//2+n)
+          assert c.execute("PRAGMA integrity_check").fetchone()==("ok",);c.close()
+          b=time.perf_counter_ns();size=0;capture=0
+          if mode=="boundary":
+              start=time.perf_counter_ns()
+              raw=pathlib.Path("/proc/self/maps").read_bytes();size=len(raw)
+              capture=time.perf_counter_ns()-start
+          end=time.perf_counter_ns();usage=resource.getrusage(resource.RUSAGE_SELF)
+          print(json.dumps({"work_ns":b-a,"total_ns":end-a,"capture_ns":capture,"bytes":size,"cpu_s":usage.ru_utime+usage.ru_stime,"rss_kib":usage.ru_maxrss,"count":result[0],"sum":result[1],"sha":hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()}))
+          PY
+          python3 - <<'PY'
+          import subprocess,json,pathlib,statistics
+          pairs=[]
+          for i in range(9):
+              pair={}
+              for mode in (("baseline","boundary") if i%2==0 else ("boundary","baseline")):
+                  p=pathlib.Path(f"{i}-{mode}.db")
+                  pair[mode]=json.loads(subprocess.check_output(["python3","work.py",str(p),mode],text=True));p.unlink()
+              assert pair["baseline"]["sha"]==pair["boundary"]["sha"]
+              assert pair["baseline"]["bytes"]==0 and pair["boundary"]["bytes"]>0
+              print(json.dumps({"pair":i,**pair}),flush=True);pairs.append(pair)
+          for key in ("total_ns","cpu_s","rss_kib"):
+              v=[p["boundary"][key]/p["baseline"][key]-1 for p in pairs]
+              print(key,"delta median",statistics.median(v),"range",min(v),max(v))
+          for key in ("capture_ns","bytes"):
+              print(key,"median",statistics.median(p["boundary"][key] for p in pairs))
+          print("9 paired digest/outcome comparisons PASS; timing remains exploratory")
+          PY
