@@ -1,0 +1,431 @@
+[
+  {
+    "id": "D01",
+    "claims": [
+      {
+        "quote": "2026-09-03T10:00:00Z | permit-coral | yes",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-03T10:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "D02",
+    "claims": []
+  },
+  {
+    "id": "D03",
+    "claims": [
+      {
+        "quote": "2026-09-04T08:00:00Z | tor-west | ja",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-04T08:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "D04",
+    "claims": []
+  },
+  {
+    "id": "D05",
+    "claims": [
+      {
+        "quote": "2026-09-05T07:00:00Z | pump-ready | ใช่",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-05T07:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "D06",
+    "claims": []
+  },
+  {
+    "id": "H01",
+    "claims": [
+      {
+        "quote": "The crane inspection was completed at 2026-09-06T09:00:00Z.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-06T09:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H02",
+    "claims": [
+      {
+        "quote": "At 2026-09-07T11:00:00Z the invoice was not paid.",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-07T11:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H03",
+    "claims": [
+      {
+        "quote": "Approval of the roof permit is planned for 2026-09-25T12:00:00Z; it is not an accomplished event.",
+        "polarity": 1,
+        "modality": "planned",
+        "valid_from": "2026-09-25T12:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H04",
+    "claims": [
+      {
+        "quote": "The lift is available from 2026-09-01T08:00:00Z until 2026-09-03T18:00:00Z, end exclusive.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-01T08:00:00Z",
+        "valid_to": "2026-09-03T18:00:00Z"
+      }
+    ]
+  },
+  {
+    "id": "H05",
+    "claims": [
+      {
+        "quote": "The scanner was online from 2026-09-02T06:00:00Z until 2026-09-02T08:00:00Z (exclusive).",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-02T06:00:00Z",
+        "valid_to": "2026-09-02T08:00:00Z"
+      },
+      {
+        "quote": "The scanner was offline from 2026-09-02T08:00:00Z.",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-02T08:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H06",
+    "claims": [
+      {
+        "quote": "The dock was not cleared at 2026-09-02T10:00:00Z.",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-02T10:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H07",
+    "claims": [
+      {
+        "quote": "The package arrived at 2026-09-08T15:00:00Z.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-08T15:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H08",
+    "claims": []
+  },
+  {
+    "id": "H09",
+    "claims": []
+  },
+  {
+    "id": "H10",
+    "claims": []
+  },
+  {
+    "id": "H11",
+    "claims": [
+      {
+        "quote": "2026-09-11T07:00:00Z | meter-certified | yes",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-11T07:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H12",
+    "claims": [
+      {
+        "quote": "The backup completed at 2026-09-12T18:30:00+02:00.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-12T16:30:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H13",
+    "claims": [
+      {
+        "quote": "Das Ventil wurde am 2026-09-06T10:00:00Z erfolgreich geprüft.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-06T10:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H14",
+    "claims": [
+      {
+        "quote": "Am 2026-09-07T12:00:00Z war die Rechnung nicht beglichen.",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-07T12:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H15",
+    "claims": [
+      {
+        "quote": "Die Genehmigung des Antrags ist für 2026-09-26T10:00:00Z geplant; sie ist noch nicht erfolgt.",
+        "polarity": 1,
+        "modality": "planned",
+        "valid_from": "2026-09-26T10:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H16",
+    "claims": [
+      {
+        "quote": "Das Lager ist von 2026-09-02T07:00:00Z bis ausschließlich 2026-09-04T17:00:00Z zugänglich.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-02T07:00:00Z",
+        "valid_to": "2026-09-04T17:00:00Z"
+      }
+    ]
+  },
+  {
+    "id": "H17",
+    "claims": [
+      {
+        "quote": "Der Router war von 2026-09-03T06:00:00Z bis ausschließlich 2026-09-03T08:00:00Z aktiv.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-03T06:00:00Z",
+        "valid_to": "2026-09-03T08:00:00Z"
+      },
+      {
+        "quote": "Ab 2026-09-03T08:00:00Z war der Router inaktiv.",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-03T08:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H18",
+    "claims": [
+      {
+        "quote": "Die Fahrt war am 2026-09-04T10:00:00Z nicht bestätigt.",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-04T10:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H19",
+    "claims": [
+      {
+        "quote": "Das Paket ist am 2026-09-08T16:00:00Z eingegangen.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-08T16:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H20",
+    "claims": []
+  },
+  {
+    "id": "H21",
+    "claims": []
+  },
+  {
+    "id": "H22",
+    "claims": []
+  },
+  {
+    "id": "H23",
+    "claims": [
+      {
+        "quote": "2026-09-11T08:00:00Z | schalter-aktiv | nein",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-11T08:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H24",
+    "claims": [
+      {
+        "quote": "Die Messung wurde am 2026-09-12T19:45:00+02:00 abgeschlossen.",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-12T17:45:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H25",
+    "claims": [
+      {
+        "quote": "ตรวจสะพานเสร็จแล้วเมื่อ 2026-09-06T11:00:00Z",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-06T11:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H26",
+    "claims": [
+      {
+        "quote": "ณ เวลา 2026-09-07T13:00:00Z ยังไม่ได้ชำระค่าธรรมเนียม",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-07T13:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H27",
+    "claims": [
+      {
+        "quote": "มีกำหนดอนุมัติการใช้ที่ดินเวลา 2026-09-27T10:00:00Z แต่ยังไม่เกิดขึ้น",
+        "polarity": 1,
+        "modality": "planned",
+        "valid_from": "2026-09-27T10:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H28",
+    "claims": [
+      {
+        "quote": "ห้องพร้อมใช้งานตั้งแต่ 2026-09-03T07:00:00Z จนถึง 2026-09-05T17:00:00Z โดยไม่รวมเวลาสิ้นสุด",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-03T07:00:00Z",
+        "valid_to": "2026-09-05T17:00:00Z"
+      }
+    ]
+  },
+  {
+    "id": "H29",
+    "claims": [
+      {
+        "quote": "มอเตอร์ทำงานตั้งแต่ 2026-09-04T06:00:00Z จนถึง 2026-09-04T08:00:00Z โดยไม่รวมเวลาสิ้นสุด",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-04T06:00:00Z",
+        "valid_to": "2026-09-04T08:00:00Z"
+      },
+      {
+        "quote": "ตั้งแต่ 2026-09-04T08:00:00Z มอเตอร์หยุดทำงาน",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-04T08:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H30",
+    "claims": [
+      {
+        "quote": "ณ 2026-09-05T10:00:00Z ยังไม่ยืนยันการเดินเรือ",
+        "polarity": -1,
+        "modality": "actual",
+        "valid_from": "2026-09-05T10:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H31",
+    "claims": [
+      {
+        "quote": "ลังสินค้ามาถึงเมื่อ 2026-09-08T17:00:00Z",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-08T17:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H32",
+    "claims": []
+  },
+  {
+    "id": "H33",
+    "claims": []
+  },
+  {
+    "id": "H34",
+    "claims": []
+  },
+  {
+    "id": "H35",
+    "claims": [
+      {
+        "quote": "2026-09-11T09:00:00Z | valve-closed | ใช่",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-11T09:00:00Z",
+        "valid_to": ""
+      }
+    ]
+  },
+  {
+    "id": "H36",
+    "claims": [
+      {
+        "quote": "ซ่อมเสร็จแล้วเวลา 2026-09-12T20:30:00+07:00",
+        "polarity": 1,
+        "modality": "actual",
+        "valid_from": "2026-09-12T13:30:00Z",
+        "valid_to": ""
+      }
+    ]
+  }
+]
