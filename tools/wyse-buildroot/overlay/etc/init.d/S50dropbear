@@ -15,8 +15,15 @@ case "$1" in
   mountpoint -q /root/.ssh || mount -t tmpfs -o size=1m,mode=0700 tmpfs /root/.ssh || exit 1
   cp "$auth" /root/.ssh/authorized_keys || exit 1
   chmod 600 /root/.ssh/authorized_keys
-  /usr/sbin/dropbear -s -g -p 22 -r "$key" || exit 1
-  echo "WYSE_SSH=KEY_ONLY_START"
+  # A valid operator key never grants a general-purpose root shell or tunnel.
+  # Actual enrollment and rootfs signature remain separate release gates.
+  cli=/usr/libexec/wyse-ssh-readonly
+  if [ ! -s "$cli" ] || [ ! -r "$cli" ]; then
+   echo "WYSE_SSH=HOLD_NO_RESTRICTED_COMMAND"
+   exit 0
+  fi
+  /usr/sbin/dropbear -s -g -j -k -c '/bin/sh /usr/libexec/wyse-ssh-readonly' -p 22 -r "$key" || exit 1
+  echo "WYSE_SSH=KEY_ONLY_RESTRICTED_START"
   ;;
  stop)
   killall dropbear 2>/dev/null || true
