@@ -1,0 +1,48 @@
+{
+  "schema": "scoped-journal/v1",
+  "scope": {
+    "run": "sample",
+    "branch": "root",
+    "space": "guest-va",
+    "producer": "observer"
+  },
+  "from": "10",
+  "until": "30",
+  "first_seq": "5",
+  "seal_next": "7",
+  "sealed": true,
+  "lost": "0",
+  "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "baseline": [
+    {
+      "base": "100",
+      "end": "200",
+      "object": "allocation",
+      "generation": "1"
+    }
+  ],
+  "events": [
+    {
+      "seq": "5",
+      "at": "15",
+      "kind": "unmap",
+      "mapping": {
+        "base": "100",
+        "end": "200",
+        "object": "allocation",
+        "generation": "1"
+      }
+    },
+    {
+      "seq": "6",
+      "at": "20",
+      "kind": "map",
+      "mapping": {
+        "base": "100",
+        "end": "200",
+        "object": "allocation",
+        "generation": "2"
+      }
+    }
+  ]
+}
