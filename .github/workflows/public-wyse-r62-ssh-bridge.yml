@@ -1,0 +1,88 @@
+name: Public Wyse R62 actual isolated recovery SSH and controller outage
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [experiment/public-wyse-r58-uefi-boot-rdte]
+    paths:
+      - 'scripts/public_wyse_r62_ssh_bridge.sh'
+      - '.github/workflows/public-wyse-r62-ssh-bridge.yml'
+permissions:
+  contents: read
+concurrency:
+  group: public-wyse-r62-ssh-no-controller
+  cancel-in-progress: false
+jobs:
+  source-and-negatives:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Offline source and test-enrollment scope guards
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/public_wyse_r62_ssh_bridge.sh
+          sh tools/wyse-buildroot/preflight-r19.sh
+          grep -Fq 'R62_PRODUCTION_PAIRING_SIGNING_HARDWARE=NOT_TESTED' scripts/public_wyse_r62_ssh_bridge.sh
+          grep -Fq 'R62_TEST_ONLY_SYNTHETIC_PAIRING=ACTIVE' scripts/public_wyse_r62_ssh_bridge.sh
+          grep -Fq 'R62_UNPAIRED_SOURCE_IMAGE_SSH_DENIED=PASS' scripts/public_wyse_r62_ssh_bridge.sh
+          grep -Fq 'R62_UNTRUSTED_OPERATOR_KEY_DENIED=PASS' scripts/public_wyse_r62_ssh_bridge.sh
+          echo R62_SOURCE_SCOPE=PASS
+      - name: Negative test - missing images cannot create positive SSH receipt
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          w=$(mktemp -d "$RUNNER_TEMP/r62-negative-XXXXXX")
+          trap 'rm -rf -- "$w"; rm -f evidence/public/wyse-r62-ssh.txt' EXIT
+          set +e
+          RUNNER_TEMP="$w" bash scripts/public_wyse_r62_ssh_bridge.sh > "$w/stdout.txt" 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          grep -Fxq 'R62_RESULT=RED' evidence/public/wyse-r62-ssh.txt
+          grep -Fxq 'R62_FAILURE_STAGE=original_images' evidence/public/wyse-r62-ssh.txt
+          ! grep -Fq 'R62_RESULT=PASS' evidence/public/wyse-r62-ssh.txt
+          echo R62_MISSING_BUILD_IMAGE_REJECTED=PASS
+  actual-keyonly-ssh:
+    needs: [source-and-negatives]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 52
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Install ephemeral public runner build and SSH tools only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+            build-essential bc bison flex file libncurses-dev libssl-dev libelf-dev \
+            rsync unzip xz-utils wget curl cpio zstd perl qemu-system-x86 \
+            dropbear-bin openssh-client
+          echo R62_EPHEMERAL_BUILD_AND_SSH_TOOLS=PASS
+      - name: Build original pinned Buildroot Linux kernel and read-only recovery rootfs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r28_owned_kernel.sh
+          echo R62_SOURCE_OWNED_KERNEL_AND_ROOTFS=PASS
+      - name: Boot real QEMU guest with CI-only test keys and verify SSH/password denial
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/public_wyse_r62_ssh_bridge.sh
+          echo R62_REAL_GUEST_SSH_PUBLIC_SYNTHETIC_ORACLE=PASS
+      - name: Upload only sanitized text receipt, never keys or firmware
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r62-public-ssh-no-controller
+          path: evidence/public/wyse-r62-ssh.txt
+          if-no-files-found: warn
+          retention-days: 7

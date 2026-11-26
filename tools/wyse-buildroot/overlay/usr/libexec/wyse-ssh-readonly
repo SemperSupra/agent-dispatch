@@ -1,0 +1,18 @@
+#!/bin/sh
+# R63 recovery SSH forced command: observe-only, no shell, no host mutations.
+# Dropbear -c invokes this via /bin/sh regardless of script executable mode.
+# The requested SSH_ORIGINAL_COMMAND is UNTRUSTED data, never interpolated
+# into a shell expression, eval, exec, subprocess or filesystem path.
+set -eu
+case "${SSH_ORIGINAL_COMMAND-}" in
+  ''|help)
+    printf '%s\n' 'WYSE_RECOVERY_COMMANDS=help,status' 'WYSE_RECOVERY_SSH_SCOPE=READ_ONLY'
+    ;;
+  status)
+    printf '%s\n' 'WYSE_RECOVERY_SSH_SCOPE=READ_ONLY' 'WYSE_RECOVERD_INTEGRATION=NOT_QUALIFIED' 'WYSE_PRODUCTION_PAIRING=NOT_QUALIFIED'
+    ;;
+  *)
+    printf '%s\n' 'WYSE_RECOVERY_SSH=DENIED_UNSUPPORTED_COMMAND' >&2
+    exit 64
+    ;;
+esac
