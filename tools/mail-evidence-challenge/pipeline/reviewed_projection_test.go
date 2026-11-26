@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	evidence "sempersupra/mail-evidence-challenge"
 	logic "sempersupra/mail-evidence-challenge/temporal_logic"
 )
 func multiClaimReview(t *testing.T)reviewedFixture{
