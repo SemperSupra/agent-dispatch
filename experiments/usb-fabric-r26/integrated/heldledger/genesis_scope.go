@@ -64,3 +64,25 @@ func(s Store)ReadScopedHeldGenesis(expected GenesisScope)(State,error){
  if err=validateScopedHeldGenesis(st,expected);err!=nil{return State{},err}
  return st,nil
 }
+
+
+// StableConflictKeys returns independent canonical lock identities. A device
+// may not be admitted on two ports, a downstream port may not admit two
+// devices, and the conservative shared group is exclusively held. Boot
+// incarnations are evidence scope, not lock identity. Trusted enrollment,
+// not caller-supplied labels, must supply these IDs in a deployed service.
+func(s GenesisScope)StableConflictKeys()([]string,error){
+ if !s.valid(){return nil,ErrInvalid}
+ keys:=[][]string{
+  {"port",s.SourceAuthority,s.SourceController,s.DownstreamPort},
+  {"device",s.SourceAuthority,s.DeviceResource},
+  {"group",s.SourceAuthority,s.ConflictGroup},
+ }
+ out:=make([]string,0,len(keys))
+ for _,k:=range keys{
+  b,e:=json.Marshal(k)
+  if e!=nil{return nil,e}
+  out=append(out,string(b))
+ }
+ return out,nil
+}

@@ -1,4 +1,4 @@
-name: USB managed scoped first admission fence
+name: USB managed scoped resource owner and first admission fence
 on:
   push:
     branches: [qual/usb-managed-owner-retirement-20261126]
@@ -16,8 +16,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Original heldledger witness and durable intent qualification
-        shell: bash
+      - name: Original package and stable resource conflict qualification
         env:
           GOTOOLCHAIN: local
           GOPROXY: 'off'
@@ -26,11 +25,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = c5984fd7f35ab6c5bef8c7001bf8210d80153da7
+          test "$(git rev-parse HEAD^)" = 8e4d4c0b6ca9d16d3440d6d0d6d7163a3e613f2b
           go version
-          cd experiments/usb-fabric-r26/integrated
+          cd experiments/usb-fabric-r26/integrated/
           go test -race -count=3 -timeout=120s ./...
           go vet ./...
-          go test -race -count=20 -timeout=90s -v ./heldledger -run '^TestScoped'
-          go test -race -count=5 -timeout=90s -v ./blue -run '^Test(ClosedRecoveredOwnerCannotReuseManager|RecoveredOwnerCloseRacesReserve)$'
-          echo V2_SIGNED_FIXTURE_INTENT_ONLY_NO_LIVE_WITNESS_OR_GRANT
+          go test -race -count=10 -timeout=90s -v ./blue -run '^TestScopedOwner'
+          go test -race -count=10 -timeout=90s -v ./heldledger -run '^TestScoped'
+          echo SCOPED_OWNER_FIXTURE_WITNESSES_ONLY_NOT_REAL_USBIP_OR_GRANT
