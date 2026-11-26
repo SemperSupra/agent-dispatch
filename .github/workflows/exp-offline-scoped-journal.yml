@@ -6,6 +6,9 @@ on:
       - 'experiments/offline-scoped-journal/**'
 permissions:
   contents: read
+concurrency:
+  group: scoped-journal-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 env:
   GOTOOLCHAIN: local
   GOPROXY: 'off'
@@ -64,5 +67,22 @@ jobs:
               bad.write_bytes(original+b"{}")
               p=subprocess.run([exe,"-journal",str(bad),"-at","20","-address","100"],capture_output=True)
               assert p.returncode==2 and not p.stdout
+          with tempfile.TemporaryDirectory() as d:
+              source=pathlib.Path(d)/"source.bin"; source.write_bytes(b"original synthetic observation")
+              w=json.loads(original);w["source_sha256"]=hashlib.sha256(source.read_bytes()).hexdigest()
+              j=pathlib.Path(d)/"window.json";j.write_text(json.dumps(w))
+              args=[exe,"-journal",str(j),"-at","20","-address","100"]
+              o=json.loads(subprocess.check_output(args))
+              assert o["source_integrity"]=="declared_only" and "source_size" not in o
+              scope=["-expect-run","sample","-expect-branch","root","-expect-space","guest-va","-expect-producer","observer"]
+              o=json.loads(subprocess.check_output(args+scope+["-source",str(source)]))
+              assert o["source_integrity"]=="digest_matched" and int(o["source_size"])==len(source.read_bytes())
+              for bad in [["-expect-run","sample"],["-expect-run","other",*scope[2:]],["-source",d]]:
+                  p=subprocess.run(args+bad,capture_output=True)
+                  assert p.returncode==2 and not p.stdout
+              source.write_bytes(b"changed synthetic observation")
+              p=subprocess.run(args+["-source",str(source)],capture_output=True)
+              assert p.returncode==2 and not p.stdout
+              print("Source byte integrity and scope oracle PASS")
           print("Independent CLI oracle PASS")
           PY
