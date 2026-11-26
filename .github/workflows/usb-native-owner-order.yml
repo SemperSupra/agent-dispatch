@@ -26,7 +26,9 @@ jobs:
           set -euo pipefail
           git rev-parse HEAD
           go version
-          test "$(git rev-parse HEAD^)" = 15a3b7a1b18b7b5af3ed0ece65b33bf4941eb5d8
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object experiments/usb-fabric-r26/integrated/cmd/actuator/main.go)" = a5907e16dcc2540f9cb708ee9bcb73b0fad9e09a
+          test "$(git hash-object experiments/usb-fabric-r26/integrated/cmd/actuator/owner_order_test.go)" = ac73b702ad3624ed017b04111e1d4f10eae9255a
           cd experiments/usb-fabric-r26/integrated
           go test -race -count=3 -timeout=120s ./...
           go vet ./...
