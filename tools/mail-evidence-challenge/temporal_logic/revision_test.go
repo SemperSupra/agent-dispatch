@@ -32,7 +32,7 @@ func revisionFixture() (Store,[]Revision) {
 			{ID:"foreign",SourceID:"d",Predicate:"gate.open",Modality:"actual",Quote:"gate is open.",ValidFrom:revAuth,Polarity:Supports},
 			{ID:"next",SourceID:"e",Predicate:"gate.open",Modality:"actual",Quote:"gate is open again.",ValidFrom:revAuth,Polarity:Supports},
 		},
-	},[]Revision{{ID:"r1",PredecessorID:"old",SuccessorID:"new",Quote:"Correction: gate is closed."}}
+	},[]Revision{{ID:"r1",PredecessorID:"old",SuccessorID:"new",Quote:"Correction: gate is closed.",RecordedAt:revKnown}}
 }
 
 func TestExplicitRevisionClockAndContradiction(t *testing.T){
@@ -67,7 +67,7 @@ func TestRevisionProjectionPreservesImmutableStoreAndOrder(t *testing.T){
 	s,r:=revisionFixture()
 	// Make the intermediate claim open-ended so all links overlap at revEnd.
 	s.Claims[1].ValidTo=""
-	r=append(r,Revision{ID:"r2",PredecessorID:"new",SuccessorID:"next",Quote:"Correction: gate is open again."})
+	r=append(r,Revision{ID:"r2",PredecessorID:"new",SuccessorID:"next",Quote:"Correction: gate is open again.",RecordedAt:revEnd})
 	before,_:=json.Marshal(s)
 	x,err:=s.AssessRevisions("alpha",revAuth,revEnd,r);if err!=nil{t.Fatal(err)}
 	want:=x.Assessment.Find("gate.open")
@@ -91,11 +91,32 @@ func TestRevisionRejectsScopeForgeryAndCycles(t *testing.T){
 		{"quote","REVISION_QUOTE_UNANCHORED",func(s *Store,r *[]Revision){(*r)[0].Quote="not present"}},
 		{"author-order","REVISION_AUTHOR_ORDER",func(s *Store,r *[]Revision){s.Sources[1].AuthoredAt="2026-05-30T00:00:00Z"}},
 		{"duplicate","REVISION_IDENTITY_INVALID",func(s *Store,r *[]Revision){*r=append(*r,(*r)[0])}},
-		{"cycle","REVISION_CYCLE",func(s *Store,r *[]Revision){s.Sources[1].AuthoredAt=revStart;*r=append(*r,Revision{ID:"r2",PredecessorID:"new",SuccessorID:"old",Quote:"Gate is open."})}},
+		{"missing-recorded","REVISION_RECORDED_CLOCK_INVALID",func(s *Store,r *[]Revision){(*r)[0].RecordedAt=""}},
+		{"premature-recorded","REVISION_RECORDED_BEFORE_EVIDENCE",func(s *Store,r *[]Revision){(*r)[0].RecordedAt=revAuth}},
+		{"cycle","REVISION_CYCLE",func(s *Store,r *[]Revision){s.Sources[1].AuthoredAt=revStart;*r=append(*r,Revision{ID:"r2",PredecessorID:"new",SuccessorID:"old",Quote:"Gate is open.",RecordedAt:revKnown})}},
 	}
 	for _,c:=range cases{t.Run(c.name,func(t *testing.T){
 		s,r:=revisionFixture();c.mutate(&s,&r)
 		_,err:=s.AssessRevisions("alpha",revAuth,revKnown,r)
 		if err==nil||!strings.Contains(err.Error(),c.want){t.Fatalf("want %s, got %v",c.want,err)}
 	})}
+}
+
+func TestCorrectionReviewCannotRewriteEarlierKnowledge(t *testing.T){
+	s,r:=revisionFixture()
+	r[0].RecordedAt="2026-06-07T00:00:00Z"
+	early,err:=s.AssessRevisions("alpha",revAuth,revKnown,r)
+	if err!=nil{t.Fatal(err)}
+	old:=early.Assessment.Find("gate.open")
+	if old.Status!=Both||!slices.Equal(old.SupportingSourceIDs,[]string{"a","c"})||
+		!slices.Equal(old.RefutingSourceIDs,[]string{"b"})||len(early.Applied)!=0{
+		t.Fatalf("review leaked into historical knowledge: %+v",early)
+	}
+	late,err:=s.AssessRevisions("alpha",revAuth,r[0].RecordedAt,r)
+	if err!=nil{t.Fatal(err)}
+	newBelief:=late.Assessment.Find("gate.open")
+	if newBelief.Status!=Both||!slices.Equal(newBelief.SupportingSourceIDs,[]string{"c"})||
+		len(late.Applied)!=1||late.Applied[0].RecordedAt!=r[0].RecordedAt{
+		t.Fatalf("recorded correction was not applied: %+v",late)
+	}
 }
