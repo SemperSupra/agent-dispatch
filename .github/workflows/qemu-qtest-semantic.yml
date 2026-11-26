@@ -99,3 +99,71 @@ jobs:
           go version
           go vet .
           go test -race -count=2 -v .
+
+  upstream-xhci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Install public build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build pkg-config python3-venv libglib2.0-dev libpixman-1-dev libfdt-dev libslirp-dev zlib1g-dev
+      - name: Build newer pinned upstream transfer and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/xhci-evidence"
+          mkdir -p "$e" "$RUNNER_TEMP/xhci-build"
+          cd "$RUNNER_TEMP/xhci-build"
+          git init -q
+          git fetch --depth=1 https://github.com/qemu/qemu.git 9751c62358073580cbf330a4df22077a7c6a407c
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = 9751c62358073580cbf330a4df22077a7c6a407c
+          git show -s --format='%H %s' | tee "$e/source.txt"
+          sha256sum tests/qtest/usb-hcd-xhci-test.c | tee "$e/test-source.sha256"
+          mkdir build
+          cd build
+          ../configure --target-list=x86_64-softmmu --disable-docs --disable-werror --disable-gtk --disable-sdl --disable-vnc --enable-slirp 2>&1 | tee "$e/configure.log"
+          /usr/bin/time -v ninja -j 3 qemu-system-x86_64 tests/qtest/usb-hcd-xhci-test 2>&1 | tee "$e/build.log"
+          ./qemu-system-x86_64 --version | tee "$e/version.txt"
+          sha256sum ./qemu-system-x86_64 tests/qtest/usb-hcd-xhci-test | tee "$e/binaries.sha256"
+      - name: Run unmodified upstream transfer suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/xhci-build/build"
+          e="$RUNNER_TEMP/xhci-evidence"
+          m=./pyvenv/bin/meson
+          "$m" test --list --suite qtest-x86_64 | tee "$e/suites.txt"
+          grep -F 'qtest-x86_64/usb-hcd-xhci-test' "$e/suites.txt"
+          rc=0
+          /usr/bin/time -v "$m" test --print-errorlogs --num-processes 1 --logbase xhci-native qtest-x86_64/usb-hcd-xhci-test 2>&1 | tee "$e/test-console.log" || rc=${PIPESTATUS[0]}
+          echo "$rc" > "$e/test-exit.txt"
+          cp meson-logs/xhci-native* "$e/"
+          test "$rc" -eq 0
+          # Require explicit exercised TAP subtests, not suite-level green alone.
+          python3 - "$e/xhci-native.txt" <<'PY'
+          import pathlib, re, sys
+          log=pathlib.Path(sys.argv[1]).read_text()
+          for name in ("address-device/dcbaa-read-error", "intr/mfindex-32bit", "isoch/mfindex-32bit", "isoch/ep-type-mismatch"):
+              hits=[line for line in log.splitlines() if re.search(r"\bok\s+\d+\s+.*"+re.escape(name)+r"\b",line) and "not ok" not in line and "skip" not in line.lower()]
+              if not hits: raise SystemExit("required exercised case absent: "+name)
+              print("EXERCISED:", hits[0])
+          PY
+      - name: Hash receipts
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/xhci-evidence"
+          cd "$RUNNER_TEMP/xhci-evidence"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          cat SHA256SUMS
+      - name: Retain public receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qtest-xhci-upstream-transfer
+          path: ${{ runner.temp }}/xhci-evidence
+          retention-days: 7
+      - name: Remove disposable state
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/xhci-build" "$RUNNER_TEMP/xhci-evidence"
