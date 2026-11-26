@@ -54,6 +54,7 @@ def write_ingress_ledger(path: str | None, state: dict) -> None:
             json.dump(state, handle, sort_keys=True, separators=(",", ":"))
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(tmp_name, 0o644)
         os.replace(tmp_name, target)
     except OSError:
         try:

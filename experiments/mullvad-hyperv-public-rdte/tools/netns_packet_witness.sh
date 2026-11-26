@@ -51,7 +51,7 @@ cleanup() {
     wait "$server_pid" >/dev/null 2>&1 || true
   fi
   [[ -n "${server_log:-}" ]] && rm -f -- "$server_log"
-  [[ -n "${ingress_log:-}" ]] && rm -f -- "$ingress_log"
+  [[ -n "${ingress_log:-}" ]] && sudo -n rm -f -- "$ingress_log" 2>/dev/null || rm -f -- "$ingress_log" 2>/dev/null || true
   # Only processes in *this run's* namespace are terminated, if any.
   if [[ "$created_wan" == true ]]; then
     while read -r pid; do
