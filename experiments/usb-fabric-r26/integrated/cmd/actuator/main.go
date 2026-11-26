@@ -154,7 +154,9 @@ type qmp struct {
  dec *json.Decoder
  deleted map[string]bool
 }
-func openQMP(path string)(*qmp,error){
+// connectQMP establishes a transport only. No QMP command or greeting is
+// consumed before the original host owner fence is acquired.
+func connectQMP(path string)(*qmp,error){
  var conn net.Conn;var err error
  for i:=0;i<150;i++{
   conn,err=net.DialTimeout("unix",path,500*time.Millisecond)
@@ -162,13 +164,29 @@ func openQMP(path string)(*qmp,error){
   time.Sleep(40*time.Millisecond)
  }
  if err!=nil{return nil,err}
- q:=&qmp{conn:conn,enc:json.NewEncoder(conn),dec:json.NewDecoder(conn)}
- _=conn.SetDeadline(time.Now().Add(10*time.Second))
+ return &qmp{conn:conn,enc:json.NewEncoder(conn),dec:json.NewDecoder(conn)},nil
+}
+
+// claimAndNegotiateQMP retains the original Linux VM owner fence during
+// protocol negotiation and all subsequent actuator use. A denied second
+// cooperative actuator must not negotiate a raw QMP capability first.
+// This does not revoke an FD already leaked by a trusted controller.
+func claimAndNegotiateQMP(q *qmp)(*vmOwner,error){
+ owner,err:=acquireVMOwner(q.conn)
+ if err!=nil{return nil,err}
+ if err=q.negotiate();err!=nil{
+  _=owner.Close()
+  return nil,err
+ }
+ return owner,nil
+}
+
+func(q *qmp) negotiate()error{
+ if err:=q.conn.SetDeadline(time.Now().Add(10*time.Second));err!=nil{return err}
  var greet map[string]json.RawMessage
- if err=q.dec.Decode(&greet);err!=nil{conn.Close();return nil,err}
- if _,ok:=greet["QMP"];!ok{conn.Close();return nil,errors.New("QMP greeting absent")}
- if err=q.call("qmp_capabilities",nil);err!=nil{conn.Close();return nil,err}
- return q,nil
+ if err:=q.dec.Decode(&greet);err!=nil{return err}
+ if _,ok:=greet["QMP"];!ok{return errors.New("QMP greeting absent")}
+ return q.call("qmp_capabilities",nil)
 }
 func (q *qmp) call(name string,args map[string]any)error{
  q.mu.Lock();defer q.mu.Unlock()
@@ -573,10 +591,10 @@ func main(){
   os.Exit(10)
  }
  defer owner.Close()
- q,err:=openQMP(*qmpPath)
+ q,err:=connectQMP(*qmpPath)
  if err!=nil{fmt.Fprintln(os.Stderr,"QMP unavailable:",err);os.Exit(3)}
  defer q.conn.Close()
- vmOwner,err:=acquireVMOwner(q.conn)
+ vmOwner,err:=claimAndNegotiateQMP(q)
  if err!=nil{
   if errors.Is(err,syscall.EWOULDBLOCK){
    fmt.Fprintln(os.Stderr,"R26_L7_QMP_OWNER_LOCK_BUSY=PASS")
