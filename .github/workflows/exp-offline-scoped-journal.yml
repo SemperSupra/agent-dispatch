@@ -1,0 +1,68 @@
+name: Offline scoped journal qualification
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-offline-scoped-journal.yml'
+      - 'experiments/offline-scoped-journal/**'
+permissions:
+  contents: read
+env:
+  GOTOOLCHAIN: local
+  GOPROXY: 'off'
+  GOSUMDB: 'off'
+jobs:
+  library:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: experiments/offline-scoped-journal
+      - name: Library tests and static checks
+        working-directory: experiments/offline-scoped-journal
+        run: |
+          set -euo pipefail
+          go version
+          go test -count=1 -race -v ./...
+          go vet ./...
+  cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: experiments/offline-scoped-journal
+      - name: Independent process-level CLI oracle
+        working-directory: experiments/offline-scoped-journal
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
+          go build -o "$d/scoped-journal" ./cmd/scoped-journal
+          "$d/scoped-journal" -help
+          python3 - "$d/scoped-journal" <<'PY'
+          import json, pathlib, subprocess, sys, hashlib, tempfile
+          exe=sys.argv[1]
+          file=pathlib.Path("testdata/window.json")
+          original=file.read_bytes()
+          expected=hashlib.sha256(original).hexdigest()
+          for at,address,status,g in [(10,"100","resolved","1"),(15,"0x64","unmapped",None),(20,"100","resolved","2"),(30,"100","coverage_gap",None),(20,"9007199254740993","unmapped",None),(20,"200","unmapped",None)]:
+              out=json.loads(subprocess.check_output([exe,"-journal",str(file),"-at",str(at),"-address",address]))
+              assert out["input_sha256"]==expected
+              r=out["result"];assert r["status"]==status and r["at"]==str(at)
+              assert r["address"]==str(int(address,16) if address.startswith("0x") else int(address))
+              assert (r["mapping"]["generation"] if "mapping" in r else None)==g
+              print("CLI",at,address,status,g,flush=True)
+          for invalid in ["-1","0b110","0x","18446744073709551616","1_000"]:
+              p=subprocess.run([exe,"-journal",str(file),"-at","20","-address",invalid],capture_output=True)
+              assert p.returncode==2 and not p.stdout
+          with tempfile.TemporaryDirectory() as d:
+              bad=pathlib.Path(d)/"gap.json"; w=json.loads(original);w["events"]=w["events"][1:];bad.write_text(json.dumps(w))
+              r=json.loads(subprocess.check_output([exe,"-journal",str(bad),"-at","20","-address","100"]))["result"]
+              assert r["status"]=="coverage_gap" and "mapping" not in r
+              bad.write_bytes(original+b"{}")
+              p=subprocess.run([exe,"-journal",str(bad),"-at","20","-address","100"],capture_output=True)
+              assert p.returncode==2 and not p.stdout
+          print("Independent CLI oracle PASS")
+          PY
