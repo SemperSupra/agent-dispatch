@@ -153,5 +153,8 @@ func (j *Journal) Resolve(s Scope,at,address U64)Result{
 }
 func ParseCoordinate(s string)(U64,error){
  if s==""{return 0,fmt.Errorf("coordinate is required")}
- n,e:=strconv.ParseUint(s,0,64);return U64(n),e
+ base:=10;digits:=s
+ if len(s)>2&&s[:2]=="0x"{base=16;digits=s[2:]}
+ for i:=range digits{c:=digits[i];if !(c>='0'&&c<='9'||base==16&&(c>='a'&&c<='f'||c>='A'&&c<='F')){return 0,fmt.Errorf("invalid coordinate")}}
+ n,e:=strconv.ParseUint(digits,base,64);return U64(n),e
 }
