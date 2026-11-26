@@ -1,0 +1,39 @@
+name: Pi USB Fabric R03 ARM64 Quadlet generator qualification
+on:
+  push:
+    branches: [experiment/issue-433-pi-quadlet-probe]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r03-quadlet.yml'
+      - 'experiments/pi-usb-fabric-r03/quadlet/**'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/pi-usb-fabric-r03-quadlet.yml'
+      - 'experiments/pi-usb-fabric-r03/quadlet/**'
+permissions:
+  contents: read
+jobs:
+  generator:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Native ARM64 generator execution and USBIP kernel census
+        shell: bash
+        run: bash experiments/pi-usb-fabric-r03/quadlet/verify.sh
+      - name: Evidence provenance and checksums
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          printf 'head_sha=%s\nrun_id=%s\nrunner=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$(uname -m)" >evidence/provenance.txt
+          (cd evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum >SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: pi-usb-r03-quadlet-evidence
+          path: evidence
+          retention-days: 7
+          if-no-files-found: error
