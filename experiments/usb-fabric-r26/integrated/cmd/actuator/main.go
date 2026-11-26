@@ -566,6 +566,7 @@ func (a *actuator) handle(c net.Conn){
 }
 func main(){
  qmpPath:=flag.String("qmp","","QEMU local QMP Unix socket; never passed to clients")
+ protectedQMPPID:=flag.Int("qmp-protected-pid",0,"trusted controller-pinned QEMU PID; require private socket directory and kernel peer match; zero is legacy lab mode")
  socketPath:=flag.String("socket","","new owned frontend Unix socket")
  media:=flag.String("media","","synthetic media path")
  pcap:=flag.String("capture","","synthetic USB capture path")
@@ -591,7 +592,12 @@ func main(){
   os.Exit(10)
  }
  defer owner.Close()
- q,err:=connectQMP(*qmpPath)
+ var q *qmp
+ if *protectedQMPPID!=0{
+  q,err=connectProtectedQMP(*qmpPath,*protectedQMPPID)
+ }else{
+  q,err=connectQMP(*qmpPath)
+ }
  if err!=nil{fmt.Fprintln(os.Stderr,"QMP unavailable:",err);os.Exit(3)}
  defer q.conn.Close()
  vmOwner,err:=claimAndNegotiateQMP(q)
