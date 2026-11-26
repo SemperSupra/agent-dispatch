@@ -1,4 +1,4 @@
-name: USB managed original owner retirement qualification
+name: USB managed original scoped HELD genesis qualification
 on:
   push:
     branches: [qual/usb-managed-owner-retirement-20261126]
@@ -16,7 +16,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Verify original baseline and full package suite
+      - name: Verify original scoped journal and inherited owner suite
         shell: bash
         env:
           GOTOOLCHAIN: local
@@ -26,10 +26,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = 6212b9e9fdc397ad241a1bff47235f861421b70c
+          test "$(git rev-parse HEAD^)" = 923f63c382fb82e16d5ab60881336313b763aa98
           go version
           cd experiments/usb-fabric-r26/integrated
           go test -race -count=3 -timeout=120s ./...
           go vet ./...
-          go test -race -count=5 -timeout=100s -v ./blue -run '^Test(ClosedRecoveredOwnerCannotReuseManager|RecoveredOwnerCloseRacesReserve)$'
-          echo MANAGED_OWNER_RETIREMENT_SCOPE_ONLY_NOT_G4_OR_HIL
+          go test -race -count=20 -timeout=90s -v ./heldledger -run '^TestScoped'
+          go test -race -count=5 -timeout=90s -v ./blue -run '^Test(ClosedRecoveredOwnerCannotReuseManager|RecoveredOwnerCloseRacesReserve)$'
+          echo SCOPED_HELD_GENESIS_NO_GRANT_NOT_G4_OR_HIL

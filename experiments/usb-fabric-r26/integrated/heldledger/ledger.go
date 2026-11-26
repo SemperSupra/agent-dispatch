@@ -29,6 +29,8 @@ type State struct {
  Sequence uint64 `json:"sequence"`
  Key string `json:"key,omitempty"`
  Held bool `json:"held"`
+ // A v2 scoped HELD record is never eligible for a legacy v1 grant.
+ Scope *GenesisScope `json:"scope,omitempty"`
  // R27-S: write-ahead host admission intent, before any external lease or
  // USBIP device actuator can be exposed. An unobserved SIGKILL MUST leave a
  // durable non-clean state; only independently verified release can clear it.
@@ -51,6 +53,15 @@ type Store struct {Path string}
 // Read does not silently reset malformed records. A new file is safe only
 // when caller also performs a QMP release before accepting input.
 func (s Store) Read()(State,error){
+ state,e:=s.readDecodedState()
+ if e!=nil{return State{},e}
+ if state.Version!=Version || state.Scope!=nil{return State{},ErrInvalid}
+ return validateLegacyState(state)
+}
+
+// readDecodedState owns the original bounded, no-follow and strict JSON
+// read. Individual version-specific validators must decide eligibility.
+func (s Store) readDecodedState()(State,error){
  if s.Path==""{return State{},ErrInvalid}
  // A symlink (including a dangling link) is not an absent journal.
  // Fail closed before following a path that could impersonate clean state.
@@ -77,7 +88,11 @@ func (s Store) Read()(State,error){
  if e=decoder.Decode(&state);e!=nil{return State{},fmt.Errorf("%w: %v",ErrInvalid,e)}
  var extra any
  if e=decoder.Decode(&extra);!errors.Is(e,io.EOF){return State{},ErrInvalid}
- if state.Version!=Version || (state.Held && state.Key!=KeyA) ||
+ return state,nil
+}
+
+func validateLegacyState(state State)(State,error){
+ if state.Version!=Version || state.Scope!=nil || (state.Held && state.Key!=KeyA) ||
   (!state.Held && state.Key!="") || state.Sequence==^uint64(0) {
   return State{},ErrInvalid
  }

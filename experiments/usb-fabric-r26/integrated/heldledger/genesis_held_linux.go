@@ -31,6 +31,24 @@ func (s Store) CreateHeldGenesis() (State, error) {
 // The sync seams are only for bounded fault-injection tests. Production calls
 // always use os.File.Sync above. No external caller can substitute a probe.
 func (s Store) createHeldGenesis(fileSync, parentSync func(*os.File) error) (State, error) {
+	return s.createGenesisRecord(State{Version: Version, Sequence: 1, Key: KeyA, Held: true}, fileSync, parentSync)
+}
+
+// CreateScopedHeldGenesis persists the exact enrolled resource scope in the
+// original journal. Only HELD bootstrap is implemented: every legacy grant,
+// release and recovery API rejects v2. Trusted enrollment and effective
+// isolation are independent prerequisites for future v2 transitions.
+func (s Store) CreateScopedHeldGenesis(scope GenesisScope) (State, error) {
+	return s.createScopedHeldGenesis(scope, (*os.File).Sync, (*os.File).Sync)
+}
+
+func (s Store) createScopedHeldGenesis(scope GenesisScope, fileSync, parentSync func(*os.File) error) (State, error) {
+	st := State{Version: ScopedVersion, Sequence: 1, Key: KeyA, Held: true, Scope: &scope}
+	if err := validateScopedHeldGenesis(st, scope); err != nil { return State{}, err }
+	return s.createGenesisRecord(st, fileSync, parentSync)
+}
+
+func (s Store) createGenesisRecord(st State, fileSync, parentSync func(*os.File) error) (State, error) {
 	if s.Path == "" || !filepath.IsAbs(s.Path) || filepath.Clean(s.Path) != s.Path ||
 		filepath.Base(s.Path) == "." || filepath.Base(s.Path) == "/" ||
 		fileSync == nil || parentSync == nil {
@@ -73,7 +91,6 @@ func (s Store) createHeldGenesis(fileSync, parentSync func(*os.File) error) (Sta
 	}
 	// Once created, do not unlink on any subsequent error (including EIO).
 	// A partially visible record is invalid/HELD, never authorization.
-	st := State{Version: Version, Sequence: 1, Key: KeyA, Held: true}
 	data, err := json.Marshal(st)
 	if err != nil {
 		_ = file.Close()
