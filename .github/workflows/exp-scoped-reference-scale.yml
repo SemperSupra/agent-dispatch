@@ -1,0 +1,126 @@
+name: Scoped reference contract and scale
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-scoped-reference-scale.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Strict reference decoder
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          go mod init example.invalid/reference-contract
+          cat > ref_test.go <<'EOF'
+          package ref
+          import ("bytes"; "encoding/json"; "errors"; "io"; "strconv"; "testing")
+          type Ref struct { Run, Branch, Space, Native string; Generation uint64 }
+          func decode(b []byte) (r Ref, err error) {
+            bad:=errors.New("invalid reference")
+            if len(b)>4096 {return r,bad}
+            d:=json.NewDecoder(bytes.NewReader(b)); d.UseNumber()
+            t,e:=d.Token(); if e!=nil||t!=json.Delim('{'){return r,bad}
+            seen:=map[string]bool{}
+            for d.More() {
+              k,e:=d.Token(); if e!=nil{return r,bad}; key,ok:=k.(string); if !ok||seen[key]{return r,bad};seen[key]=true
+              v,e:=d.Token(); if e!=nil{return r,bad}
+              if key=="generation" { n,ok:=v.(json.Number);if !ok{return r,bad};r.Generation,e=strconv.ParseUint(n.String(),10,64);if e!=nil||r.Generation==0{return r,bad};continue }
+              s,ok:=v.(string);if !ok||s==""||len(s)>256{return r,bad}
+              switch key {case "run":r.Run=s;case "branch":r.Branch=s;case "space":r.Space=s;case "native":r.Native=s;default:return r,bad}
+            }
+            t,e=d.Token();if e!=nil||t!=json.Delim('}')||len(seen)!=5{return r,bad}
+            if _,e=d.Token();e!=io.EOF{return r,bad};return r,nil
+          }
+          func TestDecode(t *testing.T) {
+            good:=`{"run":"r","branch":"b","space":"p","native":"a","generation":1}`
+            r,e:=decode([]byte(good));if e!=nil||r!=(Ref{"r","b","p","a",1}){t.Fatal(r,e)}
+            for name,s:=range map[string]string{
+             "duplicate":`{"run":"r","run":"s","branch":"b","space":"p","native":"a","generation":1}`,
+             "case":`{"Run":"r","branch":"b","space":"p","native":"a","generation":1}`,
+             "missing":`{"run":"r","branch":"b","space":"p","native":"a"}`,
+             "null":`{"run":"r","branch":"b","space":"p","native":null,"generation":1}`,
+             "zero":`{"run":"r","branch":"b","space":"p","native":"a","generation":0}`,
+             "overflow":`{"run":"r","branch":"b","space":"p","native":"a","generation":18446744073709551616}`,
+             "fraction":`{"run":"r","branch":"b","space":"p","native":"a","generation":1.5}`,
+             "unknown":`{"run":"r","branch":"b","space":"p","native":"a","generation":1,"extra":2}`,
+             "empty":`{"run":"","branch":"b","space":"p","native":"a","generation":1}`,
+             "nested":`{"run":{},"branch":"b","space":"p","native":"a","generation":1}`,
+             "trailing":good+"{}",
+            } {t.Run(name,func(t *testing.T){if _,e:=decode([]byte(s));e==nil{t.Fatal("accepted invalid reference")}})}
+          }
+          EOF
+          go test -v -race .
+          go vet .
+  scale:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Offline extent lookup scaling
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          go mod init example.invalid/reference-scale
+          cat > scale_test.go <<'EOF'
+          package scale
+          import ("sort"; "testing"; "fmt")
+          type Extent struct { Base, End, ID uint64 }
+          func fixture(n int) []Extent { a:=make([]Extent,n);for i:=range a{a[i]=Extent{uint64(i)*8192,uint64(i)*8192+4096,uint64(i)+1}};return a }
+          func linear(a []Extent,x uint64)uint64{for _,e:=range a{if x>=e.Base&&x<e.End{return e.ID}};return 0}
+          func indexed(a []Extent,x uint64)uint64{i:=sort.Search(len(a),func(i int)bool{return a[i].End>x});if i<len(a)&&a[i].Base<=x{return a[i].ID};return 0}
+          func valid(a []Extent)bool{for i,e:=range a{if e.End<=e.Base||e.ID==0||(i>0&&a[i-1].End>e.Base){return false}};return true}
+          func TestOracle(t *testing.T){a:=fixture(10000);if !valid(a){t.Fatal("invalid fixture")};for i:=0;i<10000;i++{for _,off:=range []uint64{0,4095,4096,8191}{x:=uint64(i)*8192+off;want:=uint64(0);if off<4096{want=uint64(i)+1};if indexed(a,x)!=want||linear(a,x)!=want{t.Fatal(i,off)}}};if valid([]Extent{{0,10,1},{9,20,2}}){t.Fatal("overlap accepted")}}
+          var sink uint64
+          func BenchmarkLookup(b *testing.B){for _,n:=range []int{1,100,10000,100000}{a:=fixture(n);if !valid(a){b.Fatal("invalid")};for _,m:=range []struct{name string;fn func([]Extent,uint64)uint64}{{"linear",linear},{"indexed",indexed}}{b.Run(fmt.Sprintf("%s/%d",m.name,n),func(b *testing.B){b.ReportAllocs();for i:=0;i<b.N;i++{sink=m.fn(a,uint64(i%n)*8192)}})}}}
+          EOF
+          go test -v .
+          go test -run '^$' -bench . -benchmem -benchtime=200ms -count 3 .
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Native PIE code identity across process incarnations
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          cat > fixture.c <<'EOF'
+          #include <stdio.h>
+          #include <stdint.h>
+          __attribute__((noinline)) int marker(void){return 42;}
+          int main(void){printf("%jx\n",(uintmax_t)(uintptr_t)&marker);fflush(stdout);getchar();return marker()!=42;}
+          EOF
+          cc -g -O0 -fPIE -pie -o fixture fixture.c
+          python3 - <<'PY'
+          import hashlib, pathlib, subprocess
+          path=pathlib.Path("fixture").resolve()
+          digest=hashlib.sha256(path.read_bytes()).hexdigest()
+          syms=subprocess.check_output(["nm","-n",str(path)],text=True)
+          expected=int(next(l.split()[0] for l in syms.splitlines() if l.split()[-1]=="marker"),16)
+          results=[]
+          for i in range(3):
+              p=subprocess.Popen([str(path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+              try:
+                  addr=int(p.stdout.readline(),16)
+                  rows=pathlib.Path(f"/proc/{p.pid}/maps").read_text().splitlines()
+                  candidates=[]
+                  for row in rows:
+                      parts=row.split(maxsplit=5)
+                      if len(parts)!=6 or parts[5]!=str(path) or "x" not in parts[1]: continue
+                      lo,hi=(int(x,16) for x in parts[0].split("-"))
+                      if lo<=addr<hi: candidates.append(addr-lo+int(parts[2],16))
+                  assert len(candidates)==1 and candidates[0]==expected,(candidates,expected)
+                  results.append(addr)
+                  print(f"incarnation={i} digest={digest} offset={expected:#x} native={addr:#x}",flush=True)
+                  p.stdin.write("\n");p.stdin.flush()
+                  assert p.wait(timeout=3)==0
+              finally:
+                  if p.poll() is None: p.kill();p.wait()
+          print("distinct runtime addresses:",len(set(results)))
+          print("Native fixture correspondence PASS; not a general ELF resolver")
+          PY
