@@ -1,4 +1,4 @@
-name: USB managed original scoped HELD genesis qualification
+name: USB managed scoped first admission fence
 on:
   push:
     branches: [qual/usb-managed-owner-retirement-20261126]
@@ -16,7 +16,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Verify original scoped journal and inherited owner suite
+      - name: Original heldledger witness and durable intent qualification
         shell: bash
         env:
           GOTOOLCHAIN: local
@@ -26,11 +26,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = 923f63c382fb82e16d5ab60881336313b763aa98
+          test "$(git rev-parse HEAD^)" = c5984fd7f35ab6c5bef8c7001bf8210d80153da7
           go version
           cd experiments/usb-fabric-r26/integrated
           go test -race -count=3 -timeout=120s ./...
           go vet ./...
           go test -race -count=20 -timeout=90s -v ./heldledger -run '^TestScoped'
           go test -race -count=5 -timeout=90s -v ./blue -run '^Test(ClosedRecoveredOwnerCannotReuseManager|RecoveredOwnerCloseRacesReserve)$'
-          echo SCOPED_HELD_GENESIS_NO_GRANT_NOT_G4_OR_HIL
+          echo V2_SIGNED_FIXTURE_INTENT_ONLY_NO_LIVE_WITNESS_OR_GRANT

@@ -48,6 +48,7 @@ func (s GenesisScope) valid()bool{
 func validateScopedHeldGenesis(st State,expected GenesisScope)error{
  if !expected.valid()||st.Version!=ScopedVersion||st.Scope==nil||*st.Scope!=expected||
   st.Sequence!=1||!st.Held||st.Key!=KeyA||st.AdmissionIntent||st.ReleasePhase!=""||
+  !validGenesisHex(st.GenesisNonce)||st.GenesisOperation!=""||st.GenesisEvidenceHash!=""||
   st.KernelWitnessHash!=""||st.LastReleaseEventSequence!=0||st.LastReleaseProofHash!=""{
   return ErrInvalid
  }

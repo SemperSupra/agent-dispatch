@@ -31,6 +31,10 @@ type State struct {
  Held bool `json:"held"`
  // A v2 scoped HELD record is never eligible for a legacy v1 grant.
  Scope *GenesisScope `json:"scope,omitempty"`
+ // v2 first-install nonce and proof commitment are not legacy credentials.
+ GenesisNonce string `json:"genesis_nonce,omitempty"`
+ GenesisOperation string `json:"genesis_operation,omitempty"`
+ GenesisEvidenceHash string `json:"genesis_evidence_hash,omitempty"`
  // R27-S: write-ahead host admission intent, before any external lease or
  // USBIP device actuator can be exposed. An unobserved SIGKILL MUST leave a
  // durable non-clean state; only independently verified release can clear it.
@@ -55,7 +59,7 @@ type Store struct {Path string}
 func (s Store) Read()(State,error){
  state,e:=s.readDecodedState()
  if e!=nil{return State{},e}
- if state.Version!=Version || state.Scope!=nil{return State{},ErrInvalid}
+ if state.Version!=Version || state.Scope!=nil || state.GenesisNonce!="" || state.GenesisOperation!="" || state.GenesisEvidenceHash!=""{return State{},ErrInvalid}
  return validateLegacyState(state)
 }
 

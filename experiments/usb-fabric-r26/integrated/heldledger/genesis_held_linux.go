@@ -43,7 +43,9 @@ func (s Store) CreateScopedHeldGenesis(scope GenesisScope) (State, error) {
 }
 
 func (s Store) createScopedHeldGenesis(scope GenesisScope, fileSync, parentSync func(*os.File) error) (State, error) {
-	st := State{Version: ScopedVersion, Sequence: 1, Key: KeyA, Held: true, Scope: &scope}
+	nonce,err:=newGenesisNonce()
+	if err!=nil{return State{},err}
+	st := State{Version: ScopedVersion, Sequence: 1, Key: KeyA, Held: true, Scope: &scope, GenesisNonce:nonce}
 	if err := validateScopedHeldGenesis(st, scope); err != nil { return State{}, err }
 	return s.createGenesisRecord(st, fileSync, parentSync)
 }
