@@ -1,0 +1,117 @@
+name: QEMU VHE exact selector schedule replay
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/qemu-qtest-schedule-r9.yml'
+      - 'experiments/qtest-schedule-r9/**'
+      - 'experiments/qtest-schedule-check-r9/**'
+permissions:
+  contents: read
+env:
+  GO111MODULE: 'off'
+  GOPROXY: 'off'
+  GOTOOLCHAIN: local
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test independent typed oracle
+        working-directory: experiments/qtest-schedule-check-r9
+        run: |
+          set -euo pipefail
+          go version
+          go vet .
+          go test -race -count=2 -v .
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install public build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build pkg-config python3-venv libglib2.0-dev libpixman-1-dev libfdt-dev libslirp-dev zlib1g-dev
+      - name: Build exact native QEMU
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/schedule-evidence"
+          mkdir -p "$e" "$RUNNER_TEMP/schedule-build"
+          cd "$RUNNER_TEMP/schedule-build"
+          git init -q
+          git fetch --depth=1 https://github.com/qemu/qemu.git 698104725efad4b29079d857dfdebbd804e34c99
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = 698104725efad4b29079d857dfdebbd804e34c99
+          git show -s --format='%H %s' | tee "$e/source.txt"
+          mkdir build
+          cd build
+          ../configure --target-list=x86_64-softmmu --disable-docs --disable-werror --disable-gtk --disable-sdl --disable-vnc --enable-slirp > "$e/configure.log" 2>&1
+          /usr/bin/time -v -o "$e/build.resources" ninja -j 3 qemu-system-x86_64 > "$e/build.log" 2>&1
+          ./qemu-system-x86_64 --version | tee "$e/version.txt"
+          sha256sum ./qemu-system-x86_64 | tee "$e/qemu.sha256"
+      - name: Execute all fresh pinned schedules
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/schedule-evidence"
+          export PATH="$RUNNER_TEMP/schedule-build/build:$PATH"
+          test "$(command -v qemu-system-x86_64)" = "$RUNNER_TEMP/schedule-build/build/qemu-system-x86_64"
+          sha256sum experiments/qtest-schedule-r9/replay.py experiments/qtest-schedule-check-r9/*.go experiments/qtest-replay/replay.py scripts/qtest_semantic_smoke.py > "$e/fixture.sha256"
+          rc=0
+          /usr/bin/time -v -o "$e/replay.resources" timeout 120s python3 experiments/qtest-schedule-r9/replay.py "$e/schedules" > "$e/replay.log" 2>&1 || rc=$?
+          echo "$rc" > "$e/replay.exit"
+          cat "$e/replay.log"
+          test "$rc" -eq 0
+      - name: Verify complete cohort and refuse actual-derived mutations
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/schedule-evidence"
+          (cd experiments/qtest-schedule-check-r9 && go build -o "$RUNNER_TEMP/schedule-check" .)
+          rc=0
+          "$RUNNER_TEMP/schedule-check" "$e/schedules" > "$e/verified.log" 2>&1 || rc=$?
+          echo "$rc" > "$e/verify.exit"
+          cat "$e/verified.log"
+          test "$rc" -eq 0
+          cp -r "$e/schedules" "$RUNNER_TEMP/schedule-mutant"
+          python3 - "$RUNNER_TEMP/schedule-mutant/ABAB.json" <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          r = json.loads(p.read_text())
+          assert r["steps"][2]["after"] == [0,256,1]
+          r["steps"][2]["after"][2] = 0
+          p.write_text(json.dumps(r,separators=(",",":"))+"\n")
+          PY
+          rc=0
+          "$RUNNER_TEMP/schedule-check" "$RUNNER_TEMP/schedule-mutant" > "$e/mutant.log" 2>&1 || rc=$?
+          echo "$rc" > "$e/mutant.exit"
+          cat "$e/mutant.log"
+          test "$rc" -eq 1
+          cp "$e/schedules/ABAB.json" "$RUNNER_TEMP/schedule-mutant/ABAB.json"
+          printf 'deliberate digest mutation\n' >> "$RUNNER_TEMP/schedule-mutant/ABAB.raw"
+          rc=0
+          "$RUNNER_TEMP/schedule-check" "$RUNNER_TEMP/schedule-mutant" > "$e/raw-mutant.log" 2>&1 || rc=$?
+          echo "$rc" > "$e/raw-mutant.exit"
+          cat "$e/raw-mutant.log"
+          test "$rc" -eq 1
+      - name: Hash evidence
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/schedule-evidence"
+          cd "$RUNNER_TEMP/schedule-evidence"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          cat SHA256SUMS
+      - name: Preserve bounded public evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qtest-schedule-r9
+          path: ${{ runner.temp }}/schedule-evidence/
+          retention-days: 7
+      - name: Remove disposable state
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/schedule-build" "$RUNNER_TEMP/schedule-evidence" "$RUNNER_TEMP/schedule-check" "$RUNNER_TEMP/schedule-mutant"
