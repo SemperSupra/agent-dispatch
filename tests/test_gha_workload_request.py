@@ -127,6 +127,24 @@ class TypedWorkRequestTests(unittest.TestCase):
             stderr=subprocess.PIPE, timeout=25, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode("utf-8", "replace"))
 
+    def test_fixed_mail_model_profile_and_offline_controls(self):
+        import subprocess
+        plan=m.plan("requests/gha/mail-qwen-real-cpu-v1.json")
+        self.assertEqual(plan["workload"],"mail-qwen-real-cpu")
+        self.assertEqual(plan["timeout_seconds"],420)
+        self.assertEqual(plan["runner"],"ubuntu-24.04")
+        self.assertEqual(plan["max_attempts"],1)
+        self.assertEqual(plan["max_cost_usd"],0)
+        result=subprocess.run(
+            [sys.executable,"-m","unittest","discover","-s","tests",
+             "-p","test_qualify_mail_qwen_real_cpu.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=25,check=False)
+        self.assertEqual(result.returncode,0,result.stderr.decode("utf-8","replace"))
+        wf=(ROOT/".github/workflows/gha-typed-public-cpu.yml").read_text(encoding="utf-8")
+        routine=wf.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("mail-qwen-real-cpu-v1.json",routine)
+
     def test_public_cpu_pr_matrix_keeps_expensive_network_upstream_probes_on_demand(self):
         workflow = (ROOT / ".github" / "workflows" / "gha-typed-public-cpu.yml").read_text(
             encoding="utf-8")
@@ -155,23 +173,144 @@ class TypedWorkRequestTests(unittest.TestCase):
                 self.assertEqual(plan["max_cost_usd"], 0)
                 self.assertEqual(plan["max_attempts"], 1)
 
-    def test_real_model_zero_paid_api_fixed_public_profile_only(self):
-        req = m.plan("requests/gha/mail-qwen-real-cpu-v1.json")
-        self.assertEqual(req["workload"], "mail-qwen-real-cpu")
-        self.assertEqual(req["runner"], "ubuntu-24.04")
-        self.assertEqual(req["timeout_seconds"], 420)
-        self.assertEqual(req["max_attempts"], 1)
-        self.assertEqual(req["max_cost_usd"], 0)
+    def test_original_prolog_fixed_public_synthetic_profile_and_source(self):
+        planned=m.plan("requests/gha/mail-temporal-swipl-r2.json")
+        self.assertEqual(planned["workload"],"mail-temporal-swipl-r2")
+        self.assertEqual(planned["runner"],"ubuntu-24.04")
+        self.assertEqual(planned["max_cost_usd"],0)
+        self.assertEqual(planned["max_attempts"],1)
+        self.assertLessEqual(planned["timeout_seconds"],180)
+        source=(ROOT/"tools/mail-evidence-challenge/temporal_prolog/qualify.pl").read_text()
+        for must in ("source(", "claim(", "rule_proof(","run_tests(","begin_tests("):
+            self.assertIn(must,source)
+        self.assertNotIn("shell(",source)
+        self.assertNotIn("process_create(",source)
 
-    def test_real_model_source_and_heldout_offline_negatives(self):
+    def test_original_prolog_uses_on_demand_install_not_default_cpu_matrix(self):
+        text=(ROOT/".github/workflows/gha-typed-public-cpu.yml").read_text()
+        routine=text.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("requests/gha/mail-temporal-swipl-r2.json",routine)
+        admitted=text.split("\n  execute:",1)[1]
+        self.assertIn("if: inputs.request == 'requests/gha/mail-temporal-swipl-r2.json'",admitted)
+        self.assertIn("sudo apt-get install -y -qq --no-install-recommends swi-prolog-nox",admitted)
+
+    def test_native_postgres18_profile_and_offline_source_guard(self):
+        plan=m.plan("requests/gha/mail-temporal-postgres-r2.json")
+        self.assertEqual(plan["workload"],"mail-temporal-postgres-r2")
+        self.assertEqual(plan["runner"],"ubuntu-24.04")
+        self.assertLessEqual(plan["timeout_seconds"],240)
+        self.assertEqual(plan["max_attempts"],1)
+        self.assertEqual(plan["max_cost_usd"],0)
         import subprocess
-        cp = subprocess.run(
+        cp=subprocess.run(
             [sys.executable,"-m","unittest","discover","-s","tests",
-             "-p","test_qualify_mail_qwen_real_cpu.py"],
-            cwd=ROOT, stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-            timeout=30,check=False)
+             "-p","test_qualify_temporal_postgres18.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=25,check=False)
         self.assertEqual(cp.returncode,0,cp.stderr.decode("utf-8","replace"))
+
+    def test_postgres_research_remains_on_demand_not_every_pr(self):
+        workflow=(ROOT/".github"/"workflows"/"gha-typed-public-cpu.yml").read_text()
+        normal=workflow.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("requests/gha/mail-temporal-postgres-r2.json",normal)
+        self.assertIn("  execute:",workflow)
+        req=m.plan("requests/gha/mail-temporal-postgres-r2.json")
+        self.assertEqual(req["max_cost_usd"],0)
+        self.assertEqual(req["max_attempts"],1)
+
+    def test_temporal_postgres_has_single_digest_pinned_typed_authority(self):
+        request = m.plan("requests/gha/mail-temporal-postgres-r2.json")
+        self.assertEqual(request["workload"], "mail-temporal-postgres-r2")
+        self.assertEqual(request["max_attempts"], 1)
+        self.assertEqual(request["max_cost_usd"], 0)
+        workflow = (ROOT / ".github" / "workflows" /
+                    "gha-typed-public-cpu.yml").read_text(encoding="utf-8")
+        self.assertIn("temporal-swi-prolog-native:", workflow)
+        self.assertNotIn("temporal-postgres18-native:", workflow)
+        self.assertNotIn("scripts/qualify_postgres18_temporal.py", workflow)
+        self.assertTrue((ROOT/"scripts"/"qualify_temporal_postgres18.py").is_file())
+        self.assertFalse((ROOT/"scripts"/"qualify_postgres18_temporal.py").exists())
+        self.assertFalse((ROOT/"scripts"/"verify_postgres18_temporal.py").exists())
+        pinned = (ROOT/"scripts"/"qualify_temporal_postgres18.py").read_text(
+            encoding="utf-8")
+        self.assertIn("postgres:18.7-trixie@sha256:", pinned)
+        self.assertIn("FROM source_occurrence", pinned)
+
+    def test_original_xtdb_fixed_zero_cost_source_bound(self):
+        plan=m.plan("requests/gha/mail-temporal-xtdb-r2.json")
+        self.assertEqual(plan["workload"],"mail-temporal-xtdb-r2")
+        self.assertEqual(plan["runner"],"ubuntu-24.04")
+        self.assertLessEqual(plan["timeout_seconds"],240)
+        self.assertEqual(plan["max_attempts"],1)
+        self.assertEqual(plan["max_cost_usd"],0)
+        import subprocess
+        cp=subprocess.run(
+            [sys.executable,"-m","unittest","discover","-s","tests",
+             "-p","test_qualify_temporal_xtdb.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=30,check=False)
+        self.assertEqual(cp.returncode,0,cp.stderr.decode("utf-8","replace"))
+
+    def test_xtdb_experiment_is_pinned_and_on_demand_after_first_native_pass(self):
+        plan = m.plan("requests/gha/mail-temporal-xtdb-r2.json")
+        self.assertEqual(plan["workload"], "mail-temporal-xtdb-r2")
+        self.assertEqual(plan["max_cost_usd"], 0)
+        self.assertEqual(plan["max_attempts"], 1)
+        self.assertEqual(plan["runner"], "ubuntu-24.04")
+        text = (ROOT/".github"/"workflows"/"gha-typed-public-cpu.yml").read_text()
+        matrix = text.split("  cpu-native-proofs:", 1)[1].split("\n  plan:", 1)[0]
+        self.assertNotIn("requests/gha/mail-temporal-xtdb-r2.json", matrix)
+        self.assertIn("  execute:", text)
+        self.assertIn("scripts/gha_workload_request.py --action run --request", text)
+
+    def test_typed_cpu_workflow_pins_only_reviewed_node24_actions(self):
+        workflow=(ROOT/".github"/"workflows"/"gha-typed-public-cpu.yml").read_text(
+            encoding="utf-8")
+        checkout="actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
+        upload="actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f"
+        self.assertEqual(workflow.count(checkout),7)
+        self.assertEqual(workflow.count(upload),5)
+        self.assertNotIn("11d5960a326750d5838078e36cf38b85af677262",workflow)
+        self.assertNotIn("ea165f8d65b6e75b540449e92b4886f43607fa02",workflow)
+        self.assertEqual(workflow.count("actions/checkout@"),7)
+        self.assertEqual(workflow.count("actions/upload-artifact@"),5)
+        self.assertIn("persist-credentials: false",workflow)
+        self.assertIn("gha-typed/receipt.json",workflow)
+        self.assertIn("verify_gha_typed_receipt.py",workflow)
+
+    def test_xtdb_frozen_gold_r3_is_bounded_and_guarded(self):
+        fixed=m.plan("requests/gha/mail-xtdb-frozen-oracle-r3.json")
+        self.assertEqual(fixed["workload"],"mail-xtdb-frozen-oracle-r3")
+        self.assertEqual(fixed["runner"],"ubuntu-24.04")
+        self.assertEqual(fixed["max_cost_usd"],0)
+        self.assertEqual(fixed["max_attempts"],1)
+        self.assertLessEqual(fixed["timeout_seconds"],240)
+        import subprocess
+        result=subprocess.run(
+            [sys.executable,"-m","unittest","discover","-s","tests",
+             "-p","test_qualify_temporal_xtdb_frozen_oracle_r3.py"],
+            cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,timeout=30,check=False)
+        self.assertEqual(result.returncode,0,result.stderr.decode("utf-8","replace"))
+
+    def test_xtdb_frozen_r3_remains_reviewed_on_demand_only(self):
+        workflow=(ROOT/".github"/"workflows"/"gha-typed-public-cpu.yml").read_text(
+            encoding="utf-8")
+        matrix=workflow.split("  cpu-native-proofs:",1)[1].split("\n  plan:",1)[0]
+        self.assertNotIn("requests/gha/mail-xtdb-frozen-oracle-r3.json",matrix)
+        self.assertEqual(matrix.count("request: requests/gha/"),4)
+        required=(
+            "cpu-x64-arithmetic-v1.json","cpu-arm64-contract-v1.json",
+            "mail-synthetic-baseline-v1.json","mail-evidence-go-v1.json",
+        )
+        for name in required:
+            self.assertEqual(matrix.count("request: requests/gha/"+name),1)
+        fixed=m.plan("requests/gha/mail-xtdb-frozen-oracle-r3.json")
+        self.assertEqual(fixed["max_cost_usd"],0)
+        self.assertEqual(fixed["max_attempts"],1)
+        self.assertEqual(fixed["timeout_seconds"],235)
+        self.assertIn("d23441a48e516b6c34aea4fa41551a30e30af803",workflow)
+        self.assertIn("b7c566a772e6b6bfb58ed0dc250532a479d7789f",workflow)
 
     def test_no_unreviewed_paths_or_urls(self):
         for bad in ("../secrets.env", "requests/gha/../private.json",

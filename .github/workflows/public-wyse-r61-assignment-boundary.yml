@@ -1,0 +1,56 @@
+name: Public Wyse R61 typed assignment boundary negatives
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'tests/test_wyse_r61_public_assignment_boundary.py'
+      - '.github/workflows/public-wyse-r61-assignment-boundary.yml'
+permissions:
+  contents: read
+jobs:
+  public-synthetic-boundary:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Source and inherited policy preflight
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile tests/test_wyse_r61_public_assignment_boundary.py
+          grep -Fq "Sidecar must independently" scripts/gha_assignment_contract.py
+          grep -Fq "Runner does not attest private DLE authorization" scripts/gha_assignment_contract.py
+          grep -Fq "No Wyse hardware identity" tests/test_wyse_r61_public_assignment_boundary.py
+          echo R61_PUBLIC_SCOPE_CONTRACT=PASS
+      - name: Execute independent replay, expiry and no-device-binding negatives
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence/public
+          if python3 -m unittest -v tests/test_wyse_r61_public_assignment_boundary.py; then
+            verdict=PASS
+          else
+            verdict=RED
+          fi
+          {
+            echo "R61_PUBLIC_SOURCE_SHA=$GITHUB_SHA"
+            echo "R61_PUBLIC_ASSIGNMENT_NEGATIVES=$verdict"
+            echo "R61_ATOMIC_SIDECAR_ONE_USE=NOT_TESTED"
+            echo "R61_WYSE_HARDWARE_IDENTITY_AUTHENTICATION=NOT_TESTED"
+            echo "R61_PRIVATE_DLE_AUTHORITY=NOT_TESTED"
+            echo "R61_REAL_DISPATCH_AND_GUEST_CLEANUP=NOT_TESTED"
+            echo "R61_HOST_USB_LAN_TRUENAS_PHYSICAL_EFFECTS=NONE"
+          } > evidence/public/wyse-r61-boundary.txt
+          test "$verdict" = PASS
+      - name: Retain bounded public-safe pass or red receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-wyse-r61-boundary
+          path: evidence/public/wyse-r61-boundary.txt
+          if-no-files-found: warn
+          retention-days: 7

@@ -55,31 +55,6 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "emulator_only": True, "provider_access_verified": False,
             "verdict_sha256": "d" * 64,
         }
-    elif profile_id == "mail-qwen-real-cpu-v1":
-        fake_cases = [
-            {"id":case_id,"language":language,
-             "source_id":"INVALID","value":"INVALID",
-             "valid_json":False,"exact":False,
-             "incorrect_source":True,"abstained":False,
-             "duration_ms":1,"output_sha256":"e"*64}
-            for case_id,language in (
-                ("H1","en"),("H2","en"),("H3","de"),("H4","th"),
-                ("H5","en"),("H6","de"),("H7","en"))
-        ]
-        fixed_result = {
-            "oracle_verified": True, "classification": "PASS",
-            "real_model_inference": True, "automatic_promotion": False,
-            "model_sha256": "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8",
-            "engine_commit": "b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed",
-            "question_count": 7, "model_calls": 20, "selected_policy": "plain",
-            "heldout_exact": 0, "baseline_exact": 0,
-            "heldout_valid": 0,"baseline_valid": 0,
-            "selected_cases": fake_cases,
-            "baseline_cases": fake_cases,
-            "dev_exact_scores": {"plain":0,"evidence-first":0},
-            "unsupported_source_count": 7, "semantic_quality_gate": False,
-            "corpus_sha256": "d"*64,"verdict_sha256":"a"*64,
-        }
     elif profile_id == "mail-openworker-scripted-v1":
         fixed_result = {
             "oracle_verified": True, "classification": "PASS",
@@ -106,6 +81,56 @@ def built(profile_id="cpu-x64-arithmetic-v1"):
             "attachment_download_occurrence_complete": False,
             "real_mail": False, "model_inference": False,
             "headless_engine_run": False, "verdict_sha256": "e"*64,
+        }
+    elif profile_id == "mail-temporal-swipl-r2":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "native_engine_executed":True,
+            "interpreter_version":"SWI-Prolog version 9.0.4",
+            "source_sha256":"a"*64,
+            "clean_replay_verified":True,"source_occurrences":8,
+            "independent_test_cases":9,"contradiction_preserved":True,
+            "derivation_quarantined":True,"cross_tenant_blocked":True,
+            "model_inference":False,"native_pst_qualified":False,
+            "verdict_sha256":"b"*64,
+        }
+    elif profile_id == "mail-temporal-postgres-r2":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "native_postgres_executed":True,"engine_version":"18.7",
+            "image_digest":"e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61",
+            "source_occurrences":6,"qualified_cases":8,
+            "valid_knowledge_separate":True,"same_source_overlap_denied":True,
+            "different_source_overlap_preserved":True,
+            "immutable_source_denied":True,"restart_verified":True,
+            "cross_tenant_blocked":True,"network_port_published":False,
+            "model_inference":False,"native_pst_qualified":False,
+            "fixture_sha256":"a"*64,"verdict_sha256":"b"*64,
+        }
+    elif profile_id == "mail-xtdb-frozen-oracle-r3":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "native_xtdb_executed":True,
+            "engine_digest":"aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe",
+            "case_count":8,"source_occurrences":6,"claim_occurrences":6,
+            "frozen_gold_parity":True,"restart_verified":True,
+            "native_sql_join_verified":False,"adapter_source_join_verified":True,
+            "cross_tenant_filtered":True,"source_upsert_risk":True,
+            "native_system_time_parity":False,"native_source_immutability":False,
+            "model_inference":False,"native_pst_qualified":False,
+            "fixture_sha256":"a"*64,"verdict_sha256":"b"*64,
+        }
+    elif profile_id == "mail-temporal-xtdb-r2":
+        fixed_result={
+            "oracle_verified":True,"classification":"PASS",
+            "xtdb_engine_executed":True,
+            "image_digest":"aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe",
+            "source_occurrences":3,"system_history_verified":True,
+            "valid_time_verified":True,"restart_verified":True,
+            "private_internal_network":True,
+            "same_eight_case_oracle_qualified":False,
+            "model_inference":False,"native_pst_qualified":False,
+            "source_sha256":"a"*64,"verdict_sha256":"b"*64,
         }
     elif profile_id == "mail-evidence-go-v1":
         fixed_result = {

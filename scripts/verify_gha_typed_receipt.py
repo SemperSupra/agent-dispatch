@@ -44,6 +44,33 @@ RESULT_FIELDS = {
         "classification", "oracle_verified", "upstream_commit", "source_blob_sha",
         "evidence_loss_confirmed", "dropped_messages", "dropped_attachments",
         "reader_qualified", "verdict_sha256"},
+    "mail-temporal-swipl-r2": {
+        "classification","oracle_verified","native_engine_executed",
+        "interpreter_version","source_sha256","clean_replay_verified",
+        "source_occurrences","independent_test_cases","contradiction_preserved",
+        "derivation_quarantined","cross_tenant_blocked","model_inference",
+        "native_pst_qualified","verdict_sha256"},
+    "mail-temporal-postgres-r2": {
+        "classification","oracle_verified","native_postgres_executed",
+        "engine_version","image_digest","source_occurrences","qualified_cases",
+        "valid_knowledge_separate","same_source_overlap_denied",
+        "different_source_overlap_preserved","immutable_source_denied",
+        "restart_verified","cross_tenant_blocked","network_port_published",
+        "model_inference","native_pst_qualified","fixture_sha256","verdict_sha256"},
+    "mail-xtdb-frozen-oracle-r3": {
+        "classification","oracle_verified","native_xtdb_executed",
+        "engine_digest","case_count","source_occurrences","claim_occurrences",
+        "frozen_gold_parity","restart_verified","cross_tenant_filtered",
+        "native_sql_join_verified","adapter_source_join_verified",
+        "source_upsert_risk","native_system_time_parity",
+        "native_source_immutability","model_inference","native_pst_qualified",
+        "fixture_sha256","verdict_sha256"},
+    "mail-temporal-xtdb-r2": {
+        "classification","oracle_verified","xtdb_engine_executed",
+        "image_digest","source_occurrences","system_history_verified",
+        "valid_time_verified","restart_verified","private_internal_network",
+        "same_eight_case_oracle_qualified","model_inference",
+        "native_pst_qualified","source_sha256","verdict_sha256"},
     "mail-evidence-go-challenge": {
         "classification", "oracle_verified", "typed_only", "model_inference",
         "question_count", "source_occurrences", "attachment_occurrences",
@@ -56,6 +83,10 @@ RESULT_FIELDS = {
         "isolated_defaults", "same_name_second_unaddressable",
         "attachment_download_occurrence_complete", "real_mail", "model_inference",
         "headless_engine_run", "verdict_sha256"},
+    "mail-qwen-real-cpu": {
+        "classification","oracle_verified","model_inference","automatic_promotion",
+        "model_sha256","engine_commit","engine_asset_sha256","corpus_sha256",
+        "model_calls","rows","verdict_sha256"},
     "mail-openworker-scripted": {
         "classification", "oracle_verified", "source_commit",
         "scripted_provider_only", "headless_engine_executed",
@@ -63,14 +94,6 @@ RESULT_FIELDS = {
         "model_inference", "dependency_hash_locked", "atif_schema",
         "run_count", "denied_calls", "package_count", "dependency_sha256",
         "venv_size_bytes", "elapsed_seconds", "verdict_sha256"},
-    "mail-qwen-real-cpu": {
-        "classification", "oracle_verified", "real_model_inference",
-        "automatic_promotion", "model_sha256", "engine_commit",
-        "question_count", "model_calls", "selected_policy", "heldout_exact",
-        "baseline_exact", "heldout_valid", "baseline_valid",
-        "selected_cases", "baseline_cases", "dev_exact_scores",
-        "unsupported_source_count", "semantic_quality_gate",
-        "corpus_sha256", "verdict_sha256"},
 }
 MAX_RECEIPT = 8192
 
@@ -91,60 +114,6 @@ def strict_json(raw: bytes):
         return json.loads(raw, object_pairs_hook=no_duplicate)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise VerdictError("RECEIPT_JSON_INVALID") from exc
-
-
-# Independently authored replica of the frozen synthetic held-out answer oracle.
-# These labels are never sent to the real model, only reviewed by verifier.
-MODEL_HOLDOUT_GOLD = {
-    "H1": ("en", "b1", "150"),
-    "H2": ("en", "a1", "120"),
-    "H3": ("de", "a3", "denied"),
-    "H4": ("th", "a4", "approved"),
-    "H5": ("en", "NONE", "UNKNOWN"),
-    "H6": ("de", "a2", "Friday"),
-    "H7": ("en", "NONE", "UNKNOWN"),
-}
-MODEL_ALLOWED_IDS = {"a1","a2","b1","a3","a4","a5","c1","NONE"}
-MODEL_ALLOWED_VALUES = {"120","150","Friday","denied","approved","pending","UNKNOWN"}
-MODEL_CASE_FIELDS = {"id","language","valid_json","exact","incorrect_source",
-                     "abstained","duration_ms","output_sha256","source_id","value"}
-
-
-def grade_public_model_cases(cases: list) -> dict:
-    if not isinstance(cases,list) or len(cases)!=len(MODEL_HOLDOUT_GOLD):
-        raise VerdictError("MODEL_CASE_COUNT_INVALID")
-    observed={}
-    for case in cases:
-        if not isinstance(case,dict) or set(case)!=MODEL_CASE_FIELDS:
-            raise VerdictError("MODEL_CASE_FIELDS_INVALID")
-        identifier=case.get("id")
-        if identifier not in MODEL_HOLDOUT_GOLD or identifier in observed:
-            raise VerdictError("MODEL_CASE_IDS_INVALID")
-        lang,truth_id,truth_value=MODEL_HOLDOUT_GOLD[identifier]
-        if case.get("language")!=lang:
-            raise VerdictError("MODEL_LANGUAGE_SCOPE_INVALID")
-        source=case.get("source_id")
-        value=case.get("value")
-        allowed=(source in MODEL_ALLOWED_IDS and value in MODEL_ALLOWED_VALUES)
-        exact=allowed and source==truth_id and value==truth_value
-        wrong=(source not in ("NONE",truth_id)) if allowed else True
-        abstained=source=="NONE"
-        if (case.get("valid_json") is not allowed or
-                case.get("exact") is not exact or
-                case.get("incorrect_source") is not wrong or
-                case.get("abstained") is not abstained or
-                type(case.get("duration_ms")) is not int or
-                not 0<=case["duration_ms"]<=30_000 or
-                not isinstance(case.get("output_sha256"),str) or
-                not HEX64.fullmatch(case["output_sha256"])):
-            raise VerdictError("MODEL_CASE_ORACLE_MISMATCH")
-        observed[identifier]=case
-    return {
-        "exact":sum(x["exact"] for x in observed.values()),
-        "valid":sum(x["valid_json"] for x in observed.values()),
-        "unsupported":sum(x["incorrect_source"] for x in observed.values()),
-        "abstained":sum(x["abstained"] for x in observed.values()),
-    }
 
 
 def evaluate(
@@ -203,48 +172,14 @@ def evaluate(
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("EMULATOR_RECEIPT_AUTHORITY_DENIED")
     if p["workload"] == "mail-qwen-real-cpu":
-        if (result.get("real_model_inference") is not True or
-                result.get("automatic_promotion") is not False or
-                result.get("model_sha256") != "9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8" or
-                result.get("engine_commit") != "b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed" or
-                result.get("question_count") != 7 or
-                result.get("model_calls") != 20 or
-                result.get("selected_policy") not in ("plain","evidence-first") or
-                type(result.get("heldout_exact")) is not int or
-                not 0 <= result["heldout_exact"] <= 7 or
-                type(result.get("baseline_exact")) is not int or
-                not 0 <= result["baseline_exact"] <= 7 or
-                type(result.get("unsupported_source_count")) is not int or
-                not 0 <= result["unsupported_source_count"] <= 7 or
-                type(result.get("semantic_quality_gate")) is not bool or
-                not isinstance(result.get("corpus_sha256"), str) or
-                not HEX64.fullmatch(result["corpus_sha256"]) or
-                not isinstance(result.get("verdict_sha256"), str) or
-                not HEX64.fullmatch(result["verdict_sha256"])):
-            raise VerdictError("REAL_MODEL_INFERENCE_OR_SCOPE_INVALID")
-        if (type(result.get("heldout_valid")) is not int or
-                not 0 <= result["heldout_valid"] <= 7 or
-                type(result.get("baseline_valid")) is not int or
-                not 0 <= result["baseline_valid"] <= 7):
-            raise VerdictError("MODEL_CASE_QUALITY_COUNTS_INVALID")
-        scores=result.get("dev_exact_scores")
-        if (not isinstance(scores,dict) or set(scores)!={"plain","evidence-first"}
-                or any(type(n) is not int or not 0<=n<=3 for n in scores.values())):
-            raise VerdictError("MODEL_DEV_POLICY_SCORES_INVALID")
-        chosen=sorted(("plain","evidence-first"),
-            key=lambda k:(-scores[k],("plain","evidence-first").index(k)))[0]
-        if chosen!=result["selected_policy"]:
-            raise VerdictError("MODEL_POLICY_SELECTED_FROM_HOLDOUT")
-        chosen_metrics=grade_public_model_cases(result.get("selected_cases"))
-        baseline_metrics=grade_public_model_cases(result.get("baseline_cases"))
-        if (chosen_metrics["exact"]!=result["heldout_exact"] or
-                chosen_metrics["valid"]!=result["heldout_valid"] or
-                chosen_metrics["unsupported"]!=result["unsupported_source_count"] or
-                baseline_metrics["exact"]!=result["baseline_exact"] or
-                baseline_metrics["valid"]!=result["baseline_valid"] or
-                result["semantic_quality_gate"] is not
-                    (chosen_metrics["exact"]>=6 and chosen_metrics["unsupported"]==0)):
-            raise VerdictError("MODEL_INDEPENDENT_GOLD_METRIC_MISMATCH")
+        from verify_mail_qwen_cases import grade
+        try:
+            if (type(result["verdict_sha256"]) is not str or
+                    not HEX64.fullmatch(result["verdict_sha256"])):
+                raise ValueError("MODEL_SOURCE_OUTPUT_HASH_INVALID")
+            grade(result)
+        except ValueError as exc:
+            raise VerdictError(str(exc)) from exc
     if p["workload"] == "mail-openworker-scripted":
         if (result.get("source_commit") != "ecb445490fc054d52b8ea610d97ba947f57033d2" or
                 result.get("scripted_provider_only") is not True or
@@ -285,6 +220,84 @@ def evaluate(
                 not isinstance(result.get("verdict_sha256"), str) or
                 not HEX64.fullmatch(result["verdict_sha256"])):
             raise VerdictError("ORIGINAL_OPENWORKER_FAKE_MAIL_SCOPE_INVALID")
+    if p["workload"] == "mail-temporal-swipl-r2":
+        if (result.get("native_engine_executed") is not True or
+                result.get("clean_replay_verified") is not True or
+                result.get("contradiction_preserved") is not True or
+                result.get("derivation_quarantined") is not True or
+                result.get("cross_tenant_blocked") is not True or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                result.get("source_occurrences") != 8 or
+                result.get("independent_test_cases") != 9 or
+                not isinstance(result.get("interpreter_version"),str) or
+                not result["interpreter_version"].startswith("SWI-Prolog version 9.") or
+                not isinstance(result.get("source_sha256"),str) or
+                not HEX64.fullmatch(result["source_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("ORIGINAL_PROLOG_EVIDENCE_SCOPE_INVALID")
+    if p["workload"] == "mail-temporal-postgres-r2":
+        if (result.get("native_postgres_executed") is not True or
+                not isinstance(result.get("engine_version"),str) or
+                not result["engine_version"].startswith("18.7") or
+                result.get("image_digest") !=
+                    "e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61" or
+                result.get("source_occurrences") != 6 or
+                result.get("qualified_cases") != 8 or
+                result.get("valid_knowledge_separate") is not True or
+                result.get("same_source_overlap_denied") is not True or
+                result.get("different_source_overlap_preserved") is not True or
+                result.get("immutable_source_denied") is not True or
+                result.get("restart_verified") is not True or
+                result.get("cross_tenant_blocked") is not True or
+                result.get("network_port_published") is not False or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                not isinstance(result.get("fixture_sha256"),str) or
+                not HEX64.fullmatch(result["fixture_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("NATIVE_POSTGRES_TEMPORAL_SCOPE_INVALID")
+    if p["workload"] == "mail-xtdb-frozen-oracle-r3":
+        if (result.get("native_xtdb_executed") is not True or
+                result.get("engine_digest") !=
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe" or
+                result.get("case_count") != 8 or
+                result.get("source_occurrences") != 6 or
+                result.get("claim_occurrences") != 6 or
+                result.get("frozen_gold_parity") is not True or
+                result.get("native_sql_join_verified") is not False or
+                result.get("adapter_source_join_verified") is not True or
+                result.get("restart_verified") is not True or
+                result.get("cross_tenant_filtered") is not True or
+                result.get("source_upsert_risk") is not True or
+                result.get("native_system_time_parity") is not False or
+                result.get("native_source_immutability") is not False or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                not isinstance(result.get("fixture_sha256"),str) or
+                not HEX64.fullmatch(result["fixture_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("XTDB_FROZEN_TEMPORAL_GOLD_OR_SCOPE_INVALID")
+    if p["workload"] == "mail-temporal-xtdb-r2":
+        if (result.get("xtdb_engine_executed") is not True or
+                result.get("image_digest")!=
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe" or
+                result.get("source_occurrences")!=3 or
+                result.get("system_history_verified") is not True or
+                result.get("valid_time_verified") is not True or
+                result.get("restart_verified") is not True or
+                result.get("private_internal_network") is not True or
+                result.get("same_eight_case_oracle_qualified") is not False or
+                result.get("model_inference") is not False or
+                result.get("native_pst_qualified") is not False or
+                not isinstance(result.get("source_sha256"),str) or
+                not HEX64.fullmatch(result["source_sha256"]) or
+                not isinstance(result.get("verdict_sha256"),str) or
+                not HEX64.fullmatch(result["verdict_sha256"])):
+            raise VerdictError("ORIGINAL_XTDB_TEMPORAL_SCOPE_INVALID")
     if p["workload"] == "mail-evidence-go-challenge":
         if (result.get("typed_only") is not True or
                 result.get("model_inference") is not False or
@@ -373,6 +386,10 @@ def main():
         if args.out:
             args.out.parent.mkdir(parents=True, exist_ok=True)
             args.out.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n")
+        if request.plan(args.request)["workload"] == "mail-qwen-real-cpu":
+            from verify_mail_qwen_cases import grade
+            scores=grade(strict_json(data)["result"])
+            print("GHA_MAIL_MODEL_SCORES="+json.dumps(scores,sort_keys=True,separators=(",",":")))
         print("GHA_RECEIPT_INDEPENDENT_VERDICT=PASS")
         return 0
     except (VerdictError, request.Denied, OSError) as exc:

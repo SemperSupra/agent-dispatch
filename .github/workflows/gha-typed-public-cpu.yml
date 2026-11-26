@@ -55,6 +55,8 @@ on:
       - 'scripts/verify_gha_typed_receipt.py'
       - 'requests/gha/**'
       - 'tools/mail-evidence-challenge/**'
+      - 'scripts/qualify_swi_prolog_temporal.py'
+      - 'scripts/verify_swi_prolog_temporal.py'
       - '.github/workflows/gha-typed-public-cpu.yml'
 
 permissions:
@@ -65,7 +67,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Validate public request and authority contracts
@@ -85,7 +87,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Admit reviewed Microsoft mock-only work request
@@ -118,7 +120,7 @@ jobs:
             --out "$RUNNER_TEMP/microsoft-mock/typed-verified.json"
       - name: Upload public synthetic mock receipts
         if: always() && hashFiles('scripts/microsoft_devproxy_contract.py') != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: microsoft-mock-${{ github.run_attempt }}
           path: ${{ runner.temp }}/microsoft-mock/*.json
@@ -131,7 +133,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Admit reviewed Azurite storage transport request
@@ -164,7 +166,7 @@ jobs:
             --out "$RUNNER_TEMP/azurite-blob/typed-verified.json"
       - name: Upload bounded public-synthetic transport evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: azurite-blob-${{ github.run_attempt }}
           path: ${{ runner.temp }}/azurite-blob/*.json
@@ -191,13 +193,10 @@ jobs:
           - runner: ubuntu-24.04
             request: requests/gha/mail-evidence-go-v1.json
             artifact_suffix: mail-go
-          - runner: ubuntu-24.04
-            request: requests/gha/mail-qwen-real-cpu-v1.json
-            artifact_suffix: qwen-real
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Verify immutable request and admitted CPU shape
@@ -226,7 +225,7 @@ jobs:
             --sha256 "$sha" --out .gha-typed/verified.json
       - name: Upload public-safe typed receipt
         if: always() && hashFiles('.gha-typed/receipt.json') != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: gha-typed-${{ matrix.runner }}-${{ matrix.artifact_suffix }}-${{ github.run_attempt }}
           path: |
@@ -245,7 +244,7 @@ jobs:
       request_sha256: ${{ steps.plan.outputs.request_sha256 }}
       assignment_sha256: ${{ steps.plan.outputs.assignment_sha256 }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
       - name: Admit exactly one reviewed static profile and optional DLE assignment
@@ -275,9 +274,16 @@ jobs:
     runs-on: ${{ needs.plan.outputs.runner }}
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - name: Install original Ubuntu SWI-Prolog for explicitly admitted temporal profile
+        if: inputs.request == 'requests/gha/mail-temporal-swipl-r2.json'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends swi-prolog-nox
+          swipl --version
       - name: Execute one previously admitted fixed CPU workload
         env:
           REQUEST: ${{ inputs.request }}
@@ -319,7 +325,7 @@ jobs:
           fi
       - name: Retain independently checked receipt
         if: always() && hashFiles('.gha-typed/receipt.json') != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: gha-typed-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -327,3 +333,91 @@ jobs:
             .gha-typed/verified.json
           if-no-files-found: error
           retention-days: 7
+
+  temporal-swi-prolog-native:
+    # Ubuntu 24.04 distro interpreter; no private/paid input.
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/mail-temporal-prolog-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Install actual distro packaged SWI-Prolog interpreter
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get -y -qq install --no-install-recommends swi-prolog-nox
+          swipl --version
+      - name: Execute fixed fictional Prolog evidence twice
+        run: python3 scripts/qualify_swi_prolog_temporal.py --out .gha-typed/temporal-prolog.json
+      - name: Independently check source hash and native receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          sum=$(sha256sum .gha-typed/temporal-prolog.json | cut -d ' ' -f1)
+          python3 scripts/verify_swi_prolog_temporal.py \
+            --receipt .gha-typed/temporal-prolog.json \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --sha256 "$sum" --out .gha-typed/temporal-prolog-verified.json
+      - name: Retain bounded native interpreter proof
+        if: always() && hashFiles('.gha-typed/temporal-prolog.json') != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: native-temporal-prolog-${{ github.run_attempt }}
+          path: |
+            .gha-typed/temporal-prolog.json
+            .gha-typed/temporal-prolog-verified.json
+          if-no-files-found: error
+          retention-days: 3
+
+  mail-real-model-native:
+    # Temporary one-workcell native measurement; routine four-profile matrix unchanged.
+    if: github.event_name == 'pull_request' && github.head_ref == 'work/mail-qwen-real-inference-r6-20261116' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Verify immutable request and admitted CPU shape
+        id: planned
+        env:
+          REQUEST: requests/gha/mail-qwen-real-cpu-v1.json
+        run: python3 scripts/gha_workload_request.py --action plan --request "$REQUEST" --github-output "$GITHUB_OUTPUT"
+      - name: Execute typed CPU workload with independent verdict
+        env:
+          REQUEST: requests/gha/mail-qwen-real-cpu-v1.json
+          DIGEST: ${{ steps.planned.outputs.request_sha256 }}
+        run: |
+          python3 scripts/gha_workload_request.py --action run --request "$REQUEST" \
+            --digest "$DIGEST" --receipt ".gha-typed/receipt.json"
+      - name: Independently verify provider-bound CPU receipt
+        env:
+          REQUEST: requests/gha/mail-qwen-real-cpu-v1.json
+          RUNNER_LABEL: ubuntu-24.04
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum .gha-typed/receipt.json | cut -d' ' -f1)
+          python3 scripts/verify_gha_typed_receipt.py --request "$REQUEST" \
+            --receipt .gha-typed/receipt.json --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --runner "$RUNNER_LABEL" \
+            --sha256 "$sha" --out .gha-typed/verified.json
+      - name: Upload public-safe typed receipt
+        if: always() && hashFiles('.gha-typed/receipt.json') != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: gha-typed-ubuntu-24.04-mail-real-model-${{ github.run_attempt }}
+          path: |
+            .gha-typed/receipt.json
+            .gha-typed/verified.json
+          if-no-files-found: error
+          retention-days: 3
+

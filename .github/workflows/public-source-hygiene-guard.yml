@@ -1,0 +1,61 @@
+name: Public Source Hygiene Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check PR title and body without echoing untrusted metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Read event JSON from disk; never interpolate or export PR body
+          # as an Actions env/script input (runner logs otherwise echo it).
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+              event = json.load(handle)
+          pr = event.get("pull_request")
+          if not isinstance(pr, dict):
+              raise SystemExit("::error::Missing pull request metadata")
+          title = pr.get("title")
+          body = pr.get("body") or ""
+          if not isinstance(title, str) or not isinstance(body, str):
+              raise SystemExit("::error::Invalid pull request metadata")
+          pattern = re.compile(r"SemperSupra/[A-Za-z0-9._-]+-private", re.IGNORECASE)
+          # Synthetic controls: avoid storing a real private repo coordinate.
+          if not pattern.search("SemperSupra/" + "fictional-private"):
+              raise SystemExit("::error::Private coordinate guard failed")
+          if pattern.search("SemperSupra/agent-dispatch"):
+              raise SystemExit("::error::Public repository misclassified")
+          if pattern.search(title + "\n" + body):
+              raise SystemExit("::error::PR metadata contains a private repository coordinate")
+          PY
+
+      - name: Checkout PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check added diff lines for private repository coordinates
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          if git diff -U0 "$BASE_SHA" "$HEAD_SHA" -- . \
+            | grep -E '^\+[^+]' \
+            | grep -Eiq 'SemperSupra/[A-Za-z0-9._-]+-private|BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY'; then
+            echo "::error::Added lines contain a private repository coordinate or private key header."
+            exit 1
+          fi

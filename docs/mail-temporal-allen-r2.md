@@ -1,0 +1,11 @@
+# R2-C — Allen interval algebra and uncertain-time refusal
+
+Owner Mail Evidence private #4 (source/time semantics), #39 (DOE). Uses the established **Allen interval algebra**, not a newly invented temporal ontology or a generic event extractor.
+
+This Go standard-library package categorizes 13 precise interval-to-interval relations with explicit inverse properties, using signed UTC `time.Time` boundaries with strictly positive duration. It separately models source-provided uncertainty as earliest/latest start/end bounds and deliberately **does not** pick a specific temporal relation when the available evidence is ambiguous. If all plausible end times of A are strictly earlier than any plausible start of B, BEFORE is defensible; analogous AFTER. Otherwise return UNDETERMINED. An exact interval can be recognized only when all uncertainty bounds collapse to precise endpoints. Missing dates, impossible intervals or reversed uncertainty bounds fail.
+
+Why: a textual email such as "around the first week of May" must not be silently normalized to midnight on May 1, and an overlapping appearance is not proof of temporal identity or a completed action. Distinguish strict interval relations from probability, confidence, fuzzy bounds, date-only interpretations and source validity. Date-only/Thai calendar/timezone normalization from prior R1-C occurs *before* this adapter and must remain traceable.
+
+Native Go 1.23 stdlib checks the 13 relations and their inverses, edge adjacency (MEETS / MET_BY), all 13 uniqueness, uncertain overlap as UNDETERMINED, definitely separated uncertain intervals as BEFORE/AFTER, and invalid/missing bounds. Existing public `mail-evidence-go-v1` typed runner exercises `go test -count=2 ./...` automatically, with no runtime model, external packages, private PST/mail or new job/scheduler. No system of record migration and no assertion of real source identity.
+
+Open gates: interval relations on open/unbounded/partially stated dates, uncertain timezone offsets, calendar-aware periods, Allen constraint composition networks and event causal semantics require formal existing library/Prolog prior-art qualification. This is a minimal executable acceptance oracle to compare against those, **not** a production custom solver.

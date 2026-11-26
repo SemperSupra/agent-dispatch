@@ -23,7 +23,7 @@ REQUEST_DIR = ROOT / "requests" / "gha"
 SAFE_PATH = re.compile(r"^requests/gha/[a-z0-9][a-z0-9-]{2,63}\.json$")
 SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
 SHAPES = {"ubuntu-24.04": "x86_64", "ubuntu-24.04-arm": "aarch64"}
-WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted" ,"mail-qwen-real-cpu"}
+WORKLOADS = {"arithmetic-oracle", "sealed-contract-native", "microsoft-devproxy-mock", "azurite-blob-transport", "mail-synthetic-baseline", "mail-openworker-policy", "mail-ragmail-loss-witness", "mail-evidence-go-challenge", "mail-openworker-headless-mail", "mail-openworker-scripted", "mail-temporal-swipl-r2","mail-temporal-postgres-r2", "mail-temporal-xtdb-r2","mail-xtdb-frozen-oracle-r3", "mail-qwen-real-cpu"}
 FIELDS = {"schema", "assignment_id", "runner", "workload", "timeout_seconds",
           "data_class", "max_attempts", "max_cost_usd"}
 MAX_BYTES = 4096
@@ -54,7 +54,13 @@ def read_request(name: str) -> tuple[dict, str]:
         raise Denied("RUNNER_SHAPE_NOT_ALLOWED")
     if not isinstance(obj["workload"], str) or obj["workload"] not in WORKLOADS:
         raise Denied("WORKLOAD_NOT_ALLOWED")
-    if type(obj["timeout_seconds"]) is not int or not 1 <= obj["timeout_seconds"] <= (420 if obj["workload"] == "mail-qwen-real-cpu" else 240):
+    if obj["workload"] == "mail-qwen-real-cpu":
+        if (name != "requests/gha/mail-qwen-real-cpu-v1.json" or
+                obj["assignment_id"] != "mail-qwen-real-cpu-v1" or
+                obj["runner"] != "ubuntu-24.04" or
+                type(obj["timeout_seconds"]) is not int or obj["timeout_seconds"] != 420):
+            raise Denied("MODEL_FIXED_PROFILE_REQUIRED")
+    elif type(obj["timeout_seconds"]) is not int or not 1 <= obj["timeout_seconds"] <= 240:
         raise Denied("RUNTIME_BUDGET_OUT_OF_BOUNDS")
     if obj["data_class"] != "public-synthetic":
         raise Denied("DATA_CLASS_NOT_ALLOWED")
@@ -155,95 +161,278 @@ def _execute(workload: str, timeout: int) -> dict:
                 "classification": "PASS" if accepted else "FAIL_MOCK_VERDICT",
                 "mock_only": True, "provider_access_verified": False,
                 "verdict_sha256": hashlib.sha256(raw).hexdigest() if accepted else None}
-    if workload == "mail-qwen-real-cpu":
-        # Actually execute pinned 0.5B GGUF on no-paid-API standard CPU.
-        # Independent heldout model accuracy can be low: this gate proves
-        # measured actual inference, never automatic source/model promotion.
+    if workload == "mail-temporal-swipl-r2":
+        # This fixed program is the original installed SWI-Prolog interpreter
+        # reading only a reviewed static fictional Prolog source file.
         try:
-            cp = subprocess.run(
-                [sys.executable, "scripts/qualify_mail_qwen_real_cpu.py"],
-                cwd=ROOT, stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=timeout, check=False)
-            if cp.returncode or len(cp.stdout)>16384:
-                # Emit only a single controlled failure class, not raw download,
-                # compiler or model stderr, which could contain untrusted text.
-                failure=re.search(
-                    r"MODEL_PUBLIC_REP_BLOCKED=([A-Za-z0-9_]{3,90})",
-                    cp.stderr.decode("ascii","replace")[:1024])
-                print("MAIL_MODEL_FIRST_FAILURE=" +
-                      (failure.group(1).upper() if failure else "UNCLASSIFIED_SUBPROCESS"),
-                      flush=True)
-                raise ValueError("PINNED_MODEL_OR_ENGINE_RUNTIME_FAIL")
-            obs=json.loads(cp.stdout)
-            dev=obs.get("dev",{})
-            held=obs.get("holdout",{})
-            chosen=obs.get("selected_policy")
-            sel=obs.get("heldout_selected",{})
-            admitted=(
-                isinstance(obs,dict)
-                and obs.get("schema")=="mail-public-real-cpu-model-doe/v1"
-                and obs.get("classification")=="REAL_CPU_MODEL_MEASURED_NO_PROMOTION"
-                and obs.get("engine_commit")=="b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed"
-                and obs.get("model_commit")=="9217f5db79a29953eb74d5343926648285ec7e67"
-                and obs.get("model_sha256")=="9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8"
-                and obs.get("model_license")=="Apache-2.0"
-                and obs.get("engine_license")=="MIT"
-                and obs.get("model_inference") is True
-                and obs.get("hosted_api_calls")==0
-                and obs.get("no_private_data") is True
-                and obs.get("public_synthetic_only") is True
-                and obs.get("model_weights_updated") is False
-                and obs.get("automatic_promotion") is False
-                and obs.get("request_count")==20
-                and obs.get("dev_questions")==3
-                and obs.get("holdout_questions")==7
-                and chosen in ("plain","evidence-first")
-                and isinstance(dev,dict) and isinstance(held,dict)
-                and set(dev)=={"plain","evidence-first"}
-                and set(held)=={"plain","evidence-first"}
-                and all(dev[k].get("count")==3 and 0<=dev[k].get("exact",-1)<=3
-                        for k in dev)
-                and all(held[k].get("count")==7 and 0<=held[k].get("exact",-1)<=7
-                        for k in held)
-                and isinstance(sel,dict) and sel==held[chosen]
-                and len(obs.get("outputs",[]))==7
-                and len(obs.get("baseline_outputs",[]))==7
-                and isinstance(obs.get("dev_exact_scores"),dict)
-                and set(obs["dev_exact_scores"])=={"plain","evidence-first"}
-                and all(type(n) is int and 0<=n<=3 for n in obs["dev_exact_scores"].values())
-                and chosen==sorted(("plain","evidence-first"),
-                    key=lambda k:(-obs["dev_exact_scores"][k],
-                                   ("plain","evidence-first").index(k)))[0]
-                and isinstance(obs.get("corpus_sha256"),str)
-                and re.fullmatch(r"[0-9a-f]{64}",obs["corpus_sha256"]) is not None
-                and isinstance(obs.get("expected_quality_gate_passed"),bool))
-        except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError, TypeError):
-            admitted=False
-            obs={}
-            cp=None
+            cp=subprocess.run(
+                [sys.executable,"scripts/qualify_temporal_swipl.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
+                timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>8192:
+                raise ValueError("NATIVE_SWIPL_QUIFICATION_FAILED")
+            observed=json.loads(cp.stdout)
+            admitted=(isinstance(observed,dict)
+                and observed.get("schema")=="public-mail-temporal-original-swi-prolog-r2"
+                and observed.get("classification")=="PASS_ORIGINAL_SWI_LOGIC_ONLY"
+                and observed.get("native_engine_executed") is True
+                and observed.get("clean_replay_verified") is True
+                and observed.get("support_and_refutation_retained") is True
+                and observed.get("cross_tenant_blocked") is True
+                and observed.get("derivation_quarantined") is True
+                and observed.get("model_inference") is False
+                and observed.get("native_pst_qualified") is False
+                and observed.get("source_occurrences")==8
+                and observed.get("independent_test_cases")==9
+                and isinstance(observed.get("interpreter_version"),str)
+                and observed["interpreter_version"].startswith("SWI-Prolog version 9.")
+                and isinstance(observed.get("source_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["source_sha256"]) is not None
+                and isinstance(observed.get("stdout_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["stdout_sha256"]) is not None)
+        except (ValueError,OSError,subprocess.TimeoutExpired):
+            admitted,observed,cp=False,{},None
         return {
             "oracle_verified":bool(admitted),
-            "classification":"PASS" if admitted else "FAIL_REAL_MODEL_RUNTIME_OR_ORACLE",
-            "real_model_inference":bool(admitted),
-            "automatic_promotion":False,
-            "model_sha256":obs.get("model_sha256") if admitted else None,
-            "engine_commit":obs.get("engine_commit") if admitted else None,
-            "question_count":7 if admitted else 0,
-            "model_calls":20 if admitted else 0,
-            "selected_policy":obs.get("selected_policy") if admitted else None,
-            "heldout_exact":obs.get("heldout_selected",{}).get("exact",0) if admitted else 0,
-            "heldout_valid":obs.get("heldout_selected",{}).get("valid",0) if admitted else 0,
-            "baseline_valid":obs.get("holdout",{}).get("plain",{}).get("valid",0) if admitted else 0,
-            "selected_cases":obs.get("outputs",[]) if admitted else [],
-            "baseline_cases":obs.get("baseline_outputs",[]) if admitted else [],
-            "dev_exact_scores":obs.get("dev_exact_scores",{}) if admitted else {},
-            "baseline_exact":obs.get("holdout",{}).get("plain",{}).get("exact",0) if admitted else 0,
-            "unsupported_source_count":obs.get("heldout_selected",{}).get("unsupported_source",0) if admitted else 0,
-            "semantic_quality_gate":obs.get("expected_quality_gate_passed") if admitted else False,
-            "corpus_sha256":obs.get("corpus_sha256") if admitted else None,
+            "classification":"PASS" if admitted else "FAIL_NATIVE_PROLOG",
+            "native_engine_executed":bool(admitted),
+            "interpreter_version":observed.get("interpreter_version") if admitted else None,
+            "source_sha256":observed.get("source_sha256") if admitted else None,
+            "clean_replay_verified":bool(admitted),
+            "source_occurrences":8 if admitted else 0,
+            "independent_test_cases":9 if admitted else 0,
+            "contradiction_preserved":bool(admitted),
+            "derivation_quarantined":bool(admitted),
+            "cross_tenant_blocked":bool(admitted),
+            "model_inference":False,
+            "native_pst_qualified":False,
             "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
         }
+    if workload == "mail-temporal-postgres-r2":
+        # Actual official PG18 server in one ephemeral no-port Docker container.
+        # Fixed original container digest and fixed source fixture only.
+        try:
+            cp=subprocess.run(
+                [sys.executable,"scripts/qualify_temporal_postgres18.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>8192:
+                error=re.search(r"POSTGRES_FIRST_FAILURE=([A-Z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_POSTGRES_FIRST_FAILURE="+
+                    (error.group(1) if error else "UNCLASSIFIED_RUNTIME"),
+                    flush=True)
+                raise ValueError("NATIVE_POSTGRES_RUN_FAILED")
+            observed=json.loads(cp.stdout)
+            admitted=(
+                isinstance(observed,dict)
+                and observed.get("schema")=="mail-temporal-native-postgresql18-r2"
+                and observed.get("classification")=="NATIVE_POSTGRES18_TEMPORAL_ONLY"
+                and observed.get("postgres_version","").startswith("18.7")
+                and observed.get("image_digest")=="e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61"
+                and observed.get("image_immutable") is True
+                and observed.get("qualified_cases")==8
+                and observed.get("source_occurrences")==6
+                and observed.get("claims")==6
+                and observed.get("four_valued_source_support") is True
+                and observed.get("valid_at_and_known_at_separate") is True
+                and observed.get("overlap_constraint_qualified") is True
+                and observed.get("same_source_overlap_denied") is True
+                and observed.get("different_source_overlap_preserved") is True
+                and observed.get("cross_tenant_denied") is True
+                and observed.get("immutable_source_denied") is True
+                and observed.get("restart_verified") is True
+                and observed.get("local_only_no_published_ports") is True
+                and observed.get("model_inference") is False
+                and observed.get("native_pst_qualified") is False
+                and isinstance(observed.get("fixture_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["fixture_sha256"]) is not None
+                and type(observed.get("elapsed_seconds")) in (float,int)
+                and 0<=observed["elapsed_seconds"]<=timeout)
+        except (ValueError,OSError,subprocess.TimeoutExpired,AttributeError,TypeError):
+            admitted,observed,cp=False,{},None
+        return {
+            "oracle_verified":bool(admitted),
+            "classification":"PASS" if admitted else "FAIL_POSTGRES_NATIVE",
+            "native_postgres_executed":bool(admitted),
+            "engine_version":observed.get("postgres_version") if admitted else None,
+            "image_digest":observed.get("image_digest") if admitted else None,
+            "source_occurrences":6 if admitted else 0,
+            "qualified_cases":8 if admitted else 0,
+            "valid_knowledge_separate":bool(admitted),
+            "same_source_overlap_denied":bool(admitted),
+            "different_source_overlap_preserved":bool(admitted),
+            "immutable_source_denied":bool(admitted),
+            "restart_verified":bool(admitted),
+            "cross_tenant_blocked":bool(admitted),
+            "network_port_published":False,
+            "model_inference":False,
+            "native_pst_qualified":False,
+            "fixture_sha256":observed.get("fixture_sha256") if admitted else None,
+            "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
+    if workload == "mail-xtdb-frozen-oracle-r3":
+        # Exact reviewed public fictional SQLite/PG source corpus compared
+        # against original XTDB source/claims at two explicit time cutoffs.
+        try:
+            cp=subprocess.run(
+                [sys.executable,"scripts/qualify_temporal_xtdb_frozen_oracle_r3.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>8192:
+                marker=re.search(r"XTDB_R3_FIRST_FAILURE=([A-Z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_XTDB_R3_FIRST_FAILURE="+
+                    (marker.group(1) if marker else "UNCLASSIFIED_SUBPROCESS"),
+                    flush=True)
+                raise ValueError("XTDB_R3_ORACLE_OR_RUNTIME_FAIL")
+            observed=json.loads(cp.stdout)
+            admitted=(
+                isinstance(observed,dict)
+                and observed.get("schema")=="mail-native-xtdb-frozen-eight-case-r3"
+                and observed.get("classification")==
+                    "ORIGINAL_XTDB_TWO_QUERY_APP_JOIN_TEMPORAL_GOLD"
+                and observed.get("engine_digest")==
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe"
+                and observed.get("client_digest")==
+                    "e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61"
+                and observed.get("same_frozen_eight_cases_verified") is True
+                and observed.get("xtdb_native_sql_join_verified") is False
+                and observed.get("adapter_source_join_verified") is True
+                and observed.get("case_count")==8
+                and observed.get("source_occurrences")==6
+                and observed.get("claim_occurrences")==6
+                and observed.get("cross_tenant_query_filtered") is True
+                and observed.get("original_records_preserved") is True
+                and observed.get("reacquired_lineage_not_extra_vote") is True
+                and observed.get("planned_not_completed") is True
+                and observed.get("restart_verified") is True
+                and observed.get("xtdb_native_system_time_parity") is False
+                and observed.get("xtdb_source_immutability_enforced") is False
+                and observed.get("model_inference") is False
+                and observed.get("native_pst_qualified") is False
+                and observed.get("source_history_risk")==
+                    "XTDB_UPSERT_ID_REQUIRES_APPLICATION_GUARD"
+                and isinstance(observed.get("fixture_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["fixture_sha256"]) is not None
+                and type(observed.get("elapsed_seconds")) in (int,float)
+                and 0<=observed["elapsed_seconds"]<=timeout)
+        except (ValueError,OSError,TypeError,AttributeError,subprocess.TimeoutExpired):
+            admitted,observed,cp=False,{},None
+        return {
+            "oracle_verified":bool(admitted),
+            "classification":"PASS" if admitted else "FAIL_NATIVE_XTDB_PARITY",
+            "native_xtdb_executed":bool(admitted),
+            "engine_digest":observed.get("engine_digest") if admitted else None,
+            "case_count":8 if admitted else 0,
+            "source_occurrences":6 if admitted else 0,
+            "claim_occurrences":6 if admitted else 0,
+            "frozen_gold_parity":bool(admitted),
+            "native_sql_join_verified":False,
+            "adapter_source_join_verified":bool(admitted),
+            "restart_verified":bool(admitted),
+            "cross_tenant_filtered":bool(admitted),
+            "source_upsert_risk":True,
+            "native_system_time_parity":False,
+            "native_source_immutability":False,
+            "model_inference":False,
+            "native_pst_qualified":False,
+            "fixture_sha256":observed.get("fixture_sha256") if admitted else None,
+            "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
+    if workload == "mail-temporal-xtdb-r2":
+        # Public original XTDB GHCR digest, internal-network-only pgwire
+        # and publisher's immutable original Postgres client image.
+        try:
+            cp=subprocess.run(
+                [sys.executable,"scripts/qualify_temporal_xtdb.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>8192:
+                failure=re.search(r"XTDB_FIRST_FAILURE=([A-Z0-9_]{3,85})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_XTDB_FIRST_FAILURE="+
+                    (failure.group(1) if failure else "UNCLASSIFIED_RUNTIME"),
+                    flush=True)
+                raise ValueError("NATIVE_XTDB_QUALIFICATION_FAILED")
+            observed=json.loads(cp.stdout)
+            admitted=(
+                isinstance(observed,dict)
+                and observed.get("schema")=="public-mail-xtdb-native-temporal-r2"
+                and observed.get("classification")=="ORIGINAL_XTDB_BITEMPORAL_RUNTIME_ONLY"
+                and observed.get("image_digest")==
+                    "aa7483e48674446a4892e0ea56a0953502fa5ccb9c4c803a9fb569ea5f0c28fe"
+                and observed.get("client_digest")==
+                    "e754b839f447639b7004895f4d8a4bfcb4e9dbe3a1bc035f27f646562a16fd61"
+                and observed.get("actual_xtdb_executed") is True
+                and observed.get("source_occurrences")==3
+                and observed.get("two_valid_time_queries") is True
+                and observed.get("system_history_recorded") is True
+                and type(observed.get("historical_record_count_at_least")) is int
+                and observed["historical_record_count_at_least"]>=2
+                and observed.get("separate_unique_source_keys") is True
+                and observed.get("restart_verified") is True
+                and observed.get("no_public_ports") is True
+                and observed.get("different_source_conflict_preserved") is True
+                and observed.get("source_upsert_is_application_risk") is True
+                and observed.get("same_eight_case_oracle_qualified") is False
+                and observed.get("model_inference") is False
+                and observed.get("native_pst_qualified") is False
+                and isinstance(observed.get("fixed_public_source_sha256"),str)
+                and re.fullmatch(r"[0-9a-f]{64}",observed["fixed_public_source_sha256"]) is not None
+                and type(observed.get("elapsed_seconds")) in (float,int)
+                and 0<=observed["elapsed_seconds"]<=timeout)
+        except (OSError,ValueError,subprocess.TimeoutExpired,TypeError,AttributeError):
+            admitted,observed,cp=False,{},None
+        return {
+            "oracle_verified":bool(admitted),
+            "classification":"PASS" if admitted else "FAIL_NATIVE_XTDB",
+            "xtdb_engine_executed":bool(admitted),
+            "image_digest":observed.get("image_digest") if admitted else None,
+            "source_occurrences":3 if admitted else 0,
+            "system_history_verified":bool(admitted),
+            "valid_time_verified":bool(admitted),
+            "restart_verified":bool(admitted),
+            "private_internal_network":bool(admitted),
+            "same_eight_case_oracle_qualified":False,
+            "model_inference":False,
+            "native_pst_qualified":False,
+            "source_sha256":observed.get("fixed_public_source_sha256") if admitted else None,
+            "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest() if admitted else None,
+        }
+    if workload == "mail-qwen-real-cpu":
+        try:
+            cp = subprocess.run([sys.executable,"scripts/qualify_mail_qwen_real_cpu.py"],
+                cwd=ROOT,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=timeout,check=False)
+            if cp.returncode or len(cp.stdout)>16384:
+                failure=re.search(r"MODEL_PUBLIC_REP_BLOCKED=([A-Za-z0-9_]{3,90})",
+                    cp.stderr.decode("ascii","replace")[:1024])
+                print("MAIL_MODEL_FIRST_FAILURE="+
+                      (failure.group(1).upper() if failure else "UNCLASSIFIED_SUBPROCESS"),
+                      flush=True)
+                raise ValueError("PINNED_MODEL_RUNTIME_FAILED")
+            obs=json.loads(cp.stdout)
+            fields={"schema","model_inference","model_sha256","engine_commit",
+                    "engine_asset_sha256","corpus_sha256","model_calls",
+                    "automatic_promotion","rows"}
+            if (type(obs) is not dict or set(obs)!=fields or
+                    obs["schema"]!="mail-public-real-cpu-model-doe/v2" or
+                    obs["model_inference"] is not True or
+                    obs["automatic_promotion"] is not False or
+                    obs["model_sha256"]!="9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8" or
+                    obs["engine_commit"]!="b4c0e00a4fcc0287d0bb32fd7cb0d8b286af73ed" or
+                    obs["engine_asset_sha256"]!="a9b243a3bc4ca172010e96c64062fc02afd1dc4f8b699716f813ae6845ada4c6" or
+                    type(obs["rows"]) is not list or len(obs["rows"])!=20 or
+                    type(obs["model_calls"]) is not int or obs["model_calls"]!=20):
+                raise ValueError("MODEL_RECEIPT_SCOPE_INVALID")
+            return {"classification":"PASS","oracle_verified":True,
+                    **{k:v for k,v in obs.items() if k!="schema"},
+                    "verdict_sha256":hashlib.sha256(cp.stdout).hexdigest()}
+        except (OSError,ValueError,TypeError,subprocess.TimeoutExpired):
+            return {"classification":"FAIL_REAL_MODEL_RUNTIME_OR_ORACLE","oracle_verified":False}
     if workload == "mail-openworker-scripted":
         # Exact source-pinned public MIT OpenWorker engine only; disposable venv.
         # All runtime inference is fake scripted-model replay, no real mailbox.
