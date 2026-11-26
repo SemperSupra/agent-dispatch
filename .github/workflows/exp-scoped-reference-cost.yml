@@ -1,0 +1,118 @@
+name: Scoped reference cost qualification
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-scoped-reference-cost.yml'
+permissions:
+  contents: read
+jobs:
+  identifiers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Opaque ASCII identity policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          go mod init example.invalid/opaque-id
+          cat > id_test.go <<'EOF'
+          package opaque
+          import ("encoding/json";"testing";"strings";"unicode/utf8")
+          func valid(s string)bool{
+            if len(s)==0||len(s)>256{return false}
+            for i:=0;i<len(s);i++{c:=s[i];if !(c>='a'&&c<='z'||c>='A'&&c<='Z'||c>='0'&&c<='9'||strings.ContainsRune("._:-",rune(c))){return false}}
+            return true
+          }
+          func decode(b []byte)(string,bool){if len(b)>4096||!utf8.Valid(b){return "",false};var s string;if json.Unmarshal(b,&s)!=nil||!valid(s){return "",false};return s,true}
+          func TestIDs(t *testing.T){
+            for _,s:=range []string{"run-1","R.01:abc","p_0",strings.Repeat("a",256)}{b,_:=json.Marshal(s);v,ok:=decode(b);if !ok||v!=s{t.Fatal(s)}}
+            for _,s:=range []string{`""`,`"a b"`,`"a\u0000b"`,`"\ud800"`,`"\udc00"`,`"\ufffd"`,`"\u00e9"`,`"e\u0301"`,`"\u0430"`,`null`,`1`,`"a" "b"`,`"a/b"`}{if _,ok:=decode([]byte(s));ok{t.Fatal(s)}}
+            if _,ok:=decode([]byte{34,255,34});ok{t.Fatal("invalid UTF8")}
+            if valid(strings.Repeat("a",257)){t.Fatal("length")}
+            v,ok:=decode([]byte(`"\u0061"`));if !ok||v!="a"{t.Fatal("escaped ASCII identity")}
+          }
+          EOF
+          go test -v -race .
+          go vet .
+  index:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Index build and mixed lookup costs
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          go mod init example.invalid/extent-cost
+          cat > index_test.go <<'EOF'
+          package index
+          import ("testing";"sort";"math/rand";"fmt";"errors")
+          type E struct{ Base,End,ID uint64 }
+          func input(n int)[]E{a:=make([]E,n);for i:=range a{a[i]=E{uint64(i)*8192,uint64(i)*8192+4096,uint64(i)+1}};rand.New(rand.NewSource(71)).Shuffle(n,func(i,j int){a[i],a[j]=a[j],a[i]});return a}
+          func build(a []E)([]E,error){b:=append([]E(nil),a...);sort.Slice(b,func(i,j int)bool{return b[i].Base<b[j].Base});for i,e:=range b{if e.End<=e.Base||e.ID==0||(i>0&&b[i-1].End>e.Base){return nil,errors.New("invalid extent")}};return b,nil}
+          func lookup(a []E,x uint64)uint64{i:=sort.Search(len(a),func(i int)bool{return a[i].End>x});if i<len(a)&&a[i].Base<=x{return a[i].ID};return 0}
+          func queries(n int)[]uint64{r:=rand.New(rand.NewSource(23));q:=make([]uint64,8192);for i:=range q{q[i]=uint64(r.Intn(n))*8192+uint64(r.Intn(8192))};return q}
+          func oracle(x uint64)uint64{if x%8192>=4096{return 0};return x/8192+1}
+          func TestOracle(t *testing.T){for _,n:=range []int{1,100,10000,100000}{a,e:=build(input(n));if e!=nil{t.Fatal(e)};for _,q:=range queries(n){if lookup(a,q)!=oracle(q){t.Fatal(n,q)}}};for _,a:=range [][]E{{{5,5,1}},{{0,10,1},{9,12,2}},{{0,1,0}}}{if _,e:=build(a);e==nil{t.Fatal("invalid accepted")}}}
+          var sink []E;var val uint64
+          func BenchmarkCosts(b *testing.B){for _,n:=range []int{100,10000,100000}{a:=input(n);q:=queries(n);idx,_:=build(a);b.Run(fmt.Sprintf("build/%d",n),func(b *testing.B){b.ReportAllocs();for i:=0;i<b.N;i++{sink,_=build(a)}});b.Run(fmt.Sprintf("mixed/%d",n),func(b *testing.B){b.ReportAllocs();for i:=0;i<b.N;i++{val=lookup(idx,q[i%len(q)])}})}}
+          EOF
+          go test -v .
+          go test -run '^$' -bench . -benchmem -benchtime=200ms -count 3 .
+  workload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Paired SQLite workload with boundary-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; cd "$d"
+          cat > workload.py <<'PY'
+          import sqlite3, sys, os, json
+          path, mode = sys.argv[1:]
+          con=sqlite3.connect(path)
+          con.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, v INTEGER)")
+          con.executemany("INSERT INTO items VALUES (?,?)", ((i, i*3) for i in range(100000)))
+          con.commit()
+          con.execute("CREATE INDEX v_idx ON items(v)")
+          con.commit()
+          for i in range(100):
+              con.execute("UPDATE items SET v=v+1 WHERE id>=? AND id<?",(i*1000,(i+1)*1000))
+          con.commit()
+          result=con.execute("SELECT count(*),sum(v) FROM items").fetchone()
+          assert result==(100000,14999950000),result
+          assert con.execute("PRAGMA integrity_check").fetchone()==("ok",)
+          con.close()
+          if mode=="boundary":
+              maps=open("/proc/self/maps").read()
+              print(json.dumps({"pid":os.getpid(),"maps":maps,"boundary":"closed"}))
+          print("RESULT",*result)
+          PY
+          python3 - <<'PY'
+          import hashlib, pathlib, statistics, subprocess, random, json
+          pairs=[]
+          for i in range(7):
+              modes=["baseline","boundary"]
+              if i%2: modes.reverse()
+              row={}
+              for m in modes:
+                  p=pathlib.Path(f"{i}-{m}.db")
+                  out=subprocess.check_output(["/usr/bin/time","-f","%e %U %S %M","-o","timing", "python3","workload.py",str(p),m],text=True)
+                  assert out.splitlines()[-1]=="RESULT 100000 14999950000"
+                  elapsed,user,system,rss=map(float,pathlib.Path("timing").read_text().split())
+                  evidence_bytes=0
+                  if m=="boundary":
+                      ev=json.loads(out.splitlines()[0]); assert ev["pid"]>0 and "maps" in ev and ev["boundary"]=="closed"
+                      evidence_bytes=len(out.splitlines()[0].encode())
+                  row[m]={"elapsed":elapsed,"cpu":user+system,"rss_kib":rss,"evidence_bytes":evidence_bytes,"db_sha256":hashlib.sha256(p.read_bytes()).hexdigest()}
+                  p.unlink()
+              assert row["baseline"]["db_sha256"]==row["boundary"]["db_sha256"],row
+              print(json.dumps({"pair":i,**row}),flush=True)
+              pairs.append(row)
+          for key in ("elapsed","cpu","rss_kib"):
+              ratios=[p["boundary"][key]/p["baseline"][key]-1 for p in pairs if p["baseline"][key]>0]
+              print(key,"relative_delta_median",statistics.median(ratios),"range",min(ratios),max(ratios))
+          print("7 paired outcome and raw DB digest comparisons PASS; timing is exploratory")
+          PY
