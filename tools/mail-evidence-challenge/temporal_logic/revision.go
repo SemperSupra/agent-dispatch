@@ -9,14 +9,15 @@ import (
 
 // Revision is a reviewed, source-anchored annotation, not an inference from
 // timestamps or message identity. It suppresses only the named predecessor
-// where both actual claims are valid and known. Outside that overlap the
+// where both actual claims are valid and known and the reviewed relation has
+// been recorded. Outside that overlap the
 // predecessor remains eligible. Original claims and source bytes are retained.
 type Revision struct {
-	ID, PredecessorID, SuccessorID, Quote string
+	ID, PredecessorID, SuccessorID, Quote, RecordedAt string
 }
 
 type RevisionWitness struct {
-	RevisionID, PredecessorID, SuccessorID, SourceID string
+	RevisionID, PredecessorID, SuccessorID, SourceID, RecordedAt string
 }
 
 type RevisionAssessment struct {
@@ -76,6 +77,14 @@ func (s Store) AssessRevisions(tenant, validAt, knowledgeAt string, revisions []
 		if newAuthored.Before(oldAuthored){
 			return RevisionAssessment{},errors.New("REVISION_AUTHOR_ORDER")
 		}
+		recorded,err:=parseMoment(r.RecordedAt)
+		if err!=nil{return RevisionAssessment{},errors.New("REVISION_RECORDED_CLOCK_INVALID")}
+		oldAcquired,_:=parseMoment(a.AcquiredAt)
+		newAcquired,_:=parseMoment(b.AcquiredAt)
+		// An annotation cannot be known before the evidence it explicitly links.
+		if recorded.Before(oldAcquired)||recorded.Before(newAcquired){
+			return RevisionAssessment{},errors.New("REVISION_RECORDED_BEFORE_EVIDENCE")
+		}
 		graph[old.ID]=append(graph[old.ID],new.ID)
 	}
 	visiting:=map[string]uint8{}
@@ -93,9 +102,10 @@ func (s Store) AssessRevisions(tenant, validAt, knowledgeAt string, revisions []
 	for _,r:=range revisions{
 		a,b:=claims[r.PredecessorID],claims[r.SuccessorID]
 		old,new:=sources[a.SourceID],sources[b.SourceID]
-		if old.Tenant!=tenant||!activeAt(a,old,valid,known)||!activeAt(b,new,valid,known){continue}
+		recorded,_:=parseMoment(r.RecordedAt)
+		if old.Tenant!=tenant||recorded.After(known)||!activeAt(a,old,valid,known)||!activeAt(b,new,valid,known){continue}
 		suppressed[a.ID]=true
-		witnesses=append(witnesses,RevisionWitness{r.ID,a.ID,b.ID,new.ID})
+		witnesses=append(witnesses,RevisionWitness{r.ID,a.ID,b.ID,new.ID,r.RecordedAt})
 	}
 	sort.Slice(witnesses,func(i,j int)bool{return witnesses[i].RevisionID<witnesses[j].RevisionID})
 	projected:=Store{Sources:s.Sources,Rules:s.Rules,Claims:make([]Claim,0,len(s.Claims))}
