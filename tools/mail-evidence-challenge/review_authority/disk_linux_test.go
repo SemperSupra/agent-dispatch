@@ -17,7 +17,9 @@ func diskFixture(t *testing.T)(*DiskStore,fixture,Trust,Trust,[]SignedEvent){
 	f:=sample()
 	old:=f;old.events=f.events[:4]
 	before,after:=old.trust(),f.trust()
-	s,err:=OpenDiskStore(t.TempDir());if err!=nil{t.Fatal(err)}
+	dir:=filepath.Join(t.TempDir(),"private-catalog")
+	if err:=os.Mkdir(dir,0700);err!=nil{t.Fatal(err)}
+	s,err:=OpenDiskStore(dir);if err!=nil{t.Fatal(err)}
 	r,err:=s.Initialize(before,old.events);if err!=nil||r.EventCount!=4||r.AlreadyPublished{t.Fatal(r,err)}
 	return s,f,before,after,f.events[4:]
 }
@@ -99,4 +101,11 @@ func TestDiskInitializationAndPathControls(t *testing.T){
 	if err=os.Symlink(renamed,path);err!=nil{t.Fatal(err)}
 	if _,err=s.Load(prior);err==nil{t.Fatal("followed symlink")}
 	if _,err=s.Initialize(prior,f.events[:4]);err==nil{t.Fatal("replaced unsafe state")}
+}
+
+func TestDiskRefusesNonPrivateDirectory(t *testing.T){
+	dir:=filepath.Join(t.TempDir(),"public-catalog")
+	if err:=os.Mkdir(dir,0755);err!=nil{t.Fatal(err)}
+	if err:=os.Chmod(dir,0755);err!=nil{t.Fatal(err)}
+	if _,err:=OpenDiskStore(dir);err==nil{t.Fatal("accepted nonprivate directory")}
 }
