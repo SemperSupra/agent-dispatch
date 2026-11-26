@@ -65,7 +65,7 @@ jobs:
           as --32 guest.S -o "$RUNNER_TEMP/guest.o"
           ld -m elf_i386 -Ttext 0x7c00 --oformat binary -e _start "$RUNNER_TEMP/guest.o" -o "$e/guest.bin"
           test "$(wc -c < "$e/guest.bin")" -eq 512
-          sha256sum main.go main_test.go guest.S replay.py ../qtest-contract/queue_trace.go ../../scripts/qtest_semantic_smoke.py > "$e/fixture.sha256"
+          sha256sum main.go main_test.go receipt_strict.go receipt_strict_test.go guest.S replay.py ../qtest-contract/queue_trace.go ../../scripts/qtest_semantic_smoke.py > "$e/fixture.sha256"
       - name: Execute both isolated vantages and retain exact exits
         working-directory: experiments/qtest-replay
         run: |
@@ -83,6 +83,24 @@ jobs:
           done
           test "$(cat "$e/qtest.exit")" = 0
           test "$(cat "$e/tcg-guest.exit")" = 0
+      - name: Check completed vantages independently even when a peer fails
+        if: always()
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/replay-evidence"
+          overall=0
+          for mode in qtest tcg-guest; do
+            rc=0
+            if test -f "$e/$mode.exit" && test "$(cat "$e/$mode.exit")" = 0 && test "$(find "$e/$mode" -name '*.json' | wc -l)" -eq 8; then
+              "$RUNNER_TEMP/replay-check" check "$e/plan.json" "$e/$mode"/*.json > "$e/$mode.verified.log" 2>&1 || rc=$?
+              cat "$e/$mode.verified.log"
+            else
+              rc=1
+            fi
+            echo "$rc" > "$e/$mode.verify-exit"
+            if test "$rc" -ne 0; then overall=1; fi
+          done
+          test "$overall" = 0
       - name: Independently check observed reads and deliberate receipt mutations
         run: |
           set -euo pipefail
@@ -92,8 +110,17 @@ jobs:
           done
           "$RUNNER_TEMP/replay-check" check "$e/plan.json" "$e"/qtest/*.json "$e"/tcg-guest/*.json | tee "$e/verified.log"
           python3 - "$e" <<'PY'
-          import copy,json,pathlib,sys,statistics
+          import copy,json,pathlib,sys,statistics,struct
           e=pathlib.Path(sys.argv[1])
+          # Decode actual retained guest debugcon bytes independently of the producer.
+          for i in range(8):
+              raw=(e/f"tcg-guest/tcg-guest-{i}.raw").read_bytes()
+              obs=json.loads((e/f"tcg-guest/tcg-guest-{i}.json").read_text())["observations"]
+              words=struct.unpack("<11I",raw)
+              assert words[:6]==(0x35454856,0x10011af4,0x1001,3,256,0)
+              assert list(words[6:])==[o["value"] for o in obs]
+              assert [o["operation_index"] for o in obs]==[1,3,5,7,8]
+          print("RAW GUEST WITNESSES VERIFIED: 8")
           r=json.loads((e/"qtest/qtest-0.json").read_text())
           bad=copy.deepcopy(r)
           bad["observations"][1]["value"]=1
