@@ -131,3 +131,17 @@ func TestExplicitReviewedEmptySourceIsNotAnAssertedFact(t *testing.T){
 	got,err:=f.assess()
 	if err!=nil||got.Assessment.Assessment.Find("gate.open").Status!=logic.Neither{t.Fatal("empty reviewed coverage invented truth",got,err)}
 }
+
+func TestReviewCanonicalWireRejectsInvalidUTF8(t *testing.T){
+	f:=reviewed(t,"en")
+	bad:=string([]byte{0xff})
+	f.bundle.Sources[0].Payload.Lineage=bad
+	if _,err:=SourceReviewBytes(f.bundle.Sources[0].Payload);err==nil{t.Fatal("lossy source canonicalization")}
+	if _,err:=f.assess();err==nil{t.Fatal("accepted lossy source")}
+	f=reviewed(t,"en")
+	f.bundle.Sources[0].Payload.Claims[0].Claim.Predicate=bad
+	if _,err:=SourceReviewBytes(f.bundle.Sources[0].Payload);err==nil{t.Fatal("lossy predicate canonicalization")}
+	f=reviewed(t,"en")
+	f.bundle.Revisions[0].Payload.Identity.ProducerID=bad
+	if _,err:=RevisionReviewBytes(f.bundle.Revisions[0].Payload);err==nil{t.Fatal("lossy revision canonicalization")}
+}

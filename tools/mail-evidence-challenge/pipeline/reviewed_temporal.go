@@ -71,10 +71,33 @@ type ReviewReceipt struct {
 // Canonical bytes use a versioned domain and Go struct JSON encoding. Strings
 // are exact (no Unicode or timezone coercion). This is a v1 Go wire contract,
 // not a cross-language canonicalization standard. Sign only these bytes.
+func utf8Strings(values ...string)bool{
+	for _,s:=range values{if !utf8.ValidString(s){return false}}
+	return true
+}
+func validReviewIdentityText(a ReviewIdentity)bool{
+	return utf8Strings(a.Tenant,a.PolicySHA256,a.ReviewerID,a.ProducerID,a.RecordedAt)
+}
 func SourceReviewBytes(a SourceAnnotation)([]byte,error){
+	// Go JSON replaces invalid UTF-8; reject it before signing to avoid
+	// two different in-memory interpretations with identical wire bytes.
+	if !validReviewIdentityText(a.Identity)||!utf8Strings(a.SourceID,a.SourceSHA256,a.AcquiredAt,a.AuthoredAt,a.Lineage){
+		return nil,errors.New("REVIEW_UTF8_INVALID")
+	}
+	for _,x:=range a.Claims{
+		c:=x.Claim
+		if !utf8Strings(c.ID,c.SourceID,c.Predicate,c.Modality,c.Quote,c.ValidFrom,c.ValidTo){
+			return nil,errors.New("REVIEW_UTF8_INVALID")
+		}
+	}
 	return json.Marshal(struct{Schema,Kind string;Payload SourceAnnotation}{reviewSchema,"source",a})
 }
 func RevisionReviewBytes(a RevisionAnnotation)([]byte,error){
+	r:=a.Revision
+	if !validReviewIdentityText(a.Identity)||
+		!utf8Strings(r.ID,r.PredecessorID,r.SuccessorID,r.Quote,r.RecordedAt,a.PredecessorReviewSHA256,a.SuccessorReviewSHA256){
+		return nil,errors.New("REVIEW_UTF8_INVALID")
+	}
 	return json.Marshal(struct{Schema,Kind string;Payload RevisionAnnotation}{reviewSchema,"revision",a})
 }
 

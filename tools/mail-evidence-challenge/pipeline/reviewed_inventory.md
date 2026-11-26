@@ -1,0 +1,5 @@
+# Composed pinned signed-review assessment
+
+Use AssessPinnedReviewedTemporal when completeness is required. The signed review gate independently validates every visible source and actual revision signature before the as-of inventory verifier compares entries built from those payloads to a separately trusted checkpoint pin. The scope includes task, predicate, partition, valid/knowledge clocks and model-context digest. Missing valid corrections are rejected against the pinned inventory rather than changing a belief to a different state. No result leaves this wrapper if either check fails.
+
+Historical as-of snapshots are supplied by trusted custody; valid future reviews are excluded from the earlier inventory and receipt. No real catalog, append-only persistence, independent annotator provisioning, key lifecycle, or authenticated user is implemented. Test fixtures intentionally construct the trusted catalog separately before submission tampering. No production authorization or promotion is implied.
