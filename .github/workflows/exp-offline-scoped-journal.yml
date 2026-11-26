@@ -118,3 +118,19 @@ jobs:
           command -v cc
           command -v nm
           go test -count=1 -race -v -run '^TestNativeELF$' .
+  native-query:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: experiments/offline-scoped-journal
+      - name: Read-only native query process oracle
+        working-directory: experiments/offline-scoped-journal
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
+          go build -o "$d/native-correspondence" ./cmd/native-correspondence
+          "$d/native-correspondence" -help
+          python3 testdata/native_query_oracle.py "$d/native-correspondence"
