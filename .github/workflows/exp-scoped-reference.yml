@@ -1,0 +1,89 @@
+name: Scoped reference qualification
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exp-scoped-reference.yml'
+permissions:
+  contents: read
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Synthetic reference oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          cd "$d"
+          go mod init example.invalid/scoped-reference
+          cat > reference_test.go <<'EOF'
+          package reference
+          import ("testing"; "math")
+          type Scope struct { Run, Branch, Space string }
+          type Object struct { Scope Scope; Native string; Generation uint64 }
+          type Mapping struct { Object Object; Base, Length, From, Until uint64 }
+          func resolve(scope Scope, addr, at uint64, maps []Mapping) (Object, bool) {
+            var out Object
+            found := false
+            if scope.Run == "" || scope.Branch == "" || scope.Space == "" { return out,false }
+            for _, m := range maps {
+              if m.Object.Scope != scope || m.Length == 0 || addr < m.Base || addr-m.Base >= m.Length || at < m.From || at >= m.Until { continue }
+              if m.Length-1 > math.MaxUint64-m.Base || m.Object.Generation == 0 || m.Object.Native == "" { return Object{},false }
+              if found && out != m.Object { return Object{},false }
+              out,found=m.Object,true
+            }
+            return out,found
+          }
+          func TestResolve(t *testing.T) {
+            a:=Scope{"r","original","p1"}; b:=Scope{"r","original","p2"}; c:=Scope{"r","restored","p1"}
+            x:=Object{a,"alloc",1}; y:=Object{a,"alloc",2}; z:=Object{b,"alloc",1}; w:=Object{c,"alloc",1}
+            m:=[]Mapping{{x,4096,32,1,5},{y,4096,32,5,9},{z,4096,32,1,9},{w,4096,32,1,9}}
+            cases:=[]struct{name string; s Scope; addr, at uint64; want Object; ok bool}{
+              {"before reuse",a,4096,4,x,true},{"after reuse",a,4096,5,y,true},{"other space",b,4096,4,z,true},{"restored branch",c,4096,4,w,true},{"exclusive end",a,4128,4,Object{},false},{"expired",a,4096,9,Object{},false},{"missing scope",Scope{},4096,4,Object{},false},
+            }
+            for _,q:=range cases {t.Run(q.name,func(t *testing.T){got,ok:=resolve(q.s,q.addr,q.at,m);if ok!=q.ok||got!=q.want{t.Fatalf("got %v %v",got,ok)}})}
+            for _, q:=range []Mapping{{Object{a,"unknown",0},4096,32,1,5},{y,4096,32,1,5}} { if _,ok:=resolve(a,4096,4,append(m,q));ok{t.Fatal("ambiguous or unknown mapping accepted")} }
+            if _,ok:=resolve(a,math.MaxUint64,4,[]Mapping{{x,math.MaxUint64,2,1,5}});ok{t.Fatal("overflow accepted")}
+            if got,ok:=resolve(a,8192,4,append(m,Mapping{x,8192,32,1,5}));!ok||got!=x{t.Fatal("alias lookup failed")}
+          }
+          func BenchmarkResolve(b *testing.B) {
+            s:=Scope{"r","b","p"}; m:=[]Mapping{{Object{s,"a",1},4096,32,1,9}}
+            b.ReportAllocs(); for i:=0;i<b.N;i++{if _,ok:=resolve(s,4096,4,m);!ok{b.Fatal("lookup failed")}}
+          }
+          EOF
+          go version
+          go test -v -race .
+          go vet .
+          go test -run '^$' -bench . -benchmem -count 3 .
+  debugger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Native debugger bounded synthetic observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v gdb || { sudo apt-get update -qq; sudo apt-get install -y --no-install-recommends gdb; }
+          d=$(mktemp -d)
+          trap 'rm -rf "$d"' EXIT
+          cd "$d"
+          cat > fixture.c <<'EOF'
+          #include <stdio.h>
+          volatile int observed;
+          __attribute__((noinline)) void marker(void) { observed = 42; }
+          int main(void) { marker(); observed = 43; printf("result=%d\n", observed); return observed != 43; }
+          EOF
+          cc -g -O0 -o fixture fixture.c
+          gdb --version | head -1
+          ./fixture > baseline
+          timeout 30s gdb -nx -batch -ex 'set pagination off' -ex 'break marker' -ex run -ex 'printf "BEFORE=%d\n", observed' -ex 'delete 1' -ex 'watch observed' -ex continue -ex 'printf "AFTER=%d\n", observed' -ex 'delete 2' -ex continue ./fixture > observed.log 2>&1 || { cat observed.log; exit 1; }
+          cat observed.log
+          grep -Fx 'BEFORE=0' observed.log
+          grep -Fx 'AFTER=42' observed.log
+          grep -Fx 'result=43' baseline
+          grep -Fx 'result=43' observed.log
+          grep -F 'exited normally' observed.log
+          grep -F 'Hardware watchpoint' observed.log
+          echo 'Native one-shot observation: PASS; no causal proof or overhead claim'
