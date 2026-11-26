@@ -1,0 +1,139 @@
+name: QEMU bounded model replay and guest comparison
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/qemu-qtest-replay.yml'
+      - 'experiments/qtest-replay/**'
+permissions:
+  contents: read
+env:
+  GO111MODULE: 'off'
+  GOPROXY: 'off'
+  GOTOOLCHAIN: local
+jobs:
+  model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Explore finite safe and mutant models and qualify receipt checker
+        working-directory: experiments/qtest-replay
+        run: |
+          set -euo pipefail
+          go version
+          go vet .
+          go test -race -count=2 -v .
+          go run . generate
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install public build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build pkg-config python3-venv libglib2.0-dev libpixman-1-dev libfdt-dev libslirp-dev zlib1g-dev
+      - name: Build exact native QEMU
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/replay-evidence"
+          mkdir -p "$e" "$RUNNER_TEMP/replay-build"
+          cd "$RUNNER_TEMP/replay-build"
+          git init -q
+          git fetch --depth=1 https://github.com/qemu/qemu.git 698104725efad4b29079d857dfdebbd804e34c99
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = 698104725efad4b29079d857dfdebbd804e34c99
+          git show -s --format='%H %s' | tee "$e/source.txt"
+          mkdir build
+          cd build
+          ../configure --target-list=x86_64-softmmu --disable-docs --disable-werror --disable-gtk --disable-sdl --disable-vnc --enable-slirp > "$e/configure.log" 2>&1
+          /usr/bin/time -v -o "$e/build.resources" ninja -j 3 qemu-system-x86_64 > "$e/build.log" 2>&1
+          ./qemu-system-x86_64 --version | tee "$e/version.txt"
+          sha256sum ./qemu-system-x86_64 | tee "$e/qemu.sha256"
+      - name: Generate model trace and build independent guest
+        working-directory: experiments/qtest-replay
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/replay-evidence"
+          go build -o "$RUNNER_TEMP/replay-check" .
+          "$RUNNER_TEMP/replay-check" generate | tee "$e/plan.json"
+          as --32 guest.S -o "$RUNNER_TEMP/guest.o"
+          ld -m elf_i386 -Ttext 0x7c00 --oformat binary -e _start "$RUNNER_TEMP/guest.o" -o "$e/guest.bin"
+          test "$(wc -c < "$e/guest.bin")" -eq 512
+          sha256sum main.go main_test.go guest.S replay.py ../qtest-contract/queue_trace.go ../../scripts/qtest_semantic_smoke.py > "$e/fixture.sha256"
+      - name: Execute both isolated vantages and retain exact exits
+        working-directory: experiments/qtest-replay
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/replay-evidence"
+          export PATH="$RUNNER_TEMP/replay-build/build:$PATH"
+          test "$(command -v qemu-system-x86_64)" = "$RUNNER_TEMP/replay-build/build/qemu-system-x86_64"
+          # Sequential timed batches avoid simultaneous CPU contention.
+          # Run both despite a lane failure; retain each independent exit.
+          for mode in qtest tcg-guest; do
+            rc=0
+            /usr/bin/time -v -o "$e/$mode.resources" timeout 190s python3 replay.py "$mode" "$e/plan.json" "$e/guest.bin" "$e/$mode" > "$e/$mode.log" 2>&1 || rc=$?
+            echo "$rc" > "$e/$mode.exit"
+            cat "$e/$mode.log"
+          done
+          test "$(cat "$e/qtest.exit")" = 0
+          test "$(cat "$e/tcg-guest.exit")" = 0
+      - name: Independently check observed reads and deliberate receipt mutations
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/replay-evidence"
+          for mode in qtest tcg-guest; do
+            test "$(find "$e/$mode" -name '*.json' | wc -l)" -eq 8
+          done
+          "$RUNNER_TEMP/replay-check" check "$e/plan.json" "$e"/qtest/*.json "$e"/tcg-guest/*.json | tee "$e/verified.log"
+          python3 - "$e" <<'PY'
+          import copy,json,pathlib,sys,statistics
+          e=pathlib.Path(sys.argv[1])
+          r=json.loads((e/"qtest/qtest-0.json").read_text())
+          bad=copy.deepcopy(r)
+          bad["observations"][1]["value"]=1
+          (e/"mutated-read.json").write_text(json.dumps(bad))
+          bad=copy.deepcopy(r)
+          bad["plan_sha256"]="0"*64
+          (e/"mutated-binding.json").write_text(json.dumps(bad))
+          for mode in ("qtest","tcg-guest"):
+              rows=[json.loads(p.read_text()) for p in sorted((e/mode).glob("*.json"))]
+              t=[r["elapsed_ns"]/1e9 for r in rows]
+              print(json.dumps(dict(vantage=mode,verified=len(t),min_s=min(t),median_s=statistics.median(t),max_s=max(t),sum_s=sum(t),accepted_experiments_per_min=60*len(t)/sum(t))))
+          PY
+          for bad in mutated-read mutated-binding; do
+            rc=0
+            "$RUNNER_TEMP/replay-check" check "$e/plan.json" "$e/$bad.json" > "$e/$bad.log" 2>&1 || rc=$?
+            echo "$rc" > "$e/$bad.exit"
+            test "$rc" -eq 1
+            cat "$e/$bad.log"
+          done
+          python3 - "$e" <<'PY' | tee "$e/metrics.jsonl"
+          import json,pathlib,sys,statistics
+          e=pathlib.Path(sys.argv[1])
+          for mode in ("qtest","tcg-guest"):
+              t=[json.loads(p.read_text())["elapsed_ns"]/1e9 for p in sorted((e/mode).glob("*.json"))]
+              print(json.dumps(dict(vantage=mode,verified=len(t),median_s=statistics.median(t),sum_s=sum(t),rate_per_min=60*len(t)/sum(t))))
+          PY
+      - name: Hash receipts
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/replay-evidence"
+          cd "$RUNNER_TEMP/replay-evidence"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          cat SHA256SUMS
+      - name: Retain public experiment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qtest-model-replay
+          path: ${{ runner.temp }}/replay-evidence/
+          retention-days: 7
+      - name: Remove disposable state
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/replay-build" "$RUNNER_TEMP/replay-evidence" "$RUNNER_TEMP/replay-check" "$RUNNER_TEMP/guest.o"
