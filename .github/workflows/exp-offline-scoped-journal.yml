@@ -86,3 +86,18 @@ jobs:
               print("Source byte integrity and scope oracle PASS")
           print("Independent CLI oracle PASS")
           PY
+  retained-pin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: experiments/offline-scoped-journal
+      - name: Retained artifact pin process oracle
+        working-directory: experiments/offline-scoped-journal
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
+          go build -o "$d/artifact-verify" ./cmd/artifact-verify
+          python3 testdata/pin_oracle.py "$d/artifact-verify"
