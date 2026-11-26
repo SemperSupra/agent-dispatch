@@ -1,0 +1,384 @@
+[
+  {
+    "ID": "D01",
+    "Value": "Monday",
+    "Citations": [
+      {
+        "ID": "D01-a",
+        "Quote": "The orchard opens on Monday."
+      }
+    ]
+  },
+  {
+    "ID": "D02",
+    "Value": "closed",
+    "Citations": [
+      {
+        "ID": "D02-b",
+        "Quote": "The warehouse gate is closed."
+      }
+    ]
+  },
+  {
+    "ID": "D03",
+    "Value": "42",
+    "Citations": [
+      {
+        "ID": "D03-a",
+        "Quote": "Es sind 42 Plakate bestellt."
+      }
+    ]
+  },
+  {
+    "ID": "D04",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "D05",
+    "Value": "Tuesday",
+    "Citations": [
+      {
+        "ID": "D05-a",
+        "Quote": "เรือนกระจกเปิดวันอังคาร"
+      }
+    ]
+  },
+  {
+    "ID": "D06",
+    "Value": "open",
+    "Citations": [
+      {
+        "ID": "D06-b",
+        "Quote": "พิพิธภัณฑ์เปิดแล้ว"
+      }
+    ]
+  },
+  {
+    "ID": "H01",
+    "Value": "Thursday",
+    "Citations": [
+      {
+        "ID": "H01-a",
+        "Quote": "The harbor launch is scheduled for Thursday."
+      }
+    ]
+  },
+  {
+    "ID": "H02",
+    "Value": "1370",
+    "Citations": [
+      {
+        "ID": "H02-b",
+        "Quote": "The revised turbine budget is 1370 units."
+      }
+    ]
+  },
+  {
+    "ID": "H03",
+    "Value": "80",
+    "Citations": [
+      {
+        "ID": "H03-a",
+        "Quote": "The measured canal depth is 80 cm."
+      }
+    ]
+  },
+  {
+    "ID": "H04",
+    "Value": "open",
+    "Citations": [
+      {
+        "ID": "H04-a",
+        "Quote": "The trail is open."
+      }
+    ]
+  },
+  {
+    "ID": "H05",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H06",
+    "Value": "146",
+    "Citations": [
+      {
+        "ID": "H06-a",
+        "Quote": "The radio frequency is 146 MHz."
+      },
+      {
+        "ID": "H06-b",
+        "Quote": "The radio frequency is 146 MHz."
+      }
+    ]
+  },
+  {
+    "ID": "H07",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H08",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H09",
+    "Value": "green",
+    "Citations": [
+      {
+        "ID": "H09-a",
+        "Quote": "The inspected cable is green."
+      }
+    ]
+  },
+  {
+    "ID": "H10",
+    "Value": "denied",
+    "Citations": [
+      {
+        "ID": "H10-a",
+        "Quote": "Replacement of the sensor battery has not been approved."
+      }
+    ]
+  },
+  {
+    "ID": "H11",
+    "Value": "18",
+    "Citations": [
+      {
+        "ID": "H11-a",
+        "Quote": "Lab record: 18 samples were collected."
+      }
+    ]
+  },
+  {
+    "ID": "H12",
+    "Value": "27",
+    "Citations": [
+      {
+        "ID": "H12-a",
+        "Quote": "There were 27 library returns."
+      }
+    ]
+  },
+  {
+    "ID": "H13",
+    "Value": "Friday",
+    "Citations": [
+      {
+        "ID": "H13-a",
+        "Quote": "Die Brückenprüfung findet am Freitag statt."
+      }
+    ]
+  },
+  {
+    "ID": "H14",
+    "Value": "21",
+    "Citations": [
+      {
+        "ID": "H14-b",
+        "Quote": "Die geänderte Lieferung umfasst 21 Pumpen."
+      }
+    ]
+  },
+  {
+    "ID": "H15",
+    "Value": "4",
+    "Citations": [
+      {
+        "ID": "H15-a",
+        "Quote": "Im Kühlhaus wurden 4 Grad gemessen."
+      }
+    ]
+  },
+  {
+    "ID": "H16",
+    "Value": "open",
+    "Citations": [
+      {
+        "ID": "H16-a",
+        "Quote": "Der Parkplatz ist geöffnet."
+      }
+    ]
+  },
+  {
+    "ID": "H17",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H18",
+    "Value": "205",
+    "Citations": [
+      {
+        "ID": "H18-a",
+        "Quote": "Das Messgerät hat die Nummer 205."
+      },
+      {
+        "ID": "H18-b",
+        "Quote": "Das Messgerät hat die Nummer 205."
+      }
+    ]
+  },
+  {
+    "ID": "H19",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H20",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H21",
+    "Value": "blue",
+    "Citations": [
+      {
+        "ID": "H21-a",
+        "Quote": "Die Tür der Markthalle ist blau."
+      }
+    ]
+  },
+  {
+    "ID": "H22",
+    "Value": "denied",
+    "Citations": [
+      {
+        "ID": "H22-a",
+        "Quote": "Die Wartung wurde nicht freigegeben."
+      }
+    ]
+  },
+  {
+    "ID": "H23",
+    "Value": "32",
+    "Citations": [
+      {
+        "ID": "H23-a",
+        "Quote": "Wareneingang: 32 Dachplatten wurden geliefert."
+      }
+    ]
+  },
+  {
+    "ID": "H24",
+    "Value": "14",
+    "Citations": [
+      {
+        "ID": "H24-a",
+        "Quote": "Es wurden 14 Sitzplätze reserviert."
+      }
+    ]
+  },
+  {
+    "ID": "H25",
+    "Value": "Wednesday",
+    "Citations": [
+      {
+        "ID": "H25-a",
+        "Quote": "เรือจะเข้าซ่อมวันพุธ"
+      }
+    ]
+  },
+  {
+    "ID": "H26",
+    "Value": "75",
+    "Citations": [
+      {
+        "ID": "H26-b",
+        "Quote": "แก้ไขจำนวนเป็น 75 ถุง"
+      }
+    ]
+  },
+  {
+    "ID": "H27",
+    "Value": "110",
+    "Citations": [
+      {
+        "ID": "H27-a",
+        "Quote": "ระดับน้ำในบ่อ 110 เซนติเมตร"
+      }
+    ]
+  },
+  {
+    "ID": "H28",
+    "Value": "open",
+    "Citations": [
+      {
+        "ID": "H28-a",
+        "Quote": "ประตูโรงเรียนเปิด"
+      }
+    ]
+  },
+  {
+    "ID": "H29",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H30",
+    "Value": "8",
+    "Citations": [
+      {
+        "ID": "H30-a",
+        "Quote": "พัสดุหนัก 8 กิโลกรัม"
+      },
+      {
+        "ID": "H30-b",
+        "Quote": "พัสดุหนัก 8 กิโลกรัม"
+      }
+    ]
+  },
+  {
+    "ID": "H31",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H32",
+    "Value": "UNKNOWN",
+    "Citations": []
+  },
+  {
+    "ID": "H33",
+    "Value": "white",
+    "Citations": [
+      {
+        "ID": "H33-a",
+        "Quote": "ป้ายนิทรรศการสีขาว"
+      }
+    ]
+  },
+  {
+    "ID": "H34",
+    "Value": "denied",
+    "Citations": [
+      {
+        "ID": "H34-a",
+        "Quote": "ยังไม่ได้รับอนุมัติให้ใช้สวน"
+      }
+    ]
+  },
+  {
+    "ID": "H35",
+    "Value": "24",
+    "Citations": [
+      {
+        "ID": "H35-a",
+        "Quote": "บันทึกรับสินค้า: ได้รับผลไม้ 24 กล่อง"
+      }
+    ]
+  },
+  {
+    "ID": "H36",
+    "Value": "19",
+    "Citations": [
+      {
+        "ID": "H36-a",
+        "Quote": "จองที่นั่งรถไฟ 19 ที่"
+      }
+    ]
+  }
+]
