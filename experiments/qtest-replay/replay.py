@@ -31,7 +31,7 @@ def stop(proc):
             proc.kill()
             proc.wait(timeout=3)
 
-def qtest(root, operations):
+def qtest(root, operations, rawpath):
     args = common(root, "qtest") + [
         "-qtest", f"unix:{root/'test'},server=on,wait=off",
         "-qmp", f"unix:{root/'qmp'},server=on,wait=off"]
@@ -41,7 +41,8 @@ def qtest(root, operations):
         try:
             s = Session(root, proc)
             ids = s.pci_id(6)
-            require(ids == {"vendor": 0x1af4, "device": 0x1001}, "PCI identity")
+            require((ids.get("vendor"), ids.get("device")) == (0x1af4, 0x1001), f"PCI identity: {ids}")
+            print(json.dumps({"qmp_pci_id": ids}), flush=True)
             s.pci(6, 0x10, 0x1001)
             s.pci(6, 4, 1, "w")
             require(s.pci(6, 0x10) & ~3 == 0x1000, "BAR")
@@ -68,13 +69,14 @@ def qtest(root, operations):
             s.cmd("quit")
             rc = proc.wait(timeout=8)
             require(rc == 0, "qtest clean exit")
+            rawpath.write_bytes((root / "qemu.log").read_bytes())
             return observations, rc
         finally:
             if s:
                 s.close()
             stop(proc)
 
-def guest(root, boot):
+def guest(root, boot, rawpath):
     # Guest boot instructions are independent of the model/translator.
     bootimg = root / "boot.raw"
     code = boot.read_bytes()
@@ -96,6 +98,7 @@ def guest(root, boot):
             rc = proc.wait(timeout=20)
             require(rc == 33, f"guest exit {rc}: { (root/'guest.log').read_text(errors='replace')[-3000:] }")
             data = obs.read_bytes()
+            rawpath.write_bytes(data)
             require(len(data) == 44, f"unexpected guest witness bytes {data.hex()}")
             words = struct.unpack("<11I", data)
             require(words[:6] == (0x35454856, 0x10011af4, 0x1001, 3, 256, 0),
@@ -118,7 +121,8 @@ def main():
         start = time.monotonic_ns()
         with tempfile.TemporaryDirectory(prefix="qtest-replay-") as td:
             root = Path(td)
-            result, rc = qtest(root, operations) if mode == "qtest" else guest(root, Path(bootpath))
+            rawpath = out / f"{mode}-{i}.raw"
+            result, rc = qtest(root, operations, rawpath) if mode == "qtest" else guest(root, Path(bootpath), rawpath)
         require(not root.exists(), "temporary fixture cleanup")
         receipt = {"plan_sha256": hashlib.sha256(p).hexdigest(),
                    "vantage": mode, "observations": result, "process_exit": rc,

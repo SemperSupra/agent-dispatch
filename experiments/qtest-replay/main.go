@@ -79,8 +79,7 @@ func run()error{
  raw,e:=os.ReadFile(os.Args[2]);if e!=nil{return e}
  if string(raw)!=string(b){return errors.New("plan differs from generated model")}
  for _,path:=range os.Args[3:]{
-  rb,e:=os.ReadFile(path);if e!=nil{return e};var r Receipt
-  if e=json.Unmarshal(rb,&r);e!=nil{return e}
+  r,rb,e:=readReceipt(path);if e!=nil{return fmt.Errorf("%s: %w",path,e)}
   if e=verify(p,b,r);e!=nil{return fmt.Errorf("%s: %w",path,e)}
   fmt.Printf("VERIFIED %s %s sha256=%s\n",r.Vantage,path,hash(rb))
  }
