@@ -22,11 +22,47 @@ type Experiment struct {
  Operations []Operation `json:"operations"`
 }
 
+// exactObject rejects ambiguous JSON before typed decoding. It checks decoded
+// key spelling, duplicate keys, nulls and the complete object shape.
+func exactObject(raw []byte, allowed map[string]bool) (map[string]json.RawMessage,error) {
+ d:=json.NewDecoder(strings.NewReader(string(raw)))
+ t,err:=d.Token()
+ if err!=nil || t!=json.Delim('{'){return nil,errors.New("object required")}
+ fields:=map[string]json.RawMessage{}
+ for d.More() {
+  tok,err:=d.Token();if err!=nil{return nil,err}
+  k,ok:=tok.(string);if !ok || !allowed[k]{return nil,errors.New("unknown or noncanonical field")}
+  if _,exists:=fields[k];exists{return nil,errors.New("duplicate field")}
+  var v json.RawMessage
+  if err=d.Decode(&v);err!=nil{return nil,err}
+  if strings.TrimSpace(string(v))=="null"{return nil,errors.New("null field")}
+  fields[k]=v
+ }
+ t,err=d.Token()
+ if err!=nil || t!=json.Delim('}') {return nil,errors.New("object end required")}
+ var extra any
+ if d.Decode(&extra)!=io.EOF{return nil,errors.New("trailing data")}
+ return fields,nil
+}
+
+func exactExperiment(raw []byte) error {
+ root,err:=exactObject(raw,map[string]bool{"version":true,"scope":true,"operations":true})
+ if err!=nil{return err}
+ var ops []json.RawMessage
+ if err=json.Unmarshal(root["operations"],&ops);err!=nil{return err}
+ if len(ops)==0 || len(ops)>128{return errors.New("operation count")}
+ for _,op:=range ops{
+  if _,err=exactObject(op,map[string]bool{"kind":true,"port":true,"width":true,"value":true,"nanoseconds":true});err!=nil{return err}
+ }
+ return nil
+}
+
 // Decode validates a bounded synthetic experiment proposal, not execution authority.
 func Decode(r io.Reader) (Experiment,error) {
  var e Experiment
  b,err:=io.ReadAll(io.LimitReader(r,65537))
  if err!=nil || len(b)>65536 {return e,errors.New("input limit")}
+ if err=exactExperiment(b);err!=nil{return e,err}
  d:=json.NewDecoder(strings.NewReader(string(b)))
  d.DisallowUnknownFields()
  if err=d.Decode(&e);err!=nil{return e,err}
