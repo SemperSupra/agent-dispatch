@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(prefix="usb-native-service-") as d:
         wait_socket(fpath,a)
         child = """
 import json,os,socket,sys
-assert os.geteuid()==int(sys.argv[1])
+assert os.geteuid()==int(sys.argv[1]) and os.getegid()==int(sys.argv[4]) and not os.getgroups()
 s=socket.socket(socket.AF_UNIX);s.settimeout(4);s.connect(sys.argv[2])
 s.sendall(b'{"op":"status"}\\n')
 if sys.argv[1]=="65533":
@@ -50,7 +50,7 @@ except PermissionError: pass
 print("DISTINCT_UID_STATUS_ALLOWED_MUTATION_RAW_QMP_DENIED=PASS")
 """
         for uid in (65534,65533):
-            r=subprocess.run(["sudo","-n","-u","#"+str(uid),"-g","#"+str(gid),"--","python3","-c",child,str(uid),str(fpath),str(qpath)],capture_output=True,text=True,timeout=12)
+            r=subprocess.run(["sudo","-n","--","setpriv","--reuid="+str(uid),"--regid="+str(gid),"--clear-groups","--","python3","-c",child,str(uid),str(fpath),str(qpath),str(gid)],capture_output=True,text=True,timeout=12)
             print(r.stdout,end="")
             if r.returncode: raise RuntimeError(r.stderr)
         print("ORIGINAL_ACTUATOR_PROTECTED_FRONTEND_REAL_QEMU=PASS")

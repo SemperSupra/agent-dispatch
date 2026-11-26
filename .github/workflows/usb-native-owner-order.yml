@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = d883f580ec3dbe55da636485d5f3bac7e7a74b3b
+          test "$(git rev-parse HEAD^)" = 20435fb0328b0fde65a4c9268e7401b5580b3c5a
           go version
           cd experiments/usb-fabric-r26/integrated
           go test -race -count=3 -timeout=120s ./...
