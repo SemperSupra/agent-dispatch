@@ -578,9 +578,19 @@ func main(){
  runtimePubPath:=flag.String("runtime-guest-public","","host BUILDER-pin of QEMU guest Ed25519 image public key; synthetic only")
  authorizedPeerUID:=flag.Int("authorized-peer-uid",-1,"opt-in kernel SO_PEERCRED allowed host-local UID; -1 legacy test")
  operations:=flag.String("permitted-operations","","optional strict comma-separated host-granted operation allowlist")
+ protectedFrontend:=flag.Bool("protected-frontend",false,"require dedicated controller and distinct peer UID, explicit grant, group-traversable private frontend directory")
  flag.Parse()
  if *qmpPath==""||*socketPath==""||*media==""||*pcap==""||*journalPath==""{
   fmt.Fprintln(os.Stderr,"missing QMP/socket/media/capture/journal");os.Exit(2)
+ }
+ policy,err:=parseOperationPolicy(*operations)
+ if err!=nil || (policy.configured && *authorizedPeerUID<0){
+  fmt.Fprintln(os.Stderr,"invalid operation grant or kernel peer authorization absent");os.Exit(16)
+ }
+ if *protectedFrontend{
+  if err=validateProtectedFrontend(*protectedQMPPID,*authorizedPeerUID,policy,*scopedReceipts,*runtimePubPath,*receiptPath);err!=nil{
+   fmt.Fprintln(os.Stderr,"protected frontend rejected:",err);os.Exit(16)
+  }
  }
  owner,err:=acquireOwner(*journalPath)
  if err!=nil{
@@ -646,18 +656,6 @@ func main(){
   os.Exit(8)
  }
  fmt.Fprintln(os.Stderr,"R26_L5_NEVER_RAN_PRELAUNCH_CONTROL_PROOF=PASS")
- if _,err=os.Lstat(*socketPath);err==nil{
-  fmt.Fprintln(os.Stderr,"refusing existing socket path");os.Exit(4)
- }else if !errors.Is(err,os.ErrNotExist){fmt.Fprintln(os.Stderr,err);os.Exit(4)}
- listener,err:=net.Listen("unix",*socketPath)
- if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(5)}
- defer listener.Close()
- defer os.Remove(*socketPath)
- if err=os.Chmod(*socketPath,0600);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(6)}
- policy,err:=parseOperationPolicy(*operations)
- if err!=nil || (policy.configured && *authorizedPeerUID<0){
-  fmt.Fprintln(os.Stderr,"invalid operation grant or kernel peer authorization absent");os.Exit(16)
- }
  a:=&actuator{m:blue.New("keyboard","xhci0/auto",ex),q:q,
   media:*media,pcap:*pcap,journal:journal,scoped:*scopedReceipts,ex:ex,
   runtimeMode:*runtimePubPath!="",
@@ -695,6 +693,11 @@ func main(){
   }
   defer a.receiptConn.Close()
  }
+ // Publish the frontend only after policy, QMP, recovery and configured
+ // guest receipt setup are complete. Protected mode is fail-closed.
+ listener,err:=listenActuatorFrontend(*socketPath,*protectedFrontend)
+ if err!=nil{fmt.Fprintln(os.Stderr,"frontend unavailable:",err);os.Exit(5)}
+ defer listener.Close()
  fmt.Println("R26_L_SOLE_QMP_ACTUATOR_LISTENING=PASS")
  for {
   c,err:=listener.Accept()
