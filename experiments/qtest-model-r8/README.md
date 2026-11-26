@@ -1,0 +1,8 @@
+# Bounded VHE interleaving and observation cohort experiments
+
+Two independent, public-safe source-only qualification cells:
+
+- `qtest-model-r8`: exhaustively enumerate two actors' ordered select/read or select/write operations on one shared legacy VirtIO queue selector. Compare no serialization, transaction serialization, an intentionally defective absent-queue model, and their combination. This is a model of experiment-harness coordination, not evidence that the QEMU device itself is defective or that a particular host thread interleaving is possible in QEMU.
+- `qtest-cohort`: check the R7 projector's fixed 80-event JSONL cohort with an externally supplied archive digest. Require canonical field spelling, exact bounded shape, complete separate raw-member groups, deterministic occurrence identity and the fixed oracle. An identical raw digest does not identify a run. Reordering independent groups is allowed; duplicate or missing occurrences, incorrect values, mixed sources, trust promotion and malformed rows are rejected. This checker validates references and consistency, not raw bytes, runtime authentication, or lifecycle. First execute the R7 raw projector against the verified archive and retain original receipt acceptance. No cross-vantage causal join, no live trust upgrade, no actuation.
+
+Each package: `GO111MODULE=off GOPROXY=off GOTOOLCHAIN=local go vet .` and `GO111MODULE=off GOPROXY=off GOTOOLCHAIN=local go test -race -count=2 -v .`. No native QEMU rebuild, network dependency, or release assertion. Use separately owned consumer integration contracts before adoption. The model is deliberately bounded to two operations per actor; it is not a general formal proof of VirtIO.
