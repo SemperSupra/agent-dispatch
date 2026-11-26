@@ -1,6 +1,7 @@
 package improvementgate
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -133,5 +134,80 @@ func TestUnknownMustAbstainWithoutCitation(t *testing.T) {
 	}
 	if v.Heldout["candidate"].WrongCitation != 1 || !slices.Contains(v.SelectedHardVetoes, "CROSS_TENANT") {
 		t.Fatalf("fabricated unknown source accepted: %+v", v)
+	}
+}
+
+func TestUnattestedModelLabelNeverQualifiesPromotion(t *testing.T) {
+	e := fixture()
+	e.InferenceKind = MeasuredModel
+	// Duplicate semantic cases with fresh IDs are not independent model evidence.
+	for i := 0; i < 30; i++ {
+		c := e.Heldout[2]
+		c.ID = fmt.Sprintf("extra-%02d", i)
+		e.Heldout = append(e.Heldout, c)
+		for j := range e.Arms {
+			e.Arms[j].Heldout = append(e.Arms[j].Heldout, Answer{CaseID: c.ID, Value: Unknown})
+		}
+	}
+	v, err := Evaluate(e)
+	if err != nil || v.PromotionStatus != "HOLD" || v.Heldout["candidate"].Exact != 33 {
+		t.Fatalf("claimed model label or repeated cases manufactured authority: %+v %v", v, err)
+	}
+}
+
+func TestCandidateTieBreakIndependentOfArmOrder(t *testing.T) {
+	e := fixture()
+	other := e.Arms[1]
+	other.Name = "a-candidate"
+	other.PolicySHA256 = sourceDigest("other")
+	e.Arms = append(e.Arms, other)
+	first, err := Evaluate(e)
+	if err != nil || first.SelectedOnDev != other.Name {
+		t.Fatalf("unstable candidate tie: %+v %v", first, err)
+	}
+	slices.Reverse(e.Arms)
+	again, err := Evaluate(e)
+	if err != nil || !reflect.DeepEqual(first, again) {
+		t.Fatalf("arm order changed verdict: %+v %+v %v", first, again, err)
+	}
+	// The baseline always wins an equal exact score.
+	for i := range e.Arms {
+		e.Arms[i].Dev = slices.Clone(other.Dev)
+	}
+	tied, err := Evaluate(e)
+	if err != nil || tied.SelectedOnDev != e.Baseline {
+		t.Fatalf("baseline tie changed policy: %+v %v", tied, err)
+	}
+}
+
+func TestDisjointLabelsCannotHideSharedGoldSource(t *testing.T) {
+	e := fixture()
+	e.Heldout[0].Allowed = slices.Clone(e.Dev[0].Allowed)
+	_, err := Evaluate(e)
+	if err == nil || !strings.Contains(err.Error(), "TRAIN_HOLDOUT_SOURCE_LEAKAGE") {
+		t.Fatalf("same source disguised by different case lineage: %v", err)
+	}
+}
+
+func TestGoldRejectsPartialUTF8AndInvalidSourceText(t *testing.T) {
+	for _, tc := range []struct {
+		name, reason string
+		mutate func(*Experiment)
+	}{
+		{"partial-rune-end", "GOLD_CITATION_UTF8_BOUNDARY", func(e *Experiment) { e.Heldout[1].Allowed[0].End = 1 }},
+		{"partial-rune-start", "GOLD_CITATION_UTF8_BOUNDARY", func(e *Experiment) { e.Heldout[1].Allowed[0].Begin = 1 }},
+		{"invalid-utf8", "SOURCE_DIGEST_OR_ID_INVALID", func(e *Experiment) {
+			e.Sources[2].Body = string([]byte{255})
+			e.Sources[2].SHA256 = sourceDigest(e.Sources[2].Body)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := fixture()
+			tc.mutate(&e)
+			_, err := Evaluate(e)
+			if err == nil || !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("missing UTF-8/source guard: %v", err)
+			}
+		})
 	}
 }

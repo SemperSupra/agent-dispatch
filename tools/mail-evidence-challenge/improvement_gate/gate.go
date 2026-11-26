@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -53,7 +54,7 @@ type Verdict struct {
 	Schema, OracleSHA256, InferenceKind, SelectedOnDev string
 	Dev, Heldout                                       map[string]Statistics
 	SelectedHardVetoes                                 []string
-	PromotionStatus                                    string // Always HOLD or MANUAL_REVIEW_REQUIRED; never auto-promotes.
+	PromotionStatus                                    string // HOLD: no independent execution or policy custody attestation.
 }
 
 func sourceDigest(body string) string {
@@ -119,7 +120,7 @@ func verifyCases(e Experiment) (map[string]Source, error) {
 	}
 	sources := make(map[string]Source, len(e.Sources))
 	for _, s := range e.Sources {
-		if s.ID == "" || s.Tenant == "" || s.SHA256 != sourceDigest(s.Body) {
+		if s.ID == "" || s.Tenant == "" || !utf8.ValidString(s.Body) || s.SHA256 != sourceDigest(s.Body) {
 			return nil, errors.New("SOURCE_DIGEST_OR_ID_INVALID")
 		}
 		if _, err := instant(s.AcquiredAt); err != nil {
@@ -133,6 +134,7 @@ func verifyCases(e Experiment) (map[string]Source, error) {
 	ids := map[string]bool{}
 	devFamilies := map[string]bool{}
 	devLineages := map[string]bool{}
+	devCitedSources := map[string]bool{}
 	for partition, cases := range [][]Case{e.Dev, e.Heldout} {
 		for _, c := range cases {
 			if c.ID == "" || c.Family == "" || c.Lineage == "" || c.Tenant == "" || c.ExpectedValue == "" ||
@@ -158,8 +160,19 @@ func verifyCases(e Experiment) (map[string]Source, error) {
 			}
 			for _, ev := range c.Allowed {
 				s, ok := sources[ev.SourceID]
-				if !ok || s.Tenant != c.Tenant || ev.Begin < 0 || ev.End <= ev.Begin || ev.End > len([]byte(s.Body)) {
+				if !ok || s.Tenant != c.Tenant || ev.Begin < 0 || ev.End <= ev.Begin || ev.End > len(s.Body) {
 					return nil, errors.New("GOLD_CITATION_INVALID")
+				}
+				// Byte offsets must delimit complete UTF-8 code points, not fragments.
+				if !utf8.RuneStart(s.Body[ev.Begin]) || (ev.End < len(s.Body) && !utf8.RuneStart(s.Body[ev.End])) {
+					return nil, errors.New("GOLD_CITATION_UTF8_BOUNDARY")
+				}
+				// Even differently labeled cases must not share a gold source occurrence.
+				// This does not prove that the wider retrieval context is disjoint.
+				if partition == 0 {
+					devCitedSources[ev.SourceID] = true
+				} else if devCitedSources[ev.SourceID] {
+					return nil, errors.New("TRAIN_HOLDOUT_SOURCE_LEAKAGE")
 				}
 				acquired, _ := instant(s.AcquiredAt)
 				if acquired.After(known) {
@@ -257,7 +270,9 @@ func Evaluate(e Experiment) (Verdict, error) {
 	}
 	selected := e.Baseline
 	for _, arm := range e.Arms {
-		if result.Dev[arm.Name].Exact > result.Dev[selected].Exact {
+		// Baseline wins a tie; ties above baseline use stable name ordering.
+		score, best := result.Dev[arm.Name].Exact, result.Dev[selected].Exact
+		if score > best || (score == best && selected != e.Baseline && arm.Name < selected) {
 			selected = arm.Name
 		}
 	}
@@ -272,10 +287,9 @@ func Evaluate(e Experiment) (Verdict, error) {
 	if chosen.WrongCitation > 0 {
 		result.SelectedHardVetoes = append(result.SelectedHardVetoes, "SOURCE_CITATION")
 	}
-	if selected != e.Baseline && e.InferenceKind == MeasuredModel &&
-		len(e.Heldout) >= 30 && len(result.SelectedHardVetoes) == 0 &&
-		chosen.Exact >= result.Heldout[e.Baseline].Exact {
-		result.PromotionStatus = "MANUAL_REVIEW_REQUIRED"
-	}
+	// Neither a claimed inference kind nor a count of cases proves independent
+	// model execution, source partition isolation or policy identity. Keep the
+	// research evaluator incapable of granting even a promotion-review status.
+	// A separate receipt-bound qualification authority must decide promotion.
 	return result, nil
 }
