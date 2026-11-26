@@ -1,0 +1,49 @@
+name: USB Edge native ARM64 inventory and package qualification
+on:
+  push:
+    branches: [qual/usb-edge-arm64-inventory-package-20261126]
+permissions:
+  contents: read
+concurrency:
+  group: usb-edge-arm64-inventory-20261126
+  cancel-in-progress: false
+jobs:
+  native-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Actual native ARM64 Go and Debian package rehearsal
+        shell: bash
+        env:
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = dcfb84eddf7e02722a2c1cc4adee50287e629424
+          test "$(uname -m)" = aarch64
+          go version
+          cd experiments/pi-usb-fabric-r03/edge-inventory/
+          go test -race -count=10 -timeout=90s -v ./...
+          go vet ./...
+          out="$(mktemp -d "$RUNNER_TEMP/usb-edge-XXXXXX")"
+          trap 'rm -rf -- "$out"' EXIT
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          bash build-deb.sh "$out"
+          pkg="$out/usb-edge-inventory_0.0.1_arm64.deb"
+          test "$(dpkg-deb -f "$pkg" Architecture)" = arm64
+          sha256sum "$pkg"
+          dpkg-deb -x "$pkg" "$out/installed"
+          file "$out/installed/usr/bin/usb-edge-inventory"
+          "$out/installed/usr/bin/usb-edge-inventory" --sysfs-root /sys > "$out/inventory.json"
+          python3 -c 'import json,sys; x=json.load(open(sys.argv[1])); assert x["architecture"]=="arm64" and x["authority"]=="READ_ONLY_NOT_ENROLLED_NOT_A_GRANT"; print("EDGE_NATIVE_ARM64_OBSERVED_COUNT="+str(len(x["devices"]))+" STATUS="+x["status"])' "$out/inventory.json"
+          rm -rf -- "$out/installed"
+          test ! -e "$out/installed"
+          echo EDGE_ARM64_PACKAGE_EXTRACT_EXECUTE_ROLLBACK=PASS
+          echo USBIP_EXPORTER_LIVE_AND_PHYSICAL_PI_HIL=NOT_TESTED
