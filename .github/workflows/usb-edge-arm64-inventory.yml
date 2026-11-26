@@ -1,4 +1,4 @@
-name: USB Edge native ARM64 inventory and package qualification
+name: USB Edge native ARM64 package reproducibility and lifecycle
 on:
   push:
     branches: [qual/usb-edge-arm64-inventory-package-20261126]
@@ -16,7 +16,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Actual native ARM64 Go and Debian package rehearsal
+      - name: Native tests and isolated dpkg lifecycle
         shell: bash
         env:
           GOPROXY: 'off'
@@ -26,24 +26,43 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD^)" = dcfb84eddf7e02722a2c1cc4adee50287e629424
+          test "$(git rev-parse HEAD^)" = 96c1ea890ef89aa7c2fb56fe1bdc95bbdedb74ec
           test "$(uname -m)" = aarch64
-          go version
           cd experiments/pi-usb-fabric-r03/edge-inventory/
+          go version
           go test -race -count=10 -timeout=90s -v ./...
           go vet ./...
           out="$(mktemp -d "$RUNNER_TEMP/usb-edge-XXXXXX")"
-          trap 'rm -rf -- "$out"' EXIT
+          trap 'sudo -n rm -rf -- "$out"' EXIT
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
-          bash build-deb.sh "$out"
-          pkg="$out/usb-edge-inventory_0.0.1_arm64.deb"
+          mkdir -p "$out/a" "$out/b"
+          bash build-deb.sh "$out/a"
+          bash build-deb.sh "$out/b"
+          name="usb-edge-inventory_0.0.1_arm64.deb"
+          pkg="$out/a/$name"
+          cmp "$pkg" "$out/b/$name"
+          echo EDGE_PACKAGE_TWO_BUILD_BYTES_EQUAL=PASS
           test "$(dpkg-deb -f "$pkg" Architecture)" = arm64
-          sha256sum "$pkg"
-          dpkg-deb -x "$pkg" "$out/installed"
-          file "$out/installed/usr/bin/usb-edge-inventory"
-          "$out/installed/usr/bin/usb-edge-inventory" --sysfs-root /sys > "$out/inventory.json"
+          test "$(stat -c %s "$pkg")" -le 8388608
+          installroot="$out/root"
+          mkdir -p "$installroot/var/lib/dpkg"
+          touch "$installroot/var/lib/dpkg/status"
+          sudo -n dpkg --root="$installroot" --install "$pkg"
+          sha256sum "$installroot/usr/bin/usb-edge-inventory" > "$out/installed.sha"
+          "$installroot/usr/bin/usb-edge-inventory" --sysfs-root /sys > "$out/inventory.json"
           python3 -c 'import json,sys; x=json.load(open(sys.argv[1])); assert x["architecture"]=="arm64" and x["authority"]=="READ_ONLY_NOT_ENROLLED_NOT_A_GRANT"; print("EDGE_NATIVE_ARM64_OBSERVED_COUNT="+str(len(x["devices"]))+" STATUS="+x["status"])' "$out/inventory.json"
-          rm -rf -- "$out/installed"
-          test ! -e "$out/installed"
-          echo EDGE_ARM64_PACKAGE_EXTRACT_EXECUTE_ROLLBACK=PASS
-          echo USBIP_EXPORTER_LIVE_AND_PHYSICAL_PI_HIL=NOT_TESTED
+          sudo -n dpkg --root="$installroot" --install "$pkg"
+          sha256sum -c "$out/installed.sha"
+          sudo -n dpkg --root="$installroot" --purge usb-edge-inventory
+          test ! -e "$installroot/usr/bin/usb-edge-inventory"
+          echo EDGE_ISOLATED_DPKG_INSTALL_REINSTALL_PURGE=PASS
+          mkdir -p "$RUNNER_TEMP/usb-edge-release"
+          cp "$pkg" "$RUNNER_TEMP/usb-edge-release/"
+          (cd "$RUNNER_TEMP/usb-edge-release"; sha256sum "$name" > SHA256SUMS; printf 'source=%s\nrun=%s\narchitecture=arm64\nscope=qualification-not-release\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > provenance.txt; cat SHA256SUMS)
+          echo USBIP_EXPORTER_AND_PHYSICAL_PI_HIL=NOT_TESTED
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: usb-edge-arm64-qualified-package
+          path: ${{ runner.temp }}/usb-edge-release/
+          retention-days: 7
+          if-no-files-found: error
