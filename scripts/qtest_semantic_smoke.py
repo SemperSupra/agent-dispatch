@@ -90,12 +90,34 @@ def usb(s):
     witness("xhci vendor",ids["vendor"],0x1b36)
     witness("xhci device",ids["device"],0x000d)
     witness("xhci class",s.pci(5,8)>>8,0x0c0330)
+    # Read actual xHCI port state independently of QOM topology (same model).
+    base=0xfeb00000
+    s.pci(5,0x10,base)
+    s.pci(5,0x14,0)
+    s.pci(5,4,2,"w")
+    cap=s.qt(f"readl {base:#x}") & 0xff
+    ports=s.qt(f"readl {base+4:#x}") >> 24
+    require(cap==0x40 and 0<ports<=32,"xHCI MMIO geometry")
+    addresses=[base+cap+0x400+16*i for i in range(ports)]
+    def connected():
+        return [i for i,a in enumerate(addresses) if s.qt(f"readl {a:#x}") & 1]
+    witness("initial ports disconnected",len(connected()),0)
     require("fixture" not in s.peripheral(),"clean start")
     s.cmd("device_add",dict(driver="usb-kbd",bus="xhci.0",id="fixture"))
     witness("present after add","fixture" in s.peripheral(),True)
+    attached=connected()
+    witness("single connected port",len(attached),1)
+    port=addresses[attached[0]]
+    witness("connect change",bool(s.qt(f"readl {port:#x}") & (1<<17)),True)
+    s.qt(f"writel {port:#x} {((1<<9)|(1<<17)):#x}")
+    witness("connect change W1C",bool(s.qt(f"readl {port:#x}") & (1<<17)),False)
+    s.qt(f"writel {port:#x} {((1<<9)|(1<<4)):#x}")
+    witness("port reset enabled",bool(s.qt(f"readl {port:#x}") & 2),True)
+    witness("port reset completion",bool(s.qt(f"readl {port:#x}") & (1<<21)),True)
     s.cmd("device_add",dict(driver="usb-kbd",bus="xhci.0",id="fixture"),error=True)
     s.cmd("device_add",dict(driver="usb-kbd",bus="nonexistent-bus",id="wrong"),error=True)
     witness("no phantom device","wrong" in s.peripheral(),False)
+    witness("negative controls preserve port",connected(),attached)
     s.cmd("device_del",dict(id="fixture"))
     end=time.monotonic()+5
     while time.monotonic()<end:
@@ -103,9 +125,11 @@ def usb(s):
         if "fixture" not in s.peripheral():
             break
     witness("removed","fixture" in s.peripheral(),False)
+    witness("disconnect observed in PORTSC",len(connected()),0)
     witness("delete event",any(e["event"]=="DEVICE_DELETED" and e.get("data",{}).get("device")=="fixture" for e in s.events),True)
     s.cmd("device_add",dict(driver="usb-kbd",bus="xhci.0",id="fixture"))
     witness("reattach","fixture" in s.peripheral(),True)
+    witness("reattach connected port count",len(connected()),1)
 
 def virtio(s):
     ids=s.pci_id(6)
@@ -125,7 +149,13 @@ def virtio(s):
     print(json.dumps(dict(test="queue 0",observed=size)),flush=True)
     s.qt("outw 0x100e 1")
     witness("nonexistent queue 1",s.qt("inw 0x100c"),0)
+    witness("absent queue initial PFN",s.qt("inl 0x1008"),0)
+    s.qt("outl 0x1008 1")
+    witness("absent queue PFN mutation refused",s.qt("inl 0x1008"),0)
+    s.qt("outw 0x1010 1")
+    witness("status after nonexistent notify",s.qt("inb 0x1012"),3)
     s.qt("outw 0x100e 0")
+    witness("valid queue PFN undisturbed",s.qt("inl 0x1008"),0)
     witness("valid queue recovered",s.qt("inw 0x100c"),size)
     s.qt("outb 0x1012 0")
     witness("reset status",s.qt("inb 0x1012"),0)
