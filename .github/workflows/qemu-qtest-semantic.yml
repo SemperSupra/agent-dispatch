@@ -11,37 +11,76 @@ permissions:
 jobs:
   device:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [usb, virtio]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Install distro QEMU and identify exact version
+      - name: Install public build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends qemu-system-x86
-          qemu-system-x86_64 --version
-          dpkg-query -W qemu-system-x86
-          sha256sum "$(command -v qemu-system-x86_64)"
-      - name: Execute independent semantic smoke
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build pkg-config python3-venv libglib2.0-dev libpixman-1-dev libfdt-dev libslirp-dev zlib1g-dev
+      - name: Build exact upstream once for both independent lanes
         shell: bash
         run: |
           set -euo pipefail
+          e="$RUNNER_TEMP/evidence"
+          mkdir -p "$e" "$RUNNER_TEMP/qtest-build"
+          cd "$RUNNER_TEMP/qtest-build"
+          git init -q
+          git fetch --depth=1 https://github.com/qemu/qemu.git 698104725efad4b29079d857dfdebbd804e34c99
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = 698104725efad4b29079d857dfdebbd804e34c99
+          git show -s --format='%H %s' | tee "$e/source.txt"
+          mkdir build
+          cd build
+          ../configure --target-list=x86_64-softmmu --disable-docs --disable-werror --disable-gtk --disable-sdl --disable-vnc --enable-slirp 2>&1 | tee "$e/configure.log"
+          /usr/bin/time -v ninja -j 3 qemu-system-x86_64 2>&1 | tee "$e/build.log"
+          ./qemu-system-x86_64 --version | tee "$e/version.txt"
+          sha256sum ./qemu-system-x86_64 | tee "$e/binary.sha256"
+          # qtest is an internal accelerator; help output need not advertise it.
+          # The actual fixture handshake is the capability oracle, not a help string.
+      - name: Execute separate device-model lanes concurrently
+        shell: bash
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/evidence"
+          export PATH="$RUNNER_TEMP/qtest-build/build:$PATH"
+          test "$(command -v qemu-system-x86_64)" = "$RUNNER_TEMP/qtest-build/build/qemu-system-x86_64"
+          sha256sum scripts/qtest_semantic_smoke.py | tee "$e/fixture.sha256"
+          lane() {
+            local name="$1" rc=0
+            mkdir -p "$e/$name"
+            /usr/bin/time -v -o "$e/$name/resources.txt" timeout 90s python3 scripts/qtest_semantic_smoke.py "$name" > "$e/$name/test.log" 2>&1 || rc=$?
+            printf '%s\n' "$rc" > "$e/$name/exit.txt"
+            cat "$e/$name/test.log"
+            cat "$e/$name/resources.txt"
+            return "$rc"
+          }
+          lane usb & upid=$!
+          lane virtio & vpid=$!
+          u=0; v=0
+          wait "$upid" || u=$?
+          wait "$vpid" || v=$?
+          printf 'usb=%s\nvirtio=%s\n' "$u" "$v" | tee "$e/lane-exits.txt"
+          test "$u" -eq 0 && test "$v" -eq 0
+      - name: Hash observed receipts
+        if: always()
+        run: |
           mkdir -p "$RUNNER_TEMP/evidence"
-          sha256sum scripts/qtest_semantic_smoke.py | tee "$RUNNER_TEMP/evidence/source.txt"
-          qemu-system-x86_64 --version > "$RUNNER_TEMP/evidence/version.txt"
-          timeout 90s python3 scripts/qtest_semantic_smoke.py "${{ matrix.lane }}" 2>&1 | tee "$RUNNER_TEMP/evidence/test.log"
-      - name: Retain result
+          cd "$RUNNER_TEMP/evidence"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          cat SHA256SUMS
+      - name: Retain bounded receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: qtest-semantic-${{ matrix.lane }}
+          name: qtest-semantic-native
           path: ${{ runner.temp }}/evidence
           retention-days: 7
+      - name: Remove disposable state
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/qtest-build" "$RUNNER_TEMP/evidence"
   contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 6
