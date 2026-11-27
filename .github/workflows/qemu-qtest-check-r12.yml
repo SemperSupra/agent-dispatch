@@ -1,0 +1,32 @@
+name: QEMU fixed schedule semantic checker
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/qemu-qtest-check-r12.yml'
+      - 'experiments/qtest-schedule-check-r12/**'
+permissions:
+  contents: read
+env:
+  GO111MODULE: 'off'
+  GOPROXY: 'off'
+  GOSUMDB: 'off'
+  GOTOOLCHAIN: local
+jobs:
+  verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build, vet and race-test exact checker
+        working-directory: experiments/qtest-schedule-check-r12
+        shell: bash
+        run: |
+          set -euo pipefail
+          go version
+          sha256sum *.go testdata/cohort.json
+          go build -o "$RUNNER_TEMP/qtest-schedule-check" .
+          go vet .
+          go test -race -count=2 -v .
