@@ -52,7 +52,7 @@ jobs:
           test -f .github/workflows/qualify-takeout-foundry-receipt.yml
           echo "PASS_NO_R9_DOCKER_EVENTS_OR_STALE_HOSTED_TRANSPORT"
 
-      - name: Exercise 18 fail-closed source tests
+      - name: Exercise 19 fail-closed source tests
         run: python3 -m unittest discover -s tests -p 'test_qualify_takeout_t6_admission.py' -v
       - name: Exercise source-pinned OCI layer count plus legacy negative controls
         run: python3 -m unittest discover -s tests -p 'test_verify_takeout_synthetic_oci_artifact.py' -v
@@ -82,6 +82,13 @@ jobs:
           assert d['docker_read_required'] is False
           assert d['physical_apply']=='HOLD'
           blockers=set(d['blockers'])
+          from datetime import datetime, timezone
+          c=json.loads(Path("config/takeout-t6-admission-candidate.json").read_text())
+          deadline=datetime.fromisoformat(
+              c['producer']['oci_artifact_expires'].replace('Z','+00:00'))
+          if datetime.now(timezone.utc) >= deadline:
+              assert 'OCI_ARTIFACT_EXPIRED' in blockers
+              print('EXPIRED_PINNED_OCI_CANNOT_AUTHORIZE_GUEST: HOLD')
           assert {'PRODUCT_PROVIDER_NOT_BOUND',
                   'WORKFLOW_SELECTOR_NOT_BOUND',
                   'NATIVE_TAKEOUT_PROBE_NOT_QUALIFIED',
@@ -94,7 +101,7 @@ jobs:
           print(json.dumps(d,sort_keys=True))
           PY
 
-      - name: Qualify pinned public transport evidence without native guest promotion
+      - name: Classify historical public transport and enforce post-expiry hold
         run: |
           python3 - <<'PY'
           import json
@@ -110,5 +117,8 @@ jobs:
           assert expiry.tzinfo is not None
           assert c["decision"] == "HOLD" and c["execution"]["run_dispatched"] is False
           assert p["native_guest_import_qualified"] is False
-          print("FRESH_PUBLIC_TRANSPORT_EVIDENCE_ONLY; native import/guest HOLD; expires", expiry.isoformat())
+          if datetime.now(timezone.utc) >= expiry:
+              print("EXPIRED_PUBLIC_TRANSPORT_HISTORICAL_RECEIPT_ONLY; native guest HOLD;", expiry.isoformat())
+          else:
+              print("UNEXPIRED_PUBLIC_TRANSPORT_STILL_NOT_NATIVE_ADMISSION; native guest HOLD;", expiry.isoformat())
           PY
