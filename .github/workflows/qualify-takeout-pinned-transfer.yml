@@ -44,7 +44,7 @@ jobs:
           assert source_layer_count(os.environ['SOURCE_SHA']) == 6
           fresh=datetime.now(timezone.utc) < expiry
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as f:
-              f.write('fresh=' + ('true' if fresh else 'false') + '\\n')
+              f.write('fresh=' + ('true' if fresh else 'false') + '\n')
           if fresh:
               print('PINNED_PUBLIC_TRANSPORT_UNEXPIRED_VERIFY_BYTES_BEFORE_REPLAY')
               message='UNEXPIRED: independent ZIP, OCI, Docker and byte replay required'
@@ -52,8 +52,8 @@ jobs:
               print('HOLD_OCI_ARTIFACT_EXPIRED_NO_DOWNLOAD_NO_IMPORT_NO_GUEST')
               message='EXPIRED HISTORICAL ARTIFACT: no download or Docker import; guest HOLD'
           with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:
-              f.write('### Takeout public transport freshness\\n\\n' + message +
-                      '\\n\\nSource fixture is public; native guest NOT RUN.\\n')
+              f.write('### Takeout public transport freshness\n\n' + message +
+                      '\n\nSource fixture is public; native guest NOT RUN.\n')
           PY
       - name: Execute offline OCI regression tests before independent transport
         run: python3 -m unittest discover -s tests -p 'test_verify_takeout_synthetic_oci_artifact.py' -v
