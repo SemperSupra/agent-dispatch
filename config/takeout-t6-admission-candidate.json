@@ -1,0 +1,75 @@
+{
+  "schema": "takeout-t6-admission-candidate/v1",
+  "scope": "SYNTHETIC_ONLY",
+  "authority": {
+    "repository": "SemperSupra/agent-dispatch-private",
+    "issue": 642,
+    "foundry_issue": 327,
+    "lane_issue": 480
+  },
+  "target": {
+    "version": "25.04.2.6",
+    "rung": "t6",
+    "guest_only": true,
+    "middleware_commit": "244b717370fe35fb9eefc3096acfbc25f12b57b6"
+  },
+  "producer": {
+    "repository": "SemperSupra/agent-dispatch",
+    "pr": 480,
+    "source_commit": "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0",
+    "hosted_receipt_workflow": 41905075905,
+    "oci_artifact_id": 13358599085,
+    "oci_artifact_zip_sha256": "sha256:dcc0b35035163f0b5a1cbd73603070c40017d86c13817ca6cd7a3441c898506e",
+    "oci_artifact_expires": "2026-11-11T20:17:17Z",
+    "oci_manifest_sha256": "sha256:dc4bd461467e15d5cd50152d17cc673383c86998ca61700ed7d57881dcea868e",
+    "loaded_image_config_sha256": "sha256:2a42d2262e4f8d86bf9f07de64145b5bcf68cb1b491cf34b3f39126b1c054eed",
+    "artifact_independent_byte_audit": "PASS_PUBLIC_CROSS_RUN_2026-11-05",
+    "docker_archive_layer_count": 6,
+    "portable_oci_cross_format_workflow": 41955695340,
+    "guest_control_source_workflow": 41906153217,
+    "cross_run_public_source_sha": "7fb683572a4ce4d51b3c2a89bf5ba1b102c200b0",
+    "native_guest_import_qualified": false
+  },
+  "consumer": {
+    "repository": "SemperSupra/truenas-app-foundry",
+    "pr": 144,
+    "source_commit": "70cd8dc02d32dfba1943ff196a4df405945a88d3",
+    "data_outcome_observer": "LOCAL_ONLY_NOT_COMMITTED",
+    "native_app_observation": "SOURCE_ONLY_TESTS_COMMITTED_GUEST_NOT_RUN",
+    "zfs_retention": "NOT_RUN"
+  },
+  "completion": {
+    "kind": "INDEPENDENT_OUTPUT_VERIFIED_WITH_APPLICATION_REPORT",
+    "process_exit_required": false,
+    "docker_read_required": false,
+    "application_self_report_is_sufficient": false,
+    "verified_hosted_workflow": 41905075905
+  },
+  "execution": {
+    "provider_id": "takeout-synthetic-t6",
+    "selector": "takeout-synthetic",
+    "probe": "scripts/truenas_middleware_takeout_t6_probe.py",
+    "control_artifact": "takeout-synthetic-t6-control",
+    "registered": false,
+    "native_probe_exists": false,
+    "workflow_selector_bound": false,
+    "control_artifact_qualified": false,
+    "fresh_takeout_run_request": null,
+    "exclusive_lane_release": null,
+    "run_dispatched": false,
+    "guest_control_candidate": "config/takeout-synthetic-guest-control-candidate.json",
+    "native_app_observer_source": "scripts/observe_takeout_t6_native_app.py",
+    "native_app_observer_tests": "tests/test_observe_takeout_t6_native_app.py",
+    "native_app_observer_exact_head": "29846903c01ba7c83459618fb3cda4c3738726d8",
+    "native_app_observer_hosted_ci": "SOURCE_ONLY_PASS_41955695429"
+  },
+  "constraints": {
+    "allow_real_google_data": false,
+    "allow_physical_truenas": false,
+    "allow_private_gha_minutes": false,
+    "allow_global_docker_socket": false,
+    "allow_new_site_docker_read": false,
+    "retry": "none"
+  },
+  "decision": "HOLD"
+}
