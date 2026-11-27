@@ -46,7 +46,8 @@ with tempfile.TemporaryDirectory() as t:
     check(invoke(raw=dump(q)+b"{}",sources=False))
     rp.write_bytes(dump(ar));check(invoke(leftpin=False,sources=False));rp.write_bytes(dump(br))
     r.write_bytes(b+b"x");check(invoke());r.write_bytes(b)
-    l.write_bytes(a[:-1]+b"Z");check(invoke());l.write_bytes(a)
+    modified=a[:-1]+b"!";assert modified!=a and modified[4:7]==a[4:7]
+    l.write_bytes(modified);check(invoke());l.write_bytes(a)
     bad=copy.deepcopy(q);bad["schema"]="causal-link/v1";check(invoke(bad,sources=False))
     print("Range relation CLI oracle",json.dumps(counts,sort_keys=True))
     assert counts=={"compared":4,"unknown":3,"refused":12},counts
