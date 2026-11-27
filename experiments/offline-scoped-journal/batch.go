@@ -158,7 +158,8 @@ func CompareRetainedBatch(q RangeBatch,pins []ArtifactRef,open func(ArtifactRef)
 		}
 		reader,e:=open(a.ref);if e!=nil{return refuse(e)}
 		if reader==nil{return refuse(errors.New("nil source reader"))}
-		status,verifyErr:=VerifyRetainedArtifact(io.TeeReader(reader,s),a.ref,&pin)
+		// Read at most the pinned length plus one trailing-byte sentinel.
+		status,verifyErr:=VerifyRetainedArtifact(io.TeeReader(io.LimitReader(reader,int64(a.ref.Size)+1),s),a.ref,&pin)
 		closeErr:=reader.Close()
 		if verifyErr!=nil||closeErr!=nil||status!=RetainedByteMatch{return refuse(errors.New("batch source verification failed"))}
 		for _,r:=range a.order{if len(a.ranges[r].data)!=int(r.Length){return refuse(errors.New("incomplete selection"))}}
