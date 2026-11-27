@@ -156,3 +156,20 @@ jobs:
           go build -o "$d/range-relation" ./cmd/range-relation
           "$d/range-relation" -help
           python3 testdata/range_relation_oracle.py "$d/range-relation"
+  range-batch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+          sparse-checkout: experiments/offline-scoped-journal
+      - name: Batch verification and adversarial process oracle
+        working-directory: experiments/offline-scoped-journal
+        run: |
+          set -euo pipefail
+          d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
+          go build -o "$d/range-relation" ./cmd/range-relation
+          "$d/range-relation" batch -help
+          python3 testdata/range_batch_oracle.py "$d/range-relation"

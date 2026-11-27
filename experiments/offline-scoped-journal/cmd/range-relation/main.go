@@ -56,4 +56,4 @@ func run(args []string,out io.Writer)(int,error){
 	r,e:=journal.CompareRetainedRanges(q,lf,rf,a,z);if e!=nil{return 2,e}
 	return emit(r,0)
 }
-func main(){code,e:=run(os.Args[1:],os.Stdout);if e!=nil{fmt.Fprintln(os.Stderr,e)};os.Exit(code)}
+func main(){args:=os.Args[1:];var code int;var e error;if len(args)>0&&args[0]=="batch"{code,e=runBatch(args[1:],os.Stdout)}else{code,e=run(args,os.Stdout)};if e!=nil{fmt.Fprintln(os.Stderr,e)};os.Exit(code)}
