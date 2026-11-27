@@ -1,0 +1,76 @@
+name: QEMU QTest native binary reuse
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/qemu-qtest-reuse-r17.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install public build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build pkg-config python3-venv libglib2.0-dev libpixman-1-dev libfdt-dev libslirp-dev zlib1g-dev
+      - name: Build exact native QEMU
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/reuse-evidence"
+          mkdir -p "$e" "$RUNNER_TEMP/reuse-build"
+          cd "$RUNNER_TEMP/reuse-build"
+          git init -q
+          git fetch --depth=1 https://github.com/qemu/qemu.git 698104725efad4b29079d857dfdebbd804e34c99
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = 698104725efad4b29079d857dfdebbd804e34c99
+          git show -s --format='%H %s' | tee "$e/source.txt"
+          mkdir build
+          cd build
+          ../configure --target-list=x86_64-softmmu --disable-docs --disable-werror --disable-gtk --disable-sdl --disable-vnc --enable-slirp > "$e/configure.log" 2>&1
+          /usr/bin/time -v -o "$e/build.resources" ninja -j 3 qemu-system-x86_64 > "$e/build.log" 2>&1
+          ./qemu-system-x86_64 --version | tee "$e/version.txt"
+          sha256sum ./qemu-system-x86_64 | tee "$e/qemu.sha256"
+      - name: Execute five fresh cohorts using the same build
+        run: |
+          set -euo pipefail
+          e="$RUNNER_TEMP/reuse-evidence"
+          export PATH="$RUNNER_TEMP/reuse-build/build:$PATH"
+          test "$(command -v qemu-system-x86_64)" = "$RUNNER_TEMP/reuse-build/build/qemu-system-x86_64"
+          sha256sum experiments/qtest-modern-r13/probe.py experiments/qtest-replay/replay.py scripts/qtest_semantic_smoke.py > "$e/fixture.sha256"
+          python3 -m py_compile experiments/qtest-modern-r13/probe.py
+          overall=0
+          for i in 1 2 3 4 5; do
+            d="$e/cohort-$i"
+            mkdir "$d"
+            (cd "$RUNNER_TEMP/reuse-build/build" && sha256sum -c "$e/qemu.sha256") > "$d/binary-before.log"
+            rc=0
+            /usr/bin/time -v -o "$d/probe.resources" timeout 120s python3 experiments/qtest-modern-r13/probe.py "$d/arms" > "$d/probe.log" 2>&1 || rc=$?
+            echo "$rc" > "$d/probe.exit"
+            (cd "$RUNNER_TEMP/reuse-build/build" && sha256sum -c "$e/qemu.sha256") > "$d/binary-after.log"
+            cat "$d/probe.log"
+            if [ "$rc" -ne 0 ]; then overall=1; fi
+          done
+          echo "$overall" > "$e/cohort.exit"
+          test "$overall" -eq 0
+      - name: Hash evidence
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/reuse-evidence"
+          cd "$RUNNER_TEMP/reuse-evidence"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          cat SHA256SUMS
+      - name: Preserve bounded public evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qtest-reuse-r17
+          path: ${{ runner.temp }}/reuse-evidence/
+          retention-days: 7
+      - name: Remove disposable state
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/reuse-build" "$RUNNER_TEMP/reuse-evidence"
