@@ -1,0 +1,309 @@
+name: Synthetic binary IR interchange
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/synthetic-binary-ir-interop.yml'
+permissions:
+  contents: read
+jobs:
+  ghidra:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Bounded original ELF experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir out
+          git rev-parse HEAD | tee out/head.txt
+          uname -a | tee out/host.txt
+          gcc --version | head -1 | tee out/compiler.txt
+          cat > out/choose.S <<'ASM'
+          .text
+          .globl choose
+          .type choose,@function
+          choose:
+              test %edi,%edi
+              je .Lzero
+              lea 7(%rdi),%eax
+              ret
+          .Lzero:
+              lea -3(%rdi),%eax
+              ret
+          .size choose,.-choose
+          .section .note.GNU-stack,"",@progbits
+          ASM
+          gcc -c out/choose.S -o "$RUNNER_TEMP/choose.o"
+          ld -shared --build-id=none "$RUNNER_TEMP/choose.o" -o out/fixture.so
+          objcopy -O binary -j .text out/fixture.so out/text.bin
+          objdump -d out/fixture.so | tee out/disassembly.txt
+          readelf -Ws out/fixture.so | tee out/symbols.txt
+          test "$(od -An -tx1 -v out/text.bin | tr -d ' \n')" = 85ff74048d4707c38d47fdc3
+          sha256sum out/choose.S out/fixture.so out/text.bin | tee out/source-digests.txt
+          if [ -n "${JAVA_HOME_25_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_25_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+          else
+            sudo apt-get update -qq
+            candidate="$(apt-cache policy openjdk-25-jdk-headless | awk '/Candidate:/{print $2}')"
+            test -n "$candidate" && test "$candidate" != "(none)"
+            sudo apt-get install -y --no-install-recommends "openjdk-25-jdk-headless=$candidate"
+            export JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
+          java -version 2>&1 | tee out/java.txt
+          javac -version 2>&1 | tee -a out/java.txt
+          curl --fail --location --retry 2 --max-time 300 https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip -o "$RUNNER_TEMP/ghidra.zip"
+          echo "2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67  $RUNNER_TEMP/ghidra.zip" | sha256sum -c | tee out/ghidra-digest.txt
+          unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra"
+          mkdir "$RUNNER_TEMP/scripts" "$RUNNER_TEMP/project"
+          cat > "$RUNNER_TEMP/scripts/ExportFixture.java" <<'JAVA'
+          import ghidra.app.script.GhidraScript;
+          import ghidra.app.decompiler.DecompInterface;
+          import ghidra.app.decompiler.DecompileResults;
+          import ghidra.program.model.listing.*;
+          import ghidra.program.model.pcode.*;
+          import java.io.*;
+          import java.util.*;
+          public class ExportFixture extends GhidraScript {
+              public void run() throws Exception {
+                  String output = getScriptArgs()[0];
+                  List<Function> fs = getGlobalFunctions("choose");
+                  if (fs.size() != 1) throw new Exception("Expected one exported function");
+                  Function f = fs.get(0);
+                  StringBuilder hex = new StringBuilder();
+                  int instructions = 0, branches = 0, returns = 0;
+                  try (PrintWriter w = new PrintWriter(new FileWriter(output+"/raw-pcode.txt"))) {
+                      w.println("entry="+f.getEntryPoint()+" language="+currentProgram.getLanguageID());
+                      InstructionIterator it = currentProgram.getListing().getInstructions(f.getBody(), true);
+                      while (it.hasNext()) {
+                          Instruction ins = it.next();
+                          instructions++;
+                          for (byte b : ins.getBytes()) hex.append(String.format("%02x",b & 255));
+                          w.println(ins.getAddress()+" "+ins);
+                          for (PcodeOp op : ins.getPcode()) {
+                              w.println("  "+op);
+                              if (op.getOpcode()==PcodeOp.CBRANCH) branches++;
+                              if (op.getOpcode()==PcodeOp.RETURN) returns++;
+                          }
+                      }
+                      w.println("bytes="+hex+" instructions="+instructions+" branches="+branches+" returns="+returns);
+                  }
+                  if (!hex.toString().equals("85ff74048d4707c38d47fdc3") ||
+                      instructions!=6 || branches!=1 || returns!=2)
+                      throw new Exception("Raw P-code scope or bytes mismatch: "+hex);
+                  DecompInterface di = new DecompInterface();
+                  try {
+                      if (!di.openProgram(currentProgram)) throw new Exception("decompiler open failed");
+                      DecompileResults dr=di.decompileFunction(f,60,monitor);
+                      if (!dr.decompileCompleted() || dr.getHighFunction()==null || dr.getDecompiledFunction()==null)
+                          throw new Exception("decompile failed: "+dr.getErrorMessage());
+                      int n=0;
+                      try (PrintWriter w=new PrintWriter(new FileWriter(output+"/high-pcode.txt"))) {
+                          Iterator<PcodeOpAST> ops=dr.getHighFunction().getPcodeOps();
+                          while(ops.hasNext()){w.println(ops.next()); n++;}
+                      }
+                      if(n==0) throw new Exception("empty high pcode");
+                      try(PrintWriter w=new PrintWriter(new FileWriter(output+"/decompiled.c"))){w.println(dr.getDecompiledFunction().getC());}
+                  } finally { di.dispose(); }
+                  try(PrintWriter w=new PrintWriter(new FileWriter(output+"/result.txt"))){
+                      w.println("exact function bytes; six instructions; one conditional branch; two raw returns; nonempty high P-code and decompilation; not equivalence");
+                  }
+              }
+          }
+          JAVA
+          cp "$RUNNER_TEMP/scripts/ExportFixture.java" out/
+          "$RUNNER_TEMP/ghidra/ghidra_12.2_PUBLIC/support/analyzeHeadless" "$RUNNER_TEMP/project" fixture -import "$PWD/out/fixture.so" -scriptPath "$RUNNER_TEMP/scripts" -postScript ExportFixture.java "$PWD/out" -analysisTimeoutPerFile 120 -deleteProject | tee out/ghidra.log
+          test -s out/result.txt
+          test -s out/decompiled.c
+          test -s out/raw-pcode.txt
+          test -s out/high-pcode.txt
+          cat out/result.txt
+          sha256sum out/raw-pcode.txt out/high-pcode.txt out/decompiled.c | tee out/ir-digests.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-binary-ir-ghidra
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+  gtirb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Bounded original ELF experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir out
+          git rev-parse HEAD | tee out/head.txt
+          uname -a | tee out/host.txt
+          gcc --version | head -1 | tee out/compiler.txt
+          cat > out/choose.S <<'ASM'
+          .text
+          .globl choose
+          .type choose,@function
+          choose:
+              test %edi,%edi
+              je .Lzero
+              lea 7(%rdi),%eax
+              ret
+          .Lzero:
+              lea -3(%rdi),%eax
+              ret
+          .size choose,.-choose
+          .section .note.GNU-stack,"",@progbits
+          ASM
+          gcc -c out/choose.S -o "$RUNNER_TEMP/choose.o"
+          ld -shared --build-id=none "$RUNNER_TEMP/choose.o" -o out/fixture.so
+          objcopy -O binary -j .text out/fixture.so out/text.bin
+          objdump -d out/fixture.so | tee out/disassembly.txt
+          readelf -Ws out/fixture.so | tee out/symbols.txt
+          test "$(od -An -tx1 -v out/text.bin | tr -d ' \n')" = 85ff74048d4707c38d47fdc3
+          sha256sum out/choose.S out/fixture.so out/text.bin | tee out/source-digests.txt
+          python3 -m venv "$RUNNER_TEMP/env"
+          source "$RUNNER_TEMP/env/bin/activate"
+          python --version | tee out/python.txt
+          python -m pip download --no-deps --only-binary=:all: -d "$RUNNER_TEMP" gtirb==2.3.2
+          echo "51b03fb0f03ea3ce3d2cd09e3ce59c7efb18a6752c824ef0ec705579764ecabd  $RUNNER_TEMP/gtirb-2.3.2-py3-none-any.whl" | sha256sum -c | tee out/gtirb-digest.txt
+          python -m pip install --disable-pip-version-check --report out/install.json "$RUNNER_TEMP/gtirb-2.3.2-py3-none-any.whl"
+          python -m pip freeze | tee out/dependencies.txt
+          cat > out/check.py <<'PY'
+          import ctypes, hashlib, json, pathlib, subprocess
+          import gtirb
+          p=pathlib.Path("out")
+          raw=(p/"text.bin").read_bytes()
+          base=int(next(l.split()[0] for l in subprocess.check_output(["nm","-D","out/fixture.so"],text=True).splitlines() if l.split()[-1]=="choose"),16)
+          lib=ctypes.CDLL(str((p/"fixture.so").resolve()))
+          lib.choose.argtypes=[ctypes.c_int32]; lib.choose.restype=ctypes.c_int32
+          assert [lib.choose(x) for x in (0,1,-1)]==[-3,8,6]
+          blocks=[gtirb.CodeBlock(offset=o,size=4) for o in (0,4,8)]
+          bi=gtirb.ByteInterval(address=base,contents=raw,blocks=blocks)
+          sec=gtirb.Section(name=".text",byte_intervals=[bi])
+          mod=gtirb.Module(name="fixture.so",isa=gtirb.Module.ISA.X64,file_format=gtirb.Module.FileFormat.ELF,sections=[sec])
+          a,b,c=blocks
+          fall=gtirb.Edge.Label(gtirb.Edge.Type.Fallthrough)
+          cond=gtirb.Edge.Label(gtirb.Edge.Type.Branch,conditional=True)
+          ir=gtirb.IR(modules=[mod],cfg=[gtirb.Edge(a,b,fall),gtirb.Edge(a,c,cond)])
+          ir.save_protobuf(p/"fixture.gtirb")
+          def score(path):
+              obj=gtirb.IR.load_protobuf(path)
+              iv=list(obj.byte_intervals)
+              assert len(iv)==1 and bytes(iv[0].contents)==raw and iv[0].address==base
+              assert {(z.offset,z.size) for z in obj.code_blocks}=={(0,4),(4,4),(8,4)}
+              edges={(e.source.address-base,e.target.address-base,e.label.type.name,e.label.conditional,e.label.direct) for e in obj.cfg}
+              return edges=={(0,4,"Fallthrough",False,True),(0,8,"Branch",True,True)}
+          assert score(p/"fixture.gtirb")
+          ir.cfg.discard(gtirb.Edge(a,c,cond)); ir.cfg.add(gtirb.Edge(a,b,cond))
+          ir.save_protobuf(p/"wrong-edge.gtirb")
+          assert not score(p/"wrong-edge.gtirb"), "wrong edge accepted"
+          print(json.dumps({"source_sha256":hashlib.sha256((p/"fixture.so").read_bytes()).hexdigest(),"base":base,"block_count":3,"edge_count":2,"wrong_edge_refused":True,"native_inputs":3,"scope":"fixture-known structural projection; no automatic CFG recovery or return edges"},sort_keys=True))
+          PY
+          python out/check.py | tee out/result.json
+          sha256sum out/*.gtirb out/result.json | tee out/ir-digests.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-binary-ir-gtirb
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+  vex:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Bounded original ELF experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir out
+          git rev-parse HEAD | tee out/head.txt
+          uname -a | tee out/host.txt
+          gcc --version | head -1 | tee out/compiler.txt
+          cat > out/choose.S <<'ASM'
+          .text
+          .globl choose
+          .type choose,@function
+          choose:
+              test %edi,%edi
+              je .Lzero
+              lea 7(%rdi),%eax
+              ret
+          .Lzero:
+              lea -3(%rdi),%eax
+              ret
+          .size choose,.-choose
+          .section .note.GNU-stack,"",@progbits
+          ASM
+          gcc -c out/choose.S -o "$RUNNER_TEMP/choose.o"
+          ld -shared --build-id=none "$RUNNER_TEMP/choose.o" -o out/fixture.so
+          objcopy -O binary -j .text out/fixture.so out/text.bin
+          objdump -d out/fixture.so | tee out/disassembly.txt
+          readelf -Ws out/fixture.so | tee out/symbols.txt
+          test "$(od -An -tx1 -v out/text.bin | tr -d ' \n')" = 85ff74048d4707c38d47fdc3
+          sha256sum out/choose.S out/fixture.so out/text.bin | tee out/source-digests.txt
+          python3 -m venv "$RUNNER_TEMP/env"
+          source "$RUNNER_TEMP/env/bin/activate"
+          python --version | tee out/python.txt
+          python -m pip download --no-deps --only-binary=:all: -d "$RUNNER_TEMP" bitstring==4.3.1
+          echo "69d1587f0ac18dc7d93fc7e80d5f447161a33e57027e726dc18a0a8bacf1711a  $RUNNER_TEMP/bitstring-4.3.1-py3-none-any.whl" | sha256sum -c | tee out/bitstring-digest.txt
+          python -m pip download --no-deps --only-binary=:all: -d "$RUNNER_TEMP" pycparser==2.22
+          echo "c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc  $RUNNER_TEMP/pycparser-2.22-py3-none-any.whl" | sha256sum -c | tee out/pycparser-digest.txt
+          python -m pip install --disable-pip-version-check --report out/install.json 'angr==9.2.186' 'cffi==1.17.1' "$RUNNER_TEMP/bitstring-4.3.1-py3-none-any.whl" "$RUNNER_TEMP/pycparser-2.22-py3-none-any.whl"
+          python -m pip freeze | tee out/dependencies.txt
+          python -m pip check
+          python -c 'import bitstring, pyvex, angr; assert hasattr(bitstring, "ConstBitStream"); print(bitstring.__version__, pyvex.__version__, angr.__version__)' | tee out/import-preflight.txt
+          python -m pip freeze | tee out/dependencies.txt
+          cat > out/compare.py <<'PY'
+          import ctypes, pathlib, hashlib, json, time
+          import angr
+          from angr.sim_type import parse_type
+          p=pathlib.Path("out")
+          lib=ctypes.CDLL(str((p/"fixture.so").resolve()))
+          lib.choose.argtypes=[ctypes.c_int32]; lib.choose.restype=ctypes.c_int32
+          project=angr.Project(str(p/"fixture.so"),auto_load_libs=False)
+          symbol=project.loader.find_symbol("choose")
+          assert symbol is not None and symbol.size==12
+          addr=symbol.rebased_addr
+          assert project.loader.memory.load(addr,12)==(p/"text.bin").read_bytes()
+          with (p/"vex.txt").open("w") as f:
+              for o in (0,4,8):
+                  f.write(str(project.factory.block(addr+o,size=4).vex)+"\n")
+          prototype=parse_type("int (int)").with_arch(project.arch)
+          func=project.factory.callable(addr,prototype=prototype,concrete_only=True)
+          values=list(range(-64,65))+[-2147483648,2147483647]
+          rows=[]
+          start=time.perf_counter()
+          for x in values:
+              expected=ctypes.c_int32(x+7 if x else -3).value
+              native=lib.choose(x)
+              value=func(x)
+              assert not value.symbolic
+              recovered=ctypes.c_int32(value.concrete_value).value
+              rows.append({"input":x,"native":native,"vex":recovered,"expected":expected})
+              assert expected==native==recovered,rows[-1]
+          elapsed=time.perf_counter()-start
+          (p/"results.json").write_text(json.dumps({"source_sha256":hashlib.sha256((p/"fixture.so").read_bytes()).hexdigest(),"scope":"concrete return-only fixture tests, not full machine-state equivalence","rows":rows,"elapsed_s":elapsed},indent=2))
+          print("native/VEX/source agreement",len(rows),"/",len(values),"wall_s",elapsed)
+          PY
+          python out/compare.py | tee out/result.txt
+          sha256sum out/vex.txt out/results.json | tee out/ir-digests.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-binary-ir-vex
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
