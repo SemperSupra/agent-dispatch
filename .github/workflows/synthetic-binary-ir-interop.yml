@@ -257,7 +257,10 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/env"
           source "$RUNNER_TEMP/env/bin/activate"
           python --version | tee out/python.txt
-          python -m pip install --disable-pip-version-check --report out/install.json 'angr==9.2.186'
+          python -m pip download --no-deps --only-binary=:all: -d "$RUNNER_TEMP" bitstring==4.3.1
+          echo "69d1587f0ac18dc7d93fc7e80d5f447161a33e57027e726dc18a0a8bacf1711a  $RUNNER_TEMP/bitstring-4.3.1-py3-none-any.whl" | sha256sum -c | tee out/bitstring-digest.txt
+          python -m pip install --disable-pip-version-check --report out/install.json 'angr==9.2.186' "$RUNNER_TEMP/bitstring-4.3.1-py3-none-any.whl"
+          python -c 'import bitstring, pyvex, angr; assert hasattr(bitstring, "ConstBitStream"); print(bitstring.__version__, pyvex.__version__, angr.__version__)' | tee out/import-preflight.txt
           python -m pip freeze | tee out/dependencies.txt
           cat > out/compare.py <<'PY'
           import ctypes, pathlib, hashlib, json, time
