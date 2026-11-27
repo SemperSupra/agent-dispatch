@@ -1,0 +1,83 @@
+{
+  "schema": "gha-kvm-truenas-targets/v1",
+  "policy": {
+    "exact_version_required": true,
+    "vendor_digest_sidecar_required": true,
+    "floating_target_prohibited": true,
+    "heavyweight_slot": "shared-one-at-a-time"
+  },
+  "targets": [
+    {
+      "version": "25.04.1",
+      "channel": "deployed-legacy",
+      "system_version": "TrueNAS-25.04.1",
+      "iso_name": "TrueNAS-SCALE-25.04.1.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Fangtooth/25.04.1/TrueNAS-SCALE-25.04.1.iso.sha256",
+      "middleware_ref": "release/25.04.1",
+      "middleware_commit": "74ab5a2d373be4097dece257d00e1086376333ba",
+      "foundry_profile": ".foundry/truenas-compatibility/25.04.1-materialization.json",
+      "ha_apps_gate": "system.license:JAILS",
+      "authority_issue": 411,
+      "installer_rpc_path": "/",
+      "installer_rpc_guest_port": 80,
+      "installer_source_ref": "release/25.04.1",
+      "installer_main_blob_sha": "4845a665568fcdb8ed911f3f6a23f6373cbe0b8f",
+      "foundry_profile_blob": "800aca038ded29e6a91bfc4c1b1fe2d2199182e8"
+    },
+    {
+      "version": "25.04.2.6",
+      "channel": "recent-maintenance",
+      "system_version": "TrueNAS-25.04.2.6",
+      "iso_name": "TrueNAS-SCALE-25.04.2.6.iso",
+      "iso_url": "https://download.truenas.com/TrueNAS-SCALE-Fangtooth/25.04.2.6/TrueNAS-SCALE-25.04.2.6.iso",
+      "sha256_url": "https://download.truenas.com/TrueNAS-SCALE-Fangtooth/25.04.2.6/TrueNAS-SCALE-25.04.2.6.iso.sha256",
+      "middleware_ref": "release/25.04.2.6",
+      "middleware_commit": "244b717370fe35fb9eefc3096acfbc25f12b57b6",
+      "foundry_profile": ".foundry/truenas-compatibility/25.04.2.6-materialization.json",
+      "ha_apps_gate": "system.license:JAILS",
+      "installer_rpc_path": "/",
+      "authority_issue": 423,
+      "installer_rpc_guest_port": 80,
+      "installer_source_ref": "release/25.04.2.6",
+      "installer_main_blob_sha": "4845a665568fcdb8ed911f3f6a23f6373cbe0b8f",
+      "foundry_profile_blob": "631467044411c96a0fe6d361688b99a794f07c80"
+    },
+    {
+      "version": "25.10.7",
+      "channel": "stable",
+      "system_version": "TrueNAS-25.10.7",
+      "iso_name": "TrueNAS-SCALE-25.10.7.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.7/TrueNAS-SCALE-25.10.7.iso.sha256",
+      "middleware_ref": "TS-25.10.7",
+      "middleware_commit": "8ede398839710e56893d88ce85088139d8fab18e",
+      "foundry_profile": ".foundry/truenas-compatibility/25.10.7-materialization.json",
+      "ha_apps_gate": "system.license:JAILS",
+      "authority_issue": 410,
+      "installer_rpc_path": "/ws",
+      "installer_rpc_guest_port": 8080,
+      "installer_source_ref": "release/25.10.7",
+      "installer_main_blob_sha": "9e4f8b2bd9db497210fe6737c053080137be94d8",
+      "foundry_profile_blob": "1320cc849a9cc1e7ff6bd78989fc0e4708397248"
+    },
+    {
+      "version": "26.0.0-BETA.3",
+      "channel": "early-release",
+      "system_version": "TrueNAS-26.0.0-BETA.3",
+      "iso_name": "TrueNAS-26.0.0-BETA.3.iso",
+      "iso_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso",
+      "sha256_url": "https://download.sys.truenas.net/TrueNAS-26-BETA/26.0.0-BETA.3/TrueNAS-26.0.0-BETA.3.iso.sha256",
+      "middleware_ref": "TS-26.0.0-BETA.3",
+      "middleware_commit": "81e1265a86083888ba94a2bdfc02ff5c9c5ef6a3",
+      "foundry_profile": ".foundry/truenas-compatibility/26.0.0-BETA.3-materialization.json",
+      "ha_apps_gate": "system.feature_enabled:APPS",
+      "authority_issue": 396,
+      "installer_rpc_path": "/ws",
+      "installer_rpc_guest_port": 8080,
+      "installer_source_ref": "release/26.0.0-BETA.3",
+      "installer_main_blob_sha": "9e4f8b2bd9db497210fe6737c053080137be94d8",
+      "foundry_profile_blob": "a8ebc533dc84172520eba2237ffeeb52b102dc24"
+    }
+  ]
+}
