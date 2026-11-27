@@ -287,30 +287,6 @@
               "read_only_bootstrap_methods": [
                 "vm.license_active"
               ]
-            },
-            {
-              "id": "truenas-virt-incus-vm",
-              "preferred": false,
-              "instance_type": "VM",
-              "required_methods": [
-                "virt.instance.query",
-                "virt.instance.create",
-                "virt.instance.update",
-                "virt.instance.delete",
-                "virt.instance.start",
-                "virt.instance.stop",
-                "virt.instance.restart",
-                "virt.instance.device_list",
-                "virt.instance.device_add",
-                "virt.instance.device_update",
-                "virt.instance.device_delete",
-                "virt.device.nic_choices"
-              ],
-              "guest_oracle": "network-or-vnc/serial-capability",
-              "restart_semantics": "native",
-              "hypervisor_family": "incus-qemu",
-              "source_api_family": "v25_10_0",
-              "v0_device_ownership": "named-observed-parent-macvlan-nic"
             }
           ],
           "api_schema_fingerprint": {
@@ -330,7 +306,15 @@
               "path": "src/middlewared/middlewared/api/v25_10_0/virt_device.py",
               "blob_sha": "c06d0bffe77854f6e60d8a17221b323804c456f6"
             }
-          }
+          },
+          "source_limitations": [
+            {
+              "scope": "new VM creation",
+              "adapter": "truenas-virt-incus-vm",
+              "state": "unsupported",
+              "reason": "Pinned v25_10_0 VirtInstanceCreateArgs.instance_type is Literal['CONTAINER']; method presence cannot authorize VM creation. Existing legacy VM observation is a different scope."
+            }
+          ]
         },
         {
           "version": "26.0.0-BETA.3",
