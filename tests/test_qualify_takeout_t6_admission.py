@@ -3,6 +3,8 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/qualify_takeout_t6_admission.py"
@@ -118,6 +120,30 @@ class Tests(unittest.TestCase):
         c["producer"]["oci_artifact_expires"] = "2026-10-22T16:42:25Z"
         self.assertIn("OCI_ARTIFACT_EXPIRED",
                       classify(candidate=c)["blockers"])
+
+    def test_pinned_artifact_exact_utc_expiry_boundary(self):
+        # This is a clock-controlled negative test, not a claim that the
+        # historical GitHub artifact remains downloadable.
+        self.assertEqual(C["producer"]["oci_artifact_expires"],
+                         "2026-11-11T20:17:17Z")
+        deadline = datetime.fromisoformat(
+            C["producer"]["oci_artifact_expires"].replace("Z", "+00:00"))
+        for observed_at, should_block in (
+            (deadline - timedelta(seconds=1), False),
+            (deadline, True),
+            (deadline + timedelta(seconds=1), True),
+        ):
+            with self.subTest(observed_at=observed_at.isoformat()):
+                class FixedClock(datetime):
+                    @classmethod
+                    def now(cls, tz=None):
+                        return observed_at.astimezone(tz or timezone.utc)
+                with patch.object(v, "datetime", FixedClock):
+                    verdict = classify()
+                self.assertEqual("OCI_ARTIFACT_EXPIRED" in verdict["blockers"],
+                                 should_block)
+                self.assertFalse(verdict["guest_started"])
+                self.assertEqual(verdict["physical_apply"], "HOLD")
 
     def test_missing_or_unqualified_expiry_refused(self):
         for expiry in (None, "", "not-a-date", "2026-10-22T16:42:25",
