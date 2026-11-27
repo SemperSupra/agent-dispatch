@@ -208,11 +208,14 @@ jobs:
           mkdir out
           git rev-parse HEAD | tee out/head.txt
           uname -a | tee out/host.txt
-          for tool in llvm-as-18 opt-18 dot; do
+          for tool in llvm-as-18 opt-18; do
             command -v "$tool"
             "$tool" --version | head -n 3
             sha256sum "$(readlink -f "$(command -v "$tool")")"
           done | tee out/tools.txt
+          command -v dot
+          dot -V 2>&1 | tee -a out/tools.txt
+          sha256sum "$(readlink -f "$(command -v dot)")" | tee -a out/tools.txt
           cat > out/graph.ll <<'IR'
           define i32 @choose(i1 %c) {
           entry:
