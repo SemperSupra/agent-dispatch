@@ -1,0 +1,7 @@
+# QTest fixed-schedule semantic checker (Linux)
+
+This additive candidate composes typed state validation with the exact six-schedule transcript grammar. It does not authenticate producers, timing, process cleanup, or live device state. The evidence directory's ancestors and contents must be trusted and stable during verification. The checker pins the directory descriptor, refuses final-component symlinks and nonregular evidence files, and bounds reads. It is not a general filesystem sandbox or a concurrent snapshot facility.
+
+Build and test from this directory: `GO111MODULE=off GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=2 .`. The only dependencies are the Go standard library and Linux. `GO111MODULE=off go build -o /tmp/qtest-schedule-check .`, then `/tmp/qtest-schedule-check EVIDENCE_DIR`. Exit 0 means complete semantic agreement in the fixed fixture only, exit 1 refusal, exit 2 usage error. Timing is explicitly producer-reported, not verified. There is no performance or release acceptance implied.
+
+`testdata/cohort.json` contains only the twelve fixed synthetic schedule receipt and QTest transcript strings from the already-public GitHub Actions artifact 15149515407, run 45884957934, commit bb32a51f8d5038bada4474cc5e9d91732c64c19f. Original ZIP SHA256 4c4db35e26391146e68099e03fc96fee85705cba622622f965fc821a9c905b2e. Each string retains the source member bytes, including final LF. This is actual-derived regression, not a new native run or independent producer. No QEMU build is required for checker qualification.
