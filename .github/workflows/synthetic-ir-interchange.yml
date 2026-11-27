@@ -1,0 +1,250 @@
+name: Synthetic IR interchange controls
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/synthetic-ir-interchange.yml'
+permissions:
+  contents: read
+jobs:
+  pcode:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: pcode control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir out
+          git rev-parse HEAD | tee out/head.txt
+          uname -a | tee out/host.txt
+          /usr/bin/python3 --version | tee out/python.txt
+          /usr/bin/python3 -m venv "$RUNNER_TEMP/pcode-env"
+          source "$RUNNER_TEMP/pcode-env/bin/activate"
+          printf '%s\n' 'pypcode==3.3.3 --hash=sha256:c2af24d1741aff3e57821c58c90ffafe2d66d540284f126b5e46cec4826060f0' > out/requirements.txt
+          python -m pip install --disable-pip-version-check --no-deps --only-binary=:all: --require-hashes -r out/requirements.txt
+          cat > out/check.py <<'PY'
+          import hashlib, json, importlib.metadata
+          import pypcode
+          def inspect(lang, raw):
+              ctx = pypcode.Context(lang)
+              data = bytes.fromhex(raw)
+              ins = ctx.disassemble(data).instructions
+              tx = ctx.translate(data)
+              groups = []
+              for op in tx.ops:
+                  if op.opcode == pypcode.OpCode.IMARK:
+                      groups.append({"offset": op.inputs[0].offset,
+                                     "size": op.inputs[0].size, "ops": []})
+                  else:
+                      assert groups
+                      groups[-1]["ops"].append(op.opcode.name)
+              decoded = [[i.addr.offset, i.length, i.mnem] for i in ins]
+              return {"lang": lang, "bytes": raw, "sha256": hashlib.sha256(data).hexdigest(),
+                      "decoded": decoded, "groups": groups, "pcode": str(tx)}
+          cases = [
+              ("x86:LE:64:default", "89f801f0c3", [(0,2),(2,2),(4,1)], 1),
+              ("AARCH64:LE:64:v8A", "0000010bc0035fd6", [(0,4),(4,4)], 0),
+          ]
+          results = []
+          for lang, raw, ranges, arithmetic_index in cases:
+              result = inspect(lang, raw)
+              assert [(g["offset"],g["size"]) for g in result["groups"]] == ranges, result
+              assert [(d[0],d[1]) for d in result["decoded"]] == ranges, result
+              assert "INT_ADD" in result["groups"][arithmetic_index]["ops"], result
+              assert inspect(lang, raw) == result, "repeat changed"
+              results.append(result)
+          negative = inspect("x86:LE:64:default", "89f829f0c3")
+          assert "INT_SUB" in negative["groups"][1]["ops"], negative
+          assert negative["groups"][1]["ops"] != results[0]["groups"][1]["ops"], negative
+          report = {"scope":"instruction boundary and opcode control; not equivalence",
+                    "version":importlib.metadata.version("pypcode"), "positive":results,
+                    "changed_instruction":negative}
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          python out/check.py | tee out/pcode.json
+          sha256sum out/check.py out/pcode.json out/requirements.txt | tee out/digests.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-ir-pcode
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  llvm-ir:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: llvm-ir control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir out
+          git rev-parse HEAD | tee out/head.txt
+          uname -a | tee out/host.txt
+          for tool in llvm-as-18 llvm-dis-18 opt-18 lli-18; do
+            command -v "$tool"
+            "$tool" --version | head -n 3
+            sha256sum "$(readlink -f "$(command -v "$tool")")"
+          done | tee out/tools.txt
+          cat > out/reference.ll <<'IR'
+          define i32 @main() {
+          entry:
+            %v = add i32 19, 23
+            %ok = icmp eq i32 %v, 42
+            %exit = select i1 %ok, i32 0, i32 1
+            ret i32 %exit
+          }
+          IR
+          llvm-as-18 out/reference.ll -o out/reference.bc
+          opt-18 -passes=verify -disable-output out/reference.bc
+          llvm-dis-18 out/reference.bc -o out/roundtrip.ll
+          lli-18 out/reference.bc
+          llvm-as-18 out/roundtrip.ll -o out/roundtrip.bc
+          lli-18 out/roundtrip.bc
+          sed 's/add i32 19, 23/add i32 19, 24/' out/reference.ll > out/changed.ll
+          llvm-as-18 out/changed.ll -o out/changed.bc
+          opt-18 -passes=verify -disable-output out/changed.bc
+          set +e
+          lli-18 out/changed.bc
+          changed=$?
+          set -e
+          test "$changed" = 1
+          sed 's/ret i32 %exit/ret i64 0/' out/reference.ll > out/bad.ll
+          if llvm-as-18 out/bad.ll -o out/bad.bc >out/bad.log 2>&1; then
+            echo 'invalid return accepted'; exit 1
+          fi
+          printf '%s\n' 'reference=0 roundtrip=0 changed=1 invalid=refused' | tee out/result.txt
+          sha256sum out/*.ll out/*.bc | tee out/digests.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-ir-llvm-ir
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: coverage control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir out
+          git rev-parse HEAD | tee out/head.txt
+          uname -a | tee out/host.txt
+          for tool in clang-18 llvm-profdata-18 llvm-cov-18; do
+            command -v "$tool"
+            "$tool" --version | head -n 3
+            sha256sum "$(readlink -f "$(command -v "$tool")")"
+          done | tee out/tools.txt
+          cat > out/fixture.c <<'C'
+          #include <stdio.h>
+          int choose(int x) {
+            if (x == 7) return 41;
+            return 19;
+          }
+          int main(int argc, char **argv) {
+            (void)argv;
+            printf("%d\n", choose(argc-1));
+            return 0;
+          }
+          C
+          clang-18 -O0 -fprofile-instr-generate -fcoverage-mapping out/fixture.c -o out/fixture
+          LLVM_PROFILE_FILE="$PWD/out/a.profraw" out/fixture | tee out/a.txt
+          LLVM_PROFILE_FILE="$PWD/out/b.profraw" out/fixture a b c d e f g | tee out/b.txt
+          test "$(cat out/a.txt)" = 19
+          test "$(cat out/b.txt)" = 41
+          llvm-profdata-18 merge -sparse out/a.profraw -o out/a.profdata
+          llvm-profdata-18 merge -sparse out/a.profraw out/b.profraw -o out/both.profdata
+          llvm-cov-18 export out/fixture -instr-profile=out/a.profdata > out/a.json
+          llvm-cov-18 export out/fixture -instr-profile=out/both.profdata > out/both.json
+          python3 - <<'PY' | tee out/result.txt
+          import json
+          for name, expected in [("a",(0,1)),("both",(1,1))]:
+              d=json.load(open("out/"+name+".json"))
+              fs=[f for x in d["data"] for f in x["functions"] if f["name"]=="choose"]
+              assert len(fs)==1, fs
+              bs=fs[0]["branches"]
+              assert len(bs)==1, bs
+              assert tuple(bs[0][4:6])==expected, bs
+              print(name, "true/false", expected)
+          PY
+          sha256sum out/fixture.c out/fixture out/*.profraw out/*.profdata out/*.json | tee out/digests.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-ir-coverage
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+  cfg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: cfg control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir out
+          git rev-parse HEAD | tee out/head.txt
+          uname -a | tee out/host.txt
+          for tool in llvm-as-18 opt-18 dot; do
+            command -v "$tool"
+            "$tool" --version | head -n 3
+            sha256sum "$(readlink -f "$(command -v "$tool")")"
+          done | tee out/tools.txt
+          cat > out/graph.ll <<'IR'
+          define i32 @choose(i1 %c) {
+          entry:
+            br i1 %c, label %yes, label %no
+          yes:
+            ret i32 41
+          no:
+            ret i32 19
+          }
+          IR
+          cd out
+          llvm-as-18 graph.ll -o graph.bc
+          opt-18 -passes=dot-cfg -disable-output graph.bc
+          test -s .choose.dot
+          cp .choose.dot graph.dot
+          dot -Tplain graph.dot > graph.plain
+          python3 - <<'PY' | tee result.txt
+          import re
+          s=open("graph.dot").read()
+          nodes=dict(re.findall(r'^\s*(Node\w+)\s+\[.*?label="\{([a-z]+):',s,re.M))
+          assert set(nodes.values())=={"entry","yes","no"}, nodes
+          edges=set()
+          for src,dst in re.findall(r'^\s*(Node\w+)(?::\w+)?\s*->\s*(Node\w+)',s,re.M):
+              edges.add((nodes[src],nodes[dst]))
+          assert edges=={("entry","yes"),("entry","no")}, edges
+          print("native DOT parsed; exact three nodes and two expected edges")
+          PY
+          sha256sum graph.ll graph.bc graph.dot graph.plain | tee digests.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: synthetic-ir-cfg
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
