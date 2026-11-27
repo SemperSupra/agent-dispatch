@@ -259,7 +259,11 @@ jobs:
           python --version | tee out/python.txt
           python -m pip download --no-deps --only-binary=:all: -d "$RUNNER_TEMP" bitstring==4.3.1
           echo "69d1587f0ac18dc7d93fc7e80d5f447161a33e57027e726dc18a0a8bacf1711a  $RUNNER_TEMP/bitstring-4.3.1-py3-none-any.whl" | sha256sum -c | tee out/bitstring-digest.txt
-          python -m pip install --disable-pip-version-check --report out/install.json 'angr==9.2.186' "$RUNNER_TEMP/bitstring-4.3.1-py3-none-any.whl"
+          python -m pip download --no-deps --only-binary=:all: -d "$RUNNER_TEMP" pycparser==2.22
+          echo "c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc  $RUNNER_TEMP/pycparser-2.22-py3-none-any.whl" | sha256sum -c | tee out/pycparser-digest.txt
+          python -m pip install --disable-pip-version-check --report out/install.json 'angr==9.2.186' 'cffi==1.17.1' "$RUNNER_TEMP/bitstring-4.3.1-py3-none-any.whl" "$RUNNER_TEMP/pycparser-2.22-py3-none-any.whl"
+          python -m pip freeze | tee out/dependencies.txt
+          python -m pip check
           python -c 'import bitstring, pyvex, angr; assert hasattr(bitstring, "ConstBitStream"); print(bitstring.__version__, pyvex.__version__, angr.__version__)' | tee out/import-preflight.txt
           python -m pip freeze | tee out/dependencies.txt
           cat > out/compare.py <<'PY'
