@@ -213,7 +213,16 @@ jobs:
             "$tool" --version | head -n 3
             sha256sum "$(readlink -f "$(command -v "$tool")")"
           done | tee out/tools.txt
+          if ! command -v dot; then
+            echo "Graphviz missing; acquire only in disposable standard runner"
+            sudo apt-get update -qq
+            candidate="$(apt-cache policy graphviz | awk '/Candidate:/{print $2}')"
+            test -n "$candidate" && test "$candidate" != "(none)"
+            printf '%s\n' "$candidate" | tee out/graphviz-candidate.txt
+            sudo apt-get install -y --no-install-recommends "graphviz=$candidate"
+          fi
           command -v dot
+          dpkg-query -W graphviz | tee -a out/tools.txt
           dot -V 2>&1 | tee -a out/tools.txt
           sha256sum "$(readlink -f "$(command -v dot)")" | tee -a out/tools.txt
           cat > out/graph.ll <<'IR'
@@ -231,6 +240,7 @@ jobs:
           opt-18 -passes=dot-cfg -disable-output graph.bc
           test -s .choose.dot
           cp .choose.dot graph.dot
+          cat graph.dot
           dot -Tplain graph.dot > graph.plain
           python3 - <<'PY' | tee result.txt
           import re
