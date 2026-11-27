@@ -1,4 +1,4 @@
-name: Takeout pinned public OCI cross-run transport qualification
+name: Takeout pinned OCI freshness (cross-run only if unexpired)
 
 on:
   pull_request:
@@ -29,22 +29,36 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Qualify source identity and enforce hard expiry before transport
+      - name: Classify pinned source and historical transport freshness
+        id: freshness
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from datetime import datetime, timezone
+          from pathlib import Path
           import os
           from scripts.verify_takeout_synthetic_oci_artifact import source_layer_count
           expiry=datetime.fromisoformat(os.environ['EXPIRY_UTC'].replace('Z','+00:00'))
-          assert datetime.now(timezone.utc) < expiry, 'ARTIFACT_EXPIRED_HOLD'
+          assert expiry.tzinfo is not None and expiry.utcoffset() is not None
           assert source_layer_count(os.environ['SOURCE_SHA']) == 6
-          print('PINNED_PUBLIC_REPORT_SOURCE_6_LAYERS_AND_FRESHNESS_GATE_PASS')
+          fresh=datetime.now(timezone.utc) < expiry
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as f:
+              f.write('fresh=' + ('true' if fresh else 'false') + '\\n')
+          if fresh:
+              print('PINNED_PUBLIC_TRANSPORT_UNEXPIRED_VERIFY_BYTES_BEFORE_REPLAY')
+              message='UNEXPIRED: independent ZIP, OCI, Docker and byte replay required'
+          else:
+              print('HOLD_OCI_ARTIFACT_EXPIRED_NO_DOWNLOAD_NO_IMPORT_NO_GUEST')
+              message='EXPIRED HISTORICAL ARTIFACT: no download or Docker import; guest HOLD'
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:
+              f.write('### Takeout public transport freshness\\n\\n' + message +
+                      '\\n\\nSource fixture is public; native guest NOT RUN.\\n')
           PY
       - name: Execute offline OCI regression tests before independent transport
         run: python3 -m unittest discover -s tests -p 'test_verify_takeout_synthetic_oci_artifact.py' -v
       - name: Retrieve exactly one pinned prior GHA public artifact
+        if: steps.freshness.outputs.fresh == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -62,6 +76,7 @@ jobs:
           print('PINNED_PUBLIC_ARTIFACT_ZIP_SHA256_PASS')
           PY
       - name: Rehash OCI manifest layers and independent Docker archive
+        if: steps.freshness.outputs.fresh == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -83,6 +98,7 @@ jobs:
           print('PUBLIC_CROSS_RUN_OCI_AND_DOCKER_LAYER_INTEGRITY_PASS_GUEST_NOT_RUN')
           PY
       - name: Independently load transferred Docker archive and exercise nonroot synthetic NOOP
+        if: steps.freshness.outputs.fresh == 'true'
         shell: bash
         run: |
           set -euo pipefail
