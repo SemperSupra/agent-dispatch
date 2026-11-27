@@ -1,4 +1,6 @@
 import unittest
+import json
+from pathlib import Path
 
 from scripts.compute_materialization_contract import ContractError, choose_adapter, semantic_plan, validate
 
@@ -143,6 +145,26 @@ class ContractTests(unittest.TestCase):
         )
         self.assertEqual(a["id"], "truenas-container-lxc")
         self.assertIn("stop+start", semantic_plan("container", a))
+
+    def test_25107_legacy_vm_creation_does_not_fallback(self):
+        path = Path(__file__).resolve().parents[1] / "config/compute-materialization-targets.json"
+        actual = json.loads(path.read_text(encoding="utf-8"))
+        row = next(r for r in actual["platforms"]["truenas"]["targets"] if r["version"] == "25.10.7")
+        self.assertEqual(row["middleware_commit"], "8ede398839710e56893d88ce85088139d8fab18e")
+        self.assertEqual(row["api_schema_fingerprint"]["virt_instance"]["blob_sha"],
+                         "5a97786a1522de7fb6e84b516127b01b8fd439df")
+        self.assertEqual([a["id"] for a in row["vm_adapters"]], ["truenas-vm-libvirt"])
+        legacy = set(row["container_adapters"][0]["required_methods"]) | {
+            "virt.instance.device_list", "virt.instance.device_add",
+            "virt.instance.device_update", "virt.instance.device_delete", "virt.device.nic_choices",
+        }
+        with self.assertRaises(ContractError):
+            choose_adapter(actual, "truenas", "25.10.7", "vm", legacy)
+        self.assertEqual(choose_adapter(actual, "truenas", "25.10.7", "container", legacy)["id"],
+                         "truenas-virt-incus-container")
+        modern = set(row["vm_adapters"][0]["required_methods"])
+        self.assertEqual(choose_adapter(actual, "truenas", "25.10.7", "vm", modern | legacy)["id"],
+                         "truenas-vm-libvirt")
 
     def test_missing_observed_method_fails_closed(self):
         with self.assertRaises(ContractError):
