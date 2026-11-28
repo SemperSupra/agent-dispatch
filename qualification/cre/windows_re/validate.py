@@ -50,6 +50,7 @@ PROGRAM_PREFIX = re.compile(
     rb"(?m)^(?:" + b"|".join(re.escape(n) for n in DIAGNOSTIC_PROGRAM_NAMES) + rb"):"
 )
 CANCEL_EXIT = 0xC000013A
+CONTROL_EXCEPTION = 0xE0421001
 ACTUATOR_INPUT = b"owned\r\ncontrol\r\n"
 ACTUATOR_OUTPUT = b"owned\ncontrol\n"
 
@@ -60,6 +61,14 @@ def sha(data):
 
 def int_value(value):
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def mapping(value):
+    return value if isinstance(value, dict) else {}
+
+
+def sequence(value):
+    return value if isinstance(value, list) else []
 
 
 def issue(code, detail):
@@ -155,7 +164,7 @@ def validate_inventory(value, label):
     return problems
 
 
-def raw_observer_issues(record, expected_mode):
+def raw_observer_issues(record, expected_mode, control_kind=None):
     """Check the C observer's facts; do not trust adapter classification alone."""
     problems = []
     observer = record.get("observer", {})
@@ -168,9 +177,23 @@ def raw_observer_issues(record, expected_mode):
     for field in ("observer_ok", "created"):
         if receipt.get(field) is not True:
             problems.append(issue("RAW_OBSERVER_INCOMPLETE", field))
-    for field in ("timed_out", "output_overflow"):
-        if receipt.get(field) is not False:
+    expected_limits = {"timed_out": control_kind == "sleep", "output_overflow": control_kind == "stdout"}
+    for field, expected in expected_limits.items():
+        if receipt.get(field) is not expected:
             problems.append(issue("RAW_OBSERVER_INCOMPLETE", field))
+    command = receipt.get("command", {})
+    intended = record.get("args")
+    expected_arguments = ([arg.encode("utf-16le", errors="surrogatepass").hex() for arg in intended]
+                          if isinstance(intended, list) and all(isinstance(arg, str) for arg in intended) else None)
+    if (not isinstance(command, dict) or command.get("source") != "observer_wmain_argv" or
+            command.get("target_crt_arguments_observed") is not False or
+            command.get("arguments_truncated") is not False or expected_arguments is None or
+            command.get("arguments_count") != len(expected_arguments) or
+            command.get("arguments_utf16le_hex") != expected_arguments or
+            command.get("utf16_code_units_limit") != 32766):
+        problems.append(issue("OBSERVED_ARGUMENT_MISMATCH", {
+            "scope": "actual host-to-observer wmain arguments, excluding target executable and terminating NUL",
+            "expected_utf16le_hex": expected_arguments, "observed": command}))
     error = receipt.get("observer_error", {})
     if not isinstance(error, dict) or error.get("win32") != 0 or error.get("operation") != "":
         problems.append(issue("RAW_OBSERVER_ERROR", error))
@@ -194,14 +217,17 @@ def raw_observer_issues(record, expected_mode):
         if not isinstance(stream, dict):
             problems.append(issue("RAW_STREAM_UNAVAILABLE", kind))
             continue
-        if stream.get("eof") is not True or stream.get("overflow") is not False or stream.get("error") != 0:
+        expected_overflow = control_kind == "stdout" and kind == "stdout"
+        if stream.get("eof") is not True or stream.get("overflow") is not expected_overflow or stream.get("error") != 0:
             problems.append(issue("RAW_STREAM_INCOMPLETE", kind))
         seen, retained = stream.get("bytes_seen"), stream.get("bytes_retained")
         try:
             captured = len(decode_hex(record.get(kind + "_hex")))
         except ValueError:
             captured = None
-        if not nonnegative_integer(seen) or not nonnegative_integer(retained) or seen != retained or retained != captured:
+        counts_match = (nonnegative_integer(seen) and nonnegative_integer(retained) and
+                        retained == captured and (seen > retained if expected_overflow else seen == retained))
+        if not counts_match:
             problems.append(issue("RAW_STREAM_LENGTH_MISMATCH", {
                 "stream": kind, "seen": seen, "retained": retained, "captured": captured}))
     image = receipt.get("image", {})
@@ -256,7 +282,7 @@ def raw_observer_issues(record, expected_mode):
         termination = receipt.get("termination", {})
         if not isinstance(breakpoint, dict) or breakpoint.get("requested") is not False:
             problems.append(issue("UNEXPECTED_RUNTIME_INTERVENTION", "breakpoint requested during baseline"))
-        if not isinstance(termination, dict) or termination.get("attempted") is not False:
+        if control_kind not in ("sleep", "stdout") and (not isinstance(termination, dict) or termination.get("attempted") is not False):
             problems.append(issue("UNEXPECTED_RUNTIME_INTERVENTION", "termination attempted during baseline"))
     return problems
 
@@ -473,6 +499,10 @@ def compare_pair(name, left_platform, left_subject, right_platform, right_subjec
             "id": case["id"], "group": case["group"], "challenge": case["challenge"],
             "accepted": accepted, "classification": classification,
             "behavior_match": behavior["match"] if behavior is not None else None,
+            "exit_and_persistent_effects_match": (
+                all(difference["field"] in ("stdout", "stderr") for difference in behavior["differences"])
+                if behavior is not None else None
+            ),
             "observation_complete": complete,
             "left_evidence_issues": left_problems, "right_evidence_issues": right_problems,
             "comparison": behavior,
@@ -487,6 +517,11 @@ def compare_pair(name, left_platform, left_subject, right_platform, right_subjec
         "primary_contract_accepted": bool(primary) and all(r["accepted"] for r in primary),
         "challenge_contract_accepted": bool(challenge) and all(r["accepted"] for r in challenge),
         "behavior_matches": sum(r["behavior_match"] is True for r in rows),
+        "exit_and_persistent_effects_matches": sum(r["exit_and_persistent_effects_match"] is True for r in rows),
+        "exit_and_persistent_effects_scope": (
+            "Exact exit code, retained file bytes, after inventory and persistent-effect paths; "
+            "excludes stdout/stderr. This count is not strict conformance or observation qualification."
+        ),
         "accepted_cases": sum(r["accepted"] for r in rows), "case_count": len(rows),
         "report_issues": globals_, "cases": rows,
     }
@@ -618,6 +653,143 @@ def actuator_checks(reports):
             "issues": global_issues, "cases": rows}
 
 
+def observer_control_checks(reports):
+    """Synthetic sensor controls stay separate from recovered-program cases."""
+    rows, global_issues = [], []
+    kinds = {"control-sleep": "sleep", "control-stdout": "stdout", "control-exception": "exception"}
+    for platform, report in reports.items():
+        executables = mapping(mapping(report.get("package_manifest")).get("executables"))
+        declared = mapping(executables.get("observer-control")).get("sha256")
+        if not valid_digest(declared):
+            global_issues.append(issue("CONTROL_IMAGE_DIGEST_UNAVAILABLE", platform))
+        records = report.get("observer_controls")
+        index = {}
+        if not isinstance(records, list):
+            global_issues.append(issue("OBSERVER_CONTROLS_UNAVAILABLE", platform))
+            records = []
+        for record in records:
+            key = record.get("id") if isinstance(record, dict) else None
+            if not isinstance(key, str) or key not in kinds:
+                global_issues.append(issue("UNEXPECTED_OBSERVER_CONTROL", platform))
+            elif key in index:
+                global_issues.append(issue("DUPLICATE_OBSERVER_CONTROL", {"platform": platform, "id": key}))
+            else:
+                index[key] = record
+        for cid, kind in kinds.items():
+            record = index.get(cid)
+            problems = []
+            if record is None:
+                problems.append(issue("MISSING_OBSERVER_CONTROL", cid))
+            else:
+                if (record.get("subject") != "observer-control" or record.get("synthetic_control") is not True or
+                        record.get("args") != [kind] or record.get("mode") != "run"):
+                    problems.append(issue("CONTROL_IDENTITY_MISMATCH", cid))
+                observer = record.get("observer", {})
+                if not isinstance(observer, dict):
+                    observer = {}
+                if not valid_digest(declared) or observer.get("executable_sha256") != declared:
+                    problems.append(issue("CONTROL_LAUNCH_DIGEST_MISMATCH", cid))
+                for field, expected in (("capture_complete", kind == "exception"),
+                                        ("deadline_exceeded", kind == "sleep"),
+                                        ("truncated", kind == "stdout"), ("debug_available", True)):
+                    if observer.get(field) is not expected:
+                        problems.append(issue("CONTROL_SUMMARY_MISMATCH", {"field": field, "expected": expected}))
+                if observer.get("errors") != []:
+                    problems.append(issue("CONTROL_ADAPTER_ERROR", observer.get("errors")))
+                problems += raw_observer_issues(record, "run", kind)
+                if record.get("before") != {} or record.get("after") != {} or record.get("files_after") != {}:
+                    problems.append(issue("CONTROL_FILE_EFFECT_MISMATCH", "synthetic controls must leave owned directory empty"))
+                try:
+                    stdout, stderr = decode_hex(record.get("stdout_hex")), decode_hex(record.get("stderr_hex"))
+                except ValueError as exc:
+                    problems.append(issue("CONTROL_OUTPUT_UNAVAILABLE", str(exc)))
+                    stdout, stderr = None, None
+                if stderr != b"" or stdout != (b"X" * 65536 if kind == "stdout" else b""):
+                    problems.append(issue("CONTROL_OUTPUT_MISMATCH", "expected bounded X bytes or no output/sentinel"))
+                receipt = observer.get("receipt", {})
+                if not isinstance(receipt, dict):
+                    receipt = {}
+                termination = receipt.get("termination", {})
+                if not isinstance(termination, dict):
+                    termination = {}
+                bounds = receipt.get("bounds", {})
+                if not isinstance(bounds, dict):
+                    bounds = {}
+                if bounds.get("stream_bytes_each") != 65536:
+                    problems.append(issue("CONTROL_STREAM_BOUND_MISMATCH", bounds.get("stream_bytes_each")))
+                if kind == "sleep":
+                    if (bounds.get("timeout_ms") != 100 or record.get("exit_code") != CANCEL_EXIT or
+                            termination.get("attempted") is not True or termination.get("succeeded") is not True or
+                            termination.get("error") != 0 or termination.get("reason") != "timeout"):
+                        problems.append(issue("DEADLINE_CONTROL_NOT_PROVEN", "100 ms deadline, owned cancellation exit and complete termination required"))
+                elif kind == "stdout":
+                    stream = mapping(mapping(receipt.get("streams")).get("stdout"))
+                    seen, retained = stream.get("bytes_seen"), stream.get("bytes_retained")
+                    if not nonnegative_integer(seen) or not 65536 < seen <= 81920 or retained != 65536:
+                        problems.append(issue("OUTPUT_LIMIT_CONTROL_NOT_PROVEN", {"seen": seen, "retained": retained}))
+                    if record.get("exit_code") not in (0, CANCEL_EXIT):
+                        problems.append(issue("OUTPUT_LIMIT_EXIT_UNEXPECTED", record.get("exit_code")))
+                    if termination.get("attempted") is True:
+                        if (termination.get("succeeded") is not True or termination.get("error") != 0 or
+                                termination.get("reason") != "output_overflow"):
+                            problems.append(issue("OUTPUT_LIMIT_TERMINATION_INCOMPLETE", termination))
+                    elif termination.get("attempted") is not False or record.get("exit_code") != 0:
+                        problems.append(issue("OUTPUT_LIMIT_RETIREMENT_UNEXPLAINED", "without owned termination the producer must have exited normally"))
+                else:
+                    if record.get("exit_code") != CONTROL_EXCEPTION:
+                        problems.append(issue("EXCEPTION_CONTROL_EXIT_MISMATCH", record.get("exit_code")))
+                    events = receipt.get("events", [])
+                    exceptions = [event for event in events if isinstance(event, dict) and
+                                  event.get("type") == "exception" and event.get("code") == CONTROL_EXCEPTION] if isinstance(events, list) else []
+                    if (len(exceptions) != 2 or {event.get("first_chance") for event in exceptions} != {0, 1} or
+                            any(event.get("continuation_status") != 0x80010001 or event.get("continued") is not True
+                                for event in exceptions)):
+                        problems.append(issue("EXCEPTION_CONTROL_SWALLOWED_OR_UNOBSERVED", "both first and second chance events must be passed as DBG_EXCEPTION_NOT_HANDLED"))
+                independent_pass = not problems
+                if record.get("oracle_passed") is not independent_pass:
+                    problems.append(issue("DRIVER_CONTROL_ORACLE_DISAGREES", {
+                        "driver": record.get("oracle_passed"), "independent": independent_pass}))
+            rows.append({"platform": platform, "id": cid, "synthetic_control": True,
+                         "accepted": not problems, "issues": problems})
+    return {"schema": SCHEMA, "accepted": not global_issues and all(row["accepted"] for row in rows),
+            "scope": "deadline, retained-output bound, and pass-through of a non-debugger unhandled exception",
+            "included_in_target_case_counts": False, "issues": global_issues, "cases": rows}
+
+
+def sensor_coverage(reports):
+    coverage = {}
+    counter_fields = ("read_operations", "write_operations", "other_operations", "read_bytes", "write_bytes", "other_bytes")
+    for platform, report in reports.items():
+        rows, counts = [], {}
+        for record in sequence(report.get("cases")) + sequence(report.get("actuators")):
+            if not isinstance(record, dict):
+                continue
+            observer = mapping(record.get("observer"))
+            receipt = mapping(observer.get("receipt"))
+            io = mapping(mapping(receipt.get("metrics")).get("io"))
+            state = "api_unavailable"
+            if io.get("available") is True and io.get("error") == 0:
+                values = [io.get(field) for field in counter_fields]
+                numeric = all(isinstance(value, str) and value.isdecimal() for value in values)
+                if not numeric:
+                    state = "invalid_counter_receipt"
+                else:
+                    state = "reported_not_independently_attributed"
+                    file_effect = isinstance(record.get("before"), dict) and isinstance(record.get("after"), dict) and record["before"] != record["after"]
+                    stream_effect = bool(record.get("stdout_hex")) or bool(record.get("stderr_hex"))
+                    if all(int(value) == 0 for value in values) and (file_effect or stream_effect):
+                        state = "unqualified_zero_counters_despite_observed_effects"
+            counts[state] = counts.get(state, 0) + 1
+            rows.append({"id": record.get("id"), "subject": record.get("subject"), "mode": record.get("mode"),
+                         "process_io": state, "raw_io": io,
+                         "adapter_process_io": mapping(observer.get("sensor_quality")).get("process_io")})
+        coverage[platform] = {"counts": counts, "cases": rows}
+    return {"full_stack_observability_qualified": False,
+            "qualified_scope": "bounded process control, mapped-image/debug events, captured streams and independent persistent file effects, subject to individual checks",
+            "process_io_limit": "API success or nonzero totals do not prove per-path attribution; all-zero totals despite observed effects remain semantically unqualified.",
+            "platforms": coverage}
+
+
 def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -664,10 +836,22 @@ def main(argv=None):
     comparisons = [compare_pair(*spec, cases, reports, indexes, report_problems) for spec in specs]
     controls = negative_controls(cases, reports, indexes)
     actuators = actuator_checks(reports)
-    accepted = all(c["accepted"] for c in comparisons) and controls["accepted"] and actuators["accepted"]
+    observer_controls = observer_control_checks(reports)
+    coverage = sensor_coverage(reports)
+    accepted = (all(c["accepted"] for c in comparisons) and controls["accepted"] and
+                actuators["accepted"] and observer_controls["accepted"])
     result = {
         "schema": SCHEMA, "accepted": accepted,
         "classification": "PASS_BOUNDED" if accepted else "NOT_QUALIFIED",
+        "reconstruction_conformance": all(c["accepted"] for c in comparisons[:2]),
+        "cross_platform_identity": all(c["accepted"] for c in comparisons[2:]),
+        "instrumentation_controls_qualified": controls["accepted"] and actuators["accepted"] and observer_controls["accepted"],
+        "summary_field_scope": {
+            "reconstruction_conformance": "Both strict within-platform reference-versus-reconstruction comparisons accepted.",
+            "cross_platform_identity": "Both strict cross-platform comparisons accepted, including raw/narrowly normalized diagnostics.",
+            "instrumentation_controls_qualified": "Runtime actuators, synthetic observer controls and comparator negative controls all accepted; full-stack coverage is not implied.",
+            "accepted": "Unchanged strict whole-matrix and instrumentation-control acceptance.",
+        },
         "case_manifest_sha256": sha(manifest_bytes), "frozen_at_utc": manifest["frozen_at_utc"],
         "case_count": len(cases), "primary_case_count": sum(not c["challenge"] for c in cases),
         "challenge_case_count": sum(c["challenge"] for c in cases),
@@ -683,6 +867,7 @@ def main(argv=None):
         },
         "effect_scope": "Persistent path/content changes, not proof that every actual write operation was observed.",
         "comparisons": comparisons, "negative_controls": controls, "actuators": actuators,
+        "observer_controls": observer_controls, "sensor_coverage": coverage,
     }
     write_json(args.outputdir / "validation-report.json", result)
     write_json(args.outputdir / "comparison-matrix.json", {"schema": SCHEMA, "comparisons": comparisons})
@@ -690,8 +875,13 @@ def main(argv=None):
         write_json(args.outputdir / (comparison["name"] + ".json"), comparison)
     write_json(args.outputdir / "negative-controls.json", controls)
     write_json(args.outputdir / "actuator-validation.json", actuators)
+    write_json(args.outputdir / "observer-control-validation.json", observer_controls)
+    write_json(args.outputdir / "sensor-coverage.json", coverage)
     lines = ["# Windows/Wine independent validation", "",
              f"Whole-corpus qualification: **{result['classification']}**.", "",
+             f"Reconstruction conformance: **{result['reconstruction_conformance']}**. "
+             f"Cross-platform identity: **{result['cross_platform_identity']}**. "
+             f"Instrumentation controls qualified: **{result['instrumentation_controls_qualified']}**.", "",
              f"Frozen corpus: {len(cases)} cases; {result['primary_case_count']} primary and "
              f"{result['challenge_case_count']} explicit challenges. Challenges remain part of whole-corpus acceptance.", "",
              "| Comparison | Behavior matches | Fully accepted | Primary contract | Challenges |",
@@ -702,6 +892,10 @@ def main(argv=None):
                      f"{comparison['primary_contract_accepted']} | {comparison['challenge_contract_accepted']} |")
     lines += ["", f"Comparator negative controls passed: **{controls['accepted']}**.", "",
               f"Independent runtime actuator checks passed: **{actuators['accepted']}**.", "",
+              f"Independent synthetic observer controls passed: **{observer_controls['accepted']}**. "
+              "These controls are excluded from target-case counts.", "",
+              "Full-stack observability is not established by this bounded exercise. "
+              "The separate sensor-coverage report retains raw process I/O values and flags zero totals despite witnessed effects.", "",
               "Byte conformance and complete observation are separate. Missing debugger capability, "
               "missing cases, digest mismatches, timeouts and incomplete capture do not pass full qualification.", "",
               "The JSON reports retain per-case classifications, raw diagnostics, byte mismatch locations, "

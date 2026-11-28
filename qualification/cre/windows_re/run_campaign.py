@@ -179,8 +179,12 @@ def run_one(case: dict, subject: str, target: Path, observer: Path, work_root: P
         errors.append("target executable changed during execution")
     for kind in ("stdout", "stderr"):
         info = receipt.get("streams", {}).get(kind, {})
+        seen, retained = info.get("bytes_seen"), info.get("bytes_retained")
+        counts_valid = (isinstance(seen, int) and isinstance(retained, int) and
+                        retained == len(streams[kind]) and seen >= retained and
+                        (seen > retained if info.get("overflow") is True else seen == retained))
         if not (info.get("eof") is True and info.get("error") == 0 and
-                info.get("bytes_seen") == info.get("bytes_retained") == len(streams[kind])):
+                counts_valid):
             errors.append(kind + " stream receipt disagrees with complete retained bytes")
     if receipt.get("events_dropped") != 0:
         errors.append("debug events were dropped or count unavailable")
@@ -230,7 +234,7 @@ def render_report(report: dict, destination: Path) -> None:
         stderr = bytes.fromhex(c["stderr_hex"]).decode("utf-8", errors="backslashreplace")
         changed = [name for name in sorted(set(c["before"]) | set(c["after"]))
                    if c["before"].get(name) != c["after"].get(name)]
-        rows.append(f"<tr><th scope='row'>{e(c['id'])}</th><td>{e(c['subject'])}</td>"
+        rows.append(f"<tr><th scope='row'>{e(c['id'])}</th><td>{e(c['subject'])}</td><td><code>{e(json.dumps(c['args'], ensure_ascii=False))}</code></td>"
                     f"<td>{e(str(c['exit_code']))}</td><td>{'Complete' if c['observer']['capture_complete'] else 'Incomplete'}</td>"
                     f"<td>{e(', '.join(changed) or 'None')}</td><td><pre>{e(stderr)}</pre></td></tr>")
     page = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -243,9 +247,16 @@ th,td{padding:.65rem;border:1px solid GrayText;text-align:left;vertical-align:to
     page += f"<p>Platform: <strong>{e(report['platform'])}</strong>. Phase: <strong>{e(report['phase'])}</strong>. "
     page += "These are observations of the released program. A completed sensor capture does not imply behavioral compatibility.</p>"
     page += f"<p>Reference SHA-256: <code>{e(report['target_sha256'])}</code></p><p><a href='report.json'>Download complete JSON evidence</a></p>"
+    unqualified_io = sum(c['observer'].get('sensor_quality', {}).get('process_io') == 'unqualified_zero_counters_despite_file_effects' for c in report['cases'])
+    page += f"<p>Process I/O counters returned zero despite independently observed file changes in {unqualified_io} cases. Those counters are unqualified; complete stream capture is a separate result. Actual argument text is displayed independently of the target's legacy diagnostic encoding.</p>"
     page += "<div class='scroll' role='region' aria-label='Case observations' tabindex='0'><table><caption>Exit, observer health and independent file effects</caption>"
-    page += "<thead><tr><th scope='col'>Case</th><th scope='col'>Program</th><th scope='col'>Exit</th><th scope='col'>Capture</th><th scope='col'>Changed paths</th><th scope='col'>Raw diagnostic text</th></tr></thead><tbody>"
-    page += "".join(rows) + "</tbody></table></div><h2>Limits</h2><p>Process I/O counters are totals, not per-path syscall traces. Descendant retirement, hostile isolation, desktop accessibility and full option compatibility are not established by this CLI campaign. Exact output bytes and actuator receipts are retained in JSON.</p></main></html>"
+    page += "<thead><tr><th scope='col'>Case</th><th scope='col'>Program</th><th scope='col'>Arguments</th><th scope='col'>Exit</th><th scope='col'>Capture</th><th scope='col'>Changed paths</th><th scope='col'>Raw diagnostic text</th></tr></thead><tbody>"
+    page += "".join(rows) + "</tbody></table></div><h2>Runtime controls</h2><table><caption>Real target interventions and separate synthetic sensor checks</caption><thead><tr><th scope='col'>Subject</th><th scope='col'>Control</th><th scope='col'>Collector verdict</th><th scope='col'>Evidence</th></tr></thead><tbody>"
+    for control in report['actuators'] + report.get('observer_controls', []):
+        label = f"{control['subject']}-{control['id']}-{control['mode']}"
+        name = control['id'] if control.get('synthetic_control') else control['mode']
+        page += f"<tr><th scope='row'>{e(control['subject'])}</th><td>{e(name)}</td><td>{'Passed' if control['oracle_passed'] else 'Not qualified'}</td><td><a href='receipts/{e(label)}/receipt.json'>Raw {e(name)} receipt</a></td></tr>"
+    page += "</tbody></table><p>The independent validator checks these collector verdicts against raw observations.</p><h2>Limits</h2><p>Process I/O counters are totals, not per-path syscall traces. Descendant retirement, hostile isolation, desktop accessibility and full option compatibility are not established by this CLI campaign. Exact output bytes and actuator receipts are retained in JSON.</p></main></html>"
     destination.write_text(page, encoding="utf-8")
 
 
@@ -332,10 +343,6 @@ def main() -> int:
             if control_mode == "sleep":
                 passed = receipt.get("timed_out") is True and row["stdout_hex"] == "" and row["exit_code"] == 0xC000013A
             elif control_mode == "stdout":
-                unexpected_errors = [error for error in row["observer"]["errors"]
-                                     if error != "stdout stream receipt disagrees with complete retained bytes"]
-                common = (receipt.get("cleanup", {}).get("complete") is True and not row["before"] and not row["after"]
-                          and receipt.get("observer_error", {}).get("win32") == 0 and not unexpected_errors)
                 stream = receipt.get("streams", {}).get("stdout", {})
                 passed = receipt.get("output_overflow") is True and stream.get("bytes_seen", 0) > 65536 and stream.get("bytes_retained") == 65536 and row["stdout_hex"] == "58" * 65536
             else:

@@ -135,6 +135,9 @@ jobs:
               report=json.loads(pathlib.Path('evidence/windows-re-'+lane+'/report.json').read_text())
               print(json.dumps({'platform':lane,'phase':'discovery','cases':len(report['cases']),'target_sha256':report['target_sha256'],'candidate_not_built':True}))
           PY
+      - name: Render the complete independent verdict for people
+        if: always()
+        run: python3 qualification/cre/windows_re/render_validation.py --input comparison/validation-report.json --output comparison/index.html
       - name: Retain independent comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

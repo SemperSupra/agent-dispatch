@@ -1,6 +1,6 @@
 {
   "schema": "cre.windows_re.campaign.v1",
-  "phase": "discovery",
+  "phase": "validation",
   "target": "dos2unix-7.5.7-win64",
   "validation_cases_sha256": "81d8f3e0f893888b68d0234da7ec0c8ec7a046c14d92cafe873609da4be312ab",
   "process_deadline_ms": 5000,
