@@ -1,0 +1,530 @@
+{
+  "schema": "cre.windows-re.validation-cases.v1",
+  "frozen_at_utc": "2026-11-28T16:09:27Z",
+  "target": {
+    "program": "dos2unix.exe",
+    "version": "7.5.7",
+    "architecture": "win64",
+    "archive_sha256": "8c1af6e366e641a859a1d58457663aedd1f3b4aae37e67621449beef145cf934"
+  },
+  "method": {
+    "source_uninspected": true,
+    "discovery_results_uninspected": true,
+    "candidate_code_uninspected": true,
+    "label": "independently frozen developmental validation; not a blinded benchmark",
+    "challenge_policy": "All challenge cases remain visible and participate in whole-corpus acceptance; an explicitly bounded primary-contract result is reported separately."
+  },
+  "cases": [
+    {
+      "id": "v01-empty",
+      "group": "minimal",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": ""
+        }
+      ]
+    },
+    {
+      "id": "v02-payload-no-final",
+      "group": "minimal",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "686f6c646f75743a3759217a"
+        }
+      ]
+    },
+    {
+      "id": "v03-lf-records",
+      "group": "endings",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "6c696e652d31370a0a6c696e652d32390a"
+        }
+      ]
+    },
+    {
+      "id": "v04-crlf-records",
+      "group": "endings",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "66697273742d34330d0a0d0a6c6173742d35310d0a"
+        }
+      ]
+    },
+    {
+      "id": "v05-lone-cr",
+      "group": "endings",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "6f6c640d7374796c650d656e64730d"
+        }
+      ]
+    },
+    {
+      "id": "v06-mixed-state",
+      "group": "endings",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "61610d0a62620a63630d64640d0a65650a"
+        }
+      ]
+    },
+    {
+      "id": "v07-repeated-cr",
+      "group": "endings",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "410d0d0d0a420d0d0a430d"
+        }
+      ]
+    },
+    {
+      "id": "v08-alternating-runs",
+      "group": "endings",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "0a0d0a0d0d0a0a0d454e44"
+        }
+      ]
+    },
+    {
+      "id": "v09-mixed-no-final",
+      "group": "endings",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "6f6e650d0a74776f0a74687265650d666f7572"
+        }
+      ]
+    },
+    {
+      "id": "v10-utf8-payload",
+      "group": "international",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "4675c39f67c3a46e67657220c3bc62657271756572656e206469652053747261c39f652e0d0ae0b8a0e0b8b2e0b8a9e0b8b2e0b984e0b897e0b8a220e0b897e0b894e0b8aae0b8ade0b89a0a4772c3bcc39f650de0b888e0b89a"
+        }
+      ]
+    },
+    {
+      "id": "v11-spaced-paths",
+      "group": "paths",
+      "challenge": false,
+      "args": [
+        "-n",
+        "incoming sample 23.txt",
+        "converted sample 23.txt"
+      ],
+      "files": [
+        {
+          "path": "incoming sample 23.txt",
+          "data_hex": "73706163650d0a706174680d0a6c617374"
+        }
+      ]
+    },
+    {
+      "id": "v12-unicode-paths",
+      "group": "paths",
+      "challenge": false,
+      "args": [
+        "-n",
+        "prüfungen/ต้นฉบับ.txt",
+        "prüfungen/ผลลัพธ์-ä.txt"
+      ],
+      "files": [
+        {
+          "path": "prüfungen/ต้นฉบับ.txt",
+          "data_hex": "c3a4c3b6c3bc0d0ae0b897e0b894e0b8aae0b8ade0b89a0d0a"
+        }
+      ],
+      "dirs": [
+        "prüfungen"
+      ]
+    },
+    {
+      "id": "v13-nested-paths",
+      "group": "paths",
+      "challenge": false,
+      "args": [
+        "-n",
+        "incoming/branch/source.txt",
+        "outgoing/branch/dest.txt"
+      ],
+      "files": [
+        {
+          "path": "incoming/branch/source.txt",
+          "data_hex": "6e65737465640d0a72656c61746976650a"
+        }
+      ],
+      "dirs": [
+        "incoming",
+        "incoming/branch",
+        "outgoing",
+        "outgoing/branch"
+      ]
+    },
+    {
+      "id": "v14-boundary-65535",
+      "group": "boundary",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "filegenerator": {
+        "path": "input.txt",
+        "pattern_hex": "71",
+        "repeat": 65535,
+        "suffix_hex": "0d0a454e440d0a"
+      }
+    },
+    {
+      "id": "v15-boundary-crcrlf",
+      "group": "boundary",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "filegenerator": {
+        "path": "input.txt",
+        "pattern_hex": "52",
+        "repeat": 65535,
+        "suffix_hex": "0d0d0a5441494c0d"
+      }
+    },
+    {
+      "id": "v16-boundary-4095",
+      "group": "boundary",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "filegenerator": {
+        "path": "input.txt",
+        "pattern_hex": "78797a",
+        "repeat": 1365,
+        "suffix_hex": "0d0a6d61726b65720a0d0a66696e616c"
+      }
+    },
+    {
+      "id": "v17-existing-destination",
+      "group": "effects",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "6e65770d0a636f6e74656e7473"
+        },
+        {
+          "path": "output.txt",
+          "data_hex": "4f4c442d44455354494e4154494f4e006d7573742d62652d6f62736572766564"
+        }
+      ]
+    },
+    {
+      "id": "v18-multiple-pairs",
+      "group": "effects",
+      "challenge": false,
+      "args": [
+        "-n",
+        "first.txt",
+        "first.out",
+        "second.txt",
+        "second.out"
+      ],
+      "files": [
+        {
+          "path": "first.txt",
+          "data_hex": "66697273740d0a706169720d0a"
+        },
+        {
+          "path": "second.txt",
+          "data_hex": "7365636f6e640a0d70616972"
+        }
+      ]
+    },
+    {
+      "id": "v19-second-input-missing",
+      "group": "errors",
+      "challenge": false,
+      "args": [
+        "-n",
+        "first.txt",
+        "first.out",
+        "absent-second.txt",
+        "second.out"
+      ],
+      "files": [
+        {
+          "path": "first.txt",
+          "data_hex": "7061727469616c0d0a737563636573733f"
+        },
+        {
+          "path": "second.out",
+          "data_hex": "5052454558495354494e472d5345434f4e44"
+        }
+      ]
+    },
+    {
+      "id": "v20-missing-input",
+      "group": "errors",
+      "challenge": false,
+      "args": [
+        "-n",
+        "absent.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "output.txt",
+          "data_hex": "4558495354494e472d44455354494e4154494f4e"
+        }
+      ]
+    },
+    {
+      "id": "v21-output-parent-missing",
+      "group": "errors",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "absent-parent/output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "63616e6e6f740d0a637265617465"
+        }
+      ]
+    },
+    {
+      "id": "v22-odd-file-pair",
+      "group": "errors",
+      "challenge": false,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt",
+        "orphan.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "66697273740d0a70616972"
+        },
+        {
+          "path": "orphan.txt",
+          "data_hex": "6f727068616e0d0a66696c65"
+        }
+      ]
+    },
+    {
+      "id": "v23-unknown-option",
+      "group": "errors",
+      "challenge": false,
+      "args": [
+        "--cre-oracle-unsupported-option",
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "6f7074696f6e730d0a66697874757265"
+        }
+      ]
+    },
+    {
+      "id": "v24-nul-early",
+      "group": "challenge-binary",
+      "challenge": true,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "70726566697800626f64790d0a7461696c"
+        }
+      ]
+    },
+    {
+      "id": "v25-nul-late",
+      "group": "challenge-binary",
+      "challenge": true,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "filegenerator": {
+        "path": "input.txt",
+        "pattern_hex": "6e",
+        "repeat": 65535,
+        "suffix_hex": "000d0a6c6174650d0a"
+      }
+    },
+    {
+      "id": "v26-all-byte-values",
+      "group": "challenge-binary",
+      "challenge": true,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff0d0a5441494c0a"
+        }
+      ]
+    },
+    {
+      "id": "v27-utf8-bom",
+      "group": "challenge-encoding",
+      "challenge": true,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "efbbbf424f4d204772c3bcc39f650d0ae0b984e0b897e0b8a20d0a"
+        }
+      ]
+    },
+    {
+      "id": "v28-utf16le-bom",
+      "group": "challenge-encoding",
+      "challenge": true,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "fffe55006e00690063006f00640065002000e4000d000a00440e170e220e0a0045004e004400"
+        }
+      ]
+    },
+    {
+      "id": "v29-utf16be-bom",
+      "group": "challenge-encoding",
+      "challenge": true,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "feff00420069006700200065006e006400690061006e002000f6000d000a0e440e170e22000d0045004e0044"
+        }
+      ]
+    },
+    {
+      "id": "v30-truncated-utf8-bom",
+      "group": "challenge-encoding",
+      "challenge": true,
+      "args": [
+        "-n",
+        "input.txt",
+        "output.txt"
+      ],
+      "files": [
+        {
+          "path": "input.txt",
+          "data_hex": "efbb0d0a7061727469616c0d"
+        }
+      ]
+    }
+  ]
+}

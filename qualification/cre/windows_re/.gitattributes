@@ -1,0 +1,5 @@
+# Byte-pinned experiment inputs and portable source must survive Windows checkout.
+*.json text eol=lf
+*.py text eol=lf
+*.c text eol=lf
+*.md text eol=lf

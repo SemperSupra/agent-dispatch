@@ -1,0 +1,148 @@
+name: RDTE actual Windows program recovery
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rdte-windows-program-recovery.yml'
+      - 'qualification/cre/windows_re/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-program-recovery-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Verify released PE and build observer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install distribution compiler
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+      - name: Verify fixed official release and license
+        run: python3 qualification/cre/windows_re/acquire.py --outputdir package
+      - name: Inspect actual PE
+        run: python3 qualification/cre/windows_re/pe_static.py --input package/reference/dos2unix.exe --output package/static.json
+      - name: Build and bind same binaries for both systems
+        run: python3 qualification/cre/windows_re/build_package.py
+      - name: Preserve fixed execution package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-re-package
+          path: |
+            package/**
+            !package/reference/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  windows:
+    name: Actual PE on native Windows
+    needs: package
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: windows-re-package
+          path: package
+      - name: Observe program, effects and debugger actuation
+        shell: pwsh
+        run: python qualification/cre/windows_re/run_campaign.py --platform windows --package package --outputdir results/windows --workdir "$env:RUNNER_TEMP/cre-windows-cases"
+      - name: Preserve native observations including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-re-windows
+          path: results/windows
+          if-no-files-found: error
+          retention-days: 1
+
+  wine:
+    name: Same actual PE under Wine
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      WINEARCH: win64
+      WINEDEBUG: '-all'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: windows-re-package
+          path: package
+      - name: Install distribution Wine and initialize owned prefix
+        env:
+          WINEPREFIX: ${{ runner.temp }}/cre-wine-prefix
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends wine wine64
+          timeout 90s wineboot --init
+          wine --version
+      - name: Observe same PE, effects and debugger actuation
+        env:
+          WINEPREFIX: ${{ runner.temp }}/cre-wine-prefix
+        run: python3 qualification/cre/windows_re/run_campaign.py --platform wine --package package --outputdir results/wine --workdir "$RUNNER_TEMP/cre-wine-cases"
+      - name: Retire owned Wine processes
+        if: always()
+        env:
+          WINEPREFIX: ${{ runner.temp }}/cre-wine-prefix
+        run: timeout 15s wineserver -k
+      - name: Preserve Wine observations including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-re-wine
+          path: results/wine
+          if-no-files-found: error
+          retention-days: 1
+
+  compare:
+    name: Independent four-way comparison
+    if: always() && needs.package.result == 'success'
+    needs: [package, windows, wine]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: windows-re-*
+          path: evidence
+      - name: Compare only after behavior-derived candidate exists
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          config=json.loads(pathlib.Path('qualification/cre/windows_re/campaign.json').read_text())
+          if config['phase']=='validation':
+              raise SystemExit(subprocess.call(['python3','qualification/cre/windows_re/validate.py','--windows','evidence/windows-re-windows/report.json','--wine','evidence/windows-re-wine/report.json','--outputdir','comparison']))
+          for lane in ('windows','wine'):
+              report=json.loads(pathlib.Path('evidence/windows-re-'+lane+'/report.json').read_text())
+              print(json.dumps({'platform':lane,'phase':'discovery','cases':len(report['cases']),'target_sha256':report['target_sha256'],'candidate_not_built':True}))
+          PY
+      - name: Render the complete independent verdict for people
+        if: always()
+        run: python3 qualification/cre/windows_re/render_validation.py --input comparison/validation-report.json --output comparison/index.html
+      - name: Retain independent comparison
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-re-comparison
+          path: comparison
+          if-no-files-found: ignore
+          retention-days: 1
