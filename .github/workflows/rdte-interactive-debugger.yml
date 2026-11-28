@@ -1,0 +1,158 @@
+name: Interactive native debugger control
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rdte-interactive-debugger.yml'
+permissions:
+  contents: read
+jobs:
+  debugger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        opt: [O0, O2]
+    env:
+      OPT: ${{ matrix.opt }}
+    steps:
+      - name: Exercise the typed debugger control sequence
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, html, json, os, pathlib, queue, sqlite3, subprocess, threading, time
+          out=pathlib.Path("evidence").resolve()
+          out.mkdir()
+          src=r'''
+          #include <sqlite3.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          __attribute__((noinline,noclone,used)) int apply_effect(sqlite3 *db,int cost) {
+              char sql[128];
+              snprintf(sql,sizeof sql,"UPDATE ledger SET credit=credit-%d WHERE id=1",cost);
+              if(sqlite3_exec(db,sql,0,0,0)!=SQLITE_OK || sqlite3_changes(db)!=1) return 4;
+              puts("APPLIED");
+              return 0;
+          }
+          __attribute__((noinline,noclone,used)) int deny_effect(void) {
+              puts("DENIED");
+              return 0;
+          }
+          int main(int argc,char **argv) {
+              if(argc!=4) return 2;
+              int active=atoi(argv[2]),cost=atoi(argv[3]);
+              if(cost<=0) return 2;
+              sqlite3 *db=0; sqlite3_stmt *stmt=0;
+              if(sqlite3_open_v2(argv[1],&db,SQLITE_OPEN_READWRITE,0)!=SQLITE_OK) return 3;
+              if(sqlite3_prepare_v2(db,"SELECT credit FROM ledger WHERE id=1",-1,&stmt,0)!=SQLITE_OK) return 3;
+              if(sqlite3_step(stmt)!=SQLITE_ROW) return 3;
+              int credit=sqlite3_column_int(stmt,0);
+              sqlite3_finalize(stmt);
+              int rc=(active && credit>=cost) ? apply_effect(db,cost) : deny_effect();
+              if(sqlite3_close(db)!=SQLITE_OK) return 5;
+              return rc;
+          }
+          '''
+          def req(ok,msg):
+              if not ok: raise RuntimeError(msg)
+          def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+          def write(p,o):p.write_text(json.dumps(o,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+          opt=os.environ["OPT"]
+          req(opt in ("O0","O2"),"invalid mode")
+          (out/"fixture.c").write_text(src,encoding="utf-8")
+          exe=out/"fixture"
+          subprocess.run(["gcc","-g","-"+opt,"-o",str(exe),str(out/"fixture.c"),"-lsqlite3"],check=True,timeout=60)
+          def inspect(path):
+              with sqlite3.connect(path.as_uri()+"?mode=ro&immutable=1",uri=True) as db:
+                  return dict(credit=db.execute("select credit from ledger where id=1").fetchone()[0],integrity=db.execute("pragma integrity_check").fetchone()[0],sha256=sha(path))
+          class MI:
+              def __init__(self,log):
+                  self.p=subprocess.Popen(["gdb","--quiet","--nx","--interpreter=mi2",str(exe)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+                  self.q=queue.Queue()
+                  self.seq=0
+                  self.log=log
+                  def reader():
+                      for line in self.p.stdout:self.q.put(line.rstrip("\r\n"))
+                      self.q.put(None)
+                  threading.Thread(target=reader,daemon=True).start()
+              def until(self,pred):
+                  end=time.monotonic()+20
+                  while time.monotonic()<end:
+                      line=self.q.get(timeout=max(.01,end-time.monotonic()))
+                      req(line is not None,"MI closed")
+                      self.log.append({"direction":"receive","record":line})
+                      if pred(line):return line
+                  raise TimeoutError("MI timeout")
+              def command(self,cmd,status="done"):
+                  self.seq+=1
+                  tag=str(self.seq)
+                  self.log.append({"direction":"send","record":tag+cmd})
+                  self.p.stdin.write(tag+cmd+"\n");self.p.stdin.flush()
+                  s=self.until(lambda line:line.startswith(tag+"^"))
+                  req(s.startswith(tag+"^"+status),"unexpected MI result "+s)
+                  return s
+              def stop(self):
+                  return self.until(lambda line:line.startswith("*stopped,"))
+              def close(self):
+                  if self.p.poll() is None:
+                      try:self.command("-gdb-exit","exit")
+                      except Exception:self.p.kill()
+                  try:self.p.wait(timeout=5)
+                  except subprocess.TimeoutExpired:self.p.kill();self.p.wait()
+          cases=[]
+          for name,active,credit,cost,expected,symbol in [("apply",1,10,3,7,"apply_effect"),("inactive",0,10,3,10,"deny_effect"),("insufficient",1,2,3,2,"deny_effect"),("boundary",1,3,3,0,"apply_effect")]:
+              path=out/(name+".db")
+              with sqlite3.connect(path) as db:
+                  db.execute("create table ledger(id integer primary key,credit integer not null)")
+                  db.execute("insert into ledger values(1,?)",(credit,))
+              before=inspect(path)
+              (out/(name+"-before.db")).write_bytes(path.read_bytes())
+              log=[]
+              g=MI(log)
+              try:
+                  g.command("-gdb-set pagination off")
+                  g.command("-gdb-set disable-randomization off")
+                  g.command("-break-insert apply_effect")
+                  g.command("-break-insert deny_effect")
+                  g.command("-exec-arguments "+json.dumps(str(path))+" "+str(active)+" "+str(cost))
+                  g.command("-exec-run","running")
+                  stop=g.stop()
+                  req('reason="breakpoint-hit"' in stop and 'func="'+symbol+'"' in stop,"wrong native stop")
+                  frames=g.command("-stack-list-frames")
+                  req('func="'+symbol+'"' in frames and 'func="main"' in frames,"wrong frames")
+                  pc=g.command("-data-evaluate-expression $pc")
+                  req("value=" in pc,"no PC")
+                  during=inspect(path)
+                  req(during==before,"state changed before continuation")
+                  observed_cost=None
+                  if symbol=="apply_effect":
+                      observed_cost=g.command("-data-evaluate-expression cost")
+                      # At entry under optimization the argument may be unavailable;
+                      # retain the actual MI result and require the expected value.
+                      req('value="'+str(cost)+'"' in observed_cost,"cost mismatch")
+                  g.command("-exec-continue","running")
+                  done=g.stop()
+                  req('reason="exited-normally"' in done,"not clean exit")
+                  after=inspect(path)
+                  req(after["credit"]==expected and after["integrity"]=="ok","persisted state mismatch")
+                  req((before["sha256"]==after["sha256"])==(credit==expected),"byte relation")
+                  cases.append(dict(case=name,active=active,cost=cost,before=before,during=during,after=after,breakpoint=stop,frames=frames,pc=pc,observed_cost=observed_cost,exit=done))
+              finally:
+                  g.close()
+                  write(out/(name+"-mi.json"),log)
+          receipt=dict(schema="interactive-native-debugger-v1",commit=os.environ["GITHUB_SHA"],run_id=os.environ["GITHUB_RUN_ID"],mode=opt,fixture_sha256=sha(exe),debugger=subprocess.check_output(["gdb","--version"],text=True).splitlines()[0],cases=cases,claim_ceiling="actual external debugger command/stop/stack/PC and state verification, known synthetic target; no general attachment or semantic completeness")
+          write(out/"receipt.json",receipt)
+          esc=lambda v:html.escape(str(v))
+          rows="".join("<tr>"+"".join("<td>"+esc(v)+"</td>" for v in [c["case"],c["before"]["credit"],c["during"]["credit"],c["after"]["credit"],c["pc"],c["breakpoint"][:150]])+"</tr>" for c in cases)
+          (out/"report.html").write_text('<!doctype html><html lang="en"><meta charset="utf-8"><title>Native debugger control</title><style>body{font:16px system-ui;max-width:1150px;margin:30px auto}td,th{padding:10px;border-bottom:1px solid #ccc;text-align:left;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}</style><h1>Native debugger control</h1><p>'+esc(opt)+' · Actual MI command, breakpoint, inspect and continue sequence</p><table><thead><tr><th>Case</th><th>Before</th><th>Paused</th><th>After</th><th>PC</th><th>Stop record</th></tr></thead><tbody>'+rows+'</tbody></table></html>',encoding="utf-8")
+          (out/"SHA256SUMS").write_text("".join(sha(p)+"  "+p.name+"\n" for p in sorted(out.iterdir()) if p.is_file()),encoding="utf-8")
+          print(json.dumps(dict(mode=opt,cases=len(cases),actual_mi_sessions=len(cases))))
+          PY
+      - name: Retain command transcripts and native products
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: interactive-debugger-${{ matrix.opt }}
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error
