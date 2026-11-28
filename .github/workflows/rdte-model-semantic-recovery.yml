@@ -1,0 +1,353 @@
+name: Native model semantic recovery
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rdte-model-semantic-recovery.yml'
+      - 'qualification/cre/retirement.py'
+      - 'qualification/cre/test_retirement.py'
+permissions:
+  contents: read
+jobs:
+  model:
+    name: Actual model recovery block ${{ matrix.block }}
+    strategy:
+      fail-fast: false
+      matrix:
+        block: [0, 1]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BLOCK: '${{ matrix.block }}'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          path: source
+      - name: Qualify retirement observation and uncertainty controls
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/source
+        run: |
+          python3 -B -m unittest discover -s source/qualification/cre -p test_retirement.py -v
+          python3 -B -O -m unittest discover -s source/qualification/cre -p test_retirement.py -v
+      - name: Acquire pinned public runtime and model before participant execution
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir evidence
+          root="$(mktemp -d "$RUNNER_TEMP/semantic-model.XXXXXX")"
+          printf '%s\n' "$root" > "$RUNNER_TEMP/semantic-model-root"
+          mkdir "$root/runtime" "$root/models"
+          curl -fL --silent --show-error --retry 2 --max-time 300 https://github.com/ollama/ollama/releases/download/v0.34.1/ollama-linux-amd64.tar.zst -o "$root/ollama.tar.zst"
+          echo "f361dc3992ec07e4ad429f4bb2d10d4663ba2c295f9a9a688c7d52f4ba650034  $root/ollama.tar.zst" | sha256sum -c -
+          zstd -dc "$root/ollama.tar.zst" | tar -xf - -C "$root/runtime"
+          rm "$root/ollama.tar.zst"
+          export OLLAMA_HOST=127.0.0.1:18181 OLLAMA_MODELS="$root/models" OLLAMA_NUM_PARALLEL=1
+          export HOME="$root"
+          "$root/runtime/bin/ollama" serve >"$root/staging.log" 2>&1 &
+          child=$!
+          trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:18181/api/tags >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18181/api/tags >/dev/null
+          timeout 300 "$root/runtime/bin/ollama" pull qwen3:1.7b
+          curl -fsS http://127.0.0.1:18181/api/tags >"$root/tags.json"
+          kill "$child"
+          wait "$child" || true
+          trap - EXIT
+          chmod -R a+rX "$root/runtime" "$root/models"
+          body=python@sha256:5f0cc9bc924d72614831d2b1575de5d7c4114609a0d42ca60dfc2f0abca10dd6
+          docker pull "$body"
+          docker image inspect "$body" --format '{{.Id}}' >"$root/body.id"
+          docker image inspect "$body" --format '{{json .RepoDigests}}' >"$root/body.digests"
+      - name: Execute matched native model trials with a restricted probe broker
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, html, itertools, json, os, pathlib, re, shutil, sqlite3, subprocess, sys, tempfile, time, uuid
+          from pathlib import Path
+          sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]).resolve() / "source"))
+          from qualification.cre.retirement import retire_owned_container
+          def req(ok,msg):
+              if not ok: raise RuntimeError(msg)
+          def sha(b): return hashlib.sha256(b).hexdigest()
+          def filehash(p):
+              h=hashlib.sha256()
+              with p.open("rb") as f:
+                  for chunk in iter(lambda:f.read(1048576),b""): h.update(chunk)
+              return h.hexdigest()
+          def write(p,o): p.write_text(json.dumps(o,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+          def cmd(a,timeout=45,stdin=None,check=True):
+              p=subprocess.run([str(x) for x in a],input=stdin,capture_output=True,timeout=timeout)
+              if check: req(p.returncode==0,"command failed: "+str(a[0])+" "+p.stderr.decode(errors="replace")[-1500:])
+              return p
+          out=Path("evidence").resolve()
+          root=Path((Path(os.environ["RUNNER_TEMP"])/"semantic-model-root").read_text().strip()).resolve()
+          req(root.parent==Path(os.environ["RUNNER_TEMP"]).resolve() and root.name.startswith("semantic-model."),"unexpected staging root")
+          block=int(os.environ["BLOCK"])
+          req(block in (0,1),"invalid block")
+          manifests=list((root/"models/manifests").rglob("1.7b"))
+          req(len(manifests)==1,"unexpected model manifest")
+          mf=manifests[0].read_bytes()
+          digest=sha(mf)
+          req(digest=="8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7","full model manifest pin mismatch")
+          tags=json.loads((root/"tags.json").read_bytes())["models"]
+          req(any(t["name"]=="qwen3:1.7b" and t["digest"].removeprefix("sha256:")==digest for t in tags),"full model digest mismatch")
+          m=json.loads(mf)
+          verified=[]
+          for entry in [m["config"],*m["layers"]]:
+              d=entry["digest"]
+              req(re.fullmatch(r"sha256:[0-9a-f]{64}",d) is not None,"invalid layer digest")
+              blob=root/"models/blobs"/d.replace(":","-")
+              req(blob.is_file() and blob.stat().st_size==entry["size"] and filehash(blob)==d[7:],"model blob integrity")
+              verified.append({"digest":d,"size":entry["size"]})
+          identity=dict(runtime_archive_sha256="f361dc3992ec07e4ad429f4bb2d10d4663ba2c295f9a9a688c7d52f4ba650034",
+                        runtime_executable_sha256=filehash(root/"runtime/bin/ollama"),model_manifest_sha256=digest,model_blobs=verified,
+                        body_image_id=(root/"body.id").read_text().strip(),body_repo_digests=json.loads((root/"body.digests").read_text()))
+          write(out/"identity.json",identity)
+          req(identity["body_image_id"]=="sha256:238b27dd9ffcc8b9af6654ed3bb07b6dd304c619416b8429eb43de50306c2cd8","body image pin mismatch")
+          # Pre-register finite hypothesis family, two fresh target rules, and evaluation cases.
+          # These are evaluator-authored nonblind developmental tasks, never SCA held-out custody.
+          family={
+              "A":"active and credit >= cost",
+              "B":"credit >= cost",
+              "C":"active and credit > cost",
+              "D":"active and credit >= 2*cost",
+          }
+          rules=["A","D"]
+          truth=rules[block]
+          heldout=[(1,10,5),(0,9,5),(1,5,5),(1,9,5),(1,4,5)]
+          domain=list(itertools.product((0,1),range(0,13),range(1,5)))
+          source=r'''
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <sqlite3.h>
+          int main(int argc,char**argv) {
+            if(argc!=4) return 2;
+            int active=atoi(argv[2]),cost=atoi(argv[3]),credit;
+            sqlite3 *d=0;sqlite3_stmt *s=0;
+            if(sqlite3_open_v2(argv[1],&d,SQLITE_OPEN_READWRITE,0)!=SQLITE_OK)return 3;
+            if(sqlite3_prepare_v2(d,"SELECT credit FROM ledger WHERE id=1",-1,&s,0)!=SQLITE_OK)return 3;
+            if(sqlite3_step(s)!=SQLITE_ROW)return 3;
+            credit=sqlite3_column_int(s,0);sqlite3_finalize(s);
+            if(@RULE@){
+              char q[100];snprintf(q,sizeof q,"UPDATE ledger SET credit=credit-%d WHERE id=1",cost);
+              if(sqlite3_exec(d,q,0,0,0)!=SQLITE_OK)return 4;
+              puts("APPLIED");
+            } else puts("DENIED");
+            return sqlite3_close(d)!=SQLITE_OK;
+          }
+          '''.replace("@RULE@",{"A":"active && credit>=cost","D":"active && credit>=2*cost"}[truth])
+          # The target is evaluated by the host broker, not mounted in the participant container.
+          evaluator=root/"evaluator"
+          evaluator.mkdir(mode=0o700)
+          src=evaluator/"target.c";src.write_text(source)
+          target=evaluator/"target"
+          cmd(["gcc","-O2","-fPIE","-pie",src,"-lsqlite3","-o",target])
+          (out/"target.elf").write_bytes(target.read_bytes())
+          (out/"target.c").write_text(source)
+          freeze=dict(schema="developmental-native-model-v2",block=block,truth=truth,hypotheses=family,
+                      heldout=heldout,query_cap=3,cpu_cap_seconds=600,wall_cap_seconds=240,
+                      output_token_cap_per_turn=160,model_manifest_sha256=digest,target_sha256=filehash(target),
+                      treatments=["baseline unchanged","critic: evidence gate and compatible candidates","adaptive: evidence gate and suggested information-gain probe"],
+                      heldout_disjoint_from_query_domain=True,max_model_turns={"baseline":5,"critic":7,"adaptive":7},correction="nonblind replay; original unsupported claims retained")
+          write(out/"frozen-evaluation.json",freeze)
+          frozen=filehash(out/"frozen-evaluation.json")
+          def probe(case,recorddir,label):
+              a,c,k=case
+              req(case in domain or case in heldout,"out of bounded probe domain")
+              db=recorddir/(label+".db")
+              with sqlite3.connect(db) as con:
+                  con.execute("CREATE TABLE ledger(id INTEGER PRIMARY KEY,credit INTEGER NOT NULL CHECK(credit>=0))")
+                  con.execute("INSERT INTO ledger VALUES(1,?)",(c,))
+              before=db.read_bytes()
+              p=cmd([target,db,a,k],timeout=5,check=False)
+              with sqlite3.connect(db.resolve().as_uri()+"?mode=ro&immutable=1",uri=True) as con:
+                  final=con.execute("SELECT credit FROM ledger WHERE id=1").fetchone()[0]
+                  req(con.execute("PRAGMA integrity_check").fetchone()==("ok",),"database integrity")
+              req(p.returncode==0 and final in (c,c-k) and (p.stdout.strip()==b"APPLIED")== (final!=c),"native target failed")
+              return dict(active=a,credit=c,cost=k,after=final,applied=final!=c,exit=p.returncode,
+                          before_sha256=sha(before),after_sha256=filehash(db),evidence=label)
+          hdir=out/"evaluation";hdir.mkdir()
+          oracle=[probe(tuple(case),hdir,"case-"+str(i)) for i,case in enumerate(heldout)]
+          write(out/"evaluation.json",oracle)
+          broker=r'''
+          import json,sys,urllib.request
+          request=json.load(sys.stdin)
+          with urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:11434/api/chat",data=json.dumps(request).encode(),headers={"Content-Type":"application/json"}),timeout=65) as r:
+              print(r.read().decode())
+          '''
+          controls_code=r'''
+          import json,os,pathlib,socket
+          def denied(p):
+              try:
+                  pathlib.Path(p).write_text("probe")
+              except OSError:return True
+              return False
+          try:
+              socket.create_connection(("1.1.1.1",443),timeout=1).close();network=False
+          except OSError:network=True
+          status=dict(l.split(":",1) for l in pathlib.Path("/proc/self/status").read_text().splitlines() if ":" in l)
+          print(json.dumps(dict(network_denied=network,rootfs_ro=denied("/control-probe"),models_ro=denied("/models/control-probe"),runtime_ro=denied("/runtime/control-probe"),
+            evaluator_absent=not pathlib.Path("/evaluator").exists(),uid_unprivileged=os.getuid()!=0,
+            no_new_privileges=status["NoNewPrivs"].strip()=="1",zero_caps=int(status["CapEff"].strip(),16)==0,
+            no_runner_credentials=not any(k.startswith(("GITHUB_","ACTIONS_","GH_TOKEN")) for k in os.environ))))
+          '''
+          def hypothesis(name,a,c,k):
+              return {"A":a==1 and c>=k,"B":c>=k,"C":a==1 and c>k,"D":a==1 and c>=2*k}[name]
+          def compatible(observed):
+              return [name for name in family if all(hypothesis(name,x["active"],x["credit"],x["cost"])==x["applied"] for x in observed)]
+          system="You are a bounded semantic recovery actor. You have only a typed probe tool and no files or shell. Determine which candidate rule controls an original native application. A="+family["A"]+"; B="+family["B"]+"; C="+family["C"]+"; D="+family["D"]+". A probe runs the actual app from a fresh database state and returns the observed after-credit. Use evidence, not assumptions. Each turn return ONLY JSON. Query: {\"action\":\"probe\",\"active\":0 or 1,\"credit\":integer 0..12,\"cost\":integer 1..4}. Final: {\"action\":\"final\",\"rule\":\"A\" or \"B\" or \"C\" or \"D\" or \"UNKNOWN\"}. At most 3 attempted probes. If multiple rules remain compatible, return UNKNOWN. Do not invent tool results."
+          instructions={
+              "baseline":"Use ordinary direct reasoning to choose your probes and conclude.",
+              "critic":"A deterministic evidence critic will report the compatible candidates after your probes. If your final claim is unsupported, revise it using remaining probe budget. Return UNKNOWN if evidence is insufficient.",
+              "adaptive":"A deterministic evidence advisor reports compatible rules and suggests a maximally discriminating probe. You decide whether to query or abstain. Follow the evidence gate before concluding."
+          }
+          def advice(arm,observed,attempts):
+              if arm=="baseline":return ""
+              survivors=compatible(observed)
+              feedback="EVIDENCE CRITIC (derived solely from actual probe results): compatible rules="+",".join(survivors)+". Remaining query budget="+str(max(0,3-attempts))+". "
+              if len(survivors)==1:return feedback+"Exactly one candidate is supported. Return final JSON if you agree."
+              if attempts>=3:return feedback+"Multiple candidates remain and no queries remain. Return final UNKNOWN."
+              feedback+="A definitive rule is not yet supported. Issue a discriminating probe or abstain."
+              if arm=="adaptive" and len(survivors)>1:
+                  used={(v["active"],v["credit"],v["cost"]) for v in observed}
+                  choices=[x for x in domain if x not in used]
+                  def split(x):
+                      n=sum(hypothesis(h,*x) for h in survivors)
+                      return min(n,len(survivors)-n)
+                  chosen=max(choices,key=split)
+                  if split(chosen)>0:
+                      feedback+=" Suggested query: "+json.dumps(dict(action="probe",active=chosen[0],credit=chosen[1],cost=chosen[2]),separators=(",",":"))+". It partitions surviving rules "+str(split(chosen))+"/"+str(len(survivors)-split(chosen))+"."
+              return feedback
+          trials=[]
+          for arm in ("baseline","critic","adaptive"):
+              tdir=out/arm;tdir.mkdir()
+              name="cre-public-"+uuid.uuid4().hex
+              cid=None
+              observed=[];attempts=0;turns=[];answer="UNKNOWN";reason="TURN_LIMIT";controls={};start=time.monotonic()
+              cpu_start=None;cpu_end=None
+              def ex(args,timeout=45,stdin=None,check=True):
+                  return cmd(["docker","exec","-i",cid,*args],timeout=timeout,stdin=stdin,check=check)
+              try:
+                  cid=cmd(["docker","run","-d","--name",name,"--network=none","--ipc=none","--read-only","--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=128","--memory=5g","--cpus=2","--user","65534:65534","--tmpfs","/tmp:rw,nosuid,nodev,size=512m","-e","HOME=/tmp","-e","OLLAMA_HOST=127.0.0.1:11434","-e","OLLAMA_MODELS=/models","-e","OLLAMA_NUM_PARALLEL=1","-e","OLLAMA_MAX_LOADED_MODELS=1","-v",str(root/"runtime")+":/runtime:ro","-v",str(root/"models")+":/models:ro","--entrypoint","/runtime/bin/ollama",identity["body_image_id"],"serve"],timeout=25).stdout.decode().strip()
+                  req(re.fullmatch(r"[0-9a-f]{64}",cid) is not None,"missing container identity")
+                  # Controls are exercised in the actual inference container before any participant prompt.
+                  controls=json.loads(ex(["python3","-c",controls_code],timeout=15).stdout)
+                  inspected=json.loads(cmd(["docker","inspect",cid]).stdout)[0]
+                  hc=inspected["HostConfig"]
+                  mounts=inspected["Mounts"]
+                  controls["exact_mounts"]=sorted((m["Destination"],m["RW"]) for m in mounts if m.get("Type")=="bind")==[("/models",False),("/runtime",False)] and all(m.get("Type")=="bind" or (m.get("Type")=="tmpfs" and m["Destination"]=="/tmp") for m in mounts) and set(hc.get("Tmpfs") or {})=={"/tmp"}
+                  controls["exact_image"]=inspected["Image"]==identity["body_image_id"]
+                  controls["resource_envelope"]=hc["NetworkMode"]=="none" and hc["ReadonlyRootfs"] is True and hc["NanoCpus"]==2000000000 and hc["Memory"]==5*1024**3 and hc["PidsLimit"]==128
+                  req(all(controls.values()),"participant containment preflight failed")
+                  def cpu():
+                      lines=ex(["cat","/sys/fs/cgroup/cpu.stat"]).stdout.decode().splitlines()
+                      values=dict(l.split() for l in lines)
+                      return int(values["usage_usec"])
+                  cpu_start=cpu()
+                  ready=False
+                  for _ in range(20):
+                      p=ex(["python3","-c","import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:11434/api/tags',timeout=2).read().decode())"],timeout=5,check=False)
+                      if p.returncode==0:
+                          t=json.loads(p.stdout)["models"]
+                          req(any(x["name"]=="qwen3:1.7b" and x["digest"].removeprefix("sha256:")==digest for x in t),"offline model drift")
+                          ready=True;break
+                      time.sleep(1)
+                  req(ready,"offline model service unavailable")
+                  messages=[dict(role="system",content=system),dict(role="user",content=instructions[arm])]
+                  if arm=="adaptive":messages.append(dict(role="user",content=advice(arm,observed,attempts)))
+                  for turn in range(5 if arm=="baseline" else 7):
+                      if time.monotonic()-start>170 or cpu()-cpu_start>480000000:
+                          reason="BUDGET";break
+                      request=dict(model="qwen3:1.7b",messages=messages,stream=False,think=False,format="json",
+                                   options=dict(temperature=0,seed=37,num_ctx=2048,num_predict=160,num_thread=2),keep_alive="2m")
+                      p=ex(["python3","-c",broker],timeout=70,stdin=json.dumps(request).encode(),check=False)
+                      if p.returncode!=0:
+                          reason="MODEL_ERROR";turns.append(dict(turn=turn,exit=p.returncode,stderr=p.stderr.decode(errors="replace")[-1000:]));break
+                      r=json.loads(p.stdout)
+                      req(r.get("done") is True and int(r.get("eval_count",0))>0,"missing actual inference receipt")
+                      raw=r["message"]["content"]
+                      turns.append(dict(turn=turn,raw=raw,eval_count=r["eval_count"],prompt_eval_count=r.get("prompt_eval_count"),done_reason=r.get("done_reason"),total_duration=r.get("total_duration")))
+                      messages.append(dict(role="assistant",content=raw))
+                      try:
+                          q=json.loads(raw)
+                          req(isinstance(q,dict),"non-object")
+                      except (ValueError,RuntimeError):
+                          reason="INVALID_JSON";break
+                      if q.get("action")=="final":
+                          if set(q)=={"action","rule"} and q["rule"] in [*family,"UNKNOWN"]:
+                              answer=q["rule"];reason="FINAL"
+                              survivors=compatible(observed)
+                              if arm!="baseline" and answer!="UNKNOWN" and (len(survivors)!=1 or answer!=survivors[0]) and attempts<3 and turn<6:
+                                  turns[-1]["admission"]="REFUSED_UNSUPPORTED_FINAL"
+                                  messages.append(dict(role="user",content="FINAL REFUSED: your claim is not uniquely supported. "+advice(arm,observed,attempts)))
+                                  answer="UNKNOWN";reason="TURN_LIMIT";continue
+                          else:reason="INVALID_FINAL"
+                          break
+                      if attempts>=3:
+                          turns[-1]["admission"]="REFUSED_QUERY_CAP"
+                          reason="QUERY_CAP";break
+                      attempts+=1
+                      if set(q)!={"action","active","credit","cost"} or q["action"]!="probe" or any(type(q[k]) is not int for k in ("active","credit","cost")) or (q["active"],q["credit"],q["cost"]) not in domain:
+                          messages.append(dict(role="user",content="Invalid typed query. It consumed one attempted probe."))
+                          continue
+                      v=probe((q["active"],q["credit"],q["cost"]),tdir,"probe-"+str(attempts))
+                      observed.append(v)
+                      messages.append(dict(role="user",content="ACTUAL TOOL OBSERVATION: "+json.dumps({k:v[k] for k in ("active","credit","cost","after","applied","evidence")},sort_keys=True)+" "+advice(arm,observed,attempts)))
+                  cpu_end=cpu()
+              except (RuntimeError,ValueError,KeyError,subprocess.TimeoutExpired) as exc:
+                  reason="EXECUTION_ERROR";turns.append(dict(error=str(exc)[:1500]))
+              finally:
+                  retirement=retire_owned_container(cid,name)
+                  cleanup=retirement["status"]=="CONFIRMED_ABSENT"
+              elapsed=time.monotonic()-start
+              survivors=compatible(observed)
+              predictions=[hypothesis(answer,*case) for case in heldout] if answer in family else []
+              heldout_correct=sum(p==o["applied"] for p,o in zip(predictions,oracle))
+              cpu_seconds=(cpu_end-cpu_start)/1e6 if cpu_start is not None and cpu_end is not None else None
+              actual_inference=any(t.get("eval_count",0)>0 for t in turns)
+              budget_ok=attempts<=3 and elapsed<=240 and cpu_seconds is not None and cpu_seconds<=600
+              if reason!="FINAL":verdict=reason
+              elif answer=="UNKNOWN":verdict="CORRECT_ABSTENTION" if len(survivors)!=1 else "MISSED_RECOVERY"
+              elif len(survivors)!=1 or survivors[0]!=answer:verdict="UNSUPPORTED_DEFINITE"
+              elif answer==truth and heldout_correct==len(heldout):verdict="TASK_PASS"
+              else:verdict="WRONG_FINAL"
+              row=dict(arm=arm,block=block,actual_inference=actual_inference,attempted_queries=attempts,valid_queries=len(observed),observations=observed,
+                       answer=answer,remaining=survivors,heldout_predictions=predictions,heldout_correct=heldout_correct,heldout_total=len(heldout),reason=reason,
+                       verdict=verdict,controls=controls,cleanup=cleanup,retirement=retirement,wall_seconds=elapsed,cpu_seconds=cpu_seconds,budget_ok=budget_ok,turns=turns,
+                       freeze_sha256=frozen)
+              write(tdir/"trial.json",row);trials.append(row)
+              print(json.dumps({k:row[k] for k in ("arm","block","actual_inference","attempted_queries","answer","verdict","cleanup","budget_ok","cpu_seconds","wall_seconds")}),flush=True)
+          req(filehash(target)==freeze["target_sha256"],"target binary changed")
+          result=dict(schema="public-model-semantic-recovery-v2",block=block,run_id=os.environ.get("GITHUB_RUN_ID"),commit=os.environ.get("GITHUB_SHA"),
+                      identity=identity,freeze_sha256=frozen,trials=trials,oracle=oracle,
+                      claim_ceiling="actual bounded model inference against native black-box fixture; evaluator-authored nonblind; not general reverse engineering or SCA/M2B acceptance")
+          write(out/"receipt.json",result)
+          esc=lambda x:html.escape(str(x))
+          body="".join("<tr>"+"".join("<td>"+esc(v)+"</td>" for v in (t["arm"],t["attempted_queries"],t["answer"],", ".join(t["remaining"]),t["verdict"],str(t["heldout_correct"])+"/"+str(t["heldout_total"]),round(t["wall_seconds"],1),t["cpu_seconds"],t["cleanup"]))+"</tr>" for t in trials)
+          svg=['<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="330" viewBox="0 0 1000 330"><rect width="100%" height="100%" fill="#f7f9fc"/><g font-family="Arial,sans-serif" fill="#17263c"><text x="24" y="38" font-size="24" font-weight="bold">Actual model semantic recovery</text>',
+               f'<text x="24" y="66" font-size="14">Block {block} | public native application | {sum(t["actual_inference"] for t in trials)}/3 model attempts</text>']
+          for i,t in enumerate(trials):
+              y=95+i*72
+              color="#17663a" if t["verdict"]=="TASK_PASS" else "#8a4b0c" if t["verdict"]=="CORRECT_ABSTENTION" else "#9a3743"
+              svg.append(f'<rect x="20" y="{y}" width="960" height="57" rx="7" fill="#e9eff5"/><text x="32" y="{y+22}" font-size="16" font-weight="bold">{esc(t["arm"])}</text><text x="220" y="{y+22}" font-size="15" fill="{color}">{esc(t["verdict"])}</text><text x="32" y="{y+43}" font-size="13">Queries {t["attempted_queries"]}/3 · Answer {esc(t["answer"])} · Surviving rules {esc(", ".join(t["remaining"]))} · Held-out predictions {t["heldout_correct"]}/{t["heldout_total"]}</text>')
+          svg.append("</g></svg>")
+          visual="\n".join(svg);(out/"report.svg").write_text(visual)
+          page='<!doctype html><html lang="en"><meta charset="utf-8"><title>Model semantic recovery</title><style>body{font:16px system-ui;max-width:1100px;margin:24px auto;color:#17263c}table{border-collapse:collapse;width:100%}td,th{padding:9px;border-bottom:1px solid #ccd6df;text-align:left}svg{max-width:100%;height:auto}</style><h1>Semantic recovery: comparative actor trials</h1><p>'+esc(result["claim_ceiling"])+'</p>'+visual+'<table><caption>All attempts, including failures</caption><thead><tr>'+''.join('<th scope="col">'+h+'</th>' for h in ["Arm","Queries","Rule","Surviving","Verdict","Evaluation","Wall s","CPU s","Cleanup"])+'</tr></thead><tbody>'+body+'</tbody></table></html>'
+          (out/"report.html").write_text(page)
+          chrome=shutil.which("google-chrome") or shutil.which("chromium")
+          if chrome:
+              with tempfile.TemporaryDirectory(prefix="model-report-") as profile:
+                  p=cmd([chrome,"--headless","--no-sandbox","--disable-gpu","--disable-dev-shm-usage","--hide-scrollbars","--user-data-dir="+profile,"--window-size=1160,850","--screenshot="+str(out/"report.png"),(out/"report.html").as_uri()],timeout=45,check=False)
+          (out/"SHA256SUMS").write_text("".join(filehash(p)+"  "+p.relative_to(out).as_posix()+"\n" for p in sorted(out.rglob("*")) if p.is_file()))
+          req(all(t["actual_inference"] and t["budget_ok"] and t["cleanup"] and t["controls"] and all(t["controls"].values()) for t in trials),"one or more execution/admission gates failed; retained all attempts")
+          # Incorrect model answers are measured outcomes, not infrastructure failures.
+          PY
+      - name: Retain measured trials and actual native products
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-model-recovery-${{ matrix.block }}
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error

@@ -1,0 +1,303 @@
+name: Native semantic witness integration
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rdte-native-semantic-witness.yml'
+permissions:
+  contents: read
+jobs:
+  witness:
+    name: Native semantic witnesses (${{ matrix.opt }})
+    strategy:
+      fail-fast: false
+      matrix:
+        opt: [O0, O2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      OPT: ${{ matrix.opt }}
+      GOTOOLCHAIN: local
+      GOPROXY: 'off'
+      GOSUMDB: 'off'
+      GOWORK: 'off'
+      CGO_ENABLED: '0'
+      DEBUGINFOD_URLS: ''
+    steps:
+      - name: Check out exact public evidence consumer
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: SemperSupra/agent-dispatch
+          ref: 4405a224cd15f9a4c97a572656aa0d54bb6fd2ac
+          path: public-consumer
+          persist-credentials: false
+      - name: Prepare native debugger and build real consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gdb >/dev/null || ! test -f /usr/include/sqlite3.h; then
+            sudo apt-get -qq update
+            sudo apt-get -qq install -y gdb libsqlite3-dev
+          fi
+          test "$(git -C public-consumer rev-parse HEAD)" = 4405a224cd15f9a4c97a572656aa0d54bb6fd2ac
+          mkdir -p evidence
+          cd public-consumer/experiments/offline-scoped-journal
+          go version
+          go test -count=1 ./...
+          go vet ./...
+          go build -trimpath -o "$GITHUB_WORKSPACE/evidence/native-correspondence" ./cmd/native-correspondence
+          go build -trimpath -o "$GITHUB_WORKSPACE/evidence/range-relation" ./cmd/range-relation
+      - name: Observe real native application and upstream SQLite library
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, html, json, os, re, shutil, sqlite3, subprocess, tempfile, time
+          from pathlib import Path
+
+          def require(ok,msg):
+              if not ok: raise RuntimeError(msg)
+          def sha(b): return hashlib.sha256(b).hexdigest()
+          def dump(x): return json.dumps(x,sort_keys=True,separators=(",",":")).encode()
+          def write(p,x): p.write_bytes(dump(x))
+          def run(args, cwd=None, timeout=30):
+              return subprocess.run([str(x) for x in args],cwd=cwd,capture_output=True,timeout=timeout)
+          def good(args, cwd=None, timeout=30):
+              p=run(args,cwd,timeout)
+              require(p.returncode==0,"command failed: "+str(args[0])+" "+p.stderr.decode(errors="replace")[-1500:])
+              return p.stdout
+          def ref(scope,occ,b): return dict(scope=scope,occurrence=occ,sha256=sha(b),size=str(len(b)))
+          out=(Path.cwd()/"evidence").resolve()
+          nc=out/"native-correspondence"
+          rr=out/"range-relation"
+          source=r'''
+          #include <sqlite3.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          __attribute__((noinline,noclone,used)) int apply_effect(sqlite3 *db,int cost) {
+              char sql[128];
+              snprintf(sql,sizeof sql,"UPDATE ledger SET credit=credit-%d WHERE id=1",cost);
+              if(sqlite3_exec(db,sql,0,0,0)!=SQLITE_OK || sqlite3_changes(db)!=1) return 4;
+              puts("APPLIED");
+              return 0;
+          }
+          __attribute__((noinline,noclone,used)) int deny_effect(void) {
+              puts("DENIED");
+              return 0;
+          }
+          int main(int argc,char **argv) {
+              if(argc!=4) return 2;
+              int active=atoi(argv[2]),cost=atoi(argv[3]);
+              if(cost<=0) return 2;
+              sqlite3 *db=0; sqlite3_stmt *stmt=0;
+              if(sqlite3_open_v2(argv[1],&db,SQLITE_OPEN_READWRITE,0)!=SQLITE_OK) return 3;
+              if(sqlite3_prepare_v2(db,"SELECT credit FROM ledger WHERE id=1",-1,&stmt,0)!=SQLITE_OK) return 3;
+              if(sqlite3_step(stmt)!=SQLITE_ROW) return 3;
+              int credit=sqlite3_column_int(stmt,0);
+              sqlite3_finalize(stmt);
+              int rc=(active && credit>=cost) ? apply_effect(db,cost) : deny_effect();
+              if(sqlite3_close(db)!=SQLITE_OK) return 5;
+              return rc;
+          }
+          '''
+          debugger=r'''
+          import gdb
+          def capture(name):
+              pc=int(gdb.parse_and_eval("$pc"))
+              pid=gdb.selected_inferior().pid
+              if not pid: raise RuntimeError("no stopped inferior")
+              with open("/proc/%d/maps"%pid,"r",encoding="utf-8") as f:
+                  maps=f.read()
+              # Inferior stdout and GDB diagnostic stdout are not a framed evidence channel.
+              # Write a complete observation to a separate, case-owned observer file before resuming.
+              with open(capture_path,"a",encoding="utf-8") as f:
+                  f.write("WITNESS_BEGIN "+name+"\n"+"pc=0x%x\n"%pc+maps+"WITNESS_END\n")
+              gdb.write("WITNESS_CAPTURED "+name+"\n")
+          gdb.execute("set pagination off")
+          gdb.execute("set confirm off")
+          gdb.execute("set disable-randomization off")
+          gdb.execute("set debuginfod enabled off")
+          gdb.execute("start",to_string=True)
+          gdb.execute("break *apply_effect",to_string=True)
+          gdb.execute("break *deny_effect",to_string=True)
+          gdb.execute("continue",to_string=True)
+          pc=int(gdb.parse_and_eval("$pc"))
+          applied=int(gdb.parse_and_eval("(void*)&apply_effect"))
+          denied=int(gdb.parse_and_eval("(void*)&deny_effect"))
+          if pc==applied:
+              capture("apply_effect")
+              gdb.execute("break *sqlite3_exec",to_string=True)
+              gdb.execute("continue",to_string=True)
+              capture("sqlite3_exec")
+          elif pc==denied:
+              capture("deny_effect")
+          else:
+              raise RuntimeError("unexpected application stop")
+          gdb.execute("continue",to_string=True)
+          if gdb.selected_inferior().pid!=0: raise RuntimeError("inferior not reaped")
+          with open(capture_path,"a",encoding="utf-8") as f:
+              f.write("INFERIOR_EXIT "+str(int(gdb.parse_and_eval("$_exitcode")))+"\n")
+          '''
+          (out/"fixture.c").write_text(source,encoding="utf-8")
+          (out/"debugger.py").write_text(debugger,encoding="utf-8")
+          opt=os.environ["OPT"]
+          require(opt in ("O0","O2"),"bad optimization")
+          def symbol(image,name,shared=False):
+              args=["nm","-D","--defined-only",image] if shared else ["nm","-n","--defined-only",image]
+              candidates=[line.split() for line in good(args).decode().splitlines() if line.split() and line.split()[-1].split("@")[0]==name]
+              require(len(candidates)==1,"missing or ambiguous symbol "+name)
+              return int(candidates[0][0],16)
+          def read_credit(path):
+              uri=path.resolve().as_uri()+"?mode=ro&immutable=1"
+              with sqlite3.connect(uri,uri=True) as c:
+                  v=c.execute("SELECT credit FROM ledger WHERE id=1").fetchone()[0]
+                  require(c.execute("PRAGMA integrity_check").fetchone()==("ok",),"integrity failure")
+                  return v
+          counts=dict(mapped=0,compared=0,refused=0,unknown=0)
+          cases=[]
+          with tempfile.TemporaryDirectory(prefix="semantic-witness-") as td:
+              d=Path(td).resolve()
+              app=d/"fixture"
+              good(["gcc","-"+opt,"-g","-fPIE","-pie","-fno-omit-frame-pointer",out/"fixture.c","-lsqlite3","-o",app])
+              (out/"fixture").write_bytes(app.read_bytes())
+              gdbscript=d/"debugger.gdb"
+              for cid,active,initial,cost,want in [("apply",1,10,3,7),("inactive",0,10,3,10),("insufficient",1,2,3,2),("exact",1,4,4,0)]:
+                  cdir=out/cid
+                  cdir.mkdir()
+                  db=d/(cid+".db")
+                  with sqlite3.connect(db) as c:
+                      c.execute("CREATE TABLE ledger(id INTEGER PRIMARY KEY,credit INTEGER CHECK(credit>=0))")
+                      c.execute("INSERT INTO ledger VALUES(1,?)",(initial,))
+                  before=db.read_bytes()
+                  (cdir/"before.db").write_bytes(before)
+                  require(read_credit(db)==initial,"initial state")
+                  observation=cdir/"debugger-capture.txt"
+                  gdbscript.write_text("python\ncapture_path="+repr(str(observation))+"\nexec(compile(open("+repr(str(out/"debugger.py"))+").read(),'debugger.py','exec'))\nend\n",encoding="utf-8")
+                  p=run(["gdb","-nx","-nh","-batch","-x",gdbscript,"--args",app,db,active,cost],d,60)
+                  log=p.stdout+p.stderr
+                  (cdir/"debugger.log").write_bytes(log)
+                  require(observation.is_file(),"observer channel missing: "+log.decode(errors="replace")[-2000:])
+                  observer=observation.read_bytes()
+                  require(p.returncode==0 and observer.endswith(b"INFERIOR_EXIT 0\n"),"native debugger failed: "+log.decode(errors="replace")[-2000:])
+                  after=db.read_bytes()
+                  (cdir/"after.db").write_bytes(after)
+                  actual=read_credit(db)
+                  require(actual==want and not Path(str(db)+"-journal").exists(),"wrong state or lifecycle")
+                  blocks=re.findall(rb"WITNESS_BEGIN ([a-z0-9_]+)\r?\n(.*?)WITNESS_END\r?\n",observer,re.S)
+                  require(observer==b"".join(b"WITNESS_BEGIN "+n+b"\n"+raw+b"WITNESS_END\n" for n,raw in blocks)+b"INFERIOR_EXIT 0\n","invalid observer framing")
+                  names=[n.decode() for n,_ in blocks]
+                  expected=["apply_effect","sqlite3_exec"] if want!=initial else ["deny_effect"]
+                  require(names==expected,"unexpected stopped PCs: "+repr(names))
+                  witnesses=[]
+                  scope={"run":opt+"-"+cid,"branch":"root","space":"process","producer":"gdb"}
+                  for i,(n,raw) in enumerate(blocks):
+                      name=n.decode()
+                      cap=cdir/(name+".capture")
+                      cap.write_bytes(raw)
+                      first,maps=raw.split(b"\n",1)
+                      addr=int(first.split(b"=")[1],16)
+                      candidates=[line.decode().split(maxsplit=5) for line in maps.splitlines() if int(line.split()[0].split(b"-")[0],16)<=addr<int(line.split()[0].split(b"-")[1],16)]
+                      require(len(candidates)==1,"ambiguous executable mapping")
+                      row=candidates[0]
+                      require(len(row)==6 and row[1][2]=="x","nonexecutable PC mapping")
+                      image=Path(row[5])
+                      shared=name=="sqlite3_exec"
+                      require(image.is_file() and (("libsqlite3.so" in image.name) if shared else image==app),"wrong module owner: "+str(image))
+                      expected_va=symbol(image,name,shared)
+                      ib=image.read_bytes()
+                      if shared:
+                          lib=out/"libsqlite3.so"
+                          if lib.exists(): require(lib.read_bytes()==ib,"library changed")
+                          else: lib.write_bytes(ib)
+                      cr=ref(scope,name+"-capture",raw)
+                      ir=ref(dict(scope,space="file",producer="image"),name+"-image",ib)
+                      cp=cdir/(name+".capture-pin.json")
+                      ip=cdir/(name+".image-pin.json")
+                      write(cp,cr);write(ip,ir)
+                      q=dict(schema="native-correspondence/v1",expected_scope=scope,
+                             pointer=dict(artifact=cr,offset="0",length=str(len(first)+1)),
+                             maps=dict(artifact=cr,offset=str(len(first)+1),length=str(len(maps))),
+                             label="pc",module_path=str(image),image=ir)
+                      qp=cdir/(name+".query.json")
+                      write(qp,q)
+                      lo,hi=(int(v,16) for v in row[0].split("-"))
+                      args=[nc,"-query",qp,"-query-sha256",sha(qp.read_bytes()),"-capture-pin",cp,"-image-pin",ip,"-capture",cap,"-image",image]
+                      ans=run(args+["-expect-address",str(addr),"-expect-elf-virtual",str(expected_va),"-expect-map-base",str(lo),"-expect-map-end",str(hi)])
+                      require(ans.returncode==0,"real consumer refused mapping: "+ans.stderr.decode(errors="replace"))
+                      v=json.loads(ans.stdout)
+                      require(v["status"]=="candidate_correspondence" and v["evidence_ceiling"]=="reported_pointer_candidate_only","mapping ceiling")
+                      require(int(v["location"]["elf_virtual"])==expected_va and int(v["location"]["file_offset"])==addr-lo+int(row[2],16),"mapping oracle")
+                      (cdir/(name+".mapping.json")).write_bytes(ans.stdout)
+                      counts["mapped"]+=1
+                      missing=run([nc,"-query",qp])
+                      require(missing.returncode==3 and json.loads(missing.stdout)["status"]=="unknown_no_query_pin","missing pin must abstain")
+                      counts["unknown"]+=1
+                      wrong=run(args+["-expect-elf-virtual",str(expected_va+1)])
+                      require(wrong.returncode==2 and not wrong.stdout,"wrong address must refuse")
+                      counts["refused"]+=1
+                      badcap=cdir/(name+".tampered")
+                      badcap.write_bytes(raw+b"tamper")
+                      wrongargs=list(args);wrongargs[wrongargs.index("-capture")+1]=badcap
+                      wrong=run(wrongargs)
+                      require(wrong.returncode==2 and not wrong.stdout,"tampered capture must refuse")
+                      counts["refused"]+=1
+                      badcap.unlink()
+                      witnesses.append(dict(order=i,symbol=name,owner="upstream SQLite library" if shared else "application",pc=hex(addr),elf_virtual=hex(expected_va),file_offset=int(v["location"]["file_offset"]),image_sha256=ir["sha256"],capture_sha256=cr["sha256"],result=v))
+                  require(len(before)==len(after),"database length changed")
+                  bs=dict(scope,space="file",producer="state-reader")
+                  br=ref(bs,"before",before);ar=ref(bs,"after",after)
+                  bp=cdir/"before-pin.json";ap=cdir/"after-pin.json";write(bp,br);write(ap,ar)
+                  q=dict(schema="range-relation/v1",left=dict(artifact=br,offset="0",length=br["size"]),right=dict(artifact=ar,offset="0",length=ar["size"]))
+                  qp=cdir/"range-query.json";write(qp,q)
+                  ans=run([rr,"-query",qp,"-query-sha256",sha(qp.read_bytes()),"-left-pin",bp,"-right-pin",ap,"-left",cdir/"before.db","-right",cdir/"after.db"])
+                  require(ans.returncode==0,"range consumer failed: "+ans.stderr.decode(errors="replace"))
+                  relation=json.loads(ans.stdout)["result"]
+                  require(relation["status"]=="range_compared" and relation["content"]==("equal" if before==after else "different") and relation["causality"]=="unknown","range oracle")
+                  require((before!=after)==(actual!=initial),"unexpected byte effect")
+                  (cdir/"range-result.json").write_bytes(ans.stdout)
+                  counts["compared"]+=1
+                  cases.append(dict(case=cid,active=active,initial=initial,cost=cost,final=actual,witnesses=witnesses,range_result=relation))
+          require(counts==dict(mapped=6,compared=4,refused=12,unknown=6),"unexpected totals")
+          result=dict(schema="native-semantic-witness-v2",opt=opt,run_id=os.environ.get("GITHUB_RUN_ID"),commit=os.environ.get("GITHUB_SHA"),
+                      consumer_commit="4405a224cd15f9a4c97a572656aa0d54bb6fd2ac",compiler=good(["gcc","--version"]).decode().splitlines()[0],
+                      debugger=good(["gdb","--version"]).decode().splitlines()[0],sqlite_version=sqlite3.sqlite_version,
+                      counts=counts,cases=cases,claim="source-known fixture, actual debugger stops, retained candidate mapping, actual upstream library effects; no authenticated producer or general causal proof")
+          esc=lambda s:html.escape(str(s))
+          width=1080;height=130+len(cases)*100
+          svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+               '<rect width="100%" height="100%" fill="#f6f8fa"/>','<g font-family="system-ui,sans-serif" fill="#17263c">',
+               '<text x="24" y="36" font-size="25" font-weight="bold">Native semantic witness integration</text>',
+               f'<text x="24" y="63" font-size="14">{opt} | actual GDB stops + public byte/address consumers + SQLite state</text>']
+          for i,r in enumerate(cases):
+              y=100+i*100
+              svg.append(f'<text x="24" y="{y+24}" font-size="16" font-weight="bold">{esc(r["case"])}</text>')
+              svg.append(f'<rect x="160" y="{y}" width="200" height="50" rx="8" fill="#dbeafe"/>')
+              svg.append(f'<text x="172" y="{y+21}" font-size="13">Application PC</text><text x="172" y="{y+39}" font-size="14">{esc(r["witnesses"][0]["symbol"])}</text>')
+              if len(r["witnesses"])>1:
+                  svg.append(f'<path d="M360 {y+25} H420" stroke="#52667a" stroke-width="2"/><rect x="420" y="{y}" width="190" height="50" rx="8" fill="#e0e7ff"/><text x="432" y="{y+21}" font-size="13">SQLite library PC</text><text x="432" y="{y+39}" font-size="14">sqlite3_exec</text><path d="M610 {y+25} H665" stroke="#52667a" stroke-width="2"/>')
+              else:
+                  svg.append(f'<path d="M360 {y+25} H665" stroke="#8291a2" stroke-dasharray="5 4" stroke-width="2"/><text x="425" y="{y+16}" font-size="12">No library-write stop</text>')
+              svg.append(f'<rect x="665" y="{y}" width="390" height="50" rx="8" fill="#dcfce7"/><text x="679" y="{y+21}" font-size="14">Credit {r["initial"]} to {r["final"]}</text><text x="679" y="{y+39}" font-size="12">Retained DB bytes: {esc(r["range_result"]["content"])}</text>')
+          svg.append('</g></svg>')
+          image="\n".join(svg)
+          (out/"witness.svg").write_text(image,encoding="utf-8")
+          table="".join("<tr>"+"".join("<td>"+esc(v)+"</td>" for v in [r["case"],r["initial"],r["final"]," / ".join(w["symbol"]+" @ "+w["elf_virtual"] for w in r["witnesses"]),r["range_result"]["content"]])+"</tr>" for r in cases)
+          page='<!doctype html><html lang="en"><meta charset="utf-8"><title>Native semantic witness</title><style>body{font:16px system-ui;max-width:1100px;margin:20px auto;color:#17263c}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ccd6df;text-align:left}svg{max-width:100%;height:auto}</style><h1>Native semantic witness</h1><p>Observed stop order and state effects; connectors do not assert causal proof. '+esc(opt)+'</p>'+image+'<table><caption>Native witness and state summary</caption><thead><tr><th scope="col">Case</th><th scope="col">Before</th><th scope="col">After</th><th scope="col">Mapped symbols</th><th scope="col">Byte relation</th></tr></thead><tbody>'+table+'</tbody></table></html>'
+          (out/"report.html").write_text(page,encoding="utf-8")
+          chrome=shutil.which("google-chrome") or shutil.which("chromium")
+          result["browser_screenshot"]="NOT_AVAILABLE"
+          if chrome:
+              with tempfile.TemporaryDirectory(prefix="witness-browser-") as profile:
+                  p=run([chrome,"--headless","--disable-gpu","--no-sandbox","--disable-dev-shm-usage","--hide-scrollbars","--user-data-dir="+profile,"--window-size=1160,1000","--screenshot="+str(out/"report.png"),(out/"report.html").as_uri()],timeout=45)
+                  if p.returncode==0 and (out/"report.png").is_file() and (out/"report.png").read_bytes()[:8]==b"\x89PNG\r\n\x1a\n":
+                      result["browser_screenshot"]="PASS"
+          write(out/"receipt.json",result)
+          (out/"SHA256SUMS").write_text("".join(sha(p.read_bytes())+"  "+p.relative_to(out).as_posix()+"\n" for p in sorted(out.rglob("*")) if p.is_file()),encoding="utf-8")
+          print(json.dumps(dict(opt=opt,counts=counts,browser_screenshot=result["browser_screenshot"])))
+          PY
+      - name: Retain native witness products and reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: semantic-witness-${{ matrix.opt }}
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error
