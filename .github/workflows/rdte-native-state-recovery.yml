@@ -1,0 +1,170 @@
+name: Native state recovery experiment
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rdte-native-state-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Native state recovery (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      GOTOOLCHAIN: local
+      GOPROXY: 'off'
+      GOSUMDB: 'off'
+      GOWORK: 'off'
+      CGO_ENABLED: '0'
+    steps:
+      - name: Build and execute native synthetic application
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, html, json, os, platform, struct, subprocess, tempfile, time
+          from pathlib import Path
+
+          source = r'''
+          package main
+          import (
+              "encoding/json"
+              "fmt"
+              "os"
+              "strconv"
+          )
+          type State struct { Active bool; Credits int; Applied int }
+          func main() {
+              if len(os.Args) != 4 || os.Args[2] != "apply" { os.Exit(2) }
+              cost, err := strconv.Atoi(os.Args[3])
+              if err != nil || cost <= 0 { os.Exit(2) }
+              path := os.Args[1]
+              data, err := os.ReadFile(path)
+              if err != nil { os.Exit(3) }
+              var s State
+              if json.Unmarshal(data, &s) != nil || s.Credits < 0 || s.Applied < 0 { os.Exit(3) }
+              if !s.Active || s.Credits < cost { fmt.Println("denied"); return }
+              s.Credits -= cost
+              s.Applied++
+              data, err = json.Marshal(map[string]any{"active":s.Active,"credits":s.Credits,"applied":s.Applied})
+              if err != nil || os.WriteFile(path, data, 0600) != nil { os.Exit(4) }
+              fmt.Println("applied")
+          }
+          '''
+          out = Path.cwd() / "evidence"
+          out.mkdir(exist_ok=False)
+          version = subprocess.check_output(["go","version"],text=True).strip()
+          (out/"fixture.go").write_bytes(source.encode("utf-8"))
+          sha = lambda b: hashlib.sha256(b).hexdigest()
+          rows = []
+          with tempfile.TemporaryDirectory(prefix="native-state-") as td:
+              work = Path(td)
+              src = work/"main.go"
+              src.write_bytes(source.encode("utf-8"))
+              exe = work/("fixture.exe" if os.name=="nt" else "fixture")
+              subprocess.run(["go","build","-trimpath","-buildvcs=false","-o",str(exe),str(src)],cwd=work,check=True,timeout=480)
+              binary = exe.read_bytes()
+              if os.name == "nt":
+                  assert binary.startswith(b"MZ")
+                  pe = struct.unpack_from("<I", binary, 0x3c)[0]
+                  assert binary[pe:pe+4] == b"PE\0\0"
+                  assert struct.unpack_from("<H",binary,pe+24)[0]==0x20b
+                  binary_format="PE32+"
+              else:
+                  assert binary.startswith(b"\x7fELF\x02")
+                  binary_format="ELF64"
+              (out/exe.name).write_bytes(binary)
+              def run(case_id,active,credits,cost,phase):
+                  p=work/(case_id+".json")
+                  initial=dict(active=active,credits=credits,applied=0)
+                  p.write_bytes(json.dumps(initial,sort_keys=True).encode())
+                  before=p.read_bytes()
+                  start=time.perf_counter_ns()
+                  proc=subprocess.run([str(exe),str(p),"apply",str(cost)],capture_output=True,text=True,timeout=15)
+                  elapsed=time.perf_counter_ns()-start
+                  after_bytes=p.read_bytes()
+                  after=json.loads(after_bytes)
+                  changed=after!=initial
+                  expected=dict(initial)
+                  if changed:
+                      expected.update(credits=credits-cost,applied=1)
+                  assert proc.returncode==0 and after==expected
+                  assert proc.stdout.strip()==("applied" if changed else "denied")
+                  assert changed or before==after_bytes
+                  rows.append(dict(case=case_id,phase=phase,initial=initial,cost=cost,final=after,
+                                   changed=changed,exit=proc.returncode,stdout=proc.stdout.strip(),
+                                   elapsed_ns=elapsed,before_sha256=sha(before),after_sha256=sha(after_bytes)))
+                  return changed
+              hypotheses={
+                  "always":lambda a,c,k: True,
+                  "active":lambda a,c,k:a,
+                  "affordable":lambda a,c,k:c>=k,
+                  "active_and_affordable":lambda a,c,k:a and c>=k,
+              }
+              def prune(names,case,observed):
+                  return [n for n in names if hypotheses[n](*case)==observed]
+              base=list(hypotheses)
+              for i,case in enumerate([(True,10,2),(True,20,3)]):
+                  base=prune(base,case,run("base"+str(i),*case,"baseline"))
+              adaptive=list(hypotheses)
+              pool=[(False,10,2),(True,1,2),(True,10,2),(False,1,2)]
+              for i in range(2):
+                  def quality(c):
+                      n=sum(hypotheses[h](*c) for h in adaptive)
+                      return min(n,len(adaptive)-n)
+                  chosen=max(pool,key=quality)
+                  pool.remove(chosen)
+                  adaptive=prune(adaptive,chosen,run("adaptive"+str(i),*chosen,"adaptive"))
+              evaluations=[]
+              for i,case in enumerate([(True,7,7),(False,8,3),(True,2,3),(False,1,4)]):
+                  obs=run("eval"+str(i),*case,"evaluation")
+                  predicted=hypotheses[adaptive[0]](*case) if len(adaptive)==1 else None
+                  evaluations.append(dict(case="eval"+str(i),prediction=predicted,observed=obs,correct=predicted==obs))
+              invalid=work/"malformed.json"
+              invalid.write_bytes(b"{not valid")
+              before=invalid.read_bytes()
+              p=subprocess.run([str(exe),str(invalid),"apply","1"],capture_output=True,text=True,timeout=15)
+              control=dict(exit=p.returncode,unchanged=invalid.read_bytes()==before)
+          result=dict(schema="native-state-experiment-v1",evidence_class="source-known-developmental",
+                      runner=os.environ.get("RUNNER_OS"),architecture=platform.machine(),
+                      run_id=os.environ.get("GITHUB_RUN_ID"),commit=os.environ.get("GITHUB_SHA"),
+                      go_version=version,binary_format=binary_format,binary_sha256=sha(binary),source_sha256=sha(source.encode()),
+                      baseline_remaining=base,adaptive_remaining=adaptive,probe_queries_per_policy=2,
+                      rows=rows,evaluation=evaluations,malformed_control=control)
+          (out/"receipt.json").write_bytes(json.dumps(result,indent=2).encode())
+          esc=html.escape
+          lines=['<svg xmlns="http://www.w3.org/2000/svg" width="900" height="460" viewBox="0 0 900 460">',
+                 '<rect width="900" height="460" fill="#f8fafc"/>',
+                 '<g font-family="sans-serif" fill="#172033">',
+                 '<text x="24" y="35" font-size="23" font-weight="bold">Native application state recovery</text>',
+                 '<text x="24" y="60" font-size="13">'+esc(str(result["runner"]))+' | actual subprocess observations | source-known</text>']
+          for i,r in enumerate(rows):
+              y=87+i*40
+              label=r["case"]+"  "+str(r["initial"]["credits"])+" to "+str(r["final"]["credits"])+" credits"
+              lines.append(f'<text x="24" y="{y+16}" font-size="15">{esc(label)}</text>')
+              color="#166534" if r["changed"] else "#64748b"
+              lines.append(f'<rect x="350" y="{y}" width="{max(18,r["initial"]["credits"]*19)}" height="24" rx="4" fill="#dbe3ec"/>')
+              lines.append(f'<rect x="350" y="{y}" width="{max(3,r["final"]["credits"]*19)}" height="24" rx="4" fill="{color}"/>')
+              lines.append(f'<text x="755" y="{y+16}" font-size="14">{esc(r["stdout"])}</text>')
+          lines.append('</g></svg>')
+          (out/"state-recovery.svg").write_bytes("\n".join(lines).encode())
+          table="".join("<tr>"+"".join("<td>"+esc(str(x))+"</td>" for x in [r["case"],r["phase"],r["initial"],r["cost"],r["final"],r["stdout"],r["elapsed_ns"]])+"</tr>" for r in rows)
+          page='<!doctype html><html lang="en"><meta charset="utf-8"><title>Native state recovery</title><h1>Native state recovery</h1><p>Source-known developmental experiment. No model-agent or independent blind score.</p><p>Baseline candidates: '+esc(str(base))+'; adaptive candidates: '+esc(str(adaptive))+'</p><img src="state-recovery.svg" alt="Actual observed before and after state; equivalent data in table"><table><caption>Native subprocess receipts</caption><thead><tr><th>Case</th><th>Phase</th><th>Before</th><th>Cost</th><th>After</th><th>Output</th><th>Wall ns</th></tr></thead><tbody>'+table+'</tbody></table></html>'
+          (out/"report.html").write_bytes(page.encode())
+          manifest="\n".join(sha(p.read_bytes())+"  "+p.name for p in sorted(out.iterdir()))+"\n"
+          (out/"SHA256SUMS").write_bytes(manifest.encode())
+          print(json.dumps(dict(baseline_remaining=base,adaptive_remaining=adaptive,evaluation_correct=sum(e["correct"] for e in evaluations),native_queries=len(rows)+1,malformed=control,binary_sha256=result["binary_sha256"])))
+          assert len(base)==4 and adaptive==["active_and_affordable"]
+          assert all(e["correct"] for e in evaluations) and control==dict(exit=3,unchanged=True)
+          PY
+      - name: Retain native binary, runtime receipt and visual report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-state-${{ matrix.os }}
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error
