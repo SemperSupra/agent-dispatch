@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/rdte-model-semantic-recovery.yml'
+      - 'qualification/cre/retirement.py'
+      - 'qualification/cre/test_retirement.py'
 permissions:
   contents: read
 jobs:
@@ -17,6 +19,14 @@ jobs:
     env:
       BLOCK: '${{ matrix.block }}'
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Qualify retirement observation and uncertainty controls
+        shell: bash
+        run: |
+          python3 -B -m unittest discover -s qualification/cre -p test_retirement.py -v
+          python3 -B -O -m unittest discover -s qualification/cre -p test_retirement.py -v
       - name: Acquire pinned public runtime and model before participant execution
         shell: bash
         run: |
@@ -52,6 +62,7 @@ jobs:
           python - <<'PY'
           import hashlib, html, itertools, json, os, pathlib, re, shutil, sqlite3, subprocess, tempfile, time, uuid
           from pathlib import Path
+          from qualification.cre.retirement import retire_owned_container
           def req(ok,msg):
               if not ok: raise RuntimeError(msg)
           def sha(b): return hashlib.sha256(b).hexdigest()
@@ -283,12 +294,8 @@ jobs:
               except (RuntimeError,ValueError,KeyError,subprocess.TimeoutExpired) as exc:
                   reason="EXECUTION_ERROR";turns.append(dict(error=str(exc)[:1500]))
               finally:
-                  cleanup=False
-                  if cid:
-                      cmd(["docker","rm","-f",cid],timeout=20,check=False)
-                      cleanup=cmd(["docker","inspect",cid],check=False).returncode!=0
-                  if not cid:
-                      cleanup=cmd(["docker","inspect",name],check=False).returncode!=0
+                  retirement=retire_owned_container(cid,name)
+                  cleanup=retirement["status"]=="CONFIRMED_ABSENT"
               elapsed=time.monotonic()-start
               survivors=compatible(observed)
               predictions=[hypothesis(answer,*case) for case in heldout] if answer in family else []
@@ -303,7 +310,7 @@ jobs:
               else:verdict="WRONG_FINAL"
               row=dict(arm=arm,block=block,actual_inference=actual_inference,attempted_queries=attempts,valid_queries=len(observed),observations=observed,
                        answer=answer,remaining=survivors,heldout_predictions=predictions,heldout_correct=heldout_correct,heldout_total=len(heldout),reason=reason,
-                       verdict=verdict,controls=controls,cleanup=cleanup,wall_seconds=elapsed,cpu_seconds=cpu_seconds,budget_ok=budget_ok,turns=turns,
+                       verdict=verdict,controls=controls,cleanup=cleanup,retirement=retirement,wall_seconds=elapsed,cpu_seconds=cpu_seconds,budget_ok=budget_ok,turns=turns,
                        freeze_sha256=frozen)
               write(tdir/"trial.json",row);trials.append(row)
               print(json.dumps({k:row[k] for k in ("arm","block","actual_inference","attempted_queries","answer","verdict","cleanup","budget_ok","cpu_seconds","wall_seconds")}),flush=True)
