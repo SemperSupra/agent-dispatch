@@ -1,0 +1,229 @@
+name: Upstream application state recovery
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rdte-upstream-state-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  recover:
+    name: Recover ${{ matrix.target }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, target: git}
+          - {os: windows-2025, target: git}
+          - {os: ubuntu-24.04, target: sqlite}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Ensure upstream CLI and syscall tracer are installed
+        if: matrix.target == 'sqlite'
+        shell: bash
+        run: |
+          if ! command -v sqlite3 >/dev/null || ! command -v strace >/dev/null; then
+            sudo apt-get -qq update
+            sudo apt-get -qq install -y sqlite3 strace
+          fi
+      - name: Execute original upstream application and recover persistent effects
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, html, json, os, platform, re, shutil, subprocess, tempfile, time
+          from pathlib import Path
+          def require(ok, msg):
+              if not ok: raise RuntimeError(msg)
+          def sha(b): return hashlib.sha256(b).hexdigest()
+          def filehash(p):
+              h=hashlib.sha256()
+              with open(p,"rb") as f:
+                  for b in iter(lambda:f.read(1048576),b""): h.update(b)
+              return h.hexdigest()
+          def invoke(argv,cwd,env,ok=True):
+              t=time.perf_counter_ns()
+              p=subprocess.run([str(a) for a in argv],cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=35)
+              elapsed=time.perf_counter_ns()-t
+              if ok: require(p.returncode==0,"command failed: "+str(argv[0])+" "+p.stderr.decode("utf-8","replace")[:500])
+              return p,elapsed
+          target=os.environ["TARGET"]
+          out=Path.cwd()/"evidence"
+          out.mkdir(exist_ok=False)
+          rows=[]
+          binary=Path(shutil.which("git" if target=="git" else "sqlite3") or "")
+          require(binary.is_file(),"upstream executable not found")
+          binary=binary.resolve()
+          env={k:v for k,v in os.environ.items() if not k.startswith("GIT_")}
+          env.update(LC_ALL="C",LANG="C",GIT_CONFIG_NOSYSTEM="1",GIT_TERMINAL_PROMPT="0")
+          with tempfile.TemporaryDirectory(prefix="upstream-recovery-") as d:
+              root=Path(d).resolve()
+              config=root/"empty.gitconfig"
+              config.write_bytes(b"")
+              env["GIT_CONFIG_GLOBAL"]=str(config)
+              version=invoke([binary,"--version" if target=="git" else "-version"],root,env)[0].stdout.decode("utf-8","replace").strip()
+              if target=="git":
+                  original=b"alpha\n"
+                  updated=b"beta\n"
+                  other=b"other\n"
+                  # Expected effects are registered before any tested command is executed.
+                  cases=[
+                      ("worktree",[],original,False,(original,original,updated),True),
+                      ("check",["--check"],original,False,(original,original,original),True),
+                      ("cached",["--cached"],original,False,(original,updated,original),True),
+                      ("index",["--index"],original,False,(original,updated,updated),True),
+                      ("index-dirty",["--index"],other,False,(original,original,other),False),
+                      ("cached-dirty",["--cached"],other,False,(original,updated,other),True),
+                      ("already-applied",[],updated,False,(original,original,updated),False),
+                      ("cached-check",["--cached","--check"],other,False,(original,original,other),True),
+                      ("malformed",[],original,True,(original,original,original),False)]
+                  def label(b): return {original:"alpha",updated:"beta",other:"other"}.get(b,"unexpected")
+                  keys=("HEAD","index","worktree")
+                  for name,flags,initial,bad,expected,success in cases:
+                      work=root/name
+                      work.mkdir()
+                      def git(*args): return invoke([binary,*args],work,env)[0].stdout
+                      git("init","-q")
+                      git("config","core.autocrlf","false")
+                      git("config","user.name","Synthetic Fixture")
+                      git("config","user.email","fixture@example.invalid")
+                      git("config","commit.gpgsign","false")
+                      f=work/"payload.txt"
+                      f.write_bytes(original)
+                      git("add","payload.txt")
+                      git("commit","-q","-m","seed")
+                      f.write_bytes(updated)
+                      patch=git("diff","--","payload.txt")
+                      p=work/"change.patch"
+                      p.write_bytes(b"not a patch\n" if bad else patch)
+                      f.write_bytes(initial)
+                      def state(): return (git("show","HEAD:payload.txt"),git("show",":payload.txt"),f.read_bytes())
+                      before=state()
+                      require(before==(original,original,initial),"initial state mismatch "+name)
+                      trace=work/"trace.jsonl"
+                      tenv=dict(env,GIT_TRACE2_EVENT=str(trace))
+                      proc,elapsed=invoke([binary,"apply",*flags,"change.patch"],work,tenv,ok=False)
+                      after=state()
+                      events=[]
+                      for line in trace.read_text(encoding="utf-8").splitlines():
+                          v=json.loads(line)
+                          if v.get("event") in ("start","cmd_name","region_enter","region_leave","error","exit","atexit"):
+                              events.append(dict(seq=len(events),**{k:v[k] for k in ("event","category","label","name","code","t_abs","t_rel") if k in v}))
+                      bound=any(x["event"]=="start" for x in events) and any(x["event"]=="exit" and x.get("code")==proc.returncode for x in events)
+                      require(bound,"missing producer trace exit binding "+name)
+                      matched=(proc.returncode==0)==success and after==expected
+                      rows.append(dict(case=name,operation="git apply "+" ".join(flags),exit=proc.returncode,expected_success=success,
+                                       before=dict(zip(keys,map(label,before))),after=dict(zip(keys,map(label,after))),
+                                       before_sha256=dict(zip(keys,map(sha,before))),after_sha256=dict(zip(keys,map(sha,after))),
+                                       changed=[k for k,b,a in zip(keys,before,after) if b!=a],
+                                       expected_after=dict(zip(keys,map(label,expected))),matches=matched,wall_ns=elapsed,
+                                       trace_kind="Git Trace2 producer events (not kernel trace)",trace=events,
+                                       trace_exit_bound=bound,patch_sha256=sha(p.read_bytes())))
+              else:
+                  tracer=Path(shutil.which("strace") or "")
+                  require(tracer.is_file(),"strace not found")
+                  cases=[
+                      ("commit","BEGIN; UPDATE ledger SET credit=credit-3 WHERE id=1; COMMIT;",7,True),
+                      ("rollback","BEGIN; UPDATE ledger SET credit=credit-3 WHERE id=1; ROLLBACK;",10,True),
+                      ("constraint","BEGIN; UPDATE ledger SET credit=credit-11 WHERE id=1; COMMIT;",10,False),
+                      ("savepoint","BEGIN; UPDATE ledger SET credit=credit-2 WHERE id=1; SAVEPOINT s; UPDATE ledger SET credit=credit-3 WHERE id=1; ROLLBACK TO s; RELEASE s; COMMIT;",8,True),
+                      ("no-row","BEGIN; UPDATE ledger SET credit=credit-3 WHERE id=2; COMMIT;",10,True),
+                      ("exact-zero","BEGIN; UPDATE ledger SET credit=credit-10 WHERE id=1; COMMIT;",0,True),
+                      ("partial-failure","BEGIN; UPDATE ledger SET credit=credit-2 WHERE id=1; UPDATE ledger SET credit=credit-20 WHERE id=1; COMMIT;",10,False)]
+                  for name,sql,expected,success in cases:
+                      work=root/name
+                      work.mkdir()
+                      db=work/"fixture.db"
+                      def sqlite(s): return invoke([binary,"-batch","-bail",db,s],work,env)[0].stdout
+                      sqlite("PRAGMA journal_mode=DELETE; CREATE TABLE ledger(id INTEGER PRIMARY KEY,credit INTEGER NOT NULL CHECK(credit>=0)); INSERT INTO ledger VALUES(1,10);")
+                      before=int(sqlite("SELECT credit FROM ledger WHERE id=1;"))
+                      require(before==10,"initial credit mismatch")
+                      bh=filehash(db)
+                      trace=work/"syscalls.txt"
+                      calls="openat,close,pwrite64,fsync,fdatasync,unlink,unlinkat,rename,renameat,fcntl"
+                      proc,elapsed=invoke([tracer,"-f","-qq","-y","-s","0","-e","trace="+calls,"-o",trace,binary,"-batch","-bail",db,sql],work,env,ok=False)
+                      after=int(sqlite("SELECT credit FROM ledger WHERE id=1;"))
+                      ah=filehash(db)
+                      integrity=sqlite("PRAGMA integrity_check;").strip()==b"ok"
+                      events=[]
+                      for line in trace.read_text(encoding="utf-8",errors="replace").splitlines():
+                          if "fixture.db" not in line: continue
+                          m=re.search(r"\b(openat|close|pwrite64|fsync|fdatasync|unlink|unlinkat|rename|renameat|fcntl)\(",line)
+                          if not m: continue
+                          obj="journal" if "fixture.db-journal" in line else "database"
+                          result=re.search(r"=\s*(-?\d+)",line)
+                          events.append(dict(seq=len(events),event=m.group(1),object=obj,return_value=int(result.group(1)) if result else None))
+                      journal_gone=not (work/"fixture.db-journal").exists()
+                      require(events,"missing actual database syscall evidence "+name)
+                      matched=(proc.returncode==0)==success and after==expected and integrity and journal_gone
+                      rows.append(dict(case=name,operation=sql,exit=proc.returncode,expected_success=success,
+                                       before={"credit":before},after={"credit":after},
+                                       before_sha256={"database":bh},after_sha256={"database":ah},
+                                       changed=["credit"] if before!=after else [],expected_after={"credit":expected},
+                                       matches=matched,wall_ns=elapsed,trace_kind="Linux strace file/descriptor syscalls",
+                                       trace=events,integrity_check=integrity,journal_removed=journal_gone))
+              result=dict(schema="upstream-state-recovery-v1",target=target,version=version,
+                          launched_executable_sha256=filehash(binary),runner=os.environ.get("RUNNER_OS"),
+                          architecture=platform.machine(),run_id=os.environ.get("GITHUB_RUN_ID"),
+                          commit=os.environ.get("GITHUB_SHA"),source_known=False,
+                          claim="bounded upstream command effects, source not inspected; no general decompilation or model-agent score",
+                          rows=rows)
+          esc=lambda s:html.escape(str(s))
+          title="Git index / worktree recovery" if target=="git" else "SQLite transaction recovery"
+          width=1120
+          height=150+len(rows)*52
+          svg=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+               f'<rect width="{width}" height="{height}" fill="#f7f9fc"/>',
+               '<g font-family="Arial,sans-serif" fill="#18243a">',
+               f'<text x="28" y="40" font-size="26" font-weight="bold">{esc(title)}</text>',
+               f'<text x="28" y="66" font-size="14">{esc(result["runner"])} | original upstream executable | {sum(r["matches"] for r in rows)}/{len(rows)} expected effects</text>']
+          for x,label in [(28,"Observed operation"),(280,"Before"),(585,"After"),(900,"Exit / trace events")]:
+              svg.append(f'<text x="{x}" y="106" font-size="15" font-weight="bold">{label}</text>')
+          for i,r in enumerate(rows):
+              y=120+i*52
+              color="#14532d" if r["matches"] else "#991b1b"
+              svg.append(f'<rect x="16" y="{y}" width="1088" height="42" rx="7" fill="{"#e8eef5" if i%2==0 else "#ffffff"}"/>')
+              svg.append(f'<text x="28" y="{y+26}" font-size="16">{esc(r["case"])}</text>')
+              for x,st in [(280,r["before"]),(585,r["after"])]:
+                  label=" / ".join(str(v) for v in st.values())
+                  svg.append(f'<text x="{x}" y="{y+26}" font-size="15">{esc(label)}</text>')
+              svg.append(f'<text x="900" y="{y+26}" font-size="15" fill="{color}">{r["exit"]} / {len(r["trace"])}</text>')
+          svg.append('</g></svg>')
+          visual="\n".join(svg)
+          (out/"state-recovery.svg").write_bytes(visual.encode())
+          head=["Operation","Before","After","Expected","Exit","Trace events","Outcome"]
+          body=[]
+          for r in rows:
+              vals=[r["case"],r["before"],r["after"],r["expected_after"],r["exit"],len(r["trace"]),"MATCH" if r["matches"] else "MISMATCH"]
+              body.append("<tr>"+"".join("<td>"+esc(x)+"</td>" for x in vals)+"</tr>")
+          page='<!doctype html><html lang="en"><meta charset="utf-8"><title>'+esc(title)+'</title><style>body{font:16px system-ui,sans-serif;max-width:1160px;margin:24px auto;color:#18243a}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ced8e3;text-align:left}svg{max-width:100%;height:auto}</style><h1>'+esc(title)+'</h1><p>Actual native observations. '+esc(result["claim"])+'</p><p>'+esc(version)+'</p><div role="img" aria-label="Observed before and after state; detailed table follows">'+visual+'</div><h2>Machine-observed results</h2><table><caption>Observed versus expected persistent state</caption><thead><tr>'+"".join("<th scope=\"col\">"+h+"</th>" for h in head)+'</tr></thead><tbody>'+"".join(body)+'</tbody></table></html>'
+          (out/"report.html").write_bytes(page.encode())
+          chrome=shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chrome")
+          if not chrome and os.name=="nt":
+              candidate=Path(os.environ.get("PROGRAMFILES","C:/Program Files"))/"Google/Chrome/Application/chrome.exe"
+              if candidate.is_file(): chrome=str(candidate)
+          screen=out/"report.png"
+          result["browser_screenshot"]="NOT_AVAILABLE"
+          if chrome:
+              try:
+                  with tempfile.TemporaryDirectory(prefix="report-browser-") as profile:
+                      args=[chrome,"--headless","--disable-gpu","--no-sandbox","--disable-dev-shm-usage","--hide-scrollbars","--no-first-run","--user-data-dir="+profile,"--window-size=1200,950","--screenshot="+str(screen.resolve()),(out/"report.html").resolve().as_uri()]
+                      p=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=45)
+                      result["browser_screenshot"]="PASS" if p.returncode==0 and screen.is_file() and screen.read_bytes()[:8]==b"\x89PNG\r\n\x1a\n" else "FAILED"
+              except (OSError,subprocess.TimeoutExpired):
+                  result["browser_screenshot"]="FAILED"
+          if screen.exists() and result["browser_screenshot"]!="PASS": screen.unlink()
+          (out/"receipt.json").write_bytes(json.dumps(result,indent=2).encode())
+          (out/"SHA256SUMS").write_bytes(("\n".join(filehash(p)+"  "+p.name for p in sorted(out.iterdir()))+"\n").encode())
+          print(json.dumps(dict(target=target,runner=result["runner"],version=version,matched=sum(r["matches"] for r in rows),total=len(rows),trace_events=sum(len(r["trace"]) for r in rows),browser_screenshot=result["browser_screenshot"])))
+          require(all(r["matches"] for r in rows),"one or more expected persistent effects did not match")
+          PY
+      - name: Retain real native observations and visual product
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: upstream-state-${{ matrix.target }}-${{ matrix.os }}
+          path: evidence/
+          retention-days: 7
+          if-no-files-found: error
