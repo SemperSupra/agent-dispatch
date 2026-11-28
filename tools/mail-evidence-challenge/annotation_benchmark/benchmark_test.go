@@ -67,3 +67,27 @@ func TestSeparateFailureClasses(t *testing.T){
 		})
 	}
 }
+
+func TestNormalizedTransportRejectsAmbiguousKeys(t *testing.T){
+	cases,gold,err:=load();if err!=nil{t.Fatal(err)}
+	rows:=[]Submission{}
+	for _,c:=range cases{rows=append(rows,gold[c.ID])}
+	raw,err:=json.Marshal(rows);if err!=nil{t.Fatal(err)}
+	report,err:=ScoreJSON(raw);if err!=nil||report.Heldout.Exact!=36{t.Fatal(report,err)}
+	original:=string(raw)
+	for _,pair:=range [][2]string{
+		{"\"id\":","\"id\":\"forged\",\"id\":"},
+		{"\"source_id\":","\"Source_ID\":"},
+		{"\"claims\":","\"Claims\":"},
+		{"\"polarity\":","\"polarity\":-1,\"polarity\":"},
+		{"\"begin\":","\"Begin\":"},
+		{"\"valid_to\":","\"valid_to\":null,\"valid_to\":"},
+	}{
+		bad:=strings.Replace(original,pair[0],pair[1],1)
+		if bad==original{t.Fatal("mutation not applied",pair)}
+		if _,err=ScoreJSON([]byte(bad));err==nil{t.Fatal("ambiguous key accepted",pair)}
+	}
+	for i:=range rows{if rows[i].ID=="H01"{rows[i].Claims=nil}}
+	raw,err=json.Marshal(rows);if err!=nil{t.Fatal(err)}
+	report,err=ScoreJSON(raw);if err!=nil||report.Heldout.Invalid!=1||report.Heldout.Exact!=35{t.Fatal(report,err)}
+}
