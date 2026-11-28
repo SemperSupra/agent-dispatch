@@ -1,0 +1,461 @@
+name: MCP GHA Sealed Concept Sweep Qualification
+
+on:
+  pull_request:
+    paths:
+      - tools/concept-sweep/**
+      - tools/mcp-gha-control/**
+      - pilot/arms/**
+      - .github/workflows/mcp-gha-concept-sweep-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sequential-runner-counterbalanced:
+    name: One VM sequential A/B and B/A — fresh Docker container every arm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout only shared Go source and frozen public test-arm fixtures
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools/concept-sweep/go.mod
+            tools/concept-sweep/main.go
+            tools/concept-sweep/arm.go
+            tools/concept-sweep/searxng.settings.yml
+            tools/concept-sweep/run_sealed_arm.sh
+            tools/concept-sweep/qualify_sequential_topology.sh
+            tools/concept-sweep/prepare_runner.sh
+            pilot/arms/reference/plan.json
+            pilot/arms/cpe/plan.json
+          sparse-checkout-cone-mode: false
+      - name: Validate synthetic-only fixed plans and orchestration script
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n tools/concept-sweep/run_sealed_arm.sh
+          bash -n tools/concept-sweep/qualify_sequential_topology.sh
+          bash -n tools/concept-sweep/prepare_runner.sh
+          test -f pilot/arms/reference/plan.json
+          test -f pilot/arms/cpe/plan.json
+          test ! -e tools/concept-sweep/pilot-plan.json
+          test ! -e tools/concept-sweep/pilot-projection.json
+          echo 'MCP_GHA_SEQUENTIAL_SOURCE_FROZEN_PASS'
+      - name: Install local test-only age encryption runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+      - name: Run four isolated containers with randomized balanced A/B then B/A
+        shell: bash
+        env:
+          MCP_GHA_TOPOLOGY_SYNTHETIC_ONLY: '1'
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          bash tools/concept-sweep/qualify_sequential_topology.sh
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"topology-sequential-synthetic-metrics.json"
+          d=json.loads(p.read_text())
+          assert d["topology"]=="single_runner_sequential_fresh_containers"
+          assert d["paired_passes"]==2
+          assert len(d["arm_replicates"])==4
+          assert d["order_pass_1"] == list(reversed(d["order_pass_2"]))
+          assert set(d["order_pass_1"])=={"reference","cpe"}
+          for arm in ("reference","cpe"):
+              assert d["by_arm"][arm]["attempted"]==6
+          assert d["classification"]=="PUBLIC_SYNTHETIC_TRANSPORT_ONLY_NOT_BLINDED_CPE"
+          print("MCP_GHA_SINGLE_VM_BALANCED_TOPOLOGY_NATIVE_PASS")
+          PY
+  independently-hosted-arm:
+    name: Physical GHA runner for ${{ matrix.arm }} — own SearXNG and sealed result
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [reference, cpe]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout ONLY one frozen arm and shared transport code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          # Non-cone file allowlist excludes the other arm and the
+          # previous combined synthetic fixture, even from shared source.
+          sparse-checkout: |
+            tools/concept-sweep/go.mod
+            tools/concept-sweep/main.go
+            tools/concept-sweep/arm.go
+            tools/concept-sweep/searxng.settings.yml
+            tools/concept-sweep/run_sealed_arm.sh
+            tools/concept-sweep/prepare_runner.sh
+            tools/mcp-gha-control/go.mod
+            tools/mcp-gha-control/main.go
+            pilot/arms/${{ matrix.arm }}/plan.json
+          sparse-checkout-cone-mode: false
+      - name: Assert other arm's frozen manifest is not in this runner
+        shell: bash
+        env:
+          ARM: ${{ matrix.arm }}
+        run: |
+          set -euo pipefail
+          case "$ARM" in
+            reference) other=cpe;;
+            cpe) other=reference;;
+            *) exit 2;;
+          esac
+          test -f "pilot/arms/$ARM/plan.json"
+          test ! -e "pilot/arms/$other/plan.json"
+          test ! -e tools/concept-sweep/pilot-plan.json
+          test ! -e tools/concept-sweep/pilot-projection.json
+          bash -n tools/concept-sweep/run_sealed_arm.sh
+          bash -n tools/concept-sweep/prepare_runner.sh
+          echo "MCP_GHA_${ARM}_INPUT_CHECKOUT_ISOLATED_PASS"
+      - name: Install age and create ephemeral key for test-only decryption
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+          umask 077
+          mkdir -p "${RUNNER_TEMP}/pilot-key"
+          age-keygen -o "${RUNNER_TEMP}/pilot-key/age.key" 2>/dev/null
+          echo "MCP_GHA_AGE_RECIPIENT=$(age-keygen -y "${RUNNER_TEMP}/pilot-key/age.key")" >> "$GITHUB_ENV"
+      - name: Prebuild Go and pull pinned SearXNG image ONCE on this runner
+        shell: bash
+        env:
+          MCP_GHA_TOPOLOGY_SYNTHETIC_ONLY: '1'
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          bash tools/concept-sweep/prepare_runner.sh
+      - name: Negative control — stale source or tampered binary prewarm must fail
+        shell: bash
+        env:
+          MCP_GHA_ARM: ${{ matrix.arm }}
+          MCP_GHA_SEALED_OUT: ${{ runner.temp }}/denied-prewarm
+          MCP_GHA_TOPOLOGY_SYNTHETIC_ONLY: '1'
+          MCP_GHA_PREWARMED: '1'
+        run: |
+          set -euo pipefail
+          receipt="${RUNNER_TEMP}/mcp-gha-prewarm-receipt.json"
+          cp "$receipt" "${RUNNER_TEMP}/receipt-original.json"
+          trap 'cp "${RUNNER_TEMP}/receipt-original.json" "$receipt"' EXIT
+          for field in source_sha binary_sha256; do
+            python3 - "$receipt" "$field" <<'PY'
+          import json,sys,pathlib
+          p=pathlib.Path(sys.argv[1]);j=json.loads(p.read_text())
+          j[sys.argv[2]]="0"*64 if sys.argv[2]=="binary_sha256" else "0"*40
+          p.write_text(json.dumps(j))
+          PY
+            if bash tools/concept-sweep/run_sealed_arm.sh \
+              >"${RUNNER_TEMP}/prewarm-rejected.log" 2>&1; then
+              echo 'BROKEN_PREWARM_ATTESTATION_ACCEPTED'
+              exit 1
+            fi
+            grep -q 'BLOCKED_PREWARM_ATTESTATION' "${RUNNER_TEMP}/prewarm-rejected.log" || {
+              echo 'PREWARM_DENIED_FOR_WRONG_REASON'
+              exit 1
+            }
+            test ! -f "${MCP_GHA_SEALED_OUT}/result.age"
+            cp "${RUNNER_TEMP}/receipt-original.json" "$receipt"
+          done
+          echo 'MCP_GHA_PREWARM_STALE_AND_TAMPER_NEGATIVE_PASS'
+      - name: Execute real provider retrieval and seal independent result
+        shell: bash
+        env:
+          MCP_GHA_ARM: ${{ matrix.arm }}
+          MCP_GHA_SEALED_OUT: ${{ runner.temp }}/isolated-output
+          MCP_GHA_TOPOLOGY_SYNTHETIC_ONLY: '1'
+          MCP_GHA_PREWARMED: '1'
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          started_ms="$(date +%s%3N)"
+          bash tools/concept-sweep/run_sealed_arm.sh
+          finished_ms="$(date +%s%3N)"
+          export MCP_GHA_INDEPENDENT_WALL_MS="$((finished_ms-started_ms))"
+          test -s "${MCP_GHA_SEALED_OUT}/result.age"
+          test -s "${MCP_GHA_SEALED_OUT}/receipt.json"
+          age --decrypt -i "${RUNNER_TEMP}/pilot-key/age.key" \
+            "${MCP_GHA_SEALED_OUT}/result.age" \
+            > "${RUNNER_TEMP}/unsealed-test-result.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          arm=os.environ["MCP_GHA_ARM"]
+          path=pathlib.Path(os.environ["RUNNER_TEMP"])/"unsealed-test-result.json"
+          result=json.loads(path.read_text())
+          receipt=json.loads((pathlib.Path(os.environ["MCP_GHA_SEALED_OUT"])/"receipt.json").read_text())
+          assert result["arm"]==arm and receipt["arm"]==arm
+          assert {x["track"] for x in result["attempts"]}=={arm}
+          assert result["attempted_network"]==3
+          assert receipt["attempted"]==3
+          assert receipt["research_status"]=="SYNTHETIC_TRANSPORT_ONLY_NOT_BLIND_RESEARCH"
+          assert receipt["runner_prepared_once"] is True
+          prep=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"mcp-gha-prewarm-receipt.json").read_text())
+          assert prep["schema"]=="mcp-gha-prewarm-qualification/v1"
+          assert prep["run_id"]==os.environ["GITHUB_RUN_ID"]
+          from urllib.parse import urlsplit
+          urls={h["url"] for a in result["attempts"] for h in a["retrieved_evidence"]}
+          metric={
+            "schema":"mcp-gha-topology-arm-qualification/v1",
+            "classification":"PUBLIC_SYNTHETIC_TRANSPORT_ONLY_NOT_BLINDED_CPE",
+            "topology":"two_independent_github_hosted_vms",
+            "arm":arm,
+            "run_id":os.environ["GITHUB_RUN_ID"],
+            "run_attempt":os.environ.get("GITHUB_RUN_ATTEMPT","1"),
+            "runner_os":os.environ.get("RUNNER_OS","unknown"),
+            "runner_arch":os.environ.get("RUNNER_ARCH","unknown"),
+            "network_requests":receipt["attempted"],
+            "provider_success":receipt["succeeded"],
+            "provider_failure":receipt["failed"],
+            "retrieved_hits":sum(len(a["retrieved_evidence"]) for a in result["attempts"]),
+            "unique_url_count":len(urls),
+            "unique_origin_count":len({urlsplit(u).hostname for u in urls}),
+            "query_elapsed_ms":sum(a["elapsed_ms"] for a in result["attempts"]),
+            "wall_ms":int(os.environ["MCP_GHA_INDEPENDENT_WALL_MS"]),
+            "image_pull_ms":receipt["image_pull_ms"],
+            "provider_ready_ms":receipt["provider_ready_ms"],
+            "go_build_ms":receipt["go_build_ms"],
+            "one_time_image_pull_ms":prep["image_pull_ms"],
+            "one_time_go_build_ms":prep["go_build_ms"],
+          }
+          print("MCP_GHA_PARALLEL_TOPOLOGY_SUMMARY "+json.dumps(metric,sort_keys=True))
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write(f'### Independent physical GHA runner: {arm} (synthetic only)\\n\\n')
+              f.write(f'Queries: {metric["network_requests"]}; provider successes: {metric["provider_success"]}; failures: {metric["provider_failure"]}; retrieved hits: {metric["retrieved_hits"]}.\\n\\n')
+              f.write(f'Run wall: {metric["wall_ms"]} ms; image pull: {metric["image_pull_ms"]} ms; provider ready: {metric["provider_ready_ms"]} ms; Go build: {metric["go_build_ms"]} ms; aggregate query latency: {metric["query_elapsed_ms"]} ms. **Not blinded CPE science.**\\n')
+          print("MCP_GHA_INDEPENDENT_"+arm.upper()+"_GHA_WORKCELL_PASS")
+          PY
+          (
+            cd tools/mcp-gha-control
+            GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go run . verify-receipt \
+              --receipt "${MCP_GHA_SEALED_OUT}/receipt.json" \
+              --ciphertext "${MCP_GHA_SEALED_OUT}/result.age" \
+              --run-id "$GITHUB_RUN_ID" --arm "$MCP_GHA_ARM" \
+              | python3 -c 'import json,os,sys; d=json.load(sys.stdin); assert d["arm"]==os.environ["MCP_GHA_ARM"]; assert d["run_id"]==os.environ["GITHUB_RUN_ID"]; assert d["ciphertext_verified"] is True; assert d["receipt_trust"]=="SELF_REPORTED_UNAUTHENTICATED_NEEDS_NATIVE_RUN_AND_PRIVATE_INGEST"'
+          )
+          echo "MCP_GHA_${MCP_GHA_ARM}_REAL_SEALED_ARM_CLI_BRIDGE_PASS"
+          # No test-only private key, plaintext, or ciphertext is uploaded.
+          rm -rf "${RUNNER_TEMP}/pilot-key" \
+            "${RUNNER_TEMP}/unsealed-test-result.json" \
+            "${MCP_GHA_SEALED_OUT}"
+  stage-r-contract:
+    name: Stage-R source and sealed-artifact negative controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout reviewed public source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test dependency-free multilingual retrieval boundary
+        working-directory: tools/concept-sweep
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race -count=3 ./...
+          go vet ./...
+          go build -trimpath -o "${RUNNER_TEMP}/mcp-gha-stage-r" .
+          bash -n run_sealed_pilot.sh
+          bash -n run_sealed_arm.sh
+          bash -n qualify_sequential_topology.sh
+          bash -n prepare_runner.sh
+          echo 'SEALED_PILOT_SCRIPT_STATIC_PASS'
+          echo 'STAGE_R_CONTRACT_NATIVE_PASS'
+      - name: Qualify three-audience control and sealed-receipt observer
+        working-directory: tools/mcp-gha-control
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          # Qualify semantics independently from source-formatting candidate.
+          go test -race -count=3 ./...
+          go vet ./...
+          go build -trimpath -o "${RUNNER_TEMP}/mcp-gha-control" .
+          "${RUNNER_TEMP}/mcp-gha-control" describe \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert set(d["audiences"])=={"human","automation","agent"}'
+          echo 'MCP_GHA_THREE_AUDIENCE_CONTROL_NATIVE_PASS'
+      - name: Observe a real historical native Actions run without false science acceptance
+        working-directory: tools/mcp-gha-control
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go run . status --run-id 40448376152 \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["run_id"]==40448376152 and d["control_state"]=="EXECUTOR_COMPLETE_EVIDENCE_NOT_VALIDATED" and d["science_state"]=="UNJUDGED_NEEDS_TRUSTED_PRIVATE_INGEST"'
+          echo 'MCP_GHA_REAL_NATIVE_RUN_OBSERVATION_PASS'
+      - name: Prove age sealing with disposable test-only recipient
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Disposable canary key: never uploaded and not a persistent recipient.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+          umask 077
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          age-keygen -o "$scratch/ephemeral.key" 2>/dev/null
+          recipient="$(age-keygen -y "$scratch/ephemeral.key")"
+          printf '%s' '{"classification":"synthetic-only"}' >"$scratch/plain.json"
+          age --encrypt --recipient "$recipient" --output "$scratch/sealed.age" "$scratch/plain.json"
+          test -s "$scratch/sealed.age"
+          age --decrypt -i "$scratch/ephemeral.key" "$scratch/sealed.age" >"$scratch/recovered.json"
+          cmp "$scratch/plain.json" "$scratch/recovered.json"
+          echo 'SEALED_ARTIFACT_CANARY_PASS'
+
+  searxng-disposable-sensor:
+    name: Real pinned SearXNG provider smoke (no CPE semantics)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout public reviewed JSON config
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Start disposable SearXNG and execute one public benign network request
+        shell: bash
+        env:
+          IMAGE: ghcr.io/searxng/searxng:2026.10.23-629368e40@sha256:66d58661af069af77b29153aa8e5b9504d8681de905f87e58188f2ba6084ebf2
+        run: |
+          set -euo pipefail
+          conf="$PWD/tools/concept-sweep/searxng.settings.yml"
+          test -f "$conf"
+          echo "SEARXNG_CONFIG_SHA256=$(sha256sum "$conf" | cut -d' ' -f1)"
+          docker pull "$IMAGE" >/dev/null
+          cid="$(docker run --detach --rm \
+            --publish 127.0.0.1:18888:8080 \
+            --mount type=bind,src="$conf",dst=/etc/searxng/settings.yml,readonly \
+            --env SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml \
+            --env SEARXNG_SECRET="$(openssl rand -hex 32)" \
+            --cap-drop ALL --cap-add CHOWN --cap-add SETGID \
+            --cap-add SETUID --cap-add DAC_OVERRIDE \
+            --security-opt no-new-privileges \
+            "$IMAGE")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 35); do
+            code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --max-time 2 http://127.0.0.1:18888/ || true)"
+            if [[ "$code" == 200 ]]; then ready=1; break; fi
+            sleep 1
+          done
+          [[ "$ready" == 1 ]] || { echo 'BLOCKED_SEARXNG_STARTUP'; exit 3; }
+          # This fixed public synthetic query is transport qualification, NOT
+          # a blinded reference or CPE-generated experiment.
+          status="$(curl --silent --show-error --max-time 35 \
+            --get --data-urlencode 'q=open source knowledge graph' \
+            --data-urlencode 'format=json' \
+            --data-urlencode 'language=en' \
+            -o "${RUNNER_TEMP}/searxng-response.json" \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:18888/search || true)"
+          if [[ "$status" != 200 ]]; then
+            echo "BLOCKED_SEARXNG_HTTP_${status}"
+            exit 3
+          fi
+          python3 - <<'PY'
+          import json, os
+          p=os.environ["RUNNER_TEMP"]+"/searxng-response.json"
+          with open(p,encoding="utf-8") as f:
+              value=json.load(f)
+          if not isinstance(value.get("results"),list):
+              raise SystemExit("BLOCKED_SEARXNG_INVALID_JSON")
+          print("SEARXNG_REAL_PROVIDER_HTTP_PASS; hits="+str(len(value["results"])))
+          PY
+          # Do not upload results or expose source URLs/titles.
+          rm -f "${RUNNER_TEMP}/searxng-response.json"
+          # Integration canary: both tracks are PUBLIC SYNTHETIC TEST QUERIES.
+          # The CPE-looking projection is deliberately UNVERIFIED, never
+          # eligible as a genuine CPE treatment or Stage-P science.
+          scratch="$(mktemp -d)"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true; rm -rf "$scratch"' EXIT
+          export CONFIG_SHA256="$(sha256sum "$conf" | cut -d' ' -f1)"
+          export RUNTIME_IMAGE="$IMAGE"
+          export SWEEP_TEMP="$scratch"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          root=pathlib.Path(os.environ["SWEEP_TEMP"])
+          langs=["en","de","th"]
+          ref_queries=[
+              {"language":"en","text":"open source knowledge graph","role":"web"},
+              {"language":"de","text":"offene Wissensgraphen","role":"web"},
+              {"language":"th","text":"กราฟความรู้โอเพนซอร์ส","role":"web"},
+          ]
+          test_projection={
+              "schema":"cpe-search-projection/v1",
+              "authority_ref":"SYNTHETIC_TEST_ONLY_NOT_CPE_AUTHORITY",
+              "queries":[
+                  {"language":"en","text":"open source metadata","role":"web"},
+                  {"language":"de","text":"offene Metadaten","role":"web"},
+                  {"language":"th","text":"เมทาดาทาแบบเปิด","role":"web"},
+              ],
+          }
+          blob=json.dumps(test_projection,ensure_ascii=False,separators=(",",":")).encode()
+          (root/"test-projection.json").write_bytes(blob)
+          plan={
+              "schema":"mcp-gha-stage-r/v1","id":"synthetic-multilingual-canary",
+              "data_class":"public-reviewed","intent_ref":"SYNTHETIC_PROTOCOL_SMOKE_ONLY",
+              "reference_queries":ref_queries,"languages":langs,
+              "cpe_projection_sha256":hashlib.sha256(blob).hexdigest(),
+              "searxng_image_digest":os.environ["RUNTIME_IMAGE"],
+              "searxng_config_sha256":os.environ["CONFIG_SHA256"],
+          }
+          (root/"test-plan.json").write_text(json.dumps(plan,ensure_ascii=False))
+          PY
+          (
+            cd tools/concept-sweep
+            GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go build -trimpath -o "$scratch/sweep" .
+          )
+          "$scratch/sweep" \
+            --plan "$scratch/test-plan.json" \
+            --projection "$scratch/test-projection.json" \
+            --endpoint http://127.0.0.1:18888 \
+            --out "$scratch/result.json"
+          # Source URLs/titles stay in temporary local result, never logs/artifact.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+          umask 077
+          age-keygen -o "$scratch/key" 2>/dev/null
+          recipient="$(age-keygen -y "$scratch/key")"
+          age --encrypt --recipient "$recipient" --output "$scratch/result.age" "$scratch/result.json"
+          age --decrypt -i "$scratch/key" "$scratch/result.age" > "$scratch/roundtrip.json"
+          cmp "$scratch/result.json" "$scratch/roundtrip.json"
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path(os.environ["SWEEP_TEMP"])/"roundtrip.json"
+          x=json.loads(p.read_text())
+          assert x["schema"]=="mcp-gha-stage-r/v1"
+          assert x["authority_status"]=="PROJECTION_DIGEST_MATCH_ONLY_NOT_AUTHORITY_VERIFIED"
+          assert x["planned_requests"]==6
+          assert x["attempted_network"]==6
+          assert {a["track"] for a in x["attempts"]}=={"reference","cpe"}
+          assert {a["language"] for a in x["attempts"]}=={"en","de","th"}
+          assert sum(a["state"]=="SUCCEEDED_PROVIDER" for a in x["attempts"])==x["succeeded_provider"]
+          print("MCP_GHA_SEALED_MULTILINGUAL_STAGER_CANARY_PASS; real_attempts=6")
+          PY

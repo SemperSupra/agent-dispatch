@@ -36,7 +36,7 @@ func TestReadOnlyMCPHandshakeAndCanary(t *testing.T) {
 	}
 	_, tools := do(t, "POST", "/mcp", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	listed := tools["result"].(map[string]any)["tools"].([]any)
-	if len(listed) != 1 || listed[0].(map[string]any)["name"] != "worker_ping" {
+	if len(listed) != 2 || listed[0].(map[string]any)["name"] != "worker_ping" || listed[1].(map[string]any)["name"] != "worker_describe" {
 		t.Fatalf("tools: %v", listed)
 	}
 	_, call := do(t, "POST", "/mcp", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"worker_ping","arguments":{}}}`)
@@ -90,5 +90,30 @@ func TestLoopbackOnly(t *testing.T) {
 		if err := validateListen(addr); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestMCPNativeDescriptionPreservesCustodyAndAudienceBoundaries(t *testing.T) {
+	_, call := do(t, "POST", "/mcp", `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"worker_describe","arguments":{}}}`)
+	if call["error"] != nil {
+		t.Fatalf("worker_describe rejected: %+v", call)
+	}
+	body := call["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	var description map[string]any
+	if err := json.Unmarshal([]byte(body), &description); err != nil {
+		t.Fatal(err)
+	}
+	if description["schema"] != "mcp-gha-worker-discovery/v1" {
+		t.Fatal(description)
+	}
+	audience := description["audiences"].([]any)
+	if len(audience) != 3 || audience[0] != "human" || audience[1] != "automation" || audience[2] != "agent" {
+		t.Fatal(audience)
+	}
+	if description["research_evidence"] != "NOT_VALIDATED" {
+		t.Fatal("unearned semantic acceptance")
+	}
+	if !strings.Contains(description["cancel"].(string), "GitHub Actions") {
+		t.Fatal("inaccurate cancellation control")
 	}
 }

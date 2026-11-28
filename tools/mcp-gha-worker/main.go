@@ -81,21 +81,37 @@ func dispatch(req request) response {
 	case "ping":
 		return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}}
 	case "tools/list":
-		return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": []any{map[string]any{
-			"name":        "worker_ping",
-			"description": "Read-only public synthetic liveness check. Never accesses runner data or executes commands.",
-			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
-		}}}}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": []any{
+			map[string]any{
+				"name":        "worker_ping",
+				"description": "Read-only public synthetic liveness check. Never executes commands.",
+				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			},
+			map[string]any{
+				"name":        "worker_describe",
+				"description": "Discover human/automation/agent capabilities, custody and control boundaries.",
+				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+			},
+		}}}
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
-		if err := json.Unmarshal(req.Params, &p); err != nil || p.Name != "worker_ping" || !parseEmptyObject(p.Arguments) {
+		if err := json.Unmarshal(req.Params, &p); err != nil || !parseEmptyObject(p.Arguments) {
+			return failure(req.ID, -32602, "Unknown tool or invalid arguments")
+		}
+		textResult := ""
+		switch p.Name {
+		case "worker_ping":
+			textResult = "PUBLIC_SYNTHETIC_MCP_WORKER_OK"
+		case "worker_describe":
+			textResult = `{"schema":"mcp-gha-worker-discovery/v1","audiences":["human","automation","agent"],"authority":"read-only synthetic workcell","capabilities":["worker_ping","worker_describe"],"execution":"GitHub Actions native","observation":"GitHub run IDs and sanitized receipts","cancel":"Use separately admitted GitHub Actions control, never ephemeral worker","research_evidence":"NOT_VALIDATED","sealing":"output age encryption requires persistent recipient"}`
+		default:
 			return failure(req.ID, -32602, "Unknown tool or invalid arguments")
 		}
 		return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"content": []any{
-			map[string]string{"type": "text", "text": "PUBLIC_SYNTHETIC_MCP_WORKER_OK"},
+			map[string]string{"type": "text", "text": textResult},
 		}, "isError": false}}
 	default:
 		return failure(req.ID, -32601, "Method not found")

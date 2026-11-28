@@ -1,0 +1,33 @@
+{
+  "schema": "mcp-gha-stage-r-arm/v1",
+  "id": "synthetic-isolated-two-runner-canary",
+  "data_class": "public-reviewed",
+  "intent_ref": "PUBLIC_SYNTHETIC_PROTOCOL_TEST_ONLY",
+  "query_authority_ref": "SYNTHETIC_TEST_ONLY_NOT_CPE_AUTHORITY",
+  "science_class": "SYNTHETIC_TRANSPORT_ONLY",
+  "languages": [
+    "en",
+    "de",
+    "th"
+  ],
+  "searxng_image_digest": "ghcr.io/searxng/searxng:2026.10.23-629368e40@sha256:66d58661af069af77b29153aa8e5b9504d8681de905f87e58188f2ba6084ebf2",
+  "searxng_config_sha256": "66698b385c68ae5982caab9f6e60b42efebf10f08a92f6cfe59d04e80d7f76a9",
+  "arm": "reference",
+  "queries": [
+    {
+      "language": "en",
+      "text": "open source knowledge graph",
+      "role": "web"
+    },
+    {
+      "language": "de",
+      "text": "offene Wissensgraphen",
+      "role": "web"
+    },
+    {
+      "language": "th",
+      "text": "กราฟความรู้โอเพนซอร์ส",
+      "role": "web"
+    }
+  ]
+}

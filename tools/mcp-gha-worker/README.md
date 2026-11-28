@@ -1,4 +1,12 @@
-# Public GHA MCP worker — synthetic RDTE
+# MCP GHA — public ephemeral MCP worker (synthetic)
+
+Three-audience human/automation/agent control, GitHub observation,
+sealed-artifact digest verification, authority boundaries and optional
+Cloudflare Tunnel trade-off are specified in
+[the MCP GHA control contract](../../docs/mcp-gha-three-audience-control.md).
+The read-only Go controller source lives in
+[`tools/mcp-gha-control`](../mcp-gha-control/).
+
 
 This is a **public-safe, read-only synthetic MCP worker**, not a persistent dispatcher, secret-bearing executor, or replacement for the independently operated control plane.
 
@@ -14,16 +22,18 @@ The public workflow `.github/workflows/mcp-gha-worker.yml` has two paths:
 The normal GitHub connector can post a PR conversation comment. This repository currently has **Issues disabled**, so the narrowly scoped GitHub Actions `issue_comment` wake event is bound to the **existing PR #553 only**, using immutable GitHub author ID **1854350**, event type `created`, and the exact comment body:
 
 ```text
-/mcpgha start smoke
+/mcp gha start smoke
 ```
 
 For a **separately approved** time-bounded OpenAI tunnel (requires protected GitHub Environment credentials and owner review), use:
 
 ```text
-/mcpgha start live
+/mcp gha start live
 ```
 
-Example working ChatGPT request: *"Post exactly `/mcpgha start smoke` as a new comment on SemperSupra/agent-dispatch PR #553, then observe the new public Actions run."* ChatGPT uses its connected GitHub account—there is no GitHub token or OpenAI key in the chat. The worker run is addressed by the public GitHub comment ID and its native Actions run ID, **not** by a fabricated worker handle.
+Example working ChatGPT request: *"Post exactly `/mcp gha start smoke` as a new comment on SemperSupra/agent-dispatch PR #553, then observe the new public Actions run."* ChatGPT uses its connected GitHub account—there is no GitHub token or OpenAI key in the chat. The worker run is addressed by the public GitHub comment ID and its native Actions run ID, **not** by a fabricated worker handle.
+
+Both historical exact aliases (`/mcpgha start smoke`, `/mcpgha start live`) remain admitted for compatibility. All other command text remains denied. A fixed GitHub-comment wake requires no running MCP tunnel; a credentialed live MCP session still requires its separately configured OpenAI runtime identity.
 
 **Control limitation:** the public repo's Issues feature is disabled (GitHub API 410), so the PR conversation is a provisional wake surface rather than a dedicated operations issue. This does not authorize public user comments, review comments, forks, arbitrary workflow selection, shell arguments, code publication or new cloud resources. Non-owner comments, wrong PRs and other text must produce **zero work**. The workflow was merged onto `main` at `f90290cb86003b294dd686dc4c09ea10a5e3fef3`. Exact owner comment [6433550376](https://github.com/SemperSupra/agent-dispatch/pull/553#issuecomment-6433550376) started [run 40448376152](https://github.com/SemperSupra/agent-dispatch/actions/runs/40448376152), which completed SUCCESS. Wrong-command comment 6433567245 resulted in [run 40448494703](https://github.com/SemperSupra/agent-dispatch/actions/runs/40448494703), both jobs SKIPPED. The connector-induced wake is proven for public synthetic smoke, not for live tunnel connectivity. Moving to a permanent issue later requires enabling Issues and reviewing the exact issue/author gate.
 

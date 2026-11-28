@@ -1,4 +1,4 @@
-name: Public MCP Ephemeral Worker
+name: MCP GHA Ephemeral MCP Worker
 # Deterministic title consumed by existing Agent Dispatch Sidecar run observer.
 # A comment wake is not an Agent Dispatch Sidecar authorization.
 run-name: "${{ github.event_name == 'issue_comment' && format('comment-wake:{0}', github.event.comment.id) || format('sidecar:{0}:{1}:{2}', inputs.workset_id || 'mcp-gha-public-smoke', inputs.delegation_id || 'ci', inputs.assignment_id || 'pr-smoke') }}"
@@ -30,7 +30,7 @@ on:
         description: "smoke is credential-free; live opens a temporary approved tunnel from main"
         required: true
         type: choice
-        options: [smoke, live]
+        options: [smoke, live, sweep-pilot]
         default: smoke
       lease_seconds:
         description: "Maximum tunnel runtime (live only)"
@@ -58,6 +58,8 @@ jobs:
         github.event.issue.pull_request != null &&
         github.event.comment.user.id == 1854350 &&
         (
+          github.event.comment.body == '/mcp gha start smoke' ||
+          github.event.comment.body == '/mcp gha start live' ||
           github.event.comment.body == '/mcpgha start smoke' ||
           github.event.comment.body == '/mcpgha start live'
         )
@@ -143,7 +145,8 @@ jobs:
         github.event.issue.number == 553 &&
         github.event.issue.pull_request != null &&
         github.event.comment.user.id == 1854350 &&
-        github.event.comment.body == '/mcpgha start live'
+        (github.event.comment.body == '/mcp gha start live' ||
+        github.event.comment.body == '/mcpgha start live')
       )
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -215,3 +218,130 @@ jobs:
           sleep "$LEASE_SECONDS"
           [[ "$(docker inspect --format '{{.State.Running}}' "$container")" == 'true' ]] || { echo 'TUNNEL_PROCESS_EXITED_DURING_LEASE' >&2; exit 1; }
           echo 'BOUNDED_TUNNEL_PROCESS_LIFETIME_COMPLETE'
+
+  sealed-sweep-pilot:
+    name: Sealed ${{ matrix.arm }} Stage-R independent GHA workcell
+    if: >-
+      (
+        github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/main' &&
+        github.repository == 'SemperSupra/agent-dispatch' &&
+        inputs.mode == 'sweep-pilot'
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.repository == 'SemperSupra/agent-dispatch' &&
+        github.event.action == 'created' &&
+        github.event.issue.number == 553 &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.id == 1854350 &&
+        github.event.comment.body == '/mcp gha sweep pilot'
+      )
+    strategy:
+      fail-fast: false
+      # Each matrix cell is a separate ephemeral GitHub-hosted VM with its
+      # OWN SearXNG, local plaintext, encryption and result artifact.
+      # No needs/dependency or output transfer between arm jobs.
+      matrix:
+        arm: [reference, cpe]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Require persistent authorized ciphertext recipient
+        shell: bash
+        env:
+          AGE_RECIPIENT: ${{ vars.MCP_GHA_AGE_RECIPIENT }}
+        run: |
+          set -euo pipefail
+          [[ "$AGE_RECIPIENT" =~ ^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$ ]] || {
+            echo BLOCKED_PERSISTENT_AGE_RECIPIENT
+            exit 2
+          }
+      - name: Checkout common source plus ONLY this arm's frozen manifest
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          # Non-cone file allowlist excludes the other arm and the
+          # previous combined synthetic fixture, even from shared source.
+          sparse-checkout: |
+            tools/concept-sweep/go.mod
+            tools/concept-sweep/main.go
+            tools/concept-sweep/arm.go
+            tools/concept-sweep/searxng.settings.yml
+            tools/concept-sweep/run_sealed_arm.sh
+            pilot/arms/${{ matrix.arm }}/plan.json
+          sparse-checkout-cone-mode: false
+      - name: Install age encryption dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age >/dev/null
+      - name: Execute only this arm and age-seal its retrieval evidence
+        id: execute
+        shell: bash
+        env:
+          MCP_GHA_ARM: ${{ matrix.arm }}
+          MCP_GHA_AGE_RECIPIENT: ${{ vars.MCP_GHA_AGE_RECIPIENT }}
+          MCP_GHA_SEALED_OUT: ${{ runner.temp }}/mcp-gha-${{ matrix.arm }}
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set +e
+          bash tools/concept-sweep/run_sealed_arm.sh
+          rc=$?
+          if [[ -s "$MCP_GHA_SEALED_OUT/result.age" && -s "$MCP_GHA_SEALED_OUT/receipt.json" ]]; then
+            echo 'has_sealed=true' >> "$GITHUB_OUTPUT"
+          fi
+          exit "$rc"
+      - name: Upload ONLY this arm's ciphertext and sanitized receipt
+        if: always() && steps.execute.outputs.has_sealed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mcp-gha-${{ matrix.arm }}-sealed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/mcp-gha-${{ matrix.arm }}/result.age
+            ${{ runner.temp }}/mcp-gha-${{ matrix.arm }}/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Human-readable per-arm status and non-scientific provenance
+        if: always()
+        shell: bash
+        env:
+          ARM: ${{ matrix.arm }}
+          OUTCOME: ${{ steps.execute.outcome }}
+          CIPHERTEXT_PRESENT: ${{ steps.execute.outputs.has_sealed }}
+          RECEIPT: ${{ runner.temp }}/mcp-gha-${{ matrix.arm }}/receipt.json
+        run: |
+          set -euo pipefail
+          {
+            echo "### MCP GHA — independent $ARM runner"
+            echo
+            echo "| Native run | [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) |"
+            echo '|---|---|'
+            echo "| Arm | $ARM |"
+            echo "| Runner execution | ${OUTCOME:-UNKNOWN} |"
+            echo "| Ciphertext sealed | ${CIPHERTEXT_PRESENT:-false} |"
+            echo '| Research validity | SYNTHETIC_TRANSPORT_ONLY |'
+            echo '| Independent blindness | NOT_VERIFIED |'
+            echo '| Genuine CPE authority | NOT_VERIFIED |'
+            echo
+            echo 'A successful Actions job is NOT independent scientific adjudication.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${CIPHERTEXT_PRESENT:-}" == true && -f "$RECEIPT" ]]; then
+            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json,os
+          with open(os.environ["RECEIPT"]) as f:r=json.load(f)
+          assert r["schema"]=="mcp-gha-sealed-arm-receipt/v1"
+          assert r["arm"]==os.environ["ARM"]
+          print()
+          print("| Provider attempted | "+str(r["attempted"])+" |")
+          print("| Provider succeeded | "+str(r["succeeded"])+" |")
+          print("| Provider failed | "+str(r["failed"])+" |")
+          print("| Stage-R state | "+r["terminal_state"]+" |")
+          PY
+          fi
