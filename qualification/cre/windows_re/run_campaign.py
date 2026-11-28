@@ -257,7 +257,7 @@ th,td{padding:.65rem;border:1px solid GrayText;text-align:left;vertical-align:to
         name = control['id'] if control.get('synthetic_control') else control['mode']
         page += f"<tr><th scope='row'>{e(control['subject'])}</th><td>{e(name)}</td><td>{'Passed' if control['oracle_passed'] else 'Not qualified'}</td><td><a href='receipts/{e(label)}/receipt.json'>Raw {e(name)} receipt</a></td></tr>"
     page += "</tbody></table><p>The independent validator checks these collector verdicts against raw observations.</p><h2>Limits</h2><p>Process I/O counters are totals, not per-path syscall traces. Descendant retirement, hostile isolation, desktop accessibility and full option compatibility are not established by this CLI campaign. Exact output bytes and actuator receipts are retained in JSON.</p></main></html>"
-    destination.write_text(page, encoding="utf-8")
+    destination.write_bytes(page.encode("utf-8"))
 
 
 def main() -> int:

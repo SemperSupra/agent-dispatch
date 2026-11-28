@@ -64,7 +64,7 @@ caption{text-align:left;font-weight:bold}pre,code{white-space:pre-wrap;overflow-
         page += "<p>No nonpassing case rows were reported. Inspect control and global evidence status before drawing a conclusion.</p>"
     page += f"<h2>Immutable identities</h2><pre>{e(json.dumps({k: d.get(k) for k in ('case_manifest_sha256','frozen_at_utc','target_sha256','candidate_sha256','report_input_sha256')},indent=2))}</pre>"
     page += "<h2>Interface scope</h2><p>This static report uses semantic headings, native disclosure controls, table headers, keyboard-scrollable regions, system colors and visible focus. Actual browser and assistive-technology acceptance remains a separate qualification; this report makes no such claim.</p></main></html>"
-    args.output.write_text(page, encoding="utf-8")
+    args.output.write_bytes(page.encode("utf-8"))
 
 
 if __name__ == "__main__":
