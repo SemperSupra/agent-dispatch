@@ -137,11 +137,11 @@ func validate(s Submission,c Context)bool{
 	}
 	return true
 }
-func load()([]Case,map[string]Submission,error){
-	var cases []Case;var gold []goldCase
+func loadSources()([]Case,map[string]Context,error){
+	var cases []Case
+	if err:=strictJSON(sourceBytes,MaxInput);err!=nil{return nil,nil,err}
 	if err:=decode(sourceBytes,&cases);err!=nil{return nil,nil,err}
-	if err:=decode(oracleBytes,&gold);err!=nil{return nil,nil,err}
-	if len(cases)!=42||len(gold)!=42{return nil,nil,errors.New("FROZEN_COUNT")}
+	if len(cases)!=42{return nil,nil,errors.New("FROZEN_COUNT")}
 	ids:=map[string]Context{};seen:=map[string]bool{};counts:=map[string]int{}
 	for _,c:=range cases{
 		if c.ID==""||c.Body==""||len(c.Body)>16384||c.Target==""||c.Proposition==""||c.Category==""||
@@ -160,13 +160,22 @@ func load()([]Case,map[string]Submission,error){
 	for _,lang:=range []string{"en","de","th"}{
 		if counts["dev:"+lang]!=2||counts["heldout:"+lang]!=12{return nil,nil,errors.New("SPLIT_COVERAGE")}
 	}
+	return cases,ids,nil
+}
+
+func load()([]Case,map[string]Submission,error){
+	cases,ids,err:=loadSources();if err!=nil{return nil,nil,err}
+	var gold []goldCase
+	if err:=strictJSON(oracleBytes,MaxInput);err!=nil{return nil,nil,err}
+	if err:=decode(oracleBytes,&gold);err!=nil{return nil,nil,err}
+	if len(gold)!=len(cases){return nil,nil,errors.New("FROZEN_COUNT")}
 	out:=map[string]Submission{}
 	for _,g:=range gold{
 		c,ok:=ids[g.ID];if !ok||out[g.ID].ID!=""||g.Claims==nil{return nil,nil,errors.New("GOLD_IDENTITY")}
 		s:=Submission{ID:c.ID,SourceID:c.SourceID,BodySHA256:c.BodySHA256,Claims:[]Claim{}}
 		for _,x:=range g.Claims{
-			if x.Quote==""||strings.Count(c.Body,x.Quote)!=1{return nil,nil,errors.New("GOLD_AMBIGUOUS_SPAN")}
-			begin:=strings.Index(c.Body,x.Quote)
+			begin,unique:=uniqueQuote(c.Body,x.Quote)
+			if !unique{return nil,nil,errors.New("GOLD_AMBIGUOUS_SPAN")}
 			s.Claims=append(s.Claims,Claim{Quote:x.Quote,Begin:begin,End:begin+len(x.Quote),
 				Polarity:x.Polarity,Modality:x.Modality,ValidFrom:x.ValidFrom,ValidTo:x.ValidTo})
 		}
@@ -177,7 +186,7 @@ func load()([]Case,map[string]Submission,error){
 }
 
 func Contexts()([]Context,error){
-	cases,_,err:=load();if err!=nil{return nil,err}
+	cases,_,err:=loadSources();if err!=nil{return nil,err}
 	out:=make([]Context,0,len(cases));for _,c:=range cases{out=append(out,context(c))}
 	return out,nil
 }
