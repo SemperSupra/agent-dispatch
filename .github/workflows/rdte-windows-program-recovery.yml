@@ -73,7 +73,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:
-      WINEPREFIX: ${{ runner.temp }}/cre-wine-prefix
       WINEARCH: win64
       WINEDEBUG: '-all'
     steps:
@@ -85,15 +84,21 @@ jobs:
           name: windows-re-package
           path: package
       - name: Install distribution Wine and initialize owned prefix
+        env:
+          WINEPREFIX: ${{ runner.temp }}/cre-wine-prefix
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends wine wine64
           timeout 90s wineboot --init
           wine --version
       - name: Observe same PE, effects and debugger actuation
+        env:
+          WINEPREFIX: ${{ runner.temp }}/cre-wine-prefix
         run: python3 qualification/cre/windows_re/run_campaign.py --platform wine --package package --outputdir results/wine --workdir "$RUNNER_TEMP/cre-wine-cases"
       - name: Retire owned Wine processes
         if: always()
+        env:
+          WINEPREFIX: ${{ runner.temp }}/cre-wine-prefix
         run: timeout 15s wineserver -k
       - name: Preserve Wine observations including failures
         if: always()
