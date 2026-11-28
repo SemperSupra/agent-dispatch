@@ -247,6 +247,29 @@ func Score(submissions []Submission)(Report,error){
 	return out,nil
 }
 func ScoreJSON(raw []byte)(Report,error){
+	// Normalized input is a separate transport, not a bypass around the
+	// raw-response parser's duplicate-key and exact-spelling protections.
+	if err:=strictJSON(raw,MaxInput);err!=nil{return Report{},err}
+	var items []json.RawMessage
+	if err:=json.Unmarshal(raw,&items);err!=nil||items==nil{return Report{},errors.New("SUBMISSION_SCHEMA")}
+	for _,item:=range items{
+		var fields map[string]json.RawMessage
+		if err:=json.Unmarshal(item,&fields);err!=nil||len(fields)!=4{return Report{},errors.New("SUBMISSION_ROW_SCHEMA")}
+		for _,name:=range []string{"id","source_id","body_sha256","claims"}{
+			if _,ok:=fields[name];!ok{return Report{},errors.New("SUBMISSION_ROW_SCHEMA")}
+		}
+		// Explicit null retains the scorer's invalid-row semantics; only []
+		// can represent abstention. Do not manufacture a valid claim.
+		var claims []json.RawMessage
+		if err:=json.Unmarshal(fields["claims"],&claims);err!=nil{return Report{},errors.New("SUBMISSION_CLAIMS_SCHEMA")}
+		for _,claim:=range claims{
+			var keys map[string]json.RawMessage
+			if err:=json.Unmarshal(claim,&keys);err!=nil{return Report{},errors.New("SUBMISSION_CLAIM_SCHEMA")}
+			if _,ok:=keys["valid_to"];!ok{
+				if !exactKeys(keys,"quote","begin","end","polarity","modality","valid_from"){return Report{},errors.New("SUBMISSION_CLAIM_SCHEMA")}
+			}else if !exactKeys(keys,"quote","begin","end","polarity","modality","valid_from","valid_to"){return Report{},errors.New("SUBMISSION_CLAIM_SCHEMA")}
+		}
+	}
 	var submissions []Submission
 	if err:=decode(raw,&submissions);err!=nil{return Report{},err}
 	return Score(submissions)

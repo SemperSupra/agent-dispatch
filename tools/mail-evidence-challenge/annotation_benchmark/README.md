@@ -24,7 +24,10 @@ The structured-record recognizer is intentionally narrow, using only exact
 timestamp | target | yes/no-like record lines, no gold or general NLP.
 An oracle replay is a scoring positive control, not an inference competitor.
 Normalized JSON submissions must come from a strict upstream response parser;
-this is not a raw completion parser or model execution receipt. Public
+the score transport independently rejects duplicate keys, case-folded field
+aliases and malformed row/claim schemas. Explicit null claims remain invalid
+submissions, never abstentions. The optional valid_to field may be omitted.
+This is not a raw completion parser or model execution receipt. Public
 source and gold were separately specified by the same fixture author; NOT
 external blind annotation or genuine independent human reviewer evidence.
 Freeze candidate policy before inference, keep raw journals separate, use
