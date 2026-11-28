@@ -277,6 +277,11 @@ def main() -> int:
     casefile = HERE / ("discovery_cases.json" if phase == "discovery" else "validation_cases.json")
     casebytes = casefile.read_bytes()
     if phase == "validation" and sha(casebytes) != config["validation_cases_sha256"]:
+        write_json(output / "admission-failure.json", {
+            "schema": "cre.windows-re.admission-failure.v1",
+            "reason": "FROZEN_CASE_DIGEST_MISMATCH", "before_target_launch": True,
+            "expected_sha256": config["validation_cases_sha256"], "actual_sha256": sha(casebytes),
+            "source_sha": os.environ.get("GITHUB_SHA"), "run_id": os.environ.get("GITHUB_RUN_ID")})
         raise ValueError("frozen independent validation corpus digest mismatch")
     cases = json.loads(casebytes)["cases"]
     if len(cases) > MAX_CASES or len({c["id"] for c in cases}) != len(cases):
