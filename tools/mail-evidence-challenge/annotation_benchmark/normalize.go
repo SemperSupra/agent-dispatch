@@ -102,6 +102,14 @@ func normalizedTime(s string)(string,error){
 	return out,nil
 }
 
+// uniqueQuote checks overlapping matches as well as disjoint occurrences.
+// Use the same byte-anchor semantics for frozen gold and model completions.
+func uniqueQuote(body,quote string)(int,bool){
+	begin:=strings.Index(body,quote)
+	if quote==""||begin<0||strings.Contains(body[begin+1:],quote){return 0,false}
+	return begin,true
+}
+
 // NormalizeCompletion accepts only {claims:[{quote,polarity,modality,
 // valid_from,valid_to}...]}. Quotes must occur exactly once, including
 // overlapping occurrences. Offsets, IDs and hashes are derived by the
@@ -122,8 +130,8 @@ func NormalizeCompletion(c Context,raw []byte)(Submission,error){
 		if err:=json.Unmarshal(item,&fields);err!=nil||!exactKeys(fields,"quote","polarity","modality","valid_from","valid_to"){return s,errors.New("CLAIM_SCHEMA")}
 		var x candidateClaim
 		if err:=json.Unmarshal(item,&x);err!=nil{return s,errors.New("CLAIM_FIELD_TYPE")}
-		begin:=strings.Index(c.Body,x.Quote)
-		if x.Quote==""||begin<0||strings.Contains(c.Body[begin+1:],x.Quote){return s,errors.New("CLAIM_QUOTE_NOT_UNIQUE")}
+		begin,unique:=uniqueQuote(c.Body,x.Quote)
+		if !unique{return s,errors.New("CLAIM_QUOTE_NOT_UNIQUE")}
 		from,err:=normalizedTime(x.ValidFrom);if err!=nil{return s,err}
 		to:="";if x.ValidTo!=""{to,err=normalizedTime(x.ValidTo);if err!=nil{return s,err}}
 		claim:=Claim{Quote:x.Quote,Begin:begin,End:begin+len(x.Quote),Polarity:x.Polarity,

@@ -91,3 +91,42 @@ func TestNormalizedTransportRejectsAmbiguousKeys(t *testing.T){
 	raw,err=json.Marshal(rows);if err!=nil{t.Fatal(err)}
 	report,err=ScoreJSON(raw);if err!=nil||report.Heldout.Invalid!=1||report.Heldout.Exact!=35{t.Fatal(report,err)}
 }
+
+func TestContextGenerationDoesNotDependOnOracle(t *testing.T){
+	before,err:=Contexts();if err!=nil{t.Fatal(err)}
+	saved:=oracleBytes;defer func(){oracleBytes=saved}()
+	oracleBytes=[]byte("invalid oracle")
+	after,err:=Contexts();if err!=nil||!reflect.DeepEqual(before,after){t.Fatal("contexts depend on oracle",err)}
+	if _,err:=Reference();err==nil{t.Fatal("scoring accepted invalid oracle")}
+}
+func TestFrozenOracleAndSourceRejectDuplicateKeys(t *testing.T){
+	originalSource,originalGold:=sourceBytes,oracleBytes
+	defer func(){sourceBytes=originalSource;oracleBytes=originalGold}()
+	for _,target:=range []string{"source","gold"}{
+		if target=="source"{sourceBytes=[]byte(strings.Replace(string(originalSource),"\"id\":","\"id\":\"forged\",\"id\":",1))}
+		if target=="gold"{sourceBytes=originalSource;oracleBytes=[]byte(strings.Replace(string(originalGold),"\"id\":","\"id\":\"forged\",\"id\":",1))}
+		if _,_,err:=load();err==nil{t.Fatal("duplicate key accepted",target)}
+	}
+}
+func TestGoldAndCompletionRejectOverlappingQuote(t *testing.T){
+	if _,ok:=uniqueQuote("aaa","aa");ok{t.Fatal("overlapping anchor accepted")}
+	if i,ok:=uniqueQuote("ก่อน: เปิด","เปิด");!ok||i!=len("ก่อน: "){t.Fatal(i,ok)}
+	var cases []Case;var gold []goldCase
+	if err:=json.Unmarshal(sourceBytes,&cases);err!=nil{t.Fatal(err)}
+	if err:=json.Unmarshal(oracleBytes,&gold);err!=nil{t.Fatal(err)}
+	id:=cases[0].ID
+	cases[0].Body="aaa"
+	found:=false
+	for i:=range gold{if gold[i].ID==id{
+		gold[i].Claims=[]goldClaim{{Quote:"aa",Polarity:1,Modality:"actual",ValidFrom:cases[0].AuthoredAt}}
+		found=true
+	}}
+	if !found{t.Fatal("missing gold")}
+	oldSource,oldGold:=sourceBytes,oracleBytes
+	defer func(){sourceBytes=oldSource;oracleBytes=oldGold}()
+	var err error
+	sourceBytes,err=json.Marshal(cases);if err!=nil{t.Fatal(err)}
+	oracleBytes,err=json.Marshal(gold);if err!=nil{t.Fatal(err)}
+	if _,err:=Contexts();err!=nil{t.Fatal("valid mutated sources rejected",err)}
+	if _,_,err:=load();err==nil||err.Error()!="GOLD_AMBIGUOUS_SPAN"{t.Fatal("gold ambiguity not rejected",err)}
+}

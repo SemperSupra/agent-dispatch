@@ -34,3 +34,10 @@ Freeze candidate policy before inference, keep raw journals separate, use
 installed bounded model actors, compare annotation score before signing or
 reasoning. Do not treat a valid signature or exact quote as semantic truth.
 No private data, actual model run, production review authority or promotion.
+
+Context generation validates the frozen source set without parsing or depending
+on the oracle. The scoring path validates both independently with strict JSON
+and the same overlap-aware quote uniqueness check used by raw normalization.
+This separates the context-generation code path from oracle validation; the
+public evaluator binary still embeds both fixtures and is not a sealed blind
+holdout or a model-runtime isolation boundary.
