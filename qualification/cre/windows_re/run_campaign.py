@@ -105,7 +105,7 @@ def win_path(p: Path, lane: str) -> str:
 
 
 def run_one(case: dict, subject: str, target: Path, observer: Path, work_root: Path,
-            output: Path, lane: str, mode: str = "run") -> dict:
+            output: Path, lane: str, mode: str = "run", timeout_ms: int = 5000) -> dict:
     label = f"{subject}-{case['id']}-{mode}"
     work = work_root / label
     evidence = output / "receipts" / label
@@ -116,12 +116,13 @@ def run_one(case: dict, subject: str, target: Path, observer: Path, work_root: P
              (("receipt", "json"), ("stdout", "bin"), ("stderr", "bin"))}
     command = [win_path(observer, lane), "--receipt", win_path(paths["receipt"], lane),
                "--stdout", win_path(paths["stdout"], lane), "--stderr", win_path(paths["stderr"], lane),
-               "--mode", mode, "--timeout-ms", "5000", "--", win_path(target, lane), *case["args"]]
+               "--mode", mode, "--timeout-ms", str(timeout_ms), "--", win_path(target, lane), *case["args"]]
     if lane == "wine":
         command.insert(0, os.environ.get("CRE_WINE", "wine"))
     env = dict(os.environ)
     # Target receives a further explicit whitelist from the native observer.
-    env.update({"LANG": "C", "LC_ALL": "C", "LANGUAGE": "C", "WINEDEBUG": "-all"})
+    host_locale = "C.UTF-8" if lane == "wine" else "C"
+    env.update({"LANG": host_locale, "LC_ALL": host_locale, "LANGUAGE": "C", "WINEDEBUG": "-all"})
     launched_sha256 = sha(target.read_bytes())
     observer_sha256 = sha(observer.read_bytes())
     host_deadline = False
@@ -170,6 +171,10 @@ def run_one(case: dict, subject: str, target: Path, observer: Path, work_root: P
         errors.append(str(exc))
         after, files_after = {}, {}
     cleanup = receipt.get("cleanup", {})
+    actual_arguments = receipt.get("command", {})
+    if (actual_arguments.get("arguments_utf16le_hex") != [a.encode("utf-16le").hex() for a in case["args"]]
+            or actual_arguments.get("arguments_truncated") is not False):
+        errors.append("observer-received arguments differ from intended UTF-16 arguments")
     if sha(target.read_bytes()) != launched_sha256:
         errors.append("target executable changed during execution")
     for kind in ("stdout", "stderr"):
@@ -188,11 +193,17 @@ def run_one(case: dict, subject: str, target: Path, observer: Path, work_root: P
                         not deadline and not truncated and not errors)
     target_exit = receipt.get("target_exit", {})
     status = target_exit.get("code") if target_exit.get("available") else None
+    io = receipt.get("metrics", {}).get("io", {})
+    io_quality = "api_unavailable" if io.get("available") is not True else "reported_not_independently_attributed"
+    changed_files = any(v.get("kind") == "file" and v != before.get(k) for k, v in after.items())
+    if changed_files and io.get("available") is True and all(io.get(k) == "0" for k in ("read_operations", "write_operations", "other_operations", "read_bytes", "write_bytes", "other_bytes")):
+        io_quality = "unqualified_zero_counters_despite_file_effects"
     obs = {"executable_sha256": launched_sha256, "observer_sha256": observer_sha256,
            "capture_complete": capture_complete, "deadline_exceeded": bool(deadline),
            "debug_available": receipt.get("created") is True and receipt.get("image", {}).get("available") is True and receipt.get("debug", {}).get("create_event_seen") is True,
            "truncated": bool(truncated), "errors": errors, "exit_code": observer_exit,
-           "receipt": receipt}
+           "receipt": receipt, "sensor_quality": {"process_io": io_quality},
+           "host_locale": host_locale}
     return {"id": case["id"], "subject": subject, "mode": mode, "args": case["args"],
             "observer": obs, "exit_code": status, "stdout_hex": streams["stdout"].hex(),
             "stderr_hex": streams["stderr"].hex(), "before": before, "after": after,
@@ -274,7 +285,7 @@ def main() -> int:
               "target_sha256": manifest["executables"]["reference"]["sha256"],
               "candidate_sha256": manifest["executables"].get("candidate", {}).get("sha256"),
               "casefile_sha256": sha(casebytes), "environment": platform_info(args.platform),
-              "package_manifest": manifest, "cases": [], "actuators": []}
+              "package_manifest": manifest, "cases": [], "actuators": [], "observer_controls": []}
     subjects = ("reference",) if phase == "discovery" else ("reference", "candidate")
     for subject in subjects:
         for case in cases:
@@ -306,14 +317,44 @@ def main() -> int:
             row["oracle_passed"] = passed and row["observer"]["capture_complete"]
             report["actuators"].append(row)
     write_json(output / "report.json", report)
+    if "observer-control" in manifest["executables"]:
+        control_target = package / "observer-control.exe"
+        if sha(control_target.read_bytes()) != manifest["executables"]["observer-control"]["sha256"]:
+            raise ValueError("synthetic control digest mismatch")
+        for control_mode in ("sleep", "stdout", "exception"):
+            c = {"id": "control-" + control_mode, "args": [control_mode], "files": []}
+            row = run_one(c, "observer-control", control_target, paths["observer"], work, output, args.platform,
+                          timeout_ms=100 if control_mode == "sleep" else 5000)
+            receipt = row["observer"]["receipt"]
+            common = (receipt.get("cleanup", {}).get("complete") is True and not row["before"] and not row["after"]
+                      and receipt.get("observer_error", {}).get("win32") == 0 and not row["observer"]["errors"])
+            # Expected overflow is intentionally not a complete ordinary capture.
+            if control_mode == "sleep":
+                passed = receipt.get("timed_out") is True and row["stdout_hex"] == "" and row["exit_code"] == 0xC000013A
+            elif control_mode == "stdout":
+                unexpected_errors = [error for error in row["observer"]["errors"]
+                                     if error != "stdout stream receipt disagrees with complete retained bytes"]
+                common = (receipt.get("cleanup", {}).get("complete") is True and not row["before"] and not row["after"]
+                          and receipt.get("observer_error", {}).get("win32") == 0 and not unexpected_errors)
+                stream = receipt.get("streams", {}).get("stdout", {})
+                passed = receipt.get("output_overflow") is True and stream.get("bytes_seen", 0) > 65536 and stream.get("bytes_retained") == 65536 and row["stdout_hex"] == "58" * 65536
+            else:
+                events = receipt.get("events", [])
+                passed = row["exit_code"] == 0xE0421001 and row["stdout_hex"] == "" and any(e.get("code") == 0xE0421001 and e.get("continuation_status") == 0x80010001 for e in events)
+            row["oracle_passed"] = common and passed
+            row["synthetic_control"] = True
+            report["observer_controls"].append(row)
+    write_json(output / "report.json", report)
     render_report(report, output / "index.html")
     complete = all(c["observer"]["capture_complete"] for c in report["cases"])
     actuation = all(c["oracle_passed"] for c in report["actuators"])
+    controls = all(c["oracle_passed"] for c in report["observer_controls"])
     write_json(output / "summary.json", {"phase": phase, "platform": args.platform,
                                          "case_count": len(report["cases"]), "observations_complete": complete,
-                                         "actuator_oracles_passed": actuation})
-    print(json.dumps({"observations_complete": complete, "actuator_oracles_passed": actuation}), flush=True)
-    return 0 if complete and actuation else 1
+                                         "actuator_oracles_passed": actuation, "synthetic_observer_controls_passed": controls})
+    print(json.dumps({"observations_complete": complete, "actuator_oracles_passed": actuation,
+                      "synthetic_observer_controls_passed": controls}), flush=True)
+    return 0 if complete and actuation and controls else 1
 
 
 if __name__ == "__main__":

@@ -2,30 +2,456 @@
   "schema": "cre.windows-re.discovery-cases.v1",
   "method": "Original executable observations precede the replacement implementation. These are development probes, separate from the frozen validation corpus.",
   "cases": [
-    {"id":"d01-crlf","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"616c7068610d0a626574610d0a"}]},
-    {"id":"d02-lf","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"616c7068610a626574610a"}]},
-    {"id":"d03-mixed","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"410d420d0a430a440d0d0a450d"}]},
-    {"id":"d04-empty","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":""}]},
-    {"id":"d05-unicode-content","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"4772c3bcc39f6520e0b984e0b897e0b8a20d0a"}]},
-    {"id":"d06-unicode-path","args":["-n","grüße-ไทย.txt","résultat-ผล.txt"],"files":[{"path":"grüße-ไทย.txt","data_hex":"780d0a790d0a"}]},
-    {"id":"d07-bom-utf8","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"efbbbf610d0a620d0a"}]},
-    {"id":"d08-bom-utf16le","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"fffe61000d000a0062000d000a00"}]},
-    {"id":"d09-bom-utf16be","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"feff0061000d000a0062000d000a"}]},
-    {"id":"d10-nul","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"410d0a00420d0a"}]},
-    {"id":"d11-control-byte","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"41010d0a42"}]},
-    {"id":"d12-allowed-controls","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"4109090b0c0d0a4243447f0d0a"}]},
-    {"id":"d13-missing-input","args":["-n","missing.txt","out.txt"],"files":[]},
-    {"id":"d14-missing-parent","args":["-n","in.txt","missing/out.txt"],"files":[{"path":"in.txt","data_hex":"410d0a"}]},
-    {"id":"d15-replace-existing","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"410d0a"},{"path":"out.txt","data_hex":"70726576696f7573"}]},
-    {"id":"d16-two-pairs","args":["-n","a.txt","a.out","b.txt","b.out"],"files":[{"path":"a.txt","data_hex":"410d0a"},{"path":"b.txt","data_hex":"420d0a"}]},
-    {"id":"d17-second-missing","args":["-n","a.txt","a.out","missing.txt","b.out"],"files":[{"path":"a.txt","data_hex":"410d0a"}]},
-    {"id":"d18-odd-pair","args":["-n","a.txt","a.out","b.txt"],"files":[{"path":"a.txt","data_hex":"410d0a"},{"path":"b.txt","data_hex":"420d0a"}]},
-    {"id":"d19-unknown-option","args":["--cre-discovery-unknown","-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"410d0a"}]},
-    {"id":"d20-help","args":["--help"],"files":[]},
-    {"id":"d21-version","args":["--version"],"files":[]},
-    {"id":"d22-nul-existing","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"000d0a"},{"path":"out.txt","data_hex":"70726576696f7573"}]},
-    {"id":"d23-utf16-surrogate","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"fffe3dd800de0d000a00"}]},
-    {"id":"d24-truncated-bom","args":["-n","in.txt","out.txt"],"files":[{"path":"in.txt","data_hex":"efbb410d0a"}]},
-    {"id":"d25-space-path","args":["-n","source file.txt","dest file.txt"],"files":[{"path":"source file.txt","data_hex":"410d0a"}]}
+    {
+      "id": "d01-crlf",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "616c7068610d0a626574610d0a"
+        }
+      ]
+    },
+    {
+      "id": "d02-lf",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "616c7068610a626574610a"
+        }
+      ]
+    },
+    {
+      "id": "d03-mixed",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "410d420d0a430a440d0d0a450d"
+        }
+      ]
+    },
+    {
+      "id": "d04-empty",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": ""
+        }
+      ]
+    },
+    {
+      "id": "d05-unicode-content",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "4772c3bcc39f6520e0b984e0b897e0b8a20d0a"
+        }
+      ]
+    },
+    {
+      "id": "d06-unicode-path",
+      "args": [
+        "-n",
+        "grüße-ไทย.txt",
+        "résultat-ผล.txt"
+      ],
+      "files": [
+        {
+          "path": "grüße-ไทย.txt",
+          "data_hex": "780d0a790d0a"
+        }
+      ]
+    },
+    {
+      "id": "d07-bom-utf8",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "efbbbf610d0a620d0a"
+        }
+      ]
+    },
+    {
+      "id": "d08-bom-utf16le",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "fffe61000d000a0062000d000a00"
+        }
+      ]
+    },
+    {
+      "id": "d09-bom-utf16be",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "feff0061000d000a0062000d000a"
+        }
+      ]
+    },
+    {
+      "id": "d10-nul",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "410d0a00420d0a"
+        }
+      ]
+    },
+    {
+      "id": "d11-control-byte",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "41010d0a42"
+        }
+      ]
+    },
+    {
+      "id": "d12-allowed-controls",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "4109090b0c0d0a4243447f0d0a"
+        }
+      ]
+    },
+    {
+      "id": "d13-missing-input",
+      "args": [
+        "-n",
+        "missing.txt",
+        "out.txt"
+      ],
+      "files": []
+    },
+    {
+      "id": "d14-missing-parent",
+      "args": [
+        "-n",
+        "in.txt",
+        "missing/out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "410d0a"
+        }
+      ]
+    },
+    {
+      "id": "d15-replace-existing",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "410d0a"
+        },
+        {
+          "path": "out.txt",
+          "data_hex": "70726576696f7573"
+        }
+      ]
+    },
+    {
+      "id": "d16-two-pairs",
+      "args": [
+        "-n",
+        "a.txt",
+        "a.out",
+        "b.txt",
+        "b.out"
+      ],
+      "files": [
+        {
+          "path": "a.txt",
+          "data_hex": "410d0a"
+        },
+        {
+          "path": "b.txt",
+          "data_hex": "420d0a"
+        }
+      ]
+    },
+    {
+      "id": "d17-second-missing",
+      "args": [
+        "-n",
+        "a.txt",
+        "a.out",
+        "missing.txt",
+        "b.out"
+      ],
+      "files": [
+        {
+          "path": "a.txt",
+          "data_hex": "410d0a"
+        }
+      ]
+    },
+    {
+      "id": "d18-odd-pair",
+      "args": [
+        "-n",
+        "a.txt",
+        "a.out",
+        "b.txt"
+      ],
+      "files": [
+        {
+          "path": "a.txt",
+          "data_hex": "410d0a"
+        },
+        {
+          "path": "b.txt",
+          "data_hex": "420d0a"
+        }
+      ]
+    },
+    {
+      "id": "d19-unknown-option",
+      "args": [
+        "--cre-discovery-unknown",
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "410d0a"
+        }
+      ]
+    },
+    {
+      "id": "d20-help",
+      "args": [
+        "--help"
+      ],
+      "files": []
+    },
+    {
+      "id": "d21-version",
+      "args": [
+        "--version"
+      ],
+      "files": []
+    },
+    {
+      "id": "d22-nul-existing",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "000d0a"
+        },
+        {
+          "path": "out.txt",
+          "data_hex": "70726576696f7573"
+        }
+      ]
+    },
+    {
+      "id": "d23-utf16-surrogate",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "fffe3dd800de0d000a00"
+        }
+      ]
+    },
+    {
+      "id": "d24-truncated-bom",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "efbb410d0a"
+        }
+      ]
+    },
+    {
+      "id": "d25-space-path",
+      "args": [
+        "-n",
+        "source file.txt",
+        "dest file.txt"
+      ],
+      "files": [
+        {
+          "path": "source file.txt",
+          "data_hex": "410d0a"
+        }
+      ]
+    },
+    {
+      "id": "d26-control-07",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "41070d0a42"
+        }
+      ]
+    },
+    {
+      "id": "d27-control-08",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "41080d0a42"
+        }
+      ]
+    },
+    {
+      "id": "d28-control-0c",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "410c0d0a42"
+        }
+      ]
+    },
+    {
+      "id": "d29-control-1a",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "411a0d0a42"
+        }
+      ]
+    },
+    {
+      "id": "d30-control-1b",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "411b0d0a42"
+        }
+      ]
+    },
+    {
+      "id": "d31-control-7f",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "417f0d0a42"
+        }
+      ]
+    },
+    {
+      "id": "d32-nul-after-lone-cr",
+      "args": [
+        "-n",
+        "in.txt",
+        "out.txt"
+      ],
+      "files": [
+        {
+          "path": "in.txt",
+          "data_hex": "410d0042"
+        }
+      ]
+    }
   ]
 }

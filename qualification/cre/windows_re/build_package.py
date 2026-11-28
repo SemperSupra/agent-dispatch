@@ -23,8 +23,10 @@ def main():
     config = json.loads((HERE / "campaign.json").read_text())
     common = [COMPILER, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-municode", "-Wl,--no-insert-timestamp"]
     subprocess.run([*common, str(HERE / "runtime_observer.c"), "-o", str(PACKAGE / "observer.exe")], check=True, timeout=90)
+    subprocess.run([*common, str(HERE / "observer_control.c"), "-o", str(PACKAGE / "observer-control.exe")], check=True, timeout=90)
     executables = {"observer": file_info(PACKAGE / "observer.exe"),
-                   "reference": file_info(PACKAGE / "reference" / "dos2unix.exe")}
+                   "reference": file_info(PACKAGE / "reference" / "dos2unix.exe"),
+                   "observer-control": file_info(PACKAGE / "observer-control.exe")}
     if executables["reference"]["sha256"] != acquisition["executable"]["sha256"]:
         raise ValueError("reference changed after verified acquisition")
     if config["phase"] == "validation":

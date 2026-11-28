@@ -16,6 +16,7 @@
 #if !defined(_WIN64)
 #error This qualification observer requires the Windows x64 ABI.
 #endif
+_Static_assert(sizeof(wchar_t) == 2, "The argument sensor requires Windows UTF-16 code units.");
 
 #define OUTPUT_LIMIT 65536u
 #define EVENT_LIMIT 256u
@@ -61,6 +62,8 @@ typedef struct {
     const char *mode;
     DWORD timeout_ms;
     int target_index;
+    int target_argc;
+    wchar_t **target_argv;
     HANDLE process, initial_thread;
     DWORD pid, initial_tid;
     BOOL created, create_event_seen, exit_seen, exit_available, signaled;
@@ -480,6 +483,7 @@ static void observe_events(State *s) {
         case CREATE_PROCESS_DEBUG_EVENT: {
             HANDLE process_copy = NULL, thread_copy = NULL;
             s->create_event_seen = TRUE;
+            s->image.base = (uint64_t)(uintptr_t)de.u.CreateProcessInfo.lpBaseOfImage;
             if (e) e->base = (uint64_t)(uintptr_t)de.u.CreateProcessInfo.lpBaseOfImage;
             if (!DuplicateHandle(GetCurrentProcess(), de.u.CreateProcessInfo.hProcess,
                                   GetCurrentProcess(), &process_copy, 0, FALSE, DUPLICATE_SAME_ACCESS))
@@ -489,14 +493,15 @@ static void observe_events(State *s) {
                 fail(s, "duplicate_debug_thread_handle", GetLastError());
             if (process_copy) { close_owned(&s->process); s->process = process_copy; }
             if (thread_copy) { close_owned(&s->initial_thread); s->initial_thread = thread_copy; }
-            if (!read_image(s->process, (uint64_t)(uintptr_t)de.u.CreateProcessInfo.lpBaseOfImage, &s->image, TRUE))
+            if (!s->termination_attempted &&
+                !read_image(s->process, (uint64_t)(uintptr_t)de.u.CreateProcessInfo.lpBaseOfImage, &s->image, TRUE))
                 fail(s, "read_mapped_PE32plus_x64", s->image.error);
             if (de.u.CreateProcessInfo.hFile) CloseHandle(de.u.CreateProcessInfo.hFile);
             if (!strcmp(s->mode, "abort")) {
                 s->abort_before_first_continue = s->continues == 0;
                 terminate_owned(s, "operator_abort");
                 s->cancelled = s->termination_succeeded && s->abort_before_first_continue;
-            } else if (s->bp.requested && !s->error_operation) install_breakpoint(s);
+            } else if (s->bp.requested && !s->termination_attempted && !s->error_operation) install_breakpoint(s);
             break;
         }
         case LOAD_DLL_DEBUG_EVENT: {
@@ -506,7 +511,10 @@ static void observe_events(State *s) {
             ++s->dll_events;
             module_basename(de.u.LoadDll.hFile, name, sizeof(name));
             memset(&module, 0, sizeof(module));
-            if (!name[0] || !_stricmp(name, "ntdll.dll")) {
+            /* Queued DLL events can arrive after TerminateProcess succeeds.
+             * Retain/drain them, but do not require memory in the dying target.
+             * Existing sensor errors remain recorded by fail(). */
+            if (!s->termination_attempted && (!name[0] || !_stricmp(name, "ntdll.dll"))) {
                 module_read = read_image(s->process, (uint64_t)(uintptr_t)de.u.LoadDll.lpBaseOfDll,
                                          &module, FALSE);
                 if (!name[0] && module_read) (void)mapped_export_name(s->process, &module, name);
@@ -515,7 +523,7 @@ static void observe_events(State *s) {
                 e->base = (uint64_t)(uintptr_t)de.u.LoadDll.lpBaseOfDll;
                 memcpy(e->name, name, sizeof(name));
             }
-            if (!_stricmp(name, "ntdll.dll")) {
+            if (!s->termination_attempted && !_stricmp(name, "ntdll.dll")) {
                 if (module_read) {
                     s->ntdll_base = module.base;
                     s->ntdll_size = module.image_size;
@@ -545,20 +553,20 @@ static void observe_events(State *s) {
             ++s->exception_events;
             continuation = DBG_EXCEPTION_NOT_HANDLED;
             if (e) { e->address = address; e->code = code; e->first_chance = de.u.Exception.dwFirstChance; }
-            if (code == EXCEPTION_BREAKPOINT && de.u.Exception.dwFirstChance &&
+            if (!s->termination_attempted && code == EXCEPTION_BREAKPOINT && de.u.Exception.dwFirstChance &&
                 s->bp.installed && s->bp.armed && address == s->image.entry && !s->error_operation) {
                 if (restore_at_breakpoint(s, de.dwThreadId)) {
                     continuation = DBG_CONTINUE;
                     entry_continuation = TRUE;
                 }
-            } else if (code == EXCEPTION_BREAKPOINT && de.u.Exception.dwFirstChance &&
+            } else if (!s->termination_attempted && code == EXCEPTION_BREAKPOINT && de.u.Exception.dwFirstChance &&
                        !s->bootstrap_breakpoints && !s->bp.hit &&
                        de.dwThreadId == s->initial_tid && s->ntdll_size &&
                        address >= s->ntdll_base && address - s->ntdll_base < s->ntdll_size &&
                        !(address >= s->image.base && address - s->image.base < s->image.image_size)) {
                 ++s->bootstrap_breakpoints;
                 continuation = DBG_CONTINUE;
-            } else if (code == EXCEPTION_BREAKPOINT && de.u.Exception.dwFirstChance &&
+            } else if (!s->termination_attempted && code == EXCEPTION_BREAKPOINT && de.u.Exception.dwFirstChance &&
                        !s->bootstrap_breakpoints && !s->bp.hit &&
                        de.dwThreadId == s->initial_tid && !s->ntdll_size &&
                        !(address >= s->image.base && address - s->image.base < s->image.image_size)) {
@@ -654,6 +662,32 @@ static void stream_json(FILE *file, const Stream *stream) {
             jb(stream->overflow), jb(stream->eof), (unsigned long)stream->error);
 }
 
+/* Observe this process's actual wmain argv. This is not a claim about how the
+ * child CRT subsequently parses the constructed command line. Hex preserves
+ * every UTF-16 code unit without a locale/UTF-8 conversion or trailing NUL. */
+static void command_json(FILE *file, const State *s) {
+    size_t remaining = COMMAND_LIMIT - 1;
+    BOOL truncated = FALSE;
+    int i;
+    fprintf(file, "{\"source\":\"observer_wmain_argv\",\"target_crt_arguments_observed\":false,"
+            "\"arguments_count\":%d,\"arguments_utf16le_hex\":[", s->target_argc);
+    for (i = 0; i < s->target_argc; ++i) {
+        const wchar_t *p = s->target_argv[i];
+        if (i) fputc(',', file);
+        fputc('"', file);
+        while (*p && remaining) {
+            uint16_t unit = (uint16_t)*p++;
+            fprintf(file, "%02x%02x", (unsigned)(unit & 255u), (unsigned)(unit >> 8));
+            --remaining;
+        }
+        if (*p) truncated = TRUE;
+        fputc('"', file);
+        if (truncated) break;
+    }
+    fprintf(file, "],\"arguments_truncated\":%s,\"utf16_code_units_limit\":%u}",
+            jb(truncated), COMMAND_LIMIT - 1);
+}
+
 static BOOL write_receipt(State *s) {
     FILE *f = _wfopen(s->receipt, L"wb");
     unsigned i, retained = s->events_total > EVENT_LIMIT ? EVENT_LIMIT : (unsigned)s->events_total;
@@ -661,6 +695,8 @@ static BOOL write_receipt(State *s) {
     if (!f) return FALSE;
     fprintf(f, "{\"schema\":\"cre-win32-observer-v1\",\"observer_ok\":%s,\"mode\":", jb(ok));
     json_string(f, s->mode);
+    fprintf(f, ",\"command\":");
+    command_json(f, s);
     fprintf(f, ",\"created\":%s,\"pid\":%lu,\"target_exit\":{\"available\":%s,\"code\":%lu},",
             jb(s->created), (unsigned long)s->pid, jb(s->exit_available), (unsigned long)s->exit_code);
     fprintf(f, "\"image\":{\"available\":%s,\"error\":%lu,\"source\":\"CREATE_PROCESS_DEBUG_EVENT_and_ReadProcessMemory\","
@@ -771,6 +807,8 @@ static BOOL parse_args(State *s, int argc, wchar_t **argv) {
         argc - s->target_index > 128 || !_wcsicmp(s->receipt, s->out) ||
         !_wcsicmp(s->receipt, s->err) || !_wcsicmp(s->out, s->err)) return FALSE;
     s->bp.requested = !strcmp(s->mode, "breakpoint");
+    s->target_argc = argc - s->target_index - 1;
+    s->target_argv = argv + s->target_index + 1;
     return TRUE;
 }
 
