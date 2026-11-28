@@ -104,11 +104,13 @@ jobs:
               pc=int(gdb.parse_and_eval("$pc"))
               pid=gdb.selected_inferior().pid
               if not pid: raise RuntimeError("no stopped inferior")
-              print("WITNESS_BEGIN "+name)
-              print("pc=0x%x"%pc)
               with open("/proc/%d/maps"%pid,"r",encoding="utf-8") as f:
-                  print(f.read(),end="")
-              print("WITNESS_END")
+                  maps=f.read()
+              # Inferior stdout and GDB diagnostic stdout are not a framed evidence channel.
+              # Write a complete observation to a separate, case-owned observer file before resuming.
+              with open(capture_path,"a",encoding="utf-8") as f:
+                  f.write("WITNESS_BEGIN "+name+"\n"+"pc=0x%x\n"%pc+maps+"WITNESS_END\n")
+              gdb.write("WITNESS_CAPTURED "+name+"\n")
           gdb.execute("set pagination off")
           gdb.execute("set confirm off")
           gdb.execute("set disable-randomization off")
@@ -131,7 +133,8 @@ jobs:
               raise RuntimeError("unexpected application stop")
           gdb.execute("continue",to_string=True)
           if gdb.selected_inferior().pid!=0: raise RuntimeError("inferior not reaped")
-          print("INFERIOR_EXIT "+str(int(gdb.parse_and_eval("$_exitcode"))))
+          with open(capture_path,"a",encoding="utf-8") as f:
+              f.write("INFERIOR_EXIT "+str(int(gdb.parse_and_eval("$_exitcode")))+"\n")
           '''
           (out/"fixture.c").write_text(source,encoding="utf-8")
           (out/"debugger.py").write_text(debugger,encoding="utf-8")
@@ -156,7 +159,6 @@ jobs:
               good(["gcc","-"+opt,"-g","-fPIE","-pie","-fno-omit-frame-pointer",out/"fixture.c","-lsqlite3","-o",app])
               (out/"fixture").write_bytes(app.read_bytes())
               gdbscript=d/"debugger.gdb"
-              gdbscript.write_text("python\nexec(compile(open("+repr(str(out/"debugger.py"))+").read(),'debugger.py','exec'))\nend\n",encoding="utf-8")
               for cid,active,initial,cost,want in [("apply",1,10,3,7),("inactive",0,10,3,10),("insufficient",1,2,3,2),("exact",1,4,4,0)]:
                   cdir=out/cid
                   cdir.mkdir()
@@ -167,15 +169,20 @@ jobs:
                   before=db.read_bytes()
                   (cdir/"before.db").write_bytes(before)
                   require(read_credit(db)==initial,"initial state")
+                  observation=cdir/"debugger-capture.txt"
+                  gdbscript.write_text("python\ncapture_path="+repr(str(observation))+"\nexec(compile(open("+repr(str(out/"debugger.py"))+").read(),'debugger.py','exec'))\nend\n",encoding="utf-8")
                   p=run(["gdb","-nx","-nh","-batch","-x",gdbscript,"--args",app,db,active,cost],d,60)
                   log=p.stdout+p.stderr
                   (cdir/"debugger.log").write_bytes(log)
-                  require(p.returncode==0 and b"INFERIOR_EXIT 0" in p.stdout,"native debugger failed: "+log.decode(errors="replace")[-2000:])
+                  require(observation.is_file(),"observer channel missing: "+log.decode(errors="replace")[-2000:])
+                  observer=observation.read_bytes()
+                  require(p.returncode==0 and observer.endswith(b"INFERIOR_EXIT 0\n"),"native debugger failed: "+log.decode(errors="replace")[-2000:])
                   after=db.read_bytes()
                   (cdir/"after.db").write_bytes(after)
                   actual=read_credit(db)
                   require(actual==want and not Path(str(db)+"-journal").exists(),"wrong state or lifecycle")
-                  blocks=re.findall(rb"WITNESS_BEGIN ([a-z0-9_]+)\r?\n(.*?)WITNESS_END\r?\n",p.stdout,re.S)
+                  blocks=re.findall(rb"WITNESS_BEGIN ([a-z0-9_]+)\r?\n(.*?)WITNESS_END\r?\n",observer,re.S)
+                  require(observer==b"".join(b"WITNESS_BEGIN "+n+b"\n"+raw+b"WITNESS_END\n" for n,raw in blocks)+b"INFERIOR_EXIT 0\n","invalid observer framing")
                   names=[n.decode() for n,_ in blocks]
                   expected=["apply_effect","sqlite3_exec"] if want!=initial else ["deny_effect"]
                   require(names==expected,"unexpected stopped PCs: "+repr(names))
@@ -249,7 +256,7 @@ jobs:
                   counts["compared"]+=1
                   cases.append(dict(case=cid,active=active,initial=initial,cost=cost,final=actual,witnesses=witnesses,range_result=relation))
           require(counts==dict(mapped=6,compared=4,refused=12,unknown=6),"unexpected totals")
-          result=dict(schema="native-semantic-witness-v1",opt=opt,run_id=os.environ.get("GITHUB_RUN_ID"),commit=os.environ.get("GITHUB_SHA"),
+          result=dict(schema="native-semantic-witness-v2",opt=opt,run_id=os.environ.get("GITHUB_RUN_ID"),commit=os.environ.get("GITHUB_SHA"),
                       consumer_commit="4405a224cd15f9a4c97a572656aa0d54bb6fd2ac",compiler=good(["gcc","--version"]).decode().splitlines()[0],
                       debugger=good(["gdb","--version"]).decode().splitlines()[0],sqlite_version=sqlite3.sqlite_version,
                       counts=counts,cases=cases,claim="source-known fixture, actual debugger stops, retained candidate mapping, actual upstream library effects; no authenticated producer or general causal proof")
