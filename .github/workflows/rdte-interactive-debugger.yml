@@ -16,6 +16,12 @@ jobs:
     env:
       OPT: ${{ matrix.opt }}
     steps:
+      - name: Provision native debugger explicitly
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends gdb
+          gdb --version
       - name: Exercise the typed debugger control sequence
         shell: bash
         run: |
